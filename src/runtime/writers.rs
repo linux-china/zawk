@@ -35,6 +35,7 @@
 //! the `FileFactory` trait. The `testing` module contains an implementation of this trait that
 //! writes all data in memory.
 
+use std::io::IsTerminal;
 use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::process::ChildStdin;
@@ -141,7 +142,7 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>
     RawHandle {
         error,
         sender,
-        line_buffer: is_stdout && grep_cli::is_tty_stdout(),
+        line_buffer: is_stdout && io::stdout().is_terminal(),
     }
 }
 
