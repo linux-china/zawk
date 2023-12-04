@@ -16,46 +16,46 @@ build = "build.rs"
 [dependencies]
 petgraph = "0.6"
 smallvec = "1.7"
-hashbrown = "0.11"
+hashbrown = "0.14"
 lazy_static = "1.4.0"
-regex = "1.5"
+regex = "1.10"
 regex-syntax = "0.6.25"
 itoa = "1.0"
 ryu = "1.0"
 libc = "0.2"
-tikv-jemallocator = { version = "0.4", optional = true }
-rand = "0.8.4"
-lalrpop-util = "0.19.8"
-unicode-xid = "0.2.2"
-llvm-sys = {version = "120", optional = true }
+tikv-jemallocator = { version = "0.5", optional = true }
+rand = "0.8.5"
+lalrpop-util = "0.19.12"
+unicode-xid = "0.2.4"
+llvm-sys = {version = "170", optional = true }
 clap = "3.0"
 crossbeam-channel = "0.5"
-crossbeam = "0.8.1"
-num_cpus = "1.13.1"
+crossbeam = "0.8.2"
+num_cpus = "1.16.0"
 cfg-if = "1.0"
-memchr = "2.4"
+memchr = "2.6"
 grep-cli = "0.1"
-termcolor = "1.1"
-itertools = "0.10"
-assert_cmd = "2.0.3"
+termcolor = "1.4"
+itertools = "0.12"
+assert_cmd = "2.0.12"
 paste = "1.0"
-cranelift = "0.93"
-cranelift-codegen = "0.93"
-cranelift-frontend = "0.93"
-cranelift-module = "0.93"
-cranelift-native = "0.93"
-cranelift-jit = "0.93"
+cranelift = "0.102"
+cranelift-codegen = "0.102"
+cranelift-frontend = "0.102"
+cranelift-module = "0.102"
+cranelift-native = "0.102"
+cranelift-jit = "0.102"
 fast-float = "0.2"
-bumpalo = { version = "3.11.1", features = ["collections"] }
-target-lexicon = "0.12.2"
+bumpalo = { version = "3.14.0", features = ["collections"] }
+target-lexicon = "0.12.12"
 
 [dev-dependencies]
-assert_cmd = "2.0.3"
-tempfile = "3.4"
+assert_cmd = "2.0.12"
+tempfile = "3.8"
 
 
 [features]
-default = ["use_jemalloc", "allow_avx2", "llvm_backend", "unstable"]
+default = ["use_jemalloc", "allow_avx2", "unstable"]
 use_jemalloc = ["tikv-jemallocator"]
 # Certain features leverage the AVX2 instruction set, but AVX2 can often make
 # the entire application slightly slower, even on chips that support it. For
@@ -68,4 +68,4 @@ unstable = []
 lto = "thin"
 
 [build-dependencies]
-lalrpop = "0.19.6"
+lalrpop = "0.19.12"
