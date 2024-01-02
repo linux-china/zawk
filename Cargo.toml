@@ -39,15 +39,16 @@ termcolor = "1.4"
 itertools = "0.12"
 assert_cmd = "2.0.12"
 paste = "1.0"
-cranelift = "0.102"
-cranelift-codegen = "0.102"
-cranelift-frontend = "0.102"
-cranelift-module = "0.102"
-cranelift-native = "0.102"
-cranelift-jit = "0.102"
+cranelift = "0.103"
+cranelift-codegen = "0.103"
+cranelift-frontend = "0.103"
+cranelift-module = "0.103"
+cranelift-native = "0.103"
+cranelift-jit = "0.103"
 fast-float = "0.2"
 bumpalo = { version = "3.14.0", features = ["collections"] }
 target-lexicon = "0.12.12"
+uuid =  {version = "1.6", features = ["v4"]}
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
@@ -55,7 +56,7 @@ tempfile = "3.8"
 
 
 [features]
-default = ["use_jemalloc", "allow_avx2", "unstable"]
+default = ["use_jemalloc", "allow_avx2"]
 use_jemalloc = ["tikv-jemallocator"]
 # Certain features leverage the AVX2 instruction set, but AVX2 can often make
 # the entire application slightly slower, even on chips that support it. For
