@@ -498,7 +498,7 @@ dependencies = [
  "petgraph",
  "rand",
  "regex",
- "regex-syntax 0.6.29",
+ "regex-syntax 0.7.5",
  "ryu",
  "smallvec",
  "target-lexicon",
@@ -999,12 +999,6 @@ name = "regex-lite"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30b661b2f27137bdbc16f00eda72866a92bb28af1753ffbd56744fb6e2e9cd8e"
-
-[[package]]
-name = "regex-syntax"
-version = "0.6.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
