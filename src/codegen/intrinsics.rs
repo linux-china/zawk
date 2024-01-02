@@ -31,6 +31,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::mem;
 use std::slice;
+use crate::bytecode::Instr::Uuid;
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -145,6 +146,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         next_file(rt_ty);
         update_used_fields(rt_ty);
         set_fi_entry(rt_ty, int_ty, int_ty);
+        uuid(rt_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -642,6 +644,12 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
         }),
         "join_csv:"
     );
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
+    let id = uuid::Uuid::new_v4().to_string();
+    let res = Str::from(id);
     mem::transmute::<Str, U128>(res)
 }
 

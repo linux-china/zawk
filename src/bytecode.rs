@@ -192,6 +192,7 @@ pub(crate) enum Instr<'a> {
     NextLineStdinFused(),
     // Advances early to the next file in our sequence
     NextFile(),
+    Uuid(Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
     // keep this as a separate instruction to make static analysis easier.
@@ -425,6 +426,9 @@ impl<'a> Instr<'a> {
             FloatToStr(sr, fr) => {
                 sr.accum(&mut f);
                 fr.accum(&mut f);
+            }
+            Uuid(sr) => {
+                sr.accum(&mut f);
             }
             StrToInt(ir, sr) | HexStrToInt(ir, sr) => {
                 ir.accum(&mut f);

@@ -193,6 +193,7 @@ pub(crate) mod boilerplate {
             StoreConstFloat(dst, _) => f(dst.into(), None),
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
+            Uuid(dst) => f(dst.into(),None),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),

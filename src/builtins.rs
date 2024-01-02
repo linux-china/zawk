@@ -28,6 +28,7 @@ pub enum Function {
     Setcol,
     Split,
     Length,
+    Uuid,
     Contains,
     Delete,
     Clear,
@@ -201,6 +202,7 @@ static_map!(
     ["close", Function::Close],
     ["split", Function::Split],
     ["length", Function::Length],
+    ["uuid", Function::Uuid],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -426,6 +428,7 @@ impl Function {
             // irrelevant return type
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
+            Uuid => (smallvec![], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -452,10 +455,10 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Uuid | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
+            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -497,7 +500,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | JoinCols | EscapeCSV | EscapeTSV | Substr
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

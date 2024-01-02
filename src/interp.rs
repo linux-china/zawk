@@ -676,6 +676,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }
+                    Uuid(sr) => {
+                       /* let s = Str::from("");
+                        let sr = *sr;
+                        *self.get_mut(sr) = s*/
+                    }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));
                         let ir = *ir;

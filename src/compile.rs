@@ -1684,6 +1684,12 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Uuid => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Uuid(res_reg.into()))
+            }
             JoinTSV => {
                 if res_reg != UNUSED {
                     self.pushl(LL::JoinTSV(

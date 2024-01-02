@@ -163,6 +163,7 @@ impl Display for Function {
             Setcol => write!(f, "$="),
             Split => write!(f, "split"),
             Length => write!(f, "length"),
+            Uuid => write!(f, "uuid"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
