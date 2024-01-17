@@ -28,3 +28,8 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
     mem::transmute::<Str, U128>(res)
 }
 ```
+
+### UDF(User Defined Function)
+
+* uuid
+* fend
