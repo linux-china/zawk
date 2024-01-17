@@ -31,6 +31,7 @@ pub enum Function {
     Uuid,
     Systime,
     Strftime,
+    Mktime,
     Fend,
     Contains,
     Delete,
@@ -208,6 +209,7 @@ static_map!(
     ["uuid", Function::Uuid],
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
+    ["mktime", Function::Mktime],
     ["fend", Function::Fend],
     ["match", Function::Match],
     ["sub", Function::Sub],
@@ -437,6 +439,7 @@ impl Function {
             Uuid => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
+            Mktime => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -467,7 +470,7 @@ impl Function {
             UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend
+            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend | Mktime
             | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -510,7 +513,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Mktime | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

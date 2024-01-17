@@ -151,6 +151,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         systime(rt_ty) -> int_ty;
         [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
+        [ReadOnly] mktime(str_ref_ty) -> int_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -669,11 +670,14 @@ pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U
         timestamp as i64
     };
     let format = &*(format as *mut Str);
-    let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
-    let local_now: DateTime<Local> = Local.from_utc_datetime(&utc_now);
-    let id =  local_now.format(&format.to_string()).to_string();
-    let res = Str::from(id);
+    let date_time_text = runtime::date_time::strftime(&format.to_string(), timestamp);
+    let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128) -> Int {
+    let dt_text = &*(date_time_text as *mut Str);
+    runtime::date_time::mktime(&dt_text.to_string()) as Int
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

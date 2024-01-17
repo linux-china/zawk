@@ -1,5 +1,5 @@
 use crate::builtins::Variable;
-use crate::bytecode::{Get, Instr, Label, Reg};
+use crate::bytecode::{Accum, Get, Instr, Label, Reg};
 use crate::common::{NumTy, Result, Stage};
 use crate::compile::{self, Ty};
 use crate::pushdown::FieldSet;
@@ -688,10 +688,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(ir) = result as Int;
                     }
                     Strftime(dst, format, timestamp) => {
-                       // let format = index(&self.strs, format);
-                       // let timestamp = runtime::convert::<_, Int>(self.get(*timestamp));
-                        // todo strftime
-                        *index_mut(&mut self.strs, dst) = "demo".into();
+                      let format = index(&self.strs, format);
+                      let tt: i64 = *self.get(*timestamp);
+                      let dt_text =  runtime::date_time::strftime(&format.to_string(), tt);
+                      *index_mut(&mut self.strs, dst) = dt_text.into();
+                    }
+                    Mktime(dst, date_time_text) => {
+                        let dt_text = index(&self.strs, date_time_text);
+                        let result = runtime::date_time::mktime(&dt_text.to_string());
+                        let ir = *dst;
+                        *self.get_mut(ir) = result as Int;
                     }
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();

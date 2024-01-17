@@ -200,6 +200,7 @@ pub(crate) mod boilerplate {
                     f(dst.into(), Some(format.into()));
                     f(dst.into(), Some(timestamp.into()));
             },
+            Mktime(dst, date_time_text) => f(dst.into(), Some(date_time_text.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),

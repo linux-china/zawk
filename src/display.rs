@@ -166,6 +166,7 @@ impl Display for Function {
             Uuid => write!(f, "uuid"),
             Systime => write!(f, "systime"),
             Strftime => write!(f, "strftime"),
+            Mktime => write!(f, "mktime"),
             Fend => write!(f, "fend"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),

@@ -19,6 +19,7 @@ pub mod str_impl;
 pub mod string_search;
 pub mod utf8;
 pub mod writers;
+pub mod date_time;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
