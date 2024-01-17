@@ -30,6 +30,7 @@ pub enum Function {
     Length,
     Uuid,
     Systime,
+    Strftime,
     Fend,
     Contains,
     Delete,
@@ -206,6 +207,7 @@ static_map!(
     ["length", Function::Length],
     ["uuid", Function::Uuid],
     ["systime", Function::Systime],
+    ["strftime", Function::Strftime],
     ["fend", Function::Fend],
     ["match", Function::Match],
     ["sub", Function::Sub],
@@ -434,6 +436,7 @@ impl Function {
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![], Str),
             Systime => (smallvec![], Int),
+            Strftime => (smallvec![Str, Int], Str),
             Fend => (smallvec![Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -468,6 +471,7 @@ impl Function {
             | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
+            Strftime => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split => 3,
             GenSub => 4,
         })
@@ -506,7 +510,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

@@ -21,7 +21,7 @@ use crate::{
     pushdown::FieldSet,
 };
 
-use libc::c_void;
+use libc::{c_void, time};
 use paste::paste;
 use rand::{self, Rng};
 use regex::bytes::Regex;
@@ -32,6 +32,7 @@ use std::io;
 use std::mem;
 use std::slice;
 use std::time::SystemTime;
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -148,6 +149,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_fi_entry(rt_ty, int_ty, int_ty);
         uuid(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
+        [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
@@ -658,6 +660,20 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 pub(crate) unsafe extern "C" fn systime(runtime: *mut c_void) -> Int {
     let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     seconds as Int
+}
+
+pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U128 {
+    let timestamp = if timestamp < 0 {
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64
+    } else {
+        timestamp as i64
+    };
+    let format = &*(format as *mut Str);
+    let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+    let local_now: DateTime<Local> = Local.from_utc_datetime(&utc_now);
+    let id =  local_now.format(&format.to_string()).to_string();
+    let res = Str::from(id);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

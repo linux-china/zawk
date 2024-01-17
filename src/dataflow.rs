@@ -152,6 +152,7 @@ where
 pub(crate) mod boilerplate {
     //! Some utility functions for discovering reads and writes in various parts of the IR.
     //! TODO: more precise tracking of function arguments.
+    use crate::builtins::Function::Strftime;
     use super::*;
 
     pub(crate) fn visit_hl(
@@ -195,6 +196,10 @@ pub(crate) mod boilerplate {
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
             Uuid(dst) => f(dst.into(),None),
             Systime(dst) => f(dst.into(),None),
+            Strftime(dst,format, timestamp) => {
+                    f(dst.into(), Some(format.into()));
+                    f(dst.into(), Some(timestamp.into()));
+            },
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),

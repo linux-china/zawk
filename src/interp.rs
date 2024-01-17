@@ -687,6 +687,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    Strftime(dst, format, timestamp) => {
+                       // let format = index(&self.strs, format);
+                       // let timestamp = runtime::convert::<_, Int>(self.get(*timestamp));
+                        // todo strftime
+                        *index_mut(&mut self.strs, dst) = "demo".into();
+                    }
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;

@@ -14,6 +14,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
+use crate::runtime::Int;
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -1669,6 +1670,10 @@ where
                     // We clamp indexes anyways, we'll just put a big number in as the
                     // rightmost index.
                     prim_args.push(PrimVal::ILit(i64::max_value()));
+                }
+                // strftime(format, timestamp) => strftime(format, -1);
+                if bi == builtins::Function::Strftime && args.len() == 1 {
+                    prim_args.push(PrimVal::ILit(-1 as Int));
                 }
 
                 // srand() => the special "reseed rng" function

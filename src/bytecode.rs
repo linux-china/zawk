@@ -9,6 +9,7 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
+use crate::builtins::Function::Strftime;
 
 pub(crate) use crate::interp::Interp;
 
@@ -193,6 +194,7 @@ pub(crate) enum Instr<'a> {
     // Advances early to the next file in our sequence
     NextFile(),
     Uuid(Reg<Str<'a>>),
+    Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
@@ -434,6 +436,11 @@ impl<'a> Instr<'a> {
             }
             Systime(sr) => {
                 sr.accum(&mut f);
+            }
+            Strftime(res, format, timestamp) => {
+                res.accum(&mut f);
+                format.accum(&mut f);
+                timestamp.accum(&mut f);
             }
             Fend(dst, src) => {
                 dst.accum(&mut f);
