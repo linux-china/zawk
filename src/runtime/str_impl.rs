@@ -492,6 +492,15 @@ impl<'a> Str<'a> {
         })
     }
 
+    pub fn fend<'b>(&self) -> Str<'b> {
+        let mut context = fend_core::Context::new();
+        let expr = self.to_string();
+        return match fend_core::evaluate(&expr, &mut context) {
+            Ok(result) => {Str::from(result.get_main_result().to_string())}
+            Err(error) => {Str::from(format!("FendError:{}",error))}
+        }
+    }
+
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
         self.map_bytes(|b| match b {
             b'a'..=b'z' => b - b'a' + b'A',

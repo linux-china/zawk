@@ -1690,6 +1690,11 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Uuid(res_reg.into()))
             }
+            Fend => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Fend(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             JoinTSV => {
                 if res_reg != UNUSED {
                     self.pushl(LL::JoinTSV(
