@@ -193,6 +193,7 @@ pub(crate) enum Instr<'a> {
     // Advances early to the next file in our sequence
     NextFile(),
     Uuid(Reg<Str<'a>>),
+    Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -429,6 +430,9 @@ impl<'a> Instr<'a> {
                 fr.accum(&mut f);
             }
             Uuid(sr) => {
+                sr.accum(&mut f);
+            }
+            Systime(sr) => {
                 sr.accum(&mut f);
             }
             Fend(dst, src) => {

@@ -29,6 +29,7 @@ pub enum Function {
     Split,
     Length,
     Uuid,
+    Systime,
     Fend,
     Contains,
     Delete,
@@ -204,6 +205,7 @@ static_map!(
     ["split", Function::Split],
     ["length", Function::Length],
     ["uuid", Function::Uuid],
+    ["systime", Function::Systime],
     ["fend", Function::Fend],
     ["match", Function::Match],
     ["sub", Function::Sub],
@@ -431,6 +433,7 @@ impl Function {
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![], Str),
+            Systime => (smallvec![], Int),
             Fend => (smallvec![Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -458,7 +461,7 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Uuid | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend
@@ -501,7 +504,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {

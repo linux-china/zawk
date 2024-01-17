@@ -194,6 +194,7 @@ pub(crate) mod boilerplate {
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
             Uuid(dst) => f(dst.into(),None),
+            Systime(dst) => f(dst.into(),None),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),

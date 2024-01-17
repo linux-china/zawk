@@ -795,6 +795,11 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(uuid), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Systime(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(systime), &mut [rt])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();

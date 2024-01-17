@@ -13,6 +13,7 @@ use regex::bytes::Regex;
 
 use std::cmp;
 use std::mem;
+use std::time::SystemTime;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -679,6 +680,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Uuid(dst) => {
                         let uuid = Str::from(uuid::Uuid::new_v4().to_string());
                         *index_mut(&mut self.strs, dst) = uuid;
+                    }
+                    Systime(dst) => {
+                        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                        let result: u64 = now.as_secs();
+                        let ir = *dst;
+                        *self.get_mut(ir) = result as Int;
                     }
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();

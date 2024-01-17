@@ -31,6 +31,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::mem;
 use std::slice;
+use std::time::SystemTime;
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -146,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         update_used_fields(rt_ty);
         set_fi_entry(rt_ty, int_ty, int_ty);
         uuid(rt_ty) -> str_ty;
+        systime(rt_ty) -> int_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
@@ -651,6 +653,11 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
     let id = uuid::Uuid::new_v4().to_string();
     let res = Str::from(id);
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn systime(runtime: *mut c_void) -> Int {
+    let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    seconds as Int
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

@@ -1690,6 +1690,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Uuid(res_reg.into()))
             }
+            Systime => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Systime(res_reg.into()))
+            }
             Fend => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Fend(res_reg.into(), conv_regs[0].into()))
