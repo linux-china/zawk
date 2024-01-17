@@ -21,7 +21,7 @@
 ### Function implementation
 
 * Add function name in `fn gen_ll_inst` of [src/codegen/mod.rs](../src/codegen/mod.rs)
-* Add function implementation: 
+* Add function implementation: 可以考虑将功能实现放到runtime下的一个module中，如`date_time.rs`。
 
 `uuid`(generator) implementation in [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 
