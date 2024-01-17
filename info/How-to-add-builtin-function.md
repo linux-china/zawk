@@ -22,11 +22,26 @@
 * Add function name in `gen_ll_inst` of [src/codegen/mod.rs](../src/codegen/mod.rs)
 * Add function implementation: 
 
+`uuid`(generator) implementation in [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
+
 ```
 pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
     let res = Str::from("demo");
     mem::transmute::<Str, U128>(res)
 }
+```
+
+`fend`(transform) implementation in [src/runtime/str_impl.rs](../src/runtime/str_impl.rs)  
+
+```
+    pub fn fend<'b>(&self) -> Str<'b> {
+        let mut context = fend_core::Context::new();
+        let expr = self.to_string();
+        return match fend_core::evaluate(&expr, &mut context) {
+            Ok(result) => {Str::from(result.get_main_result().to_string())}
+            Err(error) => {Str::from(format!("FendError:{}",error))}
+        }
+    }
 ```
 
 ### UDF(User Defined Function)
