@@ -11,10 +11,10 @@
 ### Bind function with AWK compiler
 
 * add display for `impl Display for Function`(字符串化) of [src/display.rs](../src/display.rs)
-* Add function name in `builtin`(指令集) of [src/compile.rs](../src/compile.rs)
-* Add function name in `accum`(累加器) of [src/bytecode.rs](../src/bytecode.rs)
+* Add function name in `builtin(`(指令集) of [src/compile.rs](../src/compile.rs)
+* Add function name in `accum(`(累加器) of [src/bytecode.rs](../src/bytecode.rs)
 * Add function name in `visit_ll`(遍历器) of [src/dataflow.rs](../src/dataflow.rs)
-* Add function name in `run_at`() of [src/interp.rs](../src/interp.rs) 重点看一下这个函数
+* Add function name in `run_at()` of [src/interp.rs](../src/interp.rs) 重点看一下这个函数
 * register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 
 ### Function implementation
