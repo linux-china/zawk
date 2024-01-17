@@ -676,10 +676,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }
-                    Uuid(_sr) => {
-                       /* let s = Str::from("");
-                        let sr = *sr;
-                        *self.get_mut(sr) = s*/
+                    Uuid(dst) => {
+                        let uuid = Str::from(uuid::Uuid::new_v4().to_string());
+                        *index_mut(&mut self.strs, dst) = uuid;
                     }
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();
