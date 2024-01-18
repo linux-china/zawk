@@ -9,6 +9,7 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
+use crate::builtins::Function::Mktime;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -439,7 +440,7 @@ impl Function {
             Uuid => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
-            Mktime => (smallvec![Str], Int),
+            Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -470,11 +471,11 @@ impl Function {
             UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend | Mktime
+            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend
             | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
-            Strftime => 2,
+            Strftime | Mktime => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split => 3,
             GenSub => 4,
         })
@@ -511,9 +512,9 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Mktime | JoinCols | EscapeCSV | EscapeTSV | Substr
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

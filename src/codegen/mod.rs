@@ -806,7 +806,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(strftime), &mut [format, timestamp])?;
                 self.bind_val(dst.reflect(),resv)
             }
-            Mktime(dst,date_time_text) => self.unop(intrinsic!(mktime), dst, date_time_text),
+            Mktime(dst,date_time_text,timezone) => {
+                let date_time_text = self.get_val(date_time_text.reflect())?;
+                let timezone = self.get_val(timezone.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, timezone])?;
+                self.bind_val(dst.reflect(),resv)
+            },
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();

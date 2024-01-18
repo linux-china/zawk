@@ -1681,6 +1681,11 @@ where
                     prim_args.push(PrimVal::ILit(-1 as Int));
                 }
 
+                // mktime(date_text, timezone) => mktime(date_text, -1);
+                if bi == builtins::Function::Mktime && args.len() == 1 {
+                    prim_args.push(PrimVal::ILit(-1 as Int));
+                }
+
                 // srand() => the special "reseed rng" function
                 if bi == builtins::Function::Srand && args.is_empty() {
                     bi = builtins::Function::ReseedRng;

@@ -1704,7 +1704,8 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mktime(
                         res_reg.into(),
-                        conv_regs[0].into()
+                        conv_regs[0].into(),
+                        conv_regs[1].into()
                     ))
                 }
             }

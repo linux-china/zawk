@@ -195,7 +195,7 @@ pub(crate) enum Instr<'a> {
     NextFile(),
     Uuid(Reg<Str<'a>>),
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
-    Mktime(Reg<Int>, Reg<Str<'a>>),
+    Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
@@ -443,9 +443,10 @@ impl<'a> Instr<'a> {
                 format.accum(&mut f);
                 timestamp.accum(&mut f);
             }
-            Mktime(res, date_time_text) => {
+            Mktime(res, date_time_text,timezone) => {
                 res.accum(&mut f);
                 date_time_text.accum(&mut f);
+                timezone.accum(&mut f);
             }
             Fend(dst, src) => {
                 dst.accum(&mut f);

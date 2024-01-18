@@ -14,6 +14,7 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
+use libc::time;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -693,9 +694,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                       let dt_text =  runtime::date_time::strftime(&format.to_string(), tt);
                       *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
-                    Mktime(dst, date_time_text) => {
+                    Mktime(dst, date_time_text, timezone) => {
                         let dt_text = index(&self.strs, date_time_text);
-                        let result = runtime::date_time::mktime(&dt_text.to_string());
+                        let dt_timezone: i64 = *self.get(*timezone);
+                        let result = runtime::date_time::mktime(&dt_text.to_string(), dt_timezone);
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
