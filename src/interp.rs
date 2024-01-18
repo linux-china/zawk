@@ -14,6 +14,7 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
+use crate::builtins::Function::Hmac;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -703,6 +704,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let algorithm = index(&self.strs, algorithm);
                         let text = index(&self.strs, text);
                         let dt_text =  runtime::crypto::digest(algorithm.as_str(), text.as_str());
+                        *index_mut(&mut self.strs, dst) = dt_text.into();
+                    }
+                    Hmac(dst, algorithm, key, text) => {
+                        let algorithm = index(&self.strs, algorithm);
+                        let key = index(&self.strs, key);
+                        let text = index(&self.strs, text);
+                        let dt_text =  runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Strftime(dst, format, timestamp) => {

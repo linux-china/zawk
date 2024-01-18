@@ -9,6 +9,7 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
+use crate::builtins::Function::Substr;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -37,6 +38,7 @@ pub enum Function {
     Encode,
     Decode,
     Digest,
+    Hmac,
     Contains,
     Delete,
     Clear,
@@ -231,6 +233,7 @@ static_map!(
     ["encode", Function::Encode],
     ["decode", Function::Decode],
     ["digest", Function::Digest],
+    ["hmac", Function::Hmac],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -469,6 +472,7 @@ impl Function {
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
             Digest => (smallvec![Str, Str], Str),
+            Hmac => (smallvec![Str, Str, Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -505,6 +509,7 @@ impl Function {
             Strftime | Mktime => 2,
             Trim => 2,
             Encode | Decode | Digest => 2,
+            Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split => 3,
             GenSub => 4,
         })
@@ -543,8 +548,9 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | JoinCols | EscapeCSV | EscapeTSV | Substr
-            | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Encode | Decode | Digest => {
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | JoinCols | EscapeCSV | EscapeTSV
+            | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
+            | Encode | Decode | Digest | Hmac => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),

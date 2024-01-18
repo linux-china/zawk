@@ -818,6 +818,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(digest), &mut [algorithm, text])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Hmac(dst,algorithm,key, text) => {
+                let algorithm = self.get_val(algorithm.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(hmac), &mut [algorithm, key, text])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;

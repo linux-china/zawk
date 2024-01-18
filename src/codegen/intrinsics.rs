@@ -155,6 +155,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -286,7 +287,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         store_slot_strint(rt_ty, int_ty, map_ty);
         store_slot_strfloat(rt_ty, int_ty, map_ty);
         store_slot_strstr(rt_ty, int_ty, map_ty);
-    };
+    }
+    ;
     Ok(())
 }
 
@@ -371,10 +373,11 @@ macro_rules! with_input {
 }
 
 pub(crate) type InputTuple<LR> = (<LR as LineReader>::Line, FileRead<LR>);
+
 pub(crate) enum InputData {
-    V1(InputTuple<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
-    V2(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>>>),
-    V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
+    V1(InputTuple<CSVReader<Box<dyn ChunkProducer<Chunk=OffsetChunk>>>>),
+    V2(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk=OffsetChunk<WhitespaceOffsets>>>>>),
+    V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk=OffsetChunk>>>>),
     V4(InputTuple<ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
 }
 
@@ -694,6 +697,15 @@ pub(crate) unsafe extern "C" fn digest(algorithm: *mut U128, text: *mut U128) ->
     mem::transmute::<Str, U128>(res)
 }
 
+pub(crate) unsafe extern "C" fn hmac(algorithm: *mut U128, key: *mut U128, text: *mut U128) -> U128 {
+    let algorithm = &*(algorithm as *mut Str);
+    let key = &*(key as *mut Str);
+    let text = &*(text as *mut Str);
+    let date_time_text = runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
+    let res = Str::from(date_time_text);
+    mem::transmute::<Str, U128>(res)
+}
+
 pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U128 {
     let timestamp = if timestamp < 0 {
         SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64
@@ -709,7 +721,7 @@ pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U
 pub(crate) unsafe extern "C" fn trim(src: *mut U128, pat: *mut U128) -> U128 {
     let src = &*(src as *mut Str);
     let pat = &*(pat as *mut Str);
-    let res =  src.trim(pat);
+    let res = src.trim(pat);
     mem::transmute::<Str, U128>(res)
 }
 

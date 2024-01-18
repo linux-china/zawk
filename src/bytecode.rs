@@ -197,6 +197,7 @@ pub(crate) enum Instr<'a> {
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Hmac(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -454,6 +455,12 @@ impl<'a> Instr<'a> {
             Digest(res, algorithm, text) => {
                 res.accum(&mut f);
                 algorithm.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Hmac(res, algorithm, key, text) => {
+                res.accum(&mut f);
+                algorithm.accum(&mut f);
+                key.accum(&mut f);
                 text.accum(&mut f);
             }
             Strftime(res, format, timestamp) => {

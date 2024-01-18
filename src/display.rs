@@ -172,6 +172,7 @@ impl Display for Function {
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
             Digest => write!(f, "digest"),
+            Hmac => write!(f, "hmac"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
