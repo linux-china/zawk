@@ -1044,6 +1044,7 @@ impl<'a> View<'a> {
             Log10 => self.call_external(external!(_frawk_log10), args),
             Sqrt => self.builder.ins().sqrt(args[0]),
             Exp => self.call_external(external!(_frawk_exp), args),
+            Abs => self.call_external(external!(_frawk_abs), args),
         }
     }
 

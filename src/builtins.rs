@@ -141,6 +141,7 @@ pub enum FloatFunc {
     Sqrt,
     // e^
     Exp,
+    Abs,
 }
 
 impl FloatFunc {
@@ -155,6 +156,7 @@ impl FloatFunc {
             Log10 => op.log10(),
             Sqrt => op.sqrt(),
             Exp => op.exp(),
+            Abs => op.abs(),
             Atan2 => panic!("float: mismatched arity!"),
         }
     }
@@ -162,7 +164,7 @@ impl FloatFunc {
         use FloatFunc::*;
         match self {
             Atan2 => x.atan2(y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp => {
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -180,13 +182,14 @@ impl FloatFunc {
             Sqrt => "sqrt",
             Atan2 => "atan2",
             Exp => "exp",
+            Abs => "abs"
         }
     }
 
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp => 1,
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs => 1,
             Atan2 => 2,
         }
     }
@@ -220,6 +223,7 @@ static_map!(
     ["int", Function::ToInt],
     ["hex", Function::HexToInt],
     ["exp", Function::FloatFunc(FloatFunc::Exp)],
+    ["abs", Function::FloatFunc(FloatFunc::Abs)],
     ["cos", Function::FloatFunc(FloatFunc::Cos)],
     ["sin", Function::FloatFunc(FloatFunc::Sin)],
     ["atan", Function::FloatFunc(FloatFunc::Atan)],
