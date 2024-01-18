@@ -52,6 +52,8 @@ uuid =  {version = "1.6", features = ["v4"]}
 fend-core="1.4"
 chrono = "0.4"
 dateparser="0.2"
+base64="0.21"
+urlencoding="2"
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
