@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
 
@@ -16,6 +17,11 @@ pub fn digest(algorithm: &str, text: &str) -> String {
         let mut hasher = Sha512::default();
         hasher.update(text.as_bytes());
         return format!("{:x}", hasher.finalize());
+    } else if algorithm == "bcrypt" {
+        return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap();
+    } else if algorithm == "murmur3" {
+        let hashcode = murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap();
+        return hashcode.to_string();
     }
     format!("{}:{}", algorithm, text)
 }
@@ -59,5 +65,12 @@ mod tests {
     fn test_hmac_sha_256() {
         let signature = hmac("HmacSha256", "7f4ebc75-7476-453e-b8d2-bebe17352b0a", "hello");
         println!("{}", signature);
+    }
+
+    #[test]
+    fn test_murmur3() {
+        use std::io::Cursor;
+        let hash_result = murmur3::murmur3_32(&mut Cursor::new("Hello"), 0);
+        println!("{}", hash_result.unwrap());
     }
 }
