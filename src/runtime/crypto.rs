@@ -1,6 +1,7 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
+use crate::runtime::encoding::encode;
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
@@ -65,6 +66,13 @@ mod tests {
     fn test_hmac_sha_256() {
         let signature = hmac("HmacSha256", "7f4ebc75-7476-453e-b8d2-bebe17352b0a", "hello");
         println!("{}", signature);
+    }
+
+    #[test]
+    fn test_jwt_hs256() {
+        let header_payload = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ";
+        let jwt_token = encode("hex-base64url", &hmac("HmacSha256", "123456", header_payload));
+        println!("{}", jwt_token);
     }
 
     #[test]
