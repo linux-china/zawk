@@ -658,13 +658,13 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn uuid() -> U128 {
     let id = uuid::Uuid::new_v4().to_string();
     let res = Str::from(id);
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn systime(runtime: *mut c_void) -> Int {
+pub(crate) unsafe extern "C" fn systime() -> Int {
     let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     seconds as Int
 }
@@ -781,7 +781,7 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn url(runtime: *mut c_void, s: *mut U128) -> *mut c_void{
+pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void{
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
