@@ -65,16 +65,19 @@ pub(crate) struct Slots {
 trait Agg {
     fn agg(self, other: Self) -> Self;
 }
+
 impl Agg for Int {
     fn agg(self, other: Int) -> Int {
         self + other
     }
 }
+
 impl Agg for Float {
     fn agg(self, other: Float) -> Float {
         self + other
     }
 }
+
 impl<'a> Agg for UniqueStr<'a> {
     fn agg(self, other: UniqueStr<'a>) -> UniqueStr<'a> {
         // Strings are not aggregated explicitly.
@@ -85,6 +88,7 @@ impl<'a> Agg for UniqueStr<'a> {
         }
     }
 }
+
 impl<K: std::hash::Hash + Eq, V: Agg + Default> Agg for HashMap<K, V> {
     fn agg(mut self, other: HashMap<K, V>) -> HashMap<K, V> {
         for (k, v) in other {
@@ -517,7 +521,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 end,
             } => (begin, main_loop, end),
             Stage::Main(_) => {
-                return err!("unexpected Main-only configuration for parallel execution")
+                return err!("unexpected Main-only configuration for parallel execution");
             }
         };
         let main_loop = if let Some(main_loop) = middle {
@@ -691,33 +695,33 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Encode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let dt_text =  runtime::encoding::encode(format.as_str(), text.as_str());
+                        let dt_text = runtime::encoding::encode(format.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Decode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let dt_text =  runtime::encoding::decode(format.as_str(), text.as_str());
+                        let dt_text = runtime::encoding::decode(format.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Digest(dst, algorithm, text) => {
                         let algorithm = index(&self.strs, algorithm);
                         let text = index(&self.strs, text);
-                        let dt_text =  runtime::crypto::digest(algorithm.as_str(), text.as_str());
+                        let dt_text = runtime::crypto::digest(algorithm.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Hmac(dst, algorithm, key, text) => {
                         let algorithm = index(&self.strs, algorithm);
                         let key = index(&self.strs, key);
                         let text = index(&self.strs, text);
-                        let dt_text =  runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
+                        let dt_text = runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Strftime(dst, format, timestamp) => {
-                      let format = index(&self.strs, format);
-                      let tt: i64 = *self.get(*timestamp);
-                      let dt_text =  runtime::date_time::strftime(format.as_str(), tt);
-                      *index_mut(&mut self.strs, dst) = dt_text.into();
+                        let format = index(&self.strs, format);
+                        let tt: i64 = *self.get(*timestamp);
+                        let dt_text = runtime::date_time::strftime(format.as_str(), tt);
+                        *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Mktime(dst, date_time_text, timezone) => {
                         let dt_text = index(&self.strs, date_time_text);
@@ -731,14 +735,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.strs, dst) = res;
                     }
                     Url(dst, src) => {
-                        //todo url
-                        //let res = index(&self.strs, src).url();
-                        //*index_mut(&mut self.strs, dst) = res;
+                        let res = index(&self.strs, src).url();
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
                     }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);
                         let pat = index(&self.strs, pat);
-                        let dt_text =  src.trim(pat);
+                        let dt_text = src.trim(pat);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
                     StrToInt(ir, sr) => {
