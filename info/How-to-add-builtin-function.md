@@ -62,7 +62,7 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 * json: json_parse(text), json_stringify(array)
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Hash: `digest("md5",$1)`, `digest("sha256",$1)` md5, sha256, sha512, bcrypt, murmur3(32)
+* Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)` 
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
 * date time: utc by default
