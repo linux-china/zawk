@@ -196,6 +196,14 @@ pub(crate) mod boilerplate {
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
             Uuid(dst) => f(dst.into(),None),
             Systime(dst) => f(dst.into(),None),
+            Encode(dst,format, text) => {
+                f(dst.into(), Some(format.into()));
+                f(dst.into(), Some(text.into()));
+            },
+            Decode(dst,format, text) => {
+                f(dst.into(), Some(format.into()));
+                f(dst.into(), Some(text.into()));
+            },
             Strftime(dst,format, timestamp) => {
                     f(dst.into(), Some(format.into()));
                     f(dst.into(), Some(timestamp.into()));

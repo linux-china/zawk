@@ -15,7 +15,7 @@ use std::cmp;
 use std::mem;
 use std::time::SystemTime;
 use libc::time;
-use crate::builtins::Function::Trim;
+use crate::builtins::Function::{Decode, Trim};
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -689,16 +689,28 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    Encode(dst, format, text) => {
+                        let format = index(&self.strs, format);
+                        let text = index(&self.strs, text);
+                        let dt_text =  runtime::encoding::encode(format.as_str(), text.as_str());
+                        *index_mut(&mut self.strs, dst) = dt_text.into();
+                    }
+                    Decode(dst, format, text) => {
+                        let format = index(&self.strs, format);
+                        let text = index(&self.strs, text);
+                        let dt_text =  runtime::encoding::decode(format.as_str(), text.as_str());
+                        *index_mut(&mut self.strs, dst) = dt_text.into();
+                    }
                     Strftime(dst, format, timestamp) => {
                       let format = index(&self.strs, format);
                       let tt: i64 = *self.get(*timestamp);
-                      let dt_text =  runtime::date_time::strftime(&format.to_string(), tt);
+                      let dt_text =  runtime::date_time::strftime(format.as_str(), tt);
                       *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Mktime(dst, date_time_text, timezone) => {
                         let dt_text = index(&self.strs, date_time_text);
                         let dt_timezone: i64 = *self.get(*timezone);
-                        let result = runtime::date_time::mktime(&dt_text.to_string(), dt_timezone);
+                        let result = runtime::date_time::mktime(dt_text.as_str(), dt_timezone);
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }

@@ -153,6 +153,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -668,6 +670,22 @@ pub(crate) unsafe extern "C" fn systime(runtime: *mut c_void) -> Int {
     seconds as Int
 }
 
+pub(crate) unsafe extern "C" fn encode(format: *mut U128, text: *mut U128) -> U128 {
+    let format = &*(format as *mut Str);
+    let text = &*(text as *mut Str);
+    let date_time_text = runtime::encoding::encode(format.as_str(), text.as_str());
+    let res = Str::from(date_time_text);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn decode(format: *mut U128, text: *mut U128) -> U128 {
+    let format = &*(format as *mut Str);
+    let text = &*(text as *mut Str);
+    let date_time_text = runtime::encoding::decode(format.as_str(), text.as_str());
+    let res = Str::from(date_time_text);
+    mem::transmute::<Str, U128>(res)
+}
+
 pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U128 {
     let timestamp = if timestamp < 0 {
         SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64
@@ -675,7 +693,7 @@ pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U
         timestamp as i64
     };
     let format = &*(format as *mut Str);
-    let date_time_text = runtime::date_time::strftime(&format.to_string(), timestamp);
+    let date_time_text = runtime::date_time::strftime(format.as_str(), timestamp);
     let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
 }
@@ -689,7 +707,7 @@ pub(crate) unsafe extern "C" fn trim(src: *mut U128, pat: *mut U128) -> U128 {
 
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
-    runtime::date_time::mktime(&dt_text.to_string(), timezone) as Int
+    runtime::date_time::mktime(dt_text.as_str(), timezone) as Int
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

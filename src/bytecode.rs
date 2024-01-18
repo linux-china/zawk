@@ -195,6 +195,8 @@ pub(crate) enum Instr<'a> {
     NextFile(),
     Uuid(Reg<Str<'a>>),
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
+    Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -438,6 +440,16 @@ impl<'a> Instr<'a> {
             }
             Systime(sr) => {
                 sr.accum(&mut f);
+            }
+            Encode(res, format, text) => {
+                res.accum(&mut f);
+                format.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Decode(res, format, text) => {
+                res.accum(&mut f);
+                format.accum(&mut f);
+                text.accum(&mut f);
             }
             Strftime(res, format, timestamp) => {
                 res.accum(&mut f);

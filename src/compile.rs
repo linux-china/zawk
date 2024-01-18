@@ -1691,6 +1691,24 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Uuid(res_reg.into()))
             }
+            Encode => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Encode(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            Decode => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Decode(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Strftime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Strftime(

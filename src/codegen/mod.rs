@@ -801,6 +801,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(systime), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Encode(dst,format, text) => {
+                let format = self.get_val(format.reflect())?;
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(encode), &mut [format, text])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            Decode(dst,format, text) => {
+                let format = self.get_val(format.reflect())?;
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(decode), &mut [format, text])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;
