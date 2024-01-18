@@ -13,7 +13,7 @@
 
 * add display for `impl Display for Function`(字符串化) of [src/display.rs](../src/display.rs)
 * Add function name in `fn builtin(`(指令集) of [src/compile.rs](../src/compile.rs)
-* Add function name in ` pub(crate) fn accum(`(累加器) of [src/bytecode.rs](../src/bytecode.rs)
+* Add function name in `pub(crate) fn accum(`(累加器) of [src/bytecode.rs](../src/bytecode.rs)
 * Add function name in `fn visit_ll(`(遍历器) of [src/dataflow.rs](../src/dataflow.rs)
 * Add function name in `fn run_at(` of [src/interp.rs](../src/interp.rs) 重点看一下这个函数
 * register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
@@ -32,7 +32,7 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 }
 ```
 
-`fend`(transform) implementation in [src/runtime/str_impl.rs](../src/runtime/str_impl.rs)  
+`fend`(transform) implementation in [src/runtime/str_impl.rs](../src/runtime/str_impl.rs)
 
 ```
     pub fn fend<'b>(&self) -> Str<'b> {
@@ -49,19 +49,23 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 
 * Declare function name in `pub enum FloatFunc ` of [src/builtins.rs](../src/builtins.rs)
 * Implement relative logic in [src/builtins.rs](../src/builtins.rs)
-* register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs) 
-* Declare FFI function `pub(crate) unsafe extern "C" fn _frawk_abs` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs) 
+* register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
+* Declare FFI function `pub(crate) unsafe extern "C" fn _frawk_abs`
+  of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 * Add logic in `fn floatfunc(` of [src/codegen/clif.rs](../src/codegen/clif.rs)
 
 ### UDF(User Defined Function)
 
 * uuid
 * math: abs, floor, ceiling, round, fend
-* string: trim($1, " ")
-* encoding: base64, url_encode, hex
-* Hash: digest(md5, sha-1, sha-256, sha-512)
-* parser: url("http://xxx")
+* string: trim($1, " "), isnum, isint
+* json: json_parse(text), json_stringify(array)
+* encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
+  as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
+* Hash: `digest("md5",$1)`, `digest("sha256",$1)` md5, sha256, sha512, bcrypt, murmur3(32)
+* crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
+* parser: `url("http://example.com/demo?query=1")`
 * date time: utc by default
-  - systime
-  - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-  - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats  
+    - systime
+    - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
+    - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats  
