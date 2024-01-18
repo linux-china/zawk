@@ -925,6 +925,11 @@ impl<'a> Str<'a> {
         }
         unsafe { mem::transmute::<Str<'a>, Str<'static>>(self) }
     }
+
+    pub fn as_str(&self) -> &'a str {
+        let bs = unsafe { &*self.get_bytes() };
+        str::from_utf8(bs).unwrap()
+    }
 }
 
 impl<'a> Clone for Str<'a> {
