@@ -45,10 +45,20 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
     }
 ```
 
+### Custom Math function
+
+* Declare function name in `pub enum FloatFunc ` of [src/builtins.rs](../src/builtins.rs)
+* Implement relative logic in [src/builtins.rs](../src/builtins.rs)
+* register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs) 
+* Declare FFI function `pub(crate) unsafe extern "C" fn _frawk_abs` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs) 
+* Add logic in `fn floatfunc(` of [src/codegen/clif.rs](../src/codegen/clif.rs)
+
 ### UDF(User Defined Function)
 
 * uuid
 * fend
+* math: abs, floor
+* string: trim
 * date time: utc by default
   - systime
   - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
