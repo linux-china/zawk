@@ -169,6 +169,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly, ArgmemOnly] _frawk_log10(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_exp(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_abs(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_ceil(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_floor(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_round(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_atan2(float_ty, float_ty) -> float_ty;
 
         load_var_str(rt_ty, int_ty) -> str_ty;
@@ -1244,6 +1247,18 @@ pub(crate) unsafe extern "C" fn _frawk_exp(f: Float) -> Float {
 
 pub(crate) unsafe extern "C" fn _frawk_abs(f: Float) -> Float {
     f.abs()
+}
+
+pub(crate) unsafe extern "C" fn _frawk_ceil(f: Float) -> Float {
+    f.ceil()
+}
+
+pub(crate) unsafe extern "C" fn _frawk_floor(f: Float) -> Float {
+    f.floor()
+}
+
+pub(crate) unsafe extern "C" fn _frawk_round(f: Float) -> Float {
+    f.round()
 }
 
 pub(crate) unsafe extern "C" fn _frawk_atan(f: Float) -> Float {

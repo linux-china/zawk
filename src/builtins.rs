@@ -142,6 +142,9 @@ pub enum FloatFunc {
     // e^
     Exp,
     Abs,
+    Ceil,
+    Floor,
+    Round
 }
 
 impl FloatFunc {
@@ -157,6 +160,9 @@ impl FloatFunc {
             Sqrt => op.sqrt(),
             Exp => op.exp(),
             Abs => op.abs(),
+            Ceil => op.ceil(),
+            Floor => op.floor(),
+            Round => op.round(),
             Atan2 => panic!("float: mismatched arity!"),
         }
     }
@@ -164,7 +170,7 @@ impl FloatFunc {
         use FloatFunc::*;
         match self {
             Atan2 => x.atan2(y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs => {
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -182,14 +188,17 @@ impl FloatFunc {
             Sqrt => "sqrt",
             Atan2 => "atan2",
             Exp => "exp",
-            Abs => "abs"
+            Abs => "abs",
+            Ceil => "ceil",
+            Floor => "floor",
+            Round => "round",
         }
     }
 
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs => 1,
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round => 1,
             Atan2 => 2,
         }
     }
@@ -224,6 +233,9 @@ static_map!(
     ["hex", Function::HexToInt],
     ["exp", Function::FloatFunc(FloatFunc::Exp)],
     ["abs", Function::FloatFunc(FloatFunc::Abs)],
+    ["ceil", Function::FloatFunc(FloatFunc::Ceil)],
+    ["floor", Function::FloatFunc(FloatFunc::Floor)],
+    ["round", Function::FloatFunc(FloatFunc::Round)],
     ["cos", Function::FloatFunc(FloatFunc::Cos)],
     ["sin", Function::FloatFunc(FloatFunc::Sin)],
     ["atan", Function::FloatFunc(FloatFunc::Atan)],
