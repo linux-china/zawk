@@ -59,6 +59,7 @@ md5 = "0.7"
 hmac="0.12"
 bcrypt="0.15"
 murmur3="0.5"
+hex = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
