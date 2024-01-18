@@ -49,7 +49,7 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 
 * uuid
 * fend
-* date time: 
+* date time: utc by default
   - systime
   - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
   - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats  
