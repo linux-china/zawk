@@ -9,7 +9,6 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
-use crate::builtins::Function::Substr;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {

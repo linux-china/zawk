@@ -21,7 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::Digest;
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
