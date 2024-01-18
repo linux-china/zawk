@@ -21,7 +21,7 @@ use crate::{
     pushdown::FieldSet,
 };
 
-use libc::{c_void, time};
+use libc::{c_void};
 use paste::paste;
 use rand::{self, Rng};
 use regex::bytes::Regex;
@@ -32,7 +32,6 @@ use std::io;
 use std::mem;
 use std::slice;
 use std::time::SystemTime;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -155,6 +154,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -682,6 +682,14 @@ pub(crate) unsafe extern "C" fn decode(format: *mut U128, text: *mut U128) -> U1
     let format = &*(format as *mut Str);
     let text = &*(text as *mut Str);
     let date_time_text = runtime::encoding::decode(format.as_str(), text.as_str());
+    let res = Str::from(date_time_text);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn digest(algorithm: *mut U128, text: *mut U128) -> U128 {
+    let algorithm = &*(algorithm as *mut Str);
+    let text = &*(text as *mut Str);
+    let date_time_text = runtime::crypto::digest(algorithm.as_str(), text.as_str());
     let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
 }

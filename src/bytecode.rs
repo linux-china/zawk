@@ -9,7 +9,6 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
-use crate::builtins::Function::Strftime;
 
 pub(crate) use crate::interp::Interp;
 
@@ -197,6 +196,7 @@ pub(crate) enum Instr<'a> {
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -449,6 +449,11 @@ impl<'a> Instr<'a> {
             Decode(res, format, text) => {
                 res.accum(&mut f);
                 format.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Digest(res, algorithm, text) => {
+                res.accum(&mut f);
+                algorithm.accum(&mut f);
                 text.accum(&mut f);
             }
             Strftime(res, format, timestamp) => {

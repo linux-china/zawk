@@ -1,6 +1,4 @@
-use std::time::SystemTime;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-use crate::runtime::date_time;
 
 pub fn strftime(format: &str, timestamp: i64) -> String {
     let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();

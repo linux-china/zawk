@@ -37,7 +37,6 @@ pub(crate) mod clif;
 pub(crate) mod llvm;
 
 use intrinsics::Runtime;
-use crate::builtins::Function::Trim;
 
 pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
@@ -811,6 +810,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(decode), &mut [format, text])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            Digest(dst,algorithm, text) => {
+                let algorithm = self.get_val(algorithm.reflect())?;
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(digest), &mut [algorithm, text])?;
                 self.bind_val(dst.reflect(),resv)
             }
             Strftime(dst,format, timestamp) => {

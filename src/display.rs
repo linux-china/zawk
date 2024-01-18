@@ -171,6 +171,7 @@ impl Display for Function {
             Trim => write!(f, "trim"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
+            Digest => write!(f, "digest"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
