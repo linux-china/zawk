@@ -9,6 +9,7 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
+use crate::builtins::Function::Url;
 
 pub(crate) use crate::interp::Interp;
 
@@ -201,6 +202,7 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
+    Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -474,6 +476,10 @@ impl<'a> Instr<'a> {
                 timezone.accum(&mut f);
             }
             Fend(dst, src) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+            }
+            Url(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }

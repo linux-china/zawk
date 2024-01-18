@@ -152,7 +152,7 @@ where
 pub(crate) mod boilerplate {
     //! Some utility functions for discovering reads and writes in various parts of the IR.
     //! TODO: more precise tracking of function arguments.
-    use crate::builtins::Function::Hmac;
+    use crate::builtins::Function::{Hmac, Url};
     use super::*;
 
     pub(crate) fn visit_hl(
@@ -222,6 +222,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(timezone.into()));
             },
             Fend(dst, src) => f(dst.into(), Some(src.into())),
+            Url(dst, src) => f(dst.into(), Some(src.into())),
             Trim(dst,src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));

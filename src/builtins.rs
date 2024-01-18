@@ -9,6 +9,7 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
+use std::iter::Map;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -38,6 +39,7 @@ pub enum Function {
     Decode,
     Digest,
     Hmac,
+    Url,
     Contains,
     Delete,
     Clear,
@@ -233,6 +235,7 @@ static_map!(
     ["decode", Function::Decode],
     ["digest", Function::Digest],
     ["hmac", Function::Hmac],
+    ["url", Function::Url],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -467,6 +470,7 @@ impl Function {
             Strftime => (smallvec![Str, Int], Str),
             Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
+            Url => (smallvec![Str], MapStrStr),
             Trim => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
@@ -501,7 +505,7 @@ impl Function {
             UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend
+            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend | Url
             | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -551,6 +555,12 @@ impl Function {
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
             | Encode | Decode | Digest | Hmac => {
                 Ok(Scalar(BaseTy::Str).abs())
+            }
+            | Url => {
+               Ok(Map {
+                   key: BaseTy::Str,
+                   val: BaseTy::Str
+               }.abs())
             }
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),

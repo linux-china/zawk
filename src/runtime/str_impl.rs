@@ -7,13 +7,14 @@
 ///
 /// TODO explain more about what is going on here.
 use crate::pushdown::FieldSet;
-use crate::runtime::{strtoi, Float, Int};
+use crate::runtime::{strtoi, Float, Int, SharedMap};
 
 use regex::bytes::{Captures, Regex};
 use smallvec::SmallVec;
 
 use std::alloc::{alloc_zeroed, dealloc, realloc, Layout};
 use std::cell::{Cell, UnsafeCell};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::marker::PhantomData;
@@ -30,6 +31,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
+use crate::runtime;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(usize)]
@@ -499,6 +501,12 @@ impl<'a> Str<'a> {
             Ok(result) => {Str::from(result.get_main_result().to_string())}
             Err(error) => {Str::from(format!("FendError:{}",error))}
         }
+    }
+
+    pub fn url<'b>(&self) -> runtime::StrMap<'a, Str<'a>> {
+        let mut map = hashbrown::HashMap::new();
+        map.insert(Str::from("name"), Str::from("jackie"));
+        return SharedMap::from(map);
     }
 
     pub fn trim<'b>(&self, pat: &Str<'b>) -> Str<'b> {

@@ -14,6 +14,7 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
+use crate::builtins::Function::Url;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -728,6 +729,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;
+                    }
+                    Url(dst, src) => {
+                        //todo url
+                        //let res = index(&self.strs, src).url();
+                        //*index_mut(&mut self.strs, dst) = res;
                     }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);
