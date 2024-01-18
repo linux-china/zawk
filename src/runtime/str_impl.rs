@@ -21,6 +21,7 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "unstable")]
 use std::intrinsics::likely;
+
 #[cfg(not(feature = "unstable"))]
 fn likely(b: bool) -> bool {
     b
@@ -31,6 +32,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
+use url::Url;
 use crate::runtime;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -42,6 +44,7 @@ enum StrTag {
     Concat = 3,
     Boxed = 4,
 }
+
 const NUM_VARIANTS: usize = 5;
 
 impl StrTag {
@@ -59,6 +62,7 @@ impl StrTag {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 struct Inline(u128);
+
 const MAX_INLINE_SIZE: usize = 15;
 
 impl Default for Inline {
@@ -294,6 +298,7 @@ impl<'a> Drop for StrRep<'a> {
 /// send this across threads, and non-static lifetimes are cumbersome in that context.
 #[derive(Default, Debug, Hash, PartialEq, Eq)]
 pub struct UniqueStr<'a>(Str<'a>);
+
 unsafe impl<'a> Send for UniqueStr<'a> {}
 
 impl<'a> Clone for UniqueStr<'a> {
@@ -329,7 +334,7 @@ impl<'a> UniqueStr<'a> {
                             buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
                             len: bs.len() as u64,
                         }
-                        .into(),
+                            .into(),
                     )
                 })
             },
@@ -472,7 +477,7 @@ impl<'a> Str<'a> {
         buf.into_str()
     }
 
-    pub fn join(&self, mut ss: impl Iterator<Item = Str<'a>>) -> Str<'a> {
+    pub fn join(&self, mut ss: impl Iterator<Item=Str<'a>>) -> Str<'a> {
         let mut res = if let Some(s) = ss.next() {
             s
         } else {
@@ -498,14 +503,42 @@ impl<'a> Str<'a> {
         let mut context = fend_core::Context::new();
         let expr = self.to_string();
         return match fend_core::evaluate(&expr, &mut context) {
-            Ok(result) => {Str::from(result.get_main_result().to_string())}
-            Err(error) => {Str::from(format!("FendError:{}",error))}
-        }
+            Ok(result) => { Str::from(result.get_main_result().to_string()) }
+            Err(error) => { Str::from(format!("FendError:{}", error)) }
+        };
     }
 
-    pub fn url<'b>(&self) -> runtime::StrMap<'a, Str<'a>> {
+    pub fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = hashbrown::HashMap::new();
-        map.insert(Str::from("name"), Str::from("jackie"));
+        let url_text = self.to_string().clone();
+        if let Ok(url) = &Url::parse(&url_text) {
+            if url.scheme() != "" {
+                map.insert(Str::from("schema"), Str::from(url.scheme().to_string()));
+            }
+            if url.username() != "" {
+                map.insert(Str::from("user"), Str::from(url.username().to_string()));
+            }
+            if let Some(password) = url.password() {
+                map.insert(Str::from("password"), Str::from(password.to_string()));
+            }
+            if let Some(host) = url.host_str() {
+                map.insert(Str::from("host"), Str::from(host.to_string()));
+            }
+            if let Some(port) = url.port() {
+                map.insert(Str::from("port"), Str::from(port.to_string()));
+            }
+
+            if url.path() != "" {
+                map.insert(Str::from("path"), Str::from(url.path().to_string()));
+            }
+
+            if let Some(query) = url.query() {
+                map.insert(Str::from("query"), Str::from(query.to_string()));
+            }
+            if let Some(fragment) = url.fragment() {
+                map.insert(Str::from("fragment"), Str::from(fragment.to_string()));
+            }
+        }
         return SharedMap::from(map);
     }
 
@@ -517,7 +550,7 @@ impl<'a> Str<'a> {
         } else {
             let chars: &[_] = &pat.chars().collect::<Vec<char>>();
             Str::from(src.trim_matches(chars).to_string())
-        }
+        };
     }
 
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
@@ -630,7 +663,7 @@ impl<'a> Str<'a> {
                         .find_iter(s)
                         .skip(
                             which as usize - 2, // 1 to convert from 1-based to 0-based
-                                                // 1 to take the last "next" into account
+                            // 1 to take the last "next" into account
                         )
                         .next();
                     if let Some(start) = start {
@@ -715,7 +748,7 @@ impl<'a> Str<'a> {
                     end,
                     buf: s.buf.clone(),
                 }
-                .into()
+                    .into()
             }),
             StrTag::Boxed => rep.view_as(|b: &Boxed| {
                 Shared {
@@ -723,7 +756,7 @@ impl<'a> Str<'a> {
                     end: to as u32,
                     buf: b.buf.clone(),
                 }
-                .into()
+                    .into()
             }),
             StrTag::Literal => rep.view_as(|l: &Literal| {
                 let new_ptr = l.ptr.add(from);
@@ -733,7 +766,7 @@ impl<'a> Str<'a> {
                     ptr: new_ptr,
                     _marker: PhantomData,
                 }
-                .into()
+                    .into()
             }),
             StrTag::Inline | StrTag::Concat => unreachable!(),
         };
@@ -787,7 +820,7 @@ impl<'a> Str<'a> {
                     len: new_len as u64,
                     buf,
                 }
-                .into()
+                    .into()
             }));
         }
 
@@ -876,7 +909,7 @@ impl<'a> Str<'a> {
                         break rep.view_as(|c: &Concat| {
                             todos.push(c.right());
                             c.left()
-                        })
+                        });
                     }
                 }
                 if let Some(c) = todos.pop() {
@@ -886,7 +919,7 @@ impl<'a> Str<'a> {
                     len: len as u64,
                     buf: res.into_buf(),
                 }
-                .into();
+                    .into();
             };
         };
         *self.rep_mut() = new_rep;
@@ -974,11 +1007,13 @@ impl<'a> Hash for Str<'a> {
         self.with_bytes(|bs| bs.hash(state))
     }
 }
+
 impl<'a> From<&'a str> for Str<'a> {
     fn from(s: &'a str) -> Str<'a> {
         s.as_bytes().into()
     }
 }
+
 impl<'a> From<&'a [u8]> for Str<'a> {
     fn from(bs: &'a [u8]) -> Str<'a> {
         if bs.is_empty() {
@@ -1067,6 +1102,7 @@ struct BufHeader {
 
 #[repr(transparent)]
 pub struct UniqueBuf(*mut BufHeader);
+
 unsafe impl Send for UniqueBuf {}
 
 pub struct DynamicBufHeap {
@@ -1152,10 +1188,10 @@ impl Write for DynamicBufHeap {
                     self.data.as_mut_ptr().add(self.write_head),
                     buf.len(),
                 );
-            // NB: even after copying, there may be uninitialized memory at the tail of the
-            // buffer. We enforce that this memory is never read by doing a realloc(write_head)
-            // before moving this into a Buf. Before then, we don't read the underlying data at
-            // all.
+                // NB: even after copying, there may be uninitialized memory at the tail of the
+                // buffer. We enforce that this memory is never read by doing a realloc(write_head)
+                // before moving this into a Buf. Before then, we don't read the underlying data at
+                // all.
             } else {
                 ptr::copy(
                     buf.as_ptr(),
@@ -1266,7 +1302,7 @@ impl UniqueBuf {
             size + mem::size_of::<BufHeader>(),
             mem::align_of::<BufHeader>(),
         )
-        .unwrap()
+            .unwrap()
     }
     pub fn new(size: usize) -> UniqueBuf {
         let layout = UniqueBuf::layout(size);
@@ -1307,7 +1343,7 @@ impl Buf {
                 len: self.len() as u64,
                 buf: self,
             }
-            .into(),
+                .into(),
         )
     }
 
@@ -1362,7 +1398,7 @@ impl Buf {
                     start: from as u32,
                     end: to as u32,
                 }
-                .into(),
+                    .into(),
             )
         } else {
             self.clone().into_str().slice(from, to)
@@ -1578,7 +1614,7 @@ mod tests {
             &mut d,
             "This is the first part of the string with formatting and everything!"
         )
-        .unwrap();
+            .unwrap();
         write!(&mut d, "And this is the second part").unwrap();
         let s = d.into_str();
         s.with_bytes(|bs| {
@@ -1666,6 +1702,7 @@ And this is the second part"#
 #[cfg(all(feature = "unstable", test))]
 mod bench {
     extern crate test;
+
     use super::*;
     use test::{black_box, Bencher};
 
