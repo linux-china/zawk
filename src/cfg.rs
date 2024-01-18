@@ -1671,7 +1671,7 @@ where
                     // rightmost index.
                     prim_args.push(PrimVal::ILit(i64::max_value()));
                 }
-                // strftime() => strftime("%a %b %e %H:%M:%S %Z %Y"", -1);
+                // strftime() => strftime("%a %b %e %H:%M:%S %Z %Y", -1);
                 if bi == builtins::Function::Strftime && args.len() == 0 {
                     prim_args.push(PrimVal::StrLit(b"%a %b %e %H:%M:%S %Z %Y"));
                     prim_args.push(PrimVal::ILit(-1 as Int));
@@ -1684,6 +1684,11 @@ where
                 // mktime(date_text, timezone) => mktime(date_text, -1);
                 if bi == builtins::Function::Mktime && args.len() == 1 {
                     prim_args.push(PrimVal::ILit(-1 as Int));
+                }
+
+                // trim(s) => trim(s, " ");
+                if bi == builtins::Function::Trim && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b" "));
                 }
 
                 // srand() => the special "reseed rng" function

@@ -198,6 +198,7 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
+    Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
     // keep this as a separate instruction to make static analysis easier.
@@ -451,6 +452,11 @@ impl<'a> Instr<'a> {
             Fend(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
+            }
+            Trim(dst, src, pat ) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+                pat.accum(&mut f);
             }
             StrToInt(ir, sr) | HexStrToInt(ir, sr) => {
                 ir.accum(&mut f);

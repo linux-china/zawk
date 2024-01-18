@@ -37,6 +37,7 @@ pub(crate) mod clif;
 pub(crate) mod llvm;
 
 use intrinsics::Runtime;
+use crate::builtins::Function::Trim;
 
 pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
@@ -813,6 +814,12 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(),resv)
             },
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
+            Trim(dst,src, pat) => {
+                let src = self.get_val(src.reflect())?;
+                let pat = self.get_val(pat.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(trim), &mut [src, pat])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();
                 let startv = self.get_val(start.reflect())?;

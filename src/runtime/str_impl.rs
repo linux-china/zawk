@@ -501,6 +501,17 @@ impl<'a> Str<'a> {
         }
     }
 
+    pub fn trim<'b>(&self, pat: &Str<'b>) -> Str<'b> {
+        let src = self.to_string();
+        let pat = pat.to_string();
+        return if pat == " " {
+            Str::from(src.trim().to_string())
+        } else {
+            let chars: &[_] = &pat.chars().collect::<Vec<char>>();
+            Str::from(src.trim_matches(chars).to_string())
+        }
+    }
+
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
         self.map_bytes(|b| match b {
             b'a'..=b'z' => b - b'a' + b'A',

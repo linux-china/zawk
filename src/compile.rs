@@ -1700,6 +1700,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Trim => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Trim(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Mktime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mktime(

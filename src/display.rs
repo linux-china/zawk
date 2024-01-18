@@ -168,6 +168,7 @@ impl Display for Function {
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),
             Fend => write!(f, "fend"),
+            Trim => write!(f, "trim"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),

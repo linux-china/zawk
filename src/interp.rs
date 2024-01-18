@@ -15,6 +15,7 @@ use std::cmp;
 use std::mem;
 use std::time::SystemTime;
 use libc::time;
+use crate::builtins::Function::Trim;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -704,6 +705,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;
+                    }
+                    Trim(dst, src, pat) => {
+                        let src = index(&self.strs, src);
+                        let pat = index(&self.strs, pat);
+                        let dt_text =  src.trim(pat);
+                        *index_mut(&mut self.strs, dst) = dt_text;
                     }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));

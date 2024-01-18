@@ -9,7 +9,6 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
-use crate::builtins::Function::Mktime;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -34,6 +33,7 @@ pub enum Function {
     Strftime,
     Mktime,
     Fend,
+    Trim,
     Contains,
     Delete,
     Clear,
@@ -224,6 +224,7 @@ static_map!(
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
     ["fend", Function::Fend],
+    ["trim", Function::Trim],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -458,6 +459,7 @@ impl Function {
             Strftime => (smallvec![Str, Int], Str),
             Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
+            Trim => (smallvec![Str, Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -492,6 +494,7 @@ impl Function {
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
+            Trim => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split => 3,
             GenSub => 4,
         })
@@ -530,7 +533,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | JoinCols | EscapeCSV | EscapeTSV | Substr
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | JoinCols | EscapeCSV | EscapeTSV | Substr
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
