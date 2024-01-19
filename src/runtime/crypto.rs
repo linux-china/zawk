@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::{Cursor};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
 use crate::runtime::encoding::encode;

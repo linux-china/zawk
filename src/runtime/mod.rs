@@ -22,6 +22,7 @@ pub mod writers;
 pub mod date_time;
 pub mod encoding;
 pub mod crypto;
+pub mod str_escape;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;

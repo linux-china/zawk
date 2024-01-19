@@ -14,7 +14,6 @@ use smallvec::SmallVec;
 
 use std::alloc::{alloc_zeroed, dealloc, realloc, Layout};
 use std::cell::{Cell, UnsafeCell};
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::marker::PhantomData;
@@ -34,6 +33,7 @@ use std::slice;
 use std::str;
 use url::Url;
 use crate::runtime;
+use crate::runtime::str_escape::escape;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(usize)]
@@ -551,6 +551,12 @@ impl<'a> Str<'a> {
             let chars: &[_] = &pat.chars().collect::<Vec<char>>();
             Str::from(src.trim_matches(chars).to_string())
         };
+    }
+
+    pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
+        let src = self.to_string();
+        let format = format.to_string();
+        Str::from(escape(&src,&format))
     }
 
     pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {

@@ -170,6 +170,7 @@ impl Display for Function {
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),
+            Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
             Digest => write!(f, "digest"),

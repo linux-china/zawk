@@ -1,4 +1,3 @@
-use std::io::Read;
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE, Engine as _};
 use urlencoding::{encode as url_encode, decode as url_decode};
 
@@ -69,7 +68,7 @@ mod tests {
     #[test]
     fn test_un_base64() {
         let encoded_text = "SGVsbG8=";
-        let plain_text = decode("base64", "SGVsbG8=");
+        let plain_text = decode("base64", encoded_text);
         println!("{}", plain_text);
         assert_eq!(plain_text, "Hello")
     }
@@ -84,7 +83,7 @@ mod tests {
     #[test]
     fn test_url_decode() {
         let encoded_text = "Hello%20World";
-        let plain_text = decode("url", "Hello%20World");
+        let plain_text = decode("url", encoded_text);
         println!("{}", plain_text);
         assert_eq!(plain_text, "Hello World")
     }

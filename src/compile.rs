@@ -21,7 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::{Fend, Trim};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -1740,6 +1739,15 @@ impl<'a, 'b> View<'a, 'b> {
             Trim => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Trim(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            Escape => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Escape(
                         res_reg.into(),
                         conv_regs[0].into(),
                         conv_regs[1].into(),

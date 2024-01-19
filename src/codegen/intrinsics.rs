@@ -8,7 +8,7 @@ use crate::runtime::{self, printf::{printf, FormatArg}, splitter::{
     batch::{ByteReader, CSVReader, WhitespaceOffsets},
     chunk::{ChunkProducer, OffsetChunk},
     regex::RegexSplitter,
-}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, SharedMap};
+}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap};
 use crate::{
     builtins::Variable,
     common::{CancelSignal, Cleanup, FileSpec, Notification, Result},
@@ -150,6 +150,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
@@ -686,6 +687,13 @@ pub(crate) unsafe extern "C" fn decode(format: *mut U128, text: *mut U128) -> U1
     mem::transmute::<Str, U128>(res)
 }
 
+pub(crate) unsafe extern "C" fn escape(format: *mut U128, text: *mut U128) -> U128 {
+    let format = &*(format as *mut Str);
+    let text = &*(text as *mut Str);
+    let res = text.escape(&format);
+    mem::transmute::<Str, U128>(res)
+}
+
 pub(crate) unsafe extern "C" fn digest(algorithm: *mut U128, text: *mut U128) -> U128 {
     let algorithm = &*(algorithm as *mut Str);
     let text = &*(text as *mut Str);
@@ -789,7 +797,7 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void{
+pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }

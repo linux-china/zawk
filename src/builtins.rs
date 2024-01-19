@@ -9,7 +9,6 @@ use crate::types::{self, SmallVec};
 use smallvec::smallvec;
 
 use std::convert::TryFrom;
-use std::iter::Map;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -36,6 +35,7 @@ pub enum Function {
     Fend,
     Trim,
     Truncate,
+    Escape,
     Encode,
     Decode,
     Digest,
@@ -238,6 +238,7 @@ static_map!(
     ["hmac", Function::Hmac],
     ["url", Function::Url],
     ["truncate", Function::Truncate],
+    ["escape", Function::Escape],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -475,6 +476,7 @@ impl Function {
             Url => (smallvec![Str], MapStrStr),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
+            Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
             Digest => (smallvec![Str, Str], Str),
@@ -514,7 +516,7 @@ impl Function {
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
             Trim => 2,
-            Encode | Decode | Digest => 2,
+            Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
             GenSub => 4,
@@ -554,7 +556,8 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | Truncate | JoinCols | EscapeCSV | EscapeTSV
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | Truncate | JoinCols
+            | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
             | Encode | Decode | Digest | Hmac => {
                 Ok(Scalar(BaseTy::Str).abs())

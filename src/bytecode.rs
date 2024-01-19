@@ -9,7 +9,6 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
-use crate::builtins::Function::{Truncate, Url};
 
 pub(crate) use crate::interp::Interp;
 
@@ -204,6 +203,7 @@ pub(crate) enum Instr<'a> {
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -451,6 +451,11 @@ impl<'a> Instr<'a> {
                 text.accum(&mut f);
             }
             Decode(res, format, text) => {
+                res.accum(&mut f);
+                format.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Escape(res, format, text) => {
                 res.accum(&mut f);
                 format.accum(&mut f);
                 text.accum(&mut f);

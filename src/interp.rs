@@ -14,7 +14,6 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
-use crate::builtins::Function::{Truncate, Url};
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -709,6 +708,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let dt_text = runtime::crypto::digest(algorithm.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
+                    }
+                    Escape(dst, format, text) => {
+                        let format = index(&self.strs, format);
+                        let text = index(&self.strs, text);
+                        let escaped_text =  text.escape(format);
+                        *index_mut(&mut self.strs, dst) = escaped_text;
                     }
                     Hmac(dst, algorithm, key, text) => {
                         let algorithm = index(&self.strs, algorithm);
