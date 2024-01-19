@@ -2,6 +2,7 @@
 pub fn escape(text: &str, format: &str) -> String {
     match format {
         "csv" => escape_csv(text),
+        "tsv" => escape_tsv(text),
         "json" => escape_json(text),
         "sql" => escape_sql(text),
         "xml" | "html" => escape_xml(text),
@@ -12,6 +13,17 @@ pub fn escape(text: &str, format: &str) -> String {
 fn escape_csv(text: &str) -> String {
     if text.contains(",") || text.contains("\"") {
         return format!("\"{}\"", text.replace("\"", "\"\""));
+    }
+    return text.to_string();
+}
+
+fn escape_tsv(text: &str) -> String {
+    if text.contains("\t") || text.contains("\n") || text.contains("\"") {
+        let new_text = text
+            .replace("\t", "\\t")
+            .replace("\n", "\\n")
+            .replace("\"", "\"\"");
+        return format!("\"{}\"", new_text);
     }
     return text.to_string();
 }
