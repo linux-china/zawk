@@ -58,7 +58,11 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 
 * uuid
 * math: abs, floor, ceiling, round, fend
-* string: trim($1, " "), isnum, isint
+* string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
+   - trim: `trim($1)` or `trim($1, "[]()")` 
+   - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
+   - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
+* array: sort, sorti
 * json: json_parse(text), json_stringify(array)
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
@@ -66,6 +70,6 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
 * date time: utc by default
-    - systime
+    - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats  
