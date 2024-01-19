@@ -54,10 +54,22 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
   of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 * Add logic in `fn floatfunc(` of [src/codegen/clif.rs](../src/codegen/clif.rs)
 
+
+### Global variables
+
+please refer `ENVIRON` as example.
+
+* Declare variable name in `pub(crate) enum Variable {` of [src/builtins.rs](../src/builtins.rs)
+* Change some logic in `impl From<Variable> for compile::Ty` of [src/builtins.rs](../src/builtins.rs)
+* Implement logic in `fn default() -> Variables<'a>` of [src/builtins.rs](../src/builtins.rs)
+* register variable `static_map!(` of [src/builtins.rs](../src/builtins.rs)
+* add display in `impl Display for Variable`(字符串化) of [src/display.rs](../src/display.rs)
+* Add variable support in `pub fn shuttle(&self, pid: Int)` of [src/interp.rs](../src/interp.rs)
+
 ### UDF(User Defined Function)
 
 * uuid
-* math: abs, floor, ceiling, round, fend
+* math: abs, floor, ceiling, round, fend, min, max
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
    - trim: `trim($1)` or `trim($1, "[]()")` 
    - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
