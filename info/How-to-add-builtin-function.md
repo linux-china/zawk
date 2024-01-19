@@ -45,6 +45,8 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
     }
 ```
 
+If you can not determine param type, such as min(param1, param2), please use `Str`.
+
 ### Custom Math function
 
 * Declare function name in `pub enum FloatFunc ` of [src/builtins.rs](../src/builtins.rs)
