@@ -1,7 +1,6 @@
 use std::io::{Cursor};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
-use crate::runtime::encoding::encode;
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
@@ -42,6 +41,7 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::runtime::encoding::encode;
     use super::*;
 
     #[test]
