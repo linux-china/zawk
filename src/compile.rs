@@ -1789,6 +1789,24 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Min => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Min(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into()
+                    ))
+                }
+            }
+            Max => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Max(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into()
+                    ))
+                }
+            }
             JoinTSV => {
                 if res_reg != UNUSED {
                     self.pushl(LL::JoinTSV(

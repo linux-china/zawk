@@ -154,6 +154,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] min(rt_ty,rt_ty) -> rt_ty;
+        [ReadOnly] max(rt_ty,rt_ty) -> rt_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -742,6 +744,51 @@ pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder:
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
     runtime::date_time::mktime(dt_text.as_str(), timezone) as Int
+}
+
+pub(crate) unsafe extern "C" fn min(first: *mut U128, second: *mut U128) -> U128 {
+    // todo min performance optimization
+    let first = &*(first as *mut Str);
+    let second = &*(second as *mut Str);
+    let first_text = first.as_str();
+    let second_text = second.as_str();
+    let num1 = first_text.parse::<Float>();
+    let num2 = second_text.parse::<Float>();
+    return if num1.is_ok() && num2.is_ok() {
+        if (num1.unwrap() < num2.unwrap()) {
+            mem::transmute::<Str, U128>(first.clone())
+        } else {
+            mem::transmute::<Str, U128>(second.clone())
+        }
+    } else {
+        if first_text < second_text {
+            mem::transmute::<Str, U128>(first.clone())
+        } else {
+            mem::transmute::<Str, U128>(second.clone())
+        }
+    }
+}
+
+pub(crate) unsafe extern "C" fn max(first: *mut U128, second: *mut U128) -> U128 {
+    let first = &*(first as *mut Str);
+    let second = &*(second as *mut Str);
+    let first_text = first.as_str();
+    let second_text = second.as_str();
+    let num1 = first_text.parse::<Float>();
+    let num2 = second_text.parse::<Float>();
+    return if num1.is_ok() && num2.is_ok() {
+        if (num1.unwrap() > num2.unwrap()) {
+            mem::transmute::<Str, U128>(first.clone())
+        } else {
+            mem::transmute::<Str, U128>(second.clone())
+        }
+    } else {
+        if first_text > second_text {
+            mem::transmute::<Str, U128>(first.clone())
+        } else {
+            mem::transmute::<Str, U128>(second.clone())
+        }
+    }
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

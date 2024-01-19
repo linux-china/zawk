@@ -746,6 +746,17 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Min(dst, first, second) => {
+                        // todo min
+                        // let res = index(&self.strs, src).url();
+                        // let dst = *dst;
+                        // *self.get_mut(dst) = res;
+                    }
+                    Max(dst, first, second) => {
+                        // let res = index(&self.strs, src).url();
+                        // let dst = *dst;
+                        // *self.get_mut(dst) = res;
+                    }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);
                         let pat = index(&self.strs, pat);

@@ -27,7 +27,7 @@ impl From<usize> for Label {
     }
 }
 
-pub struct Reg<T>(u32, PhantomData<*const T>);
+pub struct Reg<T>(pub u32, pub PhantomData<*const T>);
 
 impl<T> std::fmt::Debug for Reg<T> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -201,6 +201,8 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
+    Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -490,6 +492,16 @@ impl<'a> Instr<'a> {
             Url(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
+            }
+            Max(dst, first, second) => {
+                //dst.accum(&mut f);
+                //first.accum(&mut f);
+                //second.accum(&mut f);
+            }
+            Min(dst, first, second) => {
+                //dst.accum(&mut f);
+                //first.accum(&mut f);
+                //second.accum(&mut f);
             }
             Trim(dst, src, pat ) => {
                 dst.accum(&mut f);

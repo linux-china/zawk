@@ -41,6 +41,8 @@ pub enum Function {
     Digest,
     Hmac,
     Url,
+    Min,
+    Max,
     Contains,
     Delete,
     Clear,
@@ -237,6 +239,8 @@ static_map!(
     ["digest", Function::Digest],
     ["hmac", Function::Hmac],
     ["url", Function::Url],
+    ["min", Function::Min],
+    ["max", Function::Max],
     ["truncate", Function::Truncate],
     ["escape", Function::Escape],
     ["match", Function::Match],
@@ -408,6 +412,7 @@ impl Function {
                 },
                 Int,
             ),
+            Min | Max => (smallvec![Str,Str], Str),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
                 arith_sig(incoming[0], incoming[1])
             }
@@ -516,6 +521,7 @@ impl Function {
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
             Trim => 2,
+            Min | Max => 2,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
@@ -550,6 +556,7 @@ impl Function {
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
                 Ok(step_arith(&args[0], &args[1]))
             }
+            Min | Max => Ok(Scalar(BaseTy::Str).abs()),
             Rand | Binop(Div) | Binop(Pow) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)

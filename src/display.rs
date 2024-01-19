@@ -176,6 +176,8 @@ impl Display for Function {
             Digest => write!(f, "digest"),
             Hmac => write!(f, "hmac"),
             Url => write!(f, "url"),
+            Min => write!(f, "min"),
+            Max => write!(f, "max"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
