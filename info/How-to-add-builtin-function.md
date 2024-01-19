@@ -69,7 +69,7 @@ please refer `ENVIRON` as example.
 ### UDF(User Defined Function)
 
 * uuid
-* math: abs, floor, ceiling, round, fend, min, max
+* math: abs, floor, ceiling, round, fend("1+2"), min(1,2), max("A","B")
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
    - trim: `trim($1)` or `trim($1, "[]()")` 
    - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
