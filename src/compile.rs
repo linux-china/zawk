@@ -1991,6 +1991,7 @@ impl<'a, 'b> View<'a, 'b> {
                     Ty::Int => LL::LoadVarInt(target_reg.into(), *bv),
                     Ty::MapIntStr => LL::LoadVarIntMap(target_reg.into(), *bv),
                     Ty::MapStrInt => LL::LoadVarStrMap(target_reg.into(), *bv),
+                    Ty::MapStrStr => LL::LoadVarStrStrMap(target_reg.into(), *bv),
                     _ => unreachable!(),
                 });
                 self.convert(dst_reg, dst_ty, target_reg, target_ty)?
