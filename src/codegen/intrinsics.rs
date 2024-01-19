@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
@@ -718,6 +719,13 @@ pub(crate) unsafe extern "C" fn trim(src: *mut U128, pat: *mut U128) -> U128 {
     let src = &*(src as *mut Str);
     let pat = &*(pat as *mut Str);
     let res = src.trim(pat);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder: *mut U128) -> U128 {
+    let src = &*(src as *mut Str);
+    let place_holder = &*(place_holder as *mut Str);
+    let res = src.truncate(len, place_holder);
     mem::transmute::<Str, U128>(res)
 }
 

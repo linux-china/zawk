@@ -553,6 +553,22 @@ impl<'a> Str<'a> {
         };
     }
 
+    pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {
+        let src = self.to_string();
+        let max_len = len as usize;
+        let place_holder_len = place_holder.len();
+        let src_len = src.len();
+        return if src_len <= max_len { // src length is less than truncate max length
+             Str::from(src)
+        } else if src_len > max_len  { // src length is greater than truncate max length
+            let text_max_len = max_len - place_holder_len;
+            Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
+        } else {
+            let text_max_len = src_len - place_holder_len;
+            Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
+        }
+    }
+
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
         self.map_bytes(|b| match b {
             b'a'..=b'z' => b - b'a' + b'A',

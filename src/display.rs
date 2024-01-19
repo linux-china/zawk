@@ -169,6 +169,7 @@ impl Display for Function {
             Mktime => write!(f, "mktime"),
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
+            Truncate => write!(f, "truncate"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
             Digest => write!(f, "digest"),

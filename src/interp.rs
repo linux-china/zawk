@@ -14,7 +14,7 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
-use crate::builtins::Function::Url;
+use crate::builtins::Function::{Truncate, Url};
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -744,6 +744,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let pat = index(&self.strs, pat);
                         let dt_text = src.trim(pat);
                         *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    Truncate(dst, src, len, place_holder) => {
+                        let src = index(&self.strs, src);
+                        let len = *self.get(*len);
+                        let place_holder = index(&self.strs, place_holder);
+                        let truncated_text = src.truncate(len, &place_holder);
+                        *index_mut(&mut self.strs, dst) = truncated_text;
                     }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));

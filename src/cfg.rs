@@ -1691,6 +1691,11 @@ where
                     prim_args.push(PrimVal::StrLit(b" "));
                 }
 
+                // truncate($1, 10) => truncate($1, 10, "...");
+                if bi == builtins::Function::Truncate && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b"..."));
+                }
+
                 // srand() => the special "reseed rng" function
                 if bi == builtins::Function::Srand && args.is_empty() {
                     bi = builtins::Function::ReseedRng;

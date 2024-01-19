@@ -846,6 +846,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(trim), &mut [src, pat])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Truncate(dst,src, len, place_holder) => {
+                let src = self.get_val(src.reflect())?;
+                let len = self.get_val(len.reflect())?;
+                let place_holder = self.get_val(place_holder.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();
                 let startv = self.get_val(start.reflect())?;

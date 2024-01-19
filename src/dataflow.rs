@@ -152,7 +152,7 @@ where
 pub(crate) mod boilerplate {
     //! Some utility functions for discovering reads and writes in various parts of the IR.
     //! TODO: more precise tracking of function arguments.
-    use crate::builtins::Function::{Hmac, Url};
+    use crate::builtins::Function::{Hmac, Truncate, Url};
     use super::*;
 
     pub(crate) fn visit_hl(
@@ -226,6 +226,11 @@ pub(crate) mod boilerplate {
             Trim(dst,src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));
+            },
+            Truncate(dst,src, len, place_holder) => {
+                f(dst.into(), Some(src.into()));
+                f(dst.into(), Some(len.into()));
+                f(dst.into(), Some(place_holder.into()));
             },
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
