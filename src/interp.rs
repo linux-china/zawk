@@ -167,6 +167,7 @@ impl<'a> Core<'a> {
         let filename: UniqueStr<'a> = self.vars.filename.clone().into();
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
+        let environ = self.vars.environ.shuttle();
         let slots = self.slots.clone();
         move || {
             let vars = Variables {
@@ -184,6 +185,7 @@ impl<'a> Core<'a> {
                 argc: 0,
                 argv: argv.into(),
                 fi: fi.into(),
+                environ: environ.into()
             };
             Core {
                 vars,
@@ -1313,6 +1315,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let src = *src;
                         let s = self.get(src).clone();
                         self.core.vars.store_strmap(*var, s)?;
+                    }
+                    LoadVarStrStrMap(dst, var) => {
+                        let arr = self.core.vars.load_strstrmap(*var)?;
+                        let dst = *dst;
+                        *self.get_mut(dst) = arr;
+                    }
+                    StoreVarStrStrMap(var, src) => {
+                        let src = *src;
+                        let s = self.get(src).clone();
+                        self.core.vars.store_strstrmap(*var, s)?;
                     }
 
                     IterBegin { map_ty, map, dst } => self.iter_begin(*map_ty, *map, *dst),

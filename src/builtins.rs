@@ -593,6 +593,7 @@ pub(crate) enum Variable {
     FNR = 11,
     PID = 12,
     FI = 13,
+    ENVIRON =14,
 }
 
 impl From<Variable> for compile::Ty {
@@ -603,6 +604,7 @@ impl From<Variable> for compile::Ty {
             PID | ARGC | NF | NR | FNR | RSTART | RLENGTH => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
+            ENVIRON => compile::Ty::MapStrStr,
         }
     }
 }
@@ -622,6 +624,7 @@ pub(crate) struct Variables<'a> {
     pub rlength: Int,
     pub pid: Int,
     pub fi: StrMap<'a, Int>,
+    pub environ: StrMap<'a, Str<'a>>,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -641,9 +644,19 @@ impl<'a> Default for Variables<'a> {
             pid: 0,
             rlength: -1,
             fi: Default::default(),
+            environ: load_env_variables(),
         }
     }
 }
+
+fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
+    let env = StrMap::default();
+    for (k, v) in std::env::vars() {
+        env.insert(k.into(), v.into());
+    }
+    env
+}
+
 impl<'a> Variables<'a> {
     pub fn load_int(&self, var: Variable) -> Result<Int> {
         use Variable::*;
@@ -655,7 +668,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart,
             RLENGTH => self.rlength,
             PID => self.pid,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON => return err!("var {} not an int", var),
         })
     }
 
@@ -669,7 +682,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart = i,
             RLENGTH => self.rlength = i,
             PID => self.pid = i,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON => return err!("var {} not an int", var),
         }
         Ok(())
     }
@@ -682,7 +695,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors.clone(),
             RS => self.rs.clone(),
             FILENAME => self.filename.clone(),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON => {
                 return err!("var {} not a string", var)
             }
         })
@@ -696,7 +709,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors = s,
             RS => self.rs = s,
             FILENAME => self.filename = s,
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH  | ENVIRON => {
                 return err!("var {} not a string", var)
             }
         };
@@ -707,7 +720,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -720,16 +733,17 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
     }
+
     pub fn load_strmap(&self, var: Variable) -> Result<StrMap<'a, Int>> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -743,7 +757,32 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON
+            | RLENGTH => {
+                err!("var {} is not a string-keyed map", var)
+            }
+        }
+    }
+
+    pub fn load_strstrmap(&self, var: Variable) -> Result<StrMap<'a, Str<'a>>> {
+        use Variable::*;
+        match var {
+            ENVIRON => Ok(self.environ.clone()),
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
+            | RLENGTH => {
+                err!("var {} is not a string-keyed map", var)
+            }
+        }
+    }
+
+    pub fn store_strstrmap(&mut self, var: Variable, m: StrMap<'a, Str<'a>>) -> Result<()> {
+        use Variable::*;
+        match var {
+            ENVIRON => {
+                self.environ = m;
+                Ok(())
+            }
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -788,6 +827,10 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Int,
             },
+            ENVIRON => types::TVar::Map {
+                key: types::BaseTy::Str,
+                val: types::BaseTy::Str,
+            },
             ORS | OFS | FS | RS | FILENAME => types::TVar::Scalar(types::BaseTy::Str),
         }
     }
@@ -822,6 +865,7 @@ impl TryFrom<usize> for Variable {
             11 => Ok(FNR),
             12 => Ok(PID),
             13 => Ok(FI),
+            14 => Ok(ENVIRON),
             _ => Err(()),
         }
     }
@@ -842,5 +886,6 @@ static_map!(
     ["RSTART", Variable::RSTART],
     ["RLENGTH", Variable::RLENGTH],
     ["PID", Variable::PID],
-    ["FI", Variable::FI]
+    ["FI", Variable::FI],
+    ["ENVIRON", Variable::ENVIRON]
 );
