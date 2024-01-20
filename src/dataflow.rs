@@ -152,7 +152,6 @@ where
 pub(crate) mod boilerplate {
     //! Some utility functions for discovering reads and writes in various parts of the IR.
     //! TODO: more precise tracking of function arguments.
-    use crate::builtins::Function::ToJson;
     use super::*;
 
     pub(crate) fn visit_hl(

@@ -14,7 +14,6 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
-use crate::builtins::Function::ToJson;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
