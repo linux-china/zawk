@@ -746,6 +746,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    FromJson(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res = runtime::json::from_json(src.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     ToJson(dst, arr) => {
                         let arr = self.get(*arr);
                         let dst = *dst;

@@ -226,6 +226,7 @@ pub(crate) mod boilerplate {
             },
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
+            FromJson(dst, src) => f(dst.into(), Some(src.into())),
             ToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             Trim(dst,src, pat) => {
                 f(dst.into(), Some(src.into()));

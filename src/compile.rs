@@ -1789,6 +1789,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            FromJson => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::FromJson(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             ToJson => {
                 if res_reg != UNUSED {
                     self.pushl(LL::ToJson(res_reg.into(), conv_regs[0].into()))

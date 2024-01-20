@@ -510,7 +510,7 @@ impl<'a> Str<'a> {
 
     pub fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = hashbrown::HashMap::new();
-        let url_text = self.to_string().clone();
+        let url_text = self.to_string();
         if let Ok(url) = &Url::parse(&url_text) {
             if url.scheme() != "" {
                 map.insert(Str::from("schema"), Str::from(url.scheme().to_string()));

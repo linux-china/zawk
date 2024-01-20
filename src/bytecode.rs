@@ -204,6 +204,7 @@ pub(crate) enum Instr<'a> {
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     ToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -491,6 +492,10 @@ impl<'a> Instr<'a> {
                 src.accum(&mut f);
             }
             Url(dst, src) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+            }
+            FromJson(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }

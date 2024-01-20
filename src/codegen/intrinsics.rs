@@ -154,6 +154,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] to_json(map_ty) -> str_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
@@ -821,6 +822,12 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
+}
+
+pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
+    let json_text = &*(src as *mut Str);
+    let json_obj = runtime::json::from_json(json_text.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(json_obj)
 }
 
 pub(crate) unsafe extern "C" fn to_json(arr: *mut c_void) -> U128 {

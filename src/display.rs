@@ -176,6 +176,7 @@ impl Display for Function {
             Digest => write!(f, "digest"),
             Hmac => write!(f, "hmac"),
             Url => write!(f, "url"),
+            FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),
             Min => write!(f, "min"),
             Max => write!(f, "max"),

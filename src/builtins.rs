@@ -41,6 +41,7 @@ pub enum Function {
     Digest,
     Hmac,
     Url,
+    FromJson,
     ToJson,
     Min,
     Max,
@@ -240,6 +241,7 @@ static_map!(
     ["digest", Function::Digest],
     ["hmac", Function::Hmac],
     ["url", Function::Url],
+    ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
     ["min", Function::Min],
     ["max", Function::Max],
@@ -481,6 +483,7 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
+            FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![MapStrStr], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
@@ -519,7 +522,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Fend | Url | ToJson | Unop(_) => 1,
+            | Fend | Url | ToJson | FromJson | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -577,6 +580,12 @@ impl Function {
                    key: BaseTy::Str,
                    val: BaseTy::Str
                }.abs())
+            }
+            FromJson => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Str
+                }.abs())
             }
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),
