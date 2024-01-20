@@ -1,10 +1,7 @@
-use crate::runtime::{Float, Str};
 
-pub fn min<'a>(first: &'a Str<'a>, second: &'a Str<'a>, third: &'a Str<'a>) -> &'a Str<'a> {
-    let num1_text = first.as_str();
-    let num2_text = second.as_str();
-    let num1_result = num1_text.parse::<Float>();
-    let num2_result = num2_text.parse::<Float>();
+pub fn min(first: &str, second: &str, third: &str) -> String {
+    let num1_result = first.parse::<f64>();
+    let num2_result = second.parse::<f64>();
     if third.is_empty() { // only 2 params
         return if num1_result.is_ok() && num2_result.is_ok() {
             if num1_result.unwrap() < num2_result.unwrap() {
@@ -13,15 +10,14 @@ pub fn min<'a>(first: &'a Str<'a>, second: &'a Str<'a>, third: &'a Str<'a>) -> &
                 second
             }
         } else {
-            if num1_text < num2_text {
+            if first < third {
                 first
             } else {
                 second
             }
-        };
+        }.to_string();
     } else { // 3 params
-        let num3_text = third.as_str();
-        let num3_result = num3_text.parse::<Float>();
+        let num3_result = third.parse::<f64>();
         return if num1_result.is_ok() && num2_result.is_ok() && num3_result.is_ok() {
             let num1 = num1_result.unwrap();
             let num2 = num2_result.unwrap();
@@ -36,41 +32,37 @@ pub fn min<'a>(first: &'a Str<'a>, second: &'a Str<'a>, third: &'a Str<'a>) -> &
                 first
             }
         } else {
-            if num1_text < num2_text && num1_text < num3_text {
+            if first < second && first < second {
                 first
-            } else if num2_text < num1_text && num2_text < num3_text {
+            } else if second < second && second < third {
                 second
-            } else if num3_text < num1_text && num3_text < num2_text {
+            } else if third < first && third < second {
                 third
             } else {
                 first
             }
-        }
+        }.to_string()
     }
 }
-
-pub fn max<'a>(first: &'a Str<'a>, second: &'a Str<'a>, third: &'a Str<'a>) -> &'a Str<'a> {
-    let num1_text = first.as_str();
-    let num2_text = second.as_str();
-    let num1_result = num1_text.parse::<Float>();
-    let num2_result = num2_text.parse::<Float>();
+pub fn max(first: &str, second: &str, third: &str) -> String {
+    let num1_result = first.parse::<f64>();
+    let num2_result = second.parse::<f64>();
     if third.is_empty() { // only 2 params
         return if num1_result.is_ok() && num2_result.is_ok() {
-            if (num1_result.unwrap() > num2_result.unwrap()) {
+            if num1_result.unwrap() < num2_result.unwrap() {
                 first
             } else {
                 second
             }
         } else {
-            if num1_text > num2_text {
+            if first < third {
                 first
             } else {
                 second
             }
-        };
+        }.to_string();
     } else { // 3 params
-        let num3_text = third.as_str();
-        let num3_result = num3_text.parse::<Float>();
+        let num3_result = third.parse::<f64>();
         return if num1_result.is_ok() && num2_result.is_ok() && num3_result.is_ok() {
             let num1 = num1_result.unwrap();
             let num2 = num2_result.unwrap();
@@ -85,15 +77,15 @@ pub fn max<'a>(first: &'a Str<'a>, second: &'a Str<'a>, third: &'a Str<'a>) -> &
                 first
             }
         } else {
-            if num1_text > num2_text && num1_text > num3_text {
+            if first > second && first > second {
                 first
-            } else if num2_text > num1_text && num2_text > num3_text {
+            } else if second > second && second > third {
                 second
-            } else if num3_text > num1_text && num3_text > num2_text {
+            } else if third > first && third > second {
                 third
             } else {
                 first
             }
-        };
+        }.to_string()
     }
 }
