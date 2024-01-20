@@ -845,6 +845,7 @@ pub(crate) trait CodeGenerator: Backend {
             },
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
+            ToJson(dst,arr) => self.unop(intrinsic!(to_json), dst, arr),
             Trim(dst,src, pat) => {
                 let src = self.get_val(src.reflect())?;
                 let pat = self.get_val(pat.reflect())?;

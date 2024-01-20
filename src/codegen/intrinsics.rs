@@ -3,6 +3,7 @@
 //! There is quite a lot of code here at this point, but most of it is "glue". Where possible we
 //! try and hew closely to the steps in the `interp` module, with most functionality in the
 //! underlying runtime library.
+use std::collections::HashMap;
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{self, printf::{printf, FormatArg}, splitter::{
     batch::{ByteReader, CSVReader, WhitespaceOffsets},
@@ -154,6 +155,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] to_json(map_ty) -> str_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
 
@@ -820,6 +822,13 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
+}
+
+pub(crate) unsafe extern "C" fn to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+     let json_text = runtime::json::to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
 pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut c_void) {

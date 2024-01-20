@@ -14,6 +14,7 @@ use regex::bytes::Regex;
 use std::cmp;
 use std::mem;
 use std::time::SystemTime;
+use crate::builtins::Function::ToJson;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -745,6 +746,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = index(&self.strs, src).url();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
+                    }
+                    ToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::to_json(arr));
                     }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);

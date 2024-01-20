@@ -41,6 +41,7 @@ pub enum Function {
     Digest,
     Hmac,
     Url,
+    ToJson,
     Min,
     Max,
     Contains,
@@ -239,6 +240,7 @@ static_map!(
     ["digest", Function::Digest],
     ["hmac", Function::Hmac],
     ["url", Function::Url],
+    ["to_json", Function::ToJson],
     ["min", Function::Min],
     ["max", Function::Max],
     ["truncate", Function::Truncate],
@@ -479,6 +481,7 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
+            ToJson => (smallvec![MapStrStr], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Escape => (smallvec![Str, Str], Str),
@@ -515,8 +518,8 @@ impl Function {
             UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd | Fend | Url
-            | Unop(_) => 1,
+            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
+            | Fend | Url | ToJson | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -566,10 +569,10 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
-            | Encode | Decode | Digest | Hmac => {
+            | Encode | Decode | Digest | Hmac | ToJson => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
-            | Url => {
+            Url => {
                Ok(Map {
                    key: BaseTy::Str,
                    val: BaseTy::Str
