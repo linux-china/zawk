@@ -1794,7 +1794,8 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Min(
                         res_reg.into(),
                         conv_regs[0].into(),
-                        conv_regs[1].into()
+                        conv_regs[1].into(),
+                        conv_regs[2].into()
                     ))
                 }
             }
@@ -1803,7 +1804,8 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Max(
                         res_reg.into(),
                         conv_regs[0].into(),
-                        conv_regs[1].into()
+                        conv_regs[1].into(),
+                        conv_regs[2].into()
                     ))
                 }
             }

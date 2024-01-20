@@ -1696,6 +1696,16 @@ where
                     prim_args.push(PrimVal::StrLit(b"..."));
                 }
 
+                // min($1, 10) => min($1, 10, "");
+                if bi == builtins::Function::Min && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
+
+                // max($1, 10) => max($1, 10, "");
+                if bi == builtins::Function::Max && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
+
                 // srand() => the special "reseed rng" function
                 if bi == builtins::Function::Srand && args.is_empty() {
                     bi = builtins::Function::ReseedRng;

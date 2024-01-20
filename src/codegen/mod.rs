@@ -37,7 +37,6 @@ pub(crate) mod clif;
 pub(crate) mod llvm;
 
 use intrinsics::Runtime;
-use crate::compile::Ty;
 
 pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
@@ -859,16 +858,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
                 self.bind_val(dst.reflect(),resv)
             }
-            Min(dst,first, second) => {
+            Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;
-               let resv = self.call_intrinsic(intrinsic!(min), &mut [first, second])?;
+               let third = self.get_val(third.reflect())?;
+               let resv = self.call_intrinsic(intrinsic!(min), &mut [first, second,third])?;
                self.bind_val(dst.reflect(),resv)
             }
-            Max(dst,first, second) => {
+            Max(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;
-               let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second])?;
+               let third = self.get_val(third.reflect())?;
+               let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second,third])?;
                self.bind_val(dst.reflect(),resv)
             }
             JoinColumns(dst, start, end, sep) => {

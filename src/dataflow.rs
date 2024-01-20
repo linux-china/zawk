@@ -235,13 +235,15 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(len.into()));
                 f(dst.into(), Some(place_holder.into()));
             },
-            Max(dst,first, second) => {
+            Max(dst,first, second,third) => {
                f(dst.into(), Some(first.into()));
                f(dst.into(), Some(second.into()));
+               f(dst.into(), Some(third.into()));
             },
-            Min(dst,first, second) => {
+            Min(dst,first, second,third) => {
                f(dst.into(), Some(first.into()));
                f(dst.into(), Some(second.into()));
+               f(dst.into(), Some(third.into()));
             },
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),

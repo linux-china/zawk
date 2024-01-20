@@ -746,16 +746,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    Min(dst, first, second) => {
-                        // todo min
-                        // let res = index(&self.strs, src).url();
-                        // let dst = *dst;
-                        // *self.get_mut(dst) = res;
+                    Min(dst, first, second,third) => {
+                        let num1 = index(&self.strs, first);
+                        let num2 = index(&self.strs, second);
+                        let num3 = index(&self.strs, third);
+                        let res = runtime::math_util::min(num1.as_str(), num2.as_str(), num3.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
-                    Max(dst, first, second) => {
-                        // let res = index(&self.strs, src).url();
-                        // let dst = *dst;
-                        // *self.get_mut(dst) = res;
+                    Max(dst, first, second,third) => {
+                        let num1 = index(&self.strs, first);
+                        let num2 = index(&self.strs, second);
+                        let num3 = index(&self.strs, third);
+                        let res = runtime::math_util::max(num1.as_str(), num2.as_str(), num3.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);

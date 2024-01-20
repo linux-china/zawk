@@ -201,8 +201,8 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
-    Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -493,15 +493,17 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }
-            Max(dst, first, second) => {
-                //dst.accum(&mut f);
-                //first.accum(&mut f);
-                //second.accum(&mut f);
+            Max(dst, first, second,third) => {
+                dst.accum(&mut f);
+                first.accum(&mut f);
+                second.accum(&mut f);
+                third.accum(&mut f);
             }
-            Min(dst, first, second) => {
-                //dst.accum(&mut f);
-                //first.accum(&mut f);
-                //second.accum(&mut f);
+            Min(dst, first, second,third) => {
+                dst.accum(&mut f);
+                first.accum(&mut f);
+                second.accum(&mut f);
+                third.accum(&mut f);
             }
             Trim(dst, src, pat ) => {
                 dst.accum(&mut f);

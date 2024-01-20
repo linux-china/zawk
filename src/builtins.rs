@@ -412,7 +412,7 @@ impl Function {
                 },
                 Int,
             ),
-            Min | Max => (smallvec![Str,Str], Str),
+            Min | Max => (smallvec![Str,Str,Str], Str),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
                 arith_sig(incoming[0], incoming[1])
             }
@@ -521,7 +521,7 @@ impl Function {
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
             Trim => 2,
-            Min | Max => 2,
+            Min | Max => 3,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
