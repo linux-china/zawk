@@ -12,11 +12,12 @@
 ### Bind function with AWK compiler
 
 * add display for `impl Display for Function`(字符串化) of [src/display.rs](../src/display.rs)
-* Add function name in `fn builtin(`(指令集) of [src/compile.rs](../src/compile.rs)
+* Add function name in `fn builtin(`(内置指令集) of [src/compile.rs](../src/compile.rs)
+* Add function signature in `pub(crate) enum Instr`(指令签名) of [src/bytecode.rs](../src/bytecode.rs)
 * Add function name in `pub(crate) fn accum(`(清空器) of [src/bytecode.rs](../src/bytecode.rs)
 * Add function name in `fn visit_ll(`(遍历器) of [src/dataflow.rs](../src/dataflow.rs)
-* Add function name in `fn run_at(` of [src/interp.rs](../src/interp.rs) 重点看一下这个函数
-* register function in `register! {` of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
+* Add function name in `fn run_at(`(并发运行) of [src/interp.rs](../src/interp.rs) 并发时调用
+* register function in `register! {`(指令编译注册) of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 
 ### Function implementation
 
@@ -56,6 +57,11 @@ If you can not determine param type, such as min(param1, param2), please use `St
   of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 * Add logic in `fn floatfunc(` of [src/codegen/clif.rs](../src/codegen/clif.rs)
 
+### Resource functions
+
+* File: getline https://www.gnu.org/software/gawk/manual/html_node/Getline.html
+* Redis: 
+* NATS: 
 
 ### Global variables
 
@@ -77,7 +83,7 @@ please refer `ENVIRON` as example.
    - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
    - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
 * array: sort, sorti
-* json: json_parse(text), json_stringify(array)
+* json: from_json(text), to_json(array)
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
 * Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)` 
