@@ -83,7 +83,7 @@ please refer `ENVIRON` as example.
    - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
    - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
 * array: sort, sorti
-* json: from_json(text), to_json(array)
+* json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
 * Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)` 
