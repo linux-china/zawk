@@ -25,6 +25,8 @@ pub mod crypto;
 pub mod str_escape;
 pub mod math_util;
 
+pub mod json;
+
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
 
