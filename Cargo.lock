@@ -646,6 +646,8 @@ dependencies = [
  "regex",
  "regex-syntax 0.7.5",
  "ryu",
+ "serde",
+ "serde_json",
  "sha2",
  "smallvec",
  "target-lexicon",
@@ -1327,6 +1329,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.111"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
