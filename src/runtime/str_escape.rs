@@ -1,5 +1,5 @@
 /// escape text by format
-pub fn escape(text: &str, format: &str) -> String {
+pub fn escape(format: &str, text: &str) -> String {
     match format {
         "csv" => escape_csv(text),
         "tsv" => escape_tsv(text),

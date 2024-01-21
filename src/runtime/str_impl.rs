@@ -556,7 +556,7 @@ impl<'a> Str<'a> {
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
         let src = self.to_string();
         let format = format.to_string();
-        Str::from(escape(&src,&format))
+        Str::from(escape(&format, &src))
     }
 
     pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {
