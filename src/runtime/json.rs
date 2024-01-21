@@ -67,7 +67,7 @@ fn from_json_array(json_text: &str) -> StrMap<Str> {
     let result = json::from_str::<Vec<Value>>(json_text);
     if let Ok(json_array) = result {
         for (index, json_value) in json_array.iter().enumerate() {
-            let key = index.to_string();
+            let key = (index +1).to_string();
             match json_value {
                 Value::Bool(b) => {
                     if *b {
