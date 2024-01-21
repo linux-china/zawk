@@ -205,7 +205,12 @@ pub(crate) enum Instr<'a> {
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
-    ToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
+    MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
+    MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
+    MapIntStrToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    MapStrIntToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Int>>),
+    MapStrFloatToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Float>>),
+    MapStrStrToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
@@ -499,7 +504,27 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }
-            ToJson(dst, arr) => {
+            MapIntIntToJson(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapIntFloatToJson(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapIntStrToJson(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapStrIntToJson(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapStrFloatToJson(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapStrStrToJson(dst, arr) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }

@@ -752,10 +752,35 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    ToJson(dst, arr) => {
+                    MapIntIntToJson(dst, arr) => {
                         let arr = self.get(*arr);
                         let dst = *dst;
-                        *self.get_mut(dst) = Str::from(runtime::json::to_json(arr));
+                        *self.get_mut(dst) = Str::from(runtime::json::map_int_int_to_json(arr));
+                    }
+                    MapIntFloatToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::map_int_float_to_json(arr));
+                    }
+                    MapIntStrToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::map_int_str_to_json(arr));
+                    }
+                    MapStrIntToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::map_str_int_to_json(arr));
+                    }
+                    MapStrFloatToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::map_str_float_to_json(arr));
+                    }
+                    MapStrStrToJson(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::json::map_str_str_to_json(arr));
                     }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);

@@ -255,7 +255,8 @@ pub(crate) enum HighLevel {
     // TODO we may not strictly need Call's dst_ty and Ret's Ty field. Other information may have
     // it available.
     Call {
-        func_id: NumTy, /* monomorphized function id */
+        func_id: NumTy,
+        /* monomorphized function id */
         dst_reg: NumTy,
         dst_ty: Ty,
         args: SmallVec<(NumTy, Ty)>,
@@ -327,7 +328,7 @@ pub(crate) struct Typer<'a> {
     id_map: HashMap<
         // TODO: make newtypes for these different Ids?
         (
-            NumTy,        /* cfg-level func id */
+            NumTy, /* cfg-level func id */
             SmallVec<Ty>, /* arg types */
         ),
         NumTy, /* bytecode-level func id */
@@ -407,7 +408,7 @@ pub(crate) struct Frame<'a> {
 impl<'a> Frame<'a> {
     fn load_slots(
         &mut self,
-        regs: impl Iterator<Item = (NumTy, Ty)>,
+        regs: impl Iterator<Item=(NumTy, Ty)>,
         ctr: &mut SlotCounter,
     ) -> Result<()> {
         let stream = self.cfg.node_weight_mut(self.entry).unwrap();
@@ -421,7 +422,7 @@ impl<'a> Frame<'a> {
     }
     fn store_slots(
         &mut self,
-        regs: impl Iterator<Item = (NumTy, Ty)>,
+        regs: impl Iterator<Item=(NumTy, Ty)>,
         ctr: &mut SlotCounter,
     ) -> Result<()> {
         let stream = self.cfg.node_weight_mut(self.exit).unwrap();
@@ -502,11 +503,11 @@ fn accum(inst: &Instr, mut f: impl FnMut(NumTy, Ty)) {
     match inst {
         Left(ll) => ll.accum(f),
         Right(Call {
-            dst_reg,
-            dst_ty,
-            args,
-            ..
-        }) => {
+                  dst_reg,
+                  dst_ty,
+                  args,
+                  ..
+              }) => {
             f(*dst_reg, *dst_ty);
             for (reg, ty) in args.iter().cloned() {
                 f(reg, ty)
@@ -603,11 +604,11 @@ impl<'a> Typer<'a> {
                     match stmt {
                         Either::Left(ll) => instrs.push(ll.clone()),
                         Either::Right(Call {
-                            func_id,
-                            dst_reg,
-                            dst_ty,
-                            args,
-                        }) => {
+                                          func_id,
+                                          dst_reg,
+                                          dst_ty,
+                                          args,
+                                      }) => {
                             // args have already been normalized, and return type already matches.
                             // All we need to do is push local variables (to avoid clobbers) and
                             // push args onto the stack.
@@ -799,7 +800,7 @@ impl<'a> Typer<'a> {
                 func_info: &gen.func_info,
                 stream: &mut stream,
             }
-            .process_function(&pc.funcs[src_func])?;
+                .process_function(&pc.funcs[src_func])?;
         }
         // TODO: mark used frames first and then exclude them from the analyses?
         gen.run_analyses()?;
@@ -882,7 +883,7 @@ impl<'a> Typer<'a> {
                             return err!(
                                 "unexpected instruction during regex constant folding: {:?}",
                                 inst
-                            )
+                            );
                         }
                     };
                     *inst = new_inst;
@@ -1288,7 +1289,7 @@ impl<'a, 'b> View<'a, 'b> {
                     key: key_reg,
                 }),
             Null | Int | Float | Str | IterInt | IterStr => {
-                return err!("[load_map] expected map type, found {:?}", arr_ty)
+                return err!("[load_map] expected map type, found {:?}", arr_ty);
             }
         };
         // Convert the result: note that if we had load_reg == dst_reg, then this is a noop.
@@ -1654,7 +1655,7 @@ impl<'a, 'b> View<'a, 'b> {
                         return err!(
                             "Incrementing map with non-numeric type: {:?}",
                             &conv_tys[..]
-                        )
+                        );
                     }
                 })
             }
@@ -1769,7 +1770,7 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Mktime(
                         res_reg.into(),
                         conv_regs[0].into(),
-                        conv_regs[1].into()
+                        conv_regs[1].into(),
                     ))
                 }
             }
@@ -1796,7 +1797,33 @@ impl<'a, 'b> View<'a, 'b> {
             }
             ToJson => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::ToJson(res_reg.into(), conv_regs[0].into()))
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapIntStr => {
+                            self.pushl(LL::MapIntStrToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapStrInt => {
+                            self.pushl(LL::MapStrIntToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapStrFloat => {
+                            self.pushl(LL::MapStrFloatToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapStrStr => {
+                            self.pushl(LL::MapStrStrToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "ToJson only support strstrMap, intStrMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
                 }
             }
             Min => {
@@ -1805,7 +1832,7 @@ impl<'a, 'b> View<'a, 'b> {
                         res_reg.into(),
                         conv_regs[0].into(),
                         conv_regs[1].into(),
-                        conv_regs[2].into()
+                        conv_regs[2].into(),
                     ))
                 }
             }
@@ -1815,7 +1842,7 @@ impl<'a, 'b> View<'a, 'b> {
                         res_reg.into(),
                         conv_regs[0].into(),
                         conv_regs[1].into(),
-                        conv_regs[2].into()
+                        conv_regs[2].into(),
                     ))
                 }
             }
@@ -2055,7 +2082,7 @@ impl<'a, 'b> View<'a, 'b> {
                             "in stmt {:?} computed type is non-map type {:?}",
                             stmt,
                             a_ty
-                        )
+                        );
                     }
                 };
             }

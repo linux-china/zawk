@@ -484,7 +484,7 @@ impl Function {
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
             FromJson => (smallvec![Str], MapStrStr),
-            ToJson => (smallvec![MapStrStr], Str),
+            ToJson => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Escape => (smallvec![Str, Str], Str),

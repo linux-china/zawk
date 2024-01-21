@@ -1,7 +1,71 @@
 use std::collections::HashMap;
 use miniserde::json;
 use miniserde::json::{Number, Value};
-use crate::runtime::{Str, StrMap};
+use crate::runtime::{Int, Str, StrMap, IntMap, Float};
+
+
+pub fn map_int_int_to_json(arr: &IntMap<Int>) -> String {
+    let mut items: Vec<Int> = vec![];
+    arr.iter(|map| {
+        for (_, value) in map {
+            items.push(*value);
+        }
+    });
+    json::to_string(&items)
+}
+
+pub fn map_int_float_to_json(arr: &IntMap<Float>) -> String {
+    let mut items: Vec<Float> = vec![];
+    arr.iter(|map| {
+        for (_, value) in map {
+            items.push(*value);
+        }
+    });
+    json::to_string(&items)
+}
+
+pub fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
+    let mut items: Vec<String> = vec![];
+    arr.iter(|map| {
+        for (_, value) in map {
+            items.push(value.to_string());
+        }
+    });
+    json::to_string(&items)
+}
+
+pub fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
+    let mut json_obj: HashMap<String, Int> = HashMap::new();
+    obj.iter(|map| {
+        for (key, value) in map {
+             json_obj.insert(key.to_string(), *value);
+        }
+    });
+    json::to_string(&json_obj)
+}
+
+pub fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
+    let mut json_obj: HashMap<String, Float> = HashMap::new();
+    obj.iter(|map| {
+        for (key, value) in map {
+                json_obj.insert(key.to_string(), *value);
+        }
+    });
+    json::to_string(&json_obj)
+}
+
+pub fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
+    let mut json_obj: HashMap<String, String> = HashMap::new();
+    obj.iter(|map| {
+        for (key, value) in map {
+            if !value.is_empty() {
+                json_obj.insert(key.to_string(), value.to_string());
+            }
+        }
+    });
+    json::to_string(&json_obj)
+}
+
 
 pub fn to_json(obj: &StrMap<Str>) -> String {
     let mut json_obj: HashMap<String, Value> = HashMap::new();
@@ -67,7 +131,7 @@ fn from_json_array(json_text: &str) -> StrMap<Str> {
     let result = json::from_str::<Vec<Value>>(json_text);
     if let Ok(json_array) = result {
         for (index, json_value) in json_array.iter().enumerate() {
-            let key = (index +1).to_string();
+            let key = (index + 1).to_string();
             match json_value {
                 Value::Bool(b) => {
                     if *b {

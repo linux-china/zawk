@@ -227,7 +227,12 @@ pub(crate) mod boilerplate {
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),
-            ToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapIntIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapIntFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapIntStrToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapStrIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapStrFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapStrStrToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             Trim(dst,src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));

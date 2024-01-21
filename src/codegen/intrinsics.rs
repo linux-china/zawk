@@ -155,7 +155,12 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
-        [ReadOnly] to_json(map_ty) -> str_ty;
+        [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
+        [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
+        [ReadOnly] map_int_str_to_json(map_ty) -> str_ty;
+        [ReadOnly] map_str_int_to_json(map_ty) -> str_ty;
+        [ReadOnly] map_str_float_to_json(map_ty) -> str_ty;
+        [ReadOnly] map_str_str_to_json(map_ty) -> str_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
 
@@ -830,9 +835,44 @@ pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(json_obj)
 }
 
-pub(crate) unsafe extern "C" fn to_json(arr: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn map_int_int_to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+     let json_text = runtime::json::map_int_int_to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let json_text = runtime::json::map_int_float_to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_int_str_to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let json_text = runtime::json::map_int_str_to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_str_int_to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, StrMap<Int>>(arr);
+    let json_text = runtime::json::map_str_int_to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_str_float_to_json(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
+    let json_text = runtime::json::map_str_float_to_json(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
-     let json_text = runtime::json::to_json(&obj);
+    let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
