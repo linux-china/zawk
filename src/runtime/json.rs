@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use miniserde::json;
 use miniserde::json::{Number, Value};
 use crate::runtime::{Str, StrMap};
+use crate::runtime::str_escape::escape;
 
 pub fn to_json(obj: &StrMap<Str>) -> String {
     let mut json_obj: HashMap<String, Value> = HashMap::new();
@@ -30,9 +31,9 @@ pub fn to_json(obj: &StrMap<Str>) -> String {
 
 pub fn from_json(json_text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
-    if let Ok(json_obj) = json::from_str::<HashMap<String,Value>>(json_text) {
+    if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(json_text) {
         for (key, value) in json_obj {
-           match value {
+            match value {
                 Value::Bool(b) => {
                     if b {
                         map.insert(Str::from(key), Str::from("1"));
@@ -46,9 +47,29 @@ pub fn from_json(json_text: &str) -> StrMap<Str> {
                 Value::String(s) => {
                     map.insert(Str::from(key), Str::from(s));
                 }
+                Value::Array(arr) => {
+                    map.insert(Str::from(key), Str::from(json::to_string(&arr)));
+                }
+                Value::Object(obj) => {
+                    map.insert(Str::from(key), Str::from(json::to_string(&obj)));
+                }
                 _ => {}
             }
         }
     }
     return StrMap::from(map);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_array_json() {
+        //language=json
+        let json_text = r#"  {"id": 1, "names" : ["first", "second"] } "#;
+        let json_object = json::from_str::<HashMap<String, Value>>(json_text).unwrap();
+        let text = json::to_string(&json_object);
+        println!("{}", text);
+    }
 }
