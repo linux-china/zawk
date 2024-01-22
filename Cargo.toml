@@ -62,6 +62,7 @@ bcrypt="0.15"
 murmur3="0.5"
 hex = "0.4"
 miniserde="0.1"
+local-ip-address="0.5"
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
