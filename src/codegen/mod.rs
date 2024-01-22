@@ -852,6 +852,9 @@ pub(crate) trait CodeGenerator: Backend {
             MapStrIntToJson(dst,arr) => self.unop(intrinsic!(map_str_int_to_json), dst, arr),
             MapStrFloatToJson(dst,arr) => self.unop(intrinsic!(map_str_float_to_json), dst, arr),
             MapStrStrToJson(dst,arr) => self.unop(intrinsic!(map_str_str_to_json), dst, arr),
+            MapIntIntAsort(dst, arr) => self.unop(intrinsic!(map_int_int_asort), dst, arr),
+            MapIntFloatAsort(dst, arr) => self.unop(intrinsic!(map_int_float_asort), dst, arr),
+            MapIntStrAsort(dst, arr) => self.unop(intrinsic!(map_int_str_asort), dst, arr),
             Trim(dst,src, pat) => {
                 let src = self.get_val(src.reflect())?;
                 let pat = self.get_val(pat.reflect())?;

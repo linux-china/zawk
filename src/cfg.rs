@@ -1706,6 +1706,11 @@ where
                     prim_args.push(PrimVal::StrLit(b""));
                 }
 
+                // asort(arr) => asort(arr,dst);
+               /* if bi == builtins::Function::Asort && args.len() == 1 {
+                    prim_args.push(PrimVal::ILit(0));
+                }
+                */
                 // srand() => the special "reseed rng" function
                 if bi == builtins::Function::Srand && args.is_empty() {
                     bi = builtins::Function::ReseedRng;

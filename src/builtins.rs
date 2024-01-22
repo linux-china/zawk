@@ -45,6 +45,7 @@ pub enum Function {
     ToJson,
     Min,
     Max,
+    Asort,
     Contains,
     Delete,
     Clear,
@@ -245,6 +246,7 @@ static_map!(
     ["to_json", Function::ToJson],
     ["min", Function::Min],
     ["max", Function::Max],
+    ["asort", Function::Asort],
     ["truncate", Function::Truncate],
     ["escape", Function::Escape],
     ["match", Function::Match],
@@ -492,6 +494,7 @@ impl Function {
             Decode => (smallvec![Str, Str], Str),
             Digest => (smallvec![Str, Str], Str),
             Hmac => (smallvec![Str, Str, Str], Str),
+            Asort => (smallvec![incoming[0]], Int),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -528,6 +531,7 @@ impl Function {
             Strftime | Mktime => 2,
             Trim => 2,
             Min | Max => 3,
+            Asort => 1,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
@@ -568,7 +572,7 @@ impl Function {
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
-            | System | HexToInt => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr

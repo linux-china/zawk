@@ -161,6 +161,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_str_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_float_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_str_to_json(map_ty) -> str_ty;
+        map_int_int_asort(map_ty) -> int_ty;
+        map_int_float_asort(map_ty) -> int_ty;
+        map_int_str_asort(map_ty) -> int_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
 
@@ -875,6 +878,59 @@ pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void) -> U128 {
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void) -> Int {
+    let obj =mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let mut items: Vec<Int> = vec![];
+    for index in obj.to_vec() {
+        items.push(obj.get(&index));
+    }
+    items.sort();
+    obj.clear();
+    let mut index = 1;
+    for item in items {
+        obj.insert(index, item);
+        index += 1;
+    }
+    let result = obj.len() as Int;
+    mem::forget(obj);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_asort(arr: *mut c_void) -> Int {
+    let obj =mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let mut items: Vec<f64> = vec![];
+    for index in obj.to_vec() {
+        items.push(obj.get(&index));
+    }
+    obj.clear();
+    let mut index = 1;
+    for item in items {
+        obj.insert(index, item);
+        index += 1;
+    }
+    let result = obj.len() as Int;
+    mem::forget(obj);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void) -> Int {
+    let obj =mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let mut items: Vec<String> = vec![];
+    for index in obj.to_vec() {
+        items.push(obj.get(&index).to_string());
+    }
+    items.sort();
+    obj.clear();
+    let mut index = 1;
+    for item in items {
+        obj.insert(index, Str::from(item));
+        index += 1;
+    }
+    let result = obj.len() as Int;
+    mem::forget(obj);
+    result
 }
 
 pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut c_void) {

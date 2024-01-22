@@ -782,6 +782,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(runtime::json::map_str_str_to_json(arr));
                     }
+                    MapIntIntAsort(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = arr.len() as Int;
+                    }
+                    MapIntFloatAsort( dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = arr.len() as Int;
+                    }
+                    MapIntStrAsort( dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = arr.len() as Int;
+                    }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);

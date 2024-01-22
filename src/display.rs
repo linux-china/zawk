@@ -180,6 +180,7 @@ impl Display for Function {
             ToJson => write!(f, "to_json"),
             Min => write!(f, "min"),
             Max => write!(f, "max"),
+            Asort => write!(f, "asort"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
