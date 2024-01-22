@@ -79,6 +79,14 @@ please refer `ENVIRON` as example.
 * add display in `impl Display for Variable`(字符串化) of [src/display.rs](../src/display.rs)
 * Add variable support in `pub fn shuttle(&self, pid: Int)` of [src/interp.rs](../src/interp.rs)
 
+### File format support
+
+* text
+* csv
+* s3 
+* http
+* Apache Parquet
+
 ### UDF(User Defined Function)
 
 * uuid
@@ -98,6 +106,7 @@ please refer `ENVIRON` as example.
 * Redis KV: use Map structure, `kv_get("redis://user:password@host:6379/db/namespace")`
 * Events: `publish(namespace, body)`. To NATS, `publish("nats://host:4222/topic", body)`
 * Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
+* S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply ENV: `OSS_ENDPOINT`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_REGION`
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
