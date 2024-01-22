@@ -48,6 +48,11 @@ pub(crate) unsafe extern "C" fn uuid(runtime: *mut c_void) -> U128 {
 
 If you can not determine param type, such as min(param1, param2), please use `Str`.
 
+### Dynamic Param Type
+
+* Please check param type in `fn builtin(`(内置指令集) of [src/compile.rs](../src/compile.rs)  and match function
+  signature in `pub(crate) enum Instr`(指令签名) of [src/bytecode.rs](../src/bytecode.rs).
+
 ### Custom Math function
 
 * Declare function name in `pub enum FloatFunc ` of [src/builtins.rs](../src/builtins.rs)
@@ -60,8 +65,8 @@ If you can not determine param type, such as min(param1, param2), please use `St
 ### Resource functions
 
 * File: getline https://www.gnu.org/software/gawk/manual/html_node/Getline.html
-* Redis: 
-* NATS: 
+* Redis:
+* NATS:
 
 ### Global variables
 
@@ -77,19 +82,22 @@ please refer `ENVIRON` as example.
 ### UDF(User Defined Function)
 
 * uuid
+* array: `delete arr[1]` `delete arr`, `n = asort(arr)`
 * math: abs, floor, ceiling, round, fend("1+2"), min(1,2), max("A","B")
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
-   - trim: `trim($1)` or `trim($1, "[]()")` 
-   - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
-   - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
-* array: sort, sorti
+    - trim: `trim($1)` or `trim($1, "[]()")`
+    - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
+    - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)` 
+* Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
+* KV: kv_get(namespace, key) kv_put(namespace, key, text), kv_delete(namespace, key), kv_clear(namespace)
+* Redis KV: use Map structure, redis_get(namespace)
+* Network: `local_ip()`  http_get(Str,StrStrMap), http_post(Str, StrStrMap, Str), 
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-    - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats  
+    - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
