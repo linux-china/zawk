@@ -94,9 +94,9 @@ please refer `ENVIRON` as example.
 * Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
-* KV: kv_get(namespace, key) kv_put(namespace, key, text), kv_delete(namespace, key), kv_clear(namespace)
+* KV: `kv_get(namespace, key)`, `kv_put(namespace, key, text)`, `kv_delete(namespace, key)`, `kv_clear(namespace)`
 * Redis KV: use Map structure, redis_get(namespace)
-* Network: `local_ip()`  http_get(Str,StrStrMap), http_post(Str, StrStrMap, Str), 
+* Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
