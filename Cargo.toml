@@ -65,6 +65,7 @@ miniserde = "0.1"
 local-ip-address = "0.5"
 reqwest = { version = "0.11", features = ["blocking"] }
 dirs = "5"
+notify-rust = "4"
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
