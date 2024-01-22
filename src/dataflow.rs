@@ -152,7 +152,6 @@ impl<T> From<&Reg<T>> for Key
 pub(crate) mod boilerplate {
     //! Some utility functions for discovering reads and writes in various parts of the IR.
     //! TODO: more precise tracking of function arguments.
-    use crate::builtins::Function::{KvDelete, KvPut};
     use super::*;
 
     pub(crate) fn visit_hl(
@@ -269,11 +268,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(namespace.into()));
                 f(dst.into(), Some(key.into()));
             }
-            KvPut( namespace, key, value) => {
+            KvPut( _namespace, _key, _value) => {
             }
-            KvDelete( namespace, key) => {
+            KvDelete( _namespace, _key) => {
             }
-            KvClear( namespace) => {
+            KvClear( _namespace) => {
             }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));

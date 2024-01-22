@@ -766,7 +766,7 @@ pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder:
 pub(crate) unsafe extern "C" fn kv_get(namespace: *mut U128, key: *mut U128) -> U128 {
     let namespace = &*(namespace as *mut Str);
     let key = &*(key as *mut Str);
-    let value = runtime::kv::kv_get(key.as_str(), key.as_str() );
+    let value = runtime::kv::kv_get(namespace.as_str(), key.as_str() );
     mem::transmute::<Str, U128>(Str::from(value))
 }
 

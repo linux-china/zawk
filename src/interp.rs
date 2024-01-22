@@ -832,13 +832,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);
                         let value = index(&self.strs, value);
+                        runtime::kv::kv_put(namespace.as_str(), key.as_str(), value.as_str());
                     }
                     KvDelete(namespace, key) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);
+                        runtime::kv::kv_delete(namespace.as_str(), key.as_str());
                     }
                     KvClear(namespace) => {
                         let namespace = index(&self.strs, namespace);
+                        runtime::kv::kv_clear(namespace.as_str());
                     }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);

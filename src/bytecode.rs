@@ -9,7 +9,6 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
-use crate::builtins::Function::{KvGet, KvPut};
 
 pub(crate) use crate::interp::Interp;
 
