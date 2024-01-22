@@ -95,8 +95,8 @@ please refer `ENVIRON` as example.
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
 * KV: `kv_get(namespace, key)`, `kv_put(namespace, key, text)`, `kv_delete(namespace, key)`, `kv_clear(namespace)`
-* Redis KV: use Map structure, `kv_get("redis://[:password@]host[:port][/db]/namespace")`
-* Events: `publish(namespace, body)`. To NATS, `publish("nats://host:port/topic", body)`
+* Redis KV: use Map structure, `kv_get("redis://user:password@host:6379/db/namespace")`
+* Events: `publish(namespace, body)`. To NATS, `publish("nats://host:4222/topic", body)`
 * Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
 * date time: utc by default
     - systime: current Unix time
