@@ -82,7 +82,11 @@ llvm_backend = ["llvm-sys"]
 unstable = []
 
 [profile.release]
-lto = "thin"
+strip = true
+lto = true
+opt-level = "z"
+codegen-units = 1
 
 [build-dependencies]
 lalrpop = "0.20.0"
+
