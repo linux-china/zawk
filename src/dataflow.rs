@@ -137,8 +137,8 @@ pub(crate) enum Key {
 }
 
 impl<T> From<&Reg<T>> for Key
-where
-    Reg<T>: Accum,
+    where
+        Reg<T>: Accum,
 {
     fn from(r: &Reg<T>) -> Key {
         let (reg, ty) = r.reflect();
@@ -193,38 +193,38 @@ pub(crate) mod boilerplate {
             StoreConstFloat(dst, _) => f(dst.into(), None),
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
-            Uuid(dst) => f(dst.into(),None),
-            LocalIp(dst) => f(dst.into(),None),
-            Systime(dst) => f(dst.into(),None),
-            Encode(dst,format, text) => {
+            Uuid(dst) => f(dst.into(), None),
+            LocalIp(dst) => f(dst.into(), None),
+            Systime(dst) => f(dst.into(), None),
+            Encode(dst, format, text) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
-            },
-            Decode(dst,format, text) => {
+            }
+            Decode(dst, format, text) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
-            },
-            Digest(dst,algorithm, text) => {
+            }
+            Digest(dst, algorithm, text) => {
                 f(dst.into(), Some(algorithm.into()));
                 f(dst.into(), Some(text.into()));
-            },
-            Escape(dst,format, text) => {
+            }
+            Escape(dst, format, text) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
-            },
-            Hmac(dst,algorithm, key, text) => {
+            }
+            Hmac(dst, algorithm, key, text) => {
                 f(dst.into(), Some(algorithm.into()));
                 f(dst.into(), Some(key.into()));
                 f(dst.into(), Some(text.into()));
-            },
-            Strftime(dst,format, timestamp) => {
-                    f(dst.into(), Some(format.into()));
-                    f(dst.into(), Some(timestamp.into()));
-            },
+            }
+            Strftime(dst, format, timestamp) => {
+                f(dst.into(), Some(format.into()));
+                f(dst.into(), Some(timestamp.into()));
+            }
             Mktime(dst, date_time_text, timezone) => {
                 f(dst.into(), Some(date_time_text.into()));
                 f(dst.into(), Some(timezone.into()));
-            },
+            }
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),
@@ -234,28 +234,37 @@ pub(crate) mod boilerplate {
             MapStrIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapStrFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapStrStrToJson(dst, arr) => f(dst.into(), Some(arr.into())),
-            MapIntIntAsort(dst, arr) => f(dst.into(), Some(arr.into())),
-            MapIntFloatAsort(dst, arr) => f(dst.into(), Some(arr.into())),
-            MapIntStrAsort(dst, arr) => f(dst.into(), Some(arr.into())),
-            Trim(dst,src, pat) => {
+            MapIntIntAsort(dst, arr, target) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(target.into()));
+            }
+            MapIntFloatAsort(dst, arr, target) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(target.into()));
+            },
+            MapIntStrAsort(dst, arr, target) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(target.into()));
+            },
+            Trim(dst, src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));
-            },
-            Truncate(dst,src, len, place_holder) => {
+            }
+            Truncate(dst, src, len, place_holder) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(len.into()));
                 f(dst.into(), Some(place_holder.into()));
-            },
-            Max(dst,first, second,third) => {
-               f(dst.into(), Some(first.into()));
-               f(dst.into(), Some(second.into()));
-               f(dst.into(), Some(third.into()));
-            },
-            Min(dst,first, second,third) => {
-               f(dst.into(), Some(first.into()));
-               f(dst.into(), Some(second.into()));
-               f(dst.into(), Some(third.into()));
-            },
+            }
+            Max(dst, first, second, third) => {
+                f(dst.into(), Some(first.into()));
+                f(dst.into(), Some(second.into()));
+                f(dst.into(), Some(third.into()));
+            }
+            Min(dst, first, second, third) => {
+                f(dst.into(), Some(first.into()));
+                f(dst.into(), Some(second.into()));
+                f(dst.into(), Some(third.into()));
+            }
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),
@@ -334,9 +343,9 @@ pub(crate) mod boilerplate {
             | LTEFloat(dst, x, y)
             | GTEFloat(dst, x, y)
             | EQFloat(dst, x, y) => {
-                    f(dst.into(), Some(x.into()));
-                    f(dst.into(), Some(y.into()));
-                }
+                f(dst.into(), Some(x.into()));
+                f(dst.into(), Some(y.into()));
+            }
             LTInt(dst, x, y)
             | GTInt(dst, x, y)
             | LTEInt(dst, x, y)
@@ -402,7 +411,7 @@ pub(crate) mod boilerplate {
                 // a null value will be inserted as a value into the map
                 f(Key::MapVal(*map, *map_ty), None);
                 f(Key::Reg(*dst, map_ty.val().unwrap()), Some(Key::MapVal(*map, *map_ty)))
-            },
+            }
             Len { map_ty, dst, map } => f(Key::Reg(*dst, Ty::Int), Some(Key::Reg(*map, *map_ty))),
             Store { map_ty, map, key, val } => {
                 f(Key::MapKey(*map, *map_ty), Some(Key::Reg(*key, map_ty.key().unwrap())));
@@ -423,7 +432,7 @@ pub(crate) mod boilerplate {
             IterBegin { map_ty, dst, map } => {
                 f(Key::Reg(*dst, map_ty.key_iter().unwrap()), Some(Key::MapKey(*map, *map_ty)))
             }
-            IterGetNext{iter_ty, dst, iter} => {
+            IterGetNext { iter_ty, dst, iter } => {
                 f(Key::Reg(*dst, iter_ty.iter().unwrap()), Some(Key::Reg(*iter, *iter_ty)));
             }
             LoadVarStr(dst, v) => f(dst.into(), Some(Key::Var(*v))),
@@ -435,7 +444,7 @@ pub(crate) mod boilerplate {
                 f(Key::MapVal(reg, ty), Some(Key::VarVal(*v)));
                 f(Key::VarKey(*v), Some(Key::MapKey(reg, ty)));
                 f(Key::VarVal(*v), Some(Key::MapVal(reg, ty)));
-            },
+            }
             StoreVarStrMap(v, reg) | LoadVarStrMap(reg, v) => {
                 let (reg, ty) = reg.reflect();
 
@@ -443,7 +452,7 @@ pub(crate) mod boilerplate {
                 f(Key::MapVal(reg, ty), Some(Key::VarVal(*v)));
                 f(Key::VarKey(*v), Some(Key::MapKey(reg, ty)));
                 f(Key::VarVal(*v), Some(Key::MapVal(reg, ty)));
-            },
+            }
             StoreVarStrStrMap(v, reg) | LoadVarStrStrMap(reg, v) => {
                 let (reg, ty) = reg.reflect();
 
@@ -451,21 +460,21 @@ pub(crate) mod boilerplate {
                 f(Key::MapVal(reg, ty), Some(Key::VarVal(*v)));
                 f(Key::VarKey(*v), Some(Key::MapKey(reg, ty)));
                 f(Key::VarVal(*v), Some(Key::MapVal(reg, ty)));
-            },
+            }
             StoreVarStr(v, src) => f(Key::Var(*v), Some(src.into())),
             StoreVarInt(v, src) => f(Key::Var(*v), Some(src.into())),
 
-            LoadSlot{ty,slot,dst} =>
+            LoadSlot { ty, slot, dst } =>
                 f(Key::Reg(*dst, *ty), Some(Key::Slot(u32::try_from(*slot).expect("slot too large"), *ty))),
-            StoreSlot{ty,slot,src} =>
+            StoreSlot { ty, slot, src } =>
                 f(Key::Slot(u32::try_from(*slot).expect("slot too large"), *ty), Some(Key::Reg(*src, *ty))),
-            Delete{..}
-            | Clear {..}
+            Delete { .. }
+            | Clear { .. }
             | UpdateUsedFields()
             | SetFI(..)
-            | PrintAll{..}
-            | Contains{..} // 0 or 1
-            | IterHasNext{..}
+            | PrintAll { .. }
+            | Contains { .. } // 0 or 1
+            | IterHasNext { .. }
             | JmpIf(..)
             | Jmp(_)
             | Push(..)

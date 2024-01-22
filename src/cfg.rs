@@ -14,7 +14,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
-use crate::runtime::Int;
+use crate::runtime::{Int, Str, StrMap};
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -1707,10 +1707,10 @@ where
                 }
 
                 // asort(arr) => asort(arr,dst);
-               /* if bi == builtins::Function::Asort && args.len() == 1 {
-                    prim_args.push(PrimVal::ILit(0));
+                if bi == builtins::Function::Asort && args.len() == 1 {
+                    prim_args.push(PrimVal::Var(Ident::unused()));
                 }
-                */
+
                 // srand() => the special "reseed rng" function
                 if bi == builtins::Function::Srand && args.is_empty() {
                     bi = builtins::Function::ReseedRng;

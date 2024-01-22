@@ -162,9 +162,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_str_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_float_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_str_to_json(map_ty) -> str_ty;
-        map_int_int_asort(map_ty) -> int_ty;
-        map_int_float_asort(map_ty) -> int_ty;
-        map_int_str_asort(map_ty) -> int_ty;
+        map_int_int_asort(map_ty, map_ty) -> int_ty;
+        map_int_float_asort(map_ty, map_ty) -> int_ty;
+        map_int_str_asort(map_ty, map_ty) -> int_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
 
@@ -846,7 +846,7 @@ pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
 
 pub(crate) unsafe extern "C" fn map_int_int_to_json(arr: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
-     let json_text = runtime::json::map_int_int_to_json(&obj);
+    let json_text = runtime::json::map_int_int_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
@@ -872,70 +872,47 @@ pub(crate) unsafe extern "C" fn map_str_int_to_json(arr: *mut c_void) -> U128 {
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
-pub(crate) unsafe extern "C" fn map_str_float_to_json(arr: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn map_str_float_to_json(arr: *mut c_void, target: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
     let json_text = runtime::json::map_str_float_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
-pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void, target: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
-pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void) -> Int {
-    let obj =mem::transmute::<*mut c_void, IntMap<Int>>(arr);
-    let mut items: Vec<Int> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index));
-    }
-    items.sort();
-    obj.clear();
-    let mut index = 1;
-    for item in items {
-        obj.insert(index, item);
-        index += 1;
-    }
+pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {
+    let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let target_obj = mem::transmute::<*mut c_void, IntMap<Int>>(target);
+    math_util::map_int_int_asort(&obj, &target_obj);
     let result = obj.len() as Int;
     mem::forget(obj);
+    mem::forget(target_obj);
     result
 }
 
-pub(crate) unsafe extern "C" fn map_int_float_asort(arr: *mut c_void) -> Int {
-    let obj =mem::transmute::<*mut c_void, IntMap<Float>>(arr);
-    let mut items: Vec<f64> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index));
-    }
-    obj.clear();
-    let mut index = 1;
-    for item in items {
-        obj.insert(index, item);
-        index += 1;
-    }
+pub(crate) unsafe extern "C" fn map_int_float_asort(arr: *mut c_void, target: *mut c_void) -> Int {
+    let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let target_obj = mem::transmute::<*mut c_void, IntMap<Float>>(target);
+    math_util::map_int_float_asort(&obj, &target_obj);
     let result = obj.len() as Int;
     mem::forget(obj);
+    mem::forget(target_obj);
     result
 }
 
-pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void) -> Int {
-    let obj =mem::transmute::<*mut c_void, IntMap<Str>>(arr);
-    let mut items: Vec<String> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index).to_string());
-    }
-    items.sort();
-    obj.clear();
-    let mut index = 1;
-    for item in items {
-        obj.insert(index, Str::from(item));
-        index += 1;
-    }
+pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void, target: *mut c_void) -> Int {
+    let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let target_obj = mem::transmute::<*mut c_void, IntMap<Str>>(target);
+    math_util::map_int_str_asort(&obj, &target_obj);
     let result = obj.len() as Int;
     mem::forget(obj);
+    mem::forget(target_obj);
     result
 }
 

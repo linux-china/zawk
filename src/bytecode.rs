@@ -212,9 +212,9 @@ pub(crate) enum Instr<'a> {
     MapStrIntToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Int>>),
     MapStrFloatToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Float>>),
     MapStrStrToJson(Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
-    MapIntIntAsort(Reg<Int>, Reg<runtime::IntMap<Int>>),
-    MapIntFloatAsort(Reg<Int>, Reg<runtime::IntMap<Float>>),
-    MapIntStrAsort(Reg<Int>, Reg<runtime::IntMap<Str<'a>>>),
+    MapIntIntAsort(Reg<Int>, Reg<runtime::IntMap<Int>>, Reg<runtime::IntMap<Int>>),
+    MapIntFloatAsort(Reg<Int>, Reg<runtime::IntMap<Float>>, Reg<runtime::IntMap<Float>>),
+    MapIntStrAsort(Reg<Int>, Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
@@ -535,17 +535,19 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }
-            MapIntIntAsort( dst, arr) => {
+            MapIntIntAsort( dst, arr, target) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }
-            MapIntFloatAsort(dst, arr) => {
+            MapIntFloatAsort(dst, arr,target) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
+                target.accum(&mut f);
             }
-            MapIntStrAsort(dst, arr) => {
+            MapIntStrAsort(dst, arr,target) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
+                target.accum(&mut f);
             }
             Max(dst, first, second,third) => {
                 dst.accum(&mut f);

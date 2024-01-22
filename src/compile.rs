@@ -21,7 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::Uuid;
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -1837,13 +1836,13 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntAsort(res_reg.into(),conv_regs[0].into()))
+                            self.pushl(LL::MapIntIntAsort(res_reg.into(),conv_regs[0].into(), conv_regs[1].into()))
                         }
                         Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatAsort(res_reg.into(), conv_regs[0].into()))
+                            self.pushl(LL::MapIntFloatAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                         }
                         Ty::MapIntStr => {
-                            self.pushl(LL::MapIntStrAsort(res_reg.into(), conv_regs[0].into()))
+                            self.pushl(LL::MapIntStrAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                         }
                         _ => {
                             return err!(

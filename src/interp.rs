@@ -3,7 +3,7 @@ use crate::bytecode::{Get, Instr, Label, Reg};
 use crate::common::{NumTy, Result, Stage};
 use crate::compile::{self, Ty};
 use crate::pushdown::FieldSet;
-use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
+use crate::runtime::{self, Float, Int, IntMap, Line, LineReader, Str, UniqueStr};
 
 use crossbeam::scope;
 use crossbeam_channel::bounded;
@@ -786,17 +786,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(runtime::json::map_str_str_to_json(arr));
                     }
-                    MapIntIntAsort(dst, arr) => {
+                    MapIntIntAsort(dst, arr,target) => {
+                        //todo asort
                         let arr = self.get(*arr);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
-                    MapIntFloatAsort( dst, arr) => {
+                    MapIntFloatAsort( dst, arr,target) => {
                         let arr = self.get(*arr);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
-                    MapIntStrAsort( dst, arr) => {
+                    MapIntStrAsort( dst, arr,target) => {
                         let arr = self.get(*arr);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
