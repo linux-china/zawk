@@ -255,6 +255,15 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(len.into()));
                 f(dst.into(), Some(place_holder.into()));
             }
+            HttpGet(dst, url, headers) => {
+                f(dst.into(), Some(url.into()));
+                f(dst.into(), Some(headers.into()));
+            }
+            HttpPost(dst, url, headers, body) => {
+                f(dst.into(), Some(url.into()));
+                f(dst.into(), Some(headers.into()));
+                f(dst.into(), Some(body.into()));
+            }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));
                 f(dst.into(), Some(second.into()));

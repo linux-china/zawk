@@ -1796,6 +1796,16 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            HttpGet => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::HttpGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            HttpPost => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::HttpPost(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                }
+            }
             FromJson => {
                 if res_reg != UNUSED {
                     self.pushl(LL::FromJson(res_reg.into(), conv_regs[0].into()))

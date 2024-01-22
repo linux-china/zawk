@@ -875,6 +875,19 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(map_int_str_asort), &mut [arr, target])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            HttpGet(dst, url,headers) => {
+                let url = self.get_val(url.reflect())?;
+                let headers = self.get_val(headers.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(http_get), &mut [url, headers])?;
+                self.bind_val(dst.reflect(),resv)
+            },
+            HttpPost(dst, url,headers, body) => {
+                let url = self.get_val(url.reflect())?;
+                let headers = self.get_val(headers.reflect())?;
+                let body = self.get_val(body.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(http_post), &mut [url, headers, body])?;
+                self.bind_val(dst.reflect(),resv)
+            },
             Trim(dst,src, pat) => {
                 let src = self.get_val(src.reflect())?;
                 let pat = self.get_val(pat.reflect())?;

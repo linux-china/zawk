@@ -205,6 +205,8 @@ pub(crate) enum Instr<'a> {
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
+    HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
@@ -507,6 +509,17 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }
+            HttpGet(dst, url,headers) => {
+                dst.accum(&mut f);
+                url.accum(&mut f);
+                headers.accum(&mut f);
+            }
+            HttpPost(dst, url,headers, body) => {
+                dst.accum(&mut f);
+                url.accum(&mut f);
+                headers.accum(&mut f);
+                body.accum(&mut f);
+            }
             FromJson(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
@@ -538,6 +551,7 @@ impl<'a> Instr<'a> {
             MapIntIntAsort( dst, arr, target) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
+                target.accum(&mut f);
             }
             MapIntFloatAsort(dst, arr,target) => {
                 dst.accum(&mut f);

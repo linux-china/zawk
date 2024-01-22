@@ -43,6 +43,8 @@ pub enum Function {
     Url,
     FromJson,
     ToJson,
+    HttpGet,
+    HttpPost,
     Min,
     Max,
     Asort,
@@ -243,6 +245,8 @@ static_map!(
     ["digest", Function::Digest],
     ["hmac", Function::Hmac],
     ["url", Function::Url],
+    ["http_get", Function::HttpGet],
+    ["http_post", Function::HttpPost],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
     ["min", Function::Min],
@@ -488,6 +492,8 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
+            HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
+            HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
@@ -535,6 +541,8 @@ impl Function {
             Trim => 2,
             Min | Max => 3,
             Asort => 2,
+            HttpGet => 2,
+            HttpPost => 3,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
@@ -587,6 +595,12 @@ impl Function {
                    key: BaseTy::Str,
                    val: BaseTy::Str
                }.abs())
+            }
+            HttpGet | HttpPost => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Str
+                }.abs())
             }
             FromJson => {
                 Ok(Map {

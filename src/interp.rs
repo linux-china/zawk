@@ -3,7 +3,7 @@ use crate::bytecode::{Get, Instr, Label, Reg};
 use crate::common::{NumTy, Result, Stage};
 use crate::compile::{self, Ty};
 use crate::pushdown::FieldSet;
-use crate::runtime::{self, Float, Int, IntMap, Line, LineReader, Str, UniqueStr};
+use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
 
 use crossbeam::scope;
 use crossbeam_channel::bounded;
@@ -747,6 +747,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Url(dst, src) => {
                         let res = index(&self.strs, src).url();
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    HttpGet(dst, url, headers) => {
+                        let url = index(&self.strs, url);
+                        let headers = self.get(*headers);
+                        let res = runtime::network::http_get(url.as_str(), headers);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    HttpPost(dst, url, headers, body) => {
+                        let url = index(&self.strs, url);
+                        let headers = self.get(*headers);
+                        let body = index(&self.strs, body);
+                        let res = runtime::network::http_post(url.as_str(), headers, body);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

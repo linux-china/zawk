@@ -155,6 +155,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
+        [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
@@ -916,6 +918,22 @@ pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void, target: *mut
     result
 }
 
+pub(crate) unsafe extern "C" fn http_get(url: *mut U128, headers: *mut c_void) -> *mut c_void {
+    let url = &*(url as *mut Str);
+    let headers = mem::transmute::<*mut c_void, StrMap<Str>>(headers);
+    let resp = runtime::network::http_get(url.as_str(), &headers);
+    mem::forget(headers);
+    mem::transmute::<StrMap<Str>, *mut c_void>(resp)
+}
+
+pub(crate) unsafe extern "C" fn http_post(url: *mut U128, headers: *mut c_void, body: *mut U128) -> *mut c_void {
+    let url = &*(url as *mut Str);
+    let body = &*(body as *mut Str);
+    let headers = mem::transmute::<*mut c_void, StrMap<Str>>(headers);
+    let resp = runtime::network::http_post(url.as_str(), &headers, body);
+    mem::forget(headers);
+    mem::transmute::<StrMap<Str>, *mut c_void>(resp)
+}
 pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut c_void) {
     let runtime = &mut *(runtime as *mut Runtime);
     let s = &*(s as *mut Str);

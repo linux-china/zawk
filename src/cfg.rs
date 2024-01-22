@@ -14,7 +14,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
-use crate::runtime::{Int, Str, StrMap};
+use crate::runtime::{Int};
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -1709,6 +1709,21 @@ where
                 // asort(arr) => asort(arr,dst);
                 if bi == builtins::Function::Asort && args.len() == 1 {
                     prim_args.push(PrimVal::Var(Ident::unused()));
+                }
+
+                // http_get(url) => http_get(url,headers);
+                if bi == builtins::Function::HttpGet && args.len() == 1 {
+                    prim_args.push(PrimVal::Var(Ident::unused()));
+                }
+
+                // http_post(url) => asort(url,headers, body);
+                if bi == builtins::Function::HttpPost && args.len() == 1 {
+                    prim_args.push(PrimVal::Var(Ident::unused()));
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
+                // http_post(url,headers) => asort(url,headers, body);
+                if bi == builtins::Function::HttpPost && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b""));
                 }
 
                 // srand() => the special "reseed rng" function
