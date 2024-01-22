@@ -1,5 +1,6 @@
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
+use url::Url;
 use crate::runtime::{Str, StrMap};
 
 pub fn local_ip() -> String {
@@ -68,7 +69,29 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
 }
 
 pub(crate) fn publish(namespace: &str, body: &str) {
-    println!("message published! namespace: {}, body: {}", namespace, body)
+    if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
+        if let Ok(url) = &Url::parse(namespace) {
+            let schema = url.scheme();
+            let topic = if url.path().starts_with('/') {
+                url.path()[1..].to_string()
+            } else {
+                url.path().to_string()
+            };
+            println!("{}", topic);
+            let nc = if schema.contains("tls") {
+                nats::connect(&format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))).unwrap()
+            } else {
+                nats::connect(&format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))).unwrap()
+            };
+            nc.publish(&topic, body).unwrap();
+            nc.close();
+        }
+    } else {
+         notify_rust::Notification::new()
+             .summary(namespace)
+             .body(body)
+             .show().unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -97,5 +120,11 @@ mod tests {
         let body = Str::from("Hello");
         let resp = http_post(url, &headers, &body);
         println!("{}", resp.get(&Str::from("text")));
+    }
+
+    #[test]
+    fn test_publish_nats() {
+        let url = "nats://localhost:4222/topic1";
+        publish(url, "Hello World");
     }
 }
