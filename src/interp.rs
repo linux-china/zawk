@@ -843,6 +843,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let namespace = index(&self.strs, namespace);
                         runtime::kv::kv_clear(namespace.as_str());
                     }
+                    Publish(namespace, body) => {
+                        let namespace = index(&self.strs, namespace);
+                        let body = index(&self.strs, body);
+                        runtime::network::publish(namespace.as_str(), body.as_str());
+                    }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);

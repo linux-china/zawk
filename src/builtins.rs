@@ -49,6 +49,7 @@ pub enum Function {
     KvPut,
     KvDelete,
     KvClear,
+    Publish,
     Min,
     Max,
     Asort,
@@ -255,6 +256,7 @@ static_map!(
     ["kv_put", Function::KvPut],
     ["kv_delete", Function::KvDelete],
     ["kv_clear", Function::KvClear],
+    ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
     ["min", Function::Min],
@@ -506,6 +508,7 @@ impl Function {
             KvPut => (smallvec![Str, Str,Str], Null),
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
+            Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
@@ -558,6 +561,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
+            Publish => 2,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
@@ -627,6 +631,7 @@ impl Function {
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),
             KvPut | KvDelete | KvClear => Ok(None),
+            Publish => Ok(None),
         }
     }
 }

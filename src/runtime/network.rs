@@ -67,6 +67,10 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     }
 }
 
+pub(crate) fn publish(namespace: &str, body: &str) {
+    println!("message published! namespace: {}, body: {}", namespace, body)
+}
+
 #[cfg(test)]
 mod tests {
     use local_ip_address::local_ip;

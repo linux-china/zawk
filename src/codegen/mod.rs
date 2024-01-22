@@ -925,6 +925,12 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(kv_clear), &mut [namespace])?;
                 Ok(())
             }
+            Publish(namespace, body) => {
+                let namespace = self.get_val(namespace.reflect())?;
+                let body = self.get_val(body.reflect())?;
+                self.call_void(external!(publish), &mut [namespace, body])?;
+                Ok(())
+            }
             Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;

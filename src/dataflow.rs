@@ -274,6 +274,8 @@ pub(crate) mod boilerplate {
             }
             KvClear( _namespace) => {
             }
+            Publish( _namespace, _body) => {
+            }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));
                 f(dst.into(), Some(second.into()));

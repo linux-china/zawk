@@ -1820,6 +1820,9 @@ impl<'a, 'b> View<'a, 'b> {
             KvClear => {
                 self.pushl(LL::KvClear(conv_regs[0].into()))
             }
+            Publish => {
+                self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into()))
+            }
             FromJson => {
                 if res_reg != UNUSED {
                     self.pushl(LL::FromJson(res_reg.into(), conv_regs[0].into()))
