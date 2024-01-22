@@ -157,6 +157,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] kv_get(str_ref_ty, str_ref_ty) -> str_ty;
+        kv_put(str_ref_ty, str_ref_ty, str_ref_ty);
+        kv_delete(str_ref_ty, str_ref_ty);
+        kv_clear(str_ref_ty);
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
@@ -758,6 +762,32 @@ pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder:
     let res = src.truncate(len, place_holder);
     mem::transmute::<Str, U128>(res)
 }
+
+pub(crate) unsafe extern "C" fn kv_get(namespace: *mut U128, key: *mut U128) -> U128 {
+    let namespace = &*(namespace as *mut Str);
+    let key = &*(key as *mut Str);
+    let value = runtime::kv::kv_get(key.as_str(), key.as_str() );
+    mem::transmute::<Str, U128>(Str::from(value))
+}
+
+pub(crate) unsafe extern "C" fn kv_put(namespace: *mut U128, key: *mut U128, value: *mut U128 )  {
+    let namespace = &*(namespace as *mut Str);
+    let key = &*(key as *mut Str);
+    let value = &*(value as *mut Str);
+    runtime::kv::kv_put(namespace.as_str(), key.as_str(), value.as_str());
+}
+
+pub(crate) unsafe extern "C" fn kv_delete(namespace: *mut U128, key: *mut U128 ) {
+    let namespace = &*(namespace as *mut Str);
+    let key = &*(key as *mut Str);
+    runtime::kv::kv_delete(namespace.as_str(), key.as_str());
+}
+
+pub(crate) unsafe extern "C" fn kv_clear(namespace: *mut U128 )  {
+    let namespace = &*(namespace as *mut Str);
+    runtime::kv::kv_clear(namespace.as_str());
+}
+
 
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);

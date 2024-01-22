@@ -9,6 +9,7 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
+use crate::builtins::Function::{KvGet, KvPut};
 
 pub(crate) use crate::interp::Interp;
 
@@ -207,6 +208,10 @@ pub(crate) enum Instr<'a> {
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    KvGet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    KvPut(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    KvDelete(Reg<Str<'a>>, Reg<Str<'a>>),
+    KvClear(Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
@@ -519,6 +524,23 @@ impl<'a> Instr<'a> {
                 url.accum(&mut f);
                 headers.accum(&mut f);
                 body.accum(&mut f);
+            }
+            KvGet(dst, namespace, key) => {
+                dst.accum(&mut f);
+                namespace.accum(&mut f);
+                key.accum(&mut f);
+            }
+            KvPut(namespace, key,value) => {
+                namespace.accum(&mut f);
+                key.accum(&mut f);
+                value.accum(&mut f);
+            }
+            KvDelete(namespace, key) => {
+                namespace.accum(&mut f);
+                key.accum(&mut f);
+            }
+            KvClear( namespace) => {
+                namespace.accum(&mut f);
             }
             FromJson(dst, src) => {
                 dst.accum(&mut f);

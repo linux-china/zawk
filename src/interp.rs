@@ -822,6 +822,24 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
+                    KvGet(dst, namespace, key) => {
+                        let namespace = index(&self.strs, namespace);
+                        let key = index(&self.strs, key);
+                        let value = runtime::kv::kv_get(namespace.as_str(), key.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(value);
+                    }
+                    KvPut(namespace, key, value) => {
+                        let namespace = index(&self.strs, namespace);
+                        let key = index(&self.strs, key);
+                        let value = index(&self.strs, value);
+                    }
+                    KvDelete(namespace, key) => {
+                        let namespace = index(&self.strs, namespace);
+                        let key = index(&self.strs, key);
+                    }
+                    KvClear(namespace) => {
+                        let namespace = index(&self.strs, namespace);
+                    }
                     Min(dst, first, second,third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);

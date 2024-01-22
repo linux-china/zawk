@@ -37,6 +37,7 @@ pub(crate) mod clif;
 pub(crate) mod llvm;
 
 use intrinsics::Runtime;
+use crate::builtins::Function::{KvGet, KvPut};
 
 pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
@@ -900,6 +901,30 @@ pub(crate) trait CodeGenerator: Backend {
                 let place_holder = self.get_val(place_holder.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
                 self.bind_val(dst.reflect(),resv)
+            }
+            KvGet(dst,namespace, key) => {
+                let namespace = self.get_val(namespace.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(kv_get), &mut [namespace, key])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            KvPut(namespace, key,value) => {
+                let namespace = self.get_val(namespace.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let value = self.get_val(value.reflect())?;
+                self.call_void(external!(kv_put), &mut [namespace, key, value])?;
+                Ok(())
+            }
+            KvDelete(namespace, key) => {
+                let namespace = self.get_val(namespace.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                self.call_void(external!(kv_delete), &mut [namespace, key])?;
+                Ok(())
+            }
+            KvClear(namespace) => {
+                let namespace = self.get_val(namespace.reflect())?;
+                self.call_void(external!(kv_clear), &mut [namespace])?;
+                Ok(())
             }
             Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
