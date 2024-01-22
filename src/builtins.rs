@@ -46,6 +46,7 @@ pub enum Function {
     Min,
     Max,
     Asort,
+    LocalIp,
     Contains,
     Delete,
     Clear,
@@ -247,6 +248,7 @@ static_map!(
     ["min", Function::Min],
     ["max", Function::Max],
     ["asort", Function::Asort],
+    ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
     ["escape", Function::Escape],
     ["match", Function::Match],
@@ -480,6 +482,7 @@ impl Function {
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![], Str),
+            LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
             Mktime => (smallvec![Str, Int], Int),
@@ -521,7 +524,7 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Uuid | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Uuid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
@@ -573,7 +576,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt | Asort => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Strftime | Fend | Trim | Truncate | JoinCols
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
             | Encode | Decode | Digest | Hmac | ToJson => {

@@ -26,6 +26,7 @@ pub mod str_escape;
 pub mod math_util;
 
 pub mod json;
+pub mod network;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;

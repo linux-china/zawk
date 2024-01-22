@@ -142,6 +142,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         update_used_fields(rt_ty);
         set_fi_entry(rt_ty, int_ty, int_ty);
         uuid(rt_ty) -> str_ty;
+        local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
@@ -678,6 +679,11 @@ pub(crate) unsafe extern "C" fn uuid() -> U128 {
     let id = uuid::Uuid::new_v4().to_string();
     let res = Str::from(id);
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn local_ip() -> U128 {
+    let local_ip = runtime::network::local_ip();
+    mem::transmute::<Str, U128>(Str::from(local_ip))
 }
 
 pub(crate) unsafe extern "C" fn systime() -> Int {

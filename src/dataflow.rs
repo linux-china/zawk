@@ -194,6 +194,7 @@ pub(crate) mod boilerplate {
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
             Uuid(dst) => f(dst.into(),None),
+            LocalIp(dst) => f(dst.into(),None),
             Systime(dst) => f(dst.into(),None),
             Encode(dst,format, text) => {
                 f(dst.into(), Some(format.into()));

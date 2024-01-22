@@ -687,6 +687,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let uuid = Str::from(uuid::Uuid::new_v4().to_string());
                         *index_mut(&mut self.strs, dst) = uuid;
                     }
+                    LocalIp(dst) => {
+                        let local_ip = Str::from(runtime::network::local_ip());
+                        *index_mut(&mut self.strs, dst) = local_ip;
+                    }
                     Systime(dst) => {
                         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
                         let result: u64 = now.as_secs();

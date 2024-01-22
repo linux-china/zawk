@@ -21,6 +21,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
+use crate::builtins::Function::Uuid;
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -1690,6 +1691,12 @@ impl<'a, 'b> View<'a, 'b> {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
                 self.pushl(LL::Uuid(res_reg.into()))
+            }
+            LocalIp => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::LocalIp(res_reg.into()))
             }
             Encode => {
                 if res_reg != UNUSED {

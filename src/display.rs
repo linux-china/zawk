@@ -164,6 +164,7 @@ impl Display for Function {
             Split => write!(f, "split"),
             Length => write!(f, "length"),
             Uuid => write!(f, "uuid"),
+            LocalIp => write!(f, "local_ip"),
             Systime => write!(f, "systime"),
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),
