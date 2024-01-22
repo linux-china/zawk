@@ -9,7 +9,7 @@ pub fn local_ip() -> String {
     "127.0.0.1".to_owned()
 }
 
-pub fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
+pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
     use reqwest::blocking::Client;
     let client = Client::new();
     let resp_obj: StrMap<Str> = StrMap::default();
@@ -26,7 +26,7 @@ pub fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<
 }
 
 
-pub fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str) -> StrMap<'a, Str<'a>> {
+pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str) -> StrMap<'a, Str<'a>> {
     use reqwest::blocking::Client;
     let client = Client::new();
     let resp_obj: StrMap<Str> = StrMap::default();

@@ -874,14 +874,14 @@ pub(crate) unsafe extern "C" fn map_str_int_to_json(arr: *mut c_void) -> U128 {
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
-pub(crate) unsafe extern "C" fn map_str_float_to_json(arr: *mut c_void, target: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn map_str_float_to_json(arr: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
     let json_text = runtime::json::map_str_float_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
 }
 
-pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void, target: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void) -> U128 {
     let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);

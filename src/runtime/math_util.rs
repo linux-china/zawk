@@ -92,7 +92,7 @@ pub fn max(first: &str, second: &str, third: &str) -> String {
     }
 }
 
-pub fn map_int_int_asort(obj: &IntMap<Int>, target_obj: &IntMap<Int>) {
+pub(crate) fn map_int_int_asort(obj: &IntMap<Int>, target_obj: &IntMap<Int>) {
     let mut items: Vec<Int> = vec![];
     for index in obj.to_vec() {
         items.push(obj.get(&index));
@@ -115,7 +115,7 @@ pub fn map_int_int_asort(obj: &IntMap<Int>, target_obj: &IntMap<Int>) {
     }
 }
 
-pub fn map_int_float_asort(obj: &IntMap<Float>, target_obj: &IntMap<Float>) {
+pub(crate) fn map_int_float_asort(obj: &IntMap<Float>, target_obj: &IntMap<Float>) {
     let mut items: Vec<Float> = vec![];
     for index in obj.to_vec() {
         items.push(obj.get(&index));
@@ -137,7 +137,7 @@ pub fn map_int_float_asort(obj: &IntMap<Float>, target_obj: &IntMap<Float>) {
     }
 }
 
-pub fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
+pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
     let mut items: Vec<String> = vec![];
     for index in obj.to_vec() {
         items.push(obj.get(&index).to_string());

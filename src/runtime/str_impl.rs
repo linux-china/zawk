@@ -508,7 +508,7 @@ impl<'a> Str<'a> {
         };
     }
 
-    pub fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
+    pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = hashbrown::HashMap::new();
         let url_text = self.to_string();
         if let Ok(url) = &Url::parse(&url_text) {
