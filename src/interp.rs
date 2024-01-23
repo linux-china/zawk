@@ -889,6 +889,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let truncated_text = src.truncate(len, &place_holder);
                         *index_mut(&mut self.strs, dst) = truncated_text;
                     }
+                    Strtonum(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let num = runtime::math_util::strtonum(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = num;
+                    }
+                    Capitalize(dst, text) => {
+                        let dt_text = index(&self.strs, text).capitalize();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));
                         let ir = *ir;

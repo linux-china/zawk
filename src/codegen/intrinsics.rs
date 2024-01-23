@@ -149,6 +149,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] strtonum(str_ref_ty) -> float_ty;
+        [ReadOnly] capitalize(str_ref_ty) -> str_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
@@ -756,6 +758,17 @@ pub(crate) unsafe extern "C" fn trim(src: *mut U128, pat: *mut U128) -> U128 {
     let src = &*(src as *mut Str);
     let pat = &*(pat as *mut Str);
     let res = src.trim(pat);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn strtonum(text: *mut U128) -> Float {
+    let text = &*(text as *mut Str);
+    math_util::strtonum(text.as_str())
+}
+
+pub(crate) unsafe extern "C" fn capitalize(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.capitalize();
     mem::transmute::<Str, U128>(res)
 }
 

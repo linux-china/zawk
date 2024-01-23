@@ -256,6 +256,12 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(len.into()));
                 f(dst.into(), Some(place_holder.into()));
             }
+            Strtonum(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
+            Capitalize(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             HttpGet(dst, url, headers) => {
                 f(dst.into(), Some(url.into()));
                 f(dst.into(), Some(headers.into()));

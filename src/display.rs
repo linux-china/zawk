@@ -172,6 +172,8 @@ impl Display for Function {
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),
+            Strtonum => write!(f, "strtonum"),
+            Capitalize => write!(f, "capitalize"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),

@@ -31,7 +31,6 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
-use inflector::Inflector;
 use url::Url;
 use crate::runtime;
 use crate::runtime::str_escape::escape;

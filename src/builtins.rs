@@ -36,6 +36,8 @@ pub enum Function {
     Fend,
     Trim,
     Truncate,
+    Strtonum,
+    Capitalize,
     Escape,
     Encode,
     Decode,
@@ -268,6 +270,8 @@ static_map!(
     ["asort", Function::Asort],
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
+    ["strtonum", Function::Strtonum],
+    ["capitalize", Function::Capitalize],
     ["escape", Function::Escape],
     ["match", Function::Match],
     ["sub", Function::Sub],
@@ -519,6 +523,8 @@ impl Function {
             ToJson => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
+            Strtonum => (smallvec![Str], Float),
+            Capitalize => (smallvec![Str], Str),
             Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
@@ -561,6 +567,7 @@ impl Function {
             Strftime | Mktime => 2,
             MkBool => 1,
             Trim => 2,
+            Capitalize | Strtonum => 1,
             Min | Max => 3,
             Seq => 3,
             Asort => 2,
@@ -617,6 +624,8 @@ impl Function {
             | Encode | Decode | Digest | Hmac | ToJson => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
+            Strtonum => Ok(Scalar(BaseTy::Float).abs()),
+            Capitalize => Ok(Scalar(BaseTy::Str).abs()),
             Url => {
                Ok(Map {
                    key: BaseTy::Str,

@@ -895,6 +895,8 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(trim), &mut [src, pat])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
+            Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;
                 let len = self.get_val(len.reflect())?;

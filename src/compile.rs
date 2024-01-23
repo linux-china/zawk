@@ -1771,6 +1771,22 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Strtonum => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Strtonum(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
+            Capitalize => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Capitalize(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Mktime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mktime(
