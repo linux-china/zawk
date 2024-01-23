@@ -160,7 +160,7 @@ pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
 }
 
 const NO: &'static [&'static str] = &["false", "no", "𐄂", "0", "0.0", "0.00", "00.0",
-    "0x0", "0x00","0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00","0B0", "0B00"];
+    "0x0", "0x00", "0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00", "0B0", "0B00"];
 
 pub(crate) fn mkbool(text: &str) -> i64 {
     let text = text.trim().to_lowercase();
@@ -169,6 +169,18 @@ pub(crate) fn mkbool(text: &str) -> i64 {
     } else {
         1
     };
+}
+
+pub(crate) fn seq(start: Float, step: Float, end: Float) -> IntMap<Float> {
+    let result: IntMap<Float> = IntMap::default();
+    let mut ir = start;
+    let mut index = 1;
+    while ir <= end {
+        result.insert(index, ir);
+        ir += step;
+        index += 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -184,5 +196,11 @@ mod tests {
         assert_eq!(mkbool("yes"), 1);
         assert_eq!(mkbool(""), 0);
         assert_eq!(mkbool("✓"), 1);
+    }
+
+    #[test]
+    fn test_seq() {
+        let result = seq(1.0, 1.0, 10.0);
+        println!("{:?}", result);
     }
 }

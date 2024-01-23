@@ -205,6 +205,7 @@ pub(crate) enum Instr<'a> {
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
@@ -605,6 +606,12 @@ impl<'a> Instr<'a> {
                 first.accum(&mut f);
                 second.accum(&mut f);
                 third.accum(&mut f);
+            }
+            Seq(dst, start, step,end) => {
+                dst.accum(&mut f);
+                start.accum(&mut f);
+                step.accum(&mut f);
+                end.accum(&mut f);
             }
             Trim(dst, src, pat ) => {
                 dst.accum(&mut f);

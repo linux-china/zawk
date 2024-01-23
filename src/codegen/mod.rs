@@ -946,6 +946,13 @@ pub(crate) trait CodeGenerator: Backend {
                let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second,third])?;
                self.bind_val(dst.reflect(),resv)
             }
+            Seq(dst,start, step,end) => {
+                let start = self.get_val(start.reflect())?;
+                let step = self.get_val(step.reflect())?;
+                let end = self.get_val(end.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(seq), &mut [start, step, end])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();
                 let startv = self.get_val(start.reflect())?;

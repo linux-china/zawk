@@ -868,6 +868,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = runtime::math_util::max(num1.as_str(), num2.as_str(), num3.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
+                    Seq(dst, start, step,end) => {
+                        let start: Float = *self.get(*start);
+                        let step: Float = *self.get(*step);
+                        let end: Float = *self.get(*end);
+                        let res = runtime::math_util::seq(start, step, end);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);
                         let pat = index(&self.strs, pat);

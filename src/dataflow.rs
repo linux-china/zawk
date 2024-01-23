@@ -287,6 +287,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(second.into()));
                 f(dst.into(), Some(third.into()));
             }
+            Seq(dst, start, step, end) => {
+                f(dst.into(), Some(start.into()));
+                f(dst.into(), Some(step.into()));
+                f(dst.into(), Some(end.into()));
+            }
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),

@@ -1701,6 +1701,21 @@ where
                     prim_args.push(PrimVal::StrLit(b""));
                 }
 
+                // seq(10) => seq(1,1 10);
+                if bi == builtins::Function::Seq && args.len() == 1 {
+                    let max = prim_args.pop().unwrap();
+                    prim_args.push(PrimVal::ILit(0));
+                    prim_args.push(PrimVal::ILit(1));
+                    prim_args.push(max);
+                }
+
+                // seq(1, 10) => seq(1,1 10);
+                if bi == builtins::Function::Seq && args.len() == 2 {
+                    let max = prim_args.pop().unwrap();
+                    prim_args.push(PrimVal::ILit(1));
+                    prim_args.push(max);
+                }
+
                 // max($1, 10) => max($1, 10, "");
                 if bi == builtins::Function::Max && args.len() == 2 {
                     prim_args.push(PrimVal::StrLit(b""));

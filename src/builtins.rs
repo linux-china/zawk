@@ -53,6 +53,7 @@ pub enum Function {
     Publish,
     Min,
     Max,
+    Seq,
     Asort,
     LocalIp,
     Contains,
@@ -263,6 +264,7 @@ static_map!(
     ["to_json", Function::ToJson],
     ["min", Function::Min],
     ["max", Function::Max],
+    ["seq", Function::Seq],
     ["asort", Function::Asort],
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
@@ -437,6 +439,7 @@ impl Function {
                 Int,
             ),
             Min | Max => (smallvec![Str,Str,Str], Str),
+            Seq => (smallvec![Float,Float,Float], MapIntFloat),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
                 arith_sig(incoming[0], incoming[1])
             }
@@ -559,6 +562,7 @@ impl Function {
             MkBool => 1,
             Trim => 2,
             Min | Max => 3,
+            Seq => 3,
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
@@ -630,7 +634,13 @@ impl Function {
                     key: BaseTy::Str,
                     val: BaseTy::Str
                 }.abs())
-            }
+            },
+            Seq => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Float
+                }.abs())
+            },
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),

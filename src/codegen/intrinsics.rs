@@ -175,6 +175,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         map_int_str_asort(map_ty, map_ty) -> int_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
+        [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -815,6 +816,11 @@ pub(crate) unsafe extern "C" fn max(first: *mut U128, second: *mut U128, third: 
     let third = &*(third as *mut Str);
     let max_item = math_util::max(first.as_str(), second.as_str(), third.as_str());
     mem::transmute::<Str, U128>(Str::from(max_item))
+}
+
+pub(crate) unsafe extern "C" fn seq(start: Float, step: Float, end: Float)  -> *mut c_void {
+    let arr = math_util::seq(start, step, end);
+    mem::transmute::<IntMap<Float>, *mut c_void>(arr)
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {
