@@ -95,7 +95,7 @@ please refer `ENVIRON` as example.
 * bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
-* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B"), mean(arr)
+* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B"), `seq(start, end, step)`
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
     - strtonum: numeric value(十进制) `strtonum("0x11")` 
     - trim: `trim($1)` or `trim($1, "[]()")`
