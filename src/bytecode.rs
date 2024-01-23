@@ -200,6 +200,7 @@ pub(crate) enum Instr<'a> {
     Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Hmac(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
+    MkBool(Reg<Int>, Reg<Str<'a>>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -505,6 +506,10 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 date_time_text.accum(&mut f);
                 timezone.accum(&mut f);
+            }
+            MkBool(res, text) => {
+                res.accum(&mut f);
+                text.accum(&mut f);
             }
             Fend(dst, src) => {
                 dst.accum(&mut f);

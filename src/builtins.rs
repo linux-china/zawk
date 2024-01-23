@@ -32,6 +32,7 @@ pub enum Function {
     Systime,
     Strftime,
     Mktime,
+    MkBool,
     Fend,
     Trim,
     Truncate,
@@ -243,6 +244,7 @@ static_map!(
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
+    ["mkbool", Function::MkBool],
     ["fend", Function::Fend],
     ["trim", Function::Trim],
     ["encode", Function::Encode],
@@ -500,6 +502,7 @@ impl Function {
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
             Mktime => (smallvec![Str, Int], Int),
+            MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
@@ -553,6 +556,7 @@ impl Function {
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
+            MkBool => 1,
             Trim => 2,
             Min | Max => 3,
             Asort => 2,
@@ -602,7 +606,7 @@ impl Function {
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
-            | System | HexToInt | Asort => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | MkBool => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr

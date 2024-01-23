@@ -1780,6 +1780,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            MkBool => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::MkBool(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Systime => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);

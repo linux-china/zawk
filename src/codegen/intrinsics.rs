@@ -146,6 +146,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
+        [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -869,6 +870,11 @@ pub(crate) unsafe extern "C" fn to_lower_ascii(s: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     let res = (*(s as *mut Str as *const Str)).fend();
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    runtime::math_util::mkbool(text.as_str()) as Int
 }
 
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {

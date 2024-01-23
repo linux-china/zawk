@@ -225,6 +225,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(date_time_text.into()));
                 f(dst.into(), Some(timezone.into()));
             }
+            MkBool(dst, text) => f(dst.into(), Some(text.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),

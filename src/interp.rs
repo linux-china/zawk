@@ -741,6 +741,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    MkBool(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let result = runtime::math_util::mkbool(text.as_str());
+                        let ir = *dst;
+                        *self.get_mut(ir) = result as Int;
+                    }
                     Fend(dst, src) => {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;
