@@ -91,7 +91,17 @@ please refer `ENVIRON` as example.
 
 * uuid
 * array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`, 
-* array extension: `_join(arr, ",")`, `_reverse(arr)`, `_slice(arr, start, end)`, `_uniq(arr)`, `_keys(map)`, `_values(map)` 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格。
+* array extension: 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格
+   - `_keys(map)`:  StrMap -> IntMap
+   - `_values(map)`: StrMap -> IntMap
+   - `_join(arr, ",")` IntMap -> Str
+   - `n = asort(arr)`: gawk兼容
+   -  `_uniq(arr)`: IntMap -> IntMap
+   - `_reverse(arr)`: IntMap -> IntMap
+   - `_slice(arr, start, end)`: IntMap -> IntMap
+   - `_max(arr)`: IntMap -> Float
+   - `_min(arr)`: IntMap -> Float
+   - `_mean(arr)`: IntMap -> Float
 * bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
@@ -117,3 +127,8 @@ please refer `ENVIRON` as example.
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
+
+
+### References
+
+* inflector: add String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title cases - https://github.com/whatisinternet/inflector
