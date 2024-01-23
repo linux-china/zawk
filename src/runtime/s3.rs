@@ -64,7 +64,7 @@ pub fn put_object(bucket_name: &str, object_name: &str, body: &str) -> Result<Up
 mod tests {
     use super::*;
 
-    const BUCKET: &str = "mj-artifacts";
+    const BUCKET: &str = "your-bucket";
     const OBJECT_NAME: &str = "health2.txt";
     const BODY: &str = "Hello World!!!";
 
