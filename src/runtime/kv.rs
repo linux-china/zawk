@@ -1,6 +1,11 @@
 use std::collections::HashMap;
+use std::ops::Index;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
 use miniserde::json;
+use redis::Commands;
+use url::Url;
 
 pub(crate) fn kv_get(namespace: &str, key: &str) -> String {
     let json_file = kv_dir().join(format!("{}.json", namespace));
@@ -52,6 +57,22 @@ fn read_json_file(json_file: &PathBuf) -> HashMap<String, String> {
     HashMap::new()
 }
 
+lazy_static! {
+    static ref NATS_CONNECTIONS: Mutex<HashMap<String, redis::Connection>> = Mutex::new(HashMap::new());
+}
+
+pub(crate) fn redis_kv_get(url_text: &str, key: &str) -> String {
+    let offset = url_text.rfind('/').unwrap();
+    let hash_key = url_text[offset + 1..].to_string();
+    let conn_url = url_text[0..(url_text.len() - hash_key.len() - 1)].to_string();
+    let mut pool = NATS_CONNECTIONS.lock().unwrap();
+    let conn = pool.entry(conn_url.to_string()).or_insert_with(|| {
+        let client = redis::Client::open(conn_url).unwrap();
+        client.get_connection().unwrap()
+    });
+    conn.hget(hash_key, key).unwrap_or("".to_string())
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -66,5 +87,11 @@ mod tests {
         kv_delete(namespace, "name");
         assert_eq!(kv_get(namespace, "name"), "");
         kv_clear(namespace);
+    }
+
+    #[test]
+    fn test_redis_get() {
+        let value = redis_kv_get("redis://localhost:6379/demo1", "nick");
+        println!("{}", value);
     }
 }
