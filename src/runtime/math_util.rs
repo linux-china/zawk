@@ -158,3 +158,31 @@ pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
         }
     }
 }
+
+const YES: &'static [&'static str] = &["true", "yes", "1", "1.0", "✓"];
+const NO: &'static [&'static str] = &["false", "no", "0", "0.0", "𐄂"];
+
+pub(crate) fn mkbool(text: &str) -> i64 {
+    let text = text.trim().to_lowercase();
+    return if text.is_empty() || NO.contains(&text.as_str()) {
+        0
+    } else {
+        1
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mkbool() {
+        assert_eq!(mkbool("true"), 1);
+        assert_eq!(mkbool("True"), 1);
+        assert_eq!(mkbool(" 0 "), 0);
+        assert_eq!(mkbool("0.0"), 0);
+        assert_eq!(mkbool("yes"), 1);
+        assert_eq!(mkbool(""), 0);
+        assert_eq!(mkbool("✓"), 1);
+    }
+}
