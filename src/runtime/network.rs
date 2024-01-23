@@ -91,10 +91,9 @@ pub(crate) fn publish(namespace: &str, body: &str) {
                 format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))
             };
             let mut pool = NATS_CONNECTIONS.lock().unwrap();
-            if !pool.contains_key(&conn_url) {
-                pool.insert(conn_url.clone(), nats::connect(&conn_url).unwrap());
-            }
-            let nc = pool.get(&conn_url).unwrap();
+            let nc = pool.entry(conn_url.clone()).or_insert_with(|| {
+                nats::connect(&conn_url).unwrap()
+            });
             nc.publish(&topic, body).unwrap();
         }
     } else {
