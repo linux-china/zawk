@@ -31,6 +31,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
+use inflector::Inflector;
 use url::Url;
 use crate::runtime;
 use crate::runtime::str_escape::escape;
@@ -551,6 +552,16 @@ impl<'a> Str<'a> {
             let chars: &[_] = &pat.chars().collect::<Vec<char>>();
             Str::from(src.trim_matches(chars).to_string())
         };
+    }
+
+    pub fn capitalize<'b>(&self) -> Str<'b> {
+       let src = self.as_str();
+        let mut chars = src.chars();
+        let result =  match chars.next() {
+            None => String::new(),
+            Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+        };
+        Str::from(result)
     }
 
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
