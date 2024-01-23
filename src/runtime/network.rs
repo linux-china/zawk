@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
 use url::Url;
@@ -68,6 +71,11 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     }
 }
 
+// todo graceful shutdown
+lazy_static! {
+    static ref NATS_CONNECTIONS: Mutex<HashMap<String, nats::Connection>> = Mutex::new(HashMap::new());
+}
+
 pub(crate) fn publish(namespace: &str, body: &str) {
     if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
         if let Ok(url) = &Url::parse(namespace) {
@@ -77,20 +85,25 @@ pub(crate) fn publish(namespace: &str, body: &str) {
             } else {
                 url.path().to_string()
             };
-            println!("{}", topic);
-            let nc = if schema.contains("tls") {
-                nats::connect(&format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))).unwrap()
-            } else {
-                nats::connect(&format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))).unwrap()
-            };
-            nc.publish(&topic, body).unwrap();
-            nc.close();
+            {
+                let mut pool = NATS_CONNECTIONS.lock().unwrap();
+                if !pool.contains_key(namespace) {
+                    let nc = if schema.contains("tls") {
+                        nats::connect(&format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))).unwrap()
+                    } else {
+                        nats::connect(&format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))).unwrap()
+                    };
+                    pool.insert(namespace.to_string(), nc);
+                }
+                let nc = pool.get_mut(namespace).unwrap();
+                nc.publish(&topic, body).unwrap();
+            }
         }
     } else {
-         notify_rust::Notification::new()
-             .summary(namespace)
-             .body(body)
-             .show().unwrap();
+        notify_rust::Notification::new()
+            .summary(namespace)
+            .body(body)
+            .show().unwrap();
     }
 }
 
