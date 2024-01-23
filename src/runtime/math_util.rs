@@ -183,6 +183,19 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> IntMap<Float> {
     result
 }
 
+pub(crate) fn strtonum(text: &str) -> Float {
+    let text = text.trim().to_lowercase();
+    return if text.starts_with("0x") {
+        i64::from_str_radix(&text[2..], 16).unwrap_or(0) as f64
+    } else if text.starts_with("0o") {
+        i64::from_str_radix(&text[2..], 8).unwrap_or(0) as f64
+    } else if text.starts_with("0b") {
+        i64::from_str_radix(&text[2..], 2).unwrap_or(0) as f64
+    } else {
+        text.parse::<f64>().unwrap_or(0.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +215,13 @@ mod tests {
     fn test_seq() {
         let result = seq(1.0, 1.0, 10.0);
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_strtonum() {
+        assert_eq!(17f64, strtonum("0x11"));
+        assert_eq!(3f64, strtonum("0b11"));
+        assert_eq!(17f64, strtonum("17"));
+        assert_eq!(17.2f64, strtonum("17.2"));
     }
 }
