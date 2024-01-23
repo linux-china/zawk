@@ -271,6 +271,15 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(headers.into()));
                 f(dst.into(), Some(body.into()));
             }
+            S3Get(dst, bucket, object_name) => {
+                f(dst.into(), Some(bucket.into()));
+                f(dst.into(), Some(object_name.into()));
+            }
+            S3Put(dst, bucket, object_name, body) => {
+                f(dst.into(), Some(bucket.into()));
+                f(dst.into(), Some(object_name.into()));
+                f(dst.into(), Some(body.into()));
+            }
             KvGet(dst, namespace, key) => {
                 f(dst.into(), Some(namespace.into()));
                 f(dst.into(), Some(key.into()));

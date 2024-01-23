@@ -889,6 +889,19 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(http_post), &mut [url, headers, body])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            S3Get(dst,bucket, object_name) => {
+                let bucket = self.get_val(bucket.reflect())?;
+                let object_name = self.get_val(object_name.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(s3_get), &mut [bucket, object_name])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            S3Put(dst,bucket, object_name, body) => {
+                let bucket = self.get_val(bucket.reflect())?;
+                let object_name = self.get_val(object_name.reflect())?;
+                let body = self.get_val(body.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(s3_put), &mut [bucket, object_name, body])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Trim(dst,src, pat) => {
                 let src = self.get_val(src.reflect())?;
                 let pat = self.get_val(pat.reflect())?;

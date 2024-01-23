@@ -209,6 +209,8 @@ pub(crate) enum Instr<'a> {
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    S3Put(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvGet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvPut(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvDelete(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -531,6 +533,17 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 url.accum(&mut f);
                 headers.accum(&mut f);
+                body.accum(&mut f);
+            }
+            S3Get(dst, bucket,object_name) => {
+                dst.accum(&mut f);
+                bucket.accum(&mut f);
+                object_name.accum(&mut f);
+            }
+            S3Put(dst, bucket,object_name, body) => {
+                dst.accum(&mut f);
+                bucket.accum(&mut f);
+                object_name.accum(&mut f);
                 body.accum(&mut f);
             }
             KvGet(dst, namespace, key) => {

@@ -1830,6 +1830,16 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::HttpPost(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
                 }
             }
+            S3Get => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::S3Get(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            S3Put => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(),conv_regs[2].into()))
+                }
+            }
             KvGet => {
                 if res_reg != UNUSED {
                     self.pushl(LL::KvGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))

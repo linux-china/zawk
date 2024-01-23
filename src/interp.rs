@@ -185,7 +185,7 @@ impl<'a> Core<'a> {
                 argc: 0,
                 argv: argv.into(),
                 fi: fi.into(),
-                environ: environ.into()
+                environ: environ.into(),
             };
             Core {
                 vars,
@@ -718,7 +718,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Escape(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let escaped_text =  text.escape(format);
+                        let escaped_text = text.escape(format);
                         *index_mut(&mut self.strs, dst) = escaped_text;
                     }
                     Hmac(dst, algorithm, key, text) => {
@@ -771,6 +771,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    S3Get(dst, bucket, object_name) => {
+                        let bucket = index(&self.strs, bucket);
+                        let object_name = index(&self.strs, object_name);
+                        let body = runtime::s3::get_object(bucket.as_str(), object_name.as_str()).unwrap();
+                        *index_mut(&mut self.strs, dst) = Str::from(body);
+                    }
+                    S3Put(dst, bucket, object_name, body) => {
+                        let bucket = index(&self.strs, bucket);
+                        let object_name = index(&self.strs, object_name);
+                        let body = index(&self.strs, body);
+                        let etag = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str()).unwrap().etag;
+                        *index_mut(&mut self.strs, dst) = Str::from(etag);
+                    }
                     FromJson(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::json::from_json(src.as_str());
@@ -807,24 +820,24 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(runtime::json::map_str_str_to_json(arr));
                     }
-                    MapIntIntAsort(dst, arr,target) => {
+                    MapIntIntAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
                         let target = self.get(*target);
-                        runtime::math_util::map_int_int_asort(arr,target);
+                        runtime::math_util::map_int_int_asort(arr, target);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
-                    MapIntFloatAsort( dst, arr,target) => {
+                    MapIntFloatAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
                         let target = self.get(*target);
-                        runtime::math_util::map_int_float_asort(arr,target);
+                        runtime::math_util::map_int_float_asort(arr, target);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
-                    MapIntStrAsort( dst, arr,target) => {
+                    MapIntStrAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
                         let target = self.get(*target);
-                        runtime::math_util::map_int_str_asort(arr,target);
+                        runtime::math_util::map_int_str_asort(arr, target);
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
@@ -854,21 +867,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let body = index(&self.strs, body);
                         runtime::network::publish(namespace.as_str(), body.as_str());
                     }
-                    Min(dst, first, second,third) => {
+                    Min(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);
                         let num3 = index(&self.strs, third);
                         let res = runtime::math_util::min(num1.as_str(), num2.as_str(), num3.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
-                    Max(dst, first, second,third) => {
+                    Max(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);
                         let num3 = index(&self.strs, third);
                         let res = runtime::math_util::max(num1.as_str(), num2.as_str(), num3.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
-                    Seq(dst, start, step,end) => {
+                    Seq(dst, start, step, end) => {
                         let start: Float = *self.get(*start);
                         let step: Float = *self.get(*step);
                         let end: Float = *self.get(*end);

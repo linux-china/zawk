@@ -29,8 +29,9 @@ fn s3_client() -> Result<Client, Error> {
     Ok(client)
 }
 
-fn get_object(client: &Client, bucket_name: &str, object_name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let client = s3_client().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let get_object_args = GetObjectArgs::new(bucket_name, object_name);
         let response = client.get_object(&get_object_args?).await?;
@@ -39,8 +40,9 @@ fn get_object(client: &Client, bucket_name: &str, object_name: &str) -> Result<S
     })
 }
 
-fn put_object(client: &Client, bucket_name: &str, object_name: &str, body: &str) -> Result<UploadObjectResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+pub fn put_object(bucket_name: &str, object_name: &str, body: &str) -> Result<UploadObjectResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let client = s3_client().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let mut file = NamedTempFile::new().unwrap();
         let _ = file.write_all(body.as_bytes());
@@ -62,24 +64,22 @@ fn put_object(client: &Client, bucket_name: &str, object_name: &str, body: &str)
 mod tests {
     use super::*;
 
-    const BUCKET: &str = "your-bucket";
+    const BUCKET: &str = "mj-artifacts";
     const OBJECT_NAME: &str = "health2.txt";
     const BODY: &str = "Hello World!!!";
 
     #[test]
     fn test_s3_get() {
         dotenv::dotenv().ok();
-        let s3_client = s3_client().unwrap();
-        let text = get_object(&s3_client, BUCKET, OBJECT_NAME).unwrap();
+        let text = get_object( BUCKET, OBJECT_NAME).unwrap();
         assert_eq!(text, BODY);
     }
 
     #[test]
     fn test_s3_put() {
         dotenv::dotenv().ok();
-        let s3_client = s3_client().unwrap();
-        let _ = put_object(&s3_client, BUCKET, OBJECT_NAME, BODY).unwrap();
-        let text = get_object(&s3_client, BUCKET, OBJECT_NAME).unwrap();
+        let _ = put_object(BUCKET, OBJECT_NAME, BODY).unwrap();
+        let text = get_object(BUCKET, OBJECT_NAME).unwrap();
         assert_eq!(text, BODY);
     }
 }

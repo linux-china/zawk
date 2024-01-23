@@ -182,6 +182,8 @@ impl Display for Function {
             Url => write!(f, "url"),
             HttpGet => write!(f, "http_get"),
             HttpPost => write!(f, "http_post"),
+            S3Get => write!(f, "s3_get"),
+            S3Put => write!(f, "s3_put"),
             KvGet => write!(f, "kv_get"),
             KvPut => write!(f, "kv_put"),
             KvDelete => write!(f, "kv_delete"),
