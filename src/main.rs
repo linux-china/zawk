@@ -302,6 +302,8 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
 }
 
 fn main() {
+    //.env load support
+    dotenv::dotenv().ok();
     #[allow(unused_mut)]
     let mut app = Command::new("frawk")
         .version("0.4.8")
