@@ -85,19 +85,17 @@ pub(crate) fn publish(namespace: &str, body: &str) {
             } else {
                 url.path().to_string()
             };
-            {
-                let mut pool = NATS_CONNECTIONS.lock().unwrap();
-                if !pool.contains_key(namespace) {
-                    let nc = if schema.contains("tls") {
-                        nats::connect(&format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))).unwrap()
-                    } else {
-                        nats::connect(&format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))).unwrap()
-                    };
-                    pool.insert(namespace.to_string(), nc);
-                }
-                let nc = pool.get_mut(namespace).unwrap();
-                nc.publish(&topic, body).unwrap();
+            let conn_url = if schema.contains("tls") {
+                format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))
+            } else {
+                format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))
+            };
+            let mut pool = NATS_CONNECTIONS.lock().unwrap();
+            if !pool.contains_key(&conn_url) {
+                pool.insert(conn_url.clone(), nats::connect(&conn_url).unwrap());
             }
+            let nc = pool.get(&conn_url).unwrap();
+            nc.publish(&topic, body).unwrap();
         }
     } else {
         notify_rust::Notification::new()
@@ -138,6 +136,6 @@ mod tests {
     #[test]
     fn test_publish_nats() {
         let url = "nats://localhost:4222/topic1";
-        publish(url, "Hello World");
+        publish(url, "Hello World!");
     }
 }
