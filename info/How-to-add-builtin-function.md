@@ -118,7 +118,11 @@ please refer `ENVIRON` as example.
 * Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
-* KV: `kv_get(namespace, key)`, `kv_put(namespace, key, text)`, `kv_delete(namespace, key)`, `kv_clear(namespace)`
+* KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`
+  - `kv_get(namespace, key)`
+  - `kv_put(namespace, key, text)`
+  - `kv_delete(namespace, key)`
+  - `kv_clear(namespace)`
 * Redis KV: use Map structure, `kv_get("redis://user:password@host:6379/db/namespace")`
 * Events: `publish(namespace, body)`. To NATS, `publish("nats://host:4222/topic", body)`
 * Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
