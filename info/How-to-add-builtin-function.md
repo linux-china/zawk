@@ -90,12 +90,18 @@ please refer `ENVIRON` as example.
 ### UDF(User Defined Function)
 
 * uuid
-* array: `delete arr[1]` `delete arr`, `n = asort(arr)`
-* math: abs, floor, ceiling, round, fend("1+2"), min(1,2), max("A","B")
+* array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`, 
+* array extension: `_join(arr, ",")`, `_reverse(arr)`, `_slice(arr, start, end)`, `_uniq(arr)`, `_keys(map)`, `_values(map)` 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格。
+* bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
+* reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
+* i18n: `LC_MESSAGES`
+* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B"), mean(arr)
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
+    - strtonum: numeric value(十进制) `strtonum("0x11")` 
     - trim: `trim($1)` or `trim($1, "[]()")`
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
+    - capitalize: `capitalize($1)`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
