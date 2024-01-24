@@ -1,3 +1,4 @@
+use uuid::Timestamp;
 use crate::runtime::{Float, Int, IntMap, Str};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
@@ -183,6 +184,13 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> IntMap<Float> {
     result
 }
 
+pub(crate) fn uuid(version: &str) -> String {
+    match version {
+        "v7" => uuid::Uuid::now_v7().to_string(),
+        "v4" | &_ => uuid::Uuid::new_v4().to_string()
+    }
+}
+
 pub(crate) fn strtonum(text: &str) -> Float {
     let text = text.trim().to_lowercase();
     return if text.starts_with("0x") {
@@ -193,7 +201,7 @@ pub(crate) fn strtonum(text: &str) -> Float {
         i64::from_str_radix(&text[2..], 2).unwrap_or(0) as f64
     } else {
         text.parse::<f64>().unwrap_or(0.0)
-    }
+    };
 }
 
 #[cfg(test)]
