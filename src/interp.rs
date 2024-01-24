@@ -846,6 +846,24 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = arr.len() as Int;
                     }
+                    MapIntIntJoin(dst, arr, sep) => {
+                        let arr = self.get(*arr);
+                        let sep = self.get(*sep);
+                        let value = runtime::math_util::map_int_int_join(arr, sep.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(value);
+                    }
+                    MapIntFloatJoin(dst, arr, sep) => {
+                        let arr = self.get(*arr);
+                        let sep = self.get(*sep);
+                        let value = runtime::math_util::map_int_float_join(arr, sep.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(value);
+                    }
+                    MapIntStrJoin(dst, arr, sep) => {
+                        let arr = self.get(*arr);
+                        let sep = self.get(*sep);
+                        let value = runtime::math_util::map_int_str_join(arr, sep.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(value);
+                    }
                     KvGet(dst, namespace, key) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);

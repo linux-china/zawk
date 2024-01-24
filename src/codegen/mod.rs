@@ -881,6 +881,24 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(map_int_str_asort), &mut [arr, target])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            MapIntIntJoin(dst, arr,sep) => {
+                let arr = self.get_val(arr.reflect())?;
+                let sep = self.get_val(sep.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(map_int_int_join), &mut [arr, sep])?;
+                self.bind_val(dst.reflect(),resv)
+            },
+            MapIntFloatJoin(dst, arr,sep) => {
+                let arr = self.get_val(arr.reflect())?;
+                let sep = self.get_val(sep.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(map_int_float_join), &mut [arr, sep])?;
+                self.bind_val(dst.reflect(),resv)
+            },
+            MapIntStrJoin(dst, arr,sep) => {
+                let arr = self.get_val(arr.reflect())?;
+                let sep = self.get_val(sep.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(map_int_str_join), &mut [arr, sep])?;
+                self.bind_val(dst.reflect(),resv)
+            },
             HttpGet(dst, url,headers) => {
                 let url = self.get_val(url.reflect())?;
                 let headers = self.get_val(headers.reflect())?;

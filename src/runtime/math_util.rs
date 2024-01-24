@@ -159,6 +159,37 @@ pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
     }
 }
 
+pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {
+    let mut items: Vec<String> = vec![];
+    let mut keys = obj.to_vec().clone();
+    keys.reverse();
+    for index in keys {
+        items.push(obj.get(&index).to_string());
+    }
+    items.join(sep)
+}
+
+pub(crate) fn map_int_float_join(obj: &IntMap<Float>, sep: &str) -> String {
+    let mut items: Vec<String> = vec![];
+    let mut keys = obj.to_vec().clone();
+    keys.reverse();
+    for index in keys {
+        items.push(obj.get(&index).to_string());
+    }
+    items.join(sep)
+}
+
+pub(crate) fn map_int_str_join(obj: &IntMap<Str>, sep: &str) -> String {
+    let mut items: Vec<String> = vec![];
+    let mut keys = obj.to_vec().clone();
+    keys.reverse();
+    for index in keys {
+        items.push(obj.get(&index).to_string());
+    }
+    items.join(sep)
+}
+
+
 const NO: &'static [&'static str] = &["false", "no", "𐄂", "0", "0.0", "0.00", "00.0",
     "0x0", "0x00", "0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00", "0B0", "0B00"];
 

@@ -178,6 +178,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         map_int_int_asort(map_ty, map_ty) -> int_ty;
         map_int_float_asort(map_ty, map_ty) -> int_ty;
         map_int_str_asort(map_ty, map_ty) -> int_ty;
+        [ReadOnly] map_int_int_join(map_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] map_int_float_join(map_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] map_int_str_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
@@ -985,6 +988,33 @@ pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void, target: *mut
     mem::forget(obj);
     mem::forget(target_obj);
     result
+}
+
+pub(crate) unsafe extern "C" fn map_int_int_join(arr: *mut c_void, sep: *mut U128) -> U128 {
+    let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let sep = &*(sep as *mut Str);
+    let res = runtime::math_util::map_int_int_join(&arr, sep.as_str());
+    mem::forget(arr);
+    let res = Str::from(res);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_join(arr: *mut c_void, sep: *mut U128) -> U128 {
+    let arr = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let sep = &*(sep as *mut Str);
+    let res = runtime::math_util::map_int_float_join(&arr, sep.as_str());
+    mem::forget(arr);
+    let res = Str::from(res);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn map_int_str_join(arr: *mut c_void, sep: *mut U128) -> U128 {
+    let arr = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let sep = &*(sep as *mut Str);
+    let res = runtime::math_util::map_int_str_join(&arr, sep.as_str());
+    mem::forget(arr);
+    let res = Str::from(res);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn http_get(url: *mut U128, headers: *mut c_void) -> *mut c_void {

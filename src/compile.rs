@@ -1915,7 +1915,29 @@ impl<'a, 'b> View<'a, 'b> {
                         }
                         _ => {
                             return err!(
-                                "Asort only support IntMap called with malformed types: {:?} => {:?}",
+                                "asort only support IntMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
+            IntMapJoin => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntJoin(res_reg.into(),conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        Ty::MapIntStr => {
+                            self.pushl(LL::MapIntStrJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "_join only support IntMap called with malformed types: {:?} => {:?}",
                                 &conv_tys[..],
                                 dst_ty
                              );

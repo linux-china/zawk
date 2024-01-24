@@ -1664,9 +1664,13 @@ where
                     }
                 }
 
-                // // uuid() => uuid("v4");
+                // uuid() => uuid("v4");
                 if bi == builtins::Function::Uuid && args.len() == 0 {
                     prim_args.push(PrimVal::StrLit(b"v4"));
+                }
+                // _join(arr) => join(arr, " ");
+                if bi == builtins::Function::IntMapJoin && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b" "));
                 }
                 // substr(s, a) => substr(s, a, INT_MAX); as we always clamp the second value to
                 // the length of s.

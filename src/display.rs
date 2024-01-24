@@ -195,6 +195,7 @@ impl Display for Function {
             Min => write!(f, "min"),
             Max => write!(f, "max"),
             Seq => write!(f, "seq"),
+            IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),

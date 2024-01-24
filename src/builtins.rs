@@ -74,6 +74,7 @@ pub enum Function {
     JoinCols,
     JoinCSV,
     JoinTSV,
+    IntMapJoin,
     Substr,
     ToInt,
     HexToInt,
@@ -278,6 +279,7 @@ static_map!(
     ["truncate", Function::Truncate],
     ["strtonum", Function::Strtonum],
     ["capitalize", Function::Capitalize],
+    ["_join", Function::IntMapJoin],
     ["escape", Function::Escape],
     ["match", Function::Match],
     ["sub", Function::Sub],
@@ -540,6 +542,7 @@ impl Function {
             Digest => (smallvec![Str, Str], Str),
             Hmac => (smallvec![Str, Str, Str], Str),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
+            IntMapJoin => (smallvec![incoming[0], Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -590,6 +593,7 @@ impl Function {
             Publish => 2,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
+            IntMapJoin => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
             GenSub => 4,
         })
@@ -632,7 +636,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
-            | Encode | Decode | Digest | Hmac | ToJson => {
+            | Encode | Decode | Digest | Hmac | ToJson | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),

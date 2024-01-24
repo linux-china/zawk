@@ -248,6 +248,18 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(arr.into()));
                 f(dst.into(), Some(target.into()));
             },
+            MapIntIntJoin(dst, arr, sep) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(sep.into()));
+            }
+            MapIntFloatJoin(dst, arr, sep) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(sep.into()));
+            },
+            MapIntStrJoin(dst, arr, sep) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(sep.into()));
+            },
             Trim(dst, src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));
