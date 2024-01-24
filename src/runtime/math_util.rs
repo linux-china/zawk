@@ -190,6 +190,10 @@ pub(crate) fn uuid(version: &str) -> String {
     }
 }
 
+pub(crate) fn ulid() -> String {
+    ulid::Ulid::new().to_string()
+}
+
 pub(crate) fn strtonum(text: &str) -> Float {
     let text = text.trim().to_lowercase();
     return if text.starts_with("0x") {

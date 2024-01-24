@@ -29,6 +29,7 @@ pub enum Function {
     Split,
     Length,
     Uuid,
+    Ulid,
     Systime,
     Strftime,
     Mktime,
@@ -246,6 +247,7 @@ static_map!(
     ["split", Function::Split],
     ["length", Function::Length],
     ["uuid", Function::Uuid],
+    ["ulid", Function::Ulid],
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
@@ -509,6 +511,7 @@ impl Function {
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![Str], Str),
+            Ulid => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
@@ -563,7 +566,7 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand  | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Ulid  | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
@@ -626,7 +629,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt | Asort | MkBool => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
             | Encode | Decode | Digest | Hmac | ToJson => {

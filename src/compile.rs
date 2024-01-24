@@ -1693,6 +1693,12 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Ulid => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Ulid(res_reg.into()))
+            }
             LocalIp => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
