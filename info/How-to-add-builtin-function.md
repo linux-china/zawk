@@ -83,19 +83,18 @@ please refer `ENVIRON` as example.
 
 * text
 * csv
-* s3 
-* http
 * Apache Parquet
 
 ### UDF(User Defined Function)
 
-* uuid
+* uuid : `uuid()`, `uuid("v7")`, ulid `print ulid()`
 * array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`, 
 * array extension: 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格
+   - `seq(start, end, step)`: seq命令兼容
+   - `n = asort(arr)`: gawk兼容
    - `_keys(map)`:  StrMap -> IntMap
    - `_values(map)`: StrMap -> IntMap
    - `_join(arr, ",")` IntMap -> Str
-   - `n = asort(arr)`: gawk兼容
    -  `_uniq(arr)`: IntMap -> IntMap
    - `_reverse(arr)`: IntMap -> IntMap
    - `_slice(arr, start, end)`: IntMap -> IntMap
@@ -105,7 +104,7 @@ please refer `ENVIRON` as example.
 * bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
-* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B"), `seq(start, end, step)`
+* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B")
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
     - strtonum: numeric value(十进制) `strtonum("0x11")` 
     - trim: `trim($1)` or `trim($1, "[]()")`
@@ -127,6 +126,7 @@ please refer `ENVIRON` as example.
 * Events: `publish(namespace, body)`. To NATS, `publish("nats://host:4222/topic", body)`
 * Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
 * S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
+* i18n: gettext, not support now.
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
@@ -136,3 +136,4 @@ please refer `ENVIRON` as example.
 ### References
 
 * inflector: add String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title cases - https://github.com/whatisinternet/inflector
+* Internationalization with gawk: https://www.gnu.org/software/gawk/manual/html_node/I18N-Example.html
