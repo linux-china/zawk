@@ -141,7 +141,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         next_file(rt_ty);
         update_used_fields(rt_ty);
         set_fi_entry(rt_ty, int_ty, int_ty);
-        uuid(rt_ty) -> str_ty;
+        uuid(str_ref_ty) -> str_ty;
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
@@ -688,9 +688,9 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn uuid() -> U128 {
-    let id = uuid::Uuid::new_v4().to_string();
-    let res = Str::from(id);
+pub(crate) unsafe extern "C" fn uuid(version: *mut U128) -> U128 {
+    let version = &*(version as *mut Str);
+    let res = Str::from(runtime::math_util::uuid(version.as_str()));
     mem::transmute::<Str, U128>(res)
 }
 

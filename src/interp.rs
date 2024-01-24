@@ -683,9 +683,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }
-                    Uuid(dst) => {
-                        let uuid = Str::from(uuid::Uuid::new_v4().to_string());
-                        *index_mut(&mut self.strs, dst) = uuid;
+                    Uuid(dst,version) => {
+                        let version = index(&self.strs, version);
+                        let res = Str::from(runtime::math_util::uuid(version.as_str()));
+                        *index_mut(&mut self.strs, dst) = res;
                     }
                     LocalIp(dst) => {
                         let local_ip = Str::from(runtime::network::local_ip());

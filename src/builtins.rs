@@ -508,7 +508,7 @@ impl Function {
             // irrelevant return type
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
-            Uuid => (smallvec![], Str),
+            Uuid => (smallvec![Str], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
@@ -563,11 +563,11 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Uuid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand  | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Fend | Url | ToJson | FromJson | Unop(_) => 1,
+            | Uuid |  Fend | Url | ToJson | FromJson | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,

@@ -1686,10 +1686,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             Uuid => {
-                if res_reg == UNUSED {
-                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                if res_reg != UNUSED {
+                    self.pushl(LL::Uuid(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
                 }
-                self.pushl(LL::Uuid(res_reg.into()))
             }
             LocalIp => {
                 if res_reg == UNUSED {

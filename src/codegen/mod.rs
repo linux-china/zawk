@@ -790,9 +790,9 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(join_tsv), &mut [rt, startv, endv])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Uuid(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(uuid), &mut [rt])?;
+            Uuid(dst, version) => {
+                let version = self.get_val(version.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(uuid), &mut [version])?;
                 self.bind_val(dst.reflect(),resv)
             }
             LocalIp(dst) => {

@@ -193,7 +193,7 @@ pub(crate) mod boilerplate {
             StoreConstFloat(dst, _) => f(dst.into(), None),
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
-            Uuid(dst) => f(dst.into(), None),
+            Uuid(dst, version) => f(dst.into(), Some(version.into())),
             LocalIp(dst) => f(dst.into(), None),
             Systime(dst) => f(dst.into(), None),
             Encode(dst, format, text) => {

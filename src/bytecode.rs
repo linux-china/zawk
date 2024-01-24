@@ -192,7 +192,7 @@ pub(crate) enum Instr<'a> {
     NextLineStdinFused(),
     // Advances early to the next file in our sequence
     NextFile(),
-    Uuid(Reg<Str<'a>>),
+    Uuid(Reg<Str<'a>>, Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -467,8 +467,9 @@ impl<'a> Instr<'a> {
                 sr.accum(&mut f);
                 fr.accum(&mut f);
             }
-            Uuid(sr) => {
+            Uuid(sr, version) => {
                 sr.accum(&mut f);
+                version.accum(&mut f);
             }
             LocalIp(sr) => {
                 sr.accum(&mut f);

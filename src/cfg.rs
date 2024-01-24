@@ -1664,6 +1664,10 @@ where
                     }
                 }
 
+                // // uuid() => uuid("v4");
+                if bi == builtins::Function::Uuid && args.len() == 0 {
+                    prim_args.push(PrimVal::StrLit(b"v4"));
+                }
                 // substr(s, a) => substr(s, a, INT_MAX); as we always clamp the second value to
                 // the length of s.
                 if bi == builtins::Function::Substr && args.len() == 2 {

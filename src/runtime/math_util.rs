@@ -1,4 +1,3 @@
-use uuid::Timestamp;
 use crate::runtime::{Float, Int, IntMap, Str};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
@@ -217,6 +216,11 @@ mod tests {
         assert_eq!(mkbool("yes"), 1);
         assert_eq!(mkbool(""), 0);
         assert_eq!(mkbool("✓"), 1);
+    }
+
+    #[test]
+    fn test_uuid() {
+        println!("{}", uuid("v7"));
     }
 
     #[test]
