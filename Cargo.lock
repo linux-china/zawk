@@ -1220,6 +1220,7 @@ dependencies = [
 name = "frawk"
 version = "0.4.8"
 dependencies = [
+ "adler",
  "assert_cmd",
  "base32",
  "base64 0.21.7",
@@ -1234,6 +1235,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "crc",
  "crossbeam",
  "crossbeam-channel",
  "dateparser",
