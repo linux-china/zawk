@@ -1664,6 +1664,10 @@ where
                     }
                 }
 
+                // uniq(arr) => uniq(arr, param);
+                if bi == builtins::Function::Uniq && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
                 // uuid() => uuid("v4");
                 if bi == builtins::Function::Uuid && args.len() == 0 {
                     prim_args.push(PrimVal::StrLit(b"v4"));

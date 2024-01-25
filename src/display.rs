@@ -198,6 +198,7 @@ impl Display for Function {
             Seq => write!(f, "seq"),
             IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),
+            Uniq => write!(f, "uniq"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),

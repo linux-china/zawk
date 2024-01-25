@@ -238,6 +238,24 @@ pub(crate) fn strtonum(text: &str) -> Float {
     };
 }
 
+pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>>{
+    //todo uniq implement logic with param
+    let mut items: Vec<String> = vec![];
+    let mut keys = obj.to_vec().clone();
+    keys.reverse();
+    for index in keys {
+        items.push(obj.get(&index).to_string());
+    }
+    items.dedup();
+    let result: IntMap<Str> = IntMap::default();
+    let mut index:i64 = 1;
+    for item in items {
+        result.insert(index, Str::from(item));
+        index = index +1;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

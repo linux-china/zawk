@@ -185,6 +185,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
+        [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -850,6 +851,14 @@ pub(crate) unsafe extern "C" fn max(first: *mut U128, second: *mut U128, third: 
 pub(crate) unsafe extern "C" fn seq(start: Float, step: Float, end: Float) -> *mut c_void {
     let arr = math_util::seq(start, step, end);
     mem::transmute::<IntMap<Float>, *mut c_void>(arr)
+}
+
+pub(crate) unsafe extern "C" fn uniq(src: *mut c_void, param: *mut U128) -> *mut c_void {
+    let src = mem::transmute::<*mut c_void, IntMap<Str>>(src);
+    let param = &*(param as *mut Str);
+    let res = runtime::math_util::uniq(&src, param.as_str());
+    mem::forget(src);
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: Int) -> U128 {

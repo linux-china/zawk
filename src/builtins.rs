@@ -76,6 +76,7 @@ pub enum Function {
     JoinCSV,
     JoinTSV,
     IntMapJoin,
+    Uniq,
     Substr,
     ToInt,
     HexToInt,
@@ -276,6 +277,7 @@ static_map!(
     ["min", Function::Min],
     ["max", Function::Max],
     ["seq", Function::Seq],
+    ["uniq", Function::Uniq],
     ["asort", Function::Asort],
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
@@ -454,6 +456,7 @@ impl Function {
             ),
             Min | Max => (smallvec![Str,Str,Str], Str),
             Seq => (smallvec![Float,Float,Float], MapIntFloat),
+            Uniq => (smallvec![MapIntStr, Str], MapIntStr),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
                 arith_sig(incoming[0], incoming[1])
             }
@@ -585,6 +588,7 @@ impl Function {
             Capitalize | Strtonum => 1,
             Min | Max => 3,
             Seq => 3,
+            Uniq => 2,
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
@@ -649,6 +653,12 @@ impl Function {
                    key: BaseTy::Str,
                    val: BaseTy::Str
                }.abs())
+            }
+            Uniq => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Str
+                }.abs())
             }
             HttpGet | HttpPost => {
                 Ok(Map {

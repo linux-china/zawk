@@ -209,6 +209,7 @@ pub(crate) enum Instr<'a> {
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -654,6 +655,11 @@ impl<'a> Instr<'a> {
                 start.accum(&mut f);
                 step.accum(&mut f);
                 end.accum(&mut f);
+            }
+            Uniq(dst, src, param) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+                param.accum(&mut f);
             }
             Trim(dst, src, pat ) => {
                 dst.accum(&mut f);

@@ -916,6 +916,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Uniq(dst, src, param) => {
+                        let src = self.get(*src);
+                        let param = index(&self.strs, param);
+                        let res = runtime::math_util::uniq(src, param.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Trim(dst, src, pat) => {
                         let src = index(&self.strs, src);
                         let pat = index(&self.strs, pat);
