@@ -166,6 +166,7 @@ impl Display for Function {
             Uuid => write!(f, "uuid"),
             Ulid => write!(f, "ulid"),
             LocalIp => write!(f, "local_ip"),
+            Whoami => write!(f, "whoami"),
             Systime => write!(f, "systime"),
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),

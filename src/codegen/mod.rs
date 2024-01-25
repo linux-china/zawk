@@ -800,6 +800,11 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(ulid), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Whoami(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(whoami), &mut [rt])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             LocalIp(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(local_ip), &mut [rt])?;

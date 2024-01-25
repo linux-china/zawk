@@ -201,7 +201,7 @@ pub(crate) fn nats_kv_delete(url_text: &str, key: &str) {
     store.delete(key).unwrap();
 }
 
-pub(crate) fn nats_kv_clear(url_text: &str) {
+pub(crate) fn nats_kv_clear(_url_text: &str) {
     /*let operation = NatsKvOperation::from(url_text);
     let mut pool = NATS_JETSTREAM.lock().unwrap();
     let jetstream = pool.entry(operation.conn_url.to_string()).or_insert_with(|| {

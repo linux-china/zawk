@@ -692,6 +692,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ulid = Str::from(runtime::math_util::ulid());
                         *index_mut(&mut self.strs, dst) = ulid;
                     }
+                    Whoami(dst) => {
+                        let username = Str::from(whoami::username());
+                        *index_mut(&mut self.strs, dst) = username;
+                    }
                     LocalIp(dst) => {
                         let local_ip = Str::from(runtime::network::local_ip());
                         *index_mut(&mut self.strs, dst) = local_ip;
