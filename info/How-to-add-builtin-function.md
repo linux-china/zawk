@@ -91,11 +91,11 @@ please refer `ENVIRON` as example.
 * array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`,
 * array extension: 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格
     - `seq(start, end, step)`: seq命令兼容
+    - `uniq(arr)`: IntMap<Str> -> IntMap<Str>, uniq命令行兼容
     - `n = asort(arr)`: gawk兼容
     - `_keys(map)`:  StrMap -> IntMap
     - `_values(map)`: StrMap -> IntMap
     - `_join(arr, ",")` IntMap -> Str
-    - `_uniq(arr)`: IntMap -> IntMap
     - `_reverse(arr)`: IntMap -> IntMap
     - `_slice(arr, start, end)`: IntMap -> IntMap
     - `_max(arr)`: IntMap -> Float
@@ -133,6 +133,7 @@ please refer `ENVIRON` as example.
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
+* misc: `whoami()`
 
 ### References
 
