@@ -1,4 +1,4 @@
-use std::io::{Cursor};
+use std::io::{BufReader, Cursor};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
 
@@ -9,6 +9,10 @@ type HmacSha512 = Hmac<Sha512>;
 pub fn digest(algorithm: &str, text: &str) -> String {
     if algorithm == "md5" || algorithm == "md-5" {
         return format!("{:x}", md5::compute(text));
+    } else if algorithm == "adler32" {
+        return adler::adler32(BufReader::new("demo2".as_bytes())).unwrap().to_string();
+    } else if algorithm == "crc32" {
+        return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text.as_bytes()).to_string();
     } else if algorithm == "sha256" || algorithm == "sha-256" {
         let mut hasher = Sha256::default();
         hasher.update(text.as_bytes());
@@ -41,6 +45,7 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::BufReader;
     use crate::runtime::encoding::encode;
     use super::*;
 
@@ -80,5 +85,17 @@ mod tests {
         use std::io::Cursor;
         let hash_result = murmur3::murmur3_32(&mut Cursor::new("Hello"), 0);
         println!("{}", hash_result.unwrap());
+    }
+
+    #[test]
+    fn test_adler32() {
+        let result = adler::adler32(BufReader::new("demo2".as_bytes())).unwrap();
+        println!("{}", result);
+    }
+
+    #[test]
+    fn test_crc32() {
+        let result = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(b"123456789");
+        println!("{}", result);
     }
 }
