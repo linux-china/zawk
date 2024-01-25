@@ -88,25 +88,25 @@ please refer `ENVIRON` as example.
 ### UDF(User Defined Function)
 
 * uuid : `uuid()`, `uuid("v7")`, ulid `print ulid()`
-* array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`, 
+* array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`,
 * array extension: 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格
-   - `seq(start, end, step)`: seq命令兼容
-   - `n = asort(arr)`: gawk兼容
-   - `_keys(map)`:  StrMap -> IntMap
-   - `_values(map)`: StrMap -> IntMap
-   - `_join(arr, ",")` IntMap -> Str
-   -  `_uniq(arr)`: IntMap -> IntMap
-   - `_reverse(arr)`: IntMap -> IntMap
-   - `_slice(arr, start, end)`: IntMap -> IntMap
-   - `_max(arr)`: IntMap -> Float
-   - `_min(arr)`: IntMap -> Float
-   - `_mean(arr)`: IntMap -> Float
+    - `seq(start, end, step)`: seq命令兼容
+    - `n = asort(arr)`: gawk兼容
+    - `_keys(map)`:  StrMap -> IntMap
+    - `_values(map)`: StrMap -> IntMap
+    - `_join(arr, ",")` IntMap -> Str
+    - `_uniq(arr)`: IntMap -> IntMap
+    - `_reverse(arr)`: IntMap -> IntMap
+    - `_slice(arr, start, end)`: IntMap -> IntMap
+    - `_max(arr)`: IntMap -> Float
+    - `_min(arr)`: IntMap -> Float
+    - `_mean(arr)`: IntMap -> Float
 * bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
 * math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B")
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
-    - strtonum: numeric value(十进制) `strtonum("0x11")` 
+    - strtonum: numeric value(十进制) `strtonum("0x11")`
     - trim: `trim($1)` or `trim($1, "[]()")`
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
@@ -117,23 +117,29 @@ please refer `ENVIRON` as example.
 * Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
-* KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`
-  - `kv_get(namespace, key)`
-  - `kv_put(namespace, key, text)`
-  - `kv_delete(namespace, key)`
-  - `kv_clear(namespace)`
+* KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
+  NATS, namespace is like `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket first.
+    - `kv_get(namespace, key)`
+    - `kv_put(namespace, key, text)`
+    - `kv_delete(namespace, key)`
+    - `kv_clear(namespace)`
 * Redis KV: use Map structure, `kv_get("redis://user:password@host:6379/db/namespace")`
 * Events: `publish(namespace, body)`. To NATS, `publish("nats://host:4222/topic", body)`
-* Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`, 
-* S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
+* Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`,
+* S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply
+  ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
 * i18n: gettext, not support now.
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
-
 ### References
 
-* inflector: add String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title cases - https://github.com/whatisinternet/inflector
+* inflector: add String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title
+  cases - https://github.com/whatisinternet/inflector
 * Internationalization with gawk: https://www.gnu.org/software/gawk/manual/html_node/I18N-Example.html
+
+# todo
+
+Asort问题
