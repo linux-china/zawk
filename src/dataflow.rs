@@ -230,6 +230,7 @@ pub(crate) mod boilerplate {
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
+            Shlex(dst, text) => f(dst.into(), Some(text.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapIntFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),

@@ -256,6 +256,17 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>>{
     result
 }
 
+pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>>{
+    let args = shlex::split(text).unwrap_or(vec![]);
+    let result: IntMap<Str> = IntMap::default();
+    let mut index:i64 = 1;
+    for item in args {
+        result.insert(index, Str::from(item));
+        index = index +1;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +299,12 @@ mod tests {
         assert_eq!(3f64, strtonum("0b11"));
         assert_eq!(17f64, strtonum("17"));
         assert_eq!(17.2f64, strtonum("17.2"));
+    }
+
+    #[test]
+    fn test_shlex() {
+        let text = "echo hello world";
+        let args = shlex(text);
+        println!("{:?}",args);
     }
 }

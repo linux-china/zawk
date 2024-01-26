@@ -160,6 +160,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] shlex(str_ref_ty) -> map_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] s3_get(str_ref_ty, str_ref_ty) -> str_ty;
@@ -925,6 +926,13 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
+
+pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = runtime::math_util::shlex(text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
 
 pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
     let json_text = &*(src as *mut Str);

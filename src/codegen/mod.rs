@@ -861,6 +861,7 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
+            Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
             MapIntFloatToJson(dst,arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),
