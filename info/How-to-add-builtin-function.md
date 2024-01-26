@@ -83,6 +83,7 @@ please refer `ENVIRON` as example.
 
 * text
 * csv
+* jsonl
 * Apache Parquet
 
 ### UDF(User Defined Function)
@@ -104,17 +105,18 @@ please refer `ENVIRON` as example.
 * bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
-* math: abs, floor, ceiling, round, fend("1+2"), min(1,2,3), max("A","B")
+* math: abs, floor, ceil, round, fend("1+2"), min(1,2,3), max("A","B")
 * string:  Please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
     - strtonum: numeric value(十进制) `strtonum("0x11")`
     - trim: `trim($1)` or `trim($1, "[]()")`
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
     - capitalize: `capitalize($1)`
+    - shlex: parse command line
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Digest: `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
+* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
 * KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
