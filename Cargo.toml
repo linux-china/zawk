@@ -78,6 +78,7 @@ notify-rust = "4"
 dotenv="0.15"
 tempfile="3"
 whoami = "1.4"
+shlex="1"
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
