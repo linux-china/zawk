@@ -187,6 +187,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
         [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] type_of_variable(int_ty) -> map_ty;
 
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
@@ -925,6 +926,12 @@ pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
+}
+
+pub(crate) unsafe extern "C" fn type_of_variable(variable_type: Int) -> U128 {
+    use std::convert::TryFrom;
+    let variable_ty = Ty::try_from(variable_type as u32).unwrap();
+    mem::transmute::<Str, U128>(Str::from(variable_ty.type_name()))
 }
 
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {

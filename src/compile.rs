@@ -21,6 +21,8 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
+use crate::builtins::Function::Uniq;
+use crate::compile::Ty::{Float, Int, IterInt, IterStr, MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr, Null};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -122,6 +124,34 @@ impl Ty {
             Null | Int | Float | Str | IterInt | IterStr => {
                 err!("attempt to get val of non-map type: {:?}", self)
             }
+        }
+    }
+
+    pub(crate) fn to_int_value(self) -> u32 {
+        use Ty::*;
+        match self {
+            Int => 0,
+            Float => 1,
+            Str => 2,
+            MapIntInt => 3,
+            MapIntFloat => 4,
+            MapIntStr => 5,
+            MapStrInt => 6,
+            MapStrFloat => 7,
+            MapStrStr => 8,
+            IterInt => 9,
+            IterStr => 10,
+            Null => 11,
+        }
+    }
+
+    pub(crate) fn type_name(self) -> String {
+        use Ty::*;
+        match self {
+            Int | Float => "number".to_owned(),
+            Str => "string".to_owned(),
+            MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => "array".to_owned(),
+            _ => "untyped".to_owned(),
         }
     }
 }
@@ -1932,6 +1962,14 @@ impl<'a, 'b> View<'a, 'b> {
                              );
                         }
                     }
+                }
+            }
+            TypeOfVariable => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::TypeOfVariable(
+                        res_reg.into(),
+                        conv_tys[0].to_int_value().into(),
+                    ))
                 }
             }
             Uniq => {

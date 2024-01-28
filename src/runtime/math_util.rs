@@ -269,6 +269,7 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>>{
 
 #[cfg(test)]
 mod tests {
+    use crate::compile::Ty;
     use super::*;
 
     #[test]
@@ -306,5 +307,11 @@ mod tests {
         let text = "echo hello world";
         let args = shlex(text);
         println!("{:?}",args);
+    }
+
+    #[test]
+    fn test_demo() {
+        use std::convert::TryFrom;
+        let ty: Ty = Ty::try_from(1 as u32).unwrap();
     }
 }

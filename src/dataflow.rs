@@ -326,6 +326,9 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(param.into()));
             }
+            TypeOfVariable(dst, variable_type) => {
+                f(dst.into(), Some(variable_type.into()));
+            }
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),

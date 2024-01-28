@@ -78,6 +78,7 @@ pub enum Function {
     JoinTSV,
     IntMapJoin,
     Uniq,
+    TypeOfVariable,
     Substr,
     ToInt,
     HexToInt,
@@ -288,6 +289,7 @@ static_map!(
     ["capitalize", Function::Capitalize],
     ["_join", Function::IntMapJoin],
     ["escape", Function::Escape],
+    ["typeof", Function::TypeOfVariable],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -552,6 +554,7 @@ impl Function {
             Digest => (smallvec![Str, Str], Str),
             Hmac => (smallvec![Str, Str, Str], Str),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
+            TypeOfVariable => (smallvec![incoming[0]], Str),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -583,7 +586,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid |  Fend | Url | Shlex | ToJson | FromJson | Unop(_) => 1,
+            | Uuid |  Fend | Url | Shlex | ToJson | FromJson | TypeOfVariable | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -647,7 +650,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Whoami | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
-            | Encode | Decode | Digest | Hmac | ToJson | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | ToJson | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
