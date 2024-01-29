@@ -17,11 +17,11 @@
 * Add function name in `pub(crate) fn accum(`(清空器) of [src/bytecode.rs](../src/bytecode.rs)
 * Add function name in `fn visit_ll(`(遍历器) of [src/dataflow.rs](../src/dataflow.rs)
 * Add function name in `fn run_at(`(并发运行) of [src/interp.rs](../src/interp.rs) 并发时调用
-* register function in `register! {`(指令编译注册) of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 
 ### Function implementation
 
 * Add function name in `fn gen_ll_inst` of [src/codegen/mod.rs](../src/codegen/mod.rs)
+* register function in `register! {`(指令编译注册) of [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
 * Add function implementation: 可以考虑将功能实现放到runtime下的一个module中，如`date_time.rs`。
 
 `uuid`(generator) implementation in [src/codegen/intrinsics.rs](../src/codegen/intrinsics.rs)
