@@ -862,6 +862,14 @@ pub(crate) trait CodeGenerator: Backend {
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
             TypeOfVariable(dst,variable_type) => self.unop(intrinsic!(type_of_variable), dst, variable_type),
+            IsArrayTrue(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_array_true), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsArrayFalse(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_array_false), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),

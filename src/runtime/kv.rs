@@ -225,10 +225,6 @@ fn nats_kv_store(jetstream: &JetStream, bucket: &str) -> nats::kv::Store {
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-    use crate::bytecode::Reg;
-    use crate::compile::Ty;
-    use crate::runtime::{Int, Str};
     use super::*;
 
     #[test]

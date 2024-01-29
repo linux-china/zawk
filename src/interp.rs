@@ -958,6 +958,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let variable_ty = Ty::try_from(variable_type as u32).unwrap();
                         *index_mut(&mut self.strs, dst) = Str::from(Str::from(variable_ty.type_name()));
                     }
+                    IsArrayTrue(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 1;
+                    }
+                    IsArrayFalse(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 0;
+                    }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));
                         let ir = *ir;

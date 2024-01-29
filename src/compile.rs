@@ -21,8 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::Uniq;
-use crate::compile::Ty::{Float, Int, IterInt, IterStr, MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr, Null};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -1966,10 +1964,25 @@ impl<'a, 'b> View<'a, 'b> {
             }
             TypeOfVariable => {
                 if res_reg != UNUSED {
+                    let type_value :i64 = conv_tys[0].to_int_value() as i64;
                     self.pushl(LL::TypeOfVariable(
                         res_reg.into(),
                         conv_tys[0].to_int_value().into(),
                     ))
+                }
+            }
+            IsArray => {
+                if res_reg != UNUSED {
+                    let is_array = conv_tys[0].is_array();
+                    if is_array {
+                        self.pushl(LL::IsArrayTrue(
+                            res_reg.into(),
+                        ))
+                    } else {
+                        self.pushl(LL::IsArrayFalse(
+                            res_reg.into(),
+                        ))
+                    }
                 }
             }
             Uniq => {

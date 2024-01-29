@@ -79,6 +79,7 @@ pub enum Function {
     IntMapJoin,
     Uniq,
     TypeOfVariable,
+    IsArray,
     Substr,
     ToInt,
     HexToInt,
@@ -290,6 +291,7 @@ static_map!(
     ["_join", Function::IntMapJoin],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
+    ["isarray", Function::IsArray],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -555,6 +557,7 @@ impl Function {
             Hmac => (smallvec![Str, Str, Str], Str),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             TypeOfVariable => (smallvec![incoming[0]], Str),
+            IsArray => (smallvec![incoming[0]], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -586,7 +589,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid |  Fend | Url | Shlex | ToJson | FromJson | TypeOfVariable | Unop(_) => 1,
+            | Uuid |  Fend | Url | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -655,6 +658,7 @@ impl Function {
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize => Ok(Scalar(BaseTy::Str).abs()),
+            IsArray => Ok(Scalar(BaseTy::Int).abs()),
             Url => {
                Ok(Map {
                    key: BaseTy::Str,

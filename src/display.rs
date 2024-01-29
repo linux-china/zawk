@@ -200,6 +200,7 @@ impl Display for Function {
             IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),
             TypeOfVariable => write!(f, "typeof"),
+            IsArray => write!(f, "isarray"),
             Uniq => write!(f, "uniq"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),

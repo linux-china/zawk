@@ -212,6 +212,8 @@ pub(crate) enum Instr<'a> {
     Shlex(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     TypeOfVariable(Reg<Str<'a>>, Reg<Int>),
+    IsArrayTrue(Reg<Int>),
+    IsArrayFalse(Reg<Int>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -689,6 +691,12 @@ impl<'a> Instr<'a> {
             TypeOfVariable(dst, variable_type ) => {
                 dst.accum(&mut f);
                 variable_type.accum(&mut f);
+            }
+            IsArrayTrue(dst ) => {
+                dst.accum(&mut f);
+            }
+            IsArrayFalse(dst ) => {
+                dst.accum(&mut f);
             }
             StrToInt(ir, sr) | HexStrToInt(ir, sr) => {
                 ir.accum(&mut f);

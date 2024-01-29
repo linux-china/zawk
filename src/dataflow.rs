@@ -329,6 +329,10 @@ pub(crate) mod boilerplate {
             TypeOfVariable(dst, variable_type) => {
                 f(dst.into(), Some(variable_type.into()));
             }
+            IsArrayTrue(_dst) => {
+            }
+            IsArrayFalse(_dst) => {
+            }
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),
