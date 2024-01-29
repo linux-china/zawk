@@ -952,11 +952,17 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
-                    TypeOfVariable(dst, variable_type) => {
-                        let variable_type = *self.get(*variable_type);
-                        use std::convert::TryFrom;
-                        let variable_ty = Ty::try_from(variable_type as u32).unwrap();
-                        *index_mut(&mut self.strs, dst) = Str::from(Str::from(variable_ty.type_name()));
+                    TypeOfArray(dst) => {
+                        *index_mut(&mut self.strs, dst) = Str::from("array");
+                    }
+                    TypeOfNumber(dst) => {
+                        *index_mut(&mut self.strs, dst) = Str::from("number");
+                    }
+                    TypeOfString(dst) => {
+                        *index_mut(&mut self.strs, dst) = Str::from("string");
+                    }
+                    TypeOfUnassigned(dst) => {
+                        *index_mut(&mut self.strs, dst) = Str::from("unassigned");
                     }
                     IsArrayTrue(dst) => {
                         let dst = *dst;

@@ -187,7 +187,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
         [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
-        [ReadOnly] type_of_variable(int_ty) -> str_ty;
+        [ReadOnly] type_of_array() -> str_ty;
+        [ReadOnly] type_of_number() -> str_ty;
+        [ReadOnly] type_of_string() -> str_ty;
+        [ReadOnly] type_of_unassigned() -> str_ty;
         [ReadOnly] is_array_true() -> int_ty;
         [ReadOnly] is_array_false() -> int_ty;
 
@@ -930,10 +933,17 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
 
-pub(crate) unsafe extern "C" fn type_of_variable(variable_type: Int) -> U128 {
-    use std::convert::TryFrom;
-    let variable_ty = Ty::try_from(variable_type as u32).unwrap();
-    mem::transmute::<Str, U128>(Str::from(variable_ty.type_name()))
+pub(crate) unsafe extern "C" fn type_of_array() -> U128 {
+    mem::transmute::<Str, U128>(Str::from("array"))
+}
+pub(crate) unsafe extern "C" fn type_of_number() -> U128 {
+    mem::transmute::<Str, U128>(Str::from("number"))
+}
+pub(crate) unsafe extern "C" fn type_of_string() -> U128 {
+    mem::transmute::<Str, U128>(Str::from("string"))
+}
+pub(crate) unsafe extern "C" fn type_of_unassigned() -> U128 {
+    mem::transmute::<Str, U128>(Str::from("unassigned"))
 }
 
 pub(crate) unsafe extern "C" fn is_array_true() -> Int {

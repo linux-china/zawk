@@ -861,7 +861,22 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
-            TypeOfVariable(dst,variable_type) => self.unop(intrinsic!(type_of_variable), dst, variable_type),
+            TypeOfArray(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(type_of_array), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            TypeOfNumber(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(type_of_number), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            TypeOfString(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(type_of_string), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            TypeOfUnassigned(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(type_of_unassigned), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             IsArrayTrue(dst) => {
                 let resv = self.call_intrinsic(intrinsic!(is_array_true), &mut [])?;
                 self.bind_val(dst.reflect(), resv)

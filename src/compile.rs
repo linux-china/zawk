@@ -21,6 +21,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
+use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -125,33 +126,6 @@ impl Ty {
         }
     }
 
-    pub(crate) fn to_int_value(self) -> u32 {
-        use Ty::*;
-        match self {
-            Int => 0,
-            Float => 1,
-            Str => 2,
-            MapIntInt => 3,
-            MapIntFloat => 4,
-            MapIntStr => 5,
-            MapStrInt => 6,
-            MapStrFloat => 7,
-            MapStrStr => 8,
-            IterInt => 9,
-            IterStr => 10,
-            Null => 11,
-        }
-    }
-
-    pub(crate) fn type_name(self) -> String {
-        use Ty::*;
-        match self {
-            Int | Float => "number".to_owned(),
-            Str => "string".to_owned(),
-            MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => "array".to_owned(),
-            _ => "untyped".to_owned(),
-        }
-    }
 }
 
 fn visit_used_fields(stmt: &Instr, cur_func_id: NumTy, ufa: &mut UsedFieldAnalysis) {
@@ -1964,11 +1938,29 @@ impl<'a, 'b> View<'a, 'b> {
             }
             TypeOfVariable => {
                 if res_reg != UNUSED {
-                    let type_value :i64 = conv_tys[0].to_int_value() as i64;
-                    self.pushl(LL::TypeOfVariable(
-                        res_reg.into(),
-                        conv_tys[0].to_int_value().into(),
-                    ))
+                    match conv_tys[0] {
+                        MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
+                            self.pushl(LL::TypeOfArray(
+                                res_reg.into(),
+                            ))
+                        }
+                        Ty::Int | Ty::Float => {
+                            self.pushl(LL::TypeOfNumber(
+                                res_reg.into(),
+                            ))
+                        }
+                        Ty::Str => {
+                            self.pushl(LL::TypeOfString(
+                                res_reg.into(),
+                            ))
+                        }
+                        _ => {
+                            self.pushl(LL::TypeOfUnassigned(
+                                res_reg.into(),
+                            ))
+                        }
+                    };
+
                 }
             }
             IsArray => {

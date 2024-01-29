@@ -326,8 +326,13 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(param.into()));
             }
-            TypeOfVariable(dst, variable_type) => {
-                f(dst.into(), Some(variable_type.into()));
+            TypeOfArray(_dst) => {
+            }
+            TypeOfNumber(_dst) => {
+            }
+            TypeOfString(_dst) => {
+            }
+            TypeOfUnassigned(_dst) => {
             }
             IsArrayTrue(_dst) => {
             }
