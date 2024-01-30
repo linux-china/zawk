@@ -26,6 +26,10 @@ pub fn digest(algorithm: &str, text: &str) -> String {
     } else if algorithm == "murmur3" {
         let hashcode = murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap();
         return hashcode.to_string();
+    } else if algorithm == "xxh32" {
+        return xxhash_rust::xxh32::xxh32(text.as_bytes(), 0).to_string();
+    } else if algorithm == "xxh64" {
+        return xxhash_rust::xxh64::xxh64(text.as_bytes(), 0).to_string();
     }
     format!("{}:{}", algorithm, text)
 }
@@ -85,6 +89,12 @@ mod tests {
         use std::io::Cursor;
         let hash_result = murmur3::murmur3_32(&mut Cursor::new("Hello"), 0);
         println!("{}", hash_result.unwrap());
+    }
+
+    #[test]
+    fn test_xxh32() {
+        let hash_result = xxhash_rust::xxh32::xxh32("hello".as_bytes(), 0).to_string();
+        println!("{}", hash_result);
     }
 
     #[test]
