@@ -116,7 +116,7 @@ please refer `ENVIRON` as example.
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
+* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
 * crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 * parser: `url("http://example.com/demo?query=1")`
 * KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
@@ -145,4 +145,4 @@ please refer `ENVIRON` as example.
 
 # todo
 
-Asort问题
+* Apache Parquet Read: please use dr to convert parquet to CSV file.
