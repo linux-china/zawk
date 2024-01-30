@@ -1286,6 +1286,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "whoami",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -3970,6 +3971,12 @@ checksum = "d7d8a75eaf6557bb84a65ace8609883db44a29951042ada9b393151532e41fcb"
 dependencies = [
  "xml-rs",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53be06678ed9e83edb1745eb72efc0bbcd7b5c3c35711a860906aed827a13d61"
 
 [[package]]
 name = "zbus"
