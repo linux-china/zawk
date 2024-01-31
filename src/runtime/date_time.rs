@@ -53,6 +53,11 @@ fn timezone_offset_text(timezone: i64) -> String {
     }
 }
 
+pub(crate) fn parse_datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
+    let timestamp = mktime(date_time_text, 0);
+    datetime(timestamp as i64)
+}
+
 pub(crate) fn datetime<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     let result: runtime::StrMap<Int> = runtime::StrMap::default();
     let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
@@ -88,7 +93,14 @@ mod tests {
 
     #[test]
     fn test_datetime() {
-        let result = datetime(1621530000);
+        let result = datetime(1575043680);
+        println!("{:?}", result);
+    }
+
+
+    #[test]
+    fn test_parse_datetime() {
+        let result = parse_datetime("2019-11-29 08:08-08");
         println!("{:?}", result);
     }
 }
