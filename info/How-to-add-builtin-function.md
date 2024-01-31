@@ -136,7 +136,7 @@ please refer `ENVIRON` as example.
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
-    - datetime: `datetime(1621530000)["year"]`
+    - datetime: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
 * misc: `whoami()`
 
 ### References
