@@ -1667,8 +1667,7 @@ where
 
                 // datetime() => datetime(timestamp_now);
                 if bi == builtins::Function::DateTime && args.len() == 0 {
-                    let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
-                    prim_args.push(PrimVal::ILit(seconds));
+                    prim_args.push(PrimVal::StrLit(b""));
                 }
                 // uniq(arr) => uniq(arr, param);
                 if bi == builtins::Function::Uniq && args.len() == 1 {

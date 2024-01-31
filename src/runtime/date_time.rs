@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use chrono::{Datelike, DateTime, Local, NaiveDateTime, Timelike, TimeZone};
 use crate::runtime;
 use crate::runtime::{Int, Str};
@@ -53,12 +54,19 @@ fn timezone_offset_text(timezone: i64) -> String {
     }
 }
 
-pub(crate) fn parse_datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
-    let timestamp = mktime(date_time_text, 0);
-    datetime(timestamp as i64)
+pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
+    if date_time_text.is_empty() {
+        let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
+        return datetime2(seconds);
+    } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
+        datetime2(timestamp)
+    } else {
+        let timestamp = mktime(date_time_text, 0);
+        datetime2(timestamp as i64)
+    }
 }
 
-pub(crate) fn datetime<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
+pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     let result: runtime::StrMap<Int> = runtime::StrMap::default();
     let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
     result.insert(Str::from("second"), utc_now.second() as Int);
@@ -93,14 +101,7 @@ mod tests {
 
     #[test]
     fn test_datetime() {
-        let result = datetime(1575043680);
-        println!("{:?}", result);
-    }
-
-
-    #[test]
-    fn test_parse_datetime() {
-        let result = parse_datetime("2019-11-29 08:08-08");
+        let result = datetime("1575043680");
         println!("{:?}", result);
     }
 }

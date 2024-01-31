@@ -541,7 +541,7 @@ impl Function {
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
-            DateTime => (smallvec![Int], MapStrInt),
+            DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
             HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),

@@ -160,7 +160,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
-        [ReadOnly] datetime(int_ty) -> map_ty;
+        [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
@@ -939,8 +939,9 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
 
-pub(crate) unsafe extern "C" fn datetime(timestamp: Int) -> *mut c_void {
-    let result = runtime::date_time::datetime(timestamp);
+pub(crate) unsafe extern "C" fn datetime(timestamp: *mut U128) -> *mut c_void {
+    let timestamp = &*(timestamp as *mut Str);
+    let result = runtime::date_time::datetime(timestamp.as_str());
     mem::transmute::<StrMap<Int>, *mut c_void>(result)
 }
 
