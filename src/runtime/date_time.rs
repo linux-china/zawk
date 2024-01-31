@@ -1,4 +1,6 @@
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::{Datelike, DateTime, Local, NaiveDateTime, Timelike, TimeZone};
+use crate::runtime;
+use crate::runtime::{Int, Str};
 
 const WEEKS: [&'static str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -51,6 +53,21 @@ fn timezone_offset_text(timezone: i64) -> String {
     }
 }
 
+pub(crate) fn datetime<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
+    let result: runtime::StrMap<Int> = runtime::StrMap::default();
+    let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+    result.insert(Str::from("second"), utc_now.second() as Int);
+    result.insert(Str::from("minute"), utc_now.minute() as Int);
+    result.insert(Str::from("hour"), utc_now.hour() as Int);
+    result.insert(Str::from("althour"), utc_now.hour12().1 as Int);
+    result.insert(Str::from("monthday"), utc_now.day() as Int);
+    result.insert(Str::from("month"), utc_now.month() as Int);
+    result.insert(Str::from("year"), utc_now.year() as Int);
+    result.insert(Str::from("weekday"), utc_now.weekday() as Int);
+    result.insert(Str::from("yearday"), utc_now.ordinal() as Int);
+    return result;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +84,11 @@ mod tests {
     fn test_fend_date() {
         let text = "Thursday, 20 May 2021";
         println!("{}", is_fend_date(text));
+    }
+
+    #[test]
+    fn test_datetime() {
+        let result = datetime(1621530000);
+        println!("{:?}", result);
     }
 }
