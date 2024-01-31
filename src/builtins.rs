@@ -46,6 +46,7 @@ pub enum Function {
     Digest,
     Hmac,
     Url,
+    DateTime,
     Shlex,
     FromJson,
     ToJson,
@@ -269,6 +270,7 @@ static_map!(
     ["hash", Function::Digest],
     ["hmac", Function::Hmac],
     ["url", Function::Url],
+    ["datetime", Function::DateTime],
     ["shlex", Function::Shlex],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
@@ -539,6 +541,7 @@ impl Function {
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Url => (smallvec![Str], MapStrStr),
+            DateTime => (smallvec![Int], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
             HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
@@ -596,7 +599,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid |  Fend | Url | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid |  Fend | Url | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -672,6 +675,12 @@ impl Function {
                    key: BaseTy::Str,
                    val: BaseTy::Str
                }.abs())
+            }
+            DateTime => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Int
+                }.abs())
             }
             Shlex => {
                 Ok(Map {

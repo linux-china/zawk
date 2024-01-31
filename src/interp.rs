@@ -765,6 +765,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    DateTime(dst, timestamp) => {
+                        let tt: i64 = *self.get(*timestamp);
+                        let result = runtime::date_time::datetime(tt);
+                        let dst = *dst;
+                        *self.get_mut(dst) = result;
+                    }
                     Shlex(dst, text) => {
                         let text = index(&self.strs, text);
                         let res = runtime::math_util::shlex(text.as_str());
