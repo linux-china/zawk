@@ -14,6 +14,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
+use std::time::SystemTime;
 use crate::runtime::{Int};
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
@@ -1664,6 +1665,11 @@ where
                     }
                 }
 
+                // datetime() => datetime(timestamp_now);
+                if bi == builtins::Function::DateTime && args.len() == 0 {
+                    let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
+                    prim_args.push(PrimVal::ILit(seconds));
+                }
                 // uniq(arr) => uniq(arr, param);
                 if bi == builtins::Function::Uniq && args.len() == 1 {
                     prim_args.push(PrimVal::StrLit(b""));
