@@ -302,6 +302,7 @@ static_map!(
     ["gensub", Function::GenSub],
     ["substr", Function::Substr],
     ["int", Function::ToInt],
+    ["float", Function::Strtonum],
     ["hex", Function::HexToInt],
     ["exp", Function::FloatFunc(FloatFunc::Exp)],
     ["abs", Function::FloatFunc(FloatFunc::Abs)],
