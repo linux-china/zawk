@@ -1977,6 +1977,50 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            IsInt => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::Int => {
+                            self.pushl(LL::IsIntTrue(
+                                res_reg.into(),
+                            ))
+                        }
+                        Ty::Str => {
+                            self.pushl(LL::IsStrInt(
+                                res_reg.into(),
+                                conv_regs[0].into()
+                            ))
+                        }
+                        _ => {
+                            self.pushl(LL::IsIntFalse(
+                                res_reg.into(),
+                            ))
+                        }
+                    };
+                }
+            }
+            IsNum => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::Int | Ty::Float => {
+                            self.pushl(LL::IsNumTrue(
+                                res_reg.into(),
+                            ))
+                        }
+                        Ty::Str => {
+                            self.pushl(LL::IsStrNum(
+                                res_reg.into(),
+                                conv_regs[0].into()
+                            ))
+                        }
+                        _ => {
+                            self.pushl(LL::IsNumFalse(
+                                res_reg.into(),
+                            ))
+                        }
+                    };
+                }
+            }
             Uniq => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Uniq(

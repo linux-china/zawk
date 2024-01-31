@@ -338,6 +338,16 @@ pub(crate) mod boilerplate {
             }
             IsArrayFalse(_dst) => {
             }
+            IsIntTrue(_dst) => {
+            }
+            IsIntFalse(_dst) => {
+            }
+            IsStrInt(dst, text)  => f(dst.into(), Some(text.into())),
+            IsNumTrue(_dst) => {
+            }
+            IsNumFalse(_dst) => {
+            }
+            IsStrNum(dst, text)  => f(dst.into(), Some(text.into())),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),

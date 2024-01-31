@@ -885,6 +885,32 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(is_array_false), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            IsIntTrue(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_int_true), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsIntFalse(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_int_false), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsStrInt(dst,text) => {
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(is_str_int), &mut [text])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsNumTrue(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_num_true), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsNumFalse(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(is_num_false), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            IsStrNum(dst,text) => {
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(is_str_num), &mut [text])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),

@@ -972,6 +972,40 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = 0;
                     }
+                    IsIntTrue(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 1;
+                    }
+                    IsIntFalse(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 0;
+                    }
+                    IsStrInt(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let dst = *dst;
+                        if text.as_str().parse::<i64>().is_ok() {
+                            *self.get_mut(dst) = 1;
+                        } else {
+                            *self.get_mut(dst) = 0;
+                        }
+                    }
+                    IsNumTrue(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 1;
+                    }
+                    IsNumFalse(dst) => {
+                        let dst = *dst;
+                        *self.get_mut(dst) = 0;
+                    }
+                    IsStrNum(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let dst = *dst;
+                        if text.as_str().parse::<f64>().is_ok() {
+                            *self.get_mut(dst) = 1;
+                        } else {
+                            *self.get_mut(dst) = 0;
+                        }
+                    }
                     StrToInt(ir, sr) => {
                         let i = runtime::convert::<_, Int>(self.get(*sr));
                         let ir = *ir;

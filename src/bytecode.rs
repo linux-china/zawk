@@ -217,6 +217,12 @@ pub(crate) enum Instr<'a> {
     TypeOfUnassigned(Reg<Str<'a>>),
     IsArrayTrue(Reg<Int>),
     IsArrayFalse(Reg<Int>),
+    IsIntTrue(Reg<Int>),
+    IsIntFalse(Reg<Int>),
+    IsStrInt(Reg<Int>, Reg<Str<'a>>),
+    IsNumTrue(Reg<Int>),
+    IsNumFalse(Reg<Int>),
+    IsStrNum(Reg<Int>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -704,6 +710,26 @@ impl<'a> Instr<'a> {
             }
             IsArrayFalse(dst ) => {
                 dst.accum(&mut f);
+            }
+            IsIntTrue(dst ) => {
+                dst.accum(&mut f);
+            }
+            IsIntFalse(dst ) => {
+                dst.accum(&mut f);
+            }
+            IsStrInt(dst , text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            IsNumTrue(dst ) => {
+                dst.accum(&mut f);
+            }
+            IsNumFalse(dst ) => {
+                dst.accum(&mut f);
+            }
+            IsStrNum(dst , text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
             }
             StrToInt(ir, sr) | HexStrToInt(ir, sr) => {
                 ir.accum(&mut f);

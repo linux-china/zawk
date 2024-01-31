@@ -193,7 +193,12 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] type_of_unassigned() -> str_ty;
         [ReadOnly] is_array_true() -> int_ty;
         [ReadOnly] is_array_false() -> int_ty;
-
+        [ReadOnly] is_int_true() -> int_ty;
+        [ReadOnly] is_int_false() -> int_ty;
+        [ReadOnly] is_str_int(str_ref_ty) -> int_ty;
+        [ReadOnly] is_num_true() -> int_ty;
+        [ReadOnly] is_num_false() -> int_ty;
+        [ReadOnly] is_str_num(str_ref_ty) -> int_ty;
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
         // prefix.
@@ -953,6 +958,41 @@ pub(crate) unsafe extern "C" fn is_array_true() -> Int {
 pub(crate) unsafe extern "C" fn is_array_false() -> Int {
     0
 }
+
+pub(crate) unsafe extern "C" fn is_int_true() -> Int {
+    1
+}
+
+pub(crate) unsafe extern "C" fn is_int_false() -> Int {
+    0
+}
+
+pub(crate) unsafe extern "C" fn is_str_int(text: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    if text.as_str().parse::<i64>().is_ok() {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) unsafe extern "C" fn is_num_true() -> Int {
+    1
+}
+
+pub(crate) unsafe extern "C" fn is_num_false() -> Int {
+    0
+}
+
+pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    if text.as_str().parse::<f64>().is_ok() {
+        1
+    } else {
+        0
+    }
+}
+
 
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);

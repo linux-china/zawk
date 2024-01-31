@@ -201,6 +201,8 @@ impl Display for Function {
             Asort => write!(f, "asort"),
             TypeOfVariable => write!(f, "typeof"),
             IsArray => write!(f, "isarray"),
+            IsInt => write!(f, "isint"),
+            IsNum => write!(f, "isnum"),
             Uniq => write!(f, "uniq"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),

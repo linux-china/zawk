@@ -80,6 +80,8 @@ pub enum Function {
     Uniq,
     TypeOfVariable,
     IsArray,
+    IsInt,
+    IsNum,
     Substr,
     ToInt,
     HexToInt,
@@ -292,6 +294,8 @@ static_map!(
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
     ["isarray", Function::IsArray],
+    ["isint", Function::IsInt],
+    ["isnum", Function::IsNum],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -558,6 +562,8 @@ impl Function {
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             TypeOfVariable => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
+            IsInt => (smallvec![incoming[0]], Int),
+            IsNum => (smallvec![incoming[0]], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -608,6 +614,7 @@ impl Function {
             KvPut => 3,
             KvClear => 1,
             Publish => 2,
+            IsInt | IsNum => 1,
             Encode | Decode | Digest | Escape => 2,
             Hmac => 3,
             IntMapJoin => 2,
@@ -658,7 +665,7 @@ impl Function {
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize => Ok(Scalar(BaseTy::Str).abs()),
-            IsArray => Ok(Scalar(BaseTy::Int).abs()),
+            IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url => {
                Ok(Map {
                    key: BaseTy::Str,
