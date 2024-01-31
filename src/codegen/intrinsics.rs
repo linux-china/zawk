@@ -969,7 +969,7 @@ pub(crate) unsafe extern "C" fn is_int_false() -> Int {
 
 pub(crate) unsafe extern "C" fn is_str_int(text: *mut U128) -> Int {
     let text = &*(text as *mut Str);
-    if text.as_str().parse::<i64>().is_ok() {
+    if runtime::math_util::is_str_int(text.as_str()) {
         1
     } else {
         0
@@ -986,7 +986,7 @@ pub(crate) unsafe extern "C" fn is_num_false() -> Int {
 
 pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
     let text = &*(text as *mut Str);
-    if text.as_str().parse::<f64>().is_ok() {
+    if math_util::is_str_num(text.as_str()) {
         1
     } else {
         0
@@ -996,7 +996,7 @@ pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
 
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
-    let res = runtime::math_util::shlex(text.as_str());
+    let res = math_util::shlex(text.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
@@ -1361,7 +1361,7 @@ pub(crate) unsafe extern "C" fn float_to_str(f: Float) -> U128 {
 
 pub(crate) unsafe extern "C" fn str_to_int(s: *mut c_void) -> Int {
     let s = &*(s as *mut Str);
-    runtime::convert::<&Str, Int>(s)
+    math_util::strtoint(s.as_str())
 }
 
 pub(crate) unsafe extern "C" fn hex_str_to_int(s: *mut c_void) -> Int {
@@ -1371,7 +1371,7 @@ pub(crate) unsafe extern "C" fn hex_str_to_int(s: *mut c_void) -> Int {
 
 pub(crate) unsafe extern "C" fn str_to_float(s: *mut c_void) -> Float {
     let s = &*(s as *mut Str);
-    runtime::convert::<&Str, Float>(s)
+    math_util::strtonum(s.as_str())
 }
 
 pub(crate) unsafe extern "C" fn load_var_str(rt: *mut c_void, var: usize) -> U128 {

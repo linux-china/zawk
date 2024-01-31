@@ -238,7 +238,46 @@ pub(crate) fn strtonum(text: &str) -> Float {
     };
 }
 
-pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>>{
+pub(crate) fn strtoint(text: &str) -> Int {
+    let text = text.trim().to_lowercase();
+    return if text.starts_with("0x") {
+        i64::from_str_radix(&text[2..], 16).unwrap_or(0)
+    } else if text.starts_with("0o") {
+        i64::from_str_radix(&text[2..], 8).unwrap_or(0)
+    } else if text.starts_with("0b") {
+        i64::from_str_radix(&text[2..], 2).unwrap_or(0)
+    } else {
+        text.parse::<i64>().unwrap_or(0)
+    };
+}
+
+pub(crate) fn is_str_int(text: &str) -> bool {
+    let text = text.trim().to_lowercase();
+    if text.starts_with("0x") {
+        i64::from_str_radix(&text[2..], 16).is_ok()
+    } else if text.starts_with("0o") {
+        i64::from_str_radix(&text[2..], 8).is_ok()
+    } else if text.starts_with("0b") {
+        i64::from_str_radix(&text[2..], 2).is_ok()
+    } else {
+        text.parse::<i64>().is_ok()
+    }
+}
+
+pub(crate) fn is_str_num(text: &str) -> bool {
+    let text = text.trim().to_lowercase();
+    if text.starts_with("0x") {
+        i64::from_str_radix(&text[2..], 16).is_ok()
+    } else if text.starts_with("0o") {
+        i64::from_str_radix(&text[2..], 8).is_ok()
+    } else if text.starts_with("0b") {
+        i64::from_str_radix(&text[2..], 2).is_ok()
+    } else {
+        text.parse::<f64>().is_ok()
+    }
+}
+
+pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>> {
     //todo uniq implement logic with param
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
@@ -248,21 +287,21 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>>{
     }
     items.dedup();
     let result: IntMap<Str> = IntMap::default();
-    let mut index:i64 = 1;
+    let mut index: i64 = 1;
     for item in items {
         result.insert(index, Str::from(item));
-        index = index +1;
+        index = index + 1;
     }
     result
 }
 
-pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>>{
+pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     let args = shlex::split(text).unwrap_or(vec![]);
     let result: IntMap<Str> = IntMap::default();
-    let mut index:i64 = 1;
+    let mut index: i64 = 1;
     for item in args {
         result.insert(index, Str::from(item));
-        index = index +1;
+        index = index + 1;
     }
     result
 }
@@ -305,7 +344,20 @@ mod tests {
     fn test_shlex() {
         let text = "echo hello world";
         let args = shlex(text);
-        println!("{:?}",args);
+        println!("{:?}", args);
     }
 
+    #[test]
+    fn test_isint() {
+        assert!(is_str_int("11"));
+        assert!(is_str_int("0x11"));
+        assert!(!is_str_int("11.1"));
+    }
+
+    #[test]
+    fn test_isnum() {
+        assert!(is_str_num("11.01"));
+        assert!(is_str_num("0x11"));
+        assert!(!is_str_num("u11.1"));
+    }
 }

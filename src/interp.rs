@@ -983,7 +983,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     IsStrInt(dst, text) => {
                         let text = index(&self.strs, text);
                         let dst = *dst;
-                        if text.as_str().parse::<i64>().is_ok() {
+                        if runtime::math_util::is_str_int(text.as_str()) {
                             *self.get_mut(dst) = 1;
                         } else {
                             *self.get_mut(dst) = 0;
@@ -1000,16 +1000,17 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     IsStrNum(dst, text) => {
                         let text = index(&self.strs, text);
                         let dst = *dst;
-                        if text.as_str().parse::<f64>().is_ok() {
+                        if runtime::math_util::is_str_num(text.as_str()) {
                             *self.get_mut(dst) = 1;
                         } else {
                             *self.get_mut(dst) = 0;
                         }
                     }
                     StrToInt(ir, sr) => {
-                        let i = runtime::convert::<_, Int>(self.get(*sr));
+                        let sr = index(&self.strs, sr);
+                        let num =  runtime::math_util::strtoint(sr.as_str());
                         let ir = *ir;
-                        *self.get_mut(ir) = i;
+                        *self.get_mut(ir) = num;
                     }
                     HexStrToInt(ir, sr) => {
                         let i = self.get(*sr).with_bytes(runtime::hextoi);
@@ -1017,9 +1018,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(ir) = i;
                     }
                     StrToFloat(fr, sr) => {
-                        let f = runtime::convert::<_, Float>(self.get(*sr));
+                        let sr = index(&self.strs, sr);
+                        let num =  runtime::math_util::strtonum(sr.as_str());
                         let fr = *fr;
-                        *self.get_mut(fr) = f;
+                        *self.get_mut(fr) = num;
                     }
                     FloatToInt(ir, fr) => {
                         let i = runtime::convert::<_, Int>(*self.get(*fr));
