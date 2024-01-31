@@ -113,6 +113,7 @@ please refer `ENVIRON` as example.
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
     - capitalize: `capitalize($1)`
     - shlex: parse command line
+    - math: `isint()`, `isnum()`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
@@ -145,4 +146,4 @@ please refer `ENVIRON` as example.
 
 # todo
 
-* Apache Parquet Read: please use dr to convert parquet to CSV file.
+* Apache Parquet Read: please use [dr](https://crates.io/crates/dr) to convert parquet to CSV file.
