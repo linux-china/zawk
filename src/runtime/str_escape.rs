@@ -5,6 +5,7 @@ pub fn escape(format: &str, text: &str) -> String {
         "tsv" => escape_tsv(text),
         "json" => escape_json(text),
         "sql" => escape_sql(text),
+        "shell" => escape_shell(text),
         "xml" | "html" => escape_xml(text),
         _ => text.to_string()
     }
@@ -45,6 +46,14 @@ fn escape_json(text: &str) -> String {
     return result;
 }
 
+fn escape_shell(text: &str) -> String {
+    if text.contains('\'') {
+        text.replace('\'', "'\\''").to_string()
+    }else {
+        text.to_string()
+    }
+}
+
 fn escape_sql(text: &str) -> String {
     return text.replace("'", "''");
 }
@@ -72,5 +81,11 @@ mod tests {
     fn test_escape_json() {
         let json_text = "{\"id\": \n 1}";
         println!("{}", escape_json(json_text));
+    }
+
+    #[test]
+    fn test_shell_escape() {
+        let text = "Hello ' world' hi world";
+        println!("{}", escape_shell(text));
     }
 }
