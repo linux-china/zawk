@@ -88,7 +88,7 @@ please refer `ENVIRON` as example.
 
 ### UDF(User Defined Function)
 
-* uuid : `uuid()`, `uuid("v7")`, ulid `print ulid()`
+* uuid : `uuid()`, `uuid("v7")`, ulid `print ulid()`, `snowflake(machine_id)`,
 * array: `delete arr[1]`, `delete arr`, `length(arr)`, `n = asort(arr)`,
 * array extension: 所有下划线开头的函数，只能用于数组，这个遵循Underscore.js的风格
     - `seq(start, end, step)`: seq命令兼容
