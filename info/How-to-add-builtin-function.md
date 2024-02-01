@@ -83,8 +83,8 @@ please refer `ENVIRON` as example.
 
 * text
 * csv
-* jsonl
-* Apache Parquet
+* jsonl - not ready
+* Apache Parquet - use dr to convert Parquet to CSV
 
 ### UDF(User Defined Function)
 
