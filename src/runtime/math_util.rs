@@ -324,7 +324,6 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::splitter::ReaderState::OK;
     use super::*;
 
     #[test]
@@ -380,6 +379,8 @@ mod tests {
 
     #[test]
     fn test_snowflake() {
-        println!("{}", snowflake(16));
+        let machine_id: i64 = 234342347234;
+        println!("{}",machine_id as u16);
+        println!("{}", snowflake(machine_id as u16));
     }
 }
