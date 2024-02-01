@@ -110,7 +110,7 @@ please refer `ENVIRON` as example.
     - strtonum: numeric value(十进制) `strtonum("0x11")`
     - trim: `trim($1)` or `trim($1, "[]()")`
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
-    - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql.
+    - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql, shell.
     - capitalize: `capitalize($1)`
     - shlex: parse command line
     - math: `isint()`, `isnum()`
