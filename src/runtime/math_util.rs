@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
+use sonyflake::Sonyflake;
 use crate::runtime::{Float, Int, IntMap, Str};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
@@ -221,6 +225,18 @@ pub(crate) fn uuid(version: &str) -> String {
     }
 }
 
+lazy_static! {
+    static ref SNOWFLAKES: Mutex<HashMap<u16, Sonyflake>> = Mutex::new(HashMap::new());
+}
+
+pub(crate) fn snowflake(machine_id: u16) -> Int {
+    let mut pool = SNOWFLAKES.lock().unwrap();
+    let generator = pool.entry(machine_id).or_insert_with(|| {
+        Sonyflake::builder().machine_id(&|| { Ok(machine_id) }).finalize().unwrap()
+    });
+    generator.next_id().unwrap() as Int
+}
+
 pub(crate) fn ulid() -> String {
     ulid::Ulid::new().to_string()
 }
@@ -308,6 +324,7 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
 
 #[cfg(test)]
 mod tests {
+    use crate::runtime::splitter::ReaderState::OK;
     use super::*;
 
     #[test]
@@ -359,5 +376,10 @@ mod tests {
         assert!(is_str_num("11.01"));
         assert!(is_str_num("0x11"));
         assert!(!is_str_num("u11.1"));
+    }
+
+    #[test]
+    fn test_snowflake() {
+        println!("{}", snowflake(16));
     }
 }
