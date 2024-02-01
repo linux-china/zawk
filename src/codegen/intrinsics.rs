@@ -142,6 +142,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         update_used_fields(rt_ty);
         set_fi_entry(rt_ty, int_ty, int_ty);
         uuid(str_ref_ty) -> str_ty;
+        snowflake(int_ty) -> int_ty;
         ulid(rt_ty) -> str_ty;
         whoami(rt_ty) -> str_ty;
         local_ip(rt_ty) -> str_ty;
@@ -711,6 +712,10 @@ pub(crate) unsafe extern "C" fn uuid(version: *mut U128) -> U128 {
     let version = &*(version as *mut Str);
     let res = Str::from(runtime::math_util::uuid(version.as_str()));
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn snowflake(machine_id: Int) -> Int {
+    runtime::math_util::snowflake(machine_id as u16)
 }
 
 pub(crate) unsafe extern "C" fn local_ip() -> U128 {

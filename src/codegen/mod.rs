@@ -795,6 +795,11 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(uuid), &mut [version])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            SnowFlake(dst, machine_id) => {
+                let machine_id = self.get_val(machine_id.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(snowflake), &mut [machine_id])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Ulid(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(ulid), &mut [rt])?;

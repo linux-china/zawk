@@ -194,6 +194,7 @@ pub(crate) mod boilerplate {
 
             IntToStr(dst, src) => f(dst.into(), Some(src.into())),
             Uuid(dst, version) => f(dst.into(), Some(version.into())),
+            SnowFlake(dst, machine_id) => f(dst.into(), Some(machine_id.into())),
             Ulid(dst) => f(dst.into(), None),
             Whoami(dst) => f(dst.into(), None),
             LocalIp(dst) => f(dst.into(), None),

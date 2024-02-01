@@ -688,6 +688,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = Str::from(runtime::math_util::uuid(version.as_str()));
                         *index_mut(&mut self.strs, dst) = res;
                     }
+                    SnowFlake(dst,machine_id) => {
+                        let machine_id: i64 = *self.get(*machine_id);
+                        let res =  runtime::math_util::snowflake(machine_id as u16);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res
+                    }
                     Ulid(dst) => {
                         let ulid = Str::from(runtime::math_util::ulid());
                         *index_mut(&mut self.strs, dst) = ulid;

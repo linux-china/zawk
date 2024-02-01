@@ -14,7 +14,6 @@ use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
-use std::time::SystemTime;
 use crate::runtime::{Int};
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
@@ -1665,6 +1664,10 @@ where
                     }
                 }
 
+                // snowflake() => snowflake(1);
+                if bi == builtins::Function::SnowFlake && args.len() == 0 {
+                    prim_args.push(PrimVal::ILit(1));
+                }
                 // datetime() => datetime(timestamp_now);
                 if bi == builtins::Function::DateTime && args.len() == 0 {
                     prim_args.push(PrimVal::StrLit(b""));

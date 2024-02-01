@@ -30,6 +30,7 @@ pub enum Function {
     Length,
     Uuid,
     Ulid,
+    SnowFlake,
     Whoami,
     Systime,
     Strftime,
@@ -257,6 +258,7 @@ static_map!(
     ["length", Function::Length],
     ["uuid", Function::Uuid],
     ["ulid", Function::Ulid],
+    ["snowflake", Function::SnowFlake],
     ["whoami", Function::Whoami],
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
@@ -532,6 +534,7 @@ impl Function {
             Setcol => (smallvec![Int, Str], Int),
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![Str], Str),
+            SnowFlake => (smallvec![Int], Int),
             Ulid => (smallvec![], Str),
             Whoami => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
@@ -599,7 +602,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid |  Fend | Url | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake |  Fend | Url | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Strftime | Mktime => 2,
@@ -660,7 +663,7 @@ impl Function {
             Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
-            | System | HexToInt | Asort | MkBool => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Whoami | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr

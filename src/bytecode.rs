@@ -193,6 +193,7 @@ pub(crate) enum Instr<'a> {
     // Advances early to the next file in our sequence
     NextFile(),
     Uuid(Reg<Str<'a>>, Reg<Str<'a>>),
+    SnowFlake(Reg<Int>, Reg<Int>),
     Ulid(Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Whoami(Reg<Str<'a>>),
@@ -490,6 +491,10 @@ impl<'a> Instr<'a> {
             Uuid(sr, version) => {
                 sr.accum(&mut f);
                 version.accum(&mut f);
+            }
+            SnowFlake(sr, machine_id) => {
+                sr.accum(&mut f);
+                machine_id.accum(&mut f);
             }
             Ulid(sr) => {
                 sr.accum(&mut f);
