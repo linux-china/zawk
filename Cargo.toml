@@ -50,6 +50,7 @@ bumpalo = { version = "3.14.0", features = ["collections"] }
 target-lexicon = "0.12.13"
 uuid = { version = "1.7", features = ["v4", "v7"] }
 ulid = "1"
+sonyflake="0.2.0"
 fend-core = "1.4"
 chrono = "0.4"
 dateparser = "0.2"
