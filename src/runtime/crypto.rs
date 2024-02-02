@@ -1,9 +1,10 @@
-use std::collections::{HashMap};
-use jwt::SignWithKey;
+use std::collections::{BTreeMap};
+use jwt::{AlgorithmType, Header, SignWithKey, Token};
 use std::io::{BufReader, Cursor};
 use sha2::{Sha256, Sha512, Digest, Sha384};
 use hmac::{Hmac, Mac};
-use crate::runtime;
+use jwt::header::HeaderType;
+use serde_json::{Number, Value};
 use crate::runtime::{Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -52,21 +53,36 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
 }
 
 pub fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
-    let algorithm = algorithm.to_uppercase();
-    let key = if algorithm == "HS512" {
-        Hmac::<Sha512>::new_from_slice(key.as_bytes()).unwrap()
-    } else if algorithm == "HS384" {
-        Hmac::<Sha384>::new_from_slice(key.as_bytes()).unwrap()
-    } else {
-        Hmac::<Sha256>::new_from_slice(key.as_bytes()).unwrap()
-    };
-    let mut claims: HashMap<&str, &str> = HashMap::new();
+    let mut claims: BTreeMap<String, Value> = BTreeMap::new();
     payload.iter(|map| {
         for (key, value) in map {
-            claims.insert(key.as_str(), value.as_str());
+            let key = key.to_string();
+            let value = value.to_string();
+            if key == "exp" || key == "nbf" || key == "iat" {
+                claims.insert(key, Value::Number(Number::from(value.parse::<u64>().unwrap())));
+            } else {
+                claims.insert(key, Value::String(value));
+            }
         }
     });
-    claims.sign_with_key(&key).unwrap()
+    let algorithm = algorithm.to_uppercase();
+    let mut header = Header {
+        type_: Some(HeaderType::JsonWebToken),
+        ..Default::default()
+    };
+    if algorithm == "HS512" {
+        let key = Hmac::<Sha512>::new_from_slice(key.as_bytes()).unwrap();
+        header.algorithm = AlgorithmType::Hs512;
+        Token::new(header, claims).sign_with_key(&key).unwrap()
+    } else if algorithm == "HS384" {
+        let key = Hmac::<Sha384>::new_from_slice(key.as_bytes()).unwrap();
+        header.algorithm = AlgorithmType::Hs384;
+        Token::new(header, claims).sign_with_key(&key).unwrap()
+    } else {
+        let key = Hmac::<Sha256>::new_from_slice(key.as_bytes()).unwrap();
+        header.algorithm = AlgorithmType::Hs256;
+        Token::new(header, claims).sign_with_key(&key).unwrap()
+    }.as_str().to_string()
 }
 
 #[cfg(test)]
@@ -136,6 +152,7 @@ mod tests {
         let payload: StrMap<Str> = StrMap::default();
         payload.insert(Str::from("name"), Str::from("John Doe"));
         payload.insert(Str::from("user_id"), Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"));
+        payload.insert(Str::from("exp"), Str::from("1208234234234"));
         let token = jwt("HS256", "xxx", &payload);
         println!("{}", token);
     }
