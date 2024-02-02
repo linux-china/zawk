@@ -161,6 +161,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
@@ -941,6 +942,12 @@ pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
 
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     let url_obj = (*(s as *mut Str as *const Str)).url();
+    mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
+}
+
+pub(crate) unsafe extern "C" fn data_url(src: *mut U128) -> *mut c_void {
+    let src = &*(src as *mut Str);
+    let url_obj = runtime::encoding::data_url(src.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
 

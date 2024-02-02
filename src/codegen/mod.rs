@@ -866,6 +866,7 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
+            DataUrl(dst,src) => self.unop(intrinsic!(data_url), dst, src),
             DateTime(dst,timestamp) => self.unop(intrinsic!(datetime), dst, timestamp),
             TypeOfArray(dst) => {
                 let resv = self.call_intrinsic(intrinsic!(type_of_array), &mut [])?;

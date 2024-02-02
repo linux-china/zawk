@@ -771,6 +771,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    DataUrl(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res =  runtime::encoding::data_url(src.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     DateTime(dst, timestamp) => {
                         let timestamp = index(&self.strs, timestamp);
                         let result = runtime::date_time::datetime(timestamp.as_str());

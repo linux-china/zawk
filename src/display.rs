@@ -183,6 +183,7 @@ impl Display for Function {
             Digest => write!(f, "digest"),
             Hmac => write!(f, "hmac"),
             Url => write!(f, "url"),
+            DataUrl => write!(f, "data_url"),
             DateTime => write!(f, "datetime"),
             Shlex => write!(f, "shlex"),
             HttpGet => write!(f, "http_get"),
