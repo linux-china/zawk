@@ -160,6 +160,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] jwt(str_ref_ty, str_ref_ty, map_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
@@ -774,6 +775,16 @@ pub(crate) unsafe extern "C" fn hmac(algorithm: *mut U128, key: *mut U128, text:
     let key = &*(key as *mut Str);
     let text = &*(text as *mut Str);
     let date_time_text = runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
+    let res = Str::from(date_time_text);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn jwt(algorithm: *mut U128, key: *mut U128, payload: *mut c_void) -> U128 {
+    let algorithm = &*(algorithm as *mut Str);
+    let key = &*(key as *mut Str);
+    let payload = mem::transmute::<*mut c_void, StrMap<Str>>(payload);
+    let date_time_text = runtime::crypto::jwt(algorithm.as_str(), key.as_str(), &payload);
+    mem::forget(payload);
     let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
 }

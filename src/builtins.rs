@@ -46,6 +46,7 @@ pub enum Function {
     Decode,
     Digest,
     Hmac,
+    Jwt,
     Url,
     DataUrl,
     DateTime,
@@ -272,6 +273,7 @@ static_map!(
     ["digest", Function::Digest],
     ["hash", Function::Digest],
     ["hmac", Function::Hmac],
+    ["jwt", Function::Jwt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
     ["datetime", Function::DateTime],
@@ -569,6 +571,7 @@ impl Function {
             Decode => (smallvec![Str, Str], Str),
             Digest => (smallvec![Str, Str], Str),
             Hmac => (smallvec![Str, Str, Str], Str),
+            Jwt => (smallvec![Str, Str, MapStrStr], Str),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             TypeOfVariable => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
@@ -626,7 +629,7 @@ impl Function {
             Publish => 2,
             IsInt | IsNum => 1,
             Encode | Decode | Digest | Escape => 2,
-            Hmac => 3,
+            Hmac | Jwt => 3,
             IntMapJoin => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
             GenSub => 4,
@@ -670,7 +673,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Whoami | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
-            | Encode | Decode | Digest | Hmac | ToJson | TypeOfVariable | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),

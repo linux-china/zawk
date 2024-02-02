@@ -182,6 +182,7 @@ impl Display for Function {
             Decode => write!(f, "decode"),
             Digest => write!(f, "digest"),
             Hmac => write!(f, "hmac"),
+            Jwt => write!(f, "jwt"),
             Url => write!(f, "url"),
             DataUrl => write!(f, "data_url"),
             DateTime => write!(f, "datetime"),

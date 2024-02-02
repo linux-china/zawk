@@ -851,6 +851,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(hmac), &mut [algorithm, key, text])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Jwt(dst,algorithm,key, payload) => {
+                let algorithm = self.get_val(algorithm.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let payload = self.get_val(payload.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(jwt), &mut [algorithm, key, payload])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;

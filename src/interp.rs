@@ -743,6 +743,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
+                    Jwt(dst, algorithm, key, payload) => {
+                        let algorithm = index(&self.strs, algorithm);
+                        let key = index(&self.strs, key);
+                        let payload = self.get(*payload);
+                        let token = runtime::crypto::jwt(algorithm.as_str(), key.as_str(), payload);
+                        *index_mut(&mut self.strs, dst) = token.into();
+                    }
                     Strftime(dst, format, timestamp) => {
                         let format = index(&self.strs, format);
                         let tt: i64 = *self.get(*timestamp);
