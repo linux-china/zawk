@@ -63,6 +63,7 @@ md5 = "0.7"
 crc = "3"
 adler = "1"
 hmac = "0.12"
+jwt = "0.16.0"
 bcrypt = "0.15"
 murmur3 = "0.5"
 xxhash-rust = { version = "0.8.8", features = ["xxh32", "xxh64"] }
