@@ -140,7 +140,8 @@ mod tests {
         let text  = "data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==";
         let text2  = "data:text/html,%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E";
         let map = data_url(text);
-        println!("{:?}", map);
-        println!("{}", map.get(&Str::from("mime_type")).as_str());
+        let map2 = data_url(text2);
+        println!("{}", map.get(&Str::from("encoding")).as_str());
+        println!("{}", map2.get(&Str::from("mime_type")).as_str());
     }
 }
