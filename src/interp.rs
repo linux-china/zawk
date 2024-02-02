@@ -750,6 +750,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let token = runtime::crypto::jwt(algorithm.as_str(), key.as_str(), payload);
                         *index_mut(&mut self.strs, dst) = token.into();
                     }
+                    Dejwt(dst, key, token) => {
+                        let key = index(&self.strs, key);
+                        let token = index(&self.strs, token);
+                        let res = runtime::crypto::dejwt(key.as_str(), token.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Strftime(dst, format, timestamp) => {
                         let format = index(&self.strs, format);
                         let tt: i64 = *self.get(*timestamp);

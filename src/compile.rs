@@ -1768,6 +1768,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Dejwt => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Dejwt(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Strftime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Strftime(

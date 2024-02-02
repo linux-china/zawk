@@ -225,6 +225,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(key.into()));
                 f(dst.into(), Some(payload.into()));
             }
+            Dejwt(dst, key, token) => {
+                f(dst.into(), Some(key.into()));
+                f(dst.into(), Some(token.into()));
+            }
             Strftime(dst, format, timestamp) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(timestamp.into()));

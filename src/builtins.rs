@@ -47,6 +47,7 @@ pub enum Function {
     Digest,
     Hmac,
     Jwt,
+    Dejwt,
     Url,
     DataUrl,
     DateTime,
@@ -274,6 +275,7 @@ static_map!(
     ["hash", Function::Digest],
     ["hmac", Function::Hmac],
     ["jwt", Function::Jwt],
+    ["dejwt", Function::Dejwt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
     ["datetime", Function::DateTime],
@@ -572,6 +574,7 @@ impl Function {
             Digest => (smallvec![Str, Str], Str),
             Hmac => (smallvec![Str, Str, Str], Str),
             Jwt => (smallvec![Str, Str, MapStrStr], Str),
+            Dejwt => (smallvec![Str, Str], MapStrStr),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             TypeOfVariable => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
@@ -611,6 +614,7 @@ impl Function {
             | Uuid | SnowFlake |  Fend | Url | DataUrl | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
+            Dejwt => 2,
             Strftime | Mktime => 2,
             MkBool => 1,
             Trim => 2,
@@ -679,7 +683,7 @@ impl Function {
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
-            Url | DataUrl => {
+            Url | DataUrl | Dejwt => {
                Ok(Map {
                    key: BaseTy::Str,
                    val: BaseTy::Str

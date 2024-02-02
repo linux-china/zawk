@@ -161,6 +161,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] jwt(str_ref_ty, str_ref_ty, map_ty) -> str_ty;
+        [ReadOnly] dejwt(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
@@ -787,6 +788,13 @@ pub(crate) unsafe extern "C" fn jwt(algorithm: *mut U128, key: *mut U128, payloa
     mem::forget(payload);
     let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn dejwt(key: *mut U128, token: *mut U128) -> *mut c_void {
+    let key = &*(key as *mut Str);
+    let token = &*(token as *mut Str);
+    let jwt = runtime::crypto::dejwt( key.as_str(), token.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(jwt)
 }
 
 pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U128 {

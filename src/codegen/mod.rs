@@ -858,6 +858,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(jwt), &mut [algorithm, key, payload])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Dejwt(dst,key, token) => {
+                let key = self.get_val(key.reflect())?;
+                let token = self.get_val(token.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(dejwt), &mut [key, token])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;
