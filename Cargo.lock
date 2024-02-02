@@ -1273,6 +1273,7 @@ dependencies = [
  "regex-syntax 0.7.5",
  "reqwest",
  "ryu",
+ "serde_json",
  "sha2",
  "shlex",
  "smallvec",
