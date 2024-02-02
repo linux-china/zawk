@@ -1,5 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE, Engine as _};
+use hashbrown::HashMap;
 use urlencoding::{encode as url_encode, decode as url_decode};
+use crate::runtime;
+use crate::runtime::{SharedMap, Str};
 
 
 pub fn encode(format: &str, text: &str) -> String {
@@ -64,6 +67,28 @@ pub fn decode(format: &str, text: &str) -> String {
     return format!("{}:{}", format, text);
 }
 
+pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
+    let mut map: HashMap<Str,Str> = HashMap::new();
+    if text.starts_with("data:") {
+        let parts: Vec<&str> = text.splitn(2, ",").collect();
+        if parts.len() == 2 {
+            let data = parts[1];
+            map.insert(Str::from("data"), Str::from(data.trim().to_string()));
+            let metadata: Vec<&str> = parts[0][5..].splitn(2, ";").collect();
+            if metadata.len() == 2 {
+                let mime_type = metadata[0];
+                let encoding = metadata[1];
+                map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
+                map.insert(Str::from("encoding"), Str::from(encoding.to_string()));
+            } else {
+                let mime_type = metadata[0];
+                map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
+            }
+        }
+    }
+    return SharedMap::from(map);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +133,14 @@ mod tests {
     fn test_hex2base64() {
         let base64_text = encode("hex-base64", "91e1fa4f7c75cfb9a684a2f54f7afdb10740c7177307ab227a618caffe993b05");
         println!("{}", base64_text);
+    }
+
+    #[test]
+    fn test_data_url() {
+        let text  = "data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==";
+        let text2  = "data:text/html,%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E";
+        let map = data_url(text);
+        println!("{:?}", map);
+        println!("{}", map.get(&Str::from("mime_type")).as_str());
     }
 }
