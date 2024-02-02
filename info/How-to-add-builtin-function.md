@@ -128,7 +128,7 @@ please refer `ENVIRON` as example.
 * Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
 * crypto: 
     - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
-    - jwt: ??? `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`
+    - jwt: `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`. algorithm: `HS256`, `HS384`, `HS512`. 
 * parser: `url("http://example.com/demo?query=1")`, `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 * KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
   NATS, namespace is like `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket first.
