@@ -52,7 +52,7 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
     };
 }
 
-pub fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
+pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
     let mut claims: BTreeMap<String, Value> = BTreeMap::new();
     payload.iter(|map| {
         for (key, value) in map {
@@ -61,7 +61,13 @@ pub fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Str
             if key == "exp" || key == "nbf" || key == "iat" {
                 claims.insert(key, Value::Number(Number::from(value.parse::<u64>().unwrap())));
             } else {
-                claims.insert(key, Value::String(value));
+                if let Ok(value) = value.parse::<i64>() {
+                    claims.insert(key, Value::Number(Number::from(value)));
+                } else if let Ok(value) = value.parse::<f64>() {
+                    claims.insert(key, Value::Number(Number::from_f64(value).unwrap()));
+                } else {
+                    claims.insert(key, Value::String(value));
+                }
             }
         }
     });
@@ -151,7 +157,9 @@ mod tests {
     fn test_jwt() {
         let payload: StrMap<Str> = StrMap::default();
         payload.insert(Str::from("name"), Str::from("John Doe"));
-        payload.insert(Str::from("user_id"), Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"));
+        payload.insert(Str::from("user_uuid"), Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"));
+        payload.insert(Str::from("user_id"), Str::from("112344"));
+        payload.insert(Str::from("rate"), Str::from("11.11"));
         payload.insert(Str::from("exp"), Str::from("1208234234234"));
         let token = jwt("HS256", "xxx", &payload);
         println!("{}", token);
