@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap};
-use jwt::{AlgorithmType, Header, SignWithKey, Token};
+use jwt::{AlgorithmType, Header, SignWithKey, VerifyWithKey, Token, FromBase64};
 use std::io::{BufReader, Cursor};
 use sha2::{Sha256, Sha512, Digest, Sha384};
 use hmac::{Hmac, Mac};
 use jwt::header::HeaderType;
 use serde_json::{Number, Value};
-use crate::runtime::{Str, StrMap};
+use crate::runtime::{SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
@@ -91,6 +91,54 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
     }.as_str().to_string()
 }
 
+pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
+    let header_text = token[0..token.find('.').unwrap()].to_string();
+    let header = Header::from_base64(&header_text).unwrap();
+    let mut map = hashbrown::HashMap::new();
+    let claims: BTreeMap<String, Value> = match header.algorithm {
+        AlgorithmType::Hs256 => {
+            let key: Hmac<Sha256> = Hmac::new_from_slice(key.as_bytes()).unwrap();
+            token.verify_with_key(&key).unwrap()
+        }
+        AlgorithmType::Hs384 => {
+            let key: Hmac<Sha384> = Hmac::new_from_slice(key.as_bytes()).unwrap();
+            token.verify_with_key(&key).unwrap()
+        }
+        AlgorithmType::Hs512 => {
+            let key: Hmac<Sha512> = Hmac::new_from_slice(key.as_bytes()).unwrap();
+            token.verify_with_key(&key).unwrap()
+        }
+        _ => {
+            BTreeMap::new()
+        }
+    };
+    for (key, value) in claims {
+        match value {
+            Value::Null => {}
+            Value::Bool(bool_value) => {
+                if bool_value {
+                    map.insert(Str::from(key), Str::from("1".to_string()));
+                } else {
+                    map.insert(Str::from(key), Str::from("0".to_string()));
+                }
+            }
+            Value::Number(num) => {
+                map.insert(Str::from(key), Str::from(num.to_string()));
+            }
+            Value::String(text) => {
+                map.insert(Str::from(key), Str::from(text));
+            }
+            Value::Array(arr) => {
+                map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
+            }
+            Value::Object(obj) => {
+                map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+            }
+        }
+    }
+    SharedMap::from(map)
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::BufReader;
@@ -161,7 +209,23 @@ mod tests {
         payload.insert(Str::from("user_id"), Str::from("112344"));
         payload.insert(Str::from("rate"), Str::from("11.11"));
         payload.insert(Str::from("exp"), Str::from("1208234234234"));
-        let token = jwt("HS256", "xxx", &payload);
+        let token = jwt("HS256", "123456", &payload);
         println!("{}", token);
+    }
+
+    #[test]
+    fn test_decode_head() {
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.P2e6b_I1pfbmgoyXcEwAKM1XjgNeRku0jatyf2CYD3o";
+        let enc = token[0..token.find('.').unwrap()].to_string();
+        let header = Header::from_base64(&enc).unwrap();
+        println!("{:?}", header);
+    }
+
+    #[test]
+    fn test_dejwt() {
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.P2e6b_I1pfbmgoyXcEwAKM1XjgNeRku0jatyf2CYD3o";
+        let payload = dejwt("123456", token);
+        let value = payload.get(&Str::from("exp"));
+        println!("{}", value);
     }
 }
