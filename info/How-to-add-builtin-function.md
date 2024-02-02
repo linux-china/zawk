@@ -89,7 +89,7 @@ please refer `ENVIRON` as example.
 ### Normal String formats
 
 * URI: `https://example.com/user/1`, https://crates.io/crates/url
-* Data URI: `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
+* Data URL: `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 * Date: `MAY 12, 2021 16:44 UTC`, https://github.com/waltzofpearls/dateparser
 * Command line: `ls -l`, https://crates.io/crates/shlex
 * Math expression: `1+2`, https://github.com/printfn/fend
