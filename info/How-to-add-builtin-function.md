@@ -86,6 +86,14 @@ please refer `ENVIRON` as example.
 * jsonl - not ready
 * Apache Parquet - use dr to convert Parquet to CSV
 
+### Normal String formats
+
+* URI: `https://example.com/user/1`, https://crates.io/crates/url
+* Data URI: `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
+* Date: `MAY 12, 2021 16:44 UTC`, https://github.com/waltzofpearls/dateparser
+* Command line: `ls -l`, https://crates.io/crates/shlex
+* Math expression: `1+2`, https://github.com/printfn/fend
+
 ### UDF(User Defined Function)
 
 * uuid : `uuid()`, `uuid("v7")`, ulid `print ulid()`, `snowflake(machine_id)`,
@@ -118,8 +126,10 @@ please refer `ENVIRON` as example.
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
 * Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
-* crypto: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
-* parser: `url("http://example.com/demo?query=1")`
+* crypto: 
+    - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
+    - jwt: ??? `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`
+* parser: `url("http://example.com/demo?query=1")`, `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 * KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
   NATS, namespace is like `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket first.
     - `kv_get(namespace, key)`
