@@ -1,6 +1,10 @@
+use std::collections::{HashMap};
+use jwt::SignWithKey;
 use std::io::{BufReader, Cursor};
-use sha2::{Sha256, Sha512, Digest};
+use sha2::{Sha256, Sha512, Digest, Sha384};
 use hmac::{Hmac, Mac};
+use crate::runtime;
+use crate::runtime::{Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
@@ -45,6 +49,24 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
         mac.update(text.as_bytes());
         format!("{:x}", mac.finalize().into_bytes())
     };
+}
+
+pub fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
+    let algorithm = algorithm.to_uppercase();
+    let key = if algorithm == "HS512" {
+        Hmac::<Sha512>::new_from_slice(key.as_bytes()).unwrap()
+    } else if algorithm == "HS384" {
+        Hmac::<Sha384>::new_from_slice(key.as_bytes()).unwrap()
+    } else {
+        Hmac::<Sha256>::new_from_slice(key.as_bytes()).unwrap()
+    };
+    let mut claims: HashMap<&str, &str> = HashMap::new();
+    payload.iter(|map| {
+        for (key, value) in map {
+            claims.insert(key.as_str(), value.as_str());
+        }
+    });
+    claims.sign_with_key(&key).unwrap()
 }
 
 #[cfg(test)]
@@ -107,5 +129,14 @@ mod tests {
     fn test_crc32() {
         let result = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(b"123456789");
         println!("{}", result);
+    }
+
+    #[test]
+    fn test_jwt() {
+        let payload: StrMap<Str> = StrMap::default();
+        payload.insert(Str::from("name"), Str::from("John Doe"));
+        payload.insert(Str::from("user_id"), Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"));
+        let token = jwt("HS256", "xxx", &payload);
+        println!("{}", token);
     }
 }
