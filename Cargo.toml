@@ -84,7 +84,7 @@ dotenv = "0.15"
 tempfile = "3"
 whoami = "1.4"
 shlex = "1"
-rusqlite = { version = "0.30.0", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 csv = "1"
 
 [dev-dependencies]
