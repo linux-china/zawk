@@ -55,6 +55,8 @@ pub enum Function {
     Shlex,
     FromJson,
     ToJson,
+    FromCsv,
+    ToCsv,
     HttpGet,
     HttpPost,
     S3Get,
@@ -293,6 +295,8 @@ static_map!(
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
+    ["from_csv", Function::FromCsv],
+    ["to_csv", Function::ToCsv],
     ["min", Function::Min],
     ["max", Function::Max],
     ["seq", Function::Seq],
@@ -566,6 +570,8 @@ impl Function {
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
+            FromCsv => (smallvec![Str], MapIntStr),
+            ToCsv => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum => (smallvec![Str], Float),
@@ -613,7 +619,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake |  Fend | Url | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake |  Fend | Url | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Dejwt => 2,
@@ -679,7 +685,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Whoami | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | TypeOfVariable | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
@@ -719,6 +725,12 @@ impl Function {
             FromJson => {
                 Ok(Map {
                     key: BaseTy::Str,
+                    val: BaseTy::Str
+                }.abs())
+            },
+            FromCsv => {
+                Ok(Map {
+                    key: BaseTy::Int,
                     val: BaseTy::Str
                 }.abs())
             },

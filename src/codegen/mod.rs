@@ -976,6 +976,10 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(map_int_str_join), &mut [arr, sep])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            FromCsv(dst,src) => self.unop(intrinsic!(from_csv), dst, src),
+            MapIntIntToCsv(dst,arr) => self.unop(intrinsic!(map_int_int_to_csv), dst, arr),
+            MapIntFloatToCsv(dst,arr) => self.unop(intrinsic!(map_int_float_to_csv), dst, arr),
+            MapIntStrToCsv(dst,arr) => self.unop(intrinsic!(map_int_str_to_csv), dst, arr),
             HttpGet(dst, url,headers) => {
                 let url = self.get_val(url.reflect())?;
                 let headers = self.get_val(headers.reflect())?;

@@ -912,6 +912,27 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let value = runtime::math_util::map_int_str_join(arr, sep.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
+                    FromCsv(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res = runtime::csv::from_csv(src.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    MapIntIntToCsv(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::csv::map_int_int_to_csv(arr));
+                    }
+                    MapIntFloatToCsv(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::csv::map_int_float_to_csv(arr));
+                    }
+                    MapIntStrToCsv(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(runtime::csv::map_int_str_to_csv(arr));
+                    }
                     KvGet(dst, namespace, key) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);

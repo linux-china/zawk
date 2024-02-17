@@ -1,9 +1,9 @@
 use std::str;
 use csv::{ReaderBuilder, WriterBuilder};
-use crate::runtime::{IntMap, Str};
+use crate::runtime::{Float, Int, IntMap, Str};
 
 pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
-    let mut map: IntMap<Str> = IntMap::default();
+    let map: IntMap<Str> = IntMap::default();
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
         .from_reader(text.as_bytes());
@@ -15,7 +15,27 @@ pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub fn to_csv(csv: &IntMap<Str>) -> String {
+pub fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
+    let mut items: Vec<String> = vec![];
+    let mut keys = csv.to_vec();
+    keys.sort();
+    for key in keys {
+        items.push(csv.get(&key).to_string());
+    }
+    items.join(",")
+}
+
+pub fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
+    let mut items: Vec<String> = vec![];
+    let mut keys = csv.to_vec();
+    keys.sort();
+    for key in keys {
+        items.push(csv.get(&key).to_string());
+    }
+    items.join(",")
+}
+
+pub fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
     let mut items: Vec<&str> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
@@ -24,6 +44,7 @@ pub fn to_csv(csv: &IntMap<Str>) -> String {
     }
     vec_to_csv(&items)
 }
+
 
 pub fn vec_to_csv(csv: &[&str]) -> String {
     let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
@@ -45,7 +66,7 @@ mod tests {
         let csv_text = "first,second";
         let map = from_csv(csv_text);
         println!("{:?}", map);
-        let csv_text2 = to_csv(&map);
+        let csv_text2 = map_int_str_to_csv(&map);
         assert_eq!(csv_text, csv_text2);
     }
 

@@ -1956,6 +1956,33 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            FromCsv => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::FromCsv(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            ToCsv => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntToCsv(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatToCsv(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::MapIntStr => {
+                            self.pushl(LL::MapIntStrToCsv(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "ToCSV only support intIntMap, intFloatMap, intStrMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
             Asort => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

@@ -275,6 +275,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(arr.into()));
                 f(dst.into(), Some(sep.into()));
             },
+            FromCsv(dst, src) => f(dst.into(), Some(src.into())),
+            MapIntIntToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapIntFloatToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
+            MapIntStrToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
             Trim(dst, src, pat) => {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(pat.into()));

@@ -189,6 +189,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_int_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_float_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_str_join(map_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] from_csv(str_ref_ty) -> map_ty;
+        [ReadOnly] map_int_int_to_csv(map_ty) -> str_ty;
+        [ReadOnly] map_int_float_to_csv(map_ty) -> str_ty;
+        [ReadOnly] map_int_str_to_csv(map_ty) -> str_ty;
         [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
@@ -1149,6 +1153,34 @@ pub(crate) unsafe extern "C" fn map_int_str_join(arr: *mut c_void, sep: *mut U12
     mem::forget(arr);
     let res = Str::from(res);
     mem::transmute::<Str, U128>(res)
+}
+
+
+pub(crate) unsafe extern "C" fn from_csv(src: *mut U128) -> *mut c_void {
+    let csv_text = &*(src as *mut Str);
+    let csv_obj = runtime::csv::from_csv(csv_text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(csv_obj)
+}
+
+pub(crate) unsafe extern "C" fn map_int_int_to_csv(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let csv_text = runtime::csv::map_int_int_to_csv(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(csv_text))
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_to_csv(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let csv_text = runtime::csv::map_int_float_to_csv(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(csv_text))
+}
+
+pub(crate) unsafe extern "C" fn map_int_str_to_csv(arr: *mut c_void) -> U128 {
+    let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let csv_text = runtime::csv::map_int_str_to_csv(&obj);
+    mem::forget(obj);
+    mem::transmute::<Str, U128>(Str::from(csv_text))
 }
 
 pub(crate) unsafe extern "C" fn http_get(url: *mut U128, headers: *mut c_void) -> *mut c_void {

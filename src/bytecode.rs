@@ -251,6 +251,10 @@ pub(crate) enum Instr<'a> {
     MapIntIntJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>, Reg<Str<'a>>),
     MapIntFloatJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>, Reg<Str<'a>>),
     MapIntStrJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    FromCsv(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    MapIntIntToCsv(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
+    MapIntFloatToCsv(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
+    MapIntStrToCsv(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
@@ -687,6 +691,22 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
                 sep.accum(&mut f);
+            }
+            FromCsv(dst, src) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+            }
+            MapIntIntToCsv(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapIntFloatToCsv(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MapIntStrToCsv(dst, arr) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
             }
             Max(dst, first, second,third) => {
                 dst.accum(&mut f);
