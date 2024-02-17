@@ -32,6 +32,11 @@ pub enum Function {
     Ulid,
     SnowFlake,
     Whoami,
+    Os,
+    OsFamily,
+    Arch,
+    Pwd,
+    UserHome,
     Systime,
     Strftime,
     Mktime,
@@ -266,6 +271,11 @@ static_map!(
     ["ulid", Function::Ulid],
     ["snowflake", Function::SnowFlake],
     ["whoami", Function::Whoami],
+    ["os", Function::Os],
+    ["os_family", Function::OsFamily],
+    ["arch", Function::Arch],
+    ["pwd", Function::Pwd],
+    ["user_home", Function::UserHome],
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
@@ -548,7 +558,7 @@ impl Function {
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
             Ulid => (smallvec![], Str),
-            Whoami => (smallvec![], Str),
+            Whoami | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
@@ -615,8 +625,9 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Ulid  | LocalIp | Whoami | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Ulid  | LocalIp  | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
+            Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake |  Fend | Url | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
@@ -682,10 +693,13 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Whoami | Strftime | Fend | Trim | Truncate | JoinCols
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
+                Ok(Scalar(BaseTy::Str).abs())
+            }
+            Whoami | Os | OsFamily | Arch | Pwd | UserHome => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),

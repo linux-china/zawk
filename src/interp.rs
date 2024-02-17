@@ -702,6 +702,26 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let username = Str::from(whoami::username());
                         *index_mut(&mut self.strs, dst) = username;
                     }
+                    Os(dst) => {
+                        let os = Str::from(runtime::os_util::os());
+                        *index_mut(&mut self.strs, dst) = os;
+                    }
+                    OsFamily(dst) => {
+                        let os_family = Str::from(runtime::os_util::os_family());
+                        *index_mut(&mut self.strs, dst) = os_family;
+                    }
+                    Arch(dst) => {
+                        let arch = Str::from(runtime::os_util::arch());
+                        *index_mut(&mut self.strs, dst) = arch;
+                    }
+                    Pwd(dst) => {
+                        let pwd = Str::from(runtime::os_util::pwd());
+                        *index_mut(&mut self.strs, dst) = pwd;
+                    }
+                    UserHome(dst) => {
+                        let user_home = Str::from(runtime::os_util::user_home());
+                        *index_mut(&mut self.strs, dst) = user_home;
+                    }
                     LocalIp(dst) => {
                         let local_ip = Str::from(runtime::network::local_ip());
                         *index_mut(&mut self.strs, dst) = local_ip;

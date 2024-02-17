@@ -1721,6 +1721,36 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Whoami(res_reg.into()))
             }
+            Os => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Os(res_reg.into()))
+            }
+            OsFamily => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::OsFamily(res_reg.into()))
+            }
+            Arch => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Arch(res_reg.into()))
+            }
+            Pwd => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Pwd(res_reg.into()))
+            }
+            UserHome => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::UserHome(res_reg.into()))
+            }
             Encode => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Encode(

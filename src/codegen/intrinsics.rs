@@ -145,6 +145,11 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         snowflake(int_ty) -> int_ty;
         ulid(rt_ty) -> str_ty;
         whoami(rt_ty) -> str_ty;
+        os(rt_ty) -> str_ty;
+        os_family(rt_ty) -> str_ty;
+        arch(rt_ty) -> str_ty;
+        pwd(rt_ty) -> str_ty;
+        user_home(rt_ty) -> str_ty;
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
@@ -733,6 +738,26 @@ pub(crate) unsafe extern "C" fn local_ip() -> U128 {
 
 pub(crate) unsafe extern "C" fn whoami() -> U128 {
     mem::transmute::<Str, U128>(Str::from(whoami::username()))
+}
+
+pub(crate) unsafe extern "C" fn os() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(runtime::os_util::os()))
+}
+
+pub(crate) unsafe extern "C" fn os_family() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(runtime::os_util::os_family()))
+}
+
+pub(crate) unsafe extern "C" fn arch() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(runtime::os_util::arch()))
+}
+
+pub(crate) unsafe extern "C" fn pwd() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(runtime::os_util::pwd()))
+}
+
+pub(crate) unsafe extern "C" fn user_home() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(runtime::os_util::user_home()))
 }
 
 pub(crate) unsafe extern "C" fn ulid() -> U128 {

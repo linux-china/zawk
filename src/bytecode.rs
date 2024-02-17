@@ -197,6 +197,11 @@ pub(crate) enum Instr<'a> {
     Ulid(Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Whoami(Reg<Str<'a>>),
+    Os(Reg<Str<'a>>),
+    OsFamily(Reg<Str<'a>>),
+    Arch(Reg<Str<'a>>),
+    Pwd(Reg<Str<'a>>),
+    UserHome(Reg<Str<'a>>),
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -507,7 +512,8 @@ impl<'a> Instr<'a> {
             Ulid(sr) => {
                 sr.accum(&mut f);
             }
-            Whoami(sr) => {
+            Whoami(sr) | Os(sr) | OsFamily(sr)
+            | Arch(sr) | Pwd(sr)| UserHome(sr)  => {
                 sr.accum(&mut f);
             }
             LocalIp(sr) => {
