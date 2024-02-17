@@ -85,6 +85,7 @@ tempfile = "3"
 whoami = "1.4"
 shlex = "1"
 rusqlite = { version = "0.30.0", features = ["bundled"] }
+csv = "1"
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
