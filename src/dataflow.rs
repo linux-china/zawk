@@ -327,6 +327,10 @@ pub(crate) mod boilerplate {
             }
             KvClear( _namespace) => {
             }
+            SqliteQuery(dst, db_path, sql) => {
+                f(dst.into(), Some(db_path.into()));
+                f(dst.into(), Some(sql.into()));
+            }
             Publish( _namespace, _body) => {
             }
             Max(dst, first, second, third) => {

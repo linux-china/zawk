@@ -974,6 +974,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let namespace = index(&self.strs, namespace);
                         runtime::kv::kv_clear(namespace.as_str());
                     }
+                    SqliteQuery(dst, db_path, sql) => {
+                        let db_path = index(&self.strs, db_path);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::sqlite::sqlite_query(db_path.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Publish(namespace, body) => {
                         let namespace = index(&self.strs, namespace);
                         let body = index(&self.strs, body);

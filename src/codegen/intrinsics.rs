@@ -172,6 +172,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
+        [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] s3_get(str_ref_ty, str_ref_ty) -> str_ty;
@@ -1071,6 +1072,13 @@ pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = math_util::shlex(text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn sqlite_query(db_path: *mut U128, sql: *mut U128) -> *mut c_void {
+    let db_path = &*(db_path as *mut Str);
+    let sql = &*(sql as *mut Str);
+    let res = runtime::sqlite::sqlite_query(db_path.as_str(), sql.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 

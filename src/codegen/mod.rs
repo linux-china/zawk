@@ -958,6 +958,12 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
+            SqliteQuery(dst,db_path,sql) => {
+                let db_path = self.get_val(db_path.reflect())?;
+                let sql = self.get_val(sql.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(sqlite_query), &mut [db_path, sql])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
             MapIntFloatToJson(dst,arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),
