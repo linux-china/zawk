@@ -30,7 +30,7 @@ unicode-xid = "0.2.4"
 llvm-sys = { version = "170", optional = true }
 clap = "3.2.25"
 crossbeam-channel = "0.5"
-crossbeam = "0.8.2"
+crossbeam = "0.8.4"
 num_cpus = "1.16.0"
 cfg-if = "1.0"
 memchr = "2.7"
@@ -46,7 +46,7 @@ cranelift-module = "0.104"
 cranelift-native = "0.104"
 cranelift-jit = "0.104"
 fast-float = "0.2"
-bumpalo = { version = "3.14.0", features = ["collections"] }
+bumpalo = { version = "3.15.0", features = ["collections"] }
 target-lexicon = "0.12.13"
 uuid = { version = "1.7", features = ["v4", "v7"] }
 ulid = "1"
