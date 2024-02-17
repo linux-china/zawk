@@ -83,4 +83,10 @@ mod tests {
         let map = path(text);
         println!("{:?}", map);
     }
+
+    #[test]
+    fn test_current_path() {
+        let map = path(".");
+        println!("{}", map.get(&Str::from("full_path")).to_string());
+    }
 }
