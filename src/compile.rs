@@ -1863,6 +1863,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Path => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Path(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             DataUrl => {
                 if res_reg != UNUSED {
                     self.pushl(LL::DataUrl(res_reg.into(), conv_regs[0].into()))

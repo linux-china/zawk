@@ -212,6 +212,7 @@ pub(crate) enum Instr<'a> {
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    Path(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DataUrl(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DateTime(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     Shlex(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -567,6 +568,10 @@ impl<'a> Instr<'a> {
                 src.accum(&mut f);
             }
             Url(dst, src) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+            }
+            Path(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }

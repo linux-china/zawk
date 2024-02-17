@@ -49,6 +49,7 @@ pub enum Function {
     Jwt,
     Dejwt,
     Url,
+    Path,
     DataUrl,
     DateTime,
     Shlex,
@@ -278,6 +279,7 @@ static_map!(
     ["dejwt", Function::Dejwt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
+    ["path", Function::Path],
     ["datetime", Function::DateTime],
     ["shlex", Function::Shlex],
     ["http_get", Function::HttpGet],
@@ -549,7 +551,7 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
-            Url => (smallvec![Str], MapStrStr),
+            Url | Path => (smallvec![Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
@@ -611,7 +613,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake |  Fend | Url | DataUrl | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake |  Fend | Url | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Dejwt => 2,
@@ -683,7 +685,7 @@ impl Function {
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
-            Url | DataUrl | Dejwt => {
+            Url | Path | DataUrl | Dejwt => {
                Ok(Map {
                    key: BaseTy::Str,
                    val: BaseTy::Str
