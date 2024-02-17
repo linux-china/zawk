@@ -29,6 +29,7 @@ pub mod json;
 pub mod network;
 pub mod kv;
 pub mod s3;
+pub mod os_util;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
