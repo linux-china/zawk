@@ -93,6 +93,7 @@ please refer `ENVIRON` as example.
 * Date: `MAY 12, 2021 16:44 UTC`, https://github.com/waltzofpearls/dateparser
 * Command line: `ls -l`, https://crates.io/crates/shlex
 * Math expression: `1+2`, https://github.com/printfn/fend
+* Path: `path("./demo.txt")`
 
 ### UDF(User Defined Function)
 
@@ -123,6 +124,7 @@ please refer `ENVIRON` as example.
     - shlex: parse command line
     - math: `isint()`, `isnum()`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
+* csv: `from_csv(csv_text)`, `to_csv(array)`
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
 * Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
@@ -141,13 +143,14 @@ please refer `ENVIRON` as example.
 * Network: `local_ip()`  `http_get(url,headers)`, `http_post(url, headers, body)`,
 * S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply
   ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
+* SQLite support: KV storage, `sqlite_query`, `sqlite_execute`
 * i18n: gettext, not support now.
 * date time: utc by default
     - systime: current Unix time
     - strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
     - datetime: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
-* misc: `whoami()`
+* os: `whoami()`, `os()`, `arch()`, `os_family()`, `pwd()`, `user_home()`
 
 ### References
 
