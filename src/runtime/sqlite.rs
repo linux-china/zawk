@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection};
-use rusqlite::types::{FromSql, Value};
+use rusqlite::types::{Value};
 use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 
