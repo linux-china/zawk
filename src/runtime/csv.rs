@@ -16,12 +16,20 @@ pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
 }
 
 pub fn to_csv(csv: &IntMap<Str>) -> String {
-    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
-    let mut record = csv::StringRecord::new();
+    let mut items: Vec<&str> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
     for key in keys {
-        record.push_field(csv.get(&key).as_str());
+        items.push(csv.get(&key).as_str());
+    }
+    vec_to_csv(&items)
+}
+
+pub fn vec_to_csv(csv: &[&str]) -> String {
+    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
+    let mut record = csv::StringRecord::new();
+    for value in csv {
+        record.push_field(*value);
     }
     wtr.write_record(&record).unwrap();
     let bytes = wtr.into_inner().unwrap();
@@ -39,6 +47,12 @@ mod tests {
         println!("{:?}", map);
         let csv_text2 = to_csv(&map);
         assert_eq!(csv_text, csv_text2);
+    }
+
+    #[test]
+    fn test_vec_to_csv() {
+        let items = vec!["first", "second"];
+        println!("{}", vec_to_csv(&items));
     }
 
     #[test]
