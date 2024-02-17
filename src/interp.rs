@@ -981,6 +981,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    SqliteExecute(dst, db_path, sql) => {
+                        let db_path = index(&self.strs, db_path);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::sqlite::sqlite_execute(db_path.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Publish(namespace, body) => {
                         let namespace = index(&self.strs, namespace);
                         let body = index(&self.strs, body);

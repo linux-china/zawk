@@ -203,6 +203,7 @@ impl Display for Function {
             KvDelete => write!(f, "kv_delete"),
             KvClear => write!(f, "kv_clear"),
             SqliteQuery => write!(f, "sqlite_query"),
+            SqliteExecute => write!(f, "sqlite_execute"),
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),

@@ -243,6 +243,7 @@ pub(crate) enum Instr<'a> {
     KvDelete(Reg<Str<'a>>, Reg<Str<'a>>),
     KvClear(Reg<Str<'a>>),
     SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
@@ -638,6 +639,11 @@ impl<'a> Instr<'a> {
                 namespace.accum(&mut f);
             }
             SqliteQuery(dst, db_path, sql) => {
+                dst.accum(&mut f);
+                db_path.accum(&mut f);
+                sql.accum(&mut f);
+            }
+            SqliteExecute(dst, db_path, sql) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);

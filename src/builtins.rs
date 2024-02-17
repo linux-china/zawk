@@ -71,6 +71,7 @@ pub enum Function {
     KvDelete,
     KvClear,
     SqliteQuery,
+    SqliteExecute,
     Publish,
     Min,
     Max,
@@ -304,6 +305,7 @@ static_map!(
     ["kv_delete", Function::KvDelete],
     ["kv_clear", Function::KvClear],
     ["sqlite_query", Function::SqliteQuery],
+    ["sqlite_execute", Function::SqliteExecute],
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
@@ -580,6 +582,7 @@ impl Function {
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             SqliteQuery => (smallvec![Str, Str], MapIntStr),
+            SqliteExecute => (smallvec![Str, Str], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -652,7 +655,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery => 2,
+            SqliteQuery | SqliteExecute => 2,
             Publish => 2,
             IsInt | IsNum => 1,
             Encode | Decode | Digest | Escape => 2,
@@ -733,6 +736,7 @@ impl Function {
                     val: BaseTy::Str
                 }.abs())
             }
+            SqliteExecute => Ok(Scalar(BaseTy::Int).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

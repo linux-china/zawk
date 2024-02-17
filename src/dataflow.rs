@@ -331,6 +331,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
             }
+            SqliteExecute(dst, db_path, sql) => {
+                f(dst.into(), Some(db_path.into()));
+                f(dst.into(), Some(sql.into()));
+            }
             Publish( _namespace, _body) => {
             }
             Max(dst, first, second, third) => {
