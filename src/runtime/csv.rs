@@ -1,0 +1,64 @@
+use std::str;
+use csv::{ReaderBuilder, WriterBuilder};
+use crate::runtime::{IntMap, Str};
+
+pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
+    let mut map: IntMap<Str> = IntMap::default();
+    let mut reader = ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(text.as_bytes());
+    if let Some(record) = reader.records().next() {
+        for (i, item) in record.unwrap().iter().enumerate() {
+            map.insert((i + 1) as i64, Str::from(item.to_string()));
+        }
+    }
+    map
+}
+
+pub fn to_csv(csv: &IntMap<Str>) -> String {
+    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
+    let mut record = csv::StringRecord::new();
+    let mut keys = csv.to_vec();
+    keys.sort();
+    for key in keys {
+        record.push_field(csv.get(&key).as_str());
+    }
+    wtr.write_record(&record).unwrap();
+    let bytes = wtr.into_inner().unwrap();
+    str::from_utf8(&bytes[0..bytes.len() - 1]).unwrap().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_csv() {
+        let csv_text = "first,second";
+        let map = from_csv(csv_text);
+        println!("{:?}", map);
+        let csv_text2 = to_csv(&map);
+        assert_eq!(csv_text, csv_text2);
+    }
+
+    #[test]
+    fn test_parse() {
+        let mut reader = ReaderBuilder::new()
+            .has_headers(false)
+            .from_reader("Libing Chen,first".as_bytes());
+        let record = reader.records().next().unwrap().unwrap();
+        for item in record.iter() {
+            println!("{}", item);
+        }
+    }
+
+    #[test]
+    fn test_write() {
+        let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
+        let line = vec!["first", "se,cond"];
+        wtr.write_record(&line).unwrap();
+        let bytes = wtr.into_inner().unwrap();
+        let data = str::from_utf8(&bytes[0..bytes.len() - 1]).unwrap();
+        println!("{}", data);
+    }
+}
