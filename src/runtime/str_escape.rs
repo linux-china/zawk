@@ -12,8 +12,12 @@ pub fn escape(format: &str, text: &str) -> String {
 }
 
 fn escape_csv(text: &str) -> String {
-    if text.contains(",") || text.contains("\"") {
-        return format!("\"{}\"", text.replace("\"", "\"\""));
+    if text.contains(",") || text.contains("\n") || text.contains("\"") {
+        let new_text = text
+            .replace("\"", "\"\"")
+            .replace("\t", "\\t")
+            .replace("\n", "\\n");
+        return format!("\"{}\"", new_text);
     }
     return text.to_string();
 }
@@ -49,7 +53,7 @@ fn escape_json(text: &str) -> String {
 fn escape_shell(text: &str) -> String {
     if text.contains('\'') {
         text.replace('\'', "'\\''").to_string()
-    }else {
+    } else {
         text.to_string()
     }
 }
