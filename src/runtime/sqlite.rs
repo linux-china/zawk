@@ -47,7 +47,7 @@ pub fn sqlite_execute(db_path: &str, sql: &str) -> Int {
     let conn = pool.entry(db_path.to_string()).or_insert_with(|| {
         Connection::open(db_path).unwrap()
     });
-    conn.execute(sql, rusqlite::params![]).unwrap() as Int
+    conn.execute(sql, rusqlite::params![]).unwrap_or(0) as Int
 }
 
 
