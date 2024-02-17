@@ -18,6 +18,8 @@ pub fn digest(algorithm: &str, text: &str) -> String {
         return adler::adler32(BufReader::new("demo2".as_bytes())).unwrap().to_string();
     } else if algorithm == "crc32" {
         return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text.as_bytes()).to_string();
+    } else if algorithm == "blake3" {
+        return blake3::hash(text.as_bytes()).to_string();
     } else if algorithm == "sha256" || algorithm == "sha-256" {
         let mut hasher = Sha256::default();
         hasher.update(text.as_bytes());
@@ -199,6 +201,11 @@ mod tests {
     fn test_crc32() {
         let result = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(b"123456789");
         println!("{}", result);
+    }
+
+    #[test]
+    fn test_blake3() {
+        println!("{}", digest("blake3", "demo"));
     }
 
     #[test]
