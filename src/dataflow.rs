@@ -245,6 +245,7 @@ pub(crate) mod boilerplate {
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
+            SemVer(dst, src) => f(dst.into(), Some(src.into())),
             Path(dst, src) => f(dst.into(), Some(src.into())),
             DataUrl(dst, src) => f(dst.into(), Some(src.into())),
             DateTime(dst, timestamp) => f(dst.into(), Some(timestamp.into())),

@@ -21,7 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::SqliteQuery;
 use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
@@ -1892,6 +1891,11 @@ impl<'a, 'b> View<'a, 'b> {
             Url => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            SemVer => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::SemVer(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Path => {

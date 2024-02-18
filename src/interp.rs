@@ -805,6 +805,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    SemVer(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res = runtime::math_util::semver(src.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Path(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::os_util::path(src.as_str());

@@ -54,6 +54,7 @@ pub enum Function {
     Jwt,
     Dejwt,
     Url,
+    SemVer,
     Path,
     DataUrl,
     DateTime,
@@ -293,6 +294,7 @@ static_map!(
     ["dejwt", Function::Dejwt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
+    ["semver", Function::SemVer],
     ["path", Function::Path],
     ["datetime", Function::DateTime],
     ["shlex", Function::Shlex],
@@ -569,7 +571,7 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
-            Url | Path => (smallvec![Str], MapStrStr),
+            Url | Path | SemVer => (smallvec![Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
@@ -636,7 +638,7 @@ impl Function {
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake |  Fend | Url | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake |  Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Dejwt => 2,
@@ -712,7 +714,7 @@ impl Function {
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
-            Url | Path | DataUrl | Dejwt => {
+            Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {
                    key: BaseTy::Str,
                    val: BaseTy::Str
