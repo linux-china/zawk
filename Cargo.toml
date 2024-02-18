@@ -86,6 +86,7 @@ whoami = "1.4"
 shlex = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 csv = "1"
+semver="1"
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
