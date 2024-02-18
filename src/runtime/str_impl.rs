@@ -510,7 +510,10 @@ impl<'a> Str<'a> {
 
     pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = hashbrown::HashMap::new();
-        let url_text = self.to_string();
+        let mut url_text = self.to_string();
+        if url_text.starts_with("jdbc:") {
+            url_text = url_text.replace("jdbc:", "jdbc+");
+        }
         if let Ok(url) = &Url::parse(&url_text) {
             if url.scheme() != "" {
                 map.insert(Str::from("schema"), Str::from(url.scheme().to_string()));
@@ -554,9 +557,9 @@ impl<'a> Str<'a> {
     }
 
     pub fn capitalize<'b>(&self) -> Str<'b> {
-       let src = self.as_str();
+        let src = self.as_str();
         let mut chars = src.chars();
-        let result =  match chars.next() {
+        let result = match chars.next() {
             None => String::new(),
             Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
         };
@@ -575,14 +578,14 @@ impl<'a> Str<'a> {
         let place_holder_len = place_holder.len();
         let src_len = src.len();
         return if src_len <= max_len { // src length is less than truncate max length
-             Str::from(src)
-        } else if src_len > max_len  { // src length is greater than truncate max length
+            Str::from(src)
+        } else if src_len > max_len { // src length is greater than truncate max length
             let text_max_len = max_len - place_holder_len;
             Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
         } else {
             let text_max_len = src_len - place_holder_len;
             Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
-        }
+        };
     }
 
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
