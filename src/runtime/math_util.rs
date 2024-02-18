@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
+use semver::{Version};
 use sonyflake::Sonyflake;
-use crate::runtime::{Float, Int, IntMap, Str};
+use crate::runtime::{Float, Int, IntMap, Str, StrMap};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
     let num1_result = first.parse::<f64>();
@@ -322,8 +323,26 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     result
 }
 
+pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
+    let version_obj: StrMap<Str> = StrMap::default();
+    if let Ok(version) = Version::parse(text) {
+        version_obj.insert(Str::from("major"), Str::from(version.major.to_string()));
+        version_obj.insert(Str::from("minor"), Str::from(version.minor.to_string()));
+        version_obj.insert(Str::from("patch"), Str::from(version.patch.to_string()));
+        if !version.pre.is_empty() {
+            version_obj.insert(Str::from("pre"), Str::from(version.pre.to_string()));
+        }
+        if !version.build.is_empty() {
+            version_obj.insert(Str::from("build"), Str::from(version.build.to_string()));
+        }
+    }
+    version_obj
+}
+
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+    use semver::{BuildMetadata, Prerelease, Version};
     use super::*;
 
     #[test]
@@ -380,7 +399,13 @@ mod tests {
     #[test]
     fn test_snowflake() {
         let machine_id: i64 = 234342347234;
-        println!("{}",machine_id as u16);
+        println!("{}", machine_id as u16);
         println!("{}", snowflake(machine_id as u16));
+    }
+
+    #[test]
+    fn test_semver() {
+        let map = semver("1.2.3-beta1");
+        println!("{:?}", map);
     }
 }
