@@ -88,7 +88,7 @@ please refer `ENVIRON` as example.
 
 ### Normal String formats
 
-* URI: `https://example.com/user/1`, https://crates.io/crates/url
+* URL: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306/test")`
 * Data URL: `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 * Date: `MAY 12, 2021 16:44 UTC`, https://github.com/waltzofpearls/dateparser
 * Command line: `ls -l`, https://crates.io/crates/shlex
