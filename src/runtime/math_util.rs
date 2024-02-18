@@ -341,8 +341,6 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use semver::{BuildMetadata, Prerelease, Version};
     use super::*;
 
     #[test]
