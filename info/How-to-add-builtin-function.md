@@ -94,6 +94,7 @@ please refer `ENVIRON` as example.
 * Command line: `ls -l`, https://crates.io/crates/shlex
 * Math expression: `1+2`, https://github.com/printfn/fend
 * Path: `path("./demo.txt")`
+* Semantic Versioning: `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")` return array with `major`, `minor`, `patch`, `pre`, `build` fields.
 
 ### UDF(User Defined Function)
 
@@ -127,7 +128,7 @@ please refer `ENVIRON` as example.
 * csv: `from_csv(csv_text)`, `to_csv(array)`
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
+* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, `blake3`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
 * crypto: 
     - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
     - jwt: `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`. algorithm: `HS256`, `HS384`, `HS512`. 
