@@ -74,6 +74,8 @@ pub enum Function {
     KvClear,
     SqliteQuery,
     SqliteExecute,
+    MysqlQuery,
+    MysqlExecute,
     Publish,
     Min,
     Max,
@@ -309,6 +311,8 @@ static_map!(
     ["kv_clear", Function::KvClear],
     ["sqlite_query", Function::SqliteQuery],
     ["sqlite_execute", Function::SqliteExecute],
+    ["mysql_query", Function::MysqlQuery],
+    ["mysql_execute", Function::MysqlExecute],
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
@@ -585,8 +589,8 @@ impl Function {
             KvPut => (smallvec![Str, Str,Str], Null),
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
-            SqliteQuery => (smallvec![Str, Str], MapIntStr),
-            SqliteExecute => (smallvec![Str, Str], Int),
+            SqliteQuery | MysqlQuery => (smallvec![Str, Str], MapIntStr),
+            SqliteExecute | MysqlExecute => (smallvec![Str, Str], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -660,7 +664,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery | SqliteExecute => 2,
+            SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute => 2,
             Publish => 2,
             IsInt | IsNum => 1,
             Encode | Decode | Digest | Escape => 2,
@@ -735,13 +739,13 @@ impl Function {
                     val: BaseTy::Str
                 }.abs())
             }
-            SqliteQuery => {
+            SqliteQuery | MysqlQuery => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str
                 }.abs())
             }
-            SqliteExecute => Ok(Scalar(BaseTy::Int).abs()),
+            SqliteExecute | MysqlExecute => Ok(Scalar(BaseTy::Int).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

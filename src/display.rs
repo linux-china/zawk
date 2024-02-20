@@ -206,6 +206,8 @@ impl Display for Function {
             KvClear => write!(f, "kv_clear"),
             SqliteQuery => write!(f, "sqlite_query"),
             SqliteExecute => write!(f, "sqlite_execute"),
+            MysqlQuery => write!(f, "mysql_query"),
+            MysqlExecute => write!(f, "mysql_execute"),
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),

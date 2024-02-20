@@ -339,6 +339,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
             }
+            MysqlQuery(dst, db_url, sql) => {
+                f(dst.into(), Some(db_url.into()));
+                f(dst.into(), Some(sql.into()));
+            }
+            MysqlExecute(dst, db_url, sql) => {
+                f(dst.into(), Some(db_url.into()));
+                f(dst.into(), Some(sql.into()));
+            }
             Publish( _namespace, _body) => {
             }
             Max(dst, first, second, third) => {

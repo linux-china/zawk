@@ -1966,6 +1966,12 @@ impl<'a, 'b> View<'a, 'b> {
             SqliteExecute => {
                 self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
+            MysqlQuery => {
+                self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
+            MysqlExecute => {
+                self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
             Publish => {
                 self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into()))
             }

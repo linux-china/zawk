@@ -994,6 +994,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    MysqlQuery(dst, db_url, sql) => {
+                        let db_url = index(&self.strs, db_url);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::mysql::mysql_query(db_url.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    MysqlExecute(dst, db_url, sql) => {
+                        let db_url = index(&self.strs, db_url);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::mysql::mysql_execute(db_url.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Publish(namespace, body) => {
                         let namespace = index(&self.strs, namespace);
                         let body = index(&self.strs, body);

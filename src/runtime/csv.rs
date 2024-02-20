@@ -2,7 +2,7 @@ use std::str;
 use csv::{ReaderBuilder, WriterBuilder};
 use crate::runtime::{Float, Int, IntMap, Str};
 
-pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
+pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
@@ -15,7 +15,7 @@ pub fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
+pub(crate) fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
@@ -25,7 +25,7 @@ pub fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
     items.join(",")
 }
 
-pub fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
+pub(crate) fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
@@ -35,7 +35,7 @@ pub fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
     items.join(",")
 }
 
-pub fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
+pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
     let mut items: Vec<&str> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
