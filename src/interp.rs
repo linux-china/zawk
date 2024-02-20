@@ -918,6 +918,45 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from("null");
                     }
+                    DumpMapIntInt(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));
+                    }
+                    DumpMapIntFloat(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapIntFloat: {}", runtime::json::map_int_float_to_json(arr));
+                    }
+                    DumpMapIntStr(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapIntStr: {}", runtime::json::map_int_str_to_json(arr));
+                    }
+                    DumpMapStrInt(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapStrInt: {}", runtime::json::map_str_int_to_json(arr));
+                    }
+                    DumpMapStrFloat(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapStrFloat: {}", runtime::json::map_str_float_to_json(arr));
+                    }
+                    DumpMapStrStr(arr) => {
+                        let arr = self.get(*arr);
+                        println!("MapStrStr: {}", runtime::json::map_str_str_to_json(arr));
+                    }
+                    DumpStr(text) => {
+                        let text = self.get(*text);
+                        println!("Str: {}", text.as_str());
+                    }
+                    DumpInt(num) => {
+                        let num = *self.get(*num);
+                        println!("Int: {}", num);
+                    }
+                    DumpFloat(num) => {
+                        let num = *self.get(*num);
+                        println!("Float: {}", num);
+                    }
+                    DumpNull() => {
+                       println!("Null");
+                    }
                     MapIntIntAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
                         let target = self.get(*target);

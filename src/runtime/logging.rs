@@ -30,6 +30,6 @@ mod tests {
 
     #[test]
     fn test_debug() {
-        log_debug("Hello");
+        log_debug("","Hello");
     }
 }

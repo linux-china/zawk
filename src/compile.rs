@@ -2035,6 +2035,49 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            VarDump => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::DumpMapIntInt(conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::DumpMapIntFloat(conv_regs[0].into()))
+                        }
+                        Ty::MapIntStr => {
+                            self.pushl(LL::DumpMapIntStr(conv_regs[0].into()))
+                        }
+                        Ty::MapStrInt => {
+                            self.pushl(LL::DumpMapStrInt(conv_regs[0].into()))
+                        }
+                        Ty::MapStrFloat => {
+                            self.pushl(LL::DumpMapStrFloat(conv_regs[0].into()))
+                        }
+                        Ty::MapStrStr => {
+                            self.pushl(LL::DumpMapStrStr(conv_regs[0].into()))
+                        }
+                        Ty::Str => {
+                            self.pushl(LL::DumpStr(conv_regs[0].into()))
+                        }
+                        Ty::Int => {
+                            self.pushl(LL::DumpInt(conv_regs[0].into()))
+                        }
+                        Ty::Float => {
+                            self.pushl(LL::DumpFloat(conv_regs[0].into()))
+                        }
+                        Ty::Null => {
+                            self.pushl(LL::DumpNull())
+                        }
+                        _ => {
+                            return err!(
+                                "VarDump only support strstrMap, intStrMap, Str, Int, Float called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
             FromCsv => {
                 if res_reg != UNUSED {
                     self.pushl(LL::FromCsv(res_reg.into(), conv_regs[0].into()))

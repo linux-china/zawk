@@ -997,6 +997,55 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(null_to_json), &mut [])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            DumpMapIntInt(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_int_int), &mut [arr])?;
+                Ok(())
+            },
+            DumpMapIntFloat(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_int_float), &mut [arr])?;
+                Ok(())
+            },
+            DumpMapIntStr(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_int_str), &mut [arr])?;
+                Ok(())
+            },
+            DumpMapStrInt(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_str_int), &mut [arr])?;
+                Ok(())
+            },
+            DumpMapStrFloat(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_str_float), &mut [arr])?;
+                Ok(())
+            },
+            DumpMapStrStr(arr) => {
+                let arr = self.get_val(arr.reflect())?;
+                self.call_void(external!(dump_map_str_str), &mut [arr])?;
+                Ok(())
+            },
+            DumpStr(text) => {
+                let text = self.get_val(text.reflect())?;
+                self.call_void(external!(dump_str), &mut [text])?;
+                Ok(())
+            },
+            DumpInt(num) => {
+                let num = self.get_val(num.reflect())?;
+                self.call_void(external!(dump_int), &mut [num])?;
+                Ok(())
+            },
+            DumpFloat(num) => {
+                let num = self.get_val(num.reflect())?;
+                self.call_void(external!(dump_float), &mut [num])?;
+                Ok(())
+            },
+            DumpNull() => {
+                self.call_void(external!(dump_null), &mut [])?;
+                Ok(())
+            }
             MapIntIntAsort(dst, arr,target) => {
                 let arr = self.get_val(arr.reflect())?;
                 let target = self.get_val(target.reflect())?;

@@ -202,6 +202,16 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] int_to_json(int_ty) -> str_ty;
         [ReadOnly] float_to_json(float_ty) -> str_ty;
         [ReadOnly] null_to_json() -> str_ty;
+        dump_map_int_int(map_ty);
+        dump_map_int_float(map_ty);
+        dump_map_int_str(map_ty);
+        dump_map_str_int(map_ty);
+        dump_map_str_float(map_ty);
+        dump_map_str_str(map_ty);
+        dump_str(str_ref_ty);
+        dump_int(int_ty);
+        dump_float(float_ty);
+        dump_null();
         map_int_int_asort(map_ty, map_ty) -> int_ty;
         map_int_float_asort(map_ty, map_ty) -> int_ty;
         map_int_str_asort(map_ty, map_ty) -> int_ty;
@@ -1219,6 +1229,65 @@ pub(crate) unsafe extern "C" fn float_to_json(num: Float) -> U128 {
 
 pub(crate) unsafe extern "C" fn null_to_json() -> U128 {
     mem::transmute::<Str, U128>(Str::from("null"))
+}
+
+pub(crate) unsafe extern "C" fn dump_map_int_int(arr: *mut c_void) {
+    let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let json_text = runtime::json::map_int_int_to_json(&obj);
+    mem::forget(obj);
+    println!("MapIntInt: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_map_int_float(arr: *mut c_void)  {
+    let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let json_text = runtime::json::map_int_float_to_json(&obj);
+    mem::forget(obj);
+    println!("MapIntFloat: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_map_int_str(arr: *mut c_void) {
+    let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+    let json_text = runtime::json::map_int_str_to_json(&obj);
+    mem::forget(obj);
+    println!("MapIntStr: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_map_str_int(arr: *mut c_void) {
+    let obj = mem::transmute::<*mut c_void, StrMap<Int>>(arr);
+    let json_text = runtime::json::map_str_int_to_json(&obj);
+    mem::forget(obj);
+    println!("MapStrInt: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_map_str_float(arr: *mut c_void) {
+    let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
+    let json_text = runtime::json::map_str_float_to_json(&obj);
+    mem::forget(obj);
+    println!("MapStrFloat: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_map_str_str(arr: *mut c_void) {
+    let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+    let json_text = runtime::json::map_str_str_to_json(&obj);
+    mem::forget(obj);
+    println!("MapStrStr: {}", json_text);
+}
+
+pub(crate) unsafe extern "C" fn dump_str(text: *mut U128) {
+    let text = &*(text as *mut Str);
+    println!("Str: {}", text.as_str());
+}
+
+pub(crate) unsafe extern "C" fn dump_int(num: Int) {
+    println!("Int: {}", num);
+}
+
+pub(crate) unsafe extern "C" fn dump_float(num: Float) {
+    println!("Float: {}", num);
+}
+
+pub(crate) unsafe extern "C" fn dump_null() {
+    println!("Null")
 }
 
 pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {

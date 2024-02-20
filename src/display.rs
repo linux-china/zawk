@@ -215,6 +215,7 @@ impl Display for Function {
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),
+            VarDump => write!(f, "var_dump"),
             FromCsv => write!(f, "from_csv"),
             ToCsv => write!(f, "to_csv"),
             Min => write!(f, "min"),
