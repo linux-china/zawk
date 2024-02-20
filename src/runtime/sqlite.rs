@@ -50,11 +50,6 @@ pub fn sqlite_execute(db_path: &str, sql: &str) -> Int {
     conn.execute(sql, rusqlite::params![]).unwrap_or(0) as Int
 }
 
-
-fn create_sqlite_kv_conn(db_path: &str) -> Connection {
-    Connection::open(db_path).unwrap()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
