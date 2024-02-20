@@ -46,6 +46,7 @@ pub enum Function {
     Truncate,
     Strtonum,
     Capitalize,
+    Mask,
     Escape,
     Encode,
     Decode,
@@ -322,6 +323,7 @@ static_map!(
     ["truncate", Function::Truncate],
     ["strtonum", Function::Strtonum],
     ["capitalize", Function::Capitalize],
+    ["mask", Function::Mask],
     ["_join", Function::IntMapJoin],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
@@ -594,6 +596,7 @@ impl Function {
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum => (smallvec![Str], Float),
             Capitalize => (smallvec![Str], Str),
+            Mask => (smallvec![Str], Str),
             Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
@@ -645,7 +648,7 @@ impl Function {
             Strftime | Mktime => 2,
             MkBool => 1,
             Trim => 2,
-            Capitalize | Strtonum => 1,
+            Capitalize | Mask | Strtonum => 1,
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
@@ -712,7 +715,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
-            Capitalize => Ok(Scalar(BaseTy::Str).abs()),
+            Capitalize | Mask => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {

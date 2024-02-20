@@ -1052,6 +1052,7 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
+            Mask(dst,text) => self.unop(intrinsic!(mask), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;
                 let len = self.get_val(len.reflect())?;

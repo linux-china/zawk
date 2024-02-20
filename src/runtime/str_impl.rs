@@ -566,6 +566,31 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    pub fn mask<'b>(&self) -> Str<'b> {
+        let src = self.as_str();
+        let src_len = src.len();
+        if src_len == 0 {
+            return Str::from("".to_string());
+        } else if src_len == 1 {
+            return Str::from("*");
+        } else if src_len <= 3 {
+            let result = format!("{}{}", &src[0..1], "*".repeat(src_len - 1));
+            return Str::from(result);
+        }
+        let mut mask_len = src.len() / 3;
+        let prefix_len = if mask_len > 2 { 2 } else { 0 };
+        let mut result = String::new();
+        // for loop for src with index and char
+        for (i, c) in src.chars().enumerate() {
+            if i < prefix_len || i >= prefix_len + mask_len {
+                result.push(c);
+            } else {
+                result.push('*');
+            }
+        }
+        Str::from(result)
+    }
+
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
         let src = self.to_string();
         let format = format.to_string();

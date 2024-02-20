@@ -182,6 +182,7 @@ impl Display for Function {
             Truncate => write!(f, "truncate"),
             Strtonum => write!(f, "strtonum"),
             Capitalize => write!(f, "capitalize"),
+            Mask => write!(f, "mask"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),

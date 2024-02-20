@@ -1051,6 +1051,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    Mask(dst, text) => {
+                        let dt_text = index(&self.strs, text).mask();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     TypeOfArray(dst) => {
                         *index_mut(&mut self.strs, dst) = Str::from("array");
                     }
