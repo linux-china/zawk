@@ -33,7 +33,7 @@ fn escape_tsv(text: &str) -> String {
     return text.to_string();
 }
 
-fn escape_json(text: &str) -> String {
+pub fn escape_json(text: &str) -> String {
     let mut result = String::new();
     for c in text.chars() {
         match c {

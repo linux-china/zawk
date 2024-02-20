@@ -194,6 +194,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_str_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_float_to_json(map_ty) -> str_ty;
         [ReadOnly] map_str_str_to_json(map_ty) -> str_ty;
+        [ReadOnly] str_to_json(str_ref_ty) -> str_ty;
+        [ReadOnly] int_to_json(int_ty) -> str_ty;
+        [ReadOnly] float_to_json(float_ty) -> str_ty;
+        [ReadOnly] null_to_json() -> str_ty;
         map_int_int_asort(map_ty, map_ty) -> int_ty;
         map_int_float_asort(map_ty, map_ty) -> int_ty;
         map_int_str_asort(map_ty, map_ty) -> int_ty;
@@ -1165,6 +1169,24 @@ pub(crate) unsafe extern "C" fn map_str_str_to_json(arr: *mut c_void) -> U128 {
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
     mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn str_to_json(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let json_text = runtime::json::str_to_json(text.as_str());
+    mem::transmute::<Str, U128>(Str::from(json_text))
+}
+
+pub(crate) unsafe extern "C" fn int_to_json(num: Int) -> U128 {
+    mem::transmute::<Str, U128>(Str::from(num.to_string()))
+}
+
+pub(crate) unsafe extern "C" fn float_to_json(num: Float) -> U128 {
+    mem::transmute::<Str, U128>(Str::from(num.to_string()))
+}
+
+pub(crate) unsafe extern "C" fn null_to_json() -> U128 {
+    mem::transmute::<Str, U128>(Str::from("null"))
 }
 
 pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {

@@ -257,6 +257,10 @@ pub(crate) mod boilerplate {
             MapStrIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapStrFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapStrStrToJson(dst, arr) => f(dst.into(), Some(arr.into())),
+            StrToJson(dst, text) => f(dst.into(), Some(text.into())),
+            IntToJson(dst, num) => f(dst.into(), Some(num.into())),
+            FloatToJson(dst, num) => f(dst.into(), Some(num.into())),
+            NullToJson(_dst) => {}
             MapIntIntAsort(dst, arr, target) => {
                 f(dst.into(), Some(arr.into()));
                 f(dst.into(), Some(target.into()));

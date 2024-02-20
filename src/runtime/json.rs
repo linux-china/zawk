@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use miniserde::json;
 use miniserde::json::{Value};
 use crate::runtime::{Int, Str, StrMap, IntMap, Float};
+use crate::runtime::str_escape::escape_json;
 
 
 pub(crate) fn map_int_int_to_json(arr: &IntMap<Int>) -> String {
@@ -64,6 +65,10 @@ pub(crate) fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
         }
     });
     json::to_string(&json_obj)
+}
+
+pub(crate) fn str_to_json(text: &str) -> String {
+    return format!("\"{}\"", escape_json(text))
 }
 
 pub(crate) fn from_json(json_text: &str) -> StrMap<Str> {

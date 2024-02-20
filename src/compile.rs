@@ -2001,9 +2001,21 @@ impl<'a, 'b> View<'a, 'b> {
                         Ty::MapStrStr => {
                             self.pushl(LL::MapStrStrToJson(res_reg.into(), conv_regs[0].into()))
                         }
+                        Ty::Str => {
+                            self.pushl(LL::StrToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::Int => {
+                            self.pushl(LL::IntToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::Float => {
+                            self.pushl(LL::FloatToJson(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::Null => {
+                            self.pushl(LL::NullToJson(res_reg.into()))
+                        }
                         _ => {
                             return err!(
-                                "ToJson only support strstrMap, intStrMap called with malformed types: {:?} => {:?}",
+                                "ToJson only support strstrMap, intStrMap, Str, Int, Float called with malformed types: {:?} => {:?}",
                                 &conv_tys[..],
                                 dst_ty
                              );
