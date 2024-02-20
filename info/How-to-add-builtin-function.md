@@ -156,6 +156,7 @@ please refer `ENVIRON` as example.
     - mktime https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
     - datetime: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
 * os: `whoami()`, `os()`, `arch()`, `os_family()`, `pwd()`, `user_home()`
+* diagnose: dump and logging `var_dump(name)`, `log_debug()`, `log_info()`, `log_warn()`, `log_error()`
 
 ### References
 
