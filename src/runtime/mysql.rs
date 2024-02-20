@@ -17,12 +17,10 @@ pub fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
         Pool::new(db_url).unwrap()
     });
     let mut conn = pool.get_conn().unwrap();
-    let stmt = conn.prep(sql).unwrap();
     let rows: Vec<Row> = conn.query(sql).unwrap();
     let mut index = 1;
     for row in rows {
         let mut items: Vec<String> = vec![];
-        let mut i = 0;
         for i in 0..row.len() {
             let col_value: Value = row.get(i).unwrap();
             let text_value = match col_value {
@@ -32,10 +30,10 @@ pub fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
                 Value::UInt(num) => { num.to_string() }
                 Value::Float(num) => { num.to_string() }
                 Value::Double(num) => { num.to_string() }
-                Value::Date(year, month, day, hour, minutes, seconds, micro_seconds) => {
+                Value::Date(year, month, day, hour, minutes, seconds, _micro_seconds) => {
                     format!("{}-{}-{} {}:{}:{}", year, month, day, hour, minutes, seconds)
                 }
-                Value::Time(negative, days, hours, minutes, seconds, micro_seconds) => {
+                Value::Time(_negative, _days, hours, minutes, seconds, _micro_seconds) => {
                     format!("{}:{}:{}", hours, minutes, seconds)
                 }
             };
