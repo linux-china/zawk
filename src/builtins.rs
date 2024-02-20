@@ -326,6 +326,7 @@ static_map!(
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
     ["var_dump", Function::VarDump],
+    ["pprint", Function::VarDump],
     ["from_csv", Function::FromCsv],
     ["to_csv", Function::ToCsv],
     ["min", Function::Min],
