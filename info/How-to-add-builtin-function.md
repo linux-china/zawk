@@ -124,6 +124,7 @@ please refer `ENVIRON` as example.
     - capitalize: `capitalize($1)`
     - shlex: parse command line
     - math: `isint()`, `isnum()`
+    - mask: `mask("abc@example.com")`, `mask("186612347")`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * csv: `from_csv(csv_text)`, `to_csv(array)`
 * encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
@@ -145,6 +146,7 @@ please refer `ENVIRON` as example.
 * S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply
   ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
 * SQLite support: KV storage, `sqlite_query`, `sqlite_execute`
+* MySQL support: `mysql_query("mysql://root:123456@localhost:3306/test", "select id, name from people")`, `mysql_execute`
 * i18n: gettext, not support now.
 * date time: utc by default
     - systime: current Unix time
