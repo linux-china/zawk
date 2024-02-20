@@ -65,8 +65,6 @@ If you can not determine param type, such as min(param1, param2), please use `St
 ### Resource functions
 
 * File: getline https://www.gnu.org/software/gawk/manual/html_node/Getline.html
-* Redis:
-* NATS:
 
 ### Global variables
 
@@ -83,8 +81,18 @@ please refer `ENVIRON` as example.
 
 * text
 * csv
-* jsonl - not ready
 * Apache Parquet - use dr to convert Parquet to CSV
+
+### Diagnose support
+
+To make diagnose convenient, we add `var_dump` and `log` functions.
+
+```shell
+$ frawk 'BEGIN { var_dump("hello"); log_debug("Hello Debug"); print "first", "second"; }' --out-file output.txt
+```
+
+**Tips**: To make diagnose and content output clear, you can use `--out-file` to redirect output to file,
+and `var_dump()` and `log_debug()` always use standard output.
 
 ### Normal String formats
 
@@ -94,9 +102,10 @@ please refer `ENVIRON` as example.
 * Command line(MapIntStr): `shlex("ls -l")`, https://crates.io/crates/shlex
 * Math expression(Float): `fend("1+2")`, https://github.com/printfn/fend
 * Path(MapStrStr): `path("./demo.txt")`
-* Semantic Versioning(MapStrStr): `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")` return array with `major`, `minor`, `patch`, `pre`, `build` fields.
+* Semantic Versioning(MapStrStr): `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")` return array
+  with `major`, `minor`, `patch`, `pre`, `build` fields.
 
-如果你要看返回的数据结构，可以使用to_json函数来实现，如`print to_json(semver("1.2.3-alpha.1+zstd.1.5.0"))`。
+如果你要看返回的数据结构，可以使用var_dump函数，如`var_dump(semver("1.2.3-alpha.1+zstd.1.5.0"))`。
 
 ### UDF(User Defined Function)
 
@@ -114,7 +123,8 @@ please refer `ENVIRON` as example.
     - `_max(arr)`: IntMap -> Float
     - `_min(arr)`: IntMap -> Float
     - `_mean(arr)`: IntMap -> Float
-* bool: `mkbool(s)`, such as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
+* bool: `mkbool(s)`, such
+  as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 * i18n: `LC_MESSAGES`
 * math: `abs`, `floor`, `ceil`, `round`, `fend("1+2")`, `min(1,2,3)`, `max("A","B")`, `float("11.2")`
@@ -129,15 +139,19 @@ please refer `ENVIRON` as example.
     - mask: `mask("abc@example.com")`, `mask("186612347")`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * csv: `from_csv(csv_text)`, `to_csv(array)`
-* encoding: `hex`, `base32`(RFC4648 without padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
+* encoding: `hex`, `base32`(RFC4648 without
+  padding), `base64`, `base64url`, `url`, `hex-base64`,`hex-base64url`, `base64-hex`,`base64url-hex`, such
   as `encode("base64", $1)`, `encode("url",$1)`, `decode("base64", $1)`, `encode("hex-base64",$1)`
-* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, `blake3`, such as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
-* crypto: 
+* Digest(digest, hash): `md5`, `sha256`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, `blake3`, such
+  as `digest("md5",$1)`, `digest("sha256",$1)`. Checksum: `crc32`, `adler32`
+* crypto:
     - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
-    - jwt: `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`. algorithm: `HS256`, `HS384`, `HS512`. 
+    - jwt: `jwt("HS256","your-secret-key", arr)`, `dejwt("your-secret-key", token)`.
+      algorithm: `HS256`, `HS384`, `HS512`.
 * parser: `url("http://example.com/demo?query=1")`, `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 * KV: for Redis, and namespace is like `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`. For
-  NATS, namespace is like `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket first.
+  NATS, namespace is like `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket
+  first.
     - `kv_get(namespace, key)`
     - `kv_put(namespace, key, text)`
     - `kv_delete(namespace, key)`
@@ -148,7 +162,8 @@ please refer `ENVIRON` as example.
 * S3 support: `s3_get(bucket, object_name) `, `s3_put(bucket, object_name, body)`, please supply
   ENV: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION`
 * SQLite support: KV storage, `sqlite_query`, `sqlite_execute`
-* MySQL support: `mysql_query("mysql://root:123456@localhost:3306/test", "select id, name from people")`, `mysql_execute`
+* MySQL
+  support: `mysql_query("mysql://root:123456@localhost:3306/test", "select id, name from people")`, `mysql_execute`
 * i18n: gettext, not support now.
 * date time: utc by default
     - systime: current Unix time
