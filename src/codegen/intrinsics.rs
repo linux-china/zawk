@@ -186,10 +186,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         kv_put(str_ref_ty, str_ref_ty, str_ref_ty);
         kv_delete(str_ref_ty, str_ref_ty);
         kv_clear(str_ref_ty);
-        log_debug(str_ref_ty);
+        log_debug(rt_ty, str_ref_ty);
         log_info(rt_ty, str_ref_ty);
-        log_warn(str_ref_ty);
-        log_error(str_ref_ty);
+        log_warn(rt_ty, str_ref_ty);
+        log_error(rt_ty, str_ref_ty);
         publish(str_ref_ty, str_ref_ty);
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
