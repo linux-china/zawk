@@ -10,7 +10,7 @@ lazy_static! {
     static ref SQLITE_CONNECTIONS: Mutex<HashMap<String, rusqlite::Connection>> = Mutex::new(HashMap::new());
 }
 
-pub fn sqlite_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
+pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut pool = SQLITE_CONNECTIONS.lock().unwrap();
     let conn = pool.entry(db_path.to_string()).or_insert_with(|| {
@@ -42,7 +42,7 @@ pub fn sqlite_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub fn sqlite_execute(db_path: &str, sql: &str) -> Int {
+pub(crate) fn sqlite_execute(db_path: &str, sql: &str) -> Int {
     let mut pool = SQLITE_CONNECTIONS.lock().unwrap();
     let conn = pool.entry(db_path.to_string()).or_insert_with(|| {
         Connection::open(db_path).unwrap()

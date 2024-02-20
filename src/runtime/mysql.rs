@@ -10,7 +10,7 @@ lazy_static! {
     static ref MYSQL_POOLS: Mutex<HashMap<String, Pool>> = Mutex::new(HashMap::new());
 }
 
-pub fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
+pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut pools = MYSQL_POOLS.lock().unwrap();
     let pool = pools.entry(db_url.to_string()).or_insert_with(|| {
@@ -46,7 +46,7 @@ pub fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub fn mysql_execute(db_url: &str, sql: &str) -> Int {
+pub(crate) fn mysql_execute(db_url: &str, sql: &str) -> Int {
     let mut pools = MYSQL_POOLS.lock().unwrap();
     let pool = pools.entry(db_url.to_string()).or_insert_with(|| {
         Pool::new(db_url).unwrap()
