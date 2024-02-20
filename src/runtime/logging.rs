@@ -2,23 +2,26 @@ use log::*;
 
 #[ctor::ctor]
 fn init() {
-    env_logger::builder().filter_level(LevelFilter::Debug).init();
+    env_logger::builder()
+        .filter_module("cranelift_codegen", LevelFilter::Error)
+        .filter_module("cranelift_jit", LevelFilter::Error)
+        .filter_level(LevelFilter::Debug).init();
 }
 
-pub fn log_debug(text: &str) {
-    debug!("{}", text);
+pub fn log_debug(target: &str, text: &str) {
+    debug!(target: target, "{}", text);
 }
 
-pub fn log_info(text: &str) {
-    info!("{}", text);
+pub fn log_info(target: &str, text: &str) {
+    info!(target: target, "{}", text);
 }
 
-pub fn log_warn(text: &str) {
-    warn!("{}", text);
+pub fn log_warn(target: &str, text: &str) {
+    warn!(target: target, "{}", text);
 }
 
-pub fn log_error(text: &str) {
-    error!("{}", text);
+pub fn log_error(target: &str, text: &str) {
+    error!(target: target, "{}", text);
 }
 
 #[cfg(test)]

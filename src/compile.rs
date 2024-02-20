@@ -1960,6 +1960,18 @@ impl<'a, 'b> View<'a, 'b> {
             KvClear => {
                 self.pushl(LL::KvClear(conv_regs[0].into()))
             }
+            LogDebug => {
+                self.pushl(LL::LogDebug(conv_regs[0].into()))
+            }
+            LogInfo => {
+                self.pushl(LL::LogInfo(conv_regs[0].into()))
+            }
+            LogWarn => {
+                self.pushl(LL::LogWarn(conv_regs[0].into()))
+            }
+            LogError => {
+                self.pushl(LL::LogError(conv_regs[0].into()))
+            }
             SqliteQuery => {
                 self.pushl(LL::SqliteQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }

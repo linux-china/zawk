@@ -999,6 +999,26 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let namespace = index(&self.strs, namespace);
                         runtime::kv::kv_clear(namespace.as_str());
                     }
+                    LogDebug(message) => {
+                        let file_name = &self.core.vars.filename;
+                        let message = index(&self.strs, message);
+                        runtime::logging::log_debug(file_name.as_str(), message.as_str());
+                    }
+                    LogInfo(message) => {
+                        let file_name = &self.core.vars.filename;
+                        let message = index(&self.strs, message);
+                        runtime::logging::log_info(file_name.as_str(), message.as_str());
+                    }
+                    LogWarn(message) => {
+                        let file_name = &self.core.vars.filename;
+                        let message = index(&self.strs, message);
+                        runtime::logging::log_warn(file_name.as_str(), message.as_str());
+                    }
+                    LogError(message) => {
+                        let file_name = &self.core.vars.filename;
+                        let message = index(&self.strs, message);
+                        runtime::logging::log_error(file_name.as_str(), message.as_str());
+                    }
                     SqliteQuery(dst, db_path, sql) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);

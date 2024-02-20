@@ -243,6 +243,10 @@ pub(crate) enum Instr<'a> {
     KvPut(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvDelete(Reg<Str<'a>>, Reg<Str<'a>>),
     KvClear(Reg<Str<'a>>),
+    LogDebug(Reg<Str<'a>>),
+    LogInfo(Reg<Str<'a>>),
+    LogWarn(Reg<Str<'a>>),
+    LogError(Reg<Str<'a>>),
     SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -649,6 +653,18 @@ impl<'a> Instr<'a> {
             }
             KvClear( namespace) => {
                 namespace.accum(&mut f);
+            }
+            LogDebug( message) => {
+                message.accum(&mut f);
+            }
+            LogInfo( message) => {
+                message.accum(&mut f);
+            }
+            LogWarn( message) => {
+                message.accum(&mut f);
+            }
+            LogError( message) => {
+                message.accum(&mut f);
             }
             SqliteQuery(dst, db_path, sql) => {
                 dst.accum(&mut f);

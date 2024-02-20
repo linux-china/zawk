@@ -1103,6 +1103,30 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(kv_clear), &mut [namespace])?;
                 Ok(())
             }
+            LogDebug(message) => {
+                let message = self.get_val(message.reflect())?;
+                let rt = self.runtime_val();
+                self.call_void(external!(log_debug), &mut [rt, message])?;
+                Ok(())
+            }
+            LogInfo(message) => {
+                let message = self.get_val(message.reflect())?;
+                let rt = self.runtime_val();
+                self.call_void(external!(log_info), &mut [rt, message])?;
+                Ok(())
+            }
+            LogWarn(message) => {
+                let message = self.get_val(message.reflect())?;
+                let rt = self.runtime_val();
+                self.call_void(external!(log_warn), &mut [rt, message])?;
+                Ok(())
+            }
+            LogError(message) => {
+                let message = self.get_val(message.reflect())?;
+                let rt = self.runtime_val();
+                self.call_void(external!(log_error), &mut [rt, message])?;
+                Ok(())
+            }
             Publish(namespace, body) => {
                 let namespace = self.get_val(namespace.reflect())?;
                 let body = self.get_val(body.reflect())?;

@@ -186,6 +186,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         kv_put(str_ref_ty, str_ref_ty, str_ref_ty);
         kv_delete(str_ref_ty, str_ref_ty);
         kv_clear(str_ref_ty);
+        log_debug(str_ref_ty);
+        log_info(rt_ty, str_ref_ty);
+        log_warn(str_ref_ty);
+        log_error(str_ref_ty);
         publish(str_ref_ty, str_ref_ty);
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
@@ -903,6 +907,34 @@ pub(crate) unsafe extern "C" fn kv_delete(namespace: *mut U128, key: *mut U128) 
 pub(crate) unsafe extern "C" fn kv_clear(namespace: *mut U128) {
     let namespace = &*(namespace as *mut Str);
     runtime::kv::kv_clear(namespace.as_str());
+}
+
+pub(crate) unsafe extern "C" fn log_debug(runtime: *mut c_void, message: *mut U128) {
+    let runtime = &mut *(runtime as *mut Runtime);
+    let file_name = &runtime.core.vars.filename;
+    let message = &*(message as *mut Str);
+    runtime::logging::log_debug(file_name.as_str(), message.as_str());
+}
+
+pub(crate) unsafe extern "C" fn log_info(runtime: *mut c_void, message: *mut U128) {
+    let runtime = &mut *(runtime as *mut Runtime);
+    let file_name = &runtime.core.vars.filename;
+    let message = &*(message as *mut Str);
+    runtime::logging::log_info(file_name.as_str(), message.as_str());
+}
+
+pub(crate) unsafe extern "C" fn log_warn(runtime: *mut c_void, message: *mut U128) {
+    let runtime = &mut *(runtime as *mut Runtime);
+    let file_name = &runtime.core.vars.filename;
+    let message = &*(message as *mut Str);
+    runtime::logging::log_warn(file_name.as_str(), message.as_str());
+}
+
+pub(crate) unsafe extern "C" fn log_error(runtime: *mut c_void, message: *mut U128) {
+    let runtime = &mut *(runtime as *mut Runtime);
+    let file_name = &runtime.core.vars.filename;
+    let message = &*(message as *mut Str);
+    runtime::logging::log_error(file_name.as_str(), message.as_str());
 }
 
 pub(crate) unsafe extern "C" fn publish(namespace: *mut U128, body: *mut U128) {

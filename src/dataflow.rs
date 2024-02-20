@@ -335,6 +335,14 @@ pub(crate) mod boilerplate {
             }
             KvClear( _namespace) => {
             }
+            LogDebug( _message) => {
+            }
+            LogInfo( _message) => {
+            }
+            LogWarn( _message) => {
+            }
+            LogError( _message) => {
+            }
             SqliteQuery(dst, db_path, sql) => {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
