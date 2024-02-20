@@ -88,13 +88,15 @@ please refer `ENVIRON` as example.
 
 ### Normal String formats
 
-* URL: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306/test")`
-* Data URL: `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
-* Date: `MAY 12, 2021 16:44 UTC`, https://github.com/waltzofpearls/dateparser
-* Command line: `ls -l`, https://crates.io/crates/shlex
-* Math expression: `1+2`, https://github.com/printfn/fend
-* Path: `path("./demo.txt")`
-* Semantic Versioning: `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")` return array with `major`, `minor`, `patch`, `pre`, `build` fields.
+* URL(MapStrStr): `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306/test")`
+* Data URL(MapStrStr): `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
+* Date(MapStrInt): `datetime("2023-12-11 13:13:13")`, https://github.com/waltzofpearls/dateparser
+* Command line(MapIntStr): `shlex("ls -l")`, https://crates.io/crates/shlex
+* Math expression(Float): `fend("1+2")`, https://github.com/printfn/fend
+* Path(MapStrStr): `path("./demo.txt")`
+* Semantic Versioning(MapStrStr): `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")` return array with `major`, `minor`, `patch`, `pre`, `build` fields.
+
+如果你要看返回的数据结构，可以使用to_json函数来实现，如`print to_json(semver("1.2.3-alpha.1+zstd.1.5.0"))`。
 
 ### UDF(User Defined Function)
 
