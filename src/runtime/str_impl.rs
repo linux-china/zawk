@@ -577,7 +577,7 @@ impl<'a> Str<'a> {
             let result = format!("{}{}", &src[0..1], "*".repeat(src_len - 1));
             return Str::from(result);
         }
-        let mut mask_len = src.len() / 3;
+        let mask_len = src.len() / 3;
         let prefix_len = if mask_len > 2 { 2 } else { 0 };
         let mut result = String::new();
         // for loop for src with index and char
