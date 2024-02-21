@@ -1164,6 +1164,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = runtime::string_util::pad_both(text.as_str(), len as usize, pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
+                    StrCmp(dst, text1, text2) => {
+                        let text1 = index(&self.strs, text1);
+                        let text2 = index(&self.strs, text2);
+                        let res = runtime::string_util::strcmp(text1.as_str(), text2.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Mask(dst, text) => {
                         let dt_text = index(&self.strs, text).mask();
                         *index_mut(&mut self.strs, dst) = dt_text;

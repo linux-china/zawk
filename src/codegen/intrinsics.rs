@@ -164,6 +164,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_right(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_both(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] strcmp(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
@@ -850,7 +851,7 @@ pub(crate) unsafe extern "C" fn jwt(algorithm: *mut U128, key: *mut U128, payloa
 pub(crate) unsafe extern "C" fn dejwt(key: *mut U128, token: *mut U128) -> *mut c_void {
     let key = &*(key as *mut Str);
     let token = &*(token as *mut Str);
-    let jwt = runtime::crypto::dejwt( key.as_str(), token.as_str());
+    let jwt = runtime::crypto::dejwt(key.as_str(), token.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(jwt)
 }
 
@@ -904,6 +905,13 @@ pub(crate) unsafe extern "C" fn pad_both(text: *mut U128, len: Int, pad: *mut U1
     let res = runtime::string_util::pad_both(text.as_str(), len as usize, pad.as_str());
     mem::transmute::<Str, U128>(Str::from(res))
 }
+
+pub(crate) unsafe extern "C" fn strcmp(text1: *mut U128, text2: *mut U128) -> Int {
+    let text1 = &*(text1 as *mut Str);
+    let text2 = &*(text2 as *mut Str);
+    runtime::string_util::strcmp(text1.as_str(), text2.as_str())
+}
+
 
 pub(crate) unsafe extern "C" fn mask(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
@@ -1103,12 +1111,15 @@ pub(crate) unsafe extern "C" fn datetime(timestamp: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn type_of_array() -> U128 {
     mem::transmute::<Str, U128>(Str::from("array"))
 }
+
 pub(crate) unsafe extern "C" fn type_of_number() -> U128 {
     mem::transmute::<Str, U128>(Str::from("number"))
 }
+
 pub(crate) unsafe extern "C" fn type_of_string() -> U128 {
     mem::transmute::<Str, U128>(Str::from("string"))
 }
+
 pub(crate) unsafe extern "C" fn type_of_unassigned() -> U128 {
     mem::transmute::<Str, U128>(Str::from("unassigned"))
 }
@@ -1262,7 +1273,7 @@ pub(crate) unsafe extern "C" fn dump_map_int_int(arr: *mut c_void) {
     println!("MapIntInt: {}", json_text);
 }
 
-pub(crate) unsafe extern "C" fn dump_map_int_float(arr: *mut c_void)  {
+pub(crate) unsafe extern "C" fn dump_map_int_float(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
     let json_text = runtime::json::map_int_float_to_json(&obj);
     mem::forget(obj);

@@ -1890,6 +1890,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            StrCmp => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::StrCmp(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Mask => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mask(

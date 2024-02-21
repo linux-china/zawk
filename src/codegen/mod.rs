@@ -1141,6 +1141,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(pad_both), &mut [text, len, pad])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            StrCmp(dst,text1, text2) => {
+                let text1 = self.get_val(text1.reflect())?;
+                let text2 = self.get_val(text2.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(strcmp), &mut [text1, text2])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Mask(dst,text) => self.unop(intrinsic!(mask), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;
