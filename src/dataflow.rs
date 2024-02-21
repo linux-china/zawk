@@ -314,6 +314,21 @@ pub(crate) mod boilerplate {
             Capitalize(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            PadLeft(dst, text, len, pad) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(len.into()));
+                f(dst.into(), Some(pad.into()));
+            }
+            PadRight(dst, text, len, pad) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(len.into()));
+                f(dst.into(), Some(pad.into()));
+            }
+            PadBoth(dst, text, len, pad) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(len.into()));
+                f(dst.into(), Some(pad.into()));
+            }
             Mask(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

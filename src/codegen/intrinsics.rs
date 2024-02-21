@@ -161,6 +161,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] capitalize(str_ref_ty) -> str_ty;
         [ReadOnly] mask(str_ref_ty) -> str_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] pad_right(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] pad_both(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
@@ -879,6 +882,27 @@ pub(crate) unsafe extern "C" fn capitalize(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.capitalize();
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn pad_left(text: *mut U128, len: Int, pad: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let pad = &*(pad as *mut Str);
+    let res = runtime::string_util::pad_left(text.as_str(), len as usize, pad.as_str());
+    mem::transmute::<Str, U128>(Str::from(res))
+}
+
+pub(crate) unsafe extern "C" fn pad_right(text: *mut U128, len: Int, pad: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let pad = &*(pad as *mut Str);
+    let res = runtime::string_util::pad_right(text.as_str(), len as usize, pad.as_str());
+    mem::transmute::<Str, U128>(Str::from(res))
+}
+
+pub(crate) unsafe extern "C" fn pad_both(text: *mut U128, len: Int, pad: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let pad = &*(pad as *mut Str);
+    let res = runtime::string_util::pad_both(text.as_str(), len as usize, pad.as_str());
+    mem::transmute::<Str, U128>(Str::from(res))
 }
 
 pub(crate) unsafe extern "C" fn mask(text: *mut U128) -> U128 {

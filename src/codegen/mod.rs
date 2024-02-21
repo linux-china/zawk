@@ -1120,6 +1120,27 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
+            PadLeft(dst,text, len, pad) => {
+                let text = self.get_val(text.reflect())?;
+                let len = self.get_val(len.reflect())?;
+                let pad = self.get_val(pad.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pad_left), &mut [text, len, pad])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            PadRight(dst,text, len, pad) => {
+                let text = self.get_val(text.reflect())?;
+                let len = self.get_val(len.reflect())?;
+                let pad = self.get_val(pad.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pad_right), &mut [text, len, pad])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            PadBoth(dst,text, len, pad) => {
+                let text = self.get_val(text.reflect())?;
+                let len = self.get_val(len.reflect())?;
+                let pad = self.get_val(pad.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pad_both), &mut [text, len, pad])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Mask(dst,text) => self.unop(intrinsic!(mask), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;

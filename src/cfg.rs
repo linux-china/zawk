@@ -1664,6 +1664,11 @@ where
                     }
                 }
 
+                // pad (s, n) => pad(s, len, " ")
+                if (bi == builtins::Function::PadLeft || bi == builtins::Function::PadRight
+                    || bi == builtins::Function::PadBoth) && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b" "));
+                }
                 // snowflake() => snowflake(1);
                 if bi == builtins::Function::SnowFlake && args.len() == 0 {
                     prim_args.push(PrimVal::ILit(1));

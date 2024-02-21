@@ -1143,6 +1143,27 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    PadLeft(dst, text, len, pad) => {
+                        let text = index(&self.strs, text);
+                        let len: Int = *self.get(*len);
+                        let pad = index(&self.strs, pad);
+                        let dt_text = runtime::string_util::pad_left(text.as_str(), len as usize, pad.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                    }
+                    PadRight(dst, text, len, pad) => {
+                        let text = index(&self.strs, text);
+                        let len: Int = *self.get(*len);
+                        let pad = index(&self.strs, pad);
+                        let dt_text = runtime::string_util::pad_right(text.as_str(), len as usize, pad.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                    }
+                    PadBoth(dst, text, len, pad) => {
+                        let text = index(&self.strs, text);
+                        let len: Int = *self.get(*len);
+                        let pad = index(&self.strs, pad);
+                        let dt_text = runtime::string_util::pad_both(text.as_str(), len as usize, pad.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                    }
                     Mask(dst, text) => {
                         let dt_text = index(&self.strs, text).mask();
                         *index_mut(&mut self.strs, dst) = dt_text;

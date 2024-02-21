@@ -1860,6 +1860,36 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            PadLeft => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::PadLeft(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+             PadRight => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::PadRight(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+            PadBoth => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::PadBoth(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
             Mask => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mask(

@@ -288,6 +288,9 @@ pub(crate) enum Instr<'a> {
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     Capitalize(Reg<Str<'a>>, Reg<Str<'a>>),
+    PadLeft(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
+    PadRight(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
+    PadBoth(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     Mask(Reg<Str<'a>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -859,6 +862,24 @@ impl<'a> Instr<'a> {
             Capitalize(dst, text ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
+            }
+            PadLeft(dst, text, len, pad ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                len.accum(&mut f);
+                pad.accum(&mut f);
+            }
+            PadRight(dst, text, len, pad ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                len.accum(&mut f);
+                pad.accum(&mut f);
+            }
+            PadBoth(dst, text, len, pad ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                len.accum(&mut f);
+                pad.accum(&mut f);
             }
             Mask(dst, text ) => {
                 dst.accum(&mut f);

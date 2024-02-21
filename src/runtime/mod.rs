@@ -34,6 +34,7 @@ pub mod csv;
 pub mod sqlite;
 pub mod mysql;
 pub mod logging;
+pub mod string_util;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
