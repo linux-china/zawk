@@ -138,6 +138,7 @@ and `var_dump()` and `log_debug()` always use standard output.
     - math: `isint()`, `isnum()`
     - mask: `mask("abc@example.com")`, `mask("186612347")`
     - pad: `pad_left($1, 10, "_")`, `pad_right($1, 10, "_")`, `pad_both($1, 10, "_")`
+    - strcmp: text compare `strcmp($1, $2)` return -1, 0, 1
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * csv: `from_csv(csv_text)`, `to_csv(array)`
 * encoding: `hex`, `base32`(RFC4648 without
