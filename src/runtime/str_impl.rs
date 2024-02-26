@@ -7,7 +7,7 @@
 ///
 /// TODO explain more about what is going on here.
 use crate::pushdown::FieldSet;
-use crate::runtime::{strtoi, Float, Int, SharedMap};
+use crate::runtime::{strtoi, Float, Int, SharedMap, IntMap};
 
 use regex::bytes::{Captures, Regex};
 use smallvec::SmallVec;
@@ -31,6 +31,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
+use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use crate::runtime;
 use crate::runtime::str_escape::escape;
@@ -588,6 +589,16 @@ impl<'a> Str<'a> {
         let src = self.as_str();
         let result = inflector::cases::titlecase::to_title_case(src);
         Str::from(result)
+    }
+
+    pub fn words<'b>(&self) -> IntMap<Str<'b>> {
+        let result: IntMap<Str> = IntMap::default();
+        let mut index: i64 = 1;
+        for word in self.as_str().unicode_words() {
+            result.insert(index, Str::from(word.to_string()));
+            index = index + 1;
+        }
+        result
     }
 
     pub fn mask<'b>(&self) -> Str<'b> {

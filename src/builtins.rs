@@ -59,6 +59,7 @@ pub enum Function {
     PadBoth,
     StrCmp,
     Mask,
+    Words,
     Escape,
     Encode,
     Decode,
@@ -365,6 +366,7 @@ static_map!(
     ["pad", Function::PadBoth],
     ["strcmp", Function::StrCmp],
     ["mask", Function::Mask],
+    ["words", Function::Words],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
     ["isarray", Function::IsArray],
@@ -641,6 +643,7 @@ impl Function {
             Capitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
+            Words => (smallvec![Str], MapIntStr),
             Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
@@ -703,7 +706,7 @@ impl Function {
             StrCmp => 2,
             MkBool => 1,
             Trim => 2,
-            Capitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase => 1,
+            Capitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words => 1,
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
@@ -780,6 +783,12 @@ impl Function {
                    key: BaseTy::Str,
                    val: BaseTy::Str
                }.abs())
+            }
+            Words => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Str
+                }.abs())
             }
             DateTime => {
                 Ok(Map {

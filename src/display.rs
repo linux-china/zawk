@@ -191,6 +191,7 @@ impl Display for Function {
             PadBoth => write!(f, "pad_both"),
             StrCmp => write!(f, "strcmp"),
             Mask => write!(f, "mask"),
+            Words => write!(f, "words"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),

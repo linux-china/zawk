@@ -1939,6 +1939,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Words => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Words(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Mktime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mktime(

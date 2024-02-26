@@ -372,6 +372,9 @@ pub(crate) mod boilerplate {
             Mask(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            Words(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             HttpGet(dst, url, headers) => {
                 f(dst.into(), Some(url.into()));
                 f(dst.into(), Some(headers.into()));
