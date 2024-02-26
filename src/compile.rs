@@ -125,7 +125,6 @@ impl Ty {
             }
         }
     }
-
 }
 
 fn visit_used_fields(stmt: &Instr, cur_func_id: NumTy, ufa: &mut UsedFieldAnalysis) {
@@ -1902,7 +1901,7 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
-             PadRight => {
+            PadRight => {
                 if res_reg != UNUSED {
                     self.pushl(LL::PadRight(
                         res_reg.into(),
@@ -2031,7 +2030,7 @@ impl<'a, 'b> View<'a, 'b> {
             }
             S3Put => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(),conv_regs[2].into()))
+                    self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
                 }
             }
             KvGet => {
@@ -2197,7 +2196,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntAsort(res_reg.into(),conv_regs[0].into(), conv_regs[1].into()))
+                            self.pushl(LL::MapIntIntAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
@@ -2239,7 +2238,6 @@ impl<'a, 'b> View<'a, 'b> {
                             ))
                         }
                     };
-
                 }
             }
             IsArray => {
@@ -2267,7 +2265,7 @@ impl<'a, 'b> View<'a, 'b> {
                         Ty::Str => {
                             self.pushl(LL::IsStrInt(
                                 res_reg.into(),
-                                conv_regs[0].into()
+                                conv_regs[0].into(),
                             ))
                         }
                         _ => {
@@ -2289,7 +2287,7 @@ impl<'a, 'b> View<'a, 'b> {
                         Ty::Str => {
                             self.pushl(LL::IsStrNum(
                                 res_reg.into(),
-                                conv_regs[0].into()
+                                conv_regs[0].into(),
                             ))
                         }
                         _ => {
@@ -2313,7 +2311,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMax(res_reg.into(),conv_regs[0].into()))
+                            self.pushl(LL::MapIntIntMax(res_reg.into(), conv_regs[0].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatMax(res_reg.into(), conv_regs[0].into()))
@@ -2332,7 +2330,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMin(res_reg.into(),conv_regs[0].into()))
+                            self.pushl(LL::MapIntIntMin(res_reg.into(), conv_regs[0].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatMin(res_reg.into(), conv_regs[0].into()))
@@ -2351,7 +2349,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntSum(res_reg.into(),conv_regs[0].into()))
+                            self.pushl(LL::MapIntIntSum(res_reg.into(), conv_regs[0].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatSum(res_reg.into(), conv_regs[0].into()))
@@ -2370,7 +2368,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMean(res_reg.into(),conv_regs[0].into()))
+                            self.pushl(LL::MapIntIntMean(res_reg.into(), conv_regs[0].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatMean(res_reg.into(), conv_regs[0].into()))
@@ -2389,7 +2387,7 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntJoin(res_reg.into(),conv_regs[0].into(), conv_regs[1].into()))
+                            self.pushl(LL::MapIntIntJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                         }
                         Ty::MapIntFloat => {
                             self.pushl(LL::MapIntFloatJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
@@ -2761,35 +2759,28 @@ fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
     use regex_syntax::ast::{parse, Assertion, AssertionKind, Ast, Concat};
     // We should only call extract_anchored_literal
     let re_ast = parse::Parser::new().parse(text).unwrap();
-    let mut bs = Vec::new();
-    if let Ast::Concat(Concat { asts, .. }) = &re_ast {
-        if asts.len() >= 2
-            && matches!(
-                asts[0],
-                Ast::Assertion(Assertion {
-                    kind: AssertionKind::StartLine,
-                    ..
-                })
-            )
-        {
-            for ast in &asts[1..] {
-                if let Ast::Literal(l) = ast {
-                    if let Some(b) = l.byte() {
-                        bs.push(b);
-                        continue;
+    if let Ast::Concat(concat) = &re_ast {
+        let asts = &concat.asts;
+        if asts.len() >= 2 {
+            let first_item = asts.get(0).unwrap();
+            if let Ast::Assertion(assertion) = first_item {
+                if assertion.kind == AssertionKind::StartLine {
+                    let mut bs = Vec::new();
+                    for ast in &asts[1..] {
+                        if let Ast::Literal(l) = ast {
+                            if let Some(b) = l.byte() {
+                                bs.push(b);
+                                continue;
+                            }
+                            let cur = bs.len();
+                            bs.resize(cur + l.c.len_utf8(), 0);
+                            l.c.encode_utf8(&mut bs[cur..]);
+                            return Some(bs.into());
+                        }
                     }
-                    let cur = bs.len();
-                    bs.resize(cur + l.c.len_utf8(), 0);
-                    l.c.encode_utf8(&mut bs[cur..]);
-                } else {
-                    return None;
                 }
             }
-        } else {
-            return None;
         }
-    } else {
-        return None;
     }
-    Some(bs.into())
+    None
 }
