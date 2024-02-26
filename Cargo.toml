@@ -93,6 +93,7 @@ mysql = { version = "24" }
 csv = "1"
 semver = "1"
 ctor="0.2"
+unicode-segmentation = "1.11"
 Inflector="0.11"
 
 [dev-dependencies]
