@@ -159,6 +159,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
         [ReadOnly] capitalize(str_ref_ty) -> str_ty;
+        [ReadOnly] camel_case(str_ref_ty) -> str_ty;
+        [ReadOnly] kebab_case(str_ref_ty) -> str_ty;
+        [ReadOnly] snake_case(str_ref_ty) -> str_ty;
+        [ReadOnly] title_case(str_ref_ty) -> str_ty;
         [ReadOnly] mask(str_ref_ty) -> str_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -890,6 +894,30 @@ pub(crate) unsafe extern "C" fn strtonum(text: *mut U128) -> Float {
 pub(crate) unsafe extern "C" fn capitalize(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.capitalize();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn camel_case(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.camel_case();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn kebab_case(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.kebab_case();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn snake_case(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.snake_case();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn title_case(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.title_case();
     mem::transmute::<Str, U128>(res)
 }
 

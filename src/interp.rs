@@ -1191,6 +1191,22 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    CamelCase(dst, text) => {
+                        let dt_text = index(&self.strs, text).camel_case();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    KebabCase(dst, text) => {
+                        let dt_text = index(&self.strs, text).kebab_case();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    SnakeCase(dst, text) => {
+                        let dt_text = index(&self.strs, text).snake_case();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    TitleCase(dst, text) => {
+                        let dt_text = index(&self.strs, text).title_case();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     PadLeft(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);

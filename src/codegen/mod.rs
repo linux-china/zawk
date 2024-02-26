@@ -1128,6 +1128,10 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
+            CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),
+            KebabCase(dst,text) => self.unop(intrinsic!(kebab_case), dst, text),
+            SnakeCase(dst,text) => self.unop(intrinsic!(snake_case), dst, text),
+            TitleCase(dst,text) => self.unop(intrinsic!(title_case), dst, text),
             PadLeft(dst,text, len, pad) => {
                 let text = self.get_val(text.reflect())?;
                 let len = self.get_val(len.reflect())?;

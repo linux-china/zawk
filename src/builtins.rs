@@ -50,6 +50,10 @@ pub enum Function {
     Truncate,
     Strtonum,
     Capitalize,
+    CamelCase,
+    KebabCase,
+    SnakeCase,
+    TitleCase,
     PadLeft,
     PadRight,
     PadBoth,
@@ -352,6 +356,10 @@ static_map!(
     ["truncate", Function::Truncate],
     ["strtonum", Function::Strtonum],
     ["capitalize", Function::Capitalize],
+    ["camel_case", Function::CamelCase],
+    ["kebab_case", Function::KebabCase],
+    ["snake_case", Function::SnakeCase],
+    ["title_case", Function::TitleCase],
     ["pad_end", Function::PadLeft],
     ["pad_start", Function::PadRight],
     ["pad", Function::PadBoth],
@@ -630,7 +638,7 @@ impl Function {
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum => (smallvec![Str], Float),
-            Capitalize => (smallvec![Str], Str),
+            Capitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
             Escape => (smallvec![Str, Str], Str),
@@ -695,7 +703,7 @@ impl Function {
             StrCmp => 2,
             MkBool => 1,
             Trim => 2,
-            Capitalize | Mask | Strtonum => 1,
+            Capitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase => 1,
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
@@ -765,7 +773,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
-            Capitalize | Mask => Ok(Scalar(BaseTy::Str).abs()),
+            Capitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {

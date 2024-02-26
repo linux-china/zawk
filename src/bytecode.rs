@@ -296,6 +296,10 @@ pub(crate) enum Instr<'a> {
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     Capitalize(Reg<Str<'a>>, Reg<Str<'a>>),
+    CamelCase(Reg<Str<'a>>, Reg<Str<'a>>),
+    KebabCase(Reg<Str<'a>>, Reg<Str<'a>>),
+    SnakeCase(Reg<Str<'a>>, Reg<Str<'a>>),
+    TitleCase(Reg<Str<'a>>, Reg<Str<'a>>),
     PadLeft(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     PadRight(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     PadBoth(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
@@ -901,6 +905,22 @@ impl<'a> Instr<'a> {
                 text.accum(&mut f);
             }
             Capitalize(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            CamelCase(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            KebabCase(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            SnakeCase(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            TitleCase(dst, text ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }

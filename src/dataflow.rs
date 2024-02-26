@@ -338,6 +338,18 @@ pub(crate) mod boilerplate {
             Capitalize(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            CamelCase(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
+            KebabCase(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
+            SnakeCase(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
+            TitleCase(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             PadLeft(dst, text, len, pad) => {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(len.into()));

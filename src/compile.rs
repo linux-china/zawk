@@ -1860,6 +1860,38 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            CamelCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::CamelCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
+            KebabCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::KebabCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
+            SnakeCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::SnakeCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
+            TitleCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::TitleCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             PadLeft => {
                 if res_reg != UNUSED {
                     self.pushl(LL::PadLeft(
