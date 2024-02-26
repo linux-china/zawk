@@ -996,6 +996,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let value = runtime::math_util::map_int_str_join(arr, sep.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
+                    MapIntIntMax(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_int_max(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntFloatMax(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_float_max(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntIntMin(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_int_min(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntFloatMin(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_float_min(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
                     FromCsv(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::csv::from_csv(src.as_str());

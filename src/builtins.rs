@@ -89,6 +89,8 @@ pub enum Function {
     Min,
     Max,
     Seq,
+    ArrayMax,
+    ArrayMin,
     Asort,
     LocalIp,
     Contains,
@@ -335,6 +337,8 @@ static_map!(
     ["to_csv", Function::ToCsv],
     ["min", Function::Min],
     ["max", Function::Max],
+    ["_max", Function::ArrayMax],
+    ["_min", Function::ArrayMin],
     ["seq", Function::Seq],
     ["uniq", Function::Uniq],
     ["asort", Function::Asort],
@@ -637,6 +641,15 @@ impl Function {
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
+            ArrayMax | ArrayMin => {
+                if let MapIntInt = incoming[0] {
+                    (smallvec![incoming[0]], Int)
+                } else if let MapIntFloat = incoming[0] {
+                    (smallvec![incoming[0]], Float)
+                } else {
+                    return err!("invalid input spec for array _max/_min: {:?}", incoming);
+                }
+            }
             Close => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -696,6 +709,7 @@ impl Function {
             Encode | Decode | Digest | Escape => 2,
             Hmac | Jwt => 3,
             LogDebug | LogInfo | LogWarn | LogError => 1,
+            ArrayMax | ArrayMin => 1,
             IntMapJoin => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
             GenSub => 4,
@@ -805,6 +819,21 @@ impl Function {
                 }.abs())
             },
             PadLeft | PadRight | PadBoth => Ok(Scalar(BaseTy::Str).abs()),
+            ArrayMax | ArrayMin => match &args[0] {
+                Some(Map {
+                         key: Some(BaseTy::Int),
+                         val: Some(BaseTy::Int)
+                     }) => {
+                    Ok(Scalar(BaseTy::Int).abs())
+                }
+                Some(Map {
+                         key: Some(BaseTy::Int),
+                         val: Some(BaseTy::Float)
+                     }) => {
+                    Ok(Scalar(BaseTy::Float).abs())
+                }
+                _ => {Ok(Scalar(BaseTy::Float).abs())}
+            },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),

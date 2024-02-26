@@ -2260,6 +2260,44 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            ArrayMax => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntMax(res_reg.into(),conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatMax(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "_max only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
+            ArrayMin => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntMin(res_reg.into(),conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatMin(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "_min only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
             IntMapJoin => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

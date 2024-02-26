@@ -1082,6 +1082,10 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(map_int_str_join), &mut [arr, sep])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            MapIntIntMax(dst,arr) => self.unop(intrinsic!(map_int_int_max), dst, arr),
+            MapIntFloatMax(dst,arr) => self.unop(intrinsic!(map_int_float_max), dst, arr),
+            MapIntIntMin(dst,arr) => self.unop(intrinsic!(map_int_int_min), dst, arr),
+            MapIntFloatMin(dst,arr) => self.unop(intrinsic!(map_int_float_min), dst, arr),
             FromCsv(dst,src) => self.unop(intrinsic!(from_csv), dst, src),
             MapIntIntToCsv(dst,arr) => self.unop(intrinsic!(map_int_int_to_csv), dst, arr),
             MapIntFloatToCsv(dst,arr) => self.unop(intrinsic!(map_int_float_to_csv), dst, arr),
@@ -1220,7 +1224,7 @@ pub(crate) trait CodeGenerator: Backend {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;
                let third = self.get_val(third.reflect())?;
-               let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second,third])?;
+               let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second, third])?;
                self.bind_val(dst.reflect(),resv)
             }
             Seq(dst,start, step,end) => {

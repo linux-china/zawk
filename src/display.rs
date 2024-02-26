@@ -224,6 +224,8 @@ impl Display for Function {
             ToCsv => write!(f, "to_csv"),
             Min => write!(f, "min"),
             Max => write!(f, "max"),
+            ArrayMax => write!(f, "_max"),
+            ArrayMin => write!(f, "_min"),
             Seq => write!(f, "seq"),
             IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),

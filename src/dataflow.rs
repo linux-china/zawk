@@ -295,6 +295,18 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(arr.into()));
                 f(dst.into(), Some(sep.into()));
             },
+            MapIntIntMax(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntFloatMax(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntIntMin(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntFloatMin(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
             FromCsv(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
             MapIntFloatToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
