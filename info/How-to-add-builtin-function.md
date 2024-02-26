@@ -115,14 +115,11 @@ and `var_dump()` and `log_debug()` always use standard output.
     - `seq(start, end, step)`: seq命令兼容
     - `uniq(arr)`: IntMap<Str> -> IntMap<Str>, uniq命令行兼容
     - `n = asort(arr)`: gawk兼容
-    - `_keys(map)`:  StrMap -> IntMap
-    - `_values(map)`: StrMap -> IntMap
+    - `_max(arr)`: IntIntMap -> Int, IntFloatMap -> Float
+    - `_min(arr)`: 
+    - `_sum(arr)`: 
+    - `_mean(arr)`: 
     - `_join(arr, ",")` IntMap -> Str
-    - `_reverse(arr)`: IntMap -> IntMap
-    - `_slice(arr, start, end)`: IntMap -> IntMap
-    - `_max(arr)`: IntMap -> Float
-    - `_min(arr)`: IntMap -> Float
-    - `_mean(arr)`: IntMap -> Float
 * bool: `mkbool(s)`, such
   as `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
 * reflection: `isarray(x)`, `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
