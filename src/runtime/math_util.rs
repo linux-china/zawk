@@ -56,13 +56,13 @@ pub fn max(first: &str, second: &str, third: &str) -> String {
     let num2_result = second.parse::<f64>();
     if third.is_empty() { // only 2 params
         return if num1_result.is_ok() && num2_result.is_ok() {
-            if num1_result.unwrap() < num2_result.unwrap() {
+            if num1_result.unwrap() > num2_result.unwrap() {
                 first
             } else {
                 second
             }
         } else {
-            if first < third {
+            if first > third {
                 first
             } else {
                 second
