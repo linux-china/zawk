@@ -131,10 +131,14 @@ and `var_dump()` and `log_debug()` always use standard output.
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql, shell.
     - capitalize: `capitalize($1)`
+    - camel_case??: `camel_case($1)`
+    - kebab_case??: `kebab_case($1)`
+    - snake_case??: `snake_case($1)`
+    - title_case??: `title_case($1)`
     - shlex: parse command line
     - math: `isint()`, `isnum()`
     - mask: `mask("abc@example.com")`, `mask("186612347")`
-    - pad: `pad_left($1, 10, "_")`, `pad_right($1, 10, "_")`, `pad_both($1, 10, "_")`
+    - pad:  `pad($1, 10, "*")` to `***hello**`, `pad_start($1, 10, "*")` to `***hello`, `pad_end($1, 10, "**")` to `hello***`,
     - strcmp: text compare `strcmp($1, $2)` return -1, 0, 1
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * csv: `from_csv(csv_text)`, `to_csv(array)`
