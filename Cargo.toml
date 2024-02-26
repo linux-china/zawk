@@ -93,6 +93,7 @@ mysql = { version = "24" }
 csv = "1"
 semver = "1"
 ctor="0.2"
+Inflector="0.11"
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
