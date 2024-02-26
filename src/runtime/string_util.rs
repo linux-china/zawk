@@ -36,16 +36,6 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
     };
 }
 
-pub(crate) fn words<'a>(text: &str) -> IntMap<Str<'a>> {
-    let result: IntMap<Str> = IntMap::default();
-    let mut index: i64 = 1;
-    for word in text.unicode_words() {
-        result.insert(index, Str::from(word.to_string()));
-        index = index + 1;
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
