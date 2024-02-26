@@ -1239,6 +1239,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).mask();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    Repeat(dst, text, n) => {
+                        let n: Int = *self.get(*n);
+                        let dt_text = index(&self.strs, text).repeat(n);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Words(dst, text) => {
                         let res = index(&self.strs, text).words();
                         let dst = *dst;

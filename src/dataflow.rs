@@ -372,6 +372,10 @@ pub(crate) mod boilerplate {
             Mask(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            Repeat(dst, text, n) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(n.into()));
+            }
             Words(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

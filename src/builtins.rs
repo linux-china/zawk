@@ -59,6 +59,7 @@ pub enum Function {
     PadBoth,
     StrCmp,
     Mask,
+    Repeat,
     Words,
     Escape,
     Encode,
@@ -366,6 +367,7 @@ static_map!(
     ["pad", Function::PadBoth],
     ["strcmp", Function::StrCmp],
     ["mask", Function::Mask],
+    ["repeat", Function::Repeat],
     ["words", Function::Words],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
@@ -643,6 +645,7 @@ impl Function {
             Capitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
+            Repeat => (smallvec![Str, Int], Str),
             Words => (smallvec![Str], MapIntStr),
             Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
@@ -707,6 +710,7 @@ impl Function {
             MkBool => 1,
             Trim => 2,
             Capitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words => 1,
+            Repeat => 2,
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
@@ -776,7 +780,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
-            Capitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase => Ok(Scalar(BaseTy::Str).abs()),
+            Capitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {

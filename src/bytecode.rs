@@ -305,6 +305,7 @@ pub(crate) enum Instr<'a> {
     PadBoth(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     StrCmp(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mask(Reg<Str<'a>>, Reg<Str<'a>>),
+    Repeat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Words(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -951,6 +952,11 @@ impl<'a> Instr<'a> {
             Mask(dst, text ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
+            }
+            Repeat(dst, text, n ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                n.accum(&mut f);
             }
             Words(dst, text ) => {
                 dst.accum(&mut f);

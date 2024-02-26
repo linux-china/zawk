@@ -164,6 +164,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] snake_case(str_ref_ty) -> str_ty;
         [ReadOnly] title_case(str_ref_ty) -> str_ty;
         [ReadOnly] mask(str_ref_ty) -> str_ty;
+        [ReadOnly] repeat(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -953,6 +954,12 @@ pub(crate) unsafe extern "C" fn strcmp(text1: *mut U128, text2: *mut U128) -> In
 pub(crate) unsafe extern "C" fn mask(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.mask();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn repeat(text: *mut U128, n: Int) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.repeat(n);
     mem::transmute::<Str, U128>(res)
 }
 
