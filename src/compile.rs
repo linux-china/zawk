@@ -2298,6 +2298,44 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            ArraySum => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntSum(res_reg.into(),conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatSum(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "_sum only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
+            ArrayMean => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::MapIntInt => {
+                            self.pushl(LL::MapIntIntMean(res_reg.into(),conv_regs[0].into()))
+                        }
+                        Ty::MapIntFloat => {
+                            self.pushl(LL::MapIntFloatMean(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "_mean only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
             IntMapJoin => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

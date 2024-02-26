@@ -222,10 +222,14 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_int_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_float_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_str_join(map_ty, str_ref_ty) -> str_ty;
-        map_int_int_max(map_ty) -> int_ty;
-        map_int_float_max(map_ty) -> float_ty;
-        map_int_int_min(map_ty) -> int_ty;
-        map_int_float_min(map_ty) -> float_ty;
+        [ReadOnly] map_int_int_max(map_ty) -> int_ty;
+        [ReadOnly] map_int_float_max(map_ty) -> float_ty;
+        [ReadOnly] map_int_int_min(map_ty) -> int_ty;
+        [ReadOnly] map_int_float_min(map_ty) -> float_ty;
+        [ReadOnly] map_int_int_sum(map_ty) -> int_ty;
+        [ReadOnly] map_int_float_sum(map_ty) -> float_ty;
+        [ReadOnly] map_int_int_mean(map_ty) -> int_ty;
+        [ReadOnly] map_int_float_mean(map_ty) -> float_ty;
         [ReadOnly] from_csv(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_csv(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_csv(map_ty) -> str_ty;
@@ -1410,6 +1414,34 @@ pub(crate) unsafe extern "C" fn map_int_int_min(arr: *mut c_void) -> Int {
 pub(crate) unsafe extern "C" fn map_int_float_min(arr: *mut c_void) -> Float {
     let arr = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
     let result = runtime::math_util::map_int_float_min(&arr);
+    mem::forget(arr);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_int_sum(arr: *mut c_void) -> Int {
+    let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let result = runtime::math_util::map_int_int_sum(&arr);
+    mem::forget(arr);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_sum(arr: *mut c_void) -> Float {
+    let arr = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let result = runtime::math_util::map_int_float_sum(&arr);
+    mem::forget(arr);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_int_mean(arr: *mut c_void) -> Int {
+    let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
+    let result = runtime::math_util::map_int_int_mean(&arr);
+    mem::forget(arr);
+    result
+}
+
+pub(crate) unsafe extern "C" fn map_int_float_mean(arr: *mut c_void) -> Float {
+    let arr = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
+    let result = runtime::math_util::map_int_float_mean(&arr);
     mem::forget(arr);
     result
 }

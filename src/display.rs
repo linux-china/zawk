@@ -226,6 +226,8 @@ impl Display for Function {
             Max => write!(f, "max"),
             ArrayMax => write!(f, "_max"),
             ArrayMin => write!(f, "_min"),
+            ArraySum => write!(f, "_sum"),
+            ArrayMean => write!(f, "_mean"),
             Seq => write!(f, "seq"),
             IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),

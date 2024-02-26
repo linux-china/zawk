@@ -307,6 +307,18 @@ pub(crate) mod boilerplate {
             MapIntFloatMin(dst, arr) => {
                 f(dst.into(), Some(arr.into()));
             }
+            MapIntIntSum(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntFloatSum(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntIntMean(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
+            MapIntFloatMean(dst, arr) => {
+                f(dst.into(), Some(arr.into()));
+            }
             FromCsv(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToCsv(dst, arr) => f(dst.into(), Some(arr.into())),
             MapIntFloatToCsv(dst, arr) => f(dst.into(), Some(arr.into())),

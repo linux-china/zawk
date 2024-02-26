@@ -275,6 +275,67 @@ pub(crate) fn map_int_float_min(obj: &IntMap<Float>) -> Float {
 }
 
 
+pub(crate) fn map_int_int_sum(obj: &IntMap<Int>) -> Int {
+    let len = obj.len();
+    return if len == 0 {
+        0
+    } else {
+        let mut total = 0;
+        let items = obj.to_vec();
+        for index in items {
+            let item = obj.get(&index);
+            total = total + item;
+        }
+        total
+    };
+}
+
+pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {
+    let len = obj.len();
+    return if len == 0 {
+        0f64
+    } else {
+        let mut total = 0f64;
+        let items = obj.to_vec();
+        for index in items {
+            let item = obj.get(&index);
+            total = total + item;
+        }
+        total
+    };
+}
+
+pub(crate) fn map_int_int_mean(obj: &IntMap<Int>) -> Int {
+    let len = obj.len();
+    return if len == 0 {
+        0
+    } else {
+        let mut total = 0;
+        let items = obj.to_vec();
+        for index in items {
+            let item = obj.get(&index);
+            total = total + item;
+        }
+        total/(len as i64)
+    };
+}
+
+pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
+    let len = obj.len();
+    return if len == 0 {
+        0f64
+    } else {
+        let mut total = 0.0f64;
+        let items = obj.to_vec();
+        for index in items {
+            let item = obj.get(&index);
+            total = total + item;
+        }
+        total/(len as f64)
+    };
+}
+
+
 const NO: &'static [&'static str] = &["false", "no", "𐄂", "0", "0.0", "0.00", "00.0",
     "0x0", "0x00", "0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00", "0B0", "0B00"];
 

@@ -91,6 +91,8 @@ pub enum Function {
     Seq,
     ArrayMax,
     ArrayMin,
+    ArrayMean,
+    ArraySum,
     Asort,
     LocalIp,
     Contains,
@@ -339,6 +341,8 @@ static_map!(
     ["max", Function::Max],
     ["_max", Function::ArrayMax],
     ["_min", Function::ArrayMin],
+    ["_sum", Function::ArraySum],
+    ["_mean", Function::ArrayMean],
     ["seq", Function::Seq],
     ["uniq", Function::Uniq],
     ["asort", Function::Asort],
@@ -641,7 +645,7 @@ impl Function {
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
-            ArrayMax | ArrayMin => {
+            ArrayMax | ArrayMin | ArraySum | ArrayMean => {
                 if let MapIntInt = incoming[0] {
                     (smallvec![incoming[0]], Int)
                 } else if let MapIntFloat = incoming[0] {
@@ -709,7 +713,7 @@ impl Function {
             Encode | Decode | Digest | Escape => 2,
             Hmac | Jwt => 3,
             LogDebug | LogInfo | LogWarn | LogError => 1,
-            ArrayMax | ArrayMin => 1,
+            ArrayMax | ArrayMin | ArraySum | ArrayMean => 1,
             IntMapJoin => 2,
             IncMap | JoinCols | Substr | Sub | GSub | Split | Truncate => 3,
             GenSub => 4,
@@ -819,7 +823,7 @@ impl Function {
                 }.abs())
             },
             PadLeft | PadRight | PadBoth => Ok(Scalar(BaseTy::Str).abs()),
-            ArrayMax | ArrayMin => match &args[0] {
+            ArrayMax | ArrayMin | ArraySum | ArrayMean => match &args[0] {
                 Some(Map {
                          key: Some(BaseTy::Int),
                          val: Some(BaseTy::Int)

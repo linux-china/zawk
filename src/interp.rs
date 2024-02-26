@@ -1020,6 +1020,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = value;
                     }
+                    MapIntIntSum(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_int_sum(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntFloatSum(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_float_sum(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntIntMean(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_int_mean(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
+                    MapIntFloatMean(dst, arr) => {
+                        let arr = self.get(*arr);
+                        let value = runtime::math_util::map_int_float_mean(arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = value;
+                    }
                     FromCsv(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::csv::from_csv(src.as_str());
