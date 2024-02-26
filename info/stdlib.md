@@ -190,15 +190,13 @@ examples: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306
 
 `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")`
 
-array fields: 
+array fields:
 
 - major:
 - minor
 - patch
 - pre
 - build
-
-
 
 # ID generator
 
@@ -368,7 +366,9 @@ Key/Value Functions:
 
 ### KV with SQLite
 
-namespace is SQLite db name. `kv_get("demo", "nick")`
+namespace is SQLite db name, and db path is `$HOME/.awk/sqlite.db`.
+
+examples: `kv_get("namespace1", "nick")`.
 
 ### KV with Redis
 
