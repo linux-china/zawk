@@ -72,4 +72,11 @@ mod tests {
             println!("{}", word);
         }
     }
+
+    #[test]
+    fn test_repeat() {
+        let text = "12";
+        let result = text.repeat(3);
+        println!("{}", result);
+    }
 }
