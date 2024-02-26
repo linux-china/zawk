@@ -141,6 +141,7 @@ and `var_dump()` and `log_debug()` always use standard output.
     - pad:  `pad($1, 10, "*")` to `***hello**`, `pad_start($1, 10, "*")` to `***hello`, `pad_end($1, 10, "**")` to `hello***`,
     - strcmp: text compare `strcmp($1, $2)` return -1, 0, 1
     - words: text to words: `words($1)`
+    - repeat: `repeat("*",12)`
 * json: `from_json(json_text)`, `to_json(array)` nested not support
 * csv: `from_csv(csv_text)`, `to_csv(array)`
 * encoding: `hex`, `base32`(RFC4648 without
