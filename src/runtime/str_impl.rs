@@ -626,6 +626,11 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    pub fn repeat<'b>(&self, n: Int) -> Str<'b> {
+        let src = self.as_str();
+        Str::from(src.repeat(n as usize))
+    }
+
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
         let src = self.to_string();
         let format = format.to_string();
