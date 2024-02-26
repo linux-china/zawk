@@ -131,10 +131,10 @@ and `var_dump()` and `log_debug()` always use standard output.
     - truncate: `truncate($1, 10)` or `truncate($1, 10, "...")`
     - escape: `escape("sql", $1)`, such as json, csv,tsv, xml, html, sql, shell.
     - capitalize: `capitalize($1)`
-    - camel_case??: `camel_case($1)`
-    - kebab_case??: `kebab_case($1)`
-    - snake_case??: `snake_case($1)`
-    - title_case??: `title_case($1)`
+    - camel_case: `camel_case($1)`
+    - kebab_case: `kebab_case($1)`
+    - snake_case: `snake_case($1)`
+    - title_case: `title_case($1)`
     - shlex: parse command line
     - math: `isint()`, `isnum()`
     - mask: `mask("abc@example.com")`, `mask("186612347")`
