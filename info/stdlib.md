@@ -204,13 +204,31 @@ array fields:
 
 uuid : `uuid()`, `uuid("v7")`
 
+ID specs:
+
+* length:  128 bits
+* version: v4, v7, and default is v4.
+
 ### ulid
 
-`ulid()`
+Please refer https://github.com/ulid/spec for detail.
+
+`ulid() #01ARZ3NDEKTSV4RRFFQ69G5FAV`
+
+ID specs: 
+
+* length: 128 bits
 
 ### snowflake
 
-`snowflake(machine_id)`
+[Snowflake ID](https://en.wikipedia.org/wiki/Snowflake_ID) is a form of unique identifier used in distributed computing.
+
+`snowflake(machine_id)`, and max value for `machine_id` is `65535`.
+
+ID specs:
+
+* length: 64 bits
+* machine_id: 16 bits, and max value is  `65535`;
 
 # Array functions
 
