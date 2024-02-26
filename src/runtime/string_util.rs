@@ -3,16 +3,25 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::runtime::{IntMap, Str};
 
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
+    if text.len() > len {
+        return text[0..len].to_string();
+    }
     let pad_char = pad.chars().next().unwrap();
     text.pad(len, pad_char, Alignment::Left, false)
 }
 
 pub fn pad_right(text: &str, len: usize, pad: &str) -> String {
+    if text.len() > len {
+        return text[0..len].to_string();
+    }
     let pad_char = pad.chars().next().unwrap();
     text.pad(len, pad_char, Alignment::Right, false)
 }
 
 pub fn pad_both(text: &str, len: usize, pad: &str) -> String {
+    if text.len() > len {
+        return text[0..len].to_string();
+    }
     let pad_char = pad.chars().next().unwrap();
     text.pad(len, pad_char, Alignment::MiddleRight, false)
 }
@@ -44,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_pad_left() {
-        let text = pad_both("hello", 100, "*");
+        let text = pad_left("hello", 100, "*");
         println!("{}", text);
     }
 
@@ -57,10 +66,10 @@ mod tests {
 
     #[test]
     fn test_words() {
-        let text="Hello , world! could you give a 名称?";
+        let text = "Hello , world! could you give a 名称?";
         let words = text.unicode_words();
         for word in words {
-           println!("{}", word);
+            println!("{}", word);
         }
     }
 }
