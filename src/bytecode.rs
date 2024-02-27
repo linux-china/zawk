@@ -308,6 +308,8 @@ pub(crate) enum Instr<'a> {
     Mask(Reg<Str<'a>>, Reg<Str<'a>>),
     Repeat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     DefaultIfEmpty(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    AppendIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    PrependIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Words(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
@@ -968,6 +970,16 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 default_value.accum(&mut f);
+            }
+            AppendIfMissing(dst, text, suffix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                suffix.accum(&mut f);
+            }
+            PrependIfMissing(dst, text, prefix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                prefix.accum(&mut f);
             }
             Words(dst, text ) => {
                 dst.accum(&mut f);

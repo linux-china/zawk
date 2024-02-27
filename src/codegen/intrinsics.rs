@@ -167,6 +167,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] mask(str_ref_ty) -> str_ty;
         [ReadOnly] repeat(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] default_if_empty(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] append_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] prepend_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -974,6 +976,20 @@ pub(crate) unsafe extern "C" fn default_if_empty(text: *mut U128, default_value:
     let text = &*(text as *mut Str);
     let default_value = &*(default_value as *mut Str);
     let res = text.default_if_empty(default_value);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn append_if_missing(text: *mut U128, suffix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let suffix = &*(suffix as *mut Str);
+    let res = text.append_if_missing(suffix);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn prepend_if_missing(text: *mut U128, prefix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let prefix = &*(prefix as *mut Str);
+    let res = text.prepend_if_missing(prefix);
     mem::transmute::<Str, U128>(res)
 }
 

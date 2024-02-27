@@ -1964,6 +1964,24 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            AppendIfMissing => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::AppendIfMissing(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            PrependIfMissing => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::PrependIfMissing(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Words => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Words(

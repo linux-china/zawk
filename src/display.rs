@@ -194,6 +194,8 @@ impl Display for Function {
             Mask => write!(f, "mask"),
             Repeat => write!(f, "repeat"),
             DefaultIfEmpty => write!(f, "default_if_empty"),
+            AppendIfMissing => write!(f, "append_if_missing"),
+            PrependIfMissing => write!(f, "prepend_if_missing"),
             Words => write!(f, "words"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),

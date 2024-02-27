@@ -584,6 +584,24 @@ impl<'a> Str<'a> {
         self.clone()
     }
 
+    pub fn append_if_missing(&self, suffix: &Str<'a>) -> Str<'a> {
+        let text = self.as_str();
+        let suffix = suffix.as_str();
+        if !text.ends_with(suffix) {
+            return Str::from(format!("{}{}",text, suffix));
+        }
+        self.clone()
+    }
+
+    pub fn prepend_if_missing(&self, prefix: &Str<'a>) -> Str<'a> {
+        let text = self.as_str();
+        let prefix = prefix.as_str();
+        if !text.starts_with(prefix) {
+            return Str::from(format!("{}{}",prefix, text));
+        }
+        self.clone()
+    }
+
     pub fn camel_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
         let result = inflector::cases::camelcase::to_camel_case(src);
@@ -608,7 +626,7 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
-    pub fn words<'b>(&self) -> IntMap<Str<'b>> {
+    pub(crate) fn words<'b>(&self) -> IntMap<Str<'b>> {
         let result: IntMap<Str> = IntMap::default();
         let mut index: i64 = 1;
         for word in self.as_str().unicode_words() {

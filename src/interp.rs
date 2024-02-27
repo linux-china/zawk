@@ -1253,6 +1253,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).default_if_empty(default_value);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    AppendIfMissing(dst, text, suffix) => {
+                        let suffix = self.get(*suffix);
+                        let dt_text = index(&self.strs, text).append_if_missing(suffix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    PrependIfMissing(dst, text, prefix) => {
+                        let prefix = self.get(*prefix);
+                        let dt_text = index(&self.strs, text).prepend_if_missing(prefix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Words(dst, text) => {
                         let res = index(&self.strs, text).words();
                         let dst = *dst;

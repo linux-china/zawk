@@ -383,6 +383,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(default_value.into()));
             }
+            AppendIfMissing(dst, text, suffix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(suffix.into()));
+            }
+            PrependIfMissing(dst, text, prefix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(prefix.into()));
+            }
             Words(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

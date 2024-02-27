@@ -1173,6 +1173,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(default_if_empty), &mut [text, default_value])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            AppendIfMissing(dst,text,suffix) => {
+                let text = self.get_val(text.reflect())?;
+                let suffix = self.get_val(suffix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(append_if_missing), &mut [text, suffix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            PrependIfMissing(dst,text,prefix) => {
+                let text = self.get_val(text.reflect())?;
+                let prefix = self.get_val(prefix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(prepend_if_missing), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Words(dst,text) => self.unop(intrinsic!(words), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;

@@ -63,6 +63,8 @@ pub enum Function {
     Repeat,
     Words,
     DefaultIfEmpty,
+    AppendIfMissing,
+    PrependIfMissing,
     Escape,
     Encode,
     Decode,
@@ -372,6 +374,8 @@ static_map!(
     ["mask", Function::Mask],
     ["repeat", Function::Repeat],
     ["default_if_empty", Function::DefaultIfEmpty],
+    ["append_if_missing", Function::AppendIfMissing],
+    ["prepend_if_missing", Function::PrependIfMissing],
     ["words", Function::Words],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
@@ -551,6 +555,7 @@ impl Function {
             Min | Max => (smallvec![Str,Str,Str], Str),
             StrCmp => (smallvec![Str,Str], Int),
             DefaultIfEmpty => (smallvec![Str,Str], Str),
+            AppendIfMissing | PrependIfMissing => (smallvec![Str,Str], Str),
             Seq => (smallvec![Float,Float,Float], MapIntFloat),
             Uniq => (smallvec![MapIntStr, Str], MapIntStr),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
@@ -709,6 +714,7 @@ impl Function {
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
+            AppendIfMissing | PrependIfMissing => 2,
             VarDump => 1,
             Dejwt => 2,
             Strftime | Mktime => 2,
@@ -788,6 +794,7 @@ impl Function {
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),
             DefaultIfEmpty =>  Ok(Scalar(BaseTy::Str).abs()),
+            AppendIfMissing | PrependIfMissing => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {
