@@ -140,6 +140,13 @@ Return default value if text is empty or not exist.
 
 `default_if_empty("   ", "demo") # demo` or `default_if_empty(var_is_null, "demo") # demo`
 
+### append_if_missing/prepend_if_missing
+
+Add suffix/prefix if missing
+
+- `append_if_missing("nats://example.com","/") # example.com/`
+- `preappend_if_missing("example.com","https://") # https://example.com`
+
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
