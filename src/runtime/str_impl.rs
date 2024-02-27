@@ -567,6 +567,16 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    pub fn uncapitalize<'b>(&self) -> Str<'b> {
+        let src = self.as_str();
+        let mut chars = src.chars();
+        let result = match chars.next() {
+            None => String::new(),
+            Some(f) => f.to_lowercase().collect::<String>() + chars.as_str(),
+        };
+        Str::from(result)
+    }
+
     pub fn camel_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
         let result = inflector::cases::camelcase::to_camel_case(src);
