@@ -1248,6 +1248,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).repeat(n);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    DefaultIfEmpty(dst, text, default_value) => {
+                        let default_value = self.get(*default_value);
+                        let dt_text = index(&self.strs, text).default_if_empty(default_value);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Words(dst, text) => {
                         let res = index(&self.strs, text).words();
                         let dst = *dst;

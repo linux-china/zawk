@@ -193,6 +193,7 @@ impl Display for Function {
             StrCmp => write!(f, "strcmp"),
             Mask => write!(f, "mask"),
             Repeat => write!(f, "repeat"),
+            DefaultIfEmpty => write!(f, "default_if_empty"),
             Words => write!(f, "words"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),

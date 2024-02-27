@@ -379,6 +379,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(n.into()));
             }
+            DefaultIfEmpty(dst, text, default_value) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(default_value.into()));
+            }
             Words(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

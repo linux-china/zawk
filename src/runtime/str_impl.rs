@@ -577,6 +577,13 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    pub fn default_if_empty(&self, default: &Str<'a>) -> Str<'a> {
+        if self.as_str().trim().is_empty() {
+            return default.clone();
+        }
+        self.clone()
+    }
+
     pub fn camel_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
         let result = inflector::cases::camelcase::to_camel_case(src);

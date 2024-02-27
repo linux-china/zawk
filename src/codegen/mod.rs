@@ -1167,6 +1167,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(repeat), &mut [text, n])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            DefaultIfEmpty(dst,text,default_value) => {
+                let text = self.get_val(text.reflect())?;
+                let default_value = self.get_val(default_value.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(default_if_empty), &mut [text, default_value])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Words(dst,text) => self.unop(intrinsic!(words), dst, text),
             Truncate(dst,src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;
