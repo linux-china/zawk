@@ -196,6 +196,8 @@ impl Display for Function {
             DefaultIfEmpty => write!(f, "default_if_empty"),
             AppendIfMissing => write!(f, "append_if_missing"),
             PrependIfMissing => write!(f, "prepend_if_missing"),
+            Quote => write!(f, "quote"),
+            DoubleQuote => write!(f, "double_quote"),
             Words => write!(f, "words"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),

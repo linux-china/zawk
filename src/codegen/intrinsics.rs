@@ -169,6 +169,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] default_if_empty(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] append_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] prepend_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] quote(str_ref_ty) -> str_ty;
+        [ReadOnly] double_quote(str_ref_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -990,6 +992,18 @@ pub(crate) unsafe extern "C" fn prepend_if_missing(text: *mut U128, prefix: *mut
     let text = &*(text as *mut Str);
     let prefix = &*(prefix as *mut Str);
     let res = text.prepend_if_missing(prefix);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn quote(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.quote();
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn double_quote(text: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let res = text.double_quote();
     mem::transmute::<Str, U128>(res)
 }
 

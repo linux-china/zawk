@@ -65,6 +65,8 @@ pub enum Function {
     DefaultIfEmpty,
     AppendIfMissing,
     PrependIfMissing,
+    Quote,
+    DoubleQuote,
     Escape,
     Encode,
     Decode,
@@ -376,6 +378,8 @@ static_map!(
     ["default_if_empty", Function::DefaultIfEmpty],
     ["append_if_missing", Function::AppendIfMissing],
     ["prepend_if_missing", Function::PrependIfMissing],
+    ["quote", Function::Quote],
+    ["double_quote", Function::DoubleQuote],
     ["words", Function::Words],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
@@ -556,6 +560,7 @@ impl Function {
             StrCmp => (smallvec![Str,Str], Int),
             DefaultIfEmpty => (smallvec![Str,Str], Str),
             AppendIfMissing | PrependIfMissing => (smallvec![Str,Str], Str),
+            Quote | DoubleQuote => (smallvec![Str], Str),
             Seq => (smallvec![Float,Float,Float], MapIntFloat),
             Uniq => (smallvec![MapIntStr, Str], MapIntStr),
             Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
@@ -715,6 +720,7 @@ impl Function {
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
             AppendIfMissing | PrependIfMissing => 2,
+            Quote | DoubleQuote => 1,
             VarDump => 1,
             Dejwt => 2,
             Strftime | Mktime => 2,
@@ -795,6 +801,7 @@ impl Function {
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),
             DefaultIfEmpty =>  Ok(Scalar(BaseTy::Str).abs()),
             AppendIfMissing | PrependIfMissing => Ok(Scalar(BaseTy::Str).abs()),
+            Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt => {
                Ok(Map {

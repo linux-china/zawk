@@ -1263,6 +1263,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).prepend_if_missing(prefix);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    Quote(dst, text) => {
+                        let dt_text = index(&self.strs, text).quote();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    DoubleQuote(dst, text) => {
+                        let dt_text = index(&self.strs, text).double_quote();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Words(dst, text) => {
                         let res = index(&self.strs, text).words();
                         let dst = *dst;

@@ -602,6 +602,22 @@ impl<'a> Str<'a> {
         self.clone()
     }
 
+    pub fn quote(&self) -> Str<'a>{
+        let src = self.as_str();
+        if src.starts_with('\'') && src.ends_with('\'') {
+            return self.clone();
+        }
+        return Str::from(format!("'{}'", src));
+    }
+
+    pub fn double_quote(&self) -> Str<'a>{
+        let src = self.as_str();
+        if src.starts_with('"') && src.ends_with('"') {
+            return self.clone();
+        }
+        return Str::from(format!("\"{}\"", src));
+    }
+
     pub fn camel_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
         let result = inflector::cases::camelcase::to_camel_case(src);

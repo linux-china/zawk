@@ -1982,6 +1982,22 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Quote => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Quote(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
+            DoubleQuote => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::DoubleQuote(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Words => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Words(

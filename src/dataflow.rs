@@ -391,6 +391,12 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(prefix.into()));
             }
+            Quote(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
+            DoubleQuote(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             Words(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
