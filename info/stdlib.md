@@ -134,6 +134,12 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 **Tips**: please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
 
+### default_if_empty
+
+Return default value if text is empty or not exist.
+
+`default_if_empty("   ", "demo") # demo` or `default_if_empty(var_is_null, "demo") # demo`
+
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
