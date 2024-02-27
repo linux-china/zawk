@@ -1,6 +1,4 @@
 use pad::{Alignment, PadStr};
-use unicode_segmentation::UnicodeSegmentation;
-use crate::runtime::{IntMap, Str};
 
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
     if text.len() > len {

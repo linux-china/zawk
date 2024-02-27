@@ -1191,6 +1191,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    UnCapitalize(dst, text) => {
+                        let dt_text = index(&self.strs, text).uncapitalize();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     CamelCase(dst, text) => {
                         let dt_text = index(&self.strs, text).camel_case();
                         *index_mut(&mut self.strs, dst) = dt_text;

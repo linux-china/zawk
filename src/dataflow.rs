@@ -338,6 +338,9 @@ pub(crate) mod boilerplate {
             Capitalize(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            UnCapitalize(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             CamelCase(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

@@ -182,6 +182,7 @@ impl Display for Function {
             Truncate => write!(f, "truncate"),
             Strtonum => write!(f, "strtonum"),
             Capitalize => write!(f, "capitalize"),
+            UnCapitalize => write!(f, "uncapitalize"),
             CamelCase => write!(f, "camel_case"),
             KebabCase => write!(f, "kebab_case"),
             SnakeCase => write!(f, "snake_case"),

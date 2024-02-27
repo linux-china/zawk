@@ -1128,6 +1128,7 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
+            UnCapitalize(dst,text) => self.unop(intrinsic!(uncapitalize), dst, text),
             CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),
             KebabCase(dst,text) => self.unop(intrinsic!(kebab_case), dst, text),
             SnakeCase(dst,text) => self.unop(intrinsic!(snake_case), dst, text),

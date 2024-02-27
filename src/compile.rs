@@ -1859,6 +1859,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            UnCapitalize => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::UnCapitalize(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             CamelCase => {
                 if res_reg != UNUSED {
                     self.pushl(LL::CamelCase(
@@ -2756,7 +2764,7 @@ impl<'a, 'b> View<'a, 'b> {
 /// This works as a special case for regex constant folding, where we can compile matches into
 /// simple "startswith" calls. This sort of trick is still only used in a few places.
 fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
-    use regex_syntax::ast::{parse, Assertion, AssertionKind, Ast, Concat};
+    use regex_syntax::ast::{parse, AssertionKind, Ast};
     // We should only call extract_anchored_literal
     let re_ast = parse::Parser::new().parse(text).unwrap();
     if let Ast::Concat(concat) = &re_ast {
