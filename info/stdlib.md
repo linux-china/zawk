@@ -83,9 +83,9 @@ Trim text with chars with `trim($1, "[]()")`
 
 `truncate($1, 10)` or `truncate($1, 10, "...")`
 
-### capitalize:
+### capitalize/uncapitalize:
 
-`capitalize("hello") # Hello`
+`capitalize("hello") # Hello` or `uncapitalize("Hello") # hello`
 
 ### camel_case
 
@@ -109,7 +109,7 @@ Trim text with chars with `trim($1, "[]()")`
 
 ### isnum
 
-`isnum("1234")`
+`isnum("1234.01")`
 
 ### mask
 
