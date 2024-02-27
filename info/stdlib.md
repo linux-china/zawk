@@ -147,6 +147,13 @@ Add suffix/prefix if missing
 - `append_if_missing("nats://example.com","/") # example.com/`
 - `preappend_if_missing("example.com","https://") # https://example.com`
 
+### quote/double_quote
+
+quote/double text if not quoted/double quoted.
+
+- `quote("hello world") # 'hello world'`
+- `double_quote("hello world") # "hello world"`
+
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
