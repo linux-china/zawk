@@ -235,7 +235,7 @@ Please refer https://github.com/ulid/spec for detail.
 
 `ulid() #01ARZ3NDEKTSV4RRFFQ69G5FAV`
 
-ID specs: 
+ID specs:
 
 * length: 128 bits
 
@@ -513,3 +513,14 @@ date/time array:
 - `isarray(x)`,
 - `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 
+# Credits
+
+thanks to:
+
+* Golang stdlib: https://pkg.go.dev/std
+* Rust stdlib: https://doc.rust-lang.org/std/
+* Deno stdlib: https://deno.land/std
+* PHP stdlib: https://www.php.net/manual/en/book.strings.php
+* Java:
+    - [commons-lang](https://commons.apache.org/proper/commons-lang/apidocs/org/apache/commons/lang3/StringUtils.html)
+    - [SpringFramework StringUtils](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/util/StringUtils.html)
