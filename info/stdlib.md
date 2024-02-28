@@ -1,6 +1,8 @@
 AWK Standard Library
 ====================
 
+Standard library for AWK with text, math, crypto, kv, database, network etc.
+
 # Text functions
 
 ### match(s, re)
