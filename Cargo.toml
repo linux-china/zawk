@@ -96,6 +96,9 @@ ctor="0.2"
 unicode-segmentation = "1.11"
 Inflector="0.11"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [dev-dependencies]
 assert_cmd = "2.0.13"
 tempfile = "3"
