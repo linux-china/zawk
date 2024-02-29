@@ -27,7 +27,7 @@ ryu = "1.0"
 libc = "0.2"
 tikv-jemallocator = { version = "0.5", optional = true }
 rand = "0.8.5"
-lalrpop-util = "0.20.0"
+lalrpop-util = "0.20.2"
 unicode-xid = "0.2.4"
 llvm-sys = { version = "170", optional = true }
 clap = "3.2.25"
@@ -120,5 +120,5 @@ opt-level = "z"
 codegen-units = 1
 
 [build-dependencies]
-lalrpop = "0.20.0"
+lalrpop = "0.20.2"
 
