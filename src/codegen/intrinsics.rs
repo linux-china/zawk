@@ -202,6 +202,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         kv_put(str_ref_ty, str_ref_ty, str_ref_ty);
         kv_delete(str_ref_ty, str_ref_ty);
         kv_clear(str_ref_ty);
+        [ReadOnly] read_all(str_ref_ty) -> str_ty;
+        write_all(str_ref_ty, str_ref_ty);
         log_debug(rt_ty, str_ref_ty);
         log_info(rt_ty, str_ref_ty);
         log_warn(rt_ty, str_ref_ty);
@@ -1043,6 +1045,18 @@ pub(crate) unsafe extern "C" fn kv_delete(namespace: *mut U128, key: *mut U128) 
 pub(crate) unsafe extern "C" fn kv_clear(namespace: *mut U128) {
     let namespace = &*(namespace as *mut Str);
     runtime::kv::kv_clear(namespace.as_str());
+}
+
+pub(crate) unsafe extern "C" fn read_all(path: *mut U128) -> U128 {
+    let path = &*(path as *mut Str);
+    let value = runtime::string_util::read_all(path.as_str());
+    mem::transmute::<Str, U128>(Str::from(value))
+}
+
+pub(crate) unsafe extern "C" fn write_all(path: *mut U128, content: *mut U128) {
+    let path = &*(path as *mut Str);
+    let content = &*(content as *mut Str);
+    runtime::string_util::write_all(path.as_str(), content.as_str());
 }
 
 pub(crate) unsafe extern "C" fn log_debug(runtime: *mut c_void, message: *mut U128) {

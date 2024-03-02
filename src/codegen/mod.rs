@@ -1227,6 +1227,17 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(kv_clear), &mut [namespace])?;
                 Ok(())
             }
+            ReadAll(dst,path) => {
+                let path = self.get_val(path.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(read_all), &mut [path])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            WriteAll(path, content) => {
+                let path = self.get_val(path.reflect())?;
+                let content = self.get_val(content.reflect())?;
+                self.call_void(external!(write_all), &mut [path, content])?;
+                Ok(())
+            }
             LogDebug(message) => {
                 let message = self.get_val(message.reflect())?;
                 let rt = self.runtime_val();

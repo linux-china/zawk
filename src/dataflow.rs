@@ -428,6 +428,11 @@ pub(crate) mod boilerplate {
             }
             KvClear( _namespace) => {
             }
+            ReadAll(dst, path) => {
+                f(dst.into(), Some(path.into()));
+            }
+            WriteAll( _path, _content) => {
+            }
             LogDebug( _message) => {
             }
             LogInfo( _message) => {

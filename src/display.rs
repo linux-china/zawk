@@ -232,6 +232,8 @@ impl Display for Function {
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),
             VarDump => write!(f, "var_dump"),
+            ReadAll => write!(f, "read_all"),
+            WriteAll => write!(f, "write_all"),
             FromCsv => write!(f, "from_csv"),
             ToCsv => write!(f, "to_csv"),
             Min => write!(f, "min"),

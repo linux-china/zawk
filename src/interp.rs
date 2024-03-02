@@ -1086,6 +1086,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let namespace = index(&self.strs, namespace);
                         runtime::kv::kv_clear(namespace.as_str());
                     }
+                    ReadAll(dst, path) => {
+                        let path = index(&self.strs, path);
+                        let value = runtime::string_util::read_all(path.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(value);
+                    }
+                    WriteAll(path, content) => {
+                        let path = index(&self.strs, path);
+                        let content = index(&self.strs, content);
+                        runtime::string_util::write_all(path.as_str(), content.as_str());
+                    }
                     LogDebug(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);

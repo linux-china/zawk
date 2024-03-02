@@ -2098,6 +2098,14 @@ impl<'a, 'b> View<'a, 'b> {
             KvClear => {
                 self.pushl(LL::KvClear(conv_regs[0].into()))
             }
+            ReadAll => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ReadAll(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            WriteAll => {
+                self.pushl(LL::WriteAll(conv_regs[0].into(), conv_regs[1].into()))
+            }
             LogDebug => {
                 self.pushl(LL::LogDebug(conv_regs[0].into()))
             }

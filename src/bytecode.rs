@@ -243,6 +243,8 @@ pub(crate) enum Instr<'a> {
     KvPut(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvDelete(Reg<Str<'a>>, Reg<Str<'a>>),
     KvClear(Reg<Str<'a>>),
+    ReadAll(Reg<Str<'a>>, Reg<Str<'a>>),
+    WriteAll(Reg<Str<'a>>, Reg<Str<'a>>),
     LogDebug(Reg<Str<'a>>),
     LogInfo(Reg<Str<'a>>),
     LogWarn(Reg<Str<'a>>),
@@ -687,6 +689,14 @@ impl<'a> Instr<'a> {
             }
             KvClear( namespace) => {
                 namespace.accum(&mut f);
+            }
+            ReadAll(dst, path) => {
+                dst.accum(&mut f);
+                path.accum(&mut f);
+            }
+            WriteAll( path, content) => {
+                path.accum(&mut f);
+                content.accum(&mut f);
             }
             LogDebug( message) => {
                 message.accum(&mut f);
