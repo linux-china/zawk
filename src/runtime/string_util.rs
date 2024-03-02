@@ -34,6 +34,14 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
     };
 }
 
+pub fn read_all(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap()
+}
+
+pub fn write_all(path: &str, content: &str) {
+    std::fs::write(path, content).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -66,5 +74,18 @@ mod tests {
         let text = "12";
         let result = text.repeat(3);
         println!("{}", result);
+    }
+
+    #[test]
+    fn test_read_all() {
+        let content = read_all("demo.awk");
+        println!("{}", content);
+    }
+
+    #[test]
+    fn test_write_all() {
+        let content= "hello";
+        write_all("demo2.txt",content);
+        write_all("demo2.txt","hello2");
     }
 }
