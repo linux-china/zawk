@@ -265,11 +265,11 @@ ID specs:
 
 ### seq
 
-`seq(start, end, step)`: seq命令兼容
+`seq(start, end, step)`: `seq` command compatible
 
 ### uniq
 
-`uniq(arr)`: IntMap<Str> -> IntMap<Str>, uniq命令行兼容
+`uniq(arr)`: IntMap<Str> -> IntMap<Str>, `uniq` command compatible
 
 ### asort
 
@@ -502,6 +502,17 @@ date/time array:
 - `os_family()`,
 - `pwd()`,
 - `user_home()`
+
+# I/O
+
+### File
+
+ - read file into text: `read_all(file_path)`
+ - write text info file: `write_all(file_path, text)`  Replace if file exits.
+
+### getline
+
+Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html and http://awk.freeshell.org/AllAboutGetline
 
 # Misc
 
