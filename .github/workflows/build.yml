@@ -26,4 +26,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.fileName }}
-          path: target/release/${{ matrix.file }}
+          path: target/release/frawk
