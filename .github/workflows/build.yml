@@ -19,25 +19,13 @@ jobs:
           - os: ubuntu-latest
             fileName: frawk
             file: target/debug/frawk
-          - os: windows-latest
-            fileName: frawk.exe
-            file: target/debug/frawk
           - os: macos-latest
-            fileName: frawk.exe
+            fileName: frawk
             file: target/debug/frawk
           - os: macos-14
             fileName: frawk
             file: target/debug/frawk
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build
         run: cargo build --verbose
