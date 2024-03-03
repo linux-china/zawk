@@ -16,14 +16,13 @@ jobs:
     strategy:
       matrix:
         include:
+          - os: ubuntu-latest
+            fileName: frawk-x86_64-unknown-linux-gnu
+          - os: macos-latest
+            fileName: frawk-x86_64-apple-darwin
           - os: macos-14
             fileName: frawk-aarch64-apple-darwin
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --release
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.fileName }}
-          path: target/release/frawk
+        run: cargo build
