@@ -10,20 +10,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-on-unix:
-    name: ${{ matrix.version }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-          - os: macos-latest
-          - os: macos-14
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build
-        run: cargo build --verbose
-
   build-on-windows:
     runs-on: windows-latest
     steps:
