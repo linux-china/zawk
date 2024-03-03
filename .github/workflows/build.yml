@@ -10,22 +10,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-on-unix:
     name: ${{ matrix.version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            fileName: frawk
-            file: target/debug/frawk
           - os: macos-latest
-            fileName: frawk
-            file: target/debug/frawk
           - os: macos-14
-            fileName: frawk
-            file: target/debug/frawk
     steps:
       - uses: actions/checkout@v3
       - name: Build
         run: cargo build --verbose
+
+  build-on-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --no-default-features --verbose
