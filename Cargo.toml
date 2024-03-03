@@ -104,7 +104,7 @@ assert_cmd = "2.0.14"
 tempfile = "3"
 
 [features]
-default = ["use_jemalloc", "allow_avx2"]
+default = ["use_jemalloc"]
 use_jemalloc = ["tikv-jemallocator"]
 # Certain features leverage the AVX2 instruction set, but AVX2 can often make
 # the entire application slightly slower, even on chips that support it. For
