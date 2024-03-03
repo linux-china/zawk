@@ -14,7 +14,7 @@ build = "build.rs"
 
 
 [dependencies]
-log = "0.4.20"
+log = "0.4"
 env_logger = "0.11"
 petgraph = "0.6"
 smallvec = "1.13.1"
@@ -100,7 +100,7 @@ Inflector="0.11"
 openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
-assert_cmd = "2.0.13"
+assert_cmd = "2.0.14"
 tempfile = "3"
 
 [features]
