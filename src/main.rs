@@ -312,37 +312,37 @@ fn main() {
         .arg(Arg::new("program-file")
              .long("program-file")
              .short('f')
-             .takes_value(true)
-             .multiple_occurrences(true)
+             .num_args(1)
+             .action(clap::ArgAction::Append)
              .help("Read the program source from the file program-file, instead of from the command line. Multiple '-f' options may be used"))
         .arg(Arg::new("opt-level")
              .long("opt-level")
              .short('O')
-             .takes_value(true)
+             .num_args(1)
              .allow_hyphen_values(true)
              .help("The optimization level for the program. Positive levels determine the optimization level for LLVM. Level `-1` forces bytecode interpretation")
-             .possible_values(["-1", "0", "1", "2", "3"]))
+             .value_parser(["-1", "0", "1", "2", "3"]))
         .arg(Arg::new("out-file")
              .long("out-file")
-             .takes_value(true)
+             .num_args(1)
              .value_name("FILE")
              .help("Write to specified output file instead of standard output"))
         .arg(Arg::new("utf8")
              .long("utf8")
-             .takes_value(false)
+             .num_args(0)
              .help("Validate all input as UTF-8, returning an error if it is invalid"))
         .arg(Arg::new("dump-cfg")
              .long("dump-cfg")
-             .takes_value(false)
+             .num_args(0)
              .help("Print untyped SSA form for input program"))
         .arg(Arg::new("dump-bytecode")
              .long("dump-bytecode")
-             .takes_value(false)
+             .num_args(0)
              .help("Print bytecode for input program"))
         .arg(Arg::new("parse-header")
              .long("parse-header")
              .short('H')
-             .takes_value(false)
+             .num_args(0)
              .help("Consume the first line of input and populate the `FI` variable with column names mapping to column indexes"))
         .arg(Arg::new("input-format")
              .long("input-format")
@@ -350,17 +350,17 @@ fn main() {
              .value_name("csv|tsv")
              .conflicts_with("field-separator")
              .help("Input is split according to the rules of (csv|tsv). $0 contains the unescaped line. Assigning to columns does nothing")
-             .possible_values(["csv", "tsv"]))
+             .value_parser(["csv", "tsv"]))
         .arg(Arg::new("var")
              .short('v')
-             .takes_value(true)
-             .multiple_occurrences(true)
+             .num_args(1)
+             .action(clap::ArgAction::Append)
              .value_name("var=val")
              .help("Assign the value <val> to the variable <var>, before execution of the frawk program begins. Multiple '-v' options may be used"))
         .arg(Arg::new("field-separator")
              .long("field-separator")
              .short('F')
-             .takes_value(true)
+             .num_args(1)
              .value_name("FS")
              .conflicts_with("input-format")
              .help("Field separator `FS` for frawk program"))
@@ -368,54 +368,54 @@ fn main() {
              .long("backend")
              .short('B')
              .help("The backend used to run the frawk program, ranging from fastest to compile and slowest to execute, and slowest to compile and fastest to execute. Cranelift is the default")
-             .possible_values(["interp", "cranelift", "llvm"]))
+             .value_parser(["interp", "cranelift", "llvm"]))
         .arg(Arg::new("output-format")
              .long("output-format")
              .short('o')
              .value_name("csv|tsv")
              .help("If set, records output via print are escaped according to the rules of the corresponding format")
-             .possible_values(["csv", "tsv"]))
+             .value_parser(["csv", "tsv"]))
         .arg(Arg::new("program")
              .index(1)
              .help("The frawk program to execute"))
         .arg(Arg::new("input-files")
              .index(2)
-             .multiple_values(true)
+             .num_args(1..)
              .help("Input files to be read by frawk program"))
         .arg(Arg::new("parallel-strategy")
              .short('p')
              .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files")
-             .possible_values(["r", "record", "f", "file"]))
+             .value_parser(["r", "record", "f", "file"]))
         .arg(Arg::new("chunk-size")
              .long("chunk-size")
-             .takes_value(true)
+             .num_args(1)
              .help("Buffer size when reading input. This is present primarily for debugging purposes; it's possible that tuning this will help performance, but it should not be necessary"))
         .arg(Arg::new("arbitrary-shell")
              .short('A')
              .long("arbitrary-shell")
-             .takes_value(false)
+             .num_args(0)
              .help("By default, strings that are passed to the shell via pipes or the 'system' function are restricted from potentially containing user input. This flag bypasses that check, for the cases where such a use is known to be safe"))
         .arg(Arg::new("jobs")
              .short('j')
              .requires("parallel-strategy")
-             .takes_value(true)
+             .num_args(1)
              .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
     cfg_if::cfg_if! {
         if #[cfg(feature = "llvm_backend")] {
             app = app.arg(Arg::new("dump-llvm")
              .long("dump-llvm")
-             .takes_value(false)
+             .num_args(0)
              .help("Print LLVM-IR for the input program"));
         }
     }
     let matches = app.get_matches();
-    let ifmt = match matches.value_of("input-format") {
+    let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
-    let exec_strategy = match matches.value_of("parallel-strategy") {
+    let exec_strategy = match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
         Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord,
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
         None => ExecutionStrategy::Serial,
@@ -426,7 +426,7 @@ fn main() {
     };
 
     // NB: do we want this to be a command-line param?
-    let chunk_size = if let Some(cs) = matches.value_of("chunk-size") {
+    let chunk_size = if let Some(cs) = matches.get_one::<String>("chunk-size") {
         match cs.parse::<usize>() {
             Ok(u) => u,
             Err(e) => fail!("value of 'chunk-size' flag must be numeric: {}", e),
@@ -434,7 +434,7 @@ fn main() {
     } else {
         CHUNK_SIZE
     };
-    let num_workers = match matches.value_of("jobs") {
+    let num_workers = match matches.get_one::<String>("jobs") {
         Some(s) => match s.parse::<usize>() {
             Ok(u) => u,
             Err(e) => fail!("value of 'jobs' flag must be numeric: {}", e),
@@ -446,20 +446,20 @@ fn main() {
         .into_iter()
         .chain(
             matches
-                .values_of("input-files")
+                .get_many::<String>("input-files")
                 .into_iter()
                 .flat_map(|x| x.map(String::from)),
         )
         .collect();
     let mut input_files: Vec<String> = matches
-        .values_of("input-files")
+        .get_many::<String>("input-files")
         .map(|x| x.map(String::from).collect())
         .unwrap_or_else(Vec::new);
     let program_string = {
-        if let Some(pfiles) = matches.values_of("program-file") {
+        if let Some(pfiles) = matches.get_many::<String>("program-file") {
             // We specified a file on the command line, so the "program" will be
             // interpreted as another input file.
-            if let Some(p) = matches.value_of("program") {
+            if let Some(p) = matches.get_one::<String>("program") {
                 input_files.insert(0, p.into());
             }
             let mut prog = String::new();
@@ -473,13 +473,13 @@ fn main() {
                 }
             }
             prog
-        } else if let Some(p) = matches.value_of("program") {
+        } else if let Some(p) = matches.get_one::<String>("program") {
             String::from(p)
         } else {
             fail!("must specify program at command line, or in a file via -f");
         }
     };
-    let (escaper, output_sep, output_record_sep) = match matches.value_of("output-format") {
+    let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
         Some(s) => fail!(
@@ -488,10 +488,10 @@ fn main() {
         ),
         None => (Escaper::Identity, None, None),
     };
-    let arbitrary_shell = matches.is_present("arbitrary-shell");
-    let parse_header = matches.is_present("parse-header");
+    let arbitrary_shell = matches.get_flag("arbitrary-shell");
+    let parse_header = matches.get_flag("parse-header");
 
-    let opt_level: i32 = match matches.value_of("opt-level") {
+    let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
         Some("2") => 2,
         Some("1") => 1,
@@ -501,9 +501,9 @@ fn main() {
         Some(x) => panic!("this case should be covered by clap argument validation: found unexpected opt-level value {}", x),
     };
     let raw = RawPrelude {
-        field_sep: matches.value_of("field-separator").map(String::from),
+        field_sep: matches.get_one::<String>("field-separator").map(String::from),
         var_decs: matches
-            .values_of("var")
+            .get_many::<String>("var")
             .map(|x| x.map(String::from).collect())
             .unwrap_or_else(Vec::new),
         output_sep,
@@ -517,11 +517,11 @@ fn main() {
         output_record_sep,
         argv,
     };
-    let opt_dump_bytecode = matches.is_present("dump-bytecode");
-    let opt_dump_cfg = matches.is_present("dump-cfg");
+    let opt_dump_bytecode = matches.get_flag("dump-bytecode");
+    let opt_dump_cfg = matches.get_flag("dump-cfg");
     cfg_if::cfg_if! {
         if #[cfg(feature="llvm_backend")] {
-            let opt_dump_llvm = matches.is_present("dump-llvm");
+            let opt_dump_llvm = matches.get_flag("dump-llvm");
             if opt_dump_llvm {
                 let config = codegen::Config {
                     opt_level: if opt_level < 0 { 3 } else { opt_level as usize },
@@ -554,7 +554,7 @@ fn main() {
     if skip_output {
         return;
     }
-    let check_utf8 = matches.is_present("utf8");
+    let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();
 
     // This horrid macro is here because all of the different ways of reading input are different
@@ -696,7 +696,7 @@ fn main() {
     let a = Arena::default();
     let ctx = get_context(program_string.as_str(), &a, get_prelude(&a, &raw));
     let analysis_result = ctx.analyze_sep_assignments();
-    let out_file = matches.value_of("out-file");
+    let out_file = matches.get_one::<String>("out-file");
     macro_rules! with_io {
         (|$inp:ident, $out:ident| $body:expr) => {
             match out_file {
@@ -712,7 +712,7 @@ fn main() {
             }
         };
     }
-    match matches.value_of("backend") {
+    match matches.get_one::<String>("backend").map(|s| s.as_str()) {
         Some("llvm") => {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "llvm_backend")] {
