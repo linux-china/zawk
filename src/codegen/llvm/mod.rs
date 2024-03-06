@@ -302,6 +302,10 @@ impl<'a> CodeGenerator for View<'a> {
                 Exp => Either::Right(builtin_functions::Function::Exp),
                 Atan => Either::Left(codegen::intrinsics::_frawk_atan as _),
                 Atan2 => Either::Left(codegen::intrinsics::_frawk_atan2 as _),
+                Abs => Either::Right(builtin_functions::Function::Abs),
+                Ceil => Either::Right(builtin_functions::Function::Ceil),
+                Floor => Either::Right(builtin_functions::Function::Floor),
+                Round => Either::Right(builtin_functions::Function::Round)
             }
         }
         unsafe {
