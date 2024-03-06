@@ -46,8 +46,8 @@ to use the LLVM backend, you will need an installation of LLVM 12 on your machin
 * `brew install llvm@12` or similar seem to work on Mac OS.
 
 Depending on where your package manager puts these libraries, you may need to
-point `LLVM_SYS_120_PREFIX` at the llvm library installation (e.g.
-`/usr/lib/llvm-12` on Linux or `/usr/local/opt/llvm@12` on Mac OS when installing llvm@12 via Homebrew).
+point `LLVM_SYS_150_PREFIX` at the llvm library installation (e.g.
+`/usr/lib/llvm-15` on Linux or `/opt/homebrew/opt/llvm@15` on Mac OS when installing llvm@15 via Homebrew).
 
 ### Building Without LLVM
 
