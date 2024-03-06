@@ -21,6 +21,10 @@ pub enum Function {
     Log2,
     Log10,
     Exp,
+    Abs,
+    Ceil,
+    Floor,
+    Round
 }
 
 macro_rules! intrinsic_id {
@@ -125,6 +129,18 @@ impl Function {
                 LLVMGetIntrinsicDeclaration(module, *LOG10_ID, &mut tmap.get_ty(Ty::Float), 1)
             }
             Function::Exp => {
+                LLVMGetIntrinsicDeclaration(module, *EXP_ID, &mut tmap.get_ty(Ty::Float), 1)
+            }
+            Function::Abs => {
+                LLVMGetIntrinsicDeclaration(module, *EXP_ID, &mut tmap.get_ty(Ty::Float), 1)
+            }
+            Function::Ceil => {
+                LLVMGetIntrinsicDeclaration(module, *EXP_ID, &mut tmap.get_ty(Ty::Float), 1)
+            }
+            Function::Floor => {
+                LLVMGetIntrinsicDeclaration(module, *EXP_ID, &mut tmap.get_ty(Ty::Float), 1)
+            }
+            Function::Round => {
                 LLVMGetIntrinsicDeclaration(module, *EXP_ID, &mut tmap.get_ty(Ty::Float), 1)
             }
         }
