@@ -1,4 +1,5 @@
 //! LLVM code generation for frawk programs.
+#![allow(deprecated)]
 mod attr;
 pub(crate) mod builtin_functions;
 pub(crate) mod intrinsics;
