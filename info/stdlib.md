@@ -224,7 +224,10 @@ array fields:
 
 Parse pairs text to array.
 
-`pairs("a=b,c=d")` or `pairs("a=b;c=d",";","=")` to return MapStrStr.
+`pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")` to return MapStrStr.
+
+**Tips**: if `pairs("id=1&name=Hello%20World","&")`, text will be treated as URL query string, and URL decode will
+be introduced to decode the value automatically.
 
 # ID generator
 
@@ -513,12 +516,13 @@ date/time array:
 
 ### File
 
- - read file into text: `read_all(file_path)`
- - write text info file: `write_all(file_path, text)`  Replace if file exits.
+- read file into text: `read_all(file_path)`
+- write text info file: `write_all(file_path, text)`  Replace if file exits.
 
 ### getline
 
-Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html and http://awk.freeshell.org/AllAboutGetline
+Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html
+and http://awk.freeshell.org/AllAboutGetline
 
 # Misc
 
