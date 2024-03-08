@@ -43,10 +43,10 @@ pub fn write_all(path: &str, content: &str) {
     std::fs::write(path, content).unwrap()
 }
 
-pub fn pairs<'a>(text: &str, sep1: &str, sep2: &str) -> StrMap<'a, Str<'a>> {
+pub fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let mut map = hashbrown::HashMap::new();
-    text.trim_matches(|c| c == '"' || c == '\'').split(sep2).for_each(|pair| {
-        let kv: Vec<&str> = pair.split(sep1).collect();
+    text.trim_matches(|c| c == '"' || c == '\'').split(pair_sep).for_each(|pair| {
+        let kv: Vec<&str> = pair.split(kv_sep).collect();
         if kv.len() == 2 && !kv[1].is_empty() {
             map.insert(Str::from(kv[0].to_string()), Str::from(kv[1].to_string()));
         }
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn test_pairs() {
         let text = "name=hello;age=12";
-        let map = pairs(text, "=", ";");
+        let map = pairs(text, ";", "=");
         println!("{:?}", map);
     }
 }
