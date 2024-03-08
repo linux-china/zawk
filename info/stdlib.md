@@ -220,6 +220,12 @@ array fields:
 - pre
 - build
 
+### Pairs
+
+Parse pairs text to array.
+
+`pairs("a=b,c=d")` or `pairs("a=b;c=d",";","=")` to return MapStrStr.
+
 # ID generator
 
 ### uuid
