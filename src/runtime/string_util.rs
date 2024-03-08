@@ -44,11 +44,18 @@ pub fn write_all(path: &str, content: &str) {
 }
 
 pub fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
+    let is_url_query = pair_sep == "&" && kv_sep == "=";
     let mut map = hashbrown::HashMap::new();
     text.trim_matches(|c| c == '"' || c == '\'').split(pair_sep).for_each(|pair| {
         let kv: Vec<&str> = pair.split(kv_sep).collect();
         if kv.len() == 2 && !kv[1].is_empty() {
-            map.insert(Str::from(kv[0].to_string()), Str::from(kv[1].to_string()));
+            let mut value = kv[1].to_string();
+            if is_url_query {
+                if let Ok(param_value) = urlencoding::decode(kv[1]) {
+                    value = param_value.to_string();
+                }
+            }
+            map.insert(Str::from(kv[0].to_string()), Str::from(value));
         }
     });
     return SharedMap::from(map);
