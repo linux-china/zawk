@@ -1664,6 +1664,15 @@ where
                     }
                 }
 
+                // pairs (s) => pair(s, ",", "=")
+                if bi == builtins::Function::Pairs && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b","));
+                    prim_args.push(PrimVal::StrLit(b"="));
+                }
+                // pairs (s, ",") => pair(s, ",", "=")
+                if bi == builtins::Function::Pairs && args.len() == 2 {
+                    prim_args.push(PrimVal::StrLit(b"="));
+                }
                 // pad (s, n) => pad(s, len, " ")
                 if (bi == builtins::Function::PadLeft || bi == builtins::Function::PadRight
                     || bi == builtins::Function::PadBoth) && args.len() == 2 {

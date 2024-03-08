@@ -2039,6 +2039,12 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Pairs => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Pairs(res_reg.into(), conv_regs[0].into(),
+                                         conv_regs[1].into(), conv_regs[2].into()))
+                }
+            }
             SemVer => {
                 if res_reg != UNUSED {
                     self.pushl(LL::SemVer(res_reg.into(), conv_regs[0].into()))

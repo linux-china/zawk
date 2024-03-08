@@ -75,6 +75,7 @@ pub enum Function {
     Jwt,
     Dejwt,
     Url,
+    Pairs,
     SemVer,
     Path,
     DataUrl,
@@ -328,6 +329,7 @@ static_map!(
     ["dejwt", Function::Dejwt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
+    ["pairs", Function::Pairs],
     ["semver", Function::SemVer],
     ["path", Function::Path],
     ["datetime", Function::DateTime],
@@ -638,6 +640,7 @@ impl Function {
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
+            Pairs => (smallvec![Str,Str,Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
@@ -726,6 +729,7 @@ impl Function {
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
             AppendIfMissing | PrependIfMissing => 2,
+            Pairs => 3,
             Quote | DoubleQuote => 1,
             VarDump => 1,
             ReadAll => 1,
@@ -811,7 +815,7 @@ impl Function {
             AppendIfMissing | PrependIfMissing => Ok(Scalar(BaseTy::Str).abs()),
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
-            Url | SemVer | Path | DataUrl | Dejwt => {
+            Url | SemVer | Path | DataUrl | Dejwt | Pairs => {
                Ok(Map {
                    key: BaseTy::Str,
                    val: BaseTy::Str

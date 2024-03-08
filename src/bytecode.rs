@@ -217,6 +217,7 @@ pub(crate) enum Instr<'a> {
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    Pairs(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     SemVer(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Path(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DataUrl(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
@@ -630,6 +631,12 @@ impl<'a> Instr<'a> {
             Url(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
+            }
+            Pairs(dst, src, pair_sep, kv_sep) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+                pair_sep.accum(&mut f);
+                kv_sep.accum(&mut f);
             }
             SemVer(dst, src) => {
                 dst.accum(&mut f);

@@ -245,6 +245,11 @@ pub(crate) mod boilerplate {
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
+            Pairs(dst, src, pair_sep, kv_sep) => {
+                f(dst.into(), Some(src.into()));
+                f(dst.into(), Some(pair_sep.into()));
+                f(dst.into(), Some(kv_sep.into()));
+            }
             SemVer(dst, src) => f(dst.into(), Some(src.into())),
             Path(dst, src) => f(dst.into(), Some(src.into())),
             DataUrl(dst, src) => f(dst.into(), Some(src.into())),

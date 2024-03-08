@@ -904,6 +904,13 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
+            Pairs(dst,src, pair_sep,kv_sep) => {
+                let src = self.get_val(src.reflect())?;
+                let pair_sep = self.get_val(pair_sep.reflect())?;
+                let kv_sep = self.get_val(kv_sep.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pairs), &mut [src, pair_sep, kv_sep])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             SemVer(dst,src) => self.unop(intrinsic!(semver), dst, src),
             Path(dst,src) => self.unop(intrinsic!(path), dst, src),
             DataUrl(dst,src) => self.unop(intrinsic!(data_url), dst, src),
