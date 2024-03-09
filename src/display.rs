@@ -208,6 +208,7 @@ impl Display for Function {
             Dejwt => write!(f, "dejwt"),
             Url => write!(f, "url"),
             Pairs => write!(f, "pairs"),
+            Attributes => write!(f, "attributes"),
             SemVer => write!(f, "semver"),
             Path => write!(f, "path"),
             DataUrl => write!(f, "data_url"),
