@@ -222,12 +222,21 @@ array fields:
 
 ### Pairs
 
-Parse pairs text to array.
+Parse pairs text to array(MapStrStr), for example: 
 
-`pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")` to return MapStrStr.
+* URL query string `id=1&name=Hello%20World1`
+* Trace Context tracestate: `congo=congosSecondPosition,rojo=rojosFirstPosition`
+
+Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")`.
 
 **Tips**: if `pairs("id=1&name=Hello%20World","&")`, text will be treated as URL query string, and URL decode will
 be introduced to decode the value automatically.
+
+### Attributes
+
+Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",code="200"}`
+
+Usage: `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
 
 # ID generator
 
