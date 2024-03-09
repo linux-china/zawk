@@ -236,7 +236,10 @@ be introduced to decode the value automatically.
 
 Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",code="200"}`
 
-Usage: `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
+Usage: 
+
+* `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
+* `attributes("mysql{host=localhost user=root password=123456 database=test}")`
 
 # ID generator
 
