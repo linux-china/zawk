@@ -230,10 +230,11 @@ mod tests {
 
     #[test]
     fn test_attributes() {
-        let text = r#"http_requests_total{method=hello code="200"}"#;
+        let text = r#"mysql{host=localhost user=root password=123456 database=test}"#;
         let map = attributes(text);
-        println!("{}", map.get(&Str::from("method")).as_str());
-        println!("{}", map.get(&Str::from("code")).as_str());
+        println!("{}", map.get(&Str::from("_")).as_str());
+        println!("{}", map.get(&Str::from("host")).as_str());
+        println!("{}", map.get(&Str::from("user")).as_str());
     }
 
     #[test]
