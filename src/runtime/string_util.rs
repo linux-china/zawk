@@ -78,7 +78,7 @@ enum AttributesToken<'a> {
     COLON,
     #[token(";")]
     SEMICOLON,
-    #[regex(r#"[a-zA-Z][a-zA-Z0-9_]*"#)]
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
     LITERAL(&'a str),
     #[regex(r#""[^"]*""#)]
     Text(&'a str),
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_complex_attributes() {
-        let text = r#"http_requests_total{method="hello ' = : , world",code=200.01}"#;
+        let text = r#"http_requests_total{method="hello 你好 ' = : , world",code=200.01}"#;
         let map = attributes(text);
         println!("{}", map.get(&Str::from("method")).as_str());
         println!("{}", map.get(&Str::from("code")).as_str());
