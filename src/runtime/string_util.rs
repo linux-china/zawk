@@ -45,7 +45,7 @@ pub fn write_all(path: &str, content: &str) {
     std::fs::write(path, content).unwrap()
 }
 
-pub fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
+pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let is_url_query = pair_sep == "&" && kv_sep == "=";
     let mut map = hashbrown::HashMap::new();
     text.trim_matches(|c| c == '"' || c == '\'').split(pair_sep).for_each(|pair| {
@@ -63,7 +63,7 @@ pub fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>
     SharedMap::from(map)
 }
 
-pub fn attributes(text: &str) -> StrMap<Str> {
+pub(crate) fn attributes(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
     if text.contains('{') {
         let offset = text.find('{').unwrap();
@@ -107,7 +107,7 @@ fn yaml_value_to_string(value: &serde_yaml::Value) -> Option<String> {
             }
             Some(json::to_string(&items))
         }
-        Value::Mapping(obj) => {
+        Value::Mapping(_obj) => {
             Some("{}".to_owned())
         }
         _ => { None }
