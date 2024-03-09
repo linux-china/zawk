@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use miniserde::json;
 use pad::{Alignment, PadStr};
 use crate::runtime::{SharedMap, Str, StrMap};
 
@@ -58,7 +60,58 @@ pub fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>
             map.insert(Str::from(kv[0].to_string()), Str::from(value));
         }
     });
-    return SharedMap::from(map);
+    SharedMap::from(map)
+}
+
+pub fn attributes(text: &str) -> StrMap<Str> {
+    let mut map = hashbrown::HashMap::new();
+    if text.contains('{') {
+        let offset = text.find('{').unwrap();
+        let name = text[0..offset].trim().to_string();
+        map.insert(Str::from("_".to_owned()), Str::from(name));
+        let yaml_text = text[offset..].to_string();
+        let yaml_object = serde_yaml::from_str::<HashMap<String, serde_yaml::Value>>(&yaml_text).unwrap();
+        for (key, value) in yaml_object {
+            if let Some(s) = yaml_value_to_string(&value) {
+                map.insert(Str::from(key), Str::from(s));
+            }
+        }
+    } else {
+        map.insert(Str::from("_".to_owned()), Str::from(text));
+    }
+    SharedMap::from(map)
+}
+
+fn yaml_value_to_string(value: &serde_yaml::Value) -> Option<String> {
+    use serde_yaml::Value;
+    match value {
+        Value::Bool(b) => {
+            if *b {
+                Some("1".to_owned())
+            } else {
+                Some("0".to_owned())
+            }
+        }
+        Value::Number(num) => {
+            Some(num.to_string())
+        }
+        Value::String(s) => {
+            Some(s.clone())
+        }
+        Value::Sequence(arr) => {
+            let mut items: Vec<String> = vec![];
+            for item in arr.iter() {
+                if let Some(s) = yaml_value_to_string(item) {
+                    items.push(s);
+                }
+            }
+            Some(json::to_string(&items))
+        }
+        Value::Mapping(obj) => {
+            Some("{}".to_owned())
+        }
+        _ => { None }
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +165,13 @@ mod tests {
     fn test_pairs() {
         let text = "name=hello;age=12";
         let map = pairs(text, ";", "=");
+        println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_attributes() {
+        let text = r#"http_requests_total{method="post",code="200"}"#;
+        let map = attributes(text);
         println!("{:?}", map);
     }
 }
