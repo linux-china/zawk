@@ -1,12 +1,12 @@
 use std::time::SystemTime;
-use chrono::{Datelike, DateTime, Local, NaiveDateTime, Timelike, TimeZone};
+use chrono::{Datelike, DateTime, Local, Timelike, TimeZone};
 use crate::runtime;
 use crate::runtime::{Int, Str};
 
 const WEEKS: [&'static str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 pub fn strftime(format: &str, timestamp: i64) -> String {
-    let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+    let utc_now = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
     let local_now: DateTime<Local> = Local.from_utc_datetime(&utc_now);
     local_now.format(&format.to_string()).to_string()
 }
@@ -68,7 +68,7 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
 
 pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     let result: runtime::StrMap<Int> = runtime::StrMap::default();
-    let utc_now = NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap();
+    let utc_now = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
     result.insert(Str::from("second"), utc_now.second() as Int);
     result.insert(Str::from("minute"), utc_now.minute() as Int);
     result.insert(Str::from("hour"), utc_now.hour() as Int);
