@@ -88,6 +88,34 @@ enum AttributesToken<'a> {
     NUM(&'a str),
 }
 
+struct PairState {
+    pub key: String,
+    pub value: String,
+    pub key_parsed: bool,
+}
+
+impl Default for PairState {
+    fn default() -> Self {
+        PairState {
+            key: "".to_owned(),
+            value: "".to_owned(),
+            key_parsed: false,
+        }
+    }
+}
+
+impl PairState {
+    pub fn reset(&mut self) {
+        self.key = "".to_owned();
+        self.value = "".to_owned();
+        self.key_parsed = false;
+    }
+
+    pub fn is_legal(&self) -> bool {
+        self.key != "" && self.value != ""
+    }
+}
+
 pub(crate) fn attributes(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
     if text.contains('{') {
@@ -95,40 +123,45 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
         let name = text[0..offset].trim().to_string();
         map.insert(Str::from("_".to_owned()), Str::from(name));
         let pairs_text = text[offset..].to_string();
-        let mut key = "".to_owned();
-        let mut value = "".to_owned();
-        let mut key_parsed = false;
+        let mut pair_state = PairState::default();
         let lexer = AttributesToken::lexer(&pairs_text);
         for token in lexer.into_iter() {
             if let Ok(attribute) = token {
                 match attribute {
                     AttributesToken::COLON | AttributesToken::EQ => {
-                        key_parsed = true;
-                    }
-                    AttributesToken::COMMA | AttributesToken::SEMICOLON | AttributesToken::RBRACE => {
-                        // add pair
-                        if key != "" && value != "" {
-                            map.insert(Str::from(key.clone()), Str::from(value.clone()));
-                        }
-                        key.clear();
-                        value.clear();
-                        key_parsed = false;
+                        pair_state.key_parsed = true;
                     }
                     AttributesToken::LITERAL(literal) => {
-                        if key_parsed {
-                            value = literal.to_string();
+                        if pair_state.key_parsed {
+                            pair_state.value = literal.to_string();
+                            if pair_state.is_legal() {
+                                map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                            }
+                            pair_state.reset();
                         } else {
-                            key = literal.to_string();
+                            pair_state.key = literal.to_string();
                         }
                     }
                     AttributesToken::Text(text) => {
-                        value = text[1..text.len() - 1].to_string();
+                        pair_state.value = text[1..text.len() - 1].to_string();
+                        if pair_state.is_legal() {
+                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                        }
+                        pair_state.reset();
                     }
                     AttributesToken::Text2(text) => {
-                        value = text[1..text.len() - 1].to_string();
+                        pair_state.value = text[1..text.len() - 1].to_string();
+                        if pair_state.is_legal() {
+                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                        }
+                        pair_state.reset();
                     }
                     AttributesToken::NUM(num) => {
-                        value = num.to_string();
+                        pair_state.value = num.to_string();
+                        if pair_state.is_legal() {
+                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                        }
+                        pair_state.reset();
                     }
                     _ => {}
                 }
@@ -197,8 +230,17 @@ mod tests {
 
     #[test]
     fn test_attributes() {
-        let text = r#"http_requests_total{method="hello ' = : , world",code="200"}"#;
+        let text = r#"http_requests_total{method=hello code="200"}"#;
         let map = attributes(text);
         println!("{}", map.get(&Str::from("method")).as_str());
+        println!("{}", map.get(&Str::from("code")).as_str());
+    }
+
+    #[test]
+    fn test_complex_attributes() {
+        let text = r#"http_requests_total{method="hello ' = : , world",code=200.01}"#;
+        let map = attributes(text);
+        println!("{}", map.get(&Str::from("method")).as_str());
+        println!("{}", map.get(&Str::from("code")).as_str());
     }
 }
