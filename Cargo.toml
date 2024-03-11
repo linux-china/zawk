@@ -1,9 +1,9 @@
 [package]
-name = "frawk"
+name = "zawk"
 version = "0.4.8"
-authors = ["Eli Rosenthal <ezr@cs.brown.edu>"]
-edition = "2018"
-description = "an efficient Awk-like language"
+authors = ["Eli Rosenthal <ezr@cs.brown.edu>", "linux_china <libing.chen@gmail.com>"]
+edition = "2021"
+description = "an efficient Awk-like language with stdlib"
 homepage = "https://github.com/ezrosent/frawk"
 repository = "https://github.com/ezrosent/frawk"
 readme = "README.md"
