@@ -3,6 +3,11 @@ name: Rust
 on:
   push:
     branches: [ "master" ]
+    paths-ignore:
+      - 'info/**'
+      - 'README.md'
+      - '.gitignore'
+      - 'justfile'
   pull_request:
     branches: [ "master" ]
 
