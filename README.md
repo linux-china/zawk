@@ -17,13 +17,16 @@ Features:
 
 The info subdirectory has more in-depth information on zawk:
 
-* [Overview](info/overview.md): what frawk is all about, how it differs from Awk.
-* [Types](info/types.md): A quick gloss on frawk's approach to types and type inference.
-* [Parallelism](info/parallelism.md): An overview of frawk's parallelism support.
-* [Benchmarks](info/performance.md): A sense of the relative performance of frawk and other tools when processing large
-  CSV or TSV files.
-* [Standard Library](info/stdlib.md): A standard library by zawk, including exciting functions that are new when
-  compared with Awk.
+* [Overview](https://github.com/linux-china/zawk/blob/master/info/overview.md): what frawk is all about, how it differs
+  from Awk.
+* [Types](https://github.com/linux-china/zawk/blob/master/info/types.md): A quick gloss on frawk's approach to types and
+  type inference.
+* [Parallelism](https://github.com/linux-china/zawk/blob/master/info/parallelism.md): An overview of frawk's parallelism
+  support.
+* [Benchmarks](https://github.com/linux-china/zawk/blob/master/info/performance.md): A sense of the relative performance
+  of frawk and other tools when processing large CSV or TSV files.
+* [Standard Library](https://github.com/linux-china/zawk/blob/master/info/stdlib.md): A standard library by zawk,
+  including exciting functions that are new when compared with Awk.
 
 zawk/frawk is dual-licensed under MIT or Apache 2.0.
 
@@ -55,7 +58,7 @@ support for the Cranelift-based JIT and its bytecode interpreter. To do this,
 build without the `llvm_backend` feature. The Cranelift backend provides
 comparable performance to LLVM for smaller scripts, but LLVM's optimizations
 can sometimes deliver a substantial performance boost over Cranelift (see the
-[benchmarks](info/performance.md) document for some examples of this).
+[benchmarks](https://github.com/linux-china/zawk/blob/master/info/performance.md) document for some examples of this).
 
 ### Building Using Stable
 
