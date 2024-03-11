@@ -1,38 +1,33 @@
-# frawk
+zawk
+===============
 
-*Note (2024, ezrosent@) While the [policy](https://github.com/ezrosent/frawk?tab=readme-ov-file#bugs-and-feature-requests)
-on bugs and feature requests remains unchanged I've had much less time over the last 1-2 years to devote to bug fixes and
-feature requests for frawk. Other awks are more actively maintained, and CSV support is now a much
-more common feature in awk compared to when this project started; I'll update this notice if frawk's status changes.*
+zawk is a small programming language for writing short programs processing textual data. 
+To a first approximation, it is an implementation of the [AWK](https://en.wikipedia.org/wiki/AWK) language; 
+many common Awk programs produce equivalent output when passed to frawk. 
+You might be interested in zawk if you want your scripts to handle escaped CSV/TSV like standard Awk fields,
+or if you want your scripts to execute faster,
+or if you want a standard AWK library to make life easy.
 
-frawk is a small programming language for writing short programs processing
-textual data. To a first approximation, it is an implementation of the
-[AWK](https://en.wikipedia.org/wiki/AWK) language; many common Awk programs
-produce equivalent output when passed to frawk. You might be interested in frawk
-if you want your scripts to handle escaped CSV/TSV like standard Awk fields, or
-if you want your scripts to execute faster.
+The info subdirectory has more in-depth information on zawk:
 
-The info subdirectory has more in-depth information on frawk:
-
-* [Overview](https://github.com/ezrosent/frawk/blob/master/info/overview.md):
+* [Overview](info/overview.md):
   what frawk is all about, how it differs from Awk.
-* [Types](https://github.com/ezrosent/frawk/blob/master/info/types.md): A
+* [Types](info/types.md): A
   quick gloss on frawk's approach to types and type inference.
-* [Parallelism](https://github.com/ezrosent/frawk/blob/master/info/parallelism.md):
+* [Parallelism](info/parallelism.md):
   An overview of frawk's parallelism support.
-* [Benchmarks](https://github.com/ezrosent/frawk/blob/master/info/performance.md):
+* [Benchmarks](info/performance.md):
   A sense of the relative performance of frawk and other tools when processing
   large CSV or TSV files.
-* [Builtin Functions Reference](https://github.com/ezrosent/frawk/blob/master/info/reference.md):
-  A list of builtin functions implemented by frawk, including some that are new
-  when compared with Awk.
+* [Standard Library](info/stdlib.md):
+  A standard library by zawk, including exciting functions that are new when compared with Awk.
 
 frawk is dual-licensed under MIT or Apache 2.0.
 
 ## Installation
 
 *Note: frawk uses some nightly-only Rust features by default.
-Build [without the `unstable`](https://github.com/ezrosent/frawk#building-using-stable)
+Build [without the `unstable`](#building-using-stable)
 feature to build on stable.*  
 
 You will need to [install Rust](https://rustup.rs/). If you have not updated rust in a while, 
@@ -43,7 +38,7 @@ to use the LLVM backend, you will need an installation of LLVM 12 on your machin
   See also the comments on [this issue](https://github.com/ezrosent/frawk/issues/63) for docker files that
   can be used to build a binary on Ubuntu.
 * On Arch `pacman -Sy llvm llvm-libs` and a C compiler (e.g. `clang`) are sufficient as of September 2020.
-* `brew install llvm@12` or similar seem to work on Mac OS.
+* `brew install llvm@15` or similar seem to work on Mac OS.
 
 Depending on where your package manager puts these libraries, you may need to
 point `LLVM_SYS_150_PREFIX` at the llvm library installation (e.g.
@@ -56,7 +51,7 @@ support for the Cranelift-based JIT and its bytecode interpreter. To do this,
 build without the `llvm_backend` feature. The Cranelift backend provides
 comparable performance to LLVM for smaller scripts, but LLVM's optimizations
 can sometimes deliver a substantial performance boost over Cranelift (see the
-[benchmarks](https://github.com/ezrosent/frawk/blob/master/info/performance.md)
+[benchmarks](info/performance.md)
 document for some examples of this).
 
 ### Building Using Stable
@@ -79,12 +74,9 @@ $ cargo +nightly install --path .
 $ cargo +nightly install --path . --no-default-features --features use_jemalloc,allow_avx2,unstable
 ```
 
-frawk is now on [crates.io](https://crates.io/crates/frawk), so running 
-`cargo +nightly install frawk` with the desired features should also work.
+frawk is now on [crates.io](https://crates.io/crates/zawk), so running 
+`cargo +nightly install zawk` with the desired features should also work.
 
-While there are no _deliberate_ unix-isms in frawk, I have not tested it on Windows.
-frawk does appear to build on Windows with default features disabled; see comments on [this issue](https://github.com/ezrosent/frawk/issues/87)
-for more information.
 
 ## Bugs and Feature Requests
 
@@ -92,3 +84,8 @@ frawk has bugs, and many rough edges. If you notice a bug in frawk, filing an is
 with an explanation of how to reproduce the error would be very helpful. There are
 no guarantees on response time or latency for a fix. No one works on frawk full-time.
 The same policy holds for feature requests.
+
+## Credits
+
+Thanks to Eli Rosenthal's [frawk](https://github.com/ezrosent/frawk).
+zawk is based on frawk. Without frawk, there would be no zawk. 
