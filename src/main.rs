@@ -305,10 +305,10 @@ fn main() {
     //.env load support
     dotenv::dotenv().ok();
     #[allow(unused_mut)]
-    let mut app = Command::new("frawk")
-        .version("0.4.8")
-        .author("Eli R.")
-        .about("frawk is a pattern scanning and (semi-structured) text processing language")
+    let mut app = Command::new("zawk")
+        .version("0.5.0")
+        .author("Eli R, linux_china")
+        .about("zawk is an AWK language implementation by Rust with stdlib support")
         .arg(Arg::new("program-file")
              .long("program-file")
              .short('f')
