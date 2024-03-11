@@ -16,11 +16,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            fileName: frawk-x86_64-unknown-linux-gnu
+            fileName: zawk-x86_64-unknown-linux-gnu
           - os: macos-latest
-            fileName: frawk-x86_64-apple-darwin
+            fileName: zawk-x86_64-apple-darwin
           - os: macos-14
-            fileName: frawk-aarch64-apple-darwin
+            fileName: zawk-aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v3
       - name: Build
@@ -29,7 +29,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.fileName }}
-          path: target/release/frawk
+          path: target/release/zawk
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            fileName: frawk-x86_64-windows.exe
+            fileName: zawk-x86_64-windows.exe
     steps:
       - uses: actions/checkout@v4
       - name: Build
@@ -47,4 +47,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.fileName }}
-          path: target/release/frawk.exe
+          path: target/release/zawk.exe
