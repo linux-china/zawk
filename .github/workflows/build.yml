@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-on-unix:
+  build-on-linux:
     name: ${{ matrix.version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -35,21 +35,8 @@ jobs:
             fileName: zawk-aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
-      - name: Cache LLVM 15
-        id: cache-llvm-15
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/llvm
-          key: ${{ runner.os }}-llvm-15
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
-        with:
-          version: "15.0.7"
-          directory: ${{ runner.temp }}/llvm
       - name: Build
         run: cargo build --features llvm_backend
-        env:
-          LLVM_SYS_150_PREFIX: ${{ runner.temp }}/llvm
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
