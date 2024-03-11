@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --features llvm_backend
+        run: cargo build
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
