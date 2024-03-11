@@ -50,6 +50,8 @@ Depending on where your package manager puts these libraries, you may need to
 point `LLVM_SYS_150_PREFIX` at the llvm library installation
 (e.g. `/usr/lib/llvm-15` on Linux or `/opt/homebrew/opt/llvm@15` on macOS when installing llvm@15 via Homebrew).
 
+**Attention**: Compare to Cranelift, binary with LLVM is bigger(almost 32M vs 8.5M).
+
 ### Building Without LLVM
 
 While the LLVM backend is recommended, it is possible to build frawk only with
