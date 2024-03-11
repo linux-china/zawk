@@ -426,6 +426,7 @@ pub(crate) enum Instr<'a> {
     LoadVarStrMap(Reg<runtime::StrMap<'a, Int>>, Variable),
     LoadVarStrStrMap(Reg<runtime::StrMap<'a, Str<'a>>>, Variable),
     StoreVarStrMap(Variable, Reg<runtime::StrMap<'a, Int>>),
+    #[allow(dead_code)]
     StoreVarStrStrMap(Variable, Reg<runtime::StrMap<'a, Str<'a>>>),
 
     LoadSlot {

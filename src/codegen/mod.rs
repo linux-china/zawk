@@ -42,6 +42,7 @@ pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
 
 pub(crate) struct Sig<'a, C: Backend + ?Sized> {
+    #[allow(dead_code)]
     pub attrs: &'a [FunctionAttr],
     pub args: &'a mut [C::Ty],
     pub ret: Option<C::Ty>,
