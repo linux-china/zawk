@@ -26,11 +26,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.fileName }}
-          path: target/debug/frawk
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
@@ -44,8 +39,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --no-default-features
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.fileName }}
-          path: target/debug/frawk.exe
