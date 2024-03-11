@@ -132,7 +132,7 @@ macro_rules! c_str {
 }
 
 macro_rules! for_either {
-    ($e:expr, |$id:pat| $body:expr) => {{
+    ($e:expr, |$id:pat_param| $body:expr) => {{
         match $e {
             crate::common::Either::Left($id) => $body,
             crate::common::Either::Right($id) => $body,

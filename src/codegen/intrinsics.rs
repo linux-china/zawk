@@ -474,7 +474,7 @@ macro_rules! exit {
 }
 
 macro_rules! with_input {
-    ($inp:expr, |$p:pat| $body:expr) => {
+    ($inp:expr, |$p:pat_param| $body:expr) => {
         match $inp {
             $crate::codegen::intrinsics::InputData::V1($p) => $body,
             $crate::codegen::intrinsics::InputData::V2($p) => $body,
