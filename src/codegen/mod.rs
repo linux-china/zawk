@@ -905,6 +905,7 @@ pub(crate) trait CodeGenerator: Backend {
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
             Attributes(dst,src) => self.unop(intrinsic!(attributes), dst, src),
+            Message(dst,src) => self.unop(intrinsic!(message), dst, src),
             Pairs(dst,src, pair_sep,kv_sep) => {
                 let src = self.get_val(src.reflect())?;
                 let pair_sep = self.get_val(pair_sep.reflect())?;

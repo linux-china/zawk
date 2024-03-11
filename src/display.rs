@@ -209,6 +209,7 @@ impl Display for Function {
             Url => write!(f, "url"),
             Pairs => write!(f, "pairs"),
             Attributes => write!(f, "attributes"),
+            Message => write!(f, "message"),
             SemVer => write!(f, "semver"),
             Path => write!(f, "path"),
             DataUrl => write!(f, "data_url"),

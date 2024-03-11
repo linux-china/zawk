@@ -186,6 +186,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] dejwt(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] attributes(str_ref_ty) -> map_ty;
+        [ReadOnly] message(str_ref_ty) -> map_ty;
         [ReadOnly] pairs(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] semver(str_ref_ty) -> map_ty;
         [ReadOnly] path(str_ref_ty) -> map_ty;
@@ -1197,6 +1198,12 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn attributes(src: *mut U128) -> *mut c_void {
     let src = &*(src as *mut Str);
     let arr_obj = runtime::string_util::attributes(src.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
+}
+
+pub(crate) unsafe extern "C" fn message(src: *mut U128) -> *mut c_void {
+    let src = &*(src as *mut Str);
+    let arr_obj = runtime::string_util::message(src.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
 }
 

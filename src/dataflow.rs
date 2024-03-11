@@ -253,6 +253,9 @@ pub(crate) mod boilerplate {
             Attributes(dst, src) => {
                 f(dst.into(), Some(src.into()));
             }
+            Message(dst, src) => {
+                f(dst.into(), Some(src.into()));
+            }
             SemVer(dst, src) => f(dst.into(), Some(src.into())),
             Path(dst, src) => f(dst.into(), Some(src.into())),
             DataUrl(dst, src) => f(dst.into(), Some(src.into())),

@@ -2050,6 +2050,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Attributes(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Message => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Message(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             SemVer => {
                 if res_reg != UNUSED {
                     self.pushl(LL::SemVer(res_reg.into(), conv_regs[0].into()))
