@@ -30,3 +30,21 @@ jobs:
         with:
           name: ${{ matrix.fileName }}
           path: target/release/frawk
+
+  build-on-windows:
+    name: ${{ matrix.version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            fileName: frawk-x86_64-windows.exe
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --release --no-default-features
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.fileName }}
+          path: target/release/frawk.exe
