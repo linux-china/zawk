@@ -7,6 +7,10 @@ build:
 build-windows:
   cross build --no-default-features --target x86_64-pc-windows-gnu
 
+# build with LLVM backend
+build-llvm:
+  cargo build --features llvm_backend
+
 release:
   cargo build --release
   ls -al target/release/zawk
