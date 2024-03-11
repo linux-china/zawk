@@ -27,6 +27,7 @@ frawk addresses two primary shortcomings I have found in Awk.
 
 1. Lack of support for structured CSV input data.
 2. Sometimes-lackluster performance.
+3. Standard AWK Library
 
 We can take each of these in turn, and then move on to how frawk is implemented.
 Before getting too far into the weeds, I want to clarify that my main goal in
