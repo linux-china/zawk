@@ -1,5 +1,5 @@
-zawk
-===============
+zawk: AWK implementation by Rust with stdlib support
+=====================================================
 
 zawk is a small programming language for writing short programs processing textual data.
 To a first approximation, it is an implementation of the [AWK](https://en.wikipedia.org/wiki/AWK) language;
@@ -17,17 +17,13 @@ Features:
 
 The info subdirectory has more in-depth information on zawk:
 
-* [Overview](info/overview.md):
-  what frawk is all about, how it differs from Awk.
-* [Types](info/types.md): A
-  quick gloss on frawk's approach to types and type inference.
-* [Parallelism](info/parallelism.md):
-  An overview of frawk's parallelism support.
-* [Benchmarks](info/performance.md):
-  A sense of the relative performance of frawk and other tools when processing
-  large CSV or TSV files.
-* [Standard Library](info/stdlib.md):
-  A standard library by zawk, including exciting functions that are new when compared with Awk.
+* [Overview](info/overview.md): what frawk is all about, how it differs from Awk.
+* [Types](info/types.md): A quick gloss on frawk's approach to types and type inference.
+* [Parallelism](info/parallelism.md): An overview of frawk's parallelism support.
+* [Benchmarks](info/performance.md): A sense of the relative performance of frawk and other tools when processing large
+  CSV or TSV files.
+* [Standard Library](info/stdlib.md): A standard library by zawk, including exciting functions that are new when
+  compared with Awk.
 
 zawk/frawk is dual-licensed under MIT or Apache 2.0.
 
