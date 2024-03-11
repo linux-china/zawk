@@ -3,6 +3,10 @@ export LLVM_SYS_150_PREFIX := "/opt/homebrew/Cellar/llvm@15/15.0.7"
 build:
   cargo build
 
+# build on Windows platform
+build-windows:
+  cross build --no-default-features --target x86_64-pc-windows-gnu
+
 release:
   cargo build --release
   ls -al target/release/frawk
