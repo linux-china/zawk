@@ -26,6 +26,8 @@ jobs:
   build-on-mac:
     name: ${{ matrix.version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      LLVM_SYS_150_PREFIX: ${{ runner.temp }}/llvm
     strategy:
       matrix:
         include:
@@ -34,8 +36,6 @@ jobs:
           - os: macos-14
             fileName: zawk-aarch64-apple-darwin
     steps:
-      - env:
-          LLVM_SYS_150_PREFIX: ${{ runner.temp }}/llvm
       - uses: actions/checkout@v4
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
