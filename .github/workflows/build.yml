@@ -26,8 +26,6 @@ jobs:
   build-on-mac:
     name: ${{ matrix.version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    env:
-      LLVM_SYS_150_PREFIX: ${{ runner.temp }}/llvm
     strategy:
       matrix:
         include:
@@ -43,7 +41,7 @@ jobs:
           version: "15.0.7"
           directory: ${{ runner.temp }}/llvm
       - name: Build
-        run: cargo build --features llvm_backend
+        run: cargo build
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
