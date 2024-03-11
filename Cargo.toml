@@ -106,12 +106,12 @@ tempfile = "3"
 
 [features]
 default = ["use_jemalloc"]
-use_jemalloc = ["tikv-jemallocator"]
+use_jemalloc = ["dep:tikv-jemallocator"]
 # Certain features leverage the AVX2 instruction set, but AVX2 can often make
 # the entire application slightly slower, even on chips that support it. For
 # those cases, consider disabling allow_avx2.
 allow_avx2 = []
-llvm_backend = ["llvm-sys"]
+llvm_backend = ["dep:llvm-sys"]
 unstable = []
 
 [profile.release]
