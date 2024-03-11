@@ -241,6 +241,15 @@ Usage:
 * `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
 * `attributes("mysql{host=localhost user=root password=123456 database=test}")`
 
+### Message
+
+A message always contains name, headers and boy, and text format is like `http_requests_total{method="post",code="200"}(100)`
+
+Usage:
+
+* `message("http_requests_total{method=\"post\",code=\"200\"}(100)")`
+* `message("login_event{method=\"post\",code=\"200\"}('xxx@example.com')")`
+
 # ID generator
 
 ### uuid
