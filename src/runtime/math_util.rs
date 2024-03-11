@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use semver::{Version};
-use sonyflake::Sonyflake;
+use snowflake::SnowflakeIdGenerator;
 use crate::runtime::{Float, Int, IntMap, Str, StrMap};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
@@ -316,7 +316,7 @@ pub(crate) fn map_int_int_mean(obj: &IntMap<Int>) -> Int {
             let item = obj.get(&index);
             total = total + item;
         }
-        total/(len as i64)
+        total / (len as i64)
     };
 }
 
@@ -331,7 +331,7 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
             let item = obj.get(&index);
             total = total + item;
         }
-        total/(len as f64)
+        total / (len as f64)
     };
 }
 
@@ -368,15 +368,18 @@ pub(crate) fn uuid(version: &str) -> String {
 }
 
 lazy_static! {
-    static ref SNOWFLAKES: Mutex<HashMap<u16, Sonyflake>> = Mutex::new(HashMap::new());
+    static ref SNOWFLAKES: Mutex<HashMap<u16, SnowflakeIdGenerator>> = Mutex::new(HashMap::new());
 }
 
+///  machine ID(10 bits) should be less 1024
 pub(crate) fn snowflake(machine_id: u16) -> Int {
     let mut pool = SNOWFLAKES.lock().unwrap();
     let generator = pool.entry(machine_id).or_insert_with(|| {
-        Sonyflake::builder().machine_id(&|| { Ok(machine_id) }).finalize().unwrap()
+        let new_machine_id = (machine_id >> 5) & (32 - 1) ;
+        let new_node_id = machine_id & (32 - 1);
+        SnowflakeIdGenerator::new(new_machine_id as i32, new_node_id as i32)
     });
-    generator.next_id().unwrap() as Int
+    generator.real_time_generate() as Int
 }
 
 pub(crate) fn ulid() -> String {
@@ -537,8 +540,7 @@ mod tests {
 
     #[test]
     fn test_snowflake() {
-        let machine_id: i64 = 234342347234;
-        println!("{}", machine_id as u16);
+        let machine_id: i64 = 1000;
         println!("{}", snowflake(machine_id as u16));
     }
 
@@ -546,5 +548,13 @@ mod tests {
     fn test_semver() {
         let map = semver("1.2.3-beta1");
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_machine_node() {
+        let machine_id = 64;
+        let new_machine_id = machine_id >> 5;
+        let new_node_id = machine_id & (32 - 1);
+        println!("{} {}", new_machine_id, new_node_id);
     }
 }
