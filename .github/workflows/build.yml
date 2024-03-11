@@ -18,14 +18,32 @@ jobs:
         include:
           - os: ubuntu-latest
             fileName: zawk-x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build
+
+  build-on-mac:
+    name: ${{ matrix.version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
           - os: macos-latest
             fileName: zawk-x86_64-apple-darwin
           - os: macos-14
             fileName: zawk-aarch64-apple-darwin
     steps:
+      - env:
+          LLVM_SYS_150_PREFIX: ${{ runner.temp }}/llvm
       - uses: actions/checkout@v4
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: "15.0.7"
+          directory: ${{ runner.temp }}/llvm
       - name: Build
-        run: cargo build
+        run: cargo build --features llvm_backend
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
