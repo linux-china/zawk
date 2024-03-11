@@ -30,7 +30,20 @@ The info subdirectory has more in-depth information on zawk:
 
 zawk/frawk is dual-licensed under MIT or Apache 2.0.
 
-## Installation
+# Installation
+
+Mac with Homebrew:
+
+```shell
+$ brew install --no-quarantine linux-china/tap/zawk
+$ sudo xattr -r -d com.apple.quarantine $(readlink -f $(brew --prefix zawk))/bin/zawk
+```
+
+or install by cargo:
+
+```shell
+$ cargo install zawk
+```
 
 *Note: zawk uses some nightly-only Rust features.
 Build [without the `unstable`](#building-using-stable) feature to build on stable.*
@@ -83,14 +96,14 @@ $ cargo +nightly install --path . --no-default-features --features use_jemalloc,
 zawk is now on [crates.io](https://crates.io/crates/zawk), so running
 `cargo install zawk` with the desired features should also work.
 
-## Bugs and Feature Requests
+# Bugs and Feature Requests
 
 frawk has bugs, and many rough edges. If you notice a bug in frawk, filing an issue
 with an explanation of how to reproduce the error would be very helpful. There are
 no guarantees on response time or latency for a fix. No one works on frawk full-time.
 The same policy holds for feature requests.
 
-## Credits
+# Credits
 
 Thanks to Eli Rosenthal's [frawk](https://github.com/ezrosent/frawk).
 zawk is based on frawk. Without frawk, there would be no zawk. 
