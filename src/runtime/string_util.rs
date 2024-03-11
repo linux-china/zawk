@@ -70,6 +70,10 @@ enum AttributesToken<'a> {
     LBRACE,
     #[token("}")]
     RBRACE,
+    #[token("(")]
+    LPAREN,
+    #[token(")")]
+    RPAREN,
     #[token(",")]
     COMMA,
     #[token("=")]
@@ -116,6 +120,12 @@ impl PairState {
     }
 }
 
+/// parse message - `msg_name{key1=value1,key2=value2}(body)`
+pub(crate) fn message(text: &str) -> StrMap<Str> {
+    attributes(text)
+}
+
+/// parse attributes: `attr_name{key1=value1,key2=value2}`
 pub(crate) fn attributes(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
     if text.contains('{') {
@@ -124,14 +134,26 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
         map.insert(Str::from("_".to_owned()), Str::from(name));
         let pairs_text = text[offset..].to_string();
         let mut pair_state = PairState::default();
+        let mut body_started = false;
+        let mut body = "".to_owned();
         let lexer = AttributesToken::lexer(&pairs_text);
         for token in lexer.into_iter() {
             if let Ok(attribute) = token {
                 match attribute {
-                    AttributesToken::COLON | AttributesToken::EQ => {
+                    AttributesToken::COLON | AttributesToken::EQ => { // key parsed
                         pair_state.key_parsed = true;
                     }
-                    AttributesToken::LITERAL(literal) => {
+                    AttributesToken::LPAREN => { // body started
+                        body_started = true;
+                    }
+                    AttributesToken::RPAREN => { // boyd end
+                        if !body.is_empty() {
+                            map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
+                        }
+                        body_started = false;
+                    }
+                    // parse key's value
+                    AttributesToken::LITERAL(literal) if !body_started => { // pair value
                         if pair_state.key_parsed {
                             pair_state.value = literal.to_string();
                             if pair_state.is_legal() {
@@ -142,26 +164,39 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
                             pair_state.key = literal.to_string();
                         }
                     }
-                    AttributesToken::Text(text) => {
+                    AttributesToken::Text(text) if !body_started => { // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
                         }
                         pair_state.reset();
                     }
-                    AttributesToken::Text2(text) => {
+                    AttributesToken::Text2(text) if !body_started => { // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
                         }
                         pair_state.reset();
                     }
-                    AttributesToken::NUM(num) => {
+                    AttributesToken::NUM(num)  if !body_started => { // pair value
                         pair_state.value = num.to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
                         }
                         pair_state.reset();
+                    }
+                    // body value
+                    AttributesToken::LITERAL(literal) if body_started => {
+                        body = literal.to_string();
+                    }
+                    AttributesToken::NUM(num)  if body_started => {
+                        body = num.to_string();
+                    }
+                    AttributesToken::Text(text) if body_started => {
+                        body = text[1..text.len() - 1].to_string();
+                    }
+                    AttributesToken::Text2(text) if body_started => {
+                        body = text[1..text.len() - 1].to_string();
                     }
                     _ => {}
                 }
@@ -230,11 +265,12 @@ mod tests {
 
     #[test]
     fn test_attributes() {
-        let text = r#"mysql{host=localhost user=root password=123456 database=test}"#;
+        let text = r#"mysql{host=localhost user=root password=123456 database=test}(1)"#;
         let map = attributes(text);
         println!("{}", map.get(&Str::from("_")).as_str());
         println!("{}", map.get(&Str::from("host")).as_str());
         println!("{}", map.get(&Str::from("user")).as_str());
+        println!("body: {}", map.get(&Str::from("_body")).as_str());
     }
 
     #[test]
