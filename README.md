@@ -30,6 +30,7 @@ The info subdirectory has more in-depth information on zawk:
   of frawk and other tools when processing large CSV or TSV files.
 * [Standard Library](https://github.com/linux-china/zawk/blob/master/info/stdlib.md): A standard library by zawk,
   including exciting functions that are new when compared with Awk.
+* [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md): FAQ about zawk.
 
 zawk/frawk is dual-licensed under MIT or Apache 2.0.
 
