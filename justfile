@@ -214,3 +214,6 @@ run-read-all:
 
 run-pairs:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print pairs("a=1,b=2")["a"], pairs("id=1&name=Hello%20World","&")["name"], pairs("a:1|b:2","|",":")["b"]; }' demo.txt
+
+run-func:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print func("hello(1,2,3)")[0] }' demo.txt
