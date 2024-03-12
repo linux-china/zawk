@@ -1,5 +1,5 @@
 use pad::{Alignment, PadStr};
-use crate::runtime::{SharedMap, Str, StrMap};
+use crate::runtime::{IntMap, SharedMap, Str, StrMap};
 
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
     if text.len() > len {
@@ -208,6 +208,60 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
     SharedMap::from(map)
 }
 
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
+enum ParamsToken<'a> {
+    #[token("(")]
+    LBRACE,
+    #[token(")")]
+    RBRACE,
+    #[token(",")]
+    COMMA,
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    LITERAL(&'a str),
+    #[regex(r#""[^"]*""#)]
+    Text(&'a str),
+    #[regex(r#"'[^']*'"#)]
+    Text2(&'a str),
+    #[regex(r#"(\d+)(\.\d+)?"#)]
+    NUM(&'a str),
+}
+
+pub fn func<'a>(text: &str) -> IntMap<Str<'a>> {
+    let result: IntMap<Str> = IntMap::default();
+    if text.contains("(") {
+        let offset = text.find('(').unwrap();
+        let name = text[0..offset].trim().to_string();
+        result.insert(0, Str::from(name));
+        let params_text = text[offset..].to_string();
+        let lexer = ParamsToken::lexer(&params_text);
+        let mut index: i64 = 1;
+        for token in lexer.into_iter() {
+            if let Ok(attribute) = token {
+                match attribute {
+                    ParamsToken::LITERAL(literal) => {
+                        result.insert(index, Str::from(literal.to_string()));
+                        index = index + 1;
+                    }
+                    ParamsToken::Text(text) => {
+                        result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                        index = index + 1;
+                    }
+                    ParamsToken::Text2(text) => {
+                        result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                        index = index + 1;
+                    }
+                    ParamsToken::NUM(num) => {
+                        result.insert(index, Str::from(num.to_string()));
+                        index = index + 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    result
+}
 
 #[cfg(test)]
 mod tests {
@@ -279,5 +333,15 @@ mod tests {
         let map = attributes(text);
         println!("{}", map.get(&Str::from("method")).as_str());
         println!("{}", map.get(&Str::from("code")).as_str());
+    }
+
+    #[test]
+    fn test_func() {
+        let func_text = "hello(x,'hello world',11)";
+        let map = func(func_text);
+        let len = map.len();
+        for i in 0..len {
+            println!("{}", map.get(&(i as i64)).as_str());
+        }
     }
 }
