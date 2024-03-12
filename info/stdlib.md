@@ -250,6 +250,13 @@ Usage:
 * `message("http_requests_total{method=\"post\",code=\"200\"}(100)")`
 * `message("login_event{method=\"post\",code=\"200\"}('xxx@example.com')")`
 
+### Function invocation
+
+Parse function invocation format into `IntMap<Str>`, and 0 indicates function name.
+
+* `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1` 
+* `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan` 
+
 # ID generator
 
 ### uuid
