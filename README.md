@@ -1,4 +1,4 @@
-zawk: AWK implementation by Rust with stdlib support
+zawk: AWK + stdlib + Rust
 =====================================================
 
 zawk is a small programming language for writing short programs processing textual data.
