@@ -4,6 +4,7 @@ zawk: AWK implementation by Rust with stdlib support
 zawk is a small programming language for writing short programs processing textual data.
 To a first approximation, it is an implementation of the [AWK](https://en.wikipedia.org/wiki/AWK) language;
 many common Awk programs produce equivalent output when passed to zawk.
+
 You might be interested in zawk if you want your scripts to handle escaped CSV/TSV like standard Awk fields,
 or if you want your scripts to execute faster,
 or if you want a standard AWK library to make life easy.
