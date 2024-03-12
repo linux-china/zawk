@@ -27,6 +27,15 @@ and if possible I will contribute some work to frawk, for example:
 Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for frawk,
 and I will try my best to fix bugs in frawk. 
 
+# Any roadmap for zawk?
+
+Now I'm not sure about the roadmap, but I will try my best to make zawk more powerful and easy to use.
+
+* gawk compatible
+* stdlib perfect
+* performance optimization
+* UX: Installation, Usage, Documentation, Examples etc.
+
 # How to query Apache Parquet?
 
 ```shell
