@@ -855,6 +855,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Func(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::string_util::func(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     HttpGet(dst, url, headers) => {
                         let url = index(&self.strs, url);
                         let headers = self.get(*headers);

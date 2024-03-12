@@ -8,7 +8,7 @@ use crate::runtime::{self, printf::{printf, FormatArg}, splitter::{
     batch::{ByteReader, CSVReader, WhitespaceOffsets},
     chunk::{ChunkProducer, OffsetChunk},
     regex::RegexSplitter,
-}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, math_util};
+}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, math_util, string_util};
 use crate::{
     builtins::Variable,
     common::{CancelSignal, Cleanup, FileSpec, Notification, Result},
@@ -193,6 +193,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
+        [ReadOnly] func(str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] mysql_query(str_ref_ty, str_ref_ty) -> map_ty;
@@ -1301,6 +1302,12 @@ pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = math_util::shlex(text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = string_util::func(text.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 

@@ -215,6 +215,7 @@ impl Display for Function {
             DataUrl => write!(f, "data_url"),
             DateTime => write!(f, "datetime"),
             Shlex => write!(f, "shlex"),
+            Func => write!(f, "func"),
             HttpGet => write!(f, "http_get"),
             HttpPost => write!(f, "http_post"),
             S3Get => write!(f, "s3_get"),

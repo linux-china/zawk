@@ -225,6 +225,7 @@ pub(crate) enum Instr<'a> {
     DataUrl(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DateTime(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     Shlex(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Func(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     TypeOfArray(Reg<Str<'a>>),
     TypeOfNumber(Reg<Str<'a>>),
@@ -666,6 +667,10 @@ impl<'a> Instr<'a> {
                 timestamp.accum(&mut f);
             }
             Shlex(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Func(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
