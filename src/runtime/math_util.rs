@@ -375,7 +375,7 @@ lazy_static! {
 pub(crate) fn snowflake(machine_id: u16) -> Int {
     let mut pool = SNOWFLAKES.lock().unwrap();
     let generator = pool.entry(machine_id).or_insert_with(|| {
-        let new_machine_id = (machine_id >> 5) & (32 - 1) ;
+        let new_machine_id = (machine_id >> 5) & (32 - 1);
         let new_node_id = machine_id & (32 - 1);
         SnowflakeIdGenerator::new(new_machine_id as i32, new_node_id as i32)
     });
@@ -483,6 +483,36 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     version_obj
 }
 
+const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+const UNIT: f64 = 1024.0;
+
+pub fn format_bytes(size: f64) -> String {
+    let base = size.log10() / UNIT.log10();
+    println!("{}", base);
+    let mut buffer = ryu::Buffer::new();
+    let result = buffer
+        .format((UNIT.powf(base - base.floor()) * 10.0).round() / 10.0)
+        .trim_end_matches(".0");
+    [result, SUFFIX[base.floor() as usize]].join(" ")
+}
+
+/// text: 111 B, 11.2 KB 110KB
+pub fn to_bytes(text: &str) -> i64 {
+    let text_len = text.len();
+    let unit = &text[text_len - 2..].to_uppercase();
+    // get index from SUFFIX
+    let index = SUFFIX.iter().position(|&r| r == unit).unwrap_or(0);
+    let unit = SUFFIX[index];
+    let num_text = text[0..(text_len - unit.len())].trim();
+    let size = num_text.parse::<f64>().unwrap_or(0.0);
+    if index == 0 {
+        size as i64
+    } else {
+        (size * (UNIT.powi(index as i32))) as i64
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,5 +586,18 @@ mod tests {
         let new_machine_id = machine_id >> 5;
         let new_node_id = machine_id & (32 - 1);
         println!("{} {}", new_machine_id, new_node_id);
+    }
+
+    #[test]
+    fn test_format_bytes() {
+        let size = 202f64;
+        println!("{}", size.log10());
+        println!("{}", format_bytes(size));
+    }
+
+    #[test]
+    fn test_to_bytes() {
+        let text = "1.1 MB";
+        println!("{}", to_bytes(text));
     }
 }
