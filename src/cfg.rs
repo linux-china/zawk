@@ -1707,7 +1707,7 @@ where
                 }
                 // strftime() => strftime("%a %b %e %H:%M:%S %Z %Y", -1);
                 if bi == builtins::Function::Strftime && args.len() == 0 {
-                    prim_args.push(PrimVal::StrLit(b"%a %b %e %H:%M:%S %Z %Y"));
+                    prim_args.push(PrimVal::StrLit(b"%+")); // ISO 8601 / RFC 3339 date & time format
                     prim_args.push(PrimVal::ILit(-1 as Int));
                 }
                 // strftime(format, timestamp) => strftime(format, -1);
