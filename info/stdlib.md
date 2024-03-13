@@ -156,6 +156,13 @@ quote/double text if not quoted/double quoted.
 - `quote("hello world") # 'hello world'`
 - `double_quote("hello world") # "hello world"`
 
+### format_bytes/to_bytes
+
+Convert bytes to human-readable format, and vice versa. Units: `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`.
+
+ - `format_bytes(1024)`: 1 KB
+ - `to_bytes("2 KB")`: 2024
+
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
