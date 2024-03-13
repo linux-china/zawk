@@ -96,6 +96,7 @@ semver = "1"
 ctor="0.2"
 unicode-segmentation = "1.11"
 Inflector="0.11"
+prometheus-parse="0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
