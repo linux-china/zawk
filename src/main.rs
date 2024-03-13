@@ -318,7 +318,7 @@ fn main() {
         );
     #[allow(unused_mut)]
         let mut app = Command::new("zawk")
-        .version("0.5.0")
+        .version(builtins::VERSION)
         .author("Eli R, linux_china")
         .about("zawk is an AWK language implementation by Rust with stdlib support")
         .subcommand(dump_cmd)
