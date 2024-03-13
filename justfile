@@ -132,7 +132,7 @@ run-capitalize:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print capitalize("hello world!"), uncapitalize("Hello world!") }' demo.txt
 
 run-strtonum:
-  cargo run --package zawk --bin zawk -- 'BEGIN{ print strtonum("0x11"), strtonum("0x11") }' demo.txt
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print strtonum("0x11"), strtonum("0x11"), strtonum("1.7560473e+07") }' demo.txt
 
 run-s3-get:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print s3_get("mj-artifacts","health2.txt") }' demo.txt
@@ -217,3 +217,4 @@ run-pairs:
 
 run-func:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print func("hello(1,2,3)")[0] }' demo.txt
+
