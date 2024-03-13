@@ -590,6 +590,7 @@ and http://awk.freeshell.org/AllAboutGetline
 
 thanks to:
 
+* DuckDB Functions: https://duckdb.org/docs/sql/functions/overview
 * Golang stdlib: https://pkg.go.dev/std
 * Rust stdlib: https://doc.rust-lang.org/std/
 * Deno stdlib: https://deno.land/std
