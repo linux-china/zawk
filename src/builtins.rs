@@ -10,6 +10,8 @@ use smallvec::smallvec;
 
 use std::convert::TryFrom;
 
+pub const VERSION: &'static str = "0.5.0";
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
     Unop(ast::Unop),
@@ -229,7 +231,7 @@ pub enum FloatFunc {
     Abs,
     Ceil,
     Floor,
-    Round
+    Round,
 }
 
 impl FloatFunc {
@@ -441,7 +443,8 @@ static_map!(
 );
 
 impl<'a> TryFrom<&'a str> for Function {
-    type Error = (); // error means not found
+    type Error = ();
+    // error means not found
     fn try_from(value: &'a str) -> std::result::Result<Function, ()> {
         match FUNCTIONS.get(value) {
             Some(v) => Ok(*v),
@@ -453,6 +456,7 @@ impl<'a> TryFrom<&'a str> for Function {
 pub(crate) trait IsSprintf {
     fn is_sprintf(&self) -> bool;
 }
+
 impl<'a> IsSprintf for &'a str {
     fn is_sprintf(&self) -> bool {
         *self == "sprintf"
@@ -473,7 +477,7 @@ impl Function {
                         key: BaseTy::Int,
                         val: BaseTy::Str,
                     }
-                    .abs(),
+                        .abs(),
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
@@ -623,7 +627,7 @@ impl Function {
                         return err!(
                             "can only convert scalar values to integers, got input with type: {:?}",
                             inc
-                        )
+                        );
                     }
                 }
             }
@@ -728,12 +732,12 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Ulid  | LocalIp  | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Ulid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length  | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake |  Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
@@ -821,72 +825,72 @@ impl Function {
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),
-            DefaultIfEmpty =>  Ok(Scalar(BaseTy::Str).abs()),
+            DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
             AppendIfMissing | PrependIfMissing => Ok(Scalar(BaseTy::Str).abs()),
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt | Pairs | Attributes | Message => {
-               Ok(Map {
-                   key: BaseTy::Str,
-                   val: BaseTy::Str
-               }.abs())
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Str,
+                }.abs())
             }
             Words => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
             }
             DateTime => {
                 Ok(Map {
                     key: BaseTy::Str,
-                    val: BaseTy::Int
+                    val: BaseTy::Int,
                 }.abs())
             }
             Shlex | Func => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
             }
             SqliteQuery | MysqlQuery => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
             }
             SqliteExecute | MysqlExecute => Ok(Scalar(BaseTy::Int).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
             }
             HttpGet | HttpPost => {
                 Ok(Map {
                     key: BaseTy::Str,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
             }
             S3Get | S3Put => Ok(Scalar(BaseTy::Str).abs()),
             FromJson => {
                 Ok(Map {
                     key: BaseTy::Str,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
-            },
+            }
             FromCsv => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Str
+                    val: BaseTy::Str,
                 }.abs())
-            },
+            }
             Seq => {
                 Ok(Map {
                     key: BaseTy::Int,
-                    val: BaseTy::Float
+                    val: BaseTy::Float,
                 }.abs())
-            },
+            }
             PadLeft | PadRight | PadBoth => Ok(Scalar(BaseTy::Str).abs()),
             ArrayMax | ArrayMin | ArraySum | ArrayMean => match &args[0] {
                 Some(Map {
@@ -901,13 +905,13 @@ impl Function {
                      }) => {
                     Ok(Scalar(BaseTy::Float).abs())
                 }
-                _ => {Ok(Scalar(BaseTy::Float).abs())}
+                _ => { Ok(Scalar(BaseTy::Float).abs()) }
             },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),
-            ReadAll =>  Ok(Scalar(BaseTy::Str).abs()),
+            ReadAll => Ok(Scalar(BaseTy::Str).abs()),
             WriteAll => Ok(None),
             KvPut | KvDelete | KvClear => Ok(None),
             VarDump => Ok(None),
@@ -936,7 +940,7 @@ pub(crate) enum Variable {
     FNR = 11,
     PID = 12,
     FI = 13,
-    ENVIRON =14,
+    ENVIRON = 14,
     PROCINFO = 15,
 }
 
@@ -1006,7 +1010,23 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
 
 fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
     let procinfo = StrMap::default();
+    procinfo.insert("version".into(), VERSION.into());
     procinfo.insert("strftime".into(), "%a %b %e %H:%M:%S %Z %Y".into());
+    procinfo.insert("pid".into(), std::process::id().to_string().into());
+    // PROCINFO["sorted_in"]
+    if cfg!(target_family = "unix") {
+        procinfo.insert("platform".into(), "posix".into());
+        unsafe {
+            procinfo.insert("uid".into(), libc::getuid().to_string().into());
+            procinfo.insert("gid".into(), libc::getgid().to_string().into());
+            procinfo.insert("euid".into(), libc::geteuid().to_string().into());
+            procinfo.insert("egid".into(), libc::getegid().to_string().into());
+            procinfo.insert("pgrpid".into(), libc::getpgrp().to_string().into());
+            procinfo.insert("ppid".into(), libc::getppid().to_string().into());
+        }
+    } else if cfg!(target_family = "windows") {
+        procinfo.insert("platform".into(), "windows".into());
+    }
     procinfo
 }
 
@@ -1049,7 +1069,7 @@ impl<'a> Variables<'a> {
             RS => self.rs.clone(),
             FILENAME => self.filename.clone(),
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
-                return err!("var {} not a string", var)
+                return err!("var {} not a string", var);
             }
         })
     }
@@ -1062,8 +1082,8 @@ impl<'a> Variables<'a> {
             ORS => self.ors = s,
             RS => self.rs = s,
             FILENAME => self.filename = s,
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH  | ENVIRON | PROCINFO => {
-                return err!("var {} not a string", var)
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+                return err!("var {} not a string", var);
             }
         };
         Ok(())
@@ -1073,7 +1093,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO=> {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1195,7 +1215,8 @@ impl Variable {
 }
 
 impl<'a> TryFrom<&'a str> for Variable {
-    type Error = (); // error means not found
+    type Error = ();
+    // error means not found
     fn try_from(value: &'a str) -> std::result::Result<Variable, ()> {
         match VARIABLES.get(value) {
             Some(v) => Ok(*v),
@@ -1205,7 +1226,8 @@ impl<'a> TryFrom<&'a str> for Variable {
 }
 
 impl TryFrom<usize> for Variable {
-    type Error = (); // error means not found
+    type Error = ();
+    // error means not found
     fn try_from(value: usize) -> std::result::Result<Variable, ()> {
         use Variable::*;
         match value {
