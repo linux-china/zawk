@@ -486,9 +486,12 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
 const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
 const UNIT: f64 = 1024.0;
 
-pub fn format_bytes(size: f64) -> String {
+pub fn format_bytes(size: i64) -> String {
+    let size = size as f64;
+    if size < UNIT {
+        return format!("{} B", size);
+    }
     let base = size.log10() / UNIT.log10();
-    println!("{}", base);
     let mut buffer = ryu::Buffer::new();
     let result = buffer
         .format((UNIT.powf(base - base.floor()) * 10.0).round() / 10.0)
@@ -590,14 +593,13 @@ mod tests {
 
     #[test]
     fn test_format_bytes() {
-        let size = 202f64;
-        println!("{}", size.log10());
+        let size = 110;
         println!("{}", format_bytes(size));
     }
 
     #[test]
     fn test_to_bytes() {
-        let text = "1.1 MB";
+        let text = "123 B";
         println!("{}", to_bytes(text));
     }
 }
