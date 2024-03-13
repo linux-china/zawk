@@ -11,7 +11,7 @@ pub fn escape(format: &str, text: &str) -> String {
     }
 }
 
-fn escape_csv(text: &str) -> String {
+pub fn escape_csv(text: &str) -> String {
     if text.contains(",") || text.contains("\n") || text.contains("\"") {
         let new_text = text
             .replace("\"", "\"\"")
@@ -22,7 +22,7 @@ fn escape_csv(text: &str) -> String {
     return text.to_string();
 }
 
-fn escape_tsv(text: &str) -> String {
+pub fn escape_tsv(text: &str) -> String {
     if text.contains("\t") || text.contains("\n") || text.contains("\"") {
         let new_text = text
             .replace("\t", "\\t")
@@ -50,7 +50,7 @@ pub fn escape_json(text: &str) -> String {
     return result;
 }
 
-fn escape_shell(text: &str) -> String {
+pub fn escape_shell(text: &str) -> String {
     if text.contains('\'') {
         text.replace('\'', "'\\''").to_string()
     } else {
@@ -58,11 +58,11 @@ fn escape_shell(text: &str) -> String {
     }
 }
 
-fn escape_sql(text: &str) -> String {
+pub fn escape_sql(text: &str) -> String {
     return text.replace("'", "''");
 }
 
-fn escape_xml(text: &str) -> String {
+pub fn escape_xml(text: &str) -> String {
     let mut result = String::new();
     for c in text.chars() {
         match c {
