@@ -221,3 +221,9 @@ run-pairs:
 run-func:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print func("hello(1,2,3)")[0] }' demo.txt
 
+run-format-bytes:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print format_bytes(1234423) }' demo.txt
+
+run-to-bytes:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print to_bytes("10.1 KB") }' demo.txt
+
