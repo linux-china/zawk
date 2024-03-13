@@ -1859,6 +1859,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            ToBytes => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ToBytes(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Capitalize => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Capitalize(

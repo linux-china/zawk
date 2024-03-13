@@ -302,6 +302,7 @@ pub(crate) enum Instr<'a> {
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     FormatBytes(Reg<Str<'a>>, Reg<Int>),
+    ToBytes(Reg<Int>, Reg<Str<'a>>),
     Capitalize(Reg<Str<'a>>, Reg<Str<'a>>),
     UnCapitalize(Reg<Str<'a>>, Reg<Str<'a>>),
     CamelCase(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -949,6 +950,10 @@ impl<'a> Instr<'a> {
             FormatBytes(dst, size ) => {
                 dst.accum(&mut f);
                 size.accum(&mut f);
+            }
+            ToBytes(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
             }
             Capitalize(dst, text ) => {
                 dst.accum(&mut f);

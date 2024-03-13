@@ -52,6 +52,7 @@ pub enum Function {
     Truncate,
     Strtonum,
     FormatBytes,
+    ToBytes,
     Capitalize,
     UnCapitalize,
     CamelCase,
@@ -379,6 +380,7 @@ static_map!(
     ["truncate", Function::Truncate],
     ["strtonum", Function::Strtonum],
     ["format_bytes", Function::FormatBytes],
+    ["to_bytes", Function::ToBytes],
     ["capitalize", Function::Capitalize],
     ["uncapitalize", Function::UnCapitalize],
     ["camel_case", Function::CamelCase],
@@ -682,6 +684,7 @@ impl Function {
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum => (smallvec![Str], Float),
             FormatBytes => (smallvec![Int], Str),
+            ToBytes => (smallvec![Str], Int),
             Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
@@ -749,7 +752,7 @@ impl Function {
             Attributes | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
-            FormatBytes => 1,
+            FormatBytes | ToBytes => 1,
             ReadAll => 1,
             WriteAll => 2,
             Dejwt => 2,
@@ -829,6 +832,9 @@ impl Function {
             }
             FormatBytes => {
                 Ok(Scalar(BaseTy::Str).abs())
+            }
+            ToBytes => {
+                Ok(Scalar(BaseTy::Int).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),

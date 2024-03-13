@@ -350,6 +350,9 @@ pub(crate) mod boilerplate {
             FormatBytes(dst, size) => {
                 f(dst.into(), Some(size.into()));
             }
+            ToBytes(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             Capitalize(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
