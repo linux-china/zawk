@@ -51,6 +51,7 @@ pub enum Function {
     Trim,
     Truncate,
     Strtonum,
+    FormatBytes,
     Capitalize,
     UnCapitalize,
     CamelCase,
@@ -377,6 +378,7 @@ static_map!(
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
     ["strtonum", Function::Strtonum],
+    ["format_bytes", Function::FormatBytes],
     ["capitalize", Function::Capitalize],
     ["uncapitalize", Function::UnCapitalize],
     ["camel_case", Function::CamelCase],
@@ -679,6 +681,7 @@ impl Function {
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum => (smallvec![Str], Float),
+            FormatBytes => (smallvec![Int], Str),
             Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
@@ -746,6 +749,7 @@ impl Function {
             Attributes | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
+            FormatBytes => 1,
             ReadAll => 1,
             WriteAll => 2,
             Dejwt => 2,
@@ -821,6 +825,9 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => {
+                Ok(Scalar(BaseTy::Str).abs())
+            }
+            FormatBytes => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),

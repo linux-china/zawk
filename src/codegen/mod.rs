@@ -1138,6 +1138,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(),resv)
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
+            FormatBytes(dst,size) => self.unop(intrinsic!(format_bytes), dst, size),
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
             UnCapitalize(dst,text) => self.unop(intrinsic!(uncapitalize), dst, text),
             CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),

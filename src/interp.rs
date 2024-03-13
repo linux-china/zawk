@@ -1225,6 +1225,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = num;
                     }
+                    FormatBytes(dst, size) => {
+                        let size = *self.get(*size);
+                        let text = runtime::math_util::format_bytes(size);
+                        *index_mut(&mut self.strs, dst) = Str::from(text);
+                    }
                     Capitalize(dst, text) => {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;

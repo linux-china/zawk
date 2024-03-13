@@ -347,6 +347,9 @@ pub(crate) mod boilerplate {
             Strtonum(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            FormatBytes(dst, size) => {
+                f(dst.into(), Some(size.into()));
+            }
             Capitalize(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
