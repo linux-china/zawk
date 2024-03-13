@@ -372,6 +372,28 @@ examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mk
 `int("11") # 11`,
 `float("11.2") # 11.2`
 
+# Date/Time
+
+utc by default.
+
+### systime
+
+`systime()`: current Unix time
+
+### strftime
+
+https://docs.rs/chrono/latest/chrono/format/strftime/index.html
+
+* `strftime("%Y-%m-%d %H:%M:%S")`
+* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format. 
+
+### mktime
+
+please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
+
+- `mktime("2012 12 21 0 0 0")`: 
+- `mktime("2019-11-29 08:08-08")`: 
+
 # JSON
 
 ### from_json
