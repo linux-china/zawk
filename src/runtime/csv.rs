@@ -1,6 +1,8 @@
 use std::str;
 use csv::{ReaderBuilder, WriterBuilder};
+use prometheus_parse::{Labels, Value};
 use crate::runtime::{Float, Int, IntMap, Str};
+use crate::runtime::str_escape::escape_csv;
 
 pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
@@ -57,6 +59,57 @@ pub fn vec_to_csv(csv: &[&str]) -> String {
     str::from_utf8(&bytes[0..bytes.len() - 1]).unwrap().to_string()
 }
 
+pub fn parse_prometheus(url_or_file: &str) -> String {
+    if url_or_file.starts_with("http://") || url_or_file.starts_with("https://") {
+        let body = reqwest::blocking::get(url_or_file).unwrap().text().unwrap();
+        return parse_prometheus_text(&body);
+    } else {
+        let text = std::fs::read_to_string(url_or_file).unwrap();
+        return parse_prometheus_text(&text);
+    }
+}
+
+pub fn parse_prometheus_text(text: &str) -> String {
+    let mut items = vec!["name, labels, type, value1, value2".to_owned()];
+    let lines: Vec<_> = text.lines().map(|s| Ok(s.to_string())).collect();
+    let metrics = prometheus_parse::Scrape::parse(lines.into_iter()).unwrap();
+    for metric in metrics.samples {
+        let labels = if metric.labels.is_empty() {
+            "".to_owned()
+        } else {
+            escape_csv(&labels_to_string(&metric.labels))
+        };
+        match metric.value {
+            Value::Counter(counter) => {
+                items.push(format!("{}, {}, counter, {},", metric.metric, labels, counter));
+            }
+            Value::Gauge(gauge) => {
+                items.push(format!("{}, {}, gauge, {},", metric.metric, labels, gauge));
+            }
+            Value::Histogram(histogram) => {
+                let histogram_count = histogram.get(0).unwrap();
+                items.push(format!("{}, {}, histogram, {}, {}", metric.metric, labels, histogram_count.less_than, histogram_count.count));
+            }
+            Value::Summary(summary) => {
+                let summary_count = summary.get(0).unwrap();
+                items.push(format!("{}, {}, summary, {}, {}", metric.metric, labels, summary_count.count, summary_count.quantile));
+            }
+            Value::Untyped(num) => {
+                items.push(format!("{}, {}, untyped, {},", metric.metric, labels, num));
+            }
+        }
+    }
+    items.join("\n")
+}
+
+fn labels_to_string(labels: &Labels) -> String {
+    let mut items = vec![];
+    for (key, value) in labels.iter() {
+        items.push(format!("{}=\"{}\"", key, value));
+    }
+    format!("{{{}}}", items.join(","))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +148,11 @@ mod tests {
         let bytes = wtr.into_inner().unwrap();
         let data = str::from_utf8(&bytes[0..bytes.len() - 1]).unwrap();
         println!("{}", data);
+    }
+
+    #[test]
+    fn test_parse_prometheus() {
+        let csv = parse_prometheus("http://localhost:8081/actuator/prometheus");
+        println!("{}", csv);
     }
 }
