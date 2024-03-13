@@ -1531,9 +1531,9 @@ checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
 name = "fend-core"
-version = "1.4.4"
+version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a58880ee1c8f961b122908bb1a195e13cd31b81a28ed1136910bf881ce23bbe8"
+checksum = "8cfb15166e24ccff247d7c3e1b37ab8c113bc7026f99d05727304b1b8f7605bc"
 
 [[package]]
 name = "fiat-crypto"
