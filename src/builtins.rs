@@ -937,6 +937,7 @@ pub(crate) enum Variable {
     PID = 12,
     FI = 13,
     ENVIRON =14,
+    PROCINFO = 15,
 }
 
 impl From<Variable> for compile::Ty {
@@ -948,6 +949,7 @@ impl From<Variable> for compile::Ty {
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
             ENVIRON => compile::Ty::MapStrStr,
+            PROCINFO => compile::Ty::MapStrStr,
         }
     }
 }
@@ -968,6 +970,7 @@ pub(crate) struct Variables<'a> {
     pub pid: Int,
     pub fi: StrMap<'a, Int>,
     pub environ: StrMap<'a, Str<'a>>,
+    pub procinfo: StrMap<'a, Str<'a>>,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -988,6 +991,7 @@ impl<'a> Default for Variables<'a> {
             rlength: -1,
             fi: Default::default(),
             environ: load_env_variables(),
+            procinfo: load_procinfo_variables(),
         }
     }
 }
@@ -998,6 +1002,12 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
         env.insert(k.into(), v.into());
     }
     env
+}
+
+fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
+    let procinfo = StrMap::default();
+    procinfo.insert("strftime".into(), "%a %b %e %H:%M:%S %Z %Y".into());
+    procinfo
 }
 
 impl<'a> Variables<'a> {
@@ -1011,7 +1021,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart,
             RLENGTH => self.rlength,
             PID => self.pid,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         })
     }
 
@@ -1025,7 +1035,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart = i,
             RLENGTH => self.rlength = i,
             PID => self.pid = i,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         }
         Ok(())
     }
@@ -1038,7 +1048,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors.clone(),
             RS => self.rs.clone(),
             FILENAME => self.filename.clone(),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var)
             }
         })
@@ -1052,7 +1062,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors = s,
             RS => self.rs = s,
             FILENAME => self.filename = s,
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH  | ENVIRON => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH  | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var)
             }
         };
@@ -1063,7 +1073,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO=> {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1076,7 +1086,7 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1086,7 +1096,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1100,7 +1110,7 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1111,6 +1121,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ENVIRON => Ok(self.environ.clone()),
+            PROCINFO => Ok(self.environ.clone()),
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
@@ -1123,6 +1134,10 @@ impl<'a> Variables<'a> {
         match var {
             ENVIRON => {
                 self.environ = m;
+                Ok(())
+            }
+            PROCINFO => {
+                self.procinfo = m;
                 Ok(())
             }
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
@@ -1170,7 +1185,7 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Int,
             },
-            ENVIRON => types::TVar::Map {
+            ENVIRON | PROCINFO => types::TVar::Map {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Str,
             },
@@ -1209,6 +1224,7 @@ impl TryFrom<usize> for Variable {
             12 => Ok(PID),
             13 => Ok(FI),
             14 => Ok(ENVIRON),
+            15 => Ok(PROCINFO),
             _ => Err(()),
         }
     }
@@ -1230,5 +1246,6 @@ static_map!(
     ["RLENGTH", Variable::RLENGTH],
     ["PID", Variable::PID],
     ["FI", Variable::FI],
-    ["ENVIRON", Variable::ENVIRON]
+    ["ENVIRON", Variable::ENVIRON],
+    ["PROCINFO", Variable::PROCINFO]
 );

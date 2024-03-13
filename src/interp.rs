@@ -168,6 +168,7 @@ impl<'a> Core<'a> {
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
+        let procinfo = self.vars.procinfo.shuttle();
         let slots = self.slots.clone();
         move || {
             let vars = Variables {
@@ -186,6 +187,7 @@ impl<'a> Core<'a> {
                 argv: argv.into(),
                 fi: fi.into(),
                 environ: environ.into(),
+                procinfo: procinfo.into()
             };
             Core {
                 vars,
