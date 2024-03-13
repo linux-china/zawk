@@ -227,7 +227,7 @@ enum ParamsToken<'a> {
     NUM(&'a str),
 }
 
-pub fn func<'a>(text: &str) -> IntMap<Str<'a>> {
+pub(crate) fn func<'a>(text: &str) -> IntMap<Str<'a>> {
     let result: IntMap<Str> = IntMap::default();
     if text.contains("(") {
         let offset = text.find('(').unwrap();
