@@ -74,7 +74,7 @@ characters are unchanged.
 
 ### strtonum:
 
-numeric value(十进制) `strtonum("0x11")`.
+numeric value(Decimal) `strtonum("0x11")`.
 
 ### trim
 
