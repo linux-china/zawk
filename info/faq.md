@@ -20,7 +20,7 @@ and if possible I will contribute some work to frawk, for example:
 * Upgrade to Rust 2021
 * Upgrade to Clap 4.5
 * Dependencies updated to latest
-* gawk compatible: global variables(ENVIRON) and functions(datetime etc.)
+* gawk compatible: global variables(ENVIRON, PROCINFO) and functions(datetime etc.)
 
 # zawk will fix some bugs in frawk?
 
