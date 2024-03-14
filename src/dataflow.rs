@@ -347,6 +347,14 @@ pub(crate) mod boilerplate {
             Strtonum(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            StartsWith(dst, text, prefix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(prefix.into()));
+            }
+            EndsWith(dst, text, suffix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(suffix.into()));
+            }
             FormatBytes(dst, size) => {
                 f(dst.into(), Some(size.into()));
             }

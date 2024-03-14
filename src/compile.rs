@@ -1867,6 +1867,24 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            StartsWith => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::StartsWith(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            EndsWith => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::EndsWith(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Capitalize => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Capitalize(

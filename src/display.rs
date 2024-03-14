@@ -183,6 +183,8 @@ impl Display for Function {
             Strtonum => write!(f, "strtonum"),
             FormatBytes => write!(f, "format_bytes"),
             ToBytes => write!(f, "to_bytes"),
+            StartsWith => write!(f, "starts_with"),
+            EndsWith => write!(f, "ends_with"),
             Capitalize => write!(f, "capitalize"),
             UnCapitalize => write!(f, "uncapitalize"),
             CamelCase => write!(f, "camel_case"),

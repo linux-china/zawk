@@ -160,6 +160,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
         format_bytes(int_ty) -> str_ty;
         [ReadOnly] to_bytes(str_ref_ty) -> int_ty;
+        [ReadOnly] starts_with(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] ends_with(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] capitalize(str_ref_ty) -> str_ty;
         [ReadOnly] uncapitalize(str_ref_ty) -> str_ty;
         [ReadOnly] camel_case(str_ref_ty) -> str_ty;
@@ -921,6 +923,28 @@ pub(crate) unsafe extern "C" fn format_bytes(size: Int) -> U128 {
 pub(crate) unsafe extern "C" fn to_bytes(text: *mut U128) -> Int {
     let text = &*(text as *mut Str);
     math_util::to_bytes(text.as_str())
+}
+
+pub(crate) unsafe extern "C" fn starts_with(text: *mut U128, prefix: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    let prefix = &*(prefix as *mut Str);
+    if !text.is_empty() && !prefix.is_empty()
+        && text.as_str().starts_with(prefix.as_str()) {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) unsafe extern "C" fn ends_with(text: *mut U128, suffix: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    let suffix = &*(suffix as *mut Str);
+    if !text.is_empty() && !suffix.is_empty()
+        && text.as_str().ends_with(suffix.as_str()) {
+        1
+    } else {
+        0
+    }
 }
 
 pub(crate) unsafe extern "C" fn uncapitalize(text: *mut U128) -> U128 {

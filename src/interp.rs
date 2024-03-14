@@ -1236,6 +1236,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = size;
                     }
+                    StartsWith(dst, text, prefix) => {
+                        let text = index(&self.strs, text);
+                        let prefix = index(&self.strs, prefix);
+                        let res = if !text.is_empty() && !prefix.is_empty()
+                                   && text.as_str().starts_with(prefix.as_str()) {
+                            1
+                        } else {
+                            0
+                        };
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    EndsWith(dst, text, suffix) => {
+                        let text = index(&self.strs, text);
+                        let suffix = index(&self.strs, suffix);
+                        let res = if !text.is_empty() && !suffix.is_empty()
+                            &&  text.as_str().ends_with(suffix.as_str()) {
+                            1
+                        }  else {
+                            0
+                        };
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Capitalize(dst, text) => {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;

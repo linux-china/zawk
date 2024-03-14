@@ -1140,6 +1140,18 @@ pub(crate) trait CodeGenerator: Backend {
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
             FormatBytes(dst,size) => self.unop(intrinsic!(format_bytes), dst, size),
             ToBytes(dst,text) => self.unop(intrinsic!(to_bytes), dst, text),
+            StartsWith(dst,text, prefix) => {
+                let text = self.get_val(text.reflect())?;
+                let prefix = self.get_val(prefix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(starts_with), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            EndsWith(dst,text, suffix) => {
+                let text = self.get_val(text.reflect())?;
+                let suffix = self.get_val(suffix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(ends_with), &mut [text, suffix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
             UnCapitalize(dst,text) => self.unop(intrinsic!(uncapitalize), dst, text),
             CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),
