@@ -113,6 +113,15 @@ Trim text with chars with `trim($1, "[]()")`
 
 `isnum("1234.01")`
 
+### starts_with/ends_with
+
+The return value is `1` or `0`. 
+
+- `starts_with($1, "https://")`
+- `ends_with($1, ".com")`
+
+Why not use regex? Because starts_with/ends_with is easy to use and understand.
+
 ### mask
 
 `mask("abc@example.com")`, `mask("186612347")`
