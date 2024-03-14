@@ -1877,11 +1877,8 @@ pub(crate) unsafe extern "C" fn substr(base: *mut U128, l: Int, r: Int) -> U128 
 pub(crate) unsafe extern "C" fn char_at(text: *mut U128, index: Int) -> U128 {
     let text = &*(text as *mut Str);
     let index = (index - 1) as usize;
-    if let Some(c) = text.as_str().chars().nth(index) {
-        mem::transmute::<Str, U128>(Str::from(c.to_string()))
-    } else {
-        mem::transmute::<Str, U128>(Str::default())
-    }
+    let res = text.char_at(index);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn ref_str(s: *mut c_void) {

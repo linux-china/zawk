@@ -588,7 +588,7 @@ impl<'a> Str<'a> {
         let text = self.as_str();
         let suffix = suffix.as_str();
         if !text.ends_with(suffix) {
-            return Str::from(format!("{}{}",text, suffix));
+            return Str::from(format!("{}{}", text, suffix));
         }
         self.clone()
     }
@@ -597,12 +597,12 @@ impl<'a> Str<'a> {
         let text = self.as_str();
         let prefix = prefix.as_str();
         if !text.starts_with(prefix) {
-            return Str::from(format!("{}{}",prefix, text));
+            return Str::from(format!("{}{}", prefix, text));
         }
         self.clone()
     }
 
-    pub fn quote(&self) -> Str<'a>{
+    pub fn quote(&self) -> Str<'a> {
         let src = self.as_str();
         if src.starts_with('\'') && src.ends_with('\'') {
             return self.clone();
@@ -610,7 +610,7 @@ impl<'a> Str<'a> {
         return Str::from(format!("'{}'", src));
     }
 
-    pub fn double_quote(&self) -> Str<'a>{
+    pub fn double_quote(&self) -> Str<'a> {
         let src = self.as_str();
         if src.starts_with('"') && src.ends_with('"') {
             return self.clone();
@@ -640,6 +640,16 @@ impl<'a> Str<'a> {
         let src = self.as_str();
         let result = inflector::cases::titlecase::to_title_case(src);
         Str::from(result)
+    }
+
+    /// index start from 0
+    pub fn char_at<'b>(&self, index: usize) -> Str<'b> {
+        let text = self.as_str();
+        if let Some(c) = text.chars().nth(index) {
+           Str::from(c.to_string())
+        } else {
+           Str::default()
+        }
     }
 
     pub(crate) fn words<'b>(&self) -> IntMap<Str<'b>> {

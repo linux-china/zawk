@@ -1672,13 +1672,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         if index <= 0  {
                             panic!("invalid index for chat_at: {}, should start with 1", index)
                         } else {
-                            let text = crate::interp::index(&self.strs, text);
+                            let text = self.get(*text);
                             let index = (index - 1) as usize;
-                            if let Some(c) = text.as_str().chars().nth(index) {
-                                *index_mut(&mut self.strs, dst) = Str::from(c.to_string());
-                            } else {
-                                *index_mut(&mut self.strs, dst) = Str::default();
-                            }
+                            *index_mut(&mut self.strs, dst) = text.char_at(index);
                         }
                     }
                     LTFloat(res, l, r) => {
