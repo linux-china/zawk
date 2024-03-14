@@ -5,6 +5,8 @@ Standard library for AWK with text, math, crypto, kv, database, network etc.
 
 # Text functions
 
+Text is encoding with utf-8 by default. 
+
 ### char_at
 
 Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
