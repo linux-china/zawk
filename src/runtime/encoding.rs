@@ -8,6 +8,7 @@ use crate::runtime::{SharedMap, Str};
 pub fn encode(format: &str, text: &str) -> String {
     match format {
         "base32" => base32::encode(base32::Alphabet::RFC4648 { padding: false }, text.as_bytes()),
+        "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
         "base64url" => URL_SAFE.encode(text),
         "url" => url_encode(text).to_string(),
@@ -41,6 +42,12 @@ pub fn decode(format: &str, text: &str) -> String {
                 return text;
             }
         }
+    } else if format == "base62" {
+        if let Ok(bytes) = base_62::decode(text) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                return text;
+            }
+        }
     } else if format == "base64" {
         if let Ok(bytes) = STANDARD.decode(text) {
             if let Ok(text) = String::from_utf8(bytes) {
@@ -68,7 +75,7 @@ pub fn decode(format: &str, text: &str) -> String {
 }
 
 pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
-    let mut map: HashMap<Str,Str> = HashMap::new();
+    let mut map: HashMap<Str, Str> = HashMap::new();
     if text.starts_with("data:") {
         let parts: Vec<&str> = text.splitn(2, ",").collect();
         if parts.len() == 2 {
@@ -97,6 +104,15 @@ mod tests {
     fn test_base32() {
         let encode_text = encode("base32", "Hello");
         println!("{}", encode_text);
+    }
+
+    #[test]
+    fn test_base62() {
+        let text = "Hello";
+        let encoded_text = encode("base62", text);
+        assert_eq!(encoded_text, "Rs8MZpO");
+        let text2 = decode("base62", &encoded_text);
+        assert_eq!(text2, text);
     }
 
     #[test]
@@ -137,8 +153,8 @@ mod tests {
 
     #[test]
     fn test_data_url() {
-        let text  = "data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==";
-        let text2  = "data:text/html,%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E";
+        let text = "data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==";
+        let text2 = "data:text/html,%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E";
         let map = data_url(text);
         let map2 = data_url(text2);
         println!("{}", map.get(&Str::from("encoding")).as_str());
