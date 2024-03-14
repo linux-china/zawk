@@ -227,3 +227,7 @@ run-format-bytes:
 run-to-bytes:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print to_bytes("10.1 KB") }' demo.txt
 
+run-starts-with:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print starts_with("abc", "a"), ends_with("abc", "d") }' demo.txt
+
+
