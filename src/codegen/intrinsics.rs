@@ -16,7 +16,7 @@ use crate::{
     pushdown::FieldSet,
 };
 
-use libc::{c_void};
+use libc::{c_void, time};
 use paste::paste;
 use rand::{self, Rng};
 use regex::bytes::Regex;
@@ -155,7 +155,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
-        [ReadOnly] strftime(str_ref_ty, int_ty) -> str_ty;
+        [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
@@ -888,14 +888,26 @@ pub(crate) unsafe extern "C" fn dejwt(key: *mut U128, token: *mut U128) -> *mut 
     mem::transmute::<StrMap<Str>, *mut c_void>(jwt)
 }
 
-pub(crate) unsafe extern "C" fn strftime(format: *mut U128, timestamp: Int) -> U128 {
+pub(crate) unsafe extern "C" fn strftime(rt: *mut c_void, format: *mut U128, timestamp: Int) -> U128 {
+    let format = &*(format as *mut Str);
+    let mut date_time_format = format.to_string();
+    if format.is_empty() {
+        let rt = &mut *(rt as *mut Runtime);
+        let procinfo = &mut rt.core.vars.procinfo;
+        let key = Str::from("strftime");
+        if procinfo.contains(&key) {
+            date_time_format = procinfo.get(&key).to_string();
+        }
+    }
+    if date_time_format.is_empty() {
+        date_time_format = "%a %m %e %H:%M:%S %Z %Y".to_owned();
+    }
     let timestamp = if timestamp < 0 {
         SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64
     } else {
         timestamp as i64
     };
-    let format = &*(format as *mut Str);
-    let date_time_text = runtime::date_time::strftime(format.as_str(), timestamp);
+    let date_time_text = runtime::date_time::strftime(&date_time_format, timestamp);
     let res = Str::from(date_time_text);
     mem::transmute::<Str, U128>(res)
 }
@@ -966,6 +978,7 @@ pub(crate) unsafe extern "C" fn uncapitalize(text: *mut U128) -> U128 {
     let res = text.uncapitalize();
     mem::transmute::<Str, U128>(res)
 }
+
 pub(crate) unsafe extern "C" fn camel_case(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.camel_case();
@@ -1863,7 +1876,7 @@ pub(crate) unsafe extern "C" fn escape_tsv(s: *mut U128) -> U128 {
 
 pub(crate) unsafe extern "C" fn substr(base: *mut U128, l: Int, r: Int) -> U128 {
     let base = &*(base as *mut Str);
-    let res = base.sub_str((l-1) as usize, r as usize);
+    let res = base.sub_str((l - 1) as usize, r as usize);
     mem::transmute::<Str, U128>(res)
 }
 

@@ -1634,6 +1634,7 @@ where
             }
             // Now to "fill in the extras."
             Either::Right(mut bi) => {
+                // todo performance enhancement
                 // split(string, array) => split(string, array, FS)
                 if bi == builtins::Function::Split && args.len() == 2 {
                     let fs = self.fresh_local();
@@ -1705,9 +1706,9 @@ where
                     // rightmost index.
                     prim_args.push(PrimVal::ILit(i64::max_value()));
                 }
-                // strftime() => strftime("%a %m %e %H:%M:%S %Z %Y", -1);
+                // strftime() => strftime("", -1);
                 if bi == builtins::Function::Strftime && args.len() == 0 {
-                    prim_args.push(PrimVal::StrLit(b"%a %m %e %H:%M:%S %Z %Y")); // ISO 8601 / RFC 3339 date & time format
+                    prim_args.push(PrimVal::StrLit(b"")); // ISO 8601 / RFC 3339 date & time format
                     prim_args.push(PrimVal::ILit(-1 as Int));
                 }
                 // strftime(format, timestamp) => strftime(format, -1);

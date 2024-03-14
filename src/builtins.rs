@@ -1043,7 +1043,7 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
 fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
     let procinfo = StrMap::default();
     procinfo.insert("version".into(), VERSION.into());
-    procinfo.insert("strftime".into(), "%a %b %e %H:%M:%S %Z %Y".into());
+    procinfo.insert("strftime".into(), "%a %m %e %H:%M:%S %Z %Y".into());
     procinfo.insert("pid".into(), std::process::id().to_string().into());
     // PROCINFO["sorted_in"]
     if cfg!(target_family = "unix") {

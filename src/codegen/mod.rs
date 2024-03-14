@@ -901,7 +901,8 @@ pub(crate) trait CodeGenerator: Backend {
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(strftime), &mut [format, timestamp])?;
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp])?;
                 self.bind_val(dst.reflect(),resv)
             }
             Mktime(dst,date_time_text,timezone) => {
