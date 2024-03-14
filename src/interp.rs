@@ -11,7 +11,6 @@ use hashbrown::HashMap;
 use rand::{self, rngs::StdRng, Rng, SeedableRng};
 use regex::bytes::Regex;
 
-use std::cmp;
 use std::mem;
 use std::time::SystemTime;
 
@@ -1656,16 +1655,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         };
                     }
                     Substr(res, base, l, r) => {
-                        let base = index(&self.strs, base);
-                        let len = base.len();
-                        let l = cmp::max(0, -1 + *index(&self.ints, l));
-                        *index_mut(&mut self.strs, res) = if l as usize >= len {
-                            Str::default()
-                        } else {
-                            let r = cmp::min(len as Int, l.saturating_add(*index(&self.ints, r)))
-                                as usize;
-                            base.slice(l as usize, r)
-                        };
+                        let text = index(&self.strs, base);
+                        let l = *self.get(*l);
+                        let r = *self.get(*r);
+                        let sub_str = text.sub_str((l-1) as usize,r as usize);
+                        *index_mut(&mut self.strs, res) = sub_str;
                     }
                     CharAt(dst, text, index) => {
                         let index = *self.get(*index);

@@ -1862,16 +1862,9 @@ pub(crate) unsafe extern "C" fn escape_tsv(s: *mut U128) -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn substr(base: *mut U128, l: Int, r: Int) -> U128 {
-    use std::cmp::{max, min};
     let base = &*(base as *mut Str);
-    let len = base.len();
-    let l = max(0, l - 1);
-    if l as usize >= len {
-        mem::transmute::<Str, U128>(Str::default())
-    } else {
-        let r = min(len as Int, l.saturating_add(r)) as usize;
-        mem::transmute::<Str, U128>(base.slice(l as usize, r))
-    }
+    let res = base.sub_str((l-1) as usize, r as usize);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn char_at(text: *mut U128, index: Int) -> U128 {

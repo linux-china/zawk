@@ -26,11 +26,12 @@ fn likely(b: bool) -> bool {
     b
 }
 
-use std::mem;
+use std::{mem};
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
+use std::str::Chars;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use crate::runtime;
@@ -134,7 +135,7 @@ impl<'a> Concat<'a> {
     // MAX_INLINE_LEN.
     unsafe fn new(len: u64, left: Str<'a>, right: Str<'a>) -> Concat<'a> {
         debug_assert!(len > MAX_INLINE_SIZE as u64);
-        debug_assert_eq!(len, (left.len() + right.len()) as u64);
+        debug_assert_eq!(len, (left.bytes_len() + right.bytes_len()) as u64);
         Concat {
             len,
             inner: Rc::new(ConcatInner { left, right }),
@@ -643,6 +644,24 @@ impl<'a> Str<'a> {
     }
 
     /// index start from 0
+    pub fn sub_str<'b>(&self, l: usize, r: usize) -> Str<'b> {
+        let text = self.as_str();
+        let len =  text.chars().count();
+         if l >= len {
+            Str::default()
+        } else {
+            let end = l + r;
+            if end > len {
+                let sub: String = text.chars().skip(l).take(len-l).collect();
+                Str::from(sub)
+            } else {
+                let sub: String = text.chars().skip(l).take(r).collect();
+                Str::from(sub)
+            }
+        }
+    }
+
+    /// index start from 0
     pub fn char_at<'b>(&self, index: usize) -> Str<'b> {
         let text = self.as_str();
         if let Some(c) = text.chars().nth(index) {
@@ -701,7 +720,7 @@ impl<'a> Str<'a> {
     pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {
         let src = self.to_string();
         let max_len = len as usize;
-        let place_holder_len = place_holder.len();
+        let place_holder_len = place_holder.bytes_len();
         let src_len = src.len();
         return if src_len <= max_len { // src length is less than truncate max length
             Str::from(src)
@@ -855,8 +874,13 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub fn len(&self) -> usize {
+    pub fn bytes_len(&self) -> usize {
         unsafe { self.rep_mut() }.len()
+    }
+
+    pub fn len(&self) -> usize {
+        // todo performance
+        self.as_str().chars().count()
     }
 
     pub fn concat(left: Str<'a>, right: Str<'a>) -> Str<'a> {
@@ -868,8 +892,8 @@ impl<'a> Str<'a> {
             mem::forget(right);
             return left;
         }
-        let llen = left.len();
-        let rlen = right.len();
+        let llen = left.bytes_len();
+        let rlen = right.bytes_len();
         let new_len = llen + rlen;
         if new_len <= MAX_INLINE_SIZE {
             let mut b = DynamicBuf::new(0);
@@ -939,7 +963,7 @@ impl<'a> Str<'a> {
         if from == to {
             return Default::default();
         }
-        let len = self.len();
+        let len = self.bytes_len();
         assert!(
             to <= len,
             "invalid args to slice: range [{},{}) with len {}",
@@ -1744,7 +1768,7 @@ mod tests {
         if total_got > total {
             // We want there to be trailing empty fields in this case.
             for s in &got[total..] {
-                assert_eq!(s.len(), 0);
+                assert_eq!(s.bytes_len(), 0);
             }
         } else {
             assert_eq!(total_got, total, "got={:?} vs want={:?}", got, want);
