@@ -1,6 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE, Engine as _};
 use hashbrown::HashMap;
 use urlencoding::{encode as url_encode, decode as url_decode};
+use base58;
+use base58::{FromBase58, ToBase58};
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
 
@@ -8,6 +10,7 @@ use crate::runtime::{SharedMap, Str};
 pub fn encode(format: &str, text: &str) -> String {
     match format {
         "base32" => base32::encode(base32::Alphabet::RFC4648 { padding: false }, text.as_bytes()),
+        "base58" => text.as_bytes().to_base58(),
         "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
         "base64url" => URL_SAFE.encode(text),
@@ -38,6 +41,12 @@ pub fn encode(format: &str, text: &str) -> String {
 pub fn decode(format: &str, text: &str) -> String {
     if format == "base32" {
         if let Some(bytes) = base32::decode(base32::Alphabet::RFC4648 { padding: false }, text) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                return text;
+            }
+        }
+    } else if format == "base58" {
+        if let Ok(bytes) = text.from_base58() {
             if let Ok(text) = String::from_utf8(bytes) {
                 return text;
             }
