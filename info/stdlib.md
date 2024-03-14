@@ -447,6 +447,8 @@ Formats:
 
 - `hex`,
 - `base32`(RFC4648 without padding),
+- `base58`
+- `base62`
 - `base64`,
 - `base64url`,
 - `url`,
