@@ -750,6 +750,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(substr), &mut [basev, lv, rv])?;
                 self.bind_val(res.reflect(), resv)
             }
+            CharAt(res, text,index) => {
+                let text = self.get_val(text.reflect())?;
+                let index = self.get_val(index.reflect())?;
+                //panic!("invalid index for chat_at: {}, should start with 1", index)
+                let resv = self.call_intrinsic(intrinsic!(char_at), &mut [text, index])?;
+                self.bind_val(res.reflect(), resv)
+            }
             LTInt(res, l, r) => self.binop(cmp(Cmp::Lt, false), res, l, r),
             GTInt(res, l, r) => self.binop(cmp(Cmp::Gt, false), res, l, r),
             LTEInt(res, l, r) => self.binop(cmp(Cmp::Lte, false), res, l, r),

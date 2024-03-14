@@ -144,6 +144,7 @@ pub(crate) enum Instr<'a> {
     EscapeCSV(Reg<Str<'a>>, Reg<Str<'a>>),
     EscapeTSV(Reg<Str<'a>>, Reg<Str<'a>>),
     Substr(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
+    CharAt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
 
     // Comparison
     LTFloat(Reg<Int>, Reg<Float>, Reg<Float>),
@@ -1251,6 +1252,11 @@ impl<'a> Instr<'a> {
                 base.accum(&mut f);
                 l.accum(&mut f);
                 r.accum(&mut f);
+            }
+            CharAt(res, text, index) => {
+                res.accum(&mut f);
+                text.accum(&mut f);
+                index.accum(&mut f);
             }
             LTFloat(res, l, r) => {
                 res.accum(&mut f);

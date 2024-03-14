@@ -1546,6 +1546,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            CharAt => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::CharAt(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             ToInt => self.convert(res_reg, Ty::Int, conv_regs[0], conv_tys[0])?,
             HexToInt => {
                 if res_reg != UNUSED {

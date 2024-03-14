@@ -275,6 +275,7 @@ impl Display for Function {
             JoinTSV => write!(f, "join_tsv"),
             JoinCols => write!(f, "join_fields"),
             Substr => write!(f, "substr"),
+            CharAt => write!(f, "char_at"),
             ToInt => write!(f, "int"),
             HexToInt => write!(f, "hex"),
             Rand => write!(f, "rand"),

@@ -604,6 +604,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(y.into()));
                 f(dst.into(), Some(z.into()));
             }
+            CharAt(dst, text, index) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(index.into()));
+            }
             LTFloat(dst, x, y)
             | GTFloat(dst, x, y)
             | LTEFloat(dst, x, y)

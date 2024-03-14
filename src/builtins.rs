@@ -141,6 +141,7 @@ pub enum Function {
     IsInt,
     IsNum,
     Substr,
+    CharAt,
     ToInt,
     HexToInt,
     Rand,
@@ -416,6 +417,7 @@ static_map!(
     ["gsub", Function::GSub],
     ["gensub", Function::GenSub],
     ["substr", Function::Substr],
+    ["char_at", Function::CharAt],
     ["int", Function::ToInt],
     ["float", Function::Strtonum],
     ["hex", Function::HexToInt],
@@ -728,6 +730,7 @@ impl Function {
             GenSub => (smallvec![Str, Str, Str, Str], Str),
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
             Substr => (smallvec![Str, Int, Int], Str),
+            CharAt => (smallvec![Str, Int], Str),
             Match => (smallvec![Str, Str], Int),
             Exit => (smallvec![Int], Null),
             // Split's second input can be a map of either type
@@ -770,6 +773,7 @@ impl Function {
             Dejwt => 2,
             Strftime | Mktime => 2,
             StrCmp => 2,
+            CharAt => 2,
             MkBool => 1,
             Trim => 2,
             Capitalize | UnCapitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words => 1,
@@ -835,7 +839,7 @@ impl Function {
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
-            | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr
+            | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
