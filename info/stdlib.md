@@ -113,14 +113,16 @@ Trim text with chars with `trim($1, "[]()")`
 
 `isnum("1234.01")`
 
-### starts_with/ends_with
+### starts_with/ends_with/contains
 
 The return value is `1` or `0`. 
 
 - `starts_with($1, "https://")`
 - `ends_with($1, ".com")`
+- `contains($1, "//")`
 
-Why not use regex? Because starts_with/ends_with is easy to use and understand.
+Why not use regex? Because starts_with/ends_with/contains are easy to use and understand. 
+Most libraries include these functions, and I don't want AWK stdlib weird. 
 
 ### mask
 
