@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 /// escape text by format
 pub fn escape(format: &str, text: &str) -> String {
     match format {
@@ -51,11 +53,7 @@ pub fn escape_json(text: &str) -> String {
 }
 
 pub fn escape_shell(text: &str) -> String {
-    if text.contains('\'') {
-        text.replace('\'', "'\\''").to_string()
-    } else {
-        text.to_string()
-    }
+    shell_escape::escape(Cow::from(text)).to_string()
 }
 
 pub fn escape_sql(text: &str) -> String {
