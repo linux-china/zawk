@@ -16,7 +16,7 @@ use crate::{
     pushdown::FieldSet,
 };
 
-use libc::{c_void, time};
+use libc::{c_void};
 use paste::paste;
 use rand::{self, Rng};
 use regex::bytes::Regex;

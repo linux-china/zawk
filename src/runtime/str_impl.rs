@@ -31,7 +31,6 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
-use std::str::Chars;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use crate::runtime;
