@@ -305,6 +305,7 @@ pub(crate) enum Instr<'a> {
     ToBytes(Reg<Int>, Reg<Str<'a>>),
     StartsWith(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     EndsWith(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    TextContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Capitalize(Reg<Str<'a>>, Reg<Str<'a>>),
     UnCapitalize(Reg<Str<'a>>, Reg<Str<'a>>),
     CamelCase(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -966,6 +967,11 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 suffix.accum(&mut f);
+            }
+            TextContains(dst, text, child ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                child.accum(&mut f);
             }
             Capitalize(dst, text ) => {
                 dst.accum(&mut f);

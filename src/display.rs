@@ -185,6 +185,7 @@ impl Display for Function {
             ToBytes => write!(f, "to_bytes"),
             StartsWith => write!(f, "starts_with"),
             EndsWith => write!(f, "ends_with"),
+            TextContains => write!(f, "contains"),
             Capitalize => write!(f, "capitalize"),
             UnCapitalize => write!(f, "uncapitalize"),
             CamelCase => write!(f, "camel_case"),

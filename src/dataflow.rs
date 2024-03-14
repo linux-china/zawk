@@ -355,6 +355,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(suffix.into()));
             }
+            TextContains(dst, text, child) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(child.into()));
+            }
             FormatBytes(dst, size) => {
                 f(dst.into(), Some(size.into()));
             }

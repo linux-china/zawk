@@ -1885,6 +1885,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            TextContains => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::TextContains(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Capitalize => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Capitalize(

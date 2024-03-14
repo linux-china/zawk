@@ -162,6 +162,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] to_bytes(str_ref_ty) -> int_ty;
         [ReadOnly] starts_with(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] ends_with(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] text_contains(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] capitalize(str_ref_ty) -> str_ty;
         [ReadOnly] uncapitalize(str_ref_ty) -> str_ty;
         [ReadOnly] camel_case(str_ref_ty) -> str_ty;
@@ -941,6 +942,17 @@ pub(crate) unsafe extern "C" fn ends_with(text: *mut U128, suffix: *mut U128) ->
     let suffix = &*(suffix as *mut Str);
     if !text.is_empty() && !suffix.is_empty()
         && text.as_str().ends_with(suffix.as_str()) {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) unsafe extern "C" fn text_contains(text: *mut U128, child: *mut U128) -> Int {
+    let text = &*(text as *mut Str);
+    let child = &*(child as *mut Str);
+    if !text.is_empty() && !child.is_empty()
+        && text.as_str().contains(child.as_str()) {
         1
     } else {
         0

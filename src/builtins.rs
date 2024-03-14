@@ -56,6 +56,7 @@ pub enum Function {
     StartsWith,
     EndsWith,
     Capitalize,
+    TextContains,
     UnCapitalize,
     CamelCase,
     KebabCase,
@@ -385,6 +386,7 @@ static_map!(
     ["to_bytes", Function::ToBytes],
     ["starts_with", Function::StartsWith],
     ["ends_with", Function::EndsWith],
+    ["contains", Function::TextContains],
     ["capitalize", Function::Capitalize],
     ["uncapitalize", Function::UnCapitalize],
     ["camel_case", Function::CamelCase],
@@ -691,6 +693,7 @@ impl Function {
             ToBytes => (smallvec![Str], Int),
             StartsWith => (smallvec![Str, Str], Int),
             EndsWith => (smallvec![Str, Str], Int),
+            TextContains => (smallvec![Str, Str], Int),
             Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
@@ -759,7 +762,7 @@ impl Function {
             Quote | DoubleQuote => 1,
             VarDump => 1,
             FormatBytes | ToBytes => 1,
-            StartsWith | EndsWith => 2,
+            StartsWith | EndsWith | TextContains => 2,
             ReadAll => 1,
             WriteAll => 2,
             Dejwt => 2,
@@ -843,7 +846,7 @@ impl Function {
             ToBytes => {
                 Ok(Scalar(BaseTy::Int).abs())
             }
-            StartsWith | EndsWith => {
+            StartsWith | EndsWith | TextContains => {
                 Ok(Scalar(BaseTy::Int).abs())
             }
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),

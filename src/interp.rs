@@ -1260,6 +1260,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    TextContains(dst, text, child) => {
+                        let text = index(&self.strs, text);
+                        let child = index(&self.strs, child);
+                        let res = if !text.is_empty() && !child.is_empty()
+                            &&  text.as_str().contains(child.as_str()) {
+                            1
+                        }  else {
+                            0
+                        };
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Capitalize(dst, text) => {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;

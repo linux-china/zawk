@@ -1152,6 +1152,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(ends_with), &mut [text, suffix])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            TextContains(dst,text, child) => {
+                let text = self.get_val(text.reflect())?;
+                let child = self.get_val(child.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(text_contains), &mut [text, child])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
             UnCapitalize(dst,text) => self.unop(intrinsic!(uncapitalize), dst, text),
             CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),
