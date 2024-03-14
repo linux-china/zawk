@@ -5,6 +5,10 @@ Standard library for AWK with text, math, crypto, kv, database, network etc.
 
 # Text functions
 
+### char_at
+
+Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
+
 ### match(s, re)
 
 if string s matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
