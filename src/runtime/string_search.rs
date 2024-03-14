@@ -11,3 +11,11 @@ pub fn index_substr<'a>(needle: &Str<'a>, haystack: &Str<'a>) -> Int {
         .map(|x| x as Int + 1)
         .unwrap_or(0)
 }
+
+pub fn last_index_substr<'a>(needle: &Str<'a>, haystack: &Str<'a>) -> Int {
+    needle
+        .with_bytes(|n| haystack.with_bytes(|h| memmem::rfind(h, n)))
+        .map(|x| x as Int + 1)
+        .unwrap_or(0)
+}
+
