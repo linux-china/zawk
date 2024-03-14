@@ -106,6 +106,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] match_pat_loc(rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] match_const_pat_loc(rt_ty, str_ref_ty, rt_ty) -> int_ty;
         [ReadOnly] substr_index(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] substr_last_index(str_ref_ty, str_ref_ty) -> int_ty;
         subst_first(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
         subst_all(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
         gen_subst(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
@@ -1779,6 +1780,12 @@ pub(crate) unsafe extern "C" fn substr_index(s: *mut U128, t: *mut U128) -> Int 
     let s = &*(s as *mut Str);
     let t = &*(t as *mut Str);
     runtime::string_search::index_substr(/*needle*/ t, /*haystack*/ s)
+}
+
+pub(crate) unsafe extern "C" fn substr_last_index(s: *mut U128, t: *mut U128) -> Int {
+    let s = &*(s as *mut Str);
+    let t = &*(t as *mut Str);
+    runtime::string_search::last_index_substr(/*needle*/ t, /*haystack*/ s)
 }
 
 pub(crate) unsafe extern "C" fn subst_first(

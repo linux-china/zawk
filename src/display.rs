@@ -265,6 +265,7 @@ impl Display for Function {
             Close => write!(f, "close"),
             Match => write!(f, "match"),
             SubstrIndex => write!(f, "index"),
+            SubstrLastIndex => write!(f, "last_index"),
             Sub => write!(f, "sub"),
             GSub => write!(f, "gsub"),
             GenSub => write!(f, "gensub"),

@@ -120,6 +120,7 @@ pub(crate) enum Instr<'a> {
     MatchConst(Reg<Int>, Reg<Str<'a>>, Arc<Regex>),
     // index(s, t) returns index of substring t in s, 0 if it does not appear.
     SubstrIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    SubstrLastIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     LenStr(Reg<Int>, Reg<Str<'a>>),
     Sub(
         Reg<Int>,
@@ -1215,6 +1216,11 @@ impl<'a> Instr<'a> {
                 src.accum(&mut f);
             }
             SubstrIndex(res, s, t) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                t.accum(&mut f);
+            }
+            SubstrLastIndex(res, s, t) => {
                 res.accum(&mut f);
                 s.accum(&mut f);
                 t.accum(&mut f);

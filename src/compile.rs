@@ -1415,6 +1415,7 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Match => gen_op!(Match, [Str, Match]),
             SubstrIndex => gen_op!(SubstrIndex, [Str, SubstrIndex]),
+            SubstrLastIndex => gen_op!(SubstrLastIndex, [Str, SubstrLastIndex]),
             Contains => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

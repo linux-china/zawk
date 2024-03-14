@@ -125,6 +125,7 @@ pub enum Function {
     Clear,
     Match,
     SubstrIndex,
+    SubstrLastIndex,
     Sub,
     GSub,
     GenSub,
@@ -446,6 +447,7 @@ static_map!(
     ["rand", Function::Rand],
     ["srand", Function::Srand],
     ["index", Function::SubstrIndex],
+    ["last_index", Function::SubstrLastIndex],
     ["toupper", Function::ToUpper],
     ["tolower", Function::ToLower],
     ["system", Function::System],
@@ -561,7 +563,7 @@ impl Function {
             },
             Unop(Column) => (smallvec![Int], Str),
             Binop(Concat) => (smallvec![Str; 2], Str),
-            SubstrIndex | Binop(IsMatch) => (smallvec![Str; 2], Int),
+            SubstrIndex | SubstrLastIndex | Binop(IsMatch) => (smallvec![Str; 2], Int),
             // Not doesn't unconditionally convert to integers before negating it. Nonempty strings
             // are considered "truthy". Floating point numbers are converted beforehand:
             //    !5 == !1 == 0
@@ -753,7 +755,7 @@ impl Function {
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
-            SetFI | SubstrIndex | Match | Setcol | Binop(_) => 2,
+            SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
             AppendIfMissing | PrependIfMissing => 2,
@@ -827,7 +829,7 @@ impl Function {
             Min | Max => Ok(Scalar(BaseTy::Str).abs()),
             Rand | Binop(Div) | Binop(Pow) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
-            Clear | SubstrIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
+            Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
