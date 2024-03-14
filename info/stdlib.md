@@ -23,9 +23,10 @@ Substitutes t for the first matching occurrence of regular expression re in the 
 
 Like sub, but with all occurrences substituted, not just the first.
 
-### index(haystack, needle)
+### index(haystack, needle)/last_index()
 
-The first index within haystack in which the string needle occurs, 0 if needle does not appear.
+* `index()`: the first index within haystack in which the string needle occurs, 0 if needle does not appear.
+* `last_index()`: the last index within haystack in which the string needle occurs, 0 if needle does not appear.
 
 ### split(s, m[, fs])
 
