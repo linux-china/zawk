@@ -3,6 +3,8 @@ AWK Standard Library
 
 Standard library for AWK with text, math, crypto, kv, database, network etc.
 
+AWK stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
+
 # Text functions
 
 Text is encoding with utf-8 by default. 
@@ -481,8 +483,8 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
-- encrypt:  `encrypt('aes-128-cbc', 'Secret Text', 'your_pass_key'))` Now only `aes-128-cbc` support
-- encrypt:  `decrypt('aes-128-cbc', '7b9c07a4903c9768ceeeb922bcb33448', 'your_pass_key'))` Now only `aes-128-cbc` support
+- encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")` Now only `aes-128-cbc` support
+- encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")` Now only `aes-128-cbc` support
 
 # KV
 
