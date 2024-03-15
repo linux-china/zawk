@@ -81,6 +81,8 @@ pub enum Function {
     Hmac,
     Jwt,
     Dejwt,
+    Encrypt,
+    Decrypt,
     Url,
     Pairs,
     Attributes,
@@ -339,6 +341,8 @@ static_map!(
     ["hmac", Function::Hmac],
     ["jwt", Function::Jwt],
     ["dejwt", Function::Dejwt],
+    ["encrypt", Function::Encrypt],
+    ["decrypt", Function::Decrypt],
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
     ["pairs", Function::Pairs],
@@ -710,6 +714,8 @@ impl Function {
             Hmac => (smallvec![Str, Str, Str], Str),
             Jwt => (smallvec![Str, Str, MapStrStr], Str),
             Dejwt => (smallvec![Str, Str], MapStrStr),
+            Encrypt => (smallvec![Str, Str, Str, Str], Str),
+            Decrypt => (smallvec![Str, Str, Str, Str], Str),
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             TypeOfVariable => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
@@ -771,6 +777,7 @@ impl Function {
             ReadAll => 1,
             WriteAll => 2,
             Dejwt => 2,
+            Encrypt | Decrypt => 4,
             Strftime | Mktime => 2,
             StrCmp => 2,
             CharAt => 2,
@@ -843,6 +850,7 @@ impl Function {
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
+            Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

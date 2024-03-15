@@ -1816,6 +1816,28 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Encrypt => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Encrypt(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                        conv_regs[3].into(),
+                    ))
+                }
+            }
+            Decrypt => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Decrypt(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                        conv_regs[3].into(),
+                    ))
+                }
+            }
             Strftime => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Strftime(

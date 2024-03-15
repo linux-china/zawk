@@ -1665,6 +1665,13 @@ where
                     }
                 }
 
+                // encrypt (mod, text, key) => pair(mod, text, key, "")
+                if bi == builtins::Function::Encrypt && args.len() == 3 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
+                if bi == builtins::Function::Decrypt && args.len() == 3 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
                 // pairs (s) => pair(s, ",", "=")
                 if bi == builtins::Function::Pairs && args.len() == 1 {
                     prim_args.push(PrimVal::StrLit(b","));

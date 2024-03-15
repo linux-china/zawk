@@ -191,6 +191,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] jwt(str_ref_ty, str_ref_ty, map_ty) -> str_ty;
         [ReadOnly] dejwt(str_ref_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] encrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] decrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] attributes(str_ref_ty) -> map_ty;
         [ReadOnly] message(str_ref_ty) -> map_ty;
@@ -886,6 +888,26 @@ pub(crate) unsafe extern "C" fn dejwt(key: *mut U128, token: *mut U128) -> *mut 
     let token = &*(token as *mut Str);
     let jwt = runtime::crypto::dejwt(key.as_str(), token.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(jwt)
+}
+
+pub(crate) unsafe extern "C" fn encrypt(mode: *mut U128, plain_text: *mut U128, key: *mut U128, iv: *mut U128) -> U128 {
+    let mode = &*(mode as *mut Str);
+    let plain_text = &*(plain_text as *mut Str);
+    let key = &*(key as *mut Str);
+    let iv = &*(iv as *mut Str);
+    let encrypted_text = runtime::crypto::encrypt(mode.as_str(), plain_text.as_str(), key.as_str(), iv.as_str());
+    let res = Str::from(encrypted_text);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn decrypt(mode: *mut U128, encrypted_text: *mut U128, key: *mut U128, iv: *mut U128) -> U128 {
+    let mode = &*(mode as *mut Str);
+    let encrypted_text = &*(encrypted_text as *mut Str);
+    let key = &*(key as *mut Str);
+    let iv = &*(iv as *mut Str);
+    let plain_text = runtime::crypto::decrypt(mode.as_str(), encrypted_text.as_str(), key.as_str(), iv.as_str());
+    let res = Str::from(plain_text);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn strftime(rt: *mut c_void, format: *mut U128, timestamp: Int) -> U128 {

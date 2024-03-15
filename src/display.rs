@@ -211,6 +211,8 @@ impl Display for Function {
             Hmac => write!(f, "hmac"),
             Jwt => write!(f, "jwt"),
             Dejwt => write!(f, "dejwt"),
+            Encrypt => write!(f, "encrypt"),
+            Decrypt => write!(f, "decrypt"),
             Url => write!(f, "url"),
             Pairs => write!(f, "pairs"),
             Attributes => write!(f, "attributes"),

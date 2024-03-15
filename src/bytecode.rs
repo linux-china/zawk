@@ -211,6 +211,8 @@ pub(crate) enum Instr<'a> {
     Hmac(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Jwt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     Dejwt( Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Encrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Decrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
     Systime(Reg<Int>),
@@ -620,6 +622,20 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 key.accum(&mut f);
                 token.accum(&mut f);
+            }
+            Encrypt(res, mode, plain_text, key, iv) => {
+                res.accum(&mut f);
+                mode.accum(&mut f);
+                plain_text.accum(&mut f);
+                key.accum(&mut f);
+                iv.accum(&mut f);
+            }
+            Decrypt(res, mode, encrypted_text, key, iv) => {
+                res.accum(&mut f);
+                mode.accum(&mut f);
+                encrypted_text.accum(&mut f);
+                key.accum(&mut f);
+                iv.accum(&mut f);
             }
             Strftime(res, format, timestamp) => {
                 res.accum(&mut f);

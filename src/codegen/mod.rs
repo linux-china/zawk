@@ -898,6 +898,22 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(dejwt), &mut [key, token])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Encrypt(dst,mode,plain_text,key, iv) => {
+                let mode = self.get_val(mode.reflect())?;
+                let plain_text = self.get_val(plain_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let iv = self.get_val(iv.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(encrypt), &mut [mode,plain_text, key, iv])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            Decrypt(dst,mode,encrypted_text,key, iv) => {
+                let mode = self.get_val(mode.reflect())?;
+                let encrypted_text = self.get_val(encrypted_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let iv = self.get_val(iv.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(decrypt), &mut [mode,encrypted_text, key, iv])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Strftime(dst,format, timestamp) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;

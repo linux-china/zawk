@@ -778,6 +778,22 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Encrypt(dst, mode, plain_text, key, iv) => {
+                        let mode = index(&self.strs, mode);
+                        let plain_text = index(&self.strs, plain_text);
+                        let key = index(&self.strs, key);
+                        let iv = index(&self.strs, iv);
+                        let encrypted_text = runtime::crypto::encrypt(mode.as_str(), plain_text.as_str(), key.as_str(), iv.as_str());
+                        *index_mut(&mut self.strs, dst) = encrypted_text.into();
+                    }
+                    Decrypt(dst, mode, encrypted_text, key, iv) => {
+                        let mode = index(&self.strs, mode);
+                        let encrypted_text = index(&self.strs, encrypted_text);
+                        let key = index(&self.strs, key);
+                        let iv = index(&self.strs, iv);
+                        let plain_text = runtime::crypto::decrypt(mode.as_str(), encrypted_text.as_str(), key.as_str(), iv.as_str());
+                        *index_mut(&mut self.strs, dst) = plain_text.into();
+                    }
                     Strftime(dst, format, timestamp) => {
                         let format = index(&self.strs, format);
                         let tt: i64 = *self.get(*timestamp);
