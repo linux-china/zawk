@@ -12,11 +12,7 @@ use crate::runtime::{SharedMap, Str, StrMap};
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128Enc>;
-type Aes192CbcEnc = cbc::Encryptor<aes::Aes192Enc>;
-type Aes256CbcEnc = cbc::Encryptor<aes::Aes256Enc>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128Dec>;
-type Aes192CbcDec = cbc::Decryptor<aes::Aes192Dec>;
-type Aes256CbcDec = cbc::Decryptor<aes::Aes256Dec>;
 
 /// Message Digest with md5, sha256, sha512
 pub fn digest(algorithm: &str, text: &str) -> String {
@@ -150,7 +146,7 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
 }
 
 /// plaintext max length 256
-pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> String {
+pub fn encrypt(_mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> String {
     let mut key = [0x0; 16];
     let mut iv = [0x0; 16];
     if key_pass.len() > 16 {
@@ -170,7 +166,7 @@ pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> St
     hex::encode(&ct)
 }
 
-pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) -> String {
+pub fn decrypt(_mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) -> String {
     let mut key = [0x0; 16];
     let mut iv = [0x0; 16];
     if key_pass.len() > 16 {
@@ -190,7 +186,6 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) 
 #[cfg(test)]
 mod tests {
     use std::io::BufReader;
-    use hex_literal::hex;
     use crate::runtime::encoding::encode;
     use super::*;
 
