@@ -5,10 +5,18 @@ use sha2::{Sha256, Sha512, Digest, Sha384};
 use hmac::{Hmac, Mac};
 use jwt::header::HeaderType;
 use serde_json::{Number, Value};
+use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+
 use crate::runtime::{SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
+type Aes128CbcEnc = cbc::Encryptor<aes::Aes128Enc>;
+type Aes192CbcEnc = cbc::Encryptor<aes::Aes192Enc>;
+type Aes256CbcEnc = cbc::Encryptor<aes::Aes256Enc>;
+type Aes128CbcDec = cbc::Decryptor<aes::Aes128Dec>;
+type Aes192CbcDec = cbc::Decryptor<aes::Aes192Dec>;
+type Aes256CbcDec = cbc::Decryptor<aes::Aes256Dec>;
 
 /// Message Digest with md5, sha256, sha512
 pub fn digest(algorithm: &str, text: &str) -> String {
@@ -141,9 +149,48 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
     SharedMap::from(map)
 }
 
+/// plaintext max length 256
+pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> String {
+    let mut key = [0x0; 16];
+    let mut iv = [0x0; 16];
+    if key_pass.len() > 16 {
+        key.copy_from_slice(key_pass[..16].as_bytes());
+    } else {
+        key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
+    }
+    if !iv_text.is_empty() {
+        iv.copy_from_slice(iv_text.as_bytes())
+    }
+    // buffer must be big enough for padded plaintext
+    let mut buf = [0u8; 512];
+    let pt_len = plaintext.len();
+    buf[..pt_len].copy_from_slice(plaintext.as_bytes());
+    let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
+    let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
+    hex::encode(&ct)
+}
+
+pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) -> String {
+    let mut key = [0x0; 16];
+    let mut iv = [0x0; 16];
+    if key_pass.len() > 16 {
+        key.copy_from_slice(key_pass[..16].as_bytes());
+    } else {
+        key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
+    }
+    if !iv_text.is_empty() {
+        iv.copy_from_slice(iv_text.as_bytes())
+    }
+    let mut encrypted_data = hex::decode(encrypted_text).unwrap();
+    let cipher = Aes128CbcDec::new(&key.into(), &iv.into());
+    let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut encrypted_data).unwrap();
+    std::str::from_utf8(pt).unwrap().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::BufReader;
+    use hex_literal::hex;
     use crate::runtime::encoding::encode;
     use super::*;
 
@@ -234,5 +281,17 @@ mod tests {
         let payload = dejwt("123456", token);
         let value = payload.get(&Str::from("exp"));
         println!("{}", value);
+    }
+
+    #[test]
+    fn test_aes() {
+        let key_pass = "0123456789abcdef";
+        let iv_text = "";
+        let plaintext = "Hello World";
+        let encrypted_text = encrypt("aes-128-cbc", plaintext, key_pass, iv_text);
+        println!("{}", encrypted_text);
+        let encrypted_text = "7b9c07a4903c9768ceeeb922bcb33448";
+        let plaintext2 = decrypt("aes-128-cbc", &encrypted_text, key_pass, iv_text);
+        assert_eq!(plaintext, plaintext2);
     }
 }
