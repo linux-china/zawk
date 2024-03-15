@@ -26,7 +26,8 @@ itoa = "1.0"
 ryu = "1.0"
 libc = "0.2"
 tikv-jemallocator = { version = "0.5", optional = true }
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["default"] }
+rand_core = "0.6"
 lalrpop-util = "0.20.2"
 unicode-xid = "0.2.4"
 llvm-sys = { version = "150", optional = true }
@@ -69,6 +70,8 @@ adler = "1"
 hmac = "0.12"
 jwt = "0.16.0"
 bcrypt = "0.15"
+cbc= "0.1"
+aes = "0.8"
 murmur3 = "0.5"
 xxhash-rust = { version = "0.8", features = ["xxh32", "xxh64"] }
 blake3 = "1"
