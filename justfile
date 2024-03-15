@@ -230,4 +230,7 @@ run-to-bytes:
 run-starts-with:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print starts_with("abc", "a"), ends_with("abc", "d"), contains("abc", "b") }' demo.txt
 
+run-encrypt:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print encrypt("aes-128-cbc","Hello World", "123456") }' demo.txt
+
 
