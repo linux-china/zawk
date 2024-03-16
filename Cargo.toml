@@ -72,6 +72,7 @@ hmac = "0.12"
 jwt = "0.16.0"
 bcrypt = "0.15"
 cbc= "0.1"
+aes-gcm="0.10"
 aes = "0.8"
 murmur3 = "0.5"
 xxhash-rust = { version = "0.8", features = ["xxh32", "xxh64"] }
