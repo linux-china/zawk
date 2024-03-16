@@ -5,7 +5,7 @@ Standard library for AWK with text, math, crypto, kv, database, network etc.
 
 # Text functions
 
-Text is encoding with utf-8 by default. 
+Text is encoding with utf-8 by default.
 
 ### char_at
 
@@ -122,14 +122,14 @@ Trim text with chars with `trim($1, "[]()")`
 
 ### starts_with/ends_with/contains
 
-The return value is `1` or `0`. 
+The return value is `1` or `0`.
 
 - `starts_with($1, "https://")`
 - `ends_with($1, ".com")`
 - `contains($1, "//")`
 
-Why not use regex? Because starts_with/ends_with/contains are easy to use and understand. 
-Most libraries include these functions, and I don't want AWK stdlib weird. 
+Why not use regex? Because starts_with/ends_with/contains are easy to use and understand.
+Most libraries include these functions, and I don't want AWK stdlib weird.
 
 ### mask
 
@@ -178,8 +178,8 @@ quote/double text if not quoted/double quoted.
 
 Convert bytes to human-readable format, and vice versa. Units: `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`.
 
- - `format_bytes(1024)`: 1 KB
- - `to_bytes("2 KB")`: 2024
+- `format_bytes(1024)`: 1 KB
+- `to_bytes("2 KB")`: 2024
 
 # Text Escape
 
@@ -247,7 +247,7 @@ array fields:
 
 ### Pairs
 
-Parse pairs text to array(MapStrStr), for example: 
+Parse pairs text to array(MapStrStr), for example:
 
 * URL query string `id=1&name=Hello%20World1`
 * Trace Context tracestate: `congo=congosSecondPosition,rojo=rojosFirstPosition`
@@ -261,14 +261,15 @@ be introduced to decode the value automatically.
 
 Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",code="200"}`
 
-Usage: 
+Usage:
 
 * `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
 * `attributes("mysql{host=localhost user=root password=123456 database=test}")`
 
 ### Message
 
-A message always contains name, headers and boy, and text format is like `http_requests_total{method="post",code="200"}(100)`
+A message always contains name, headers and boy, and text format is
+like `http_requests_total{method="post",code="200"}(100)`
 
 Usage:
 
@@ -279,8 +280,8 @@ Usage:
 
 Parse function invocation format into `IntMap<Str>`, and 0 indicates function name.
 
-* `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1` 
-* `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan` 
+* `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1`
+* `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan`
 
 # ID generator
 
@@ -410,14 +411,14 @@ utc by default.
 https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 
 * `strftime("%Y-%m-%d %H:%M:%S")`
-* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format. 
+* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
 
 ### mktime
 
 please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
-- `mktime("2012 12 21 0 0 0")`: 
-- `mktime("2019-11-29 08:08-08")`: 
+- `mktime("2012 12 21 0 0 0")`:
+- `mktime("2019-11-29 08:08-08")`:
 
 # JSON
 
@@ -481,8 +482,9 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
-- encrypt:  `encrypt('aes-128-cbc', 'Secret Text', 'your_pass_key'))` Now only `aes-128-cbc` support
-- encrypt:  `decrypt('aes-128-cbc', '7b9c07a4903c9768ceeeb922bcb33448', 'your_pass_key'))` Now only `aes-128-cbc` support
+- encrypt:  `encrypt('aes-128-cbc', 'Secret Text', 'your_pass_key'))` Now only `aes-128-cbc` and `aes-128-gcm` support
+- encrypt:  `decrypt('aes-128-cbc', '7b9c07a4903c9768ceeeb922bcb33448', 'your_pass_key'))` Now only `aes-128-cbc`
+  and `aes-128-gcm` support
 
 # KV
 
