@@ -1,6 +1,6 @@
 [package]
 name = "zawk"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Eli Rosenthal <ezr@cs.brown.edu>", "linux_china <libing.chen@gmail.com>"]
 edition = "2021"
 description = "an efficient Awk-like language with stdlib"
