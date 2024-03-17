@@ -155,15 +155,24 @@ pub fn encrypt(_mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> S
         key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
     }
     if !iv_text.is_empty() {
-        iv.copy_from_slice(iv_text.as_bytes())
+        let bytes = hex::decode(iv_text).unwrap();
+        iv[..bytes.len()].copy_from_slice(&bytes);
     }
     // buffer must be big enough for padded plaintext
     let mut buf = [0u8; 512];
     let pt_len = plaintext.len();
     buf[..pt_len].copy_from_slice(plaintext.as_bytes());
-    let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
-    let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
-    hex::encode(&ct)
+    if _mode == "aes-128-gcm" {
+        use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Nonce};
+        let cipher = Aes128Gcm::new(&key.into());
+        let nonce = Nonce::from_slice(&iv[..12]);
+        let result = cipher.encrypt(&nonce, plaintext.as_bytes()).unwrap();
+        hex::encode(&result)
+    } else {
+        let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
+        let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
+        hex::encode(&ct)
+    }
 }
 
 pub fn decrypt(_mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) -> String {
@@ -175,12 +184,21 @@ pub fn decrypt(_mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str)
         key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
     }
     if !iv_text.is_empty() {
-        iv.copy_from_slice(iv_text.as_bytes())
+        let bytes = hex::decode(iv_text).unwrap();
+        iv[..bytes.len()].copy_from_slice(&bytes);
     }
     let mut encrypted_data = hex::decode(encrypted_text).unwrap();
-    let cipher = Aes128CbcDec::new(&key.into(), &iv.into());
-    let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut encrypted_data).unwrap();
-    std::str::from_utf8(pt).unwrap().to_string()
+    if _mode == "aes-128-gcm" {
+        use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Nonce};
+        let cipher = Aes128Gcm::new(&key.into());
+        let nonce = Nonce::from_slice(&iv[0..12]);
+        let pt = cipher.decrypt(nonce, encrypted_data.as_ref()).unwrap();
+        std::str::from_utf8(&pt).unwrap().to_string()
+    } else {
+        let cipher = Aes128CbcDec::new(&key.into(), &iv.into());
+        let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut encrypted_data).unwrap();
+        std::str::from_utf8(pt).unwrap().to_string()
+    }
 }
 
 #[cfg(test)]
@@ -281,12 +299,11 @@ mod tests {
     #[test]
     fn test_aes() {
         let key_pass = "0123456789abcdef";
-        let iv_text = "";
+        let iv_text = "2d069789e6dee8da14aa31b8";
         let plaintext = "Hello World";
-        let encrypted_text = encrypt("aes-128-cbc", plaintext, key_pass, iv_text);
+        let encrypted_text = encrypt("aes-128-gcm", plaintext, key_pass, iv_text);
         println!("{}", encrypted_text);
-        let encrypted_text = "7b9c07a4903c9768ceeeb922bcb33448";
-        let plaintext2 = decrypt("aes-128-cbc", &encrypted_text, key_pass, iv_text);
+        let plaintext2 = decrypt("aes-128-gcm", &encrypted_text, key_pass, iv_text);
         assert_eq!(plaintext, plaintext2);
     }
 }
