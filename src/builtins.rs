@@ -1048,25 +1048,31 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
     env
 }
 
+#[cfg(target_family = "unix")]
 fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
     let procinfo = StrMap::default();
     procinfo.insert("version".into(), VERSION.into());
     procinfo.insert("strftime".into(), "%a %m %e %H:%M:%S %Z %Y".into());
     procinfo.insert("pid".into(), std::process::id().to_string().into());
-    // PROCINFO["sorted_in"]
-    if cfg!(target_family = "unix") {
-        procinfo.insert("platform".into(), "posix".into());
-        unsafe {
-            procinfo.insert("uid".into(), libc::getuid().to_string().into());
-            procinfo.insert("gid".into(), libc::getgid().to_string().into());
-            procinfo.insert("euid".into(), libc::geteuid().to_string().into());
-            procinfo.insert("egid".into(), libc::getegid().to_string().into());
-            procinfo.insert("pgrpid".into(), libc::getpgrp().to_string().into());
-            procinfo.insert("ppid".into(), libc::getppid().to_string().into());
-        }
-    } else if cfg!(target_family = "windows") {
-        procinfo.insert("platform".into(), "windows".into());
+    procinfo.insert("platform".into(), "posix".into());
+    unsafe {
+        procinfo.insert("uid".into(), libc::getuid().to_string().into());
+        procinfo.insert("gid".into(), libc::getgid().to_string().into());
+        procinfo.insert("euid".into(), libc::geteuid().to_string().into());
+        procinfo.insert("egid".into(), libc::getegid().to_string().into());
+        procinfo.insert("pgrpid".into(), libc::getpgrp().to_string().into());
+        procinfo.insert("ppid".into(), libc::getppid().to_string().into());
     }
+    procinfo
+}
+
+#[cfg(target_family = "windows")]
+fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
+    let procinfo = StrMap::default();
+    procinfo.insert("version".into(), VERSION.into());
+    procinfo.insert("strftime".into(), "%a %m %e %H:%M:%S %Z %Y".into());
+    procinfo.insert("pid".into(), std::process::id().to_string().into());
+    procinfo.insert("platform".into(), "windows".into());
     procinfo
 }
 
