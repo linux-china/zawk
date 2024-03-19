@@ -361,6 +361,10 @@ gawk兼容
 
 `variant("week(5)")`: StrMap<Str>
 
+### flags
+
+`flags("{vip,top20}")`: StrMap<Int>
+
 # Math
 
 Floating-point operations: sin, cos, atan, atan2, log, log2, log10, sqrt, exp are delegated to the Rust standard
