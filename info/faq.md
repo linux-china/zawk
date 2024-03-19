@@ -53,4 +53,6 @@ $ duckdb -c "COPY (select * from 'family.parquet') TO 'family.csv' (FORMAT CSV)"
 * flags: `{read,write}`: StrMap<Int>
 
 You can use above functions to parse special types in text. 
-If possible, don't add space in value text.
+If possible, don't add space in value text. 
+
+**Tips**: No matter what type you use, the format should be regular expression friendly.
