@@ -223,6 +223,7 @@ impl Display for Function {
             DateTime => write!(f, "datetime"),
             Shlex => write!(f, "shlex"),
             Tuple => write!(f, "tuple"),
+            Variant => write!(f, "variant"),
             Func => write!(f, "func"),
             HttpGet => write!(f, "http_get"),
             HttpPost => write!(f, "http_post"),

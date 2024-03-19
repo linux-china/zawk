@@ -94,6 +94,7 @@ pub enum Function {
     Shlex,
     Func,
     Tuple,
+    Variant,
     FromJson,
     ToJson,
     VarDump,
@@ -354,6 +355,7 @@ static_map!(
     ["datetime", Function::DateTime],
     ["shlex", Function::Shlex],
     ["tuple", Function::Tuple],
+    ["variant", Function::Variant],
     ["func", Function::Func],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
@@ -677,6 +679,7 @@ impl Function {
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
             Tuple => (smallvec![Str], MapIntStr),
+            Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
             HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
@@ -766,7 +769,7 @@ impl Function {
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
@@ -893,6 +896,12 @@ impl Function {
             Shlex | Func | Tuple => {
                 Ok(Map {
                     key: BaseTy::Int,
+                    val: BaseTy::Str,
+                }.abs())
+            }
+            Variant => {
+                Ok(Map {
+                    key: BaseTy::Str,
                     val: BaseTy::Str,
                 }.abs())
             }

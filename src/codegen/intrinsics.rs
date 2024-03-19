@@ -203,6 +203,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
         [ReadOnly] tuple(str_ref_ty) -> map_ty;
+        [ReadOnly] variant(str_ref_ty) -> map_ty;
         [ReadOnly] func(str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty) -> int_ty;
@@ -1395,6 +1396,12 @@ pub(crate) unsafe extern "C" fn tuple(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = math_util::tuple(text.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn variant(s: *mut U128) -> *mut c_void {
+    let src = &*(s as *mut Str);
+    let version_obj = runtime::math_util::variant(src.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(version_obj)
 }
 
 pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {

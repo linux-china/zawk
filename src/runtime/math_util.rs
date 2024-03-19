@@ -533,6 +533,19 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     version_obj
 }
 
+pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
+    let version_obj: StrMap<Str> = StrMap::default();
+    if let Some(offset) = text.trim().find('(') {
+        let name = &text[0..offset].trim();
+        let value = &text[offset + 1..text.len() - 1].trim();
+        version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
+        version_obj.insert(Str::from("value".to_owned()), Str::from(value.to_string()));
+    } else {
+        version_obj.insert(Str::from("name".to_owned()), Str::from(text.to_string()));
+    }
+    version_obj
+}
+
 const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
 const UNIT: f64 = 1024.0;
 
