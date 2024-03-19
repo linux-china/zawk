@@ -349,6 +349,18 @@ gawk兼容
 
 `_join(arr, ",")` IntMap -> Str
 
+### parse_array
+
+`parse_array("['first','second','third']")`: IntMap<Str>
+
+### tuple
+
+`tuple("(1,2,'first','second')")`: IntMap<Str>
+
+### variant
+
+`variant("week(5)")`: StrMap<Str>
+
 # Math
 
 Floating-point operations: sin, cos, atan, atan2, log, log2, log10, sqrt, exp are delegated to the Rust standard
