@@ -230,6 +230,7 @@ pub(crate) enum Instr<'a> {
     DateTime(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     Shlex(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Tuple(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Flags(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     ParseArray(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Variant(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Func(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -697,6 +698,10 @@ impl<'a> Instr<'a> {
                 text.accum(&mut f);
             }
             Tuple(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Flags(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }

@@ -995,6 +995,7 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
             Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
+            Flags(dst,text) => self.unop(intrinsic!(flags), dst, text),
             ParseArray(dst,text) => self.unop(intrinsic!(parse_array), dst, text),
             Variant(dst,text) => self.unop(intrinsic!(variant), dst, text),
             Func(dst,text) => self.unop(intrinsic!(func), dst, text),

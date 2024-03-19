@@ -203,6 +203,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
         [ReadOnly] tuple(str_ref_ty) -> map_ty;
+        [ReadOnly] flags(str_ref_ty) -> map_ty;
         [ReadOnly] parse_array(str_ref_ty) -> map_ty;
         [ReadOnly] variant(str_ref_ty) -> map_ty;
         [ReadOnly] func(str_ref_ty) -> map_ty;
@@ -1397,6 +1398,12 @@ pub(crate) unsafe extern "C" fn tuple(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = math_util::tuple(text.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn flags(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = math_util::flags(text.as_str());
+    mem::transmute::<StrMap<Int>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn parse_array(text: *mut U128) -> *mut c_void {

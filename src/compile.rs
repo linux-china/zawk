@@ -2160,6 +2160,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Tuple(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Flags => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Flags(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             ParseArray => {
                 if res_reg != UNUSED {
                     self.pushl(LL::ParseArray(res_reg.into(), conv_regs[0].into()))

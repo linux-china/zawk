@@ -274,6 +274,7 @@ pub(crate) mod boilerplate {
             DateTime(dst, timestamp) => f(dst.into(), Some(timestamp.into())),
             Shlex(dst, text) => f(dst.into(), Some(text.into())),
             Tuple(dst, text) => f(dst.into(), Some(text.into())),
+            Flags(dst, text) => f(dst.into(), Some(text.into())),
             ParseArray(dst, text) => f(dst.into(), Some(text.into())),
             Variant(dst, text) => f(dst.into(), Some(text.into())),
             Func(dst, text) => f(dst.into(), Some(text.into())),

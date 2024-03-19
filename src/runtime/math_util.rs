@@ -595,6 +595,18 @@ pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     version_obj
 }
 
+pub(crate) fn flags<'a>(text: &str) -> StrMap<'a, Int> {
+    let flags_obj: StrMap<Int> = StrMap::default();
+    if text.contains('{') {
+        let text = text.trim();
+        let parts = text[0..text.len() - 1].split(',');
+        for part in parts {
+            flags_obj.insert(Str::from(part.trim().to_string()), 1);
+        }
+    }
+    flags_obj
+}
+
 const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
 const UNIT: f64 = 1024.0;
 

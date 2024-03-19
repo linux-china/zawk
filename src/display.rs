@@ -223,6 +223,7 @@ impl Display for Function {
             DateTime => write!(f, "datetime"),
             Shlex => write!(f, "shlex"),
             Tuple => write!(f, "tuple"),
+            Flags => write!(f, "flags"),
             ParseArray => write!(f, "parse_array"),
             Variant => write!(f, "variant"),
             Func => write!(f, "func"),

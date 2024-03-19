@@ -87,6 +87,7 @@ pub enum Function {
     Pairs,
     Record,
     Message,
+    Flags,
     SemVer,
     Path,
     DataUrl,
@@ -351,6 +352,7 @@ static_map!(
     ["pairs", Function::Pairs],
     ["record", Function::Record],
     ["message", Function::Message],
+    ["flags", Function::Flags],
     ["semver", Function::SemVer],
     ["path", Function::Path],
     ["datetime", Function::DateTime],
@@ -681,6 +683,7 @@ impl Function {
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
             Tuple => (smallvec![Str], MapIntStr),
+            Flags => (smallvec![Str], MapStrInt),
             ParseArray => (smallvec![Str], MapIntStr),
             Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
@@ -772,7 +775,7 @@ impl Function {
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
@@ -900,6 +903,12 @@ impl Function {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,
+                }.abs())
+            }
+            Flags => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Int,
                 }.abs())
             }
             Variant => {
