@@ -95,6 +95,7 @@ pub enum Function {
     Func,
     Tuple,
     Variant,
+    ParseArray,
     FromJson,
     ToJson,
     VarDump,
@@ -356,6 +357,7 @@ static_map!(
     ["shlex", Function::Shlex],
     ["tuple", Function::Tuple],
     ["variant", Function::Variant],
+    ["parse_array", Function::ParseArray],
     ["func", Function::Func],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
@@ -679,6 +681,7 @@ impl Function {
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
             Tuple => (smallvec![Str], MapIntStr),
+            ParseArray => (smallvec![Str], MapIntStr),
             Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
@@ -769,7 +772,7 @@ impl Function {
             Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
@@ -893,7 +896,7 @@ impl Function {
                     val: BaseTy::Int,
                 }.abs())
             }
-            Shlex | Func | Tuple => {
+            Shlex | Func | Tuple | ParseArray => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,

@@ -517,6 +517,55 @@ pub(crate) fn tuple<'a>(text: &str) -> IntMap<Str<'a>> {
     result
 }
 
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
+enum ArrayToken<'a> {
+    #[token("[")]
+    LBRACKET,
+    #[token("]")]
+    RBRACKET,
+    #[token(",")]
+    COMMA,
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    LITERAL(&'a str),
+    #[regex(r#""[^"]*""#)]
+    Text(&'a str),
+    #[regex(r#"'[^']*'"#)]
+    Text2(&'a str),
+    #[regex(r#"(\d+)(\.\d+)?"#)]
+    NUM(&'a str),
+}
+
+pub(crate) fn parse_array<'a>(text: &str) -> IntMap<Str<'a>> {
+    let result: IntMap<Str> = IntMap::default();
+    let mut index: i64 = 1;
+    let lexer = ArrayToken::lexer(&text);
+    for token in lexer.into_iter() {
+        if let Ok(attribute) = token {
+            match attribute {
+                ArrayToken::LBRACKET | ArrayToken::RBRACKET | ArrayToken::COMMA => {}
+                ArrayToken::LITERAL(literal) => {
+                    result.insert(index, Str::from(literal.to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::Text(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::Text2(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::NUM(num) => {
+                    result.insert(index, Str::from(num.to_string()));
+                    index = index + 1;
+                }
+            }
+        }
+    }
+    result
+}
+
 pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     let version_obj: StrMap<Str> = StrMap::default();
     if let Ok(version) = Version::parse(text) {

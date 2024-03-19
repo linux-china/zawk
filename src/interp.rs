@@ -878,6 +878,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    ParseArray(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::parse_array(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Variant(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::math_util::variant(src.as_str());
