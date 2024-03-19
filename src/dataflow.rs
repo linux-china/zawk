@@ -262,7 +262,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(pair_sep.into()));
                 f(dst.into(), Some(kv_sep.into()));
             }
-            Attributes(dst, src) => {
+            Record(dst, src) => {
                 f(dst.into(), Some(src.into()));
             }
             Message(dst, src) => {

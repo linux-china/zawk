@@ -222,7 +222,7 @@ pub(crate) enum Instr<'a> {
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Pairs(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Attributes(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    Record(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Message(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     SemVer(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Path(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
@@ -665,7 +665,7 @@ impl<'a> Instr<'a> {
                 pair_sep.accum(&mut f);
                 kv_sep.accum(&mut f);
             }
-            Attributes(dst, src) => {
+            Record(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }

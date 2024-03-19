@@ -2120,9 +2120,9 @@ impl<'a, 'b> View<'a, 'b> {
                                          conv_regs[1].into(), conv_regs[2].into()))
                 }
             }
-            Attributes => {
+            Record => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Attributes(res_reg.into(), conv_regs[0].into()))
+                    self.pushl(LL::Record(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Message => {

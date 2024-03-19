@@ -830,9 +830,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    Attributes(dst, src) => {
+                    Record(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::attributes(src.as_str());
+                        let res = runtime::string_util::record(src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

@@ -194,7 +194,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] encrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
-        [ReadOnly] attributes(str_ref_ty) -> map_ty;
+        [ReadOnly] record(str_ref_ty) -> map_ty;
         [ReadOnly] message(str_ref_ty) -> map_ty;
         [ReadOnly] pairs(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] semver(str_ref_ty) -> map_ty;
@@ -1281,9 +1281,9 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
 
-pub(crate) unsafe extern "C" fn attributes(src: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn record(src: *mut U128) -> *mut c_void {
     let src = &*(src as *mut Str);
-    let arr_obj = runtime::string_util::attributes(src.as_str());
+    let arr_obj = runtime::string_util::record(src.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
 }
 

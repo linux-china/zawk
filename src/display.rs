@@ -215,7 +215,7 @@ impl Display for Function {
             Decrypt => write!(f, "decrypt"),
             Url => write!(f, "url"),
             Pairs => write!(f, "pairs"),
-            Attributes => write!(f, "attributes"),
+            Record => write!(f, "record"),
             Message => write!(f, "message"),
             SemVer => write!(f, "semver"),
             Path => write!(f, "path"),
