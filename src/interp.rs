@@ -872,6 +872,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Tuple(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::tuple(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Func(dst, text) => {
                         let text = index(&self.strs, text);
                         let res = runtime::string_util::func(text.as_str());

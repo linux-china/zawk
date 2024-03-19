@@ -2155,6 +2155,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Shlex(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Tuple => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Tuple(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             Func => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Func(res_reg.into(), conv_regs[0].into()))

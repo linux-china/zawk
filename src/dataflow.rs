@@ -273,6 +273,7 @@ pub(crate) mod boilerplate {
             DataUrl(dst, src) => f(dst.into(), Some(src.into())),
             DateTime(dst, timestamp) => f(dst.into(), Some(timestamp.into())),
             Shlex(dst, text) => f(dst.into(), Some(text.into())),
+            Tuple(dst, text) => f(dst.into(), Some(text.into())),
             Func(dst, text) => f(dst.into(), Some(text.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),

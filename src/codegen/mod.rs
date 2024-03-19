@@ -994,6 +994,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
+            Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
             Func(dst,text) => self.unop(intrinsic!(func), dst, text),
             SqliteQuery(dst,db_path,sql) => {
                 let db_path = self.get_val(db_path.reflect())?;

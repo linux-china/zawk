@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
+use logos::Logos;
 use semver::{Version};
 use snowflake::SnowflakeIdGenerator;
 use crate::runtime::{Float, Int, IntMap, Str, StrMap};
@@ -463,6 +464,55 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     for item in args {
         result.insert(index, Str::from(item));
         index = index + 1;
+    }
+    result
+}
+
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
+enum TupleToken<'a> {
+    #[token("(")]
+    LBRACE,
+    #[token(")")]
+    RBRACE,
+    #[token(",")]
+    COMMA,
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    LITERAL(&'a str),
+    #[regex(r#""[^"]*""#)]
+    Text(&'a str),
+    #[regex(r#"'[^']*'"#)]
+    Text2(&'a str),
+    #[regex(r#"(\d+)(\.\d+)?"#)]
+    NUM(&'a str),
+}
+
+pub(crate) fn tuple<'a>(text: &str) -> IntMap<Str<'a>> {
+    let result: IntMap<Str> = IntMap::default();
+    let mut index: i64 = 1;
+    let lexer = TupleToken::lexer(&text);
+    for token in lexer.into_iter() {
+        if let Ok(attribute) = token {
+            match attribute {
+                TupleToken::LBRACE | TupleToken::RBRACE | TupleToken::COMMA => {}
+                TupleToken::LITERAL(literal) => {
+                    result.insert(index, Str::from(literal.to_string()));
+                    index = index + 1;
+                }
+                TupleToken::Text(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                TupleToken::Text2(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                TupleToken::NUM(num) => {
+                    result.insert(index, Str::from(num.to_string()));
+                    index = index + 1;
+                }
+            }
+        }
     }
     result
 }

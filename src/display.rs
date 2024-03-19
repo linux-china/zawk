@@ -222,6 +222,7 @@ impl Display for Function {
             DataUrl => write!(f, "data_url"),
             DateTime => write!(f, "datetime"),
             Shlex => write!(f, "shlex"),
+            Tuple => write!(f, "tuple"),
             Func => write!(f, "func"),
             HttpGet => write!(f, "http_get"),
             HttpPost => write!(f, "http_post"),
