@@ -233,4 +233,5 @@ run-starts-with:
 run-encrypt:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print encrypt("aes-128-cbc","Hello World", "123456") }' demo.txt
 
-
+run-variant:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print variant("week(5)")["value"] }' demo.txt
