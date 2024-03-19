@@ -235,3 +235,6 @@ run-encrypt:
 
 run-variant:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print variant("week(5)")["value"] }' demo.txt
+
+run-flags:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print flags("{vip,top10}")["top10"] }' demo.txt
