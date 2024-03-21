@@ -503,7 +503,9 @@ Algorithms:
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
 -
+
 encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`, `encrypt("aes-256-gcm", "Secret Text", "your_pass_key","iv")`
+
 - encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
 
 Explain for `encrypt` and `decrypt`:
@@ -626,8 +628,11 @@ date/time array:
 
 ### File
 
-- read file into text: `read_all(file_path)`
+- read file into text: `read_all(file_path)`, `read_all("https://example.com/text.gz")`
 - write text info file: `write_all(file_path, text)`  Replace if file exits.
+
+**Tips**: `read_all` function uses [OneIO](github.com/bgpkit/oneio), and remote(https or ftp) and compressions(
+gz,bz,lz,xz) are supported.
 
 ### getline
 
