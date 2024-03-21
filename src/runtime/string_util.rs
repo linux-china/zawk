@@ -328,6 +328,15 @@ mod tests {
     }
 
     #[test]
+    fn test_cookies() {
+        let cookies_text = "_octo=GH1.1.178216615.1688558702; preferred_color_mode=light; tz=Asia%2FShanghai; _device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; __Host-user_session_same_site=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; tz=Asia%2FShanghai;";
+        let cookies = pairs(cookies_text,";", "=");
+        println!("{}", cookies.get(&Str::from("_octo")).as_str());
+        println!("{}", cookies.get(&Str::from("preferred_color_mode")).as_str());
+        println!("{}", cookies.get(&Str::from("tz")).as_str());
+    }
+
+    #[test]
     fn test_complex_record() {
         let text = r#"http_requests_total{method="hello 你好 ' = : , world",code=200.01}"#;
         let map = record(text);
