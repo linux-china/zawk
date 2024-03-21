@@ -36,7 +36,10 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
 }
 
 pub fn read_all(path: &str) -> String {
-    std::fs::read_to_string(path).unwrap()
+    let mut reader = oneio::get_reader(path).unwrap();
+    let mut text = "".to_string();
+    reader.read_to_string(&mut text).unwrap();
+    text
 }
 
 pub fn write_all(path: &str, content: &str) {
@@ -304,6 +307,12 @@ mod tests {
     }
 
     #[test]
+    fn test_read_all_from_remote() {
+        let content = read_all("https://httpbin.org/ip");
+        println!("{}", content);
+    }
+
+    #[test]
     fn test_write_all() {
         let content = "hello";
         write_all("demo2.txt", content);
@@ -330,7 +339,7 @@ mod tests {
     #[test]
     fn test_cookies() {
         let cookies_text = "_octo=GH1.1.178216615.1688558702; preferred_color_mode=light; tz=Asia%2FShanghai; _device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; __Host-user_session_same_site=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; tz=Asia%2FShanghai;";
-        let cookies = pairs(cookies_text,";", "=");
+        let cookies = pairs(cookies_text, ";", "=");
         println!("{}", cookies.get(&Str::from("_octo")).as_str());
         println!("{}", cookies.get(&Str::from("preferred_color_mode")).as_str());
         println!("{}", cookies.get(&Str::from("tz")).as_str());
