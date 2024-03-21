@@ -253,6 +253,7 @@ Parse pairs text to array(MapStrStr), for example:
 
 * URL query string `id=1&name=Hello%20World1`
 * Trace Context tracestate: `congo=congosSecondPosition,rojo=rojosFirstPosition`
+* Cookies: `pairs(cookies_text, ";", "=")`, such as: `_device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ;`
 
 Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")`.
 
