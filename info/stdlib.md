@@ -253,7 +253,8 @@ Parse pairs text to array(MapStrStr), for example:
 
 * URL query string `id=1&name=Hello%20World1`
 * Trace Context tracestate: `congo=congosSecondPosition,rojo=rojosFirstPosition`
-* Cookies: `pairs(cookies_text, ";", "=")`, such as: `_device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ;`
+* Cookies: `pairs(cookies_text, ";", "=")`, such
+  as: `_device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ;`
 
 Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")`.
 
@@ -501,8 +502,17 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
-- encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")` Now only `aes-128-cbc` and `aes-128-gcm` support
+-
+encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`, `encrypt("aes-256-gcm", "Secret Text", "your_pass_key","iv")`
 - encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
+
+Explain for `encrypt` and `decrypt`:
+
+* mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
+* plaintext — Text that need to be encrypted.
+* key — Encryption key. `16` bytes(16 ascii chars) for `128` and `32` bytes(32 ascii chars) for `256`.
+* iv — Initialization vector. Required for `-gcm` modes, optional for others: hex string with `12` random bytes, such
+  as `e2af9567c7454bce4437dd97`.
 
 # KV
 
