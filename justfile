@@ -238,3 +238,6 @@ run-variant:
 
 run-flags:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print flags("{vip,top10}")["top10"] }' demo.txt
+
+run-version:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print version() }' demo.txt
