@@ -651,6 +651,10 @@ and http://awk.freeshell.org/AllAboutGetline
 - `isarray(x)`,
 - `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
 
+### zawk
+
+- `version()`: return zawk version
+
 # Credits
 
 thanks to:
