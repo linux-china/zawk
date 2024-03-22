@@ -199,6 +199,7 @@ pub(crate) enum Instr<'a> {
     Ulid(Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Whoami(Reg<Str<'a>>),
+    Version(Reg<Str<'a>>),
     Os(Reg<Str<'a>>),
     OsFamily(Reg<Str<'a>>),
     Arch(Reg<Str<'a>>),
@@ -580,7 +581,7 @@ impl<'a> Instr<'a> {
             Ulid(sr) => {
                 sr.accum(&mut f);
             }
-            Whoami(sr) | Os(sr) | OsFamily(sr)
+            Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr)
             | Arch(sr) | Pwd(sr)| UserHome(sr)  => {
                 sr.accum(&mut f);
             }

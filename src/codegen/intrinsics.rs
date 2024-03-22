@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         snowflake(int_ty) -> int_ty;
         ulid(rt_ty) -> str_ty;
         whoami(rt_ty) -> str_ty;
+        version(rt_ty) -> str_ty;
         os(rt_ty) -> str_ty;
         os_family(rt_ty) -> str_ty;
         arch(rt_ty) -> str_ty;
@@ -805,6 +806,10 @@ pub(crate) unsafe extern "C" fn local_ip() -> U128 {
 
 pub(crate) unsafe extern "C" fn whoami() -> U128 {
     mem::transmute::<Str, U128>(Str::from(whoami::username()))
+}
+
+pub(crate) unsafe extern "C" fn version() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(crate::builtins::VERSION))
 }
 
 pub(crate) unsafe extern "C" fn os() -> U128 {

@@ -819,6 +819,11 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(whoami), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Version(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(version), &mut [rt])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Os(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(os), &mut [rt])?;

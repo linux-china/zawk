@@ -34,6 +34,7 @@ pub enum Function {
     Ulid,
     SnowFlake,
     Whoami,
+    Version,
     Os,
     OsFamily,
     Arch,
@@ -323,6 +324,7 @@ static_map!(
     ["ulid", Function::Ulid],
     ["snowflake", Function::SnowFlake],
     ["whoami", Function::Whoami],
+    ["version", Function::Version],
     ["os", Function::Os],
     ["os_family", Function::OsFamily],
     ["arch", Function::Arch],
@@ -668,7 +670,7 @@ impl Function {
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
             Ulid => (smallvec![], Str),
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
@@ -772,7 +774,7 @@ impl Function {
             IntFunc(bw) => bw.arity(),
             UpdateUsedFields | Rand | Ulid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
@@ -863,7 +865,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => {
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             FormatBytes => {

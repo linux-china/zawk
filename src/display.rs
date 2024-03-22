@@ -168,6 +168,7 @@ impl Display for Function {
             SnowFlake => write!(f, "snowflake"),
             LocalIp => write!(f, "local_ip"),
             Whoami => write!(f, "whoami"),
+            Version => write!(f, "version"),
             Os => write!(f, "os"),
             OsFamily => write!(f, "os_family"),
             Arch => write!(f, "arch"),

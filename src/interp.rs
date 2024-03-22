@@ -13,6 +13,7 @@ use regex::bytes::Regex;
 
 use std::mem;
 use std::time::SystemTime;
+use crate::builtins;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -702,6 +703,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Whoami(dst) => {
                         let username = Str::from(whoami::username());
                         *index_mut(&mut self.strs, dst) = username;
+                    }
+                    Version(dst) => {
+                        let zawk_version = Str::from(builtins::VERSION);
+                        *index_mut(&mut self.strs, dst) = zawk_version;
                     }
                     Os(dst) => {
                         let os = Str::from(runtime::os_util::os());
