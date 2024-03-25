@@ -586,9 +586,14 @@ pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     let version_obj: StrMap<Str> = StrMap::default();
     if let Some(offset) = text.trim().find('(') {
         let name = &text[0..offset].trim();
-        let value = &text[offset + 1..text.len() - 1].trim();
+        let mut value = text[offset + 1..text.len() - 1].trim().to_string();
+        if value.starts_with('"') && value.ends_with('"') {
+            value = value[1..value.len() - 1].to_string();
+        } else if (value.starts_with('\'') && value.ends_with('\'')) {
+            value = value[1..value.len() - 1].to_string();
+        }
         version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
-        version_obj.insert(Str::from("value".to_owned()), Str::from(value.to_string()));
+        version_obj.insert(Str::from("value".to_owned()), Str::from(value));
     } else {
         version_obj.insert(Str::from("name".to_owned()), Str::from(text.to_string()));
     }
