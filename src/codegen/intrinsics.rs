@@ -1526,59 +1526,59 @@ pub(crate) unsafe extern "C" fn dump_map_int_int(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
     let json_text = runtime::json::map_int_int_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntInt: {}", json_text);
+    eprintln!("MapIntInt: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_int_float(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
     let json_text = runtime::json::map_int_float_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntFloat: {}", json_text);
+    eprintln!("MapIntFloat: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_int_str(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
     let json_text = runtime::json::map_int_str_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntStr: {}", json_text);
+    eprintln!("MapIntStr: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_int(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Int>>(arr);
     let json_text = runtime::json::map_str_int_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrInt: {}", json_text);
+    eprintln!("MapStrInt: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_float(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
     let json_text = runtime::json::map_str_float_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrFloat: {}", json_text);
+    eprintln!("MapStrFloat: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_str(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrStr: {}", json_text);
+    eprintln!("MapStrStr: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_str(text: *mut U128) {
     let text = &*(text as *mut Str);
-    println!("Str: {}", text.as_str());
+    eprintln!("Str: {}", text.as_str());
 }
 
 pub(crate) unsafe extern "C" fn dump_int(num: Int) {
-    println!("Int: {}", num);
+    eprintln!("Int: {}", num);
 }
 
 pub(crate) unsafe extern "C" fn dump_float(num: Float) {
-    println!("Float: {}", num);
+    eprintln!("Float: {}", num);
 }
 
 pub(crate) unsafe extern "C" fn dump_null() {
-    println!("Null")
+    eprintln!("Null")
 }
 
 pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {

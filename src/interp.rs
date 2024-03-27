@@ -992,42 +992,42 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     DumpMapIntInt(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));
+                        eprintln!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));
                     }
                     DumpMapIntFloat(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntFloat: {}", runtime::json::map_int_float_to_json(arr));
+                        eprintln!("MapIntFloat: {}", runtime::json::map_int_float_to_json(arr));
                     }
                     DumpMapIntStr(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntStr: {}", runtime::json::map_int_str_to_json(arr));
+                        eprintln!("MapIntStr: {}", runtime::json::map_int_str_to_json(arr));
                     }
                     DumpMapStrInt(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrInt: {}", runtime::json::map_str_int_to_json(arr));
+                        eprintln!("MapStrInt: {}", runtime::json::map_str_int_to_json(arr));
                     }
                     DumpMapStrFloat(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrFloat: {}", runtime::json::map_str_float_to_json(arr));
+                        eprintln!("MapStrFloat: {}", runtime::json::map_str_float_to_json(arr));
                     }
                     DumpMapStrStr(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrStr: {}", runtime::json::map_str_str_to_json(arr));
+                        eprintln!("MapStrStr: {}", runtime::json::map_str_str_to_json(arr));
                     }
                     DumpStr(text) => {
                         let text = self.get(*text);
-                        println!("Str: {}", text.as_str());
+                        eprintln!("Str: {}", text.as_str());
                     }
                     DumpInt(num) => {
                         let num = *self.get(*num);
-                        println!("Int: {}", num);
+                        eprintln!("Int: {}", num);
                     }
                     DumpFloat(num) => {
                         let num = *self.get(*num);
-                        println!("Float: {}", num);
+                        eprintln!("Float: {}", num);
                     }
                     DumpNull() => {
-                       println!("Null");
+                       eprintln!("Null");
                     }
                     MapIntIntAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
