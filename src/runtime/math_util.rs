@@ -589,7 +589,7 @@ pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
         let mut value = text[offset + 1..text.len() - 1].trim().to_string();
         if value.starts_with('"') && value.ends_with('"') {
             value = value[1..value.len() - 1].to_string();
-        } else if (value.starts_with('\'') && value.ends_with('\'')) {
+        } else if value.starts_with('\'') && value.ends_with('\'') {
             value = value[1..value.len() - 1].to_string();
         }
         version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
