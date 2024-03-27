@@ -646,6 +646,8 @@ and http://awk.freeshell.org/AllAboutGetline
 - dump: `var_dump(name)`,
 - logging: `log_debug(msg)`, `log_info()`, `log_warn()`, `log_error()`
 
+**Attention**: dump/logging output will be directed to std err to avoid std output pollution.
+
 ### Reflection
 
 - `isarray(x)`,
