@@ -164,10 +164,12 @@ Return default value if text is empty or not exist.
 
 ### append_if_missing/prepend_if_missing
 
-Add suffix/prefix if missing
+Add suffix/prefix if missing/present
 
 - `append_if_missing("nats://example.com","/") # example.com/`
 - `preappend_if_missing("example.com","https://") # https://example.com`
+- `remove_if_end("demo.json", ".json") # demo`
+- `remove_if_begin("demo.json", "file://./") # file://./demo.json`
 
 ### quote/double_quote
 
