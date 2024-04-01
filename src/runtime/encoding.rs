@@ -18,7 +18,7 @@ pub fn encode(format: &str, text: &str) -> String {
         "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
         "base64url" => URL_SAFE_NO_PAD.encode(text),
-        "zlib2Base64url" => {
+        "zlib2base64url" => {
             let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
             e.write_all(text.as_bytes()).unwrap();
             let compressed_bytes = e.finish().unwrap();
@@ -79,7 +79,7 @@ pub fn decode(format: &str, text: &str) -> String {
                 return text;
             }
         }
-    } else if format == "zlib2Base64url" {
+    } else if format == "zlib2base64url" {
         if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
             let mut d = ZlibDecoder::new(bytes.as_slice());
             let mut s = String::new();
