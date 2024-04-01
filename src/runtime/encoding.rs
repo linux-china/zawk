@@ -189,10 +189,13 @@ mod tests {
 
     #[test]
     fn test_zlib_base64() {
-        let text = "digraph G {Hello->World}";
-        let encoded_text = encode("zlib2Base64url", text);
+        let text = r#"@startuml
+Bob -> Alice : hello
+@enduml
+        "#.trim();
+        let encoded_text = encode("zlib2base64url", text);
         println!("encode: {}", encoded_text);
-        let plain_text = decode("zlib2Base64url", &encoded_text);
+        let plain_text = decode("zlib2base64url", &encoded_text);
         println!("plain: {}", plain_text);
         assert_eq!(text, plain_text);
     }
