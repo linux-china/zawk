@@ -1250,6 +1250,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(prepend_if_missing), &mut [text, prefix])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            RemoveIfBegin(dst,text,prefix) => {
+                let text = self.get_val(text.reflect())?;
+                let prefix = self.get_val(prefix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(remove_if_begin), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            RemoveIfEnd(dst,text,suffix) => {
+                let text = self.get_val(text.reflect())?;
+                let suffix = self.get_val(suffix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(remove_if_end), &mut [text, suffix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Quote(dst,text) => {
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(quote), &mut [text])?;

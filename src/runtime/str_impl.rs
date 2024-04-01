@@ -602,6 +602,24 @@ impl<'a> Str<'a> {
         self.clone()
     }
 
+    pub fn remove_if_begin(&self, prefix: &Str<'a>) -> Str<'a> {
+        let text = self.as_str();
+        let prefix = prefix.as_str();
+        if text.starts_with(prefix) {
+            return Str::from(text[prefix.len()+1..].to_string());
+        }
+        self.clone()
+    }
+
+    pub fn remove_if_end(&self, suffix: &Str<'a>) -> Str<'a> {
+        let text = self.as_str();
+        let suffix = suffix.as_str();
+        if text.ends_with(suffix) {
+            return Str::from(text[0..(text.len() - suffix.len())].to_string());
+        }
+        self.clone()
+    }
+
     pub fn quote(&self) -> Str<'a> {
         let src = self.as_str();
         if src.starts_with('\'') && src.ends_with('\'') {

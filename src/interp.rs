@@ -1392,6 +1392,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).prepend_if_missing(prefix);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    RemoveIfBegin(dst, text, prefix) => {
+                        let prefix = self.get(*prefix);
+                        let dt_text = index(&self.strs, text).remove_if_begin(prefix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    RemoveIfEnd(dst, text, suffix) => {
+                        let suffix = self.get(*suffix);
+                        let dt_text = index(&self.strs, text).remove_if_end(suffix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Quote(dst, text) => {
                         let dt_text = index(&self.strs, text).quote();
                         *index_mut(&mut self.strs, dst) = dt_text;

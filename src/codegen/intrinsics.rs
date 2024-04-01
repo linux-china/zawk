@@ -177,6 +177,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] default_if_empty(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] append_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] prepend_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] remove_if_begin(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] remove_if_end(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] quote(str_ref_ty) -> str_ty;
         [ReadOnly] double_quote(str_ref_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
@@ -1092,6 +1094,20 @@ pub(crate) unsafe extern "C" fn prepend_if_missing(text: *mut U128, prefix: *mut
     let text = &*(text as *mut Str);
     let prefix = &*(prefix as *mut Str);
     let res = text.prepend_if_missing(prefix);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn remove_if_begin(text: *mut U128, prefix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let prefix = &*(prefix as *mut Str);
+    let res = text.remove_if_begin(prefix);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn remove_if_end(text: *mut U128, suffix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let suffix = &*(suffix as *mut Str);
+    let res = text.remove_if_end(suffix);
     mem::transmute::<Str, U128>(res)
 }
 

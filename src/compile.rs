@@ -2063,6 +2063,24 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            RemoveIfEnd => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RemoveIfEnd(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            RemoveIfBegin => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RemoveIfBegin(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Quote => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Quote(

@@ -330,6 +330,8 @@ pub(crate) enum Instr<'a> {
     DefaultIfEmpty(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     AppendIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     PrependIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    RemoveIfEnd(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    RemoveIfBegin(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Quote(Reg<Str<'a>>, Reg<Str<'a>>),
     DoubleQuote(Reg<Str<'a>>, Reg<Str<'a>>),
     Words(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -1079,6 +1081,16 @@ impl<'a> Instr<'a> {
                 suffix.accum(&mut f);
             }
             PrependIfMissing(dst, text, prefix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                prefix.accum(&mut f);
+            }
+            RemoveIfEnd(dst, text, suffix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                suffix.accum(&mut f);
+            }
+            RemoveIfBegin(dst, text, prefix ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 prefix.accum(&mut f);

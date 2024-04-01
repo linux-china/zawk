@@ -438,6 +438,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(prefix.into()));
             }
+            RemoveIfBegin(dst, text, prefix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(prefix.into()));
+            }
+            RemoveIfEnd(dst, text, suffix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(suffix.into()));
+            }
             Quote(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

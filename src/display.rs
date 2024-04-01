@@ -202,6 +202,8 @@ impl Display for Function {
             DefaultIfEmpty => write!(f, "default_if_empty"),
             AppendIfMissing => write!(f, "append_if_missing"),
             PrependIfMissing => write!(f, "prepend_if_missing"),
+            RemoveIfEnd => write!(f, "remove_if_end"),
+            RemoveIfBegin => write!(f, "remove_if_begin"),
             Quote => write!(f, "quote"),
             DoubleQuote => write!(f, "double_quote"),
             Words => write!(f, "words"),
