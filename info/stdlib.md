@@ -471,7 +471,8 @@ Formats:
 - `base58`
 - `base62`
 - `base64`,
-- `base64url`,
+- `base64url`: url safe without pad
+- `zlib2base64url`: zlib then base64url, good for online diagram service, such as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/) 
 - `url`,
 - `hex-base64`,
 - `hex-base64url`,
