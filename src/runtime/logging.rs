@@ -5,7 +5,11 @@ fn init() {
     env_logger::builder()
         .filter_module("cranelift_codegen", LevelFilter::Error)
         .filter_module("cranelift_jit", LevelFilter::Error)
-        .filter_level(LevelFilter::Debug).init();
+        .filter_module("reqwest", LevelFilter::Error)
+        .filter_module("hyper_util", LevelFilter::Error)
+        .filter_level(LevelFilter::Debug)
+        .target(env_logger::Target::Stderr)
+        .init();
 }
 
 pub fn log_debug(target: &str, text: &str) {

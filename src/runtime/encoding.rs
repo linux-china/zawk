@@ -1,8 +1,12 @@
-use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE, Engine as _};
+use std::io::{Read, Write};
+use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hashbrown::HashMap;
 use urlencoding::{encode as url_encode, decode as url_decode};
 use base58;
 use base58::{FromBase58, ToBase58};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use flate2::read::{ZlibDecoder};
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
 
@@ -13,7 +17,13 @@ pub fn encode(format: &str, text: &str) -> String {
         "base58" => text.as_bytes().to_base58(),
         "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
-        "base64url" => URL_SAFE.encode(text),
+        "base64url" => URL_SAFE_NO_PAD.encode(text),
+        "zlib2base64url" => {
+            let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+            e.write_all(text.as_bytes()).unwrap();
+            let compressed_bytes = e.finish().unwrap();
+            URL_SAFE_NO_PAD.encode(compressed_bytes)
+        }
         "url" => url_encode(text).to_string(),
         "hex" => hex::encode(text),
         "hex-base64" => {
@@ -22,14 +32,14 @@ pub fn encode(format: &str, text: &str) -> String {
         }
         "hex-base64url" => {
             let bytes = hex::decode(text).unwrap();
-            URL_SAFE.encode(&bytes)
+            URL_SAFE_NO_PAD.encode(&bytes)
         }
         "base64-hex" => {
             let bytes = STANDARD.decode(text).unwrap();
             hex::encode(&bytes)
         }
         "base64url-hex" => {
-            let bytes = URL_SAFE.decode(text).unwrap();
+            let bytes = URL_SAFE_NO_PAD.decode(text).unwrap();
             hex::encode(&bytes)
         }
         &_ => {
@@ -64,10 +74,17 @@ pub fn decode(format: &str, text: &str) -> String {
             }
         }
     } else if format == "base64url" {
-        if let Ok(bytes) = URL_SAFE.decode(text) {
+        if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
             if let Ok(text) = String::from_utf8(bytes) {
                 return text;
             }
+        }
+    } else if format == "zlib2base64url" {
+        if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
+            let mut d = ZlibDecoder::new(bytes.as_slice());
+            let mut s = String::new();
+            d.read_to_string(&mut s).unwrap();
+            return s;
         }
     } else if format == "url" {
         if let Ok(url_text) = url_decode(text) {
@@ -168,5 +185,18 @@ mod tests {
         let map2 = data_url(text2);
         println!("{}", map.get(&Str::from("encoding")).as_str());
         println!("{}", map2.get(&Str::from("mime_type")).as_str());
+    }
+
+    #[test]
+    fn test_zlib_base64() {
+        let text = r#"@startuml
+Bob -> Alice : hello
+@enduml
+        "#.trim();
+        let encoded_text = encode("zlib2base64url", text);
+        println!("encode: {}", encoded_text);
+        let plain_text = decode("zlib2base64url", &encoded_text);
+        println!("plain: {}", plain_text);
+        assert_eq!(text, plain_text);
     }
 }

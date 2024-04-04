@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         snowflake(int_ty) -> int_ty;
         ulid(rt_ty) -> str_ty;
         whoami(rt_ty) -> str_ty;
+        version(rt_ty) -> str_ty;
         os(rt_ty) -> str_ty;
         os_family(rt_ty) -> str_ty;
         arch(rt_ty) -> str_ty;
@@ -176,6 +177,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] default_if_empty(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] append_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] prepend_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] remove_if_begin(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] remove_if_end(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] quote(str_ref_ty) -> str_ty;
         [ReadOnly] double_quote(str_ref_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
@@ -194,7 +197,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] encrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
-        [ReadOnly] attributes(str_ref_ty) -> map_ty;
+        [ReadOnly] record(str_ref_ty) -> map_ty;
         [ReadOnly] message(str_ref_ty) -> map_ty;
         [ReadOnly] pairs(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] semver(str_ref_ty) -> map_ty;
@@ -202,6 +205,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] data_url(str_ref_ty) -> map_ty;
         [ReadOnly] datetime(str_ref_ty) -> map_ty;
         [ReadOnly] shlex(str_ref_ty) -> map_ty;
+        [ReadOnly] tuple(str_ref_ty) -> map_ty;
+        [ReadOnly] flags(str_ref_ty) -> map_ty;
+        [ReadOnly] parse_array(str_ref_ty) -> map_ty;
+        [ReadOnly] variant(str_ref_ty) -> map_ty;
         [ReadOnly] func(str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty) -> int_ty;
@@ -803,6 +810,10 @@ pub(crate) unsafe extern "C" fn whoami() -> U128 {
     mem::transmute::<Str, U128>(Str::from(whoami::username()))
 }
 
+pub(crate) unsafe extern "C" fn version() -> U128 {
+    mem::transmute::<Str, U128>(Str::from(crate::builtins::VERSION))
+}
+
 pub(crate) unsafe extern "C" fn os() -> U128 {
     mem::transmute::<Str, U128>(Str::from(runtime::os_util::os()))
 }
@@ -1086,6 +1097,20 @@ pub(crate) unsafe extern "C" fn prepend_if_missing(text: *mut U128, prefix: *mut
     mem::transmute::<Str, U128>(res)
 }
 
+pub(crate) unsafe extern "C" fn remove_if_begin(text: *mut U128, prefix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let prefix = &*(prefix as *mut Str);
+    let res = text.remove_if_begin(prefix);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn remove_if_end(text: *mut U128, suffix: *mut U128) -> U128 {
+    let text = &*(text as *mut Str);
+    let suffix = &*(suffix as *mut Str);
+    let res = text.remove_if_end(suffix);
+    mem::transmute::<Str, U128>(res)
+}
+
 pub(crate) unsafe extern "C" fn quote(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.quote();
@@ -1281,9 +1306,9 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(url_obj)
 }
 
-pub(crate) unsafe extern "C" fn attributes(src: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn record(src: *mut U128) -> *mut c_void {
     let src = &*(src as *mut Str);
-    let arr_obj = runtime::string_util::attributes(src.as_str());
+    let arr_obj = runtime::string_util::record(src.as_str());
     mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
 }
 
@@ -1390,6 +1415,30 @@ pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
+pub(crate) unsafe extern "C" fn tuple(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = math_util::tuple(text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn flags(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = math_util::flags(text.as_str());
+    mem::transmute::<StrMap<Int>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn parse_array(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = math_util::parse_array(text.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn variant(s: *mut U128) -> *mut c_void {
+    let src = &*(s as *mut Str);
+    let version_obj = runtime::math_util::variant(src.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(version_obj)
+}
+
 pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = string_util::func(text.as_str());
@@ -1493,59 +1542,59 @@ pub(crate) unsafe extern "C" fn dump_map_int_int(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
     let json_text = runtime::json::map_int_int_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntInt: {}", json_text);
+    eprintln!("MapIntInt: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_int_float(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
     let json_text = runtime::json::map_int_float_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntFloat: {}", json_text);
+    eprintln!("MapIntFloat: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_int_str(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
     let json_text = runtime::json::map_int_str_to_json(&obj);
     mem::forget(obj);
-    println!("MapIntStr: {}", json_text);
+    eprintln!("MapIntStr: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_int(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Int>>(arr);
     let json_text = runtime::json::map_str_int_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrInt: {}", json_text);
+    eprintln!("MapStrInt: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_float(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Float>>(arr);
     let json_text = runtime::json::map_str_float_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrFloat: {}", json_text);
+    eprintln!("MapStrFloat: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_map_str_str(arr: *mut c_void) {
     let obj = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
     let json_text = runtime::json::map_str_str_to_json(&obj);
     mem::forget(obj);
-    println!("MapStrStr: {}", json_text);
+    eprintln!("MapStrStr: {}", json_text);
 }
 
 pub(crate) unsafe extern "C" fn dump_str(text: *mut U128) {
     let text = &*(text as *mut Str);
-    println!("Str: {}", text.as_str());
+    eprintln!("Str: {}", text.as_str());
 }
 
 pub(crate) unsafe extern "C" fn dump_int(num: Int) {
-    println!("Int: {}", num);
+    eprintln!("Int: {}", num);
 }
 
 pub(crate) unsafe extern "C" fn dump_float(num: Float) {
-    println!("Float: {}", num);
+    eprintln!("Float: {}", num);
 }
 
 pub(crate) unsafe extern "C" fn dump_null() {
-    println!("Null")
+    eprintln!("Null")
 }
 
 pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {

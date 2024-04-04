@@ -34,6 +34,7 @@ pub enum Function {
     Ulid,
     SnowFlake,
     Whoami,
+    Version,
     Os,
     OsFamily,
     Arch,
@@ -72,6 +73,8 @@ pub enum Function {
     DefaultIfEmpty,
     AppendIfMissing,
     PrependIfMissing,
+    RemoveIfEnd,
+    RemoveIfBegin,
     Quote,
     DoubleQuote,
     Escape,
@@ -85,14 +88,18 @@ pub enum Function {
     Decrypt,
     Url,
     Pairs,
-    Attributes,
+    Record,
     Message,
+    Flags,
     SemVer,
     Path,
     DataUrl,
     DateTime,
     Shlex,
     Func,
+    Tuple,
+    Variant,
+    ParseArray,
     FromJson,
     ToJson,
     VarDump,
@@ -319,6 +326,7 @@ static_map!(
     ["ulid", Function::Ulid],
     ["snowflake", Function::SnowFlake],
     ["whoami", Function::Whoami],
+    ["version", Function::Version],
     ["os", Function::Os],
     ["os_family", Function::OsFamily],
     ["arch", Function::Arch],
@@ -346,12 +354,16 @@ static_map!(
     ["data_url", Function::DataUrl],
     ["url", Function::Url],
     ["pairs", Function::Pairs],
-    ["attributes", Function::Attributes],
+    ["record", Function::Record],
     ["message", Function::Message],
+    ["flags", Function::Flags],
     ["semver", Function::SemVer],
     ["path", Function::Path],
     ["datetime", Function::DateTime],
     ["shlex", Function::Shlex],
+    ["tuple", Function::Tuple],
+    ["variant", Function::Variant],
+    ["parse_array", Function::ParseArray],
     ["func", Function::Func],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
@@ -408,6 +420,8 @@ static_map!(
     ["default_if_empty", Function::DefaultIfEmpty],
     ["append_if_missing", Function::AppendIfMissing],
     ["prepend_if_missing", Function::PrependIfMissing],
+    ["remove_if_end", Function::RemoveIfEnd],
+    ["remove_if_begin", Function::RemoveIfBegin],
     ["quote", Function::Quote],
     ["double_quote", Function::DoubleQuote],
     ["words", Function::Words],
@@ -593,7 +607,7 @@ impl Function {
             Min | Max => (smallvec![Str,Str,Str], Str),
             StrCmp => (smallvec![Str,Str], Int),
             DefaultIfEmpty => (smallvec![Str,Str], Str),
-            AppendIfMissing | PrependIfMissing => (smallvec![Str,Str], Str),
+            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => (smallvec![Str,Str], Str),
             Quote | DoubleQuote => (smallvec![Str], Str),
             Seq => (smallvec![Float,Float,Float], MapIntFloat),
             Uniq => (smallvec![MapIntStr, Str], MapIntStr),
@@ -660,7 +674,7 @@ impl Function {
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
             Ulid => (smallvec![], Str),
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
@@ -669,11 +683,15 @@ impl Function {
             Fend => (smallvec![Str], Str),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str,Str,Str], MapStrStr),
-            Attributes => (smallvec![Str], MapStrStr),
+            Record => (smallvec![Str], MapStrStr),
             Message => (smallvec![Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
             DateTime => (smallvec![Str], MapStrInt),
             Shlex => (smallvec![Str], MapIntStr),
+            Tuple => (smallvec![Str], MapIntStr),
+            Flags => (smallvec![Str], MapStrInt),
+            ParseArray => (smallvec![Str], MapIntStr),
+            Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
             HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
@@ -760,16 +778,16 @@ impl Function {
             IntFunc(bw) => bw.arity(),
             UpdateUsedFields | Rand | Ulid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => 0,
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
-            AppendIfMissing | PrependIfMissing => 2,
+            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
-            Attributes | Message => 1,
+            Record | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
             FormatBytes | ToBytes => 1,
@@ -851,7 +869,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
-            Whoami | Os | OsFamily | Arch | Pwd | UserHome => {
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             FormatBytes => {
@@ -866,10 +884,10 @@ impl Function {
             Strtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Repeat => Ok(Scalar(BaseTy::Str).abs()),
             DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
-            AppendIfMissing | PrependIfMissing => Ok(Scalar(BaseTy::Str).abs()),
+            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => Ok(Scalar(BaseTy::Str).abs()),
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
-            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Attributes | Message => {
+            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => {
                 Ok(Map {
                     key: BaseTy::Str,
                     val: BaseTy::Str,
@@ -887,9 +905,21 @@ impl Function {
                     val: BaseTy::Int,
                 }.abs())
             }
-            Shlex | Func => {
+            Shlex | Func | Tuple | ParseArray => {
                 Ok(Map {
                     key: BaseTy::Int,
+                    val: BaseTy::Str,
+                }.abs())
+            }
+            Flags => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Int,
+                }.abs())
+            }
+            Variant => {
+                Ok(Map {
+                    key: BaseTy::Str,
                     val: BaseTy::Str,
                 }.abs())
             }

@@ -199,6 +199,7 @@ pub(crate) enum Instr<'a> {
     Ulid(Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Whoami(Reg<Str<'a>>),
+    Version(Reg<Str<'a>>),
     Os(Reg<Str<'a>>),
     OsFamily(Reg<Str<'a>>),
     Arch(Reg<Str<'a>>),
@@ -222,13 +223,17 @@ pub(crate) enum Instr<'a> {
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Pairs(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Attributes(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    Record(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Message(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     SemVer(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Path(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DataUrl(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     DateTime(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     Shlex(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Tuple(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Flags(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
+    ParseArray(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Variant(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Func(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     TypeOfArray(Reg<Str<'a>>),
@@ -325,6 +330,8 @@ pub(crate) enum Instr<'a> {
     DefaultIfEmpty(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     AppendIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     PrependIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    RemoveIfEnd(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    RemoveIfBegin(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Quote(Reg<Str<'a>>, Reg<Str<'a>>),
     DoubleQuote(Reg<Str<'a>>, Reg<Str<'a>>),
     Words(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -576,7 +583,7 @@ impl<'a> Instr<'a> {
             Ulid(sr) => {
                 sr.accum(&mut f);
             }
-            Whoami(sr) | Os(sr) | OsFamily(sr)
+            Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr)
             | Arch(sr) | Pwd(sr)| UserHome(sr)  => {
                 sr.accum(&mut f);
             }
@@ -665,7 +672,7 @@ impl<'a> Instr<'a> {
                 pair_sep.accum(&mut f);
                 kv_sep.accum(&mut f);
             }
-            Attributes(dst, src) => {
+            Record(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }
@@ -690,6 +697,22 @@ impl<'a> Instr<'a> {
                 timestamp.accum(&mut f);
             }
             Shlex(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Tuple(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Flags(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            ParseArray(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Variant(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
@@ -1058,6 +1081,16 @@ impl<'a> Instr<'a> {
                 suffix.accum(&mut f);
             }
             PrependIfMissing(dst, text, prefix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                prefix.accum(&mut f);
+            }
+            RemoveIfEnd(dst, text, suffix ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                suffix.accum(&mut f);
+            }
+            RemoveIfBegin(dst, text, prefix ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 prefix.accum(&mut f);

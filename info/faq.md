@@ -10,11 +10,12 @@ Time flies, and we need a new Modern AWK to work with DuckDB, ClickHouse, S3, KV
 
 # Why not just contribute to frawk?
 
-frawk is a foundation to zawk for syntax, types, lex etc., 
-and zawk focuses to make AWK more powerful with standard library. 
-Now I'm not sure that developers will accept my changes to frawk, and zawk just experimental work: `zawk = AWK + stdlib`.
+frawk is a foundation to zawk for syntax, types, lex etc.,
+and zawk focuses to make AWK more powerful with standard library.
+Now I'm not sure that developers will accept my changes to frawk, and zawk just experimental
+work: `zawk = AWK + stdlib`.
 
-Frawk still good for text processing, embedded etc., 
+Frawk still good for text processing, embedded etc.,
 and if possible I will contribute some work to frawk, for example:
 
 * Upgrade to Rust 2021
@@ -25,7 +26,7 @@ and if possible I will contribute some work to frawk, for example:
 # zawk will fix some bugs in frawk?
 
 Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for frawk,
-and I will try my best to fix bugs in frawk. 
+and I will try my best to fix bugs in frawk.
 
 # Any roadmap for zawk?
 
@@ -41,3 +42,17 @@ Now I'm not sure about the roadmap, but I will try my best to make zawk more pow
 ```shell
 $ duckdb -c "COPY (select * from 'family.parquet') TO 'family.csv' (FORMAT CSV)"
 ```
+
+# Special types in text
+
+* bool:  `mkbool("true")`
+* Tuple: `tuple("('abc',123)")`: IntMap<Str>
+* Array: `parse_array("[1,2,3]")`: IntMap<Str>
+* Record: `record("{field1:1,field2:'two'}")`: StrMap<Str>
+* variants: `days(30)`, `week(2)`: StrMap<Str>, and key is `name` and `value`.
+* flags: `{read,write}`: StrMap<Int>
+
+You can use above functions to parse special types in text. 
+If possible, don't add space in value text. 
+
+**Tips**: No matter what type you use, the format should be regular expression friendly.

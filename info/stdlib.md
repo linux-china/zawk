@@ -7,7 +7,7 @@ AWK stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
 
 # Text functions
 
-Text is encoding with utf-8 by default. 
+Text is encoding with utf-8 by default.
 
 ### char_at
 
@@ -124,14 +124,14 @@ Trim text with chars with `trim($1, "[]()")`
 
 ### starts_with/ends_with/contains
 
-The return value is `1` or `0`. 
+The return value is `1` or `0`.
 
 - `starts_with($1, "https://")`
 - `ends_with($1, ".com")`
 - `contains($1, "//")`
 
-Why not use regex? Because starts_with/ends_with/contains are easy to use and understand. 
-Most libraries include these functions, and I don't want AWK stdlib weird. 
+Why not use regex? Because starts_with/ends_with/contains are easy to use and understand.
+Most libraries include these functions, and I don't want AWK stdlib weird.
 
 ### mask
 
@@ -164,10 +164,12 @@ Return default value if text is empty or not exist.
 
 ### append_if_missing/prepend_if_missing
 
-Add suffix/prefix if missing
+Add suffix/prefix if missing/present
 
 - `append_if_missing("nats://example.com","/") # example.com/`
 - `preappend_if_missing("example.com","https://") # https://example.com`
+- `remove_if_end("demo.json", ".json") # demo`
+- `remove_if_begin("demo.json", "file://./") # file://./demo.json`
 
 ### quote/double_quote
 
@@ -180,8 +182,8 @@ quote/double text if not quoted/double quoted.
 
 Convert bytes to human-readable format, and vice versa. Units: `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`.
 
- - `format_bytes(1024)`: 1 KB
- - `to_bytes("2 KB")`: 2024
+- `format_bytes(1024)`: 1 KB
+- `to_bytes("2 KB")`: 2024
 
 # Text Escape
 
@@ -249,28 +251,31 @@ array fields:
 
 ### Pairs
 
-Parse pairs text to array(MapStrStr), for example: 
+Parse pairs text to array(MapStrStr), for example:
 
 * URL query string `id=1&name=Hello%20World1`
 * Trace Context tracestate: `congo=congosSecondPosition,rojo=rojosFirstPosition`
+* Cookies: `pairs(cookies_text, ";", "=")`, such
+  as: `_device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ;`
 
 Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;c=d",";","=")`.
 
 **Tips**: if `pairs("id=1&name=Hello%20World","&")`, text will be treated as URL query string, and URL decode will
 be introduced to decode the value automatically.
 
-### Attributes
+### Records
 
 Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",code="200"}`
 
-Usage: 
+Usage:
 
-* `attributes("http_requests_total{method=\"post\",code=\"200\"}")`
-* `attributes("mysql{host=localhost user=root password=123456 database=test}")`
+* `record("http_requests_total{method=\"post\",code=\"200\"}")`
+* `record("mysql{host=localhost user=root password=123456 database=test}")`
 
 ### Message
 
-A message always contains name, headers and boy, and text format is like `http_requests_total{method="post",code="200"}(100)`
+A message(record with body) always contains name, headers and body, and text format is
+like `http_requests_total{method="post",code="200"}(100)`
 
 Usage:
 
@@ -281,8 +286,8 @@ Usage:
 
 Parse function invocation format into `IntMap<Str>`, and 0 indicates function name.
 
-* `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1` 
-* `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan` 
+* `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1`
+* `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan`
 
 # ID generator
 
@@ -348,6 +353,22 @@ gawk兼容
 
 `_join(arr, ",")` IntMap -> Str
 
+### parse_array
+
+`parse_array("['first','second','third']")`: IntMap<Str>
+
+### tuple
+
+`tuple("(1,2,'first','second')")`: IntMap<Str>
+
+### variant
+
+`variant("week(5)")`: StrMap<Str>
+
+### flags
+
+`flags("{vip,top20}")`: StrMap<Int>
+
 # Math
 
 Floating-point operations: sin, cos, atan, atan2, log, log2, log10, sqrt, exp are delegated to the Rust standard
@@ -412,14 +433,14 @@ utc by default.
 https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 
 * `strftime("%Y-%m-%d %H:%M:%S")`
-* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format. 
+* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
 
 ### mktime
 
 please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
-- `mktime("2012 12 21 0 0 0")`: 
-- `mktime("2019-11-29 08:08-08")`: 
+- `mktime("2012 12 21 0 0 0")`:
+- `mktime("2019-11-29 08:08-08")`:
 
 # JSON
 
@@ -452,7 +473,8 @@ Formats:
 - `base58`
 - `base62`
 - `base64`,
-- `base64url`,
+- `base64url`: url safe without pad
+- `zlib2base64url`: zlib then base64url, good for online diagram service, such as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/) 
 - `url`,
 - `hex-base64`,
 - `hex-base64url`,
@@ -483,8 +505,19 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
-- encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")` Now only `aes-128-cbc` and `aes-128-gcm` support
+-
+
+encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`, `encrypt("aes-256-gcm", "Secret Text", "your_pass_key","iv")`
+
 - encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
+
+Explain for `encrypt` and `decrypt`:
+
+* mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
+* plaintext — Text that need to be encrypted.
+* key — Encryption key. `16` bytes(16 ascii chars) for `128` and `32` bytes(32 ascii chars) for `256`.
+* iv — Initialization vector. Required for `-gcm` modes, optional for others: hex string with `12` random bytes, such
+  as `e2af9567c7454bce4437dd97`.
 
 # KV
 
@@ -598,8 +631,11 @@ date/time array:
 
 ### File
 
-- read file into text: `read_all(file_path)`
+- read file into text: `read_all(file_path)`, `read_all("https://example.com/text.gz")`
 - write text info file: `write_all(file_path, text)`  Replace if file exits.
+
+**Tips**: `read_all` function uses [OneIO](github.com/bgpkit/oneio), and remote(https or ftp) and compressions(
+gz,bz,lz,xz) are supported.
 
 ### getline
 
@@ -613,10 +649,16 @@ and http://awk.freeshell.org/AllAboutGetline
 - dump: `var_dump(name)`,
 - logging: `log_debug(msg)`, `log_info()`, `log_warn()`, `log_error()`
 
+**Attention**: dump/logging output will be directed to std err to avoid std output pollution.
+
 ### Reflection
 
 - `isarray(x)`,
 - `typeof(x)` https://www.gnu.org/software/gawk/manual/html_node/Type-Functions.html
+
+### zawk
+
+- `version()`: return zawk version
 
 # Credits
 

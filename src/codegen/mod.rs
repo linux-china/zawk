@@ -819,6 +819,11 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(whoami), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Version(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(version), &mut [rt])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Os(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(os), &mut [rt])?;
@@ -930,7 +935,7 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
-            Attributes(dst,src) => self.unop(intrinsic!(attributes), dst, src),
+            Record(dst,src) => self.unop(intrinsic!(record), dst, src),
             Message(dst,src) => self.unop(intrinsic!(message), dst, src),
             Pairs(dst,src, pair_sep,kv_sep) => {
                 let src = self.get_val(src.reflect())?;
@@ -994,6 +999,10 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
+            Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
+            Flags(dst,text) => self.unop(intrinsic!(flags), dst, text),
+            ParseArray(dst,text) => self.unop(intrinsic!(parse_array), dst, text),
+            Variant(dst,text) => self.unop(intrinsic!(variant), dst, text),
             Func(dst,text) => self.unop(intrinsic!(func), dst, text),
             SqliteQuery(dst,db_path,sql) => {
                 let db_path = self.get_val(db_path.reflect())?;
@@ -1239,6 +1248,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let text = self.get_val(text.reflect())?;
                 let prefix = self.get_val(prefix.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(prepend_if_missing), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            RemoveIfBegin(dst,text,prefix) => {
+                let text = self.get_val(text.reflect())?;
+                let prefix = self.get_val(prefix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(remove_if_begin), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            RemoveIfEnd(dst,text,suffix) => {
+                let text = self.get_val(text.reflect())?;
+                let suffix = self.get_val(suffix.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(remove_if_end), &mut [text, suffix])?;
                 self.bind_val(dst.reflect(),resv)
             }
             Quote(dst,text) => {

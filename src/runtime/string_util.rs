@@ -36,7 +36,10 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
 }
 
 pub fn read_all(path: &str) -> String {
-    std::fs::read_to_string(path).unwrap()
+    let mut reader = oneio::get_reader(path).unwrap();
+    let mut text = "".to_string();
+    reader.read_to_string(&mut text).unwrap();
+    text
 }
 
 pub fn write_all(path: &str, content: &str) {
@@ -65,7 +68,7 @@ use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
-enum AttributesToken<'a> {
+enum RecordToken<'a> {
     #[token("{")]
     LBRACE,
     #[token("}")]
@@ -122,11 +125,11 @@ impl PairState {
 
 /// parse message - `msg_name{key1=value1,key2=value2}(body)`
 pub(crate) fn message(text: &str) -> StrMap<Str> {
-    attributes(text)
+    record(text)
 }
 
-/// parse attributes: `attr_name{key1=value1,key2=value2}`
-pub(crate) fn attributes(text: &str) -> StrMap<Str> {
+/// parse record: `attr_name{key1=value1,key2=value2}`
+pub(crate) fn record(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
     if text.contains('{') {
         let offset = text.find('{').unwrap();
@@ -136,24 +139,24 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
         let mut pair_state = PairState::default();
         let mut body_started = false;
         let mut body = "".to_owned();
-        let lexer = AttributesToken::lexer(&pairs_text);
+        let lexer = RecordToken::lexer(&pairs_text);
         for token in lexer.into_iter() {
             if let Ok(attribute) = token {
                 match attribute {
-                    AttributesToken::COLON | AttributesToken::EQ => { // key parsed
+                    RecordToken::COLON | RecordToken::EQ => { // key parsed
                         pair_state.key_parsed = true;
                     }
-                    AttributesToken::LPAREN => { // body started
+                    RecordToken::LPAREN => { // body started
                         body_started = true;
                     }
-                    AttributesToken::RPAREN => { // boyd end
+                    RecordToken::RPAREN => { // boyd end
                         if !body.is_empty() {
                             map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
                         }
                         body_started = false;
                     }
                     // parse key's value
-                    AttributesToken::LITERAL(literal) if !body_started => { // pair value
+                    RecordToken::LITERAL(literal) if !body_started => { // pair value
                         if pair_state.key_parsed {
                             pair_state.value = literal.to_string();
                             if pair_state.is_legal() {
@@ -164,21 +167,21 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
                             pair_state.key = literal.to_string();
                         }
                     }
-                    AttributesToken::Text(text) if !body_started => { // pair value
+                    RecordToken::Text(text) if !body_started => { // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
                         }
                         pair_state.reset();
                     }
-                    AttributesToken::Text2(text) if !body_started => { // pair value
+                    RecordToken::Text2(text) if !body_started => { // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
                         }
                         pair_state.reset();
                     }
-                    AttributesToken::NUM(num)  if !body_started => { // pair value
+                    RecordToken::NUM(num)  if !body_started => { // pair value
                         pair_state.value = num.to_string();
                         if pair_state.is_legal() {
                             map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
@@ -186,16 +189,16 @@ pub(crate) fn attributes(text: &str) -> StrMap<Str> {
                         pair_state.reset();
                     }
                     // body value
-                    AttributesToken::LITERAL(literal) if body_started => {
+                    RecordToken::LITERAL(literal) if body_started => {
                         body = literal.to_string();
                     }
-                    AttributesToken::NUM(num)  if body_started => {
+                    RecordToken::NUM(num)  if body_started => {
                         body = num.to_string();
                     }
-                    AttributesToken::Text(text) if body_started => {
+                    RecordToken::Text(text) if body_started => {
                         body = text[1..text.len() - 1].to_string();
                     }
-                    AttributesToken::Text2(text) if body_started => {
+                    RecordToken::Text2(text) if body_started => {
                         body = text[1..text.len() - 1].to_string();
                     }
                     _ => {}
@@ -304,6 +307,12 @@ mod tests {
     }
 
     #[test]
+    fn test_read_all_from_remote() {
+        let content = read_all("https://httpbin.org/ip");
+        println!("{}", content);
+    }
+
+    #[test]
     fn test_write_all() {
         let content = "hello";
         write_all("demo2.txt", content);
@@ -318,9 +327,9 @@ mod tests {
     }
 
     #[test]
-    fn test_attributes() {
+    fn test_record() {
         let text = r#"mysql{host=localhost user=root password=123456 database=test}(1)"#;
-        let map = attributes(text);
+        let map = record(text);
         println!("{}", map.get(&Str::from("_")).as_str());
         println!("{}", map.get(&Str::from("host")).as_str());
         println!("{}", map.get(&Str::from("user")).as_str());
@@ -328,9 +337,18 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_attributes() {
+    fn test_cookies() {
+        let cookies_text = "_octo=GH1.1.178216615.1688558702; preferred_color_mode=light; tz=Asia%2FShanghai; _device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; __Host-user_session_same_site=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; tz=Asia%2FShanghai;";
+        let cookies = pairs(cookies_text, ";", "=");
+        println!("{}", cookies.get(&Str::from("_octo")).as_str());
+        println!("{}", cookies.get(&Str::from("preferred_color_mode")).as_str());
+        println!("{}", cookies.get(&Str::from("tz")).as_str());
+    }
+
+    #[test]
+    fn test_complex_record() {
         let text = r#"http_requests_total{method="hello 你好 ' = : , world",code=200.01}"#;
-        let map = attributes(text);
+        let map = record(text);
         println!("{}", map.get(&Str::from("method")).as_str());
         println!("{}", map.get(&Str::from("code")).as_str());
     }

@@ -1730,6 +1730,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Whoami(res_reg.into()))
             }
+            Version => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Version(res_reg.into()))
+            }
             Os => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
@@ -2057,6 +2063,24 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            RemoveIfEnd => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RemoveIfEnd(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            RemoveIfBegin => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RemoveIfBegin(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Quote => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Quote(
@@ -2120,9 +2144,9 @@ impl<'a, 'b> View<'a, 'b> {
                                          conv_regs[1].into(), conv_regs[2].into()))
                 }
             }
-            Attributes => {
+            Record => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Attributes(res_reg.into(), conv_regs[0].into()))
+                    self.pushl(LL::Record(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Message => {
@@ -2153,6 +2177,26 @@ impl<'a, 'b> View<'a, 'b> {
             Shlex => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Shlex(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            Tuple => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Tuple(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            Flags => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Flags(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            ParseArray => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ParseArray(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            Variant => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Variant(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Func => {

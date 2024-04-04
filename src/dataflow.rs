@@ -197,6 +197,7 @@ pub(crate) mod boilerplate {
             SnowFlake(dst, machine_id) => f(dst.into(), Some(machine_id.into())),
             Ulid(dst) => f(dst.into(), None),
             Whoami(dst) => f(dst.into(), None),
+            Version(dst) => f(dst.into(), None),
             Os(dst) => f(dst.into(), None),
             OsFamily(dst) => f(dst.into(), None),
             Arch(dst) => f(dst.into(), None),
@@ -262,7 +263,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(pair_sep.into()));
                 f(dst.into(), Some(kv_sep.into()));
             }
-            Attributes(dst, src) => {
+            Record(dst, src) => {
                 f(dst.into(), Some(src.into()));
             }
             Message(dst, src) => {
@@ -273,6 +274,10 @@ pub(crate) mod boilerplate {
             DataUrl(dst, src) => f(dst.into(), Some(src.into())),
             DateTime(dst, timestamp) => f(dst.into(), Some(timestamp.into())),
             Shlex(dst, text) => f(dst.into(), Some(text.into())),
+            Tuple(dst, text) => f(dst.into(), Some(text.into())),
+            Flags(dst, text) => f(dst.into(), Some(text.into())),
+            ParseArray(dst, text) => f(dst.into(), Some(text.into())),
+            Variant(dst, text) => f(dst.into(), Some(text.into())),
             Func(dst, text) => f(dst.into(), Some(text.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
@@ -432,6 +437,14 @@ pub(crate) mod boilerplate {
             PrependIfMissing(dst, text, prefix) => {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(prefix.into()));
+            }
+            RemoveIfBegin(dst, text, prefix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(prefix.into()));
+            }
+            RemoveIfEnd(dst, text, suffix) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(suffix.into()));
             }
             Quote(dst, text) => {
                 f(dst.into(), Some(text.into()));

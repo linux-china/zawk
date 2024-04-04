@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
+use logos::Logos;
 use semver::{Version};
 use snowflake::SnowflakeIdGenerator;
 use crate::runtime::{Float, Int, IntMap, Str, StrMap};
@@ -467,6 +468,104 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     result
 }
 
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
+enum TupleToken<'a> {
+    #[token("(")]
+    LBRACE,
+    #[token(")")]
+    RBRACE,
+    #[token(",")]
+    COMMA,
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    LITERAL(&'a str),
+    #[regex(r#""[^"]*""#)]
+    Text(&'a str),
+    #[regex(r#"'[^']*'"#)]
+    Text2(&'a str),
+    #[regex(r#"(\d+)(\.\d+)?"#)]
+    NUM(&'a str),
+}
+
+pub(crate) fn tuple<'a>(text: &str) -> IntMap<Str<'a>> {
+    let result: IntMap<Str> = IntMap::default();
+    let mut index: i64 = 1;
+    let lexer = TupleToken::lexer(&text);
+    for token in lexer.into_iter() {
+        if let Ok(attribute) = token {
+            match attribute {
+                TupleToken::LBRACE | TupleToken::RBRACE | TupleToken::COMMA => {}
+                TupleToken::LITERAL(literal) => {
+                    result.insert(index, Str::from(literal.to_string()));
+                    index = index + 1;
+                }
+                TupleToken::Text(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                TupleToken::Text2(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                TupleToken::NUM(num) => {
+                    result.insert(index, Str::from(num.to_string()));
+                    index = index + 1;
+                }
+            }
+        }
+    }
+    result
+}
+
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
+enum ArrayToken<'a> {
+    #[token("[")]
+    LBRACKET,
+    #[token("]")]
+    RBRACKET,
+    #[token(",")]
+    COMMA,
+    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    LITERAL(&'a str),
+    #[regex(r#""[^"]*""#)]
+    Text(&'a str),
+    #[regex(r#"'[^']*'"#)]
+    Text2(&'a str),
+    #[regex(r#"(\d+)(\.\d+)?"#)]
+    NUM(&'a str),
+}
+
+pub(crate) fn parse_array<'a>(text: &str) -> IntMap<Str<'a>> {
+    let result: IntMap<Str> = IntMap::default();
+    let mut index: i64 = 1;
+    let lexer = ArrayToken::lexer(&text);
+    for token in lexer.into_iter() {
+        if let Ok(attribute) = token {
+            match attribute {
+                ArrayToken::LBRACKET | ArrayToken::RBRACKET | ArrayToken::COMMA => {}
+                ArrayToken::LITERAL(literal) => {
+                    result.insert(index, Str::from(literal.to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::Text(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::Text2(text) => {
+                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
+                    index = index + 1;
+                }
+                ArrayToken::NUM(num) => {
+                    result.insert(index, Str::from(num.to_string()));
+                    index = index + 1;
+                }
+            }
+        }
+    }
+    result
+}
+
 pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     let version_obj: StrMap<Str> = StrMap::default();
     if let Ok(version) = Version::parse(text) {
@@ -481,6 +580,36 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
         }
     }
     version_obj
+}
+
+pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
+    let version_obj: StrMap<Str> = StrMap::default();
+    if let Some(offset) = text.trim().find('(') {
+        let name = &text[0..offset].trim();
+        let mut value = text[offset + 1..text.len() - 1].trim().to_string();
+        if value.starts_with('"') && value.ends_with('"') {
+            value = value[1..value.len() - 1].to_string();
+        } else if value.starts_with('\'') && value.ends_with('\'') {
+            value = value[1..value.len() - 1].to_string();
+        }
+        version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
+        version_obj.insert(Str::from("value".to_owned()), Str::from(value));
+    } else {
+        version_obj.insert(Str::from("name".to_owned()), Str::from(text.to_string()));
+    }
+    version_obj
+}
+
+pub(crate) fn flags<'a>(text: &str) -> StrMap<'a, Int> {
+    let flags_obj: StrMap<Int> = StrMap::default();
+    if text.contains('{') {
+        let text = text.trim();
+        let parts = text[0..text.len() - 1].split(',');
+        for part in parts {
+            flags_obj.insert(Str::from(part.trim().to_string()), 1);
+        }
+    }
+    flags_obj
 }
 
 const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];

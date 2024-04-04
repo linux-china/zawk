@@ -13,6 +13,7 @@ use regex::bytes::Regex;
 
 use std::mem;
 use std::time::SystemTime;
+use crate::builtins;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
 
@@ -703,6 +704,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let username = Str::from(whoami::username());
                         *index_mut(&mut self.strs, dst) = username;
                     }
+                    Version(dst) => {
+                        let zawk_version = Str::from(builtins::VERSION);
+                        *index_mut(&mut self.strs, dst) = zawk_version;
+                    }
                     Os(dst) => {
                         let os = Str::from(runtime::os_util::os());
                         *index_mut(&mut self.strs, dst) = os;
@@ -830,9 +835,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    Attributes(dst, src) => {
+                    Record(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::attributes(src.as_str());
+                        let res = runtime::string_util::record(src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -869,6 +874,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Shlex(dst, text) => {
                         let text = index(&self.strs, text);
                         let res = runtime::math_util::shlex(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Tuple(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::tuple(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Flags(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::flags(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    ParseArray(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::parse_array(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Variant(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res = runtime::math_util::variant(src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -963,42 +992,42 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     DumpMapIntInt(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));
+                        eprintln!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));
                     }
                     DumpMapIntFloat(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntFloat: {}", runtime::json::map_int_float_to_json(arr));
+                        eprintln!("MapIntFloat: {}", runtime::json::map_int_float_to_json(arr));
                     }
                     DumpMapIntStr(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapIntStr: {}", runtime::json::map_int_str_to_json(arr));
+                        eprintln!("MapIntStr: {}", runtime::json::map_int_str_to_json(arr));
                     }
                     DumpMapStrInt(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrInt: {}", runtime::json::map_str_int_to_json(arr));
+                        eprintln!("MapStrInt: {}", runtime::json::map_str_int_to_json(arr));
                     }
                     DumpMapStrFloat(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrFloat: {}", runtime::json::map_str_float_to_json(arr));
+                        eprintln!("MapStrFloat: {}", runtime::json::map_str_float_to_json(arr));
                     }
                     DumpMapStrStr(arr) => {
                         let arr = self.get(*arr);
-                        println!("MapStrStr: {}", runtime::json::map_str_str_to_json(arr));
+                        eprintln!("MapStrStr: {}", runtime::json::map_str_str_to_json(arr));
                     }
                     DumpStr(text) => {
                         let text = self.get(*text);
-                        println!("Str: {}", text.as_str());
+                        eprintln!("Str: {}", text.as_str());
                     }
                     DumpInt(num) => {
                         let num = *self.get(*num);
-                        println!("Int: {}", num);
+                        eprintln!("Int: {}", num);
                     }
                     DumpFloat(num) => {
                         let num = *self.get(*num);
-                        println!("Float: {}", num);
+                        eprintln!("Float: {}", num);
                     }
                     DumpNull() => {
-                       println!("Null");
+                       eprintln!("Null");
                     }
                     MapIntIntAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
@@ -1361,6 +1390,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     PrependIfMissing(dst, text, prefix) => {
                         let prefix = self.get(*prefix);
                         let dt_text = index(&self.strs, text).prepend_if_missing(prefix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    RemoveIfBegin(dst, text, prefix) => {
+                        let prefix = self.get(*prefix);
+                        let dt_text = index(&self.strs, text).remove_if_begin(prefix);
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
+                    RemoveIfEnd(dst, text, suffix) => {
+                        let suffix = self.get(*suffix);
+                        let dt_text = index(&self.strs, text).remove_if_end(suffix);
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
                     Quote(dst, text) => {
