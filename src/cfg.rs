@@ -1665,6 +1665,14 @@ where
                     }
                 }
 
+                // bf_insert (item) => bf_insert(item, "_")
+                if bi == builtins::Function::BloomFilterInsert && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b"_"));
+                }
+                // bf_contains(item) => bf_contains(item, "_")
+                if bi == builtins::Function::BloomFilterContains && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b"_"));
+                }
                 // encrypt (mod, text, key) => pair(mod, text, key, "")
                 if bi == builtins::Function::Encrypt && args.len() == 3 {
                     prim_args.push(PrimVal::StrLit(b""));

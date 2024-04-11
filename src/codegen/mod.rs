@@ -1345,6 +1345,18 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(publish), &mut [namespace, body])?;
                 Ok(())
             }
+            BloomFilterInsert(item, group) => {
+                let item = self.get_val(item.reflect())?;
+                let group = self.get_val(group.reflect())?;
+                self.call_void(external!(bf_insert), &mut [item, group])?;
+                Ok(())
+            }
+            BloomFilterContains(dst, item, group) => {
+                let item = self.get_val(item.reflect())?;
+                let group = self.get_val(group.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(bf_contains), &mut [item, group])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;

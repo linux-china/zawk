@@ -187,7 +187,7 @@ impl<'a> Core<'a> {
                 argv: argv.into(),
                 fi: fi.into(),
                 environ: environ.into(),
-                procinfo: procinfo.into()
+                procinfo: procinfo.into(),
             };
             Core {
                 vars,
@@ -685,14 +685,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }
-                    Uuid(dst,version) => {
+                    Uuid(dst, version) => {
                         let version = index(&self.strs, version);
                         let res = Str::from(runtime::math_util::uuid(version.as_str()));
                         *index_mut(&mut self.strs, dst) = res;
                     }
-                    SnowFlake(dst,machine_id) => {
+                    SnowFlake(dst, machine_id) => {
                         let machine_id: i64 = *self.get(*machine_id);
-                        let res =  runtime::math_util::snowflake(machine_id as u16);
+                        let res = runtime::math_util::snowflake(machine_id as u16);
                         let dst = *dst;
                         *self.get_mut(dst) = res
                     }
@@ -861,7 +861,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     DataUrl(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res =  runtime::encoding::data_url(src.as_str());
+                        let res = runtime::encoding::data_url(src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1027,7 +1027,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         eprintln!("Float: {}", num);
                     }
                     DumpNull() => {
-                       eprintln!("Null");
+                        eprintln!("Null");
                     }
                     MapIntIntAsort(dst, arr, target) => {
                         let arr = self.get(*arr);
@@ -1221,6 +1221,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let body = index(&self.strs, body);
                         runtime::network::publish(namespace.as_str(), body.as_str());
                     }
+                    BloomFilterInsert(item, group) => {
+                        let item = index(&self.strs, item);
+                        let group = index(&self.strs, group);
+                        runtime::encoding::bf_insert(item.as_str(), group.as_str());
+                    }
+                    BloomFilterContains(dst, item, group) => {
+                        let item = index(&self.strs, item);
+                        let group = index(&self.strs, group);
+                        let res = runtime::encoding::bf_contains(item.as_str(), group.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Min(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);
@@ -1284,7 +1296,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let prefix = index(&self.strs, prefix);
                         let res = if !text.is_empty() && !prefix.is_empty()
-                                   && text.as_str().starts_with(prefix.as_str()) {
+                            && text.as_str().starts_with(prefix.as_str()) {
                             1
                         } else {
                             0
@@ -1296,9 +1308,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let suffix = index(&self.strs, suffix);
                         let res = if !text.is_empty() && !suffix.is_empty()
-                            &&  text.as_str().ends_with(suffix.as_str()) {
+                            && text.as_str().ends_with(suffix.as_str()) {
                             1
-                        }  else {
+                        } else {
                             0
                         };
                         let dst = *dst;
@@ -1308,9 +1320,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let child = index(&self.strs, child);
                         let res = if !text.is_empty() && !child.is_empty()
-                            &&  text.as_str().contains(child.as_str()) {
+                            && text.as_str().contains(child.as_str()) {
                             1
-                        }  else {
+                        } else {
                             0
                         };
                         let dst = *dst;
@@ -1471,7 +1483,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     StrToInt(ir, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num =  runtime::math_util::strtoint(sr.as_str());
+                        let num = runtime::math_util::strtoint(sr.as_str());
                         let ir = *ir;
                         *self.get_mut(ir) = num;
                     }
@@ -1482,7 +1494,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     StrToFloat(fr, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num =  runtime::math_util::strtonum(sr.as_str());
+                        let num = runtime::math_util::strtonum(sr.as_str());
                         let fr = *fr;
                         *self.get_mut(fr) = num;
                     }
@@ -1713,12 +1725,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, base);
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        let sub_str = text.sub_str((l-1) as usize,r as usize);
+                        let sub_str = text.sub_str((l - 1) as usize, r as usize);
                         *index_mut(&mut self.strs, res) = sub_str;
                     }
                     CharAt(dst, text, index) => {
                         let index = *self.get(*index);
-                        if index <= 0  {
+                        if index <= 0 {
                             panic!("invalid index for chat_at: {}, should start with 1", index)
                         } else {
                             let text = self.get(*text);
