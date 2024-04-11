@@ -370,6 +370,11 @@ gawk兼容
 
 `flags("{vip,top20}")`: StrMap<Int>
 
+### bloom filter
+
+*  `bf_insert(item)` or `bf_insert(item, group)`
+*  `bf_contains(item)` or `bf_contains(item, group)`
+
 # Math
 
 Floating-point operations: sin, cos, atan, atan2, log, log2, log10, sqrt, exp are delegated to the Rust standard
