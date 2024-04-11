@@ -267,6 +267,8 @@ pub(crate) enum Instr<'a> {
     MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
+    BloomFilterInsert(Reg<Str<'a>>, Reg<Str<'a>>),
+    BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
@@ -802,6 +804,15 @@ impl<'a> Instr<'a> {
             Publish(namespace, body) => {
                 namespace.accum(&mut f);
                 body.accum(&mut f);
+            }
+            BloomFilterInsert(item, group) => {
+                item.accum(&mut f);
+                group.accum(&mut f);
+            }
+            BloomFilterContains(dst, item, group) => {
+                dst.accum(&mut f);
+                item.accum(&mut f);
+                group.accum(&mut f);
             }
             FromJson(dst, src) => {
                 dst.accum(&mut f);

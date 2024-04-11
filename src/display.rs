@@ -263,6 +263,8 @@ impl Display for Function {
             Seq => write!(f, "seq"),
             IntMapJoin => write!(f, "_join"),
             Asort => write!(f, "asort"),
+            BloomFilterInsert => write!(f, "bf_insert"),
+            BloomFilterContains => write!(f, "bf_contains"),
             TypeOfVariable => write!(f, "typeof"),
             IsArray => write!(f, "isarray"),
             IsInt => write!(f, "isint"),

@@ -131,10 +131,26 @@ pub(crate) fn message(text: &str) -> StrMap<Str> {
 /// parse record: `attr_name{key1=value1,key2=value2}`
 pub(crate) fn record(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
-    if text.contains('{') {
+    // table definition: table_name(id integer, value double)
+    if text.contains("(") && text.ends_with(")") {
+        let offset = text.find('(').unwrap();
+        let name = text[0..offset].trim().to_string();
+        if !name.is_empty() {
+            map.insert(Str::from("_".to_owned()), Str::from(name));
+        }
+        let pairs_text = text[offset + 1..text.len() - 1].to_string();
+        for pair in pairs_text.split(",") {
+            let kv: Vec<&str> = pair.trim().split(" ").collect();
+            if kv.len() == 2 {
+                map.insert(Str::from(kv[0].trim().to_string()), Str::from(kv[1].trim().to_string()));
+            }
+        }
+    } else if text.contains('{') { // record_name{id=1,name="hello world"}
         let offset = text.find('{').unwrap();
         let name = text[0..offset].trim().to_string();
-        map.insert(Str::from("_".to_owned()), Str::from(name));
+        if !name.is_empty() {
+            map.insert(Str::from("_".to_owned()), Str::from(name));
+        }
         let pairs_text = text[offset..].to_string();
         let mut pair_state = PairState::default();
         let mut body_started = false;
@@ -334,6 +350,14 @@ mod tests {
         println!("{}", map.get(&Str::from("host")).as_str());
         println!("{}", map.get(&Str::from("user")).as_str());
         println!("body: {}", map.get(&Str::from("_body")).as_str());
+    }
+
+    #[test]
+    fn test_table_record() {
+        let text = r#"table1(id int, age int)"#;
+        let map = record(text);
+        println!("{}", map.get(&Str::from("_")).as_str());
+        println!("{}", map.get(&Str::from("id")).as_str());
     }
 
     #[test]

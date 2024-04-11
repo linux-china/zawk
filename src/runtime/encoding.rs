@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::sync::Mutex;
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hashbrown::HashMap;
 use urlencoding::{encode as url_encode, decode as url_decode};
@@ -7,6 +8,8 @@ use base58::{FromBase58, ToBase58};
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use flate2::read::{ZlibDecoder};
+use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
+use lazy_static::lazy_static;
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
 
@@ -122,6 +125,24 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     return SharedMap::from(map);
 }
 
+lazy_static! {
+    static ref BLOOM_FILTERS: Mutex<HashMap<String, GrowableBloom>> = Mutex::new(HashMap::new());
+}
+
+pub fn bf_insert(item: &str, group: &str) {
+    let mut filters = BLOOM_FILTERS.lock().unwrap();
+    let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
+    filter.insert(item);
+}
+
+pub fn bf_contains(item: &str, group: &str) -> i64 {
+    let filters = BLOOM_FILTERS.lock().unwrap();
+    if let Some(filter) = filters.get(group) {
+        return filter.contains(item) as i64;
+    }
+    return 0;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +219,20 @@ Bob -> Alice : hello
         let plain_text = decode("zlib2base64url", &encoded_text);
         println!("plain: {}", plain_text);
         assert_eq!(text, plain_text);
+    }
+
+    #[test]
+    fn test_bf_insert() {
+        bf_insert("first", "_");
+        assert_eq!(bf_contains("first", "_"), 1);
+    }
+
+    #[test]
+    fn test_bloom_filter() {
+        use growable_bloom_filter::GrowableBloomBuilder;
+        let mut bloom = GrowableBloomBuilder::new().build();
+        bloom.insert("first");
+        assert!(bloom.contains("first"));
+        assert_eq!(bloom.contains("second"), false);
     }
 }

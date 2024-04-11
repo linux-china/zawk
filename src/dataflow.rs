@@ -514,6 +514,12 @@ pub(crate) mod boilerplate {
             }
             Publish( _namespace, _body) => {
             }
+            BloomFilterInsert( _item, _group) => {
+            }
+            BloomFilterContains(dst, item, group) => {
+                f(dst.into(), Some(item.into()));
+                f(dst.into(), Some(group.into()));
+            }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));
                 f(dst.into(), Some(second.into()));

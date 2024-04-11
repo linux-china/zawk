@@ -2413,6 +2413,16 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            BloomFilterInsert => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::BloomFilterInsert(conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            BloomFilterContains => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::BloomFilterContains(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             TypeOfVariable => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

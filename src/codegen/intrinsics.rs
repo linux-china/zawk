@@ -229,6 +229,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         log_warn(rt_ty, str_ref_ty);
         log_error(rt_ty, str_ref_ty);
         publish(str_ref_ty, str_ref_ty);
+        bf_insert(str_ref_ty, str_ref_ty);
+        [ReadOnly] bf_contains(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
@@ -1205,6 +1207,18 @@ pub(crate) unsafe extern "C" fn publish(namespace: *mut U128, body: *mut U128) {
     let namespace = &*(namespace as *mut Str);
     let body = &*(body as *mut Str);
     runtime::network::publish(namespace.as_str(), body.as_str());
+}
+
+pub(crate) unsafe extern "C" fn bf_insert(item: *mut U128, group: *mut U128) {
+    let item = &*(item as *mut Str);
+    let group = &*(group as *mut Str);
+    runtime::encoding::bf_insert(item.as_str(), group.as_str());
+}
+
+pub(crate) unsafe extern "C" fn bf_contains(item: *mut U128, group: *mut U128) -> Int {
+    let item = &*(item as *mut Str);
+    let group = &*(group as *mut Str);
+    runtime::encoding::bf_contains(item.as_str(), group.as_str())
 }
 
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {

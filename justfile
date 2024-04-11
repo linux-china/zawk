@@ -241,3 +241,6 @@ run-flags:
 
 run-version:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print version() }' demo.txt
+
+run-bf:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ bf_insert("first"); print bf_contains("first"), bf_contains(1.1) }' demo.txt

@@ -271,6 +271,7 @@ Usage:
 
 * `record("http_requests_total{method=\"post\",code=\"200\"}")`
 * `record("mysql{host=localhost user=root password=123456 database=test}")`
+* `record("table1(id int, age int)")`: DB table design
 
 ### Message
 
@@ -368,6 +369,11 @@ gawk兼容
 ### flags
 
 `flags("{vip,top20}")`: StrMap<Int>
+
+### bloom filter
+
+*  `bf_insert(item)` or `bf_insert(item, group)`
+*  `bf_contains(item)` or `bf_contains(item, group)`
 
 # Math
 
