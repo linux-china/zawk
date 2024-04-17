@@ -17,6 +17,7 @@ use crate::runtime::{SharedMap, Str};
 pub fn encode(format: &str, text: &str) -> String {
     match format {
         "base32" => base32::encode(base32::Alphabet::RFC4648 { padding: false }, text.as_bytes()),
+        "base32hex" => data_encoding::BASE32HEX_NOPAD.encode(text.as_bytes()),
         "base58" => text.as_bytes().to_base58(),
         "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
@@ -54,6 +55,12 @@ pub fn encode(format: &str, text: &str) -> String {
 pub fn decode(format: &str, text: &str) -> String {
     if format == "base32" {
         if let Some(bytes) = base32::decode(base32::Alphabet::RFC4648 { padding: false }, text) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                return text;
+            }
+        }
+    } else if format == "base32hex" {
+        if let Some(bytes) = data_encoding::BASE32HEX_NOPAD.decode(text.as_bytes()) {
             if let Ok(text) = String::from_utf8(bytes) {
                 return text;
             }
@@ -234,5 +241,14 @@ Bob -> Alice : hello
         bloom.insert("first");
         assert!(bloom.contains("first"));
         assert_eq!(bloom.contains("second"), false);
+    }
+
+    #[test]
+    fn test_base32hex() {
+        use data_encoding::BASE32HEX_NOPAD;
+        let text = "Hello";
+        let encoded_text = BASE32HEX_NOPAD.encode(text.as_bytes());
+        let plain_text = BASE32HEX_NOPAD.decode(encoded_text.as_bytes()).unwrap();
+        assert_eq!(plain_text, text.as_bytes());
     }
 }
