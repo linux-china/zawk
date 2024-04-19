@@ -282,6 +282,28 @@ pub(crate) fn func<'a>(text: &str) -> IntMap<Str<'a>> {
     result
 }
 
+pub fn last_part(text: &str, sep: &str) -> String {
+    if !sep.is_empty() {
+        let parts: Vec<&str> = text.split(sep).collect();
+        if parts.len() > 0 {
+            return parts[parts.len() - 1].to_string();
+        }
+    } else {
+        if text.contains('/') {
+            let parts: Vec<&str> = text.split('/').collect();
+            if parts.len() > 0 {
+                return parts[parts.len() - 1].to_string();
+            }
+        } else if text.contains('.') {
+            let parts: Vec<&str> = text.split('.').collect();
+            if parts.len() > 0 {
+                return parts[parts.len() - 1].to_string();
+            }
+        }
+    }
+    text.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -385,5 +407,11 @@ mod tests {
         for i in 0..len {
             println!("{}", map.get(&(i as i64)).as_str());
         }
+    }
+
+    #[test]
+    fn test_last_part() {
+        let text = "demo/demo.txt";
+        assert_eq!("demo.txt", last_part(text, ""));
     }
 }
