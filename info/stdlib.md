@@ -41,6 +41,15 @@ Like sub, but with all occurrences substituted, not just the first.
 Splits the string s according to fs, placing the results in the array m. If fs is not specified then the FS variable is
 used to split s.
 
+### last_part(s [, sep])
+
+Get last part with sep: `last_part("a/b/c", "/")` to `c`. 
+
+If sep is not provided, zawk will use `/` to search first, if not found, zawk will use `.` to search.
+
+* `last_part("a/b/c")` to `c`
+* `last_part("a.b.c")` to `c`
+
 ### sprintf(fmt, s, ...)
 
 Returns a string formatted according to fmt and provided arguments. The goal is to provide the semantics of the libc
