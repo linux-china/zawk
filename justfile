@@ -244,3 +244,6 @@ run-version:
 
 run-bf:
   cargo run --package zawk --bin zawk -- 'BEGIN{ bf_insert("first"); print bf_contains("first"), bf_contains(1.1) }' demo.txt
+
+run-last-part:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print last_part("o.apache.catalina.core.StandardService") }' demo.txt
