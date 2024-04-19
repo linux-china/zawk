@@ -1546,6 +1546,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            LastPart => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::LastPart(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             CharAt => {
                 if res_reg != UNUSED {
                     self.pushl(LL::CharAt(

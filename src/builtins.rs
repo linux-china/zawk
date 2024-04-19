@@ -137,6 +137,7 @@ pub enum Function {
     Match,
     SubstrIndex,
     SubstrLastIndex,
+    LastPart,
     Sub,
     GSub,
     GenSub,
@@ -472,6 +473,7 @@ static_map!(
     ["srand", Function::Srand],
     ["index", Function::SubstrIndex],
     ["last_index", Function::SubstrLastIndex],
+    ["last_part", Function::LastPart],
     ["toupper", Function::ToUpper],
     ["tolower", Function::ToLower],
     ["system", Function::System],
@@ -608,6 +610,7 @@ impl Function {
                 },
                 Int,
             ),
+            LastPart => (smallvec![Str, Str], Str),
             Min | Max => (smallvec![Str,Str,Str], Str),
             StrCmp => (smallvec![Str,Str], Int),
             DefaultIfEmpty => (smallvec![Str,Str], Str),
@@ -793,6 +796,7 @@ impl Function {
             DefaultIfEmpty => 2,
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
+            LastPart => 2,
             Record | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
@@ -877,6 +881,9 @@ impl Function {
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => {
+                Ok(Scalar(BaseTy::Str).abs())
+            }
+            LastPart => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             FormatBytes => {

@@ -114,6 +114,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         escape_tsv(str_ref_ty) -> str_ty;
         substr(str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] char_at(str_ref_ty, int_ty) -> str_ty;
+        [ReadOnly] last_part(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] get_col(rt_ty, int_ty) -> str_ty;
         [ReadOnly] join_csv(rt_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] join_tsv(rt_ty, int_ty, int_ty) -> str_ty;
@@ -1969,6 +1970,13 @@ pub(crate) unsafe extern "C" fn char_at(text: *mut U128, index: Int) -> U128 {
     let text = &*(text as *mut Str);
     let index = (index - 1) as usize;
     let res = text.char_at(index);
+    mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn last_part(s: *mut U128, sep: *mut U128) -> U128 {
+    let s = &*(s as *mut Str);
+    let sep = &*(sep as *mut Str);
+    let res = Str::from(runtime::string_util::last_part(s.as_str(), sep.as_str()));
     mem::transmute::<Str, U128>(res)
 }
 

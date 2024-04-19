@@ -757,6 +757,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(char_at), &mut [text, index])?;
                 self.bind_val(res.reflect(), resv)
             }
+            LastPart(res, s,sep) => {
+                let s = self.get_val(s.reflect())?;
+                let sep = self.get_val(sep.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(last_part), &mut [s, sep])?;
+                self.bind_val(res.reflect(), resv)
+            }
             LTInt(res, l, r) => self.binop(cmp(Cmp::Lt, false), res, l, r),
             GTInt(res, l, r) => self.binop(cmp(Cmp::Gt, false), res, l, r),
             LTEInt(res, l, r) => self.binop(cmp(Cmp::Lte, false), res, l, r),

@@ -1665,6 +1665,10 @@ where
                     }
                 }
 
+                // last_part (path) => last_path(path, "")
+                if bi == builtins::Function::LastPart && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
                 // bf_insert (item) => bf_insert(item, "_")
                 if bi == builtins::Function::BloomFilterInsert && args.len() == 1 {
                     prim_args.push(PrimVal::StrLit(b"_"));

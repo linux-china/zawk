@@ -1738,6 +1738,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             *index_mut(&mut self.strs, dst) = text.char_at(index);
                         }
                     }
+                    LastPart(res, s, sep) => {
+                        let s = self.get(*s);
+                        let sep = self.get(*sep);
+                        let last_part = runtime::string_util::last_part(s.as_str(), sep.as_str());
+                        *index_mut(&mut self.strs, res) = Str::from(last_part);
+                    }
                     LTFloat(res, l, r) => {
                         let res = *res;
                         let l = *self.get(*l);

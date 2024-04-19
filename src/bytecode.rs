@@ -145,6 +145,7 @@ pub(crate) enum Instr<'a> {
     EscapeTSV(Reg<Str<'a>>, Reg<Str<'a>>),
     Substr(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     CharAt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
+    LastPart(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
 
     // Comparison
     LTFloat(Reg<Int>, Reg<Float>, Reg<Float>),
@@ -1285,6 +1286,11 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 s.accum(&mut f);
                 t.accum(&mut f);
+            }
+            LastPart(res, s, sep) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                sep.accum(&mut f);
             }
             LenStr(res, s) => {
                 res.accum(&mut f);
