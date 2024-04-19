@@ -290,15 +290,9 @@ pub fn last_part(text: &str, sep: &str) -> String {
         }
     } else {
         if text.contains('/') {
-            let parts: Vec<&str> = text.split('/').collect();
-            if parts.len() > 0 {
-                return parts[parts.len() - 1].to_string();
-            }
+            return text.rfind('/').map(|pos| &text[pos + 1..]).unwrap_or(text).to_string();
         } else if text.contains('.') {
-            let parts: Vec<&str> = text.split('.').collect();
-            if parts.len() > 0 {
-                return parts[parts.len() - 1].to_string();
-            }
+            return text.rfind('.').map(|pos| &text[pos + 1..]).unwrap_or(text).to_string();
         }
     }
     text.to_string()
