@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use pad::{Alignment, PadStr};
 use crate::runtime::{IntMap, SharedMap, Str, StrMap};
 
@@ -303,8 +302,8 @@ pub fn last_part(text: &str, sep: &str) -> String {
 /// extract {name} from template, and get matched value from text
 /// for example: template = "hello {name}, welcome to {city}", text = "hello world, welcome to Beijing"
 /// result is {"name": "world", "city": "Beijing"}
-pub fn parse(text: &str, template: &str) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
+pub(crate) fn parse<'a>(text: &'a str, template: &'a str) -> StrMap<'a, Str<'a>> {
+    let mut map = hashbrown::HashMap::new();
     let mut tokens: Vec<String> = vec![];
     let mut names: Vec<String> = vec![];
     let mut sep: String = "".to_string();
@@ -346,10 +345,10 @@ pub fn parse(text: &str, template: &str) -> HashMap<String, String> {
             remain.find(next_token).unwrap_or(remain.len())
         };
         let value = &sub_text[offset..offset + end];
-        map.insert(name.to_string(), value.to_string());
+        map.insert(Str::from(name.to_string()), Str::from(value.to_string()));
         sub_text = &sub_text[offset..];
     }
-    map
+    SharedMap::from(map)
 }
 
 pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
