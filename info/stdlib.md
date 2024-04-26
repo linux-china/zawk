@@ -187,6 +187,11 @@ quote/double text if not quoted/double quoted.
 - `quote("hello world") # 'hello world'`
 - `double_quote("hello world") # "hello world"`
 
+### parse/rparse
+
+- parse: use wild match - `parse("Hello World","{greet} {name}")["greet"]`
+- rparse: use regex group - `rparse("Hello World","(\\w+) (\\w+)")[1]`
+
 ### format_bytes/to_bytes
 
 Convert bytes to human-readable format, and vice versa. Units: `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`.
