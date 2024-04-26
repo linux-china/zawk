@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use pad::{Alignment, PadStr};
 use crate::runtime::{IntMap, SharedMap, Str, StrMap};
 
@@ -298,10 +299,70 @@ pub fn last_part(text: &str, sep: &str) -> String {
     text.to_string()
 }
 
+/// extract {name} from template, and get matched value from text
+/// for example: template = "hello {name}, welcome to {city}", text = "hello world, welcome to Beijing"
+/// result is {"name": "world", "city": "Beijing"}
+pub fn parse(text: &str, template: &str) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    let mut tokens: Vec<String> = vec![];
+    let mut names: Vec<String> = vec![];
+    let mut sep: String = "".to_string();
+    let mut name: String = "".to_string();
+    let mut name_started = false;
+    for c in template.chars() {
+        if c == '{' {
+            tokens.push(sep.to_string());
+            sep.clear();
+            name_started = true;
+        } else if c == '}' {
+            names.push(name.to_string());
+            name.clear();
+            name_started = false;
+        } else if name_started {
+            name.push(c);
+        } else {
+            sep.push(c);
+        }
+    }
+    tokens.push(sep.to_string());
+    let mut sub_text = text;
+    for i in 0..tokens.len() - 1 {
+        let token = &tokens[i];
+        let next_token = &tokens[i + 1];
+        let name = &names[i];
+        let start = if token.is_empty() {
+            0
+        } else if let Some(pos) = sub_text.find(token) {
+            pos
+        } else {
+            break;
+        };
+        let offset = start + token.len();
+        let remain = &sub_text[offset..];
+        let end = if next_token.is_empty() {
+            remain.len()
+        } else {
+            remain.find(next_token).unwrap_or(remain.len())
+        };
+        let value = &sub_text[offset..offset + end];
+        map.insert(name.to_string(), value.to_string());
+        sub_text = &sub_text[offset..];
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
     use super::*;
+
+    #[test]
+    fn test_parse() {
+        let template = "{greet} {name}, welcome to {city}!";
+        let text = "hello world, welcome to Beijing";
+        let map = parse(text, template);
+        println!("{:?}", map);
+    }
 
     #[test]
     fn test_pad_left() {
