@@ -56,3 +56,11 @@ You can use above functions to parse special types in text.
 If possible, don't add space in value text. 
 
 **Tips**: No matter what type you use, the format should be regular expression friendly.
+
+# Nushell integration
+
+Please use `to csv` then pipe output to `zawk` for csv processing.
+
+```shell
+$ ls | to csv  | ^zawk -i csv '{print $1}'
+```
