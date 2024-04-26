@@ -1890,6 +1890,24 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Parse => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Parse(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
+            RegexParse => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RegexParse(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Strtonum => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Strtonum(

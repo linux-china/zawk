@@ -312,6 +312,8 @@ pub(crate) enum Instr<'a> {
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
+    Parse(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    RegexParse(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     FormatBytes(Reg<Str<'a>>, Reg<Int>),
     ToBytes(Reg<Int>, Reg<Str<'a>>),
@@ -998,6 +1000,16 @@ impl<'a> Instr<'a> {
                 src.accum(&mut f);
                 len.accum(&mut f);
                 place_holder.accum(&mut f);
+            }
+            Parse(dst, text, template ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                template.accum(&mut f);
+            }
+            RegexParse(dst, text, template ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                template.accum(&mut f);
             }
             Strtonum(dst, text ) => {
                 dst.accum(&mut f);

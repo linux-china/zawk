@@ -1286,6 +1286,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Parse(dst,text, template) => {
+                let text = self.get_val(text.reflect())?;
+                let template = self.get_val(template.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(parse), &mut [text, template])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            RegexParse(dst,text, template) => {
+                let text = self.get_val(text.reflect())?;
+                let template = self.get_val(template.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(rparse), &mut [text, template])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             KvGet(dst,namespace, key) => {
                 let namespace = self.get_val(namespace.reflect())?;
                 let key = self.get_val(key.reflect())?;

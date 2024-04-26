@@ -361,6 +361,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(len.into()));
                 f(dst.into(), Some(place_holder.into()));
             }
+            Parse(dst, text, template) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(template.into()));
+            }
+            RegexParse(dst, text, template) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(template.into()));
+            }
             Strtonum(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

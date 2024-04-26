@@ -181,6 +181,8 @@ impl Display for Function {
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),
+            Parse => write!(f, "parse"),
+            RegexParse => write!(f, "rparse"),
             Strtonum => write!(f, "strtonum"),
             FormatBytes => write!(f, "format_bytes"),
             ToBytes => write!(f, "to_bytes"),

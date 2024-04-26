@@ -835,6 +835,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Parse(dst, text, template) => {
+                        let text = index(&self.strs, text);
+                        let template = index(&self.strs, template);
+                        let res = runtime::string_util::parse(text.as_str(), template.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    RegexParse(dst, text, template) => {
+                        let text = index(&self.strs, text);
+                        let template = index(&self.strs, template);
+                        let res = runtime::string_util::rparse(text.as_str(), template.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Record(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::string_util::record(src.as_str());

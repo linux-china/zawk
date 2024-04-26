@@ -198,6 +198,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] encrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decrypt(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] url(str_ref_ty) -> map_ty;
+        [ReadOnly] parse(str_ref_ty,str_ref_ty) -> map_ty;
+        [ReadOnly] rparse(str_ref_ty,str_ref_ty) -> map_ty;
         [ReadOnly] record(str_ref_ty) -> map_ty;
         [ReadOnly] message(str_ref_ty) -> map_ty;
         [ReadOnly] pairs(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
@@ -1137,6 +1139,20 @@ pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder:
     let place_holder = &*(place_holder as *mut Str);
     let res = src.truncate(len, place_holder);
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn parse(text: *mut U128, template: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let template = &*(template as *mut Str);
+    let res = string_util::parse(text.as_str(), template.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn rparse(text: *mut U128, template: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let template = &*(template as *mut Str);
+    let res = string_util::rparse(text.as_str(), template.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn kv_get(namespace: *mut U128, key: *mut U128) -> U128 {

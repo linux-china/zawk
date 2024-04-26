@@ -51,6 +51,8 @@ pub enum Function {
     Fend,
     Trim,
     Truncate,
+    Parse,
+    RegexParse,
     Strtonum,
     FormatBytes,
     ToBytes,
@@ -404,6 +406,8 @@ static_map!(
     ["bf_contains", Function::BloomFilterContains],
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
+    ["parse", Function::Parse],
+    ["rparse", Function::RegexParse],
     ["strtonum", Function::Strtonum],
     ["format_bytes", Function::FormatBytes],
     ["to_bytes", Function::ToBytes],
@@ -690,6 +694,8 @@ impl Function {
             Fend => (smallvec![Str], Str),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str,Str,Str], MapStrStr),
+            Parse => (smallvec![Str, Str], MapStrStr),
+            RegexParse => (smallvec![Str, Str], MapIntStr),
             Record => (smallvec![Str], MapStrStr),
             Message => (smallvec![Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
@@ -797,6 +803,7 @@ impl Function {
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
             LastPart => 2,
+            Parse | RegexParse => 2,
             Record | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
@@ -921,6 +928,18 @@ impl Function {
                 Ok(Map {
                     key: BaseTy::Str,
                     val: BaseTy::Int,
+                }.abs())
+            }
+            RegexParse => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Str,
+                }.abs())
+            }
+            Parse => {
+                Ok(Map {
+                    key: BaseTy::Str,
+                    val: BaseTy::Str,
                 }.abs())
             }
             Shlex | Func | Tuple | ParseArray => {
