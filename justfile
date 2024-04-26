@@ -247,3 +247,9 @@ run-bf:
 
 run-last-part:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print last_part("o.apache.catalina.core.StandardService") }' demo.txt
+
+run-parse:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print parse("Hello World","{greet} {name}")["greet"] }' demo.txt
+
+run-rparse:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print rparse("Hello World","(\\w+) (\\w+)")[1] }' demo.txt
