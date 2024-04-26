@@ -66,6 +66,7 @@ pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, 
 }
 
 use logos::Logos;
+use regex::Regex;
 
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
@@ -351,6 +352,18 @@ pub fn parse(text: &str, template: &str) -> HashMap<String, String> {
     map
 }
 
+pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
+    let map: IntMap<Str> = IntMap::default();
+    if let Ok(re) = Regex::new(template) {
+        if let Some(caps) = re.captures(text) {
+            for i in 1..caps.len() {
+                map.insert(i as i64, Str::from(caps.get(i).unwrap().as_str().to_string()));
+            }
+        }
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -361,6 +374,14 @@ mod tests {
         let template = "{greet} {name}, welcome to {city}!";
         let text = "hello world, welcome to Beijing";
         let map = parse(text, template);
+        println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_rparse() {
+        let str = "ABC 01 D2E";
+        let template = r"(\s)(\d+)(\s)";
+        let map = rparse(str, template);
         println!("{:?}", map);
     }
 
