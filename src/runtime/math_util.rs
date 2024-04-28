@@ -634,7 +634,7 @@ pub fn to_bytes(text: &str) -> i64 {
     if offset == 0 {
         return text.parse::<i64>().unwrap_or(0);
     }
-    let unit = &text[offset..].trim().replace('i',"").to_uppercase();
+    let unit = &text[offset..].trim().replace('i', "").to_uppercase();
     // get index from SUFFIX
     let index = SUFFIX.iter().position(|&r| r == unit).unwrap_or(0);
     let num_text = text[0..offset].trim();
@@ -732,5 +732,13 @@ mod tests {
     fn test_to_bytes() {
         let text = "123 kb";
         println!("{}", to_bytes(text));
+    }
+
+    #[test]
+    fn test_parse_array() {
+        let text = "[0 1 'two' 3]";
+        let array = parse_array(text);
+        assert_eq!(array.len(), 4);
+        assert_eq!(array.get(&3).as_str(), "two");
     }
 }
