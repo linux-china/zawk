@@ -103,9 +103,9 @@ mod tests {
 
     #[test]
     fn test_date_parse() {
-        let date_text_items = vec!["Thursday, 20 May 2021"];
+        let date_text_items = vec!["Thursday, 20 May 2021", "2024-04-27 17:07:25.684184848 +08:00"];
         for item in date_text_items {
-            mktime(item, 0);
+            println!("{}", mktime(item, 0));
         }
     }
 
