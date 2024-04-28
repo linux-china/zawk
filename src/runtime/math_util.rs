@@ -630,18 +630,14 @@ pub fn format_bytes(size: i64) -> String {
 
 /// text: 111 B, 11.2 KB 110KB
 pub fn to_bytes(text: &str) -> i64 {
-    let text_len = text.len();
-    if text_len < 2 {
+    let offset = text.find(|c: char| !c.is_numeric()).unwrap_or(0);
+    if offset == 0 {
         return text.parse::<i64>().unwrap_or(0);
     }
-    let unit = &text[text_len - 2..].to_uppercase();
-    if !unit.ends_with("B") {
-        return text.parse::<i64>().unwrap_or(0);
-    }
+    let unit = &text[offset..].trim().replace('i',"").to_uppercase();
     // get index from SUFFIX
     let index = SUFFIX.iter().position(|&r| r == unit).unwrap_or(0);
-    let unit = SUFFIX[index];
-    let num_text = text[0..(text_len - unit.len())].trim();
+    let num_text = text[0..offset].trim();
     let size = num_text.parse::<f64>().unwrap_or(0.0);
     if index == 0 {
         size as i64
@@ -734,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes() {
-        let text = "123 B";
+        let text = "123 kb";
         println!("{}", to_bytes(text));
     }
 }
