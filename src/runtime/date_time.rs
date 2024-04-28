@@ -81,6 +81,22 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     return result;
 }
 
+pub fn duration(text: &str) -> Int {
+    let expr = format!("({}) to second", text);
+    let mut context = fend_core::Context::new();
+    return match fend_core::evaluate(&expr, &mut context) {
+        Ok(result) => {
+            let result = result.get_main_result();
+            if result.contains(' ') {
+                result[0..result.find(' ').unwrap()].parse::<Int>().unwrap()
+            } else {
+                result.parse::<Int>().unwrap()
+            }
+        }
+        Err(error) => { 0 }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +119,11 @@ mod tests {
     fn test_datetime() {
         let result = datetime("1575043680");
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_duration() {
+        let text = "2min + 12sec";
+        println!("{}", duration(text));
     }
 }
