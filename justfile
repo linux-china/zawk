@@ -46,6 +46,9 @@ run-systime:
 run-mktime:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print mktime("2012 12 21 0 0 0") }' demo.txt
 
+run-mktime-nushell:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print mktime("2024-04-27 17:07:25.684184848 +08:00") }' demo.txt
+
 run-strftime:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print strftime() }' demo.txt
   cargo run --package zawk --bin zawk -- 'BEGIN{ print strftime("%Y-%m-%d %H:%M:%S") }' demo.txt
