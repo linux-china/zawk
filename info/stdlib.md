@@ -463,6 +463,14 @@ please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 - `mktime("2012 12 21 0 0 0")`:
 - `mktime("2019-11-29 08:08-08")`:
 
+### Duration
+
+Convert duration to seconds: `duration("2min + 12sec") # 132`.  Time units: `sec, secs`, `min, minute, minutes`, `hour, h`, `day, d`, `week, wk`, `month, mo`, `year, yr`.
+
+* Nushell Durations: https://www.nushell.sh/book/types_of_data.html#durations
+* Fend: https://github.com/printfn/fend/blob/main/core/src/units/builtin.rs
+
+
 # JSON
 
 ### from_json
