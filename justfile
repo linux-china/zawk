@@ -253,3 +253,6 @@ run-parse:
 
 run-rparse:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print rparse("Hello World","(\\w+) (\\w+)")[1] }' demo.txt
+
+run-duration:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print duration("2min + 12sec") }' demo.txt
