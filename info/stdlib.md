@@ -194,7 +194,8 @@ quote/double text if not quoted/double quoted.
 
 ### format_bytes/to_bytes
 
-Convert bytes to human-readable format, and vice versa. Units: `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`.
+Convert bytes to human-readable format, and vice versa. Units(case-insensitive): 
+`B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`, `kib`, `mib`, `gib`, `tib`, `pib`, `eib`, `zib`, `yib`.
 
 - `format_bytes(1024)`: 1 KB
 - `to_bytes("2 KB")`: 2024
