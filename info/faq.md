@@ -64,3 +64,11 @@ Please use `to csv` then pipe output to `zawk` for csv processing.
 ```shell
 $ ls | to csv  | ^zawk -i csv '{print $1}'
 ```
+
+Nushell types support:
+
+* duration: `duration("2min + 32sec")`
+* timestamp: `mktime("2024-04-27 17:07:25.684184848 +08:00")`
+* lists: `parse_array("[0 1 'two' 3]")`
+* file size: `to_bytes("1.5GB")`
+* records: `record("{name:'Nushell', lang: 'Rust'}")`
