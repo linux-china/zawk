@@ -47,6 +47,7 @@ pub enum Function {
     Systime,
     Strftime,
     Mktime,
+    Duration,
     MkBool,
     Fend,
     Trim,
@@ -344,6 +345,7 @@ static_map!(
     ["systime", Function::Systime],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
+    ["duration", Function::Duration],
     ["mkbool", Function::MkBool],
     ["fend", Function::Fend],
     ["trim", Function::Trim],
@@ -690,6 +692,7 @@ impl Function {
             Systime => (smallvec![], Int),
             Strftime => (smallvec![Str, Int], Str),
             Mktime => (smallvec![Str, Int], Int),
+            Duration => (smallvec![Str], Int),
             MkBool => (smallvec![Str], Int),
             Fend => (smallvec![Str], Str),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
@@ -815,6 +818,7 @@ impl Function {
             BloomFilterInsert | BloomFilterContains => 2,
             Encrypt | Decrypt => 4,
             Strftime | Mktime => 2,
+            Duration => 1,
             StrCmp => 2,
             CharAt => 2,
             MkBool => 1,
@@ -878,7 +882,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape

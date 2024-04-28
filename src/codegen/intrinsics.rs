@@ -157,6 +157,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
+        [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
@@ -1241,6 +1242,11 @@ pub(crate) unsafe extern "C" fn bf_contains(item: *mut U128, group: *mut U128) -
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
     runtime::date_time::mktime(dt_text.as_str(), timezone) as Int
+}
+
+pub(crate) unsafe extern "C" fn duration(expr: *mut U128) -> Int {
+    let expr = &*(expr as *mut Str);
+    runtime::date_time::duration(expr.as_str()) as Int
 }
 
 pub(crate) unsafe extern "C" fn min(first: *mut U128, second: *mut U128, third: *mut U128) -> U128 {

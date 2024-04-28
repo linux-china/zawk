@@ -93,7 +93,7 @@ pub fn duration(text: &str) -> Int {
                 result.parse::<Int>().unwrap()
             }
         }
-        Err(error) => { 0 }
+        Err(_) => { 0 }
     };
 }
 

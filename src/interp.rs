@@ -812,6 +812,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    Duration(dst, expr) => {
+                        let expr = index(&self.strs, expr);
+                        let result = runtime::date_time::duration(expr.as_str());
+                        let ir = *dst;
+                        *self.get_mut(ir) = result as Int;
+                    }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
                         let result = runtime::math_util::mkbool(text.as_str());

@@ -938,6 +938,7 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, timezone])?;
                 self.bind_val(dst.reflect(),resv)
             },
+            Duration(dst,expr) => self.unop(intrinsic!(duration), dst, expr),
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),

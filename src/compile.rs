@@ -2141,6 +2141,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Duration => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Duration(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             MkBool => {
                 if res_reg != UNUSED {
                     self.pushl(LL::MkBool(

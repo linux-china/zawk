@@ -177,6 +177,7 @@ impl Display for Function {
             Systime => write!(f, "systime"),
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),
+            Duration => write!(f, "duration"),
             MkBool => write!(f, "mkbool"),
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
