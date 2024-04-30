@@ -327,7 +327,7 @@ fn main() {
             .short('f')
             .num_args(1)
             .action(clap::ArgAction::Append)
-            .help("Read the program source from the file program-file, instead of from the command line. Multiple '-f' options may be used"))
+            .help("Read the program source from the file/url program-file, instead of from the command line. Multiple '-f' options may be used"))
         .arg(Arg::new("opt-level")
             .long("opt-level")
             .short('O')
