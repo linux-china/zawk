@@ -18,6 +18,7 @@ Features:
 * gawk compatible
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
 * i18n support: `length("你好Hello") # 7`, `substr("你好Hello", 1, 2) # 你好`
+* Load awk script from URL
 
 The info subdirectory has more in-depth information on zawk:
 
