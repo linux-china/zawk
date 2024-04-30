@@ -486,12 +486,22 @@ fn main() {
             }
             let mut prog = String::new();
             for pfile in pfiles {
-                match std::fs::read_to_string(pfile) {
-                    Ok(p) => {
-                        prog.push_str(p.as_str());
-                        prog.push('\n');
+                if pfile.starts_with("https://") || pfile.starts_with("http://") {
+                    match reqwest::blocking::get(pfile).unwrap().text() {
+                        Ok(p) => {
+                            prog.push_str(p.as_str());
+                            prog.push('\n');
+                        }
+                        Err(e) => fail!("failed to read program from {}: {}", pfile, e),
                     }
-                    Err(e) => fail!("failed to read program from {}: {}", pfile, e),
+                } else {
+                    match std::fs::read_to_string(pfile) {
+                        Ok(p) => {
+                            prog.push_str(p.as_str());
+                            prog.push('\n');
+                        }
+                        Err(e) => fail!("failed to read program from {}: {}", pfile, e),
+                    }
                 }
             }
             prog
