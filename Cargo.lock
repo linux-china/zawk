@@ -5458,7 +5458,7 @@ dependencies = [
 
 [[package]]
 name = "zawk"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "Inflector",
  "adler",
