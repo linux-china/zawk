@@ -646,6 +646,37 @@ pub fn to_bytes(text: &str) -> i64 {
     }
 }
 
+pub fn hex2rgb(text: &str) -> IntMap<Int> {
+    let result: IntMap<Int> = IntMap::default();
+    // convert hex str to decimal
+    let hex_text = text.trim_start_matches("#");
+    let text_len = hex_text.len();
+    let mut red = 0;
+    let mut green= 0;
+    let mut blue = 0;
+    if text_len < 6 {
+        let hex_text = format!("{:0<6}", hex_text);
+        red = i64::from_str_radix(&hex_text[0..2], 16).unwrap_or(0);
+        green = i64::from_str_radix(&hex_text[2..4], 16).unwrap_or(0);
+        blue = i64::from_str_radix(&hex_text[4..6], 16).unwrap_or(0);
+    } else {
+        red = i64::from_str_radix(&hex_text[0..2], 16).unwrap_or(0);
+        green = i64::from_str_radix(&hex_text[2..4], 16).unwrap_or(0);
+        blue = i64::from_str_radix(&hex_text[4..6], 16).unwrap_or(0);
+    }
+    result.insert(1, red);
+    result.insert(2, green);
+    result.insert(3, blue);
+    result
+}
+
+pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
+    let red = if red < 0 { 0 } else if red > 255 { 255 } else { red };
+    let green = if green < 0 { 0 } else if green > 255 { 255 } else { green };
+    let blue = if blue < 0 { 0 } else if blue > 255 { 255 } else { blue };
+    format!("#{:02X}{:02X}{:02X}", red, green, blue)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -740,5 +771,20 @@ mod tests {
         let array = parse_array(text);
         assert_eq!(array.len(), 4);
         assert_eq!(array.get(&3).as_str(), "two");
+    }
+
+    #[test]
+    fn test_hex2rgb() {
+        let text = "#FFaa5";
+        let rgb = hex2rgb(text);
+        println!("{:?}", rgb);
+    }
+    #[test]
+    fn test_rgb2hex() {
+        let red = 255;
+        let green = 170;
+        let blue = 85;
+        let hex = rgb2hex(red, green, blue);
+        println!("{}", hex);
     }
 }
