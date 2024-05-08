@@ -258,3 +258,9 @@ run-rparse:
 
 run-duration:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print duration("2min + 12sec") }' demo.txt
+
+run-hex2rgb:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print hex2rgb("#FF0000")[1] }' demo.txt
+
+run-rgb2hex:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print rgb2hex(255,0,0) }' demo.txt
