@@ -21,6 +21,7 @@ pub fn encode(format: &str, text: &str) -> String {
         "base58" => text.as_bytes().to_base58(),
         "base62" => base_62::encode(text.as_bytes()),
         "base64" => STANDARD.encode(text),
+        "base85" => base85::encode(text.as_bytes()),
         "base64url" => URL_SAFE_NO_PAD.encode(text),
         "zlib2base64url" => {
             let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
@@ -79,6 +80,12 @@ pub fn decode(format: &str, text: &str) -> String {
         }
     } else if format == "base64" {
         if let Ok(bytes) = STANDARD.decode(text) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                return text;
+            }
+        }
+    } else if format == "base85" {
+        if let Ok(bytes) = base85::decode(text) {
             if let Ok(text) = String::from_utf8(bytes) {
                 return text;
             }
@@ -251,5 +258,15 @@ Bob -> Alice : hello
         let encoded_text = encode("base32hex", text);
         let plain_text = decode("base32hex", &encoded_text);
         assert_eq!(&plain_text, text);
+    }
+
+    #[test]
+    fn test_base85() {
+        let text = "Hello";
+        let encoded_text = base85::encode(text.as_bytes());
+        println!("{}", encoded_text);
+        let bytes = base85::decode(&encoded_text).unwrap();
+        let plain_text = String::from_utf8(bytes).unwrap();
+        assert_eq!(plain_text, text);
     }
 }
