@@ -470,6 +470,12 @@ Convert duration to seconds: `duration("2min + 12sec") # 132`.  Time units: `sec
 * Nushell Durations: https://www.nushell.sh/book/types_of_data.html#durations
 * Fend: https://github.com/printfn/fend/blob/main/core/src/units/builtin.rs
 
+# Color
+
+Convert between hex and rgb.
+
+- `hex2rgb("#FF0000") # [255,0,0]`: result is array `[r,g,b]`
+- `rgb2hex(255,0,0) # #FF0000`
 
 # JSON
 
