@@ -50,8 +50,7 @@ run-mktime-nushell:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print mktime("2024-04-27 17:07:25.684184848 +08:00") }' demo.txt
 
 run-strftime:
-  cargo run --package zawk --bin zawk -- 'BEGIN{ print strftime() }' demo.txt
-  cargo run --package zawk --bin zawk -- 'BEGIN{ print strftime("%Y-%m-%d %H:%M:%S") }' demo.txt
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print strftime(), strftime("%Y-%m-%d %H:%M:%S"), strftime("%Y-%m-%d %H:%M:%S", 1621530000) }' demo.txt
 
 run-abs:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print ceil(-2.1) }' demo.txt
