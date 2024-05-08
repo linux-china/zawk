@@ -702,6 +702,7 @@ thanks to:
 * Rust stdlib: https://doc.rust-lang.org/std/
 * Deno stdlib: https://deno.land/std
 * PHP stdlib: https://www.php.net/manual/en/book.strings.php
+* sttr: https://github.com/abhimanyu003/sttr
 * Java:
     - [commons-lang](https://commons.apache.org/proper/commons-lang/apidocs/org/apache/commons/lang3/StringUtils.html)
     - [SpringFramework StringUtils](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/util/StringUtils.html)
