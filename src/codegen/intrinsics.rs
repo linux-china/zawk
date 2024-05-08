@@ -212,6 +212,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] tuple(str_ref_ty) -> map_ty;
         [ReadOnly] flags(str_ref_ty) -> map_ty;
         [ReadOnly] parse_array(str_ref_ty) -> map_ty;
+        [ReadOnly] hex2rgb(str_ref_ty) -> map_ty;
+        [ReadOnly] rgb2hex(int_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] variant(str_ref_ty) -> map_ty;
         [ReadOnly] func(str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
@@ -1468,6 +1470,17 @@ pub(crate) unsafe extern "C" fn parse_array(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = math_util::parse_array(text.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn hex2rgb(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = math_util::hex2rgb(text.as_str());
+    mem::transmute::<IntMap<Int>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn rgb2hex(red: Int, green: Int, blue: Int) -> U128 {
+    let res = math_util::rgb2hex(red, green, blue);
+    mem::transmute::<Str, U128>(Str::from(res))
 }
 
 pub(crate) unsafe extern "C" fn variant(s: *mut U128) -> *mut c_void {

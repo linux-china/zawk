@@ -103,6 +103,8 @@ pub enum Function {
     Tuple,
     Variant,
     ParseArray,
+    Hex2Rgb,
+    Rgb2Hex,
     FromJson,
     ToJson,
     VarDump,
@@ -371,6 +373,8 @@ static_map!(
     ["tuple", Function::Tuple],
     ["variant", Function::Variant],
     ["parse_array", Function::ParseArray],
+    ["hex2rgb", Function::Hex2Rgb],
+    ["rgb2hex", Function::Rgb2Hex],
     ["func", Function::Func],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
@@ -707,6 +711,8 @@ impl Function {
             Tuple => (smallvec![Str], MapIntStr),
             Flags => (smallvec![Str], MapStrInt),
             ParseArray => (smallvec![Str], MapIntStr),
+            Hex2Rgb => (smallvec![Str], MapIntInt),
+            Rgb2Hex => (smallvec![Int, Int, Int], Str),
             Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
@@ -806,6 +812,8 @@ impl Function {
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
             LastPart => 2,
+            Hex2Rgb => 1,
+            Rgb2Hex => 3,
             Parse | RegexParse => 2,
             Record | Message => 1,
             Quote | DoubleQuote => 1,
@@ -951,6 +959,15 @@ impl Function {
                     key: BaseTy::Int,
                     val: BaseTy::Str,
                 }.abs())
+            }
+            Hex2Rgb => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Int,
+                }.abs())
+            }
+            Rgb2Hex => {
+                Ok(Scalar(BaseTy::Str).abs())
             }
             Flags => {
                 Ok(Map {

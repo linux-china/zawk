@@ -280,6 +280,12 @@ pub(crate) mod boilerplate {
             Tuple(dst, text) => f(dst.into(), Some(text.into())),
             Flags(dst, text) => f(dst.into(), Some(text.into())),
             ParseArray(dst, text) => f(dst.into(), Some(text.into())),
+            Hex2Rgb(dst, text) => f(dst.into(), Some(text.into())),
+            Rgb2Hex(dst, red, green, blue) => {
+                f(dst.into(), Some(red.into()));
+                f(dst.into(), Some(green.into()));
+                f(dst.into(), Some(blue.into()));
+            }
             Variant(dst, text) => f(dst.into(), Some(text.into())),
             Func(dst, text) => f(dst.into(), Some(text.into())),
             FromJson(dst, src) => f(dst.into(), Some(src.into())),

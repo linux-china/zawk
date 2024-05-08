@@ -1009,6 +1009,14 @@ pub(crate) trait CodeGenerator: Backend {
             Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
             Flags(dst,text) => self.unop(intrinsic!(flags), dst, text),
             ParseArray(dst,text) => self.unop(intrinsic!(parse_array), dst, text),
+            Hex2Rgb(dst,text) => self.unop(intrinsic!(hex2rgb), dst, text),
+            Rgb2Hex(dst,red, green, blue) => {
+                let red = self.get_val(red.reflect())?;
+                let green = self.get_val(green.reflect())?;
+                let blue = self.get_val(blue.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(rgb2hex), &mut [red, green, blue])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Variant(dst,text) => self.unop(intrinsic!(variant), dst, text),
             Func(dst,text) => self.unop(intrinsic!(func), dst, text),
             SqliteQuery(dst,db_path,sql) => {

@@ -2229,6 +2229,16 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::ParseArray(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Hex2Rgb => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Hex2Rgb(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            Rgb2Hex => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Rgb2Hex(res_reg.into(), conv_regs[0].into(),conv_regs[1].into(),conv_regs[2].into()))
+                }
+            }
             Variant => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Variant(res_reg.into(), conv_regs[0].into()))

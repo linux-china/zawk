@@ -235,6 +235,8 @@ pub(crate) enum Instr<'a> {
     Tuple(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Flags(Reg<runtime::StrMap<'a, Int>>, Reg<Str<'a>>),
     ParseArray(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Hex2Rgb(Reg<runtime::IntMap<Int>>, Reg<Str<'a>>),
+    Rgb2Hex(Reg<Str<'a>>, Reg<Int>, Reg<Int>, Reg<Int>),
     Variant(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Func(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -721,6 +723,16 @@ impl<'a> Instr<'a> {
             ParseArray(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
+            }
+            Hex2Rgb(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Rgb2Hex(dst, red, green, blue) => {
+                dst.accum(&mut f);
+                red.accum(&mut f);
+                green.accum(&mut f);
+                blue.accum(&mut f);
             }
             Variant(dst, text) => {
                 dst.accum(&mut f);

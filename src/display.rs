@@ -231,6 +231,8 @@ impl Display for Function {
             Tuple => write!(f, "tuple"),
             Flags => write!(f, "flags"),
             ParseArray => write!(f, "parse_array"),
+            Hex2Rgb => write!(f, "hex2rgb"),
+            Rgb2Hex => write!(f, "rgb2hex"),
             Variant => write!(f, "variant"),
             Func => write!(f, "func"),
             HttpGet => write!(f, "http_get"),

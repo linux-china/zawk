@@ -915,6 +915,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Hex2Rgb(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let res = runtime::math_util::hex2rgb(text.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Rgb2Hex(dst, red, green, blue) => {
+                        let red: i64 = *self.get(*red);
+                        let green: i64 = *self.get(*green);
+                        let blue: i64 = *self.get(*blue);
+                        let res = runtime::math_util::rgb2hex(red, green, blue);
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
                     Variant(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::math_util::variant(src.as_str());

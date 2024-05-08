@@ -1665,6 +1665,15 @@ where
                     }
                 }
 
+                // rgb2hex(r) => rgb2hex(r,0,0)
+                if bi == builtins::Function::Rgb2Hex && args.len() == 1 {
+                    prim_args.push(PrimVal::ILit(0));
+                    prim_args.push(PrimVal::ILit(0));
+                }
+                // rgb2hex(r,g) => rgb2hex(r,g,0)
+                if bi == builtins::Function::Rgb2Hex && args.len() == 2 {
+                    prim_args.push(PrimVal::ILit(0));
+                }
                 // last_part (path) => last_path(path, "")
                 if bi == builtins::Function::LastPart && args.len() == 1 {
                     prim_args.push(PrimVal::StrLit(b""));
