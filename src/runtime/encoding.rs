@@ -157,6 +157,17 @@ pub fn bf_contains(item: &str, group: &str) -> i64 {
     return 0;
 }
 
+pub fn bf_icontains(item: &str, group: &str) -> i64 {
+    let mut filters = BLOOM_FILTERS.lock().unwrap();
+    let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
+    return if filter.contains(item) {
+        1
+    } else {
+        filter.insert(item);
+        0
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +252,13 @@ Bob -> Alice : hello
     fn test_bf_insert() {
         bf_insert("first", "_");
         assert_eq!(bf_contains("first", "_"), 1);
+    }
+
+    #[test]
+    fn test_icontains() {
+        println!("first: {}", bf_icontains("first", "_"));
+        println!("second: {}", bf_icontains("second", "_"));
+        println!("first: {}", bf_icontains("first", "_"));
     }
 
     #[test]
