@@ -21,7 +21,6 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
-use crate::builtins::Function::BloomFilterContains;
 use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
 pub(crate) const UNUSED: u32 = u32::max_value();
