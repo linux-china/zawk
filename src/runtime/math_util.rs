@@ -646,7 +646,8 @@ pub fn to_bytes(text: &str) -> i64 {
     }
 }
 
-pub fn hex2rgb(text: &str) -> IntMap<Int> {
+#[allow(unused_assignments)]
+pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
     let result: IntMap<Int> = IntMap::default();
     // convert hex str to decimal
     let hex_text = text.trim_start_matches("#");
