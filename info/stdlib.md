@@ -389,6 +389,9 @@ gawk兼容
 
 *  `bf_insert(item)` or `bf_insert(item, group)`
 *  `bf_contains(item)` or `bf_contains(item, group)`
+*  `bf_icontains(item)` or `bf_icontains(item, group)`: Insert if not found. It's useful for duplication check. 
+
+Find unique phone numbers: `!bf_iconatins(phone) { }`
 
 # Math
 
