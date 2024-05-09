@@ -531,11 +531,11 @@ impl<'a> Str<'a> {
             if let Some(port) = url.port() {
                 map.insert(Str::from("port"), Str::from(port.to_string()));
             }
-
             if url.path() != "" {
-                map.insert(Str::from("path"), Str::from(url.path().to_string()));
+                if let Ok(path) = urlencoding::decode(url.path()) {
+                    map.insert(Str::from("path"), Str::from(path.to_string()));
+                }
             }
-
             if let Some(query) = url.query() {
                 map.insert(Str::from("query"), Str::from(query.to_string()));
             }
@@ -606,7 +606,7 @@ impl<'a> Str<'a> {
         let text = self.as_str();
         let prefix = prefix.as_str();
         if text.starts_with(prefix) {
-            return Str::from(text[prefix.len()+1..].to_string());
+            return Str::from(text[prefix.len() + 1..].to_string());
         }
         self.clone()
     }
@@ -663,13 +663,13 @@ impl<'a> Str<'a> {
     /// index start from 0
     pub fn sub_str<'b>(&self, l: usize, r: usize) -> Str<'b> {
         let text = self.as_str();
-        let len =  text.chars().count();
-         if l >= len {
+        let len = text.chars().count();
+        if l >= len {
             Str::default()
         } else {
             let end = l + r;
             if end > len {
-                let sub: String = text.chars().skip(l).take(len-l).collect();
+                let sub: String = text.chars().skip(l).take(len - l).collect();
                 Str::from(sub)
             } else {
                 let sub: String = text.chars().skip(l).take(r).collect();
@@ -682,9 +682,9 @@ impl<'a> Str<'a> {
     pub fn char_at<'b>(&self, index: usize) -> Str<'b> {
         let text = self.as_str();
         if let Some(c) = text.chars().nth(index) {
-           Str::from(c.to_string())
+            Str::from(c.to_string())
         } else {
-           Str::default()
+            Str::default()
         }
     }
 
