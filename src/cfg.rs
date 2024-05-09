@@ -1664,7 +1664,7 @@ where
                         }
                     }
                 }
-
+                //todo performance enhancement
                 // rgb2hex(r) => rgb2hex(r,0,0)
                 if bi == builtins::Function::Rgb2Hex && args.len() == 1 {
                     prim_args.push(PrimVal::ILit(0));
@@ -1684,6 +1684,10 @@ where
                 }
                 // bf_contains(item) => bf_contains(item, "_")
                 if bi == builtins::Function::BloomFilterContains && args.len() == 1 {
+                    prim_args.push(PrimVal::StrLit(b"_"));
+                }
+                // bf_icontains(item) => bf_icontains(item, "_")
+                if bi == builtins::Function::BloomFilterContainsWithInsert && args.len() == 1 {
                     prim_args.push(PrimVal::StrLit(b"_"));
                 }
                 // encrypt (mod, text, key) => pair(mod, text, key, "")

@@ -1384,6 +1384,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(bf_contains), &mut [item, group])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            BloomFilterContainsWithInsert(dst, item, group) => {
+                let item = self.get_val(item.reflect())?;
+                let group = self.get_val(group.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(bf_icontains), &mut [item, group])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;

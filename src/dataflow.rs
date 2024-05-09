@@ -537,6 +537,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(item.into()));
                 f(dst.into(), Some(group.into()));
             }
+            BloomFilterContainsWithInsert(dst, item, group) => {
+                f(dst.into(), Some(item.into()));
+                f(dst.into(), Some(group.into()));
+            }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));
                 f(dst.into(), Some(second.into()));
