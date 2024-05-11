@@ -35,6 +35,7 @@ pub mod sqlite;
 pub mod mysql;
 pub mod logging;
 pub mod string_util;
+pub mod faker;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
