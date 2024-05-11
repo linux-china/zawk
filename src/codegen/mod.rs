@@ -1390,6 +1390,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(bf_icontains), &mut [item, group])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Fake(dst, data, locale) => {
+                let data = self.get_val(data.reflect())?;
+                let locale = self.get_val(locale.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(fake), &mut [data, locale])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             Min(dst,first, second,third) => {
                let first = self.get_val(first.reflect())?;
                let second = self.get_val(second.reflect())?;

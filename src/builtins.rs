@@ -136,6 +136,7 @@ pub enum Function {
     BloomFilterInsert,
     BloomFilterContains,
     BloomFilterContainsWithInsert,
+    Fake,
     LocalIp,
     Contains,
     Delete,
@@ -412,6 +413,7 @@ static_map!(
     ["bf_insert", Function::BloomFilterInsert],
     ["bf_contains", Function::BloomFilterContains],
     ["bf_icontains", Function::BloomFilterContainsWithInsert],
+    ["fake", Function::Fake],
     ["local_ip", Function::LocalIp],
     ["truncate", Function::Truncate],
     ["parse", Function::Parse],
@@ -761,6 +763,7 @@ impl Function {
             Asort => (smallvec![incoming[0],incoming[0]], Int),
             BloomFilterInsert => (smallvec![Str, Str], Null),
             BloomFilterContains | BloomFilterContainsWithInsert => (smallvec![Str, Str], Int),
+            Fake => (smallvec![Str, Str], Str),
             TypeOfVariable => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
             IsInt => (smallvec![incoming[0]], Int),
@@ -826,6 +829,7 @@ impl Function {
             WriteAll => 2,
             Dejwt => 2,
             BloomFilterInsert | BloomFilterContains | BloomFilterContainsWithInsert => 2,
+            Fake => 2,
             Encrypt | Decrypt => 4,
             Strftime | Mktime => 2,
             Duration => 1,
@@ -901,6 +905,7 @@ impl Function {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
+            Fake => Ok(Scalar(BaseTy::Str).abs()),
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => {
                 Ok(Scalar(BaseTy::Str).abs())
             }

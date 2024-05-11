@@ -274,6 +274,7 @@ pub(crate) enum Instr<'a> {
     BloomFilterInsert(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContainsWithInsert(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Fake(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
@@ -839,6 +840,11 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 item.accum(&mut f);
                 group.accum(&mut f);
+            }
+            Fake(dst, data, locale) => {
+                dst.accum(&mut f);
+                data.accum(&mut f);
+                locale.accum(&mut f);
             }
             FromJson(dst, src) => {
                 dst.accum(&mut f);

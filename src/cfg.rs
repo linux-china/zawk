@@ -1665,6 +1665,11 @@ where
                     }
                 }
                 //todo performance enhancement
+                // fake(data) => fake(data, "")
+                let args_len = args.len();
+                if bi == builtins::Function::Fake && args_len == 1 {
+                    prim_args.push(PrimVal::StrLit(b""));
+                }
                 // rgb2hex(r) => rgb2hex(r,0,0)
                 if bi == builtins::Function::Rgb2Hex && args.len() == 1 {
                     prim_args.push(PrimVal::ILit(0));

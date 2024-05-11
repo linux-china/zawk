@@ -271,6 +271,7 @@ impl Display for Function {
             BloomFilterInsert => write!(f, "bf_insert"),
             BloomFilterContains => write!(f, "bf_contains"),
             BloomFilterContainsWithInsert => write!(f, "bf_icontains"),
+            Fake => write!(f, "fake"),
             TypeOfVariable => write!(f, "typeof"),
             IsArray => write!(f, "isarray"),
             IsInt => write!(f, "isint"),

@@ -1274,6 +1274,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Fake(dst, data, locale) => {
+                        let data = index(&self.strs, data);
+                        let locale = index(&self.strs, locale);
+                        let res = runtime::faker::fake(data.as_str(), locale.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(res);
+                    }
                     Min(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);

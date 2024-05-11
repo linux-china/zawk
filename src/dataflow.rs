@@ -541,6 +541,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(item.into()));
                 f(dst.into(), Some(group.into()));
             }
+            Fake(dst, data, locale) => {
+                f(dst.into(), Some(data.into()));
+                f(dst.into(), Some(locale.into()));
+            }
             Max(dst, first, second, third) => {
                 f(dst.into(), Some(first.into()));
                 f(dst.into(), Some(second.into()));

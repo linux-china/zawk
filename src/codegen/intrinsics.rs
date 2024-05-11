@@ -8,7 +8,7 @@ use crate::runtime::{self, printf::{printf, FormatArg}, splitter::{
     batch::{ByteReader, CSVReader, WhitespaceOffsets},
     chunk::{ChunkProducer, OffsetChunk},
     regex::RegexSplitter,
-}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, math_util, string_util};
+}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, math_util, string_util, faker};
 use crate::{
     builtins::Variable,
     common::{CancelSignal, Cleanup, FileSpec, Notification, Result},
@@ -238,6 +238,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         bf_insert(str_ref_ty, str_ref_ty);
         [ReadOnly] bf_contains(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] bf_icontains(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] fake(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
@@ -1247,6 +1248,14 @@ pub(crate) unsafe extern "C" fn bf_icontains(item: *mut U128, group: *mut U128) 
     let group = &*(group as *mut Str);
     runtime::encoding::bf_icontains(item.as_str(), group.as_str())
 }
+
+pub(crate) unsafe extern "C" fn fake(data: *mut U128, locale: *mut U128) -> U128 {
+    let data = &*(data as *mut Str);
+    let locale = &*(locale as *mut Str);
+    let result = faker::fake(data.as_str(), locale.as_str());
+    mem::transmute::<Str, U128>(Str::from(result))
+}
+
 
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
