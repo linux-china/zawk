@@ -169,8 +169,8 @@ pub(crate) enum PrimExpr<'a> {
 #[derive(Debug)]
 pub(crate) enum PrimStmt<'a> {
     AsgnIndex(
-        Ident,        /* map */
-        PrimVal<'a>,  /* index */
+        Ident, /* map */
+        PrimVal<'a>, /* index */
         PrimExpr<'a>, /* assign to */
     ),
     AsgnVar(Ident /* var */, PrimExpr<'a>),
@@ -295,7 +295,7 @@ impl<'a, I> ProgramContext<'a, I> {
     pub fn main_stage(&self) -> &Stage<usize> {
         &self.main_offset
     }
-    pub fn main_offsets(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn main_offsets(&self) -> impl Iterator<Item=usize> + '_ {
         self.main_offset.iter().cloned()
     }
 }
@@ -329,10 +329,10 @@ pub enum SepAssign<'a> {
 }
 
 impl<'a, I> ProgramContext<'a, I>
-where
-    builtins::Variable: TryFrom<I>,
-    builtins::Function: TryFrom<I>,
-    I: IsSprintf
+    where
+        builtins::Variable: TryFrom<I>,
+        builtins::Function: TryFrom<I>,
+        I: IsSprintf
         + Hash
         + Eq
         + Clone
@@ -373,7 +373,7 @@ where
                     (builtins::Variable::FS, &mut field_sep),
                     (builtins::Variable::RS, &mut record_sep),
                 ]
-                .iter_mut()
+                    .iter_mut()
                 {
                     if let Some(v) = f.vars.get(&Some(*bi)) {
                         let num_assigns = v.len();
@@ -523,7 +523,7 @@ where
                 func_table: &func_table,
                 parse_header: p.parse_header,
             }
-            .fill(fundec.body)?;
+                .fill(fundec.body)?;
         }
 
         // Bind the main function
@@ -617,7 +617,7 @@ pub(crate) struct Arg<I> {
 // Variable assignments, used to extract fast paths for splitting.
 // None indicates a call to `getline`.
 type VarAssigns<'a> =
-    HashMap<Option<builtins::Variable>, Vec<(/* basic block */ usize, Option<&'a [u8]>)>>;
+HashMap<Option<builtins::Variable>, Vec<(/* basic block */ usize, Option<&'a [u8]>)>>;
 
 #[derive(Debug)]
 pub(crate) struct Function<'a, I> {
@@ -692,10 +692,10 @@ fn record_ident(
 }
 
 impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debug> View<'a, 'b, I>
-where
-    builtins::Variable: TryFrom<I>,
-    builtins::Function: TryFrom<I>,
-    I: IsSprintf,
+    where
+        builtins::Variable: TryFrom<I>,
+        builtins::Function: TryFrom<I>,
+        I: IsSprintf,
 {
     fn fill<'c>(&mut self, stmt: &'c Stmt<'c, 'b, I>) -> Result<()> {
         // Add a Cfg corresponding to `stmt`
@@ -1074,7 +1074,7 @@ where
                     &ITE(e1, to_bool!(e2), &ILit(0)),
                     current_open,
                     in_cond,
-                )
+                );
             }
             Or(e1, e2) => {
                 return self.convert_expr_inner(
@@ -1110,7 +1110,7 @@ where
                     ix,
                     |slf, _, _, open| slf.convert_expr(to, open),
                     current_open,
-                )
+                );
             }
 
             AssignOp(Index(arr, ix), op, to) => {
@@ -1248,7 +1248,7 @@ where
                             &ast::Expr::ReadStdin,
                             current_open,
                             in_cond,
-                        )
+                        );
                     }
                     (from, None /* $0 */) => {
                         return self.convert_expr(
@@ -1258,7 +1258,7 @@ where
                                 is_file: *is_file,
                             },
                             current_open,
-                        )
+                        );
                     }
                     (Some(from), Some(into)) => {
                         let (next, _) = self.convert_expr(
@@ -1664,153 +1664,152 @@ where
                         }
                     }
                 }
-                //todo performance enhancement
-                // fake(data) => fake(data, "")
+                // Fill params if absent
                 let args_len = args.len();
-                if bi == builtins::Function::Fake && args_len == 1 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // rgb2hex(r) => rgb2hex(r,0,0)
-                if bi == builtins::Function::Rgb2Hex && args.len() == 1 {
-                    prim_args.push(PrimVal::ILit(0));
-                    prim_args.push(PrimVal::ILit(0));
-                }
-                // rgb2hex(r,g) => rgb2hex(r,g,0)
-                if bi == builtins::Function::Rgb2Hex && args.len() == 2 {
-                    prim_args.push(PrimVal::ILit(0));
-                }
-                // last_part (path) => last_path(path, "")
-                if bi == builtins::Function::LastPart && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // bf_insert (item) => bf_insert(item, "_")
-                if bi == builtins::Function::BloomFilterInsert && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b"_"));
-                }
-                // bf_contains(item) => bf_contains(item, "_")
-                if bi == builtins::Function::BloomFilterContains && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b"_"));
-                }
-                // bf_icontains(item) => bf_icontains(item, "_")
-                if bi == builtins::Function::BloomFilterContainsWithInsert && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b"_"));
-                }
-                // encrypt (mod, text, key) => pair(mod, text, key, "")
-                if bi == builtins::Function::Encrypt && args.len() == 3 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                if bi == builtins::Function::Decrypt && args.len() == 3 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // pairs (s) => pair(s, ",", "=")
-                if bi == builtins::Function::Pairs && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b","));
-                    prim_args.push(PrimVal::StrLit(b"="));
-                }
-                // pairs (s, ",") => pair(s, ",", "=")
-                if bi == builtins::Function::Pairs && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b"="));
-                }
-                // pad (s, n) => pad(s, len, " ")
-                if (bi == builtins::Function::PadLeft || bi == builtins::Function::PadRight
-                    || bi == builtins::Function::PadBoth) && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b" "));
-                }
-                // snowflake() => snowflake(1);
-                if bi == builtins::Function::SnowFlake && args.len() == 0 {
-                    prim_args.push(PrimVal::ILit(1));
-                }
-                // datetime() => datetime(timestamp_now);
-                if bi == builtins::Function::DateTime && args.len() == 0 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // uniq(arr) => uniq(arr, param);
-                if bi == builtins::Function::Uniq && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // uuid() => uuid("v4");
-                if bi == builtins::Function::Uuid && args.len() == 0 {
-                    prim_args.push(PrimVal::StrLit(b"v4"));
-                }
-                // _join(arr) => join(arr, " ");
-                if bi == builtins::Function::IntMapJoin && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b" "));
-                }
-                // substr(s, a) => substr(s, a, INT_MAX); as we always clamp the second value to
-                // the length of s.
-                if bi == builtins::Function::Substr && args.len() == 2 {
-                    // We clamp indexes anyways, we'll just put a big number in as the
-                    // rightmost index.
-                    prim_args.push(PrimVal::ILit(i64::max_value()));
-                }
-                // strftime() => strftime("", -1);
-                if bi == builtins::Function::Strftime && args.len() == 0 {
-                    prim_args.push(PrimVal::StrLit(b"")); // ISO 8601 / RFC 3339 date & time format
-                    prim_args.push(PrimVal::ILit(-1 as Int));
-                }
-                // strftime(format, timestamp) => strftime(format, -1);
-                if bi == builtins::Function::Strftime && args.len() == 1 {
-                    prim_args.push(PrimVal::ILit(-1 as Int));
-                }
-
-                // mktime(date_text, timezone) => mktime(date_text, -1);
-                if bi == builtins::Function::Mktime && args.len() == 1 {
-                    prim_args.push(PrimVal::ILit(-1 as Int));
-                }
-
-                // trim(s) => trim(s, " ");
-                if bi == builtins::Function::Trim && args.len() == 1 {
-                    prim_args.push(PrimVal::StrLit(b" "));
-                }
-
-                // truncate($1, 10) => truncate($1, 10, "...");
-                if bi == builtins::Function::Truncate && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b"..."));
-                }
-
-                // min($1, 10) => min($1, 10, "");
-                if bi == builtins::Function::Min && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-
-                // seq(10) => seq(1,1 10);
-                if bi == builtins::Function::Seq && args.len() == 1 {
-                    let max = prim_args.pop().unwrap();
-                    prim_args.push(PrimVal::ILit(0));
-                    prim_args.push(PrimVal::ILit(1));
-                    prim_args.push(max);
-                }
-
-                // seq(1, 10) => seq(1,1 10);
-                if bi == builtins::Function::Seq && args.len() == 2 {
-                    let max = prim_args.pop().unwrap();
-                    prim_args.push(PrimVal::ILit(1));
-                    prim_args.push(max);
-                }
-
-                // max($1, 10) => max($1, 10, "");
-                if bi == builtins::Function::Max && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-
-                // asort(arr) => asort(arr,dst);
-                if bi == builtins::Function::Asort && args.len() == 1 {
-                    prim_args.push(PrimVal::Var(Ident::unused()));
-                }
-
-                // http_get(url) => http_get(url,headers);
-                if bi == builtins::Function::HttpGet && args.len() == 1 {
-                    prim_args.push(PrimVal::Var(Ident::unused()));
-                }
-
-                // http_post(url) => asort(url,headers, body);
-                if bi == builtins::Function::HttpPost && args.len() == 1 {
-                    prim_args.push(PrimVal::Var(Ident::unused()));
-                    prim_args.push(PrimVal::StrLit(b""));
-                }
-                // http_post(url,headers) => asort(url,headers, body);
-                if bi == builtins::Function::HttpPost && args.len() == 2 {
-                    prim_args.push(PrimVal::StrLit(b""));
+                match bi {
+                    // fake(data) => fake(data, "")
+                    builtins::Function::Fake if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // rgb2hex(r) => rgb2hex(r,0,0)
+                    builtins::Function::Rgb2Hex if args_len == 1 => {
+                        prim_args.push(PrimVal::ILit(0));
+                        prim_args.push(PrimVal::ILit(0));
+                    }
+                    // rgb2hex(r,g) => rgb2hex(r,g,0)
+                    builtins::Function::Rgb2Hex if args_len == 2 => {
+                        prim_args.push(PrimVal::ILit(0));
+                    }
+                    // last_part (path) => last_path(path, "")
+                    builtins::Function::LastPart if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // bf_insert (item) => bf_insert(item, "_")
+                    builtins::Function::BloomFilterInsert if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b"_"));
+                    }
+                    // bf_contains(item) => bf_contains(item, "_")
+                    builtins::Function::BloomFilterContains if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b"_"));
+                    }
+                    // bf_icontains(item) => bf_icontains(item, "_")
+                    builtins::Function::BloomFilterContainsWithInsert if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b"_"));
+                    }
+                    // encrypt (mod, text, key) => encrypt(mod, text, key, "")
+                    builtins::Function::Encrypt if args_len == 3 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // decrypt (mod, text, key) => decrypt(mod, text, key, "")
+                    builtins::Function::Decrypt if args_len == 3 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // pairs (s) => pair(s, ",", "=")
+                    builtins::Function::Pairs if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b","));
+                        prim_args.push(PrimVal::StrLit(b"="));
+                    }
+                    // pairs (s, ",") => pair(s, ",", "=")
+                    builtins::Function::Pairs if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b"="));
+                    }
+                    // pad (s, n) => pad(s, len, " ")
+                    builtins::Function::PadLeft if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    builtins::Function::PadRight if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    builtins::Function::PadBoth if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    // snowflake() => snowflake(1);
+                    builtins::Function::SnowFlake if args_len == 0 => {
+                        prim_args.push(PrimVal::ILit(1));
+                    }
+                    // datetime() => datetime(timestamp_now);
+                    builtins::Function::DateTime if args_len == 0 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // uniq(arr) => uniq(arr, param);
+                    builtins::Function::Uniq if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // uuid() => uuid("v4");
+                    builtins::Function::Uuid if args_len == 0 => {
+                        prim_args.push(PrimVal::StrLit(b"v4"));
+                    }
+                    // _join(arr) => join(arr, " ");
+                    builtins::Function::IntMapJoin if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    // substr(s, a) => substr(s, a, INT_MAX); as we always clamp the second value to
+                    // the length of s.
+                    builtins::Function::Substr if args_len == 2 => {
+                        // We clamp indexes anyway, we'll just put a big number in as the
+                        // rightmost index.
+                        prim_args.push(PrimVal::ILit(i64::max_value()));
+                    }
+                    // strftime() => strftime("", -1);
+                    builtins::Function::Strftime if args_len == 0 => {
+                        prim_args.push(PrimVal::StrLit(b"")); // ISO 8601 / RFC 3339 date & time format
+                        prim_args.push(PrimVal::ILit(-1 as Int));
+                    }
+                    // strftime(format, timestamp) => strftime(format, -1);
+                    builtins::Function::Strftime if args_len == 1 => {
+                        prim_args.push(PrimVal::ILit(-1 as Int));
+                    }
+                    // mktime(date_text, timezone) => mktime(date_text, -1);
+                    builtins::Function::Mktime if args_len == 1 => {
+                        prim_args.push(PrimVal::ILit(-1 as Int));
+                    }
+                    // trim(s) => trim(s, " ");
+                    builtins::Function::Trim if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    // truncate($1, 10) => truncate($1, 10, "...");
+                    builtins::Function::Truncate if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b"..."));
+                    }
+                    // min($1, 10) => min($1, 10, "");
+                    builtins::Function::Min if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // max($1, 10) => max($1, 10, "");
+                    builtins::Function::Max if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // seq(10) => seq(1,1 10);
+                    builtins::Function::Seq if args_len == 1 => {
+                        let max = prim_args.pop().unwrap();
+                        prim_args.push(PrimVal::ILit(0));
+                        prim_args.push(PrimVal::ILit(1));
+                        prim_args.push(max);
+                    }
+                    // seq(1, 10) => seq(1,1 10);
+                    builtins::Function::Seq if args_len == 2 => {
+                        let max = prim_args.pop().unwrap();
+                        prim_args.push(PrimVal::ILit(1));
+                        prim_args.push(max);
+                    }
+                    // asort(arr) => asort(arr,dst);
+                    builtins::Function::Asort if args_len == 1 => {
+                        prim_args.push(PrimVal::Var(Ident::unused()));
+                    }
+                    // http_get(url) => http_get(url,headers);
+                    builtins::Function::HttpGet if args_len == 1 => {
+                        prim_args.push(PrimVal::Var(Ident::unused()));
+                    }
+                    // http_post(url) => asort(url,headers, body);
+                    builtins::Function::HttpPost if args_len == 1 => {
+                        prim_args.push(PrimVal::Var(Ident::unused()));
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // http_post(url,headers) => asort(url,headers, body);
+                    builtins::Function::HttpPost if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    _ => {}
                 }
 
                 // srand() => the special "reseed rng" function
