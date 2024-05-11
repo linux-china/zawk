@@ -8,7 +8,7 @@ pub fn fake(name: &str, locale: &str) -> String {
     let locale = &locale.to_uppercase();
     return match name {
         "name" => {
-            if locale == "ZH_CN" {
+            if locale == "ZH_CN" || locale == "CN" || locale == "ZH" {
                 Name(ZH_CN).fake()
             } else {
                 Name(EN).fake()
@@ -22,7 +22,7 @@ pub fn fake(name: &str, locale: &str) -> String {
             }
         }
         "cellnumber" | "cell" => {
-            if locale == "ZH_CN" || locale == "CN" {
+            if locale == "ZH_CN" || locale == "CN" || locale == "ZH" {
                 CellNumber(ZH_CN).fake()
             } else {
                 CellNumber(EN).fake()
