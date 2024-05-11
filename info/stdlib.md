@@ -43,7 +43,7 @@ used to split s.
 
 ### last_part(s [, sep])
 
-Get last part with sep: `last_part("a/b/c", "/")` to `c`. 
+Get last part with sep: `last_part("a/b/c", "/")` to `c`.
 
 If sep is not provided, zawk will use `/` to search first, if not found, zawk will use `.` to search.
 
@@ -194,7 +194,7 @@ quote/double text if not quoted/double quoted.
 
 ### format_bytes/to_bytes
 
-Convert bytes to human-readable format, and vice versa. Units(case-insensitive): 
+Convert bytes to human-readable format, and vice versa. Units(case-insensitive):
 `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`, `kib`, `mib`, `gib`, `tib`, `pib`, `eib`, `zib`, `yib`.
 
 - `format_bytes(1024)`: 1 KB
@@ -387,9 +387,9 @@ gawk兼容
 
 ### bloom filter
 
-*  `bf_insert(item)` or `bf_insert(item, group)`
-*  `bf_contains(item)` or `bf_contains(item, group)`
-*  `bf_icontains(item)` or `bf_icontains(item, group)`: Insert if not found. It's useful for duplication check. 
+* `bf_insert(item)` or `bf_insert(item, group)`
+* `bf_contains(item)` or `bf_contains(item, group)`
+* `bf_icontains(item)` or `bf_icontains(item, group)`: Insert if not found. It's useful for duplication check.
 
 Find unique phone numbers: `!bf_iconatins(phone) { }`
 
@@ -468,7 +468,8 @@ please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
 ### Duration
 
-Convert duration to seconds: `duration("2min + 12sec") # 132`.  Time units: `sec, secs`, `min, minute, minutes`, `hour, h`, `day, d`, `week, wk`, `month, mo`, `year, yr`.
+Convert duration to seconds: `duration("2min + 12sec") # 132`. Time
+units: `sec, secs`, `min, minute, minutes`, `hour, h`, `day, d`, `week, wk`, `month, mo`, `year, yr`.
 
 * Nushell Durations: https://www.nushell.sh/book/types_of_data.html#durations
 * Fend: https://github.com/printfn/fend/blob/main/core/src/units/builtin.rs
@@ -479,6 +480,13 @@ Convert between hex and rgb.
 
 - `hex2rgb("#FF0000") # [255,0,0]`: result is array `[r,g,b]`
 - `rgb2hex(255,0,0) # #FF0000`
+
+# Fake
+
+Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
+
+* locale: `EN`(default) and `CN` are supported now.
+* data: `name`, `phone`, `cell`, `email`, `ip`.
 
 # JSON
 
@@ -512,7 +520,7 @@ Formats:
 - `base62`
 - `base64`,
 - `base64url`: url safe without pad
-- `zlib2base64url`: zlib then base64url, good for online diagram service, such as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/) 
+- `zlib2base64url`: zlib then base64url, good for online diagram service, such as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/)
 - `url`,
 - `hex-base64`,
 - `hex-base64url`,
