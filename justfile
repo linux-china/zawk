@@ -264,3 +264,6 @@ run-hex2rgb:
 
 run-rgb2hex:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print rgb2hex(255,0,0) }' demo.txt
+
+run-fake:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print fake("name"), fake("name","cn") }' demo.txt
