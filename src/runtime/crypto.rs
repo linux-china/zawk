@@ -6,6 +6,9 @@ use hmac::{Hmac, Mac};
 use jwt::header::HeaderType;
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use aes::cipher::consts::U12;
+use aes_gcm::Aes256Gcm;
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 use crate::runtime::{SharedMap, Str, StrMap};
 
@@ -148,18 +151,9 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
 }
 
 /// plaintext max length 256
-pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> String {
+pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
     // Initialization Vector for Encryption: https://www.baeldung.com/java-encryption-iv
-    let mut iv = [0x0; 16];
-    if !iv_text.is_empty() {
-        let bytes = hex::decode(iv_text).unwrap();
-        if bytes.len() > 16 {
-            iv.copy_from_slice(&bytes[..16]);
-        } else {
-            iv[..bytes.len()].copy_from_slice(&bytes);
-        }
-    }
     // buffer must be big enough for padded plaintext
     let mut buf = [0u8; 1024];
     let pt_len = plaintext.len();
@@ -172,15 +166,18 @@ pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> St
             key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
         }
         if mode == "aes-256-gcm" {
-            use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+            use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm};
             let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-            let nonce = Nonce::from_slice(&iv[..12]);
+            let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
             let result = cipher.encrypt(&nonce, plaintext.as_bytes()).unwrap();
-            hex::encode(&result)
+            let bytes = [nonce.to_vec(), result].concat();
+            STANDARD.encode(&bytes)
         } else {
-            let cipher = Aes256CbcEnc::new(&key.into(), &iv.into());
+            let iv = Aes256CbcEnc::generate_iv(&mut rand_core::OsRng);
+            let cipher = Aes256CbcEnc::new(&key.into(), &iv);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
-            hex::encode(&ct)
+            let bytes = [iv.to_vec(), ct.to_vec()].concat();
+            STANDARD.encode(bytes)
         }
     } else { // aes 128
         let mut key = [0x0; 16];
@@ -190,32 +187,25 @@ pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str, iv_text: &str) -> St
             key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
         }
         if mode == "aes-128-gcm" {
-            use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Nonce};
+            use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes128Gcm};
             let cipher = Aes128Gcm::new(&key.into());
-            let nonce = Nonce::from_slice(&iv[..12]);
+            let nonce = Aes128Gcm::generate_nonce(&mut OsRng);
             let result = cipher.encrypt(&nonce, plaintext.as_bytes()).unwrap();
-            hex::encode(&result)
+            let bytes = [nonce.to_vec(), result].concat();
+            STANDARD.encode(&bytes)
         } else {
-            let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
+            let iv = Aes256CbcEnc::generate_iv(&mut rand_core::OsRng);
+            let cipher = Aes128CbcEnc::new(&key.into(), &iv);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
-            hex::encode(&ct)
+            let bytes = [iv.to_vec(), ct.to_vec()].concat();
+            STANDARD.encode(bytes)
         }
     }
 }
 
-pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) -> String {
+pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
-    let mut iv = [0x0; 16];
-    if !iv_text.is_empty() {
-        let bytes = hex::decode(iv_text).unwrap();
-        if bytes.len() > 16 {
-            iv.copy_from_slice(&bytes[..16]);
-        } else {
-            iv[..bytes.len()].copy_from_slice(&bytes);
-        }
-    }
-
-    let mut encrypted_data = hex::decode(encrypted_text).unwrap();
+    let encrypted_data = STANDARD.decode(encrypted_text).unwrap();
     if mode.contains("-256-") { // aes 256
         let mut key = [0x0; 32];
         if key_pass.len() > 32 {
@@ -225,13 +215,17 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) 
         }
         if mode == "aes-256-gcm" {
             use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+            let nonce = &encrypted_data[..12];
+            let ciphertext = &encrypted_data[12..];
             let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-            let nonce = Nonce::from_slice(&iv[..12]);
-            let pt = cipher.decrypt(nonce, encrypted_data.as_ref()).unwrap();
+            let nonce = Nonce::<U12>::from_slice(nonce);
+            let pt = cipher.decrypt(nonce, ciphertext).unwrap();
             std::str::from_utf8(&pt).unwrap().to_string()
         } else {
-            let cipher = Aes256CbcDec::new(&key.into(), &iv.into());
-            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut encrypted_data).unwrap();
+            let nonce = &encrypted_data[..16];
+            let mut ciphertext = encrypted_data[16..].to_vec();
+            let cipher = Aes256CbcDec::new(&key.into(), nonce.into());
+            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut ciphertext).unwrap();
             std::str::from_utf8(pt).unwrap().to_string()
         }
     } else { // aes 128
@@ -242,14 +236,18 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str, iv_text: &str) 
             key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
         }
         if mode == "aes-128-gcm" {
+            let nonce = &encrypted_data[..12];
+            let ciphertext = &encrypted_data[12..];
             use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Nonce};
             let cipher = Aes128Gcm::new(&key.into());
-            let nonce = Nonce::from_slice(&iv[0..12]);
-            let pt = cipher.decrypt(nonce, encrypted_data.as_ref()).unwrap();
+            let nonce = Nonce::<U12>::from_slice(nonce);
+            let pt = cipher.decrypt(nonce, ciphertext).unwrap();
             std::str::from_utf8(&pt).unwrap().to_string()
         } else {
-            let cipher = Aes128CbcDec::new(&key.into(), &iv.into());
-            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut encrypted_data).unwrap();
+            let nonce = &encrypted_data[..16];
+            let mut ciphertext = encrypted_data[16..].to_vec();
+            let cipher = Aes128CbcDec::new(&key.into(), nonce.into());
+            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut ciphertext).unwrap();
             std::str::from_utf8(pt).unwrap().to_string()
         }
     }
@@ -350,25 +348,34 @@ mod tests {
         println!("{}", value);
     }
 
+
+    #[test]
+    fn test_aes_cbc() {
+        let key_pass = "0123456789abcdef";
+        let plaintext = "Hello World";
+        let encrypted_text = encrypt("aes-256-cbc", plaintext, key_pass);
+        println!("{}", encrypted_text);
+        let plaintext2 = decrypt("aes-256-cbc", &encrypted_text, key_pass);
+        assert_eq!(plaintext, plaintext2);
+    }
+
     #[test]
     fn test_aes() {
         let key_pass = "0123456789abcdef";
-        let iv_text = "2d069789e6dee8da14aa31b8";
         let plaintext = "Hello World";
-        let encrypted_text = encrypt("aes-128-gcm", plaintext, key_pass, iv_text);
+        let encrypted_text = encrypt("aes-128-gcm", plaintext, key_pass);
         println!("{}", encrypted_text);
-        let plaintext2 = decrypt("aes-128-gcm", &encrypted_text, key_pass, iv_text);
+        let plaintext2 = decrypt("aes-128-gcm", &encrypted_text, key_pass);
         assert_eq!(plaintext, plaintext2);
     }
 
     #[test]
     fn test_aes_256_gcm() {
         let key_pass = "0123456789abcdef";
-        let iv_text = "10555a67b7ff6d1aad7d216c";
         let plaintext = "Hello World";
-        let encrypted_text = encrypt("aes-256-gcm", plaintext, key_pass, iv_text);
+        let encrypted_text = encrypt("aes-256-gcm", plaintext, key_pass);
         println!("{}", encrypted_text);
-        let plaintext2 = decrypt("aes-256-gcm", &encrypted_text, key_pass, iv_text);
+        let plaintext2 = decrypt("aes-256-gcm", &encrypted_text, key_pass);
         assert_eq!(plaintext, plaintext2);
     }
 
