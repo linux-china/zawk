@@ -1696,14 +1696,6 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::BloomFilterContainsWithInsert if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b"_"));
                     }
-                    // encrypt (mod, text, key) => encrypt(mod, text, key, "")
-                    builtins::Function::Encrypt if args_len == 3 => {
-                        prim_args.push(PrimVal::StrLit(b""));
-                    }
-                    // decrypt (mod, text, key) => decrypt(mod, text, key, "")
-                    builtins::Function::Decrypt if args_len == 3 => {
-                        prim_args.push(PrimVal::StrLit(b""));
-                    }
                     // pairs (s) => pair(s, ",", "=")
                     builtins::Function::Pairs if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b","));

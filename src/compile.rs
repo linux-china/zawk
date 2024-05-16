@@ -1838,7 +1838,6 @@ impl<'a, 'b> View<'a, 'b> {
                         conv_regs[0].into(),
                         conv_regs[1].into(),
                         conv_regs[2].into(),
-                        conv_regs[3].into(),
                     ))
                 }
             }
@@ -1849,7 +1848,6 @@ impl<'a, 'b> View<'a, 'b> {
                         conv_regs[0].into(),
                         conv_regs[1].into(),
                         conv_regs[2].into(),
-                        conv_regs[3].into(),
                     ))
                 }
             }

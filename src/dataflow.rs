@@ -235,17 +235,15 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(key.into()));
                 f(dst.into(), Some(token.into()));
             }
-            Encrypt(dst, mode,plain_text, key, iv) => {
+            Encrypt(dst, mode,plain_text, key) => {
                 f(dst.into(), Some(mode.into()));
                 f(dst.into(), Some(plain_text.into()));
                 f(dst.into(), Some(key.into()));
-                f(dst.into(), Some(iv.into()));
             }
-            Decrypt(dst, mode,encrypted_text, key, iv) => {
+            Decrypt(dst, mode,encrypted_text, key) => {
                 f(dst.into(), Some(mode.into()));
                 f(dst.into(), Some(encrypted_text.into()));
                 f(dst.into(), Some(key.into()));
-                f(dst.into(), Some(iv.into()));
             }
             Strftime(dst, format, timestamp) => {
                 f(dst.into(), Some(format.into()));
