@@ -7,7 +7,6 @@ use jwt::header::HeaderType;
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use aes::cipher::consts::U12;
-use aes_gcm::Aes256Gcm;
 use base64::{Engine, engine::general_purpose::STANDARD};
 
 use crate::runtime::{SharedMap, Str, StrMap};
