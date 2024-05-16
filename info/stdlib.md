@@ -559,8 +559,6 @@ Explain for `encrypt` and `decrypt`:
 * mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
 * plaintext — Text that need to be encrypted.
 * key — Encryption key. `16` bytes(16 ascii chars) for `128` and `32` bytes(32 ascii chars) for `256`.
-* iv — Initialization vector. Required for `-gcm` modes, optional for others: hex string with `12` random bytes, such
-  as `e2af9567c7454bce4437dd97`.
 
 # KV
 
