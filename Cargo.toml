@@ -1,6 +1,6 @@
 [package]
 name = "zawk"
-version = "0.5.7"
+version = "0.5.8"
 authors = ["Eli Rosenthal <ezr@cs.brown.edu>", "linux_china <libing.chen@gmail.com>"]
 edition = "2021"
 description = "An efficient Awk-like language implementation by Rust with stdlib"
