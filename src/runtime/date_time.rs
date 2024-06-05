@@ -1,5 +1,5 @@
 use std::time::SystemTime;
-use chrono::{Datelike, DateTime, Local, Timelike, TimeZone};
+use chrono::{Datelike, DateTime, Local, Timelike, TimeZone, Utc};
 use crate::runtime;
 use crate::runtime::{Int, Str};
 
@@ -17,7 +17,9 @@ pub fn mktime(date_time_text: &str, timezone: i64) -> u64 {
     } else {
         date_time_text.to_string()
     };
-    if let Ok(date_time) = dateparser::parse(&dt_text_timezone) {
+    if let Some(timestamp) = parse_systemd_time_timestamp(date_time_text, timezone) {
+        return timestamp as u64;
+    } else if let Ok(date_time) = dateparser::parse(&dt_text_timezone) {
         return date_time.timestamp() as u64;
     } else {
         // fend date format: Thursday, 20 May 2021
@@ -34,6 +36,15 @@ pub fn mktime(date_time_text: &str, timezone: i64) -> u64 {
         }
     }
     0
+}
+
+fn parse_systemd_time_timestamp(timestamp: &str, timezone: i64) -> Option<i64> {
+    if let Ok(timestamp) = chrono_systemd_time::parse_timestamp_tz(timestamp, Utc)
+        .map(|x| x.single().unwrap())
+        .map(|x| x.timestamp()) {
+        return Some(timestamp + timezone * 3600);
+    }
+    None
 }
 
 fn is_fend_date(text: &str) -> bool {
@@ -110,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_date_parse() {
-        let date_text_items = vec!["Thursday, 20 May 2021", "2024-04-27 17:07:25.684184848 +08:00"];
+        let date_text_items = vec!["Thursday, 20 May 2021", "2024-04-27 17:07:25.684184848 +08:00", "09:11:12 -1day"];
         for item in date_text_items {
             println!("{}", mktime(item, 0));
         }
