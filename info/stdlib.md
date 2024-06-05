@@ -644,7 +644,9 @@ functions:
 ### Date time parse
 
 Parse date time text to array: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
-datetime text format: https://github.com/waltzofpearls/dateparser
+datetime text format: 
+  - systemd.time: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html
+  - dateparser: https://github.com/waltzofpearls/dateparser
 
 date/time array:
 
