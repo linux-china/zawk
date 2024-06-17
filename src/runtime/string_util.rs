@@ -370,32 +370,25 @@ lazy_static! {
 }
 
 pub fn is_format(format: &str, text: &str) -> Int {
-    match format {
+    let result = match format {
         "email" => {
-            if EMAIL_REGEX.is_match(text) {
-                1
-            } else {
-                0
-            }
+            EMAIL_REGEX.is_match(text)
         }
         "url" => {
-            if text.starts_with("http://") || text.starts_with("https://")
-                || text.starts_with("ftp://") {
-                1
-            } else {
-                0
-            }
+            text.starts_with("http://") || text.starts_with("https://")
+                || text.starts_with("ftp://")
         }
         "phone" => {
-            if PHONE_REGEX.is_match(text) {
-                1
-            } else {
-                0
-            }
+            PHONE_REGEX.is_match(text)
         }
         &_ => {
             panic!("format not supported");
         }
+    };
+    if result {
+        1
+    } else {
+        0
     }
 }
 
