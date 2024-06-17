@@ -131,6 +131,14 @@ Trim text with chars with `trim($1, "[]()")`
 
 `isnum("1234.01")`
 
+### is(format,txt)
+
+Validate text format, such as: `is("email", "demo@example.com")`. Format list:
+
+- email
+- url
+- phone
+
 ### starts_with/ends_with/contains
 
 The return value is `1` or `0`.
