@@ -1,5 +1,6 @@
+use lazy_static::lazy_static;
 use pad::{Alignment, PadStr};
-use crate::runtime::{IntMap, SharedMap, Str, StrMap};
+use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
     if text.len() > len {
@@ -363,6 +364,41 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     map
 }
 
+lazy_static! {
+    static ref EMAIL_REGEX: Regex = Regex::new(r"^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([\-.][a-z0-9]+)*\.[a-z]{2,6})").unwrap();
+    static ref PHONE_REGEX: Regex = Regex::new(r"[0-9][0-9-]{5,16}").unwrap();
+}
+
+pub fn is_format(format: &str, text: &str) -> Int {
+    match format {
+        "email" => {
+            if EMAIL_REGEX.is_match(text) {
+                1
+            } else {
+                0
+            }
+        }
+        "url" => {
+            if text.starts_with("http://") || text.starts_with("https://")
+                || text.starts_with("ftp://") {
+                1
+            } else {
+                0
+            }
+        }
+        "phone" => {
+            if PHONE_REGEX.is_match(text) {
+                1
+            } else {
+                0
+            }
+        }
+        &_ => {
+            panic!("format not supported");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -488,5 +524,10 @@ mod tests {
     fn test_last_part() {
         let text = "demo/demo.txt";
         assert_eq!("demo.txt", last_part(text, ""));
+    }
+
+    #[test]
+    fn test_is_format() {
+        assert_eq!(1, is_format("phone", "008618667135137"));
     }
 }
