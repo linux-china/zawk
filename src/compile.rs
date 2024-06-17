@@ -2560,6 +2560,11 @@ impl<'a, 'b> View<'a, 'b> {
                     };
                 }
             }
+            IsFormat => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::IsFormat(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             Uniq => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Uniq(

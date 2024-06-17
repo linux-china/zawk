@@ -276,6 +276,7 @@ impl Display for Function {
             IsArray => write!(f, "isarray"),
             IsInt => write!(f, "isint"),
             IsNum => write!(f, "isnum"),
+            IsFormat => write!(f, "is"),
             Uniq => write!(f, "uniq"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),

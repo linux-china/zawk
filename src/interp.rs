@@ -1526,6 +1526,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             *self.get_mut(dst) = 0;
                         }
                     }
+                    IsFormat(dst, format, text) => {
+                        let format = index(&self.strs, format);
+                        let text = index(&self.strs, text);
+                        let dst = *dst;
+                        *self.get_mut(dst) = runtime::string_util::is_format(format.as_str(), text.as_str());
+                    }
                     StrToInt(ir, sr) => {
                         let sr = index(&self.strs, sr);
                         let num = runtime::math_util::strtoint(sr.as_str());

@@ -159,6 +159,7 @@ pub enum Function {
     IsArray,
     IsInt,
     IsNum,
+    IsFormat,
     Substr,
     CharAt,
     ToInt,
@@ -449,6 +450,7 @@ static_map!(
     ["isarray", Function::IsArray],
     ["isint", Function::IsInt],
     ["isnum", Function::IsNum],
+    ["is", Function::IsFormat],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -768,6 +770,7 @@ impl Function {
             IsArray => (smallvec![incoming[0]], Int),
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
+            IsFormat => (smallvec![Str, Str], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
             ArrayMax | ArrayMin | ArraySum | ArrayMean => {
                 if let MapIntInt = incoming[0] {
@@ -854,6 +857,7 @@ impl Function {
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
             IsInt | IsNum => 1,
+            IsFormat => 2,
             Encode | Decode | Digest | Escape => 2,
             Hmac | Jwt => 3,
             LogDebug | LogInfo | LogWarn | LogError => 1,
@@ -930,7 +934,7 @@ impl Function {
             DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => Ok(Scalar(BaseTy::Str).abs()),
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
-            IsArray | IsNum | IsInt => Ok(Scalar(BaseTy::Int).abs()),
+            IsArray | IsNum | IsInt | IsFormat => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => {
                 Ok(Map {
                     key: BaseTy::Str,
