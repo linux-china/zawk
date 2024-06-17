@@ -80,7 +80,7 @@ run-max:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print min(9, 10.01) }' demo.txt
 
 run-url:
-  cargo run --package zawk --bin zawk -- 'BEGIN{ print url("https://example.com/hello")["host"] }' demo.txt
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print url("https://xxx.yyy.zz@example.com/hello")["user"] }' demo.txt
 
 run-path:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print path("./demo.awk")["full_path"] }' demo.txt
@@ -267,3 +267,6 @@ run-rgb2hex:
 
 run-fake:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print fake("name"), fake("name","cn") }' demo.txt
+
+run-is-format:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print is("phone","+861866666666") }' demo.txt
