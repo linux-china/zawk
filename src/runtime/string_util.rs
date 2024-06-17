@@ -366,7 +366,7 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
 
 lazy_static! {
     static ref EMAIL_REGEX: Regex = Regex::new(r"^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([\-.][a-z0-9]+)*\.[a-z]{2,6})").unwrap();
-    static ref PHONE_REGEX: Regex = Regex::new(r"[0-9][0-9-]{5,16}").unwrap();
+    static ref PHONE_REGEX: Regex = Regex::new(r"[0-9+][0-9-]{5,16}").unwrap();
 }
 
 pub fn is_format(format: &str, text: &str) -> Int {
