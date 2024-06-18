@@ -381,6 +381,14 @@ pub fn is_format(format: &str, text: &str) -> Int {
         "phone" => {
             PHONE_REGEX.is_match(text)
         }
+        "ip" => {
+            use std::net::{Ipv4Addr, Ipv6Addr};
+            if text.contains(":") {
+                text.parse::<Ipv6Addr>().is_ok()
+            } else {
+                text.parse::<Ipv4Addr>().is_ok()
+            }
+        }
         &_ => {
             panic!("format not supported");
         }
