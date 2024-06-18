@@ -138,6 +138,7 @@ Validate text format, such as: `is("email", "demo@example.com")`. Format list:
 - email
 - url
 - phone
+- ip: IP v4/v6
 
 ### starts_with/ends_with/contains
 
