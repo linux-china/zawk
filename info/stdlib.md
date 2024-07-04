@@ -209,6 +209,13 @@ Convert bytes to human-readable format, and vice versa. Units(case-insensitive):
 - `format_bytes(1024)`: 1 KB
 - `to_bytes("2 KB")`: 2024
 
+### mkpass
+
+Generate password with numbers, lowercase/uppercase letters, and special chars.
+
+- `mkpass()`: 8 chars password
+- `mkpass(12)`: 12 chars password
+
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
