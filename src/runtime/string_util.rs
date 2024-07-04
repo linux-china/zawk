@@ -372,7 +372,7 @@ lazy_static! {
 pub fn is_format(format: &str, text: &str) -> Int {
     let result = match format {
         "email" => {
-            EMAIL_REGEX.is_match(text)
+            email_address::EmailAddress::is_valid(text)
         }
         "url" => {
             text.starts_with("http://") || text.starts_with("https://")
