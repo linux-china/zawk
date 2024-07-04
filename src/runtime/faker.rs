@@ -1,11 +1,13 @@
 use fake::{Fake};
 use fake::faker::address::raw::{PostCode, ZipCode};
+use fake::faker::automotive::raw::LicencePlate;
 use fake::faker::company::raw::CompanyName;
 use fake::faker::creditcard::en::CreditCardNumber;
 use fake::faker::internet::raw::{FreeEmail, IPv4};
 use fake::faker::name::raw::*;
 use fake::faker::phone_number::raw::{CellNumber, PhoneNumber};
 use fake::locales::*;
+use rand::prelude::SliceRandom;
 
 pub fn fake(name: &str, locale: &str) -> String {
     let locale = &locale.to_uppercase();
@@ -64,6 +66,13 @@ pub fn fake(name: &str, locale: &str) -> String {
                 PostCode(EN).fake()
             }
         }
+        "plate" => {
+            if is_chinese(locale) {
+                generate_chinese_plate_number()
+            } else {
+                LicencePlate(FR_FR).fake()
+            }
+        }
         "wechat" => {
             // 以字母开头和 6-20 位数字、字母、下划线、减号的组合
             let name: String = Name(EN).fake();
@@ -79,6 +88,23 @@ fn is_chinese(locale: &str) -> bool {
     locale == "ZH_CN" || locale == "CN" || locale == "ZH"
 }
 
+
+const PROVINCE_SHOT_NAMES: [char; 31] = ['京', '津', '晋', '冀', '蒙', '辽', '吉', '黑', '沪', '苏', '浙', '皖', '闽', '赣',
+    '鲁', '豫', '鄂', '湘', '粤', '桂', '琼', '渝', '川', '贵', '云', '藏', '陕', '甘', '青', '宁', '新'];
+const LICENSE_CHARS: [char; 23] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'];
+
+fn generate_chinese_plate_number() -> String {
+    use rand::Rng;
+    let rng = &mut rand::thread_rng();
+    let province: &char = PROVINCE_SHOT_NAMES.choose(rng).unwrap();
+    let alphabet: &char = LICENSE_CHARS.choose(rng).unwrap();
+    format!("{}{}{}{}{}{}{}", province, alphabet,
+            rng.gen_range(0..=9),
+            rng.gen_range(0..=9),
+            rng.gen_range(0..=9),
+            rng.gen_range(0..=9),
+            rng.gen_range(0..=9))
+}
 
 #[cfg(test)]
 mod tests {
@@ -121,5 +147,10 @@ mod tests {
     #[test]
     fn test_wechat() {
         println!("{}", fake("wechat", "ZH_CN"));
+    }
+
+    #[test]
+    fn test_plate() {
+        println!("{}", fake("plate", "ZH_CN"));
     }
 }
