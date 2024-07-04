@@ -489,7 +489,7 @@ macro_rules! external {
 impl<'a> View<'a> {
     fn stack_slot_bytes(&mut self, bytes: u32) -> StackSlot {
         debug_assert!(bytes > 0); // This signals a bug; all frawk types have positive size.
-        let data = StackSlotData::new(StackSlotKind::ExplicitSlot, bytes);
+        let data = StackSlotData::new(StackSlotKind::ExplicitSlot, bytes,0);
         self.builder.create_sized_stack_slot(data)
     }
 
