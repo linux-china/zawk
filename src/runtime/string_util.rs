@@ -399,6 +399,20 @@ pub fn is_format(format: &str, text: &str) -> Int {
     }
 }
 
+fn generate_password(len: usize) -> String {
+    let pg = passwords::PasswordGenerator {
+        length: len,
+        numbers: true,
+        lowercase_letters: true,
+        uppercase_letters: true,
+        symbols: true,
+        spaces: false,
+        exclude_similar_characters: false,
+        strict: true,
+    };
+    pg.generate_one().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -529,5 +543,10 @@ mod tests {
     #[test]
     fn test_is_format() {
         assert_eq!(1, is_format("phone", "008618667135137"));
+    }
+
+    #[test]
+    fn test_generate_password() {
+        println!("{}", generate_password(12))
     }
 }
