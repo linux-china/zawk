@@ -399,7 +399,7 @@ pub fn is_format(format: &str, text: &str) -> Int {
     }
 }
 
-fn generate_password(len: usize) -> String {
+pub fn generate_password(len: usize) -> String {
     let pg = passwords::PasswordGenerator {
         length: len,
         numbers: true,
