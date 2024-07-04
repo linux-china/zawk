@@ -502,7 +502,7 @@ Convert between hex and rgb.
 Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 * locale: `EN`(default) and `CN` are supported now.
-* data: `name`, `phone`, `cell`, `email`, `ip`.
+* data: `name`, `phone`, `cell`, `email`, `ip`, `creditcard`, `zipcode`, `postcode`, `id`(身份证).
 
 # JSON
 
