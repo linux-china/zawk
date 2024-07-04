@@ -270,3 +270,6 @@ run-fake:
 
 run-is-format:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print is("phone","+861866666666") }' demo.txt
+
+run-mkpass:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print mkpass(), mkpass(12) }' demo.txt
