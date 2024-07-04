@@ -160,6 +160,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
+        [ReadOnly] mkpass(int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
@@ -1352,7 +1353,12 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
 
 pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
     let text = &*(text as *mut Str);
-    runtime::math_util::mkbool(text.as_str()) as Int
+    math_util::mkbool(text.as_str()) as Int
+}
+
+pub(crate) unsafe extern "C" fn mkpass(len: Int) -> U128 {
+   let password=  string_util::generate_password(len as usize);
+    mem::transmute::<Str, U128>(Str::from(password))
 }
 
 pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {

@@ -179,6 +179,7 @@ impl Display for Function {
             Mktime => write!(f, "mktime"),
             Duration => write!(f, "duration"),
             MkBool => write!(f, "mkbool"),
+            MkPassword => write!(f, "mkpass"),
             Fend => write!(f, "fend"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),

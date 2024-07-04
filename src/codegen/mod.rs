@@ -938,6 +938,7 @@ pub(crate) trait CodeGenerator: Backend {
             },
             Duration(dst,expr) => self.unop(intrinsic!(duration), dst, expr),
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
+            MkPassword(dst,len) => self.unop(intrinsic!(mkpass), dst, len),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
             Record(dst,src) => self.unop(intrinsic!(record), dst, src),

@@ -49,6 +49,7 @@ pub enum Function {
     Mktime,
     Duration,
     MkBool,
+    MkPassword,
     Fend,
     Trim,
     Truncate,
@@ -352,6 +353,7 @@ static_map!(
     ["mktime", Function::Mktime],
     ["duration", Function::Duration],
     ["mkbool", Function::MkBool],
+    ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
     ["trim", Function::Trim],
     ["encode", Function::Encode],
@@ -704,6 +706,7 @@ impl Function {
             Mktime => (smallvec![Str, Int], Int),
             Duration => (smallvec![Str], Int),
             MkBool => (smallvec![Str], Int),
+            MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str,Str,Str], MapStrStr),
@@ -839,6 +842,7 @@ impl Function {
             StrCmp => 2,
             CharAt => 2,
             MkBool => 1,
+            MkPassword => 1,
             Trim => 2,
             Capitalize | UnCapitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words => 1,
             Repeat => 2,
@@ -906,6 +910,9 @@ impl Function {
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
+                Ok(Scalar(BaseTy::Str).abs())
+            }
+            MkPassword => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),

@@ -257,6 +257,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(expr.into()));
             }
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
+            MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
             Url(dst, src) => f(dst.into(), Some(src.into())),
             Pairs(dst, src, pair_sep, kv_sep) => {

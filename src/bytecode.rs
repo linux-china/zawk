@@ -9,7 +9,6 @@ use crate::interp::{index, index_mut, Storage};
 use crate::runtime::{self, Float, Int, Str, UniqueStr};
 
 use regex::bytes::Regex;
-
 pub(crate) use crate::interp::Interp;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
@@ -218,6 +217,7 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     Duration(Reg<Int>, Reg<Str<'a>>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
+    MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -670,6 +670,10 @@ impl<'a> Instr<'a> {
             MkBool(res, text) => {
                 res.accum(&mut f);
                 text.accum(&mut f);
+            }
+            MkPassword(res, len) => {
+                res.accum(&mut f);
+                len.accum(&mut f);
             }
             Fend(dst, src) => {
                 dst.accum(&mut f);

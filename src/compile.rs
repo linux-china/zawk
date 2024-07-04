@@ -2155,6 +2155,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            MkPassword => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::MkPassword(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Systime => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);

@@ -1667,6 +1667,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // Fill params if absent
                 let args_len = args.len();
                 match bi {
+                    // mkpass() => mkpass(8)
+                    builtins::Function::MkPassword if args_len == 0 => {
+                        prim_args.push(PrimVal::ILit(8));
+                    }
                     // fake(data) => fake(data, "")
                     builtins::Function::Fake if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b""));
