@@ -64,6 +64,11 @@ pub fn fake(name: &str, locale: &str) -> String {
                 PostCode(EN).fake()
             }
         }
+        "wechat" => {
+            // 以字母开头和 6-20 位数字、字母、下划线、减号的组合
+            let name: String = Name(EN).fake();
+            name.replace(" ", "-").to_string()
+        }
         _ => {
             "".to_string()
         }
@@ -111,5 +116,10 @@ mod tests {
     #[test]
     fn test_id() {
         println!("{}", fake("id", "ZH_CN"));
+    }
+
+    #[test]
+    fn test_wechat() {
+        println!("{}", fake("wechat", "ZH_CN"));
     }
 }
