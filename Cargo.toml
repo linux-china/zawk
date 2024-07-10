@@ -56,7 +56,7 @@ target-lexicon = "0.12.14"
 uuid = { version = "1.10", features = ["v4", "v7", "fast-rng"] }
 ulid = "1"
 rs-snowflake = "0.6"
-fend-core = "1.4"
+fend-core = "1.5"
 chrono = "0.4"
 chrono-systemd-time = "0.3"
 dateparser = "0.2"
