@@ -334,7 +334,7 @@ ID specs:
 
 ### ulid
 
-Please refer https://github.com/ulid/spec for detail.
+ulid: Universally Unique Lexicographically Sortable Identifier, please refer https://github.com/ulid/spec for detail.
 
 `ulid() #01ARZ3NDEKTSV4RRFFQ69G5FAV`
 
