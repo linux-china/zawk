@@ -642,13 +642,13 @@ url: `sqlite.db` db path
 
 ### libSQL
 
-libSQL url: `./demo.db` or `http://127.0.0.1:8080`. 
+libSQL url: `./demo.db`, `http://127.0.0.1:8080` or `libsql://db-name-your-name.turso.io?authToken=xxxx`.
 
 - `libsql_query(url, "select id, email from users")`,
 - `libsql_execute(url,"update users set nick ='demo' where id = 1")`
 
-If authentication required to access libsql,  for example `libsql://db-name-your-name.turso.io`,
-please set up `LIBSQL_AUTH_TOKEN` environment variable.
+**Tip**: If you don't want to put `authToken` in url,  for example `libsql://db-name-your-name.turso.io`,
+you can set up `LIBSQL_AUTH_TOKEN` environment variable.
 
 ### MySQL
 
