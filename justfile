@@ -175,6 +175,9 @@ run-os-functions:
 run-sqlite-query:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print sqlite_query("sqlite.db", "select nick,email,age from user")[1] }' demo.txt
 
+run-libsql-query:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print libsql_query("http://127.0.0.1:8080", "SELECT id, email FROM users")[1] }' demo.txt
+
 run-mysql-query:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print mysql_query("mysql://root:123456@localhost:3306/test", "select id, name from people")[1] }' demo.txt
 
