@@ -94,7 +94,7 @@ oneio = { version = "0.16", default-features = false, features = ["remote", "com
 nats = "0.25"
 redis = "0.26"
 minio = "0.1.0"
-tokio = "1"
+tokio = { version = "1", features = ["full"] }
 mime_guess = "2"
 dirs = "5"
 notify-rust = "4"
