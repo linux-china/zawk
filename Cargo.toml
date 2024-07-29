@@ -92,7 +92,7 @@ local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking"] }
 oneio = { version = "0.16", default-features = false, features = ["remote", "compressions"] }
 nats = "0.25"
-redis = "0.25"
+redis = "0.26"
 minio = "0.1.0"
 tokio = "1"
 mime_guess = "2"
