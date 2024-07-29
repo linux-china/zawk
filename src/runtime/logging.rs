@@ -7,6 +7,8 @@ fn init() {
         .filter_module("cranelift_jit", LevelFilter::Error)
         .filter_module("reqwest", LevelFilter::Error)
         .filter_module("hyper_util", LevelFilter::Error)
+        .filter_module("hyper", LevelFilter::Error)
+        .filter_module("hyper_rustls", LevelFilter::Error)
         .filter_level(LevelFilter::Debug)
         .target(env_logger::Target::Stderr)
         .init();
