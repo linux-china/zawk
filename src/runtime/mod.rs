@@ -32,6 +32,7 @@ pub mod s3;
 pub mod os_util;
 pub mod csv;
 pub mod sqlite;
+pub mod libsql;
 pub mod mysql;
 pub mod logging;
 pub mod string_util;
