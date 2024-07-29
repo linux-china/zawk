@@ -18,7 +18,11 @@ pub(crate) async fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>
         if db_path.contains('?') {
             let offset = db_path.find('?').unwrap();
             url = db_path[0..offset].to_string();
-            auth_token = db_path[offset + 1..].to_string();
+            if let Some(pos) = db_path.find("authToken=") {
+                auth_token = db_path[pos + 10..].to_string();
+            } else {
+                auth_token = db_path[offset + 1..].to_string();
+            }
         }
         if url.starts_with("ws://") {
             url = url.replace("ws://", "http://").to_string();
