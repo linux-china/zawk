@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use crate::runtime::{Int, IntMap, Str};
@@ -20,7 +21,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap();
     if !pool.contains_key(db_path) {
         let mut url = db_path.to_string();
-        let mut auth_token = "".to_string();
+        let mut auth_token = env::var("LIBSQL_AUTH_TOKEN").unwrap_or("".to_owned());
         if db_path.contains('?') {
             let offset = db_path.find('?').unwrap();
             url = db_path[0..offset].to_string();
@@ -35,7 +36,13 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
         } else if url.starts_with("wss://") {
             url = url.replace("wss://", "https://").to_string();
         }
-        let connection = Builder::new_remote(url, auth_token).build().await.unwrap().connect().unwrap();
+        let connection = if url.starts_with("libsql://")
+            || url.starts_with("http://")
+            || url.starts_with("https://") {
+            Builder::new_remote(url, auth_token).build().await.unwrap().connect().unwrap()
+        } else {
+            Builder::new_local(url).build().await.unwrap().connect().unwrap()
+        };
         pool.insert(db_path.to_string(), connection);
     }
     let conn = pool.get(db_path).unwrap();
