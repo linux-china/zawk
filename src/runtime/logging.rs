@@ -9,6 +9,7 @@ fn init() {
         .filter_module("hyper_util", LevelFilter::Error)
         .filter_module("hyper", LevelFilter::Error)
         .filter_module("hyper_rustls", LevelFilter::Error)
+        .filter_module("rustls", LevelFilter::Error)
         .filter_level(LevelFilter::Debug)
         .target(env_logger::Target::Stderr)
         .init();
