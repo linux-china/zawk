@@ -9,7 +9,13 @@ lazy_static! {
     static ref LIBSQL_CONNECTIONS: Mutex<HashMap<String, libsql::Connection>> = Mutex::new(HashMap::new());
 }
 
-pub(crate) async fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
+pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        libsql_query_async(db_path, sql).await
+    })
+}
+
+pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap();
     if !pool.contains_key(db_path) {
@@ -64,7 +70,13 @@ pub(crate) async fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>
     map
 }
 
-pub(crate) async fn libsql_execute(db_path: &str, sql: &str) -> Int {
+pub(crate) fn libsql_execute(db_path: &str, sql: &str) -> Int {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        libsql_execute_async(db_path, sql).await
+    })
+}
+
+pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str) -> Int {
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap();
     if !pool.contains_key(db_path) {
         let connection = Builder::new_remote(db_path.to_string(), "".to_string()).build().await.unwrap().connect().unwrap();
@@ -79,10 +91,21 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_query() {
+    async fn test_query_async() {
         let sql = "SELECT id, email FROM users";
         let db_path = "http://127.0.0.1:8080";
-        let rows = libsql_query(db_path, sql).await;
+        let rows = libsql_query_async(db_path, sql).await;
+        for key in rows.to_vec() {
+            let value = rows.get(&key);
+            println!("{}: {}", key, value.to_string());
+        }
+    }
+
+    #[test]
+    fn test_query() {
+        let sql = "SELECT id, email FROM users";
+        let db_path = "http://127.0.0.1:8080";
+        let rows = libsql_query(db_path, sql);
         for key in rows.to_vec() {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
@@ -93,6 +116,6 @@ mod tests {
     async fn test_create_db() {
         let sql = "CREATE TABLE IF NOT EXISTS user (nick VARCHAR UNIQUE, email VARCHAR, age INT)";
         let db_path = "http://127.0.0.1:8080";
-        let _ = libsql_execute(db_path, sql).await;
+        let _ = libsql_execute(db_path, sql);
     }
 }
