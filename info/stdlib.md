@@ -453,7 +453,8 @@ Please refer https://github.com/printfn/fend for more.
 
 the return value is `0` or `1` for `mkbool(s)`.
 
-examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,`mkbool("✓")`
+examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,
+`mkbool("✓")`
 
 ### int/float
 
@@ -636,9 +637,15 @@ Publish events to NATS: `publish("nats://host:4222/topic", body)`
 
 url: `sqlite.db` db path
 
-- `sqlite_query("sqlite.db", "select nick,email,age from user")`: sqlite_query("sqlite.db", "select nick,email,age from
-  user")[1]
-- `sqlite_execute`
+- `sqlite_query("sqlite.db", "select nick,email,age from user")`: `sqlite_query("sqlite.db", "select nick,email,age from user")[1]`
+- `sqlite_execute("sqlite.db, "update users set nick ='demo' where id = 1")`
+
+### libSQL
+
+url: `http://127.0.0.1:8080` or `libsql://db-name-your-name.turso.io?authToken=xxxx`
+
+- `libsql_query(url, "select id, email from users")`,
+- `libsql_execute(url,"update users set nick ='demo' where id = 1")`
 
 ### MySQL
 
@@ -660,9 +667,10 @@ functions:
 ### Date time parse
 
 Parse date time text to array: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
-datetime text format: 
-  - systemd.time: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html
-  - dateparser: https://github.com/waltzofpearls/dateparser
+datetime text format:
+
+- systemd.time: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html
+- dateparser: https://github.com/waltzofpearls/dateparser
 
 date/time array:
 
