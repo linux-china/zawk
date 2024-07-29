@@ -1239,6 +1239,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    LibsqlQuery(dst, db_path, sql) => {
+                        let db_path = index(&self.strs, db_path);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::libsql::libsql_query(db_path.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    LibsqlExecute(dst, db_path, sql) => {
+                        let db_path = index(&self.strs, db_path);
+                        let sql = index(&self.strs, sql);
+                        let res = runtime::libsql::libsql_execute(db_path.as_str(), sql.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     MysqlQuery(dst, db_url, sql) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);

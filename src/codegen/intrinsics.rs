@@ -219,6 +219,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] func(str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] libsql_query(str_ref_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] libsql_execute(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] mysql_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] mysql_execute(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
@@ -1357,7 +1359,7 @@ pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
 }
 
 pub(crate) unsafe extern "C" fn mkpass(len: Int) -> U128 {
-   let password=  string_util::generate_password(len as usize);
+    let password = string_util::generate_password(len as usize);
     mem::transmute::<Str, U128>(Str::from(password))
 }
 
@@ -1533,6 +1535,19 @@ pub(crate) unsafe extern "C" fn sqlite_execute(db_path: *mut U128, sql: *mut U12
     let db_path = &*(db_path as *mut Str);
     let sql = &*(sql as *mut Str);
     runtime::sqlite::sqlite_execute(db_path.as_str(), sql.as_str())
+}
+
+pub(crate) unsafe extern "C" fn libsql_query(db_path: *mut U128, sql: *mut U128) -> *mut c_void {
+    let db_path = &*(db_path as *mut Str);
+    let sql = &*(sql as *mut Str);
+    let res = runtime::libsql::libsql_query(db_path.as_str(), sql.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn libsql_execute(db_path: *mut U128, sql: *mut U128) -> Int {
+    let db_path = &*(db_path as *mut Str);
+    let sql = &*(sql as *mut Str);
+    runtime::libsql::libsql_execute(db_path.as_str(), sql.as_str())
 }
 
 pub(crate) unsafe extern "C" fn mysql_query(db_url: *mut U128, sql: *mut U128) -> *mut c_void {

@@ -269,6 +269,8 @@ pub(crate) enum Instr<'a> {
     LogError(Reg<Str<'a>>),
     SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    LibsqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    LibsqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
@@ -812,6 +814,16 @@ impl<'a> Instr<'a> {
                 sql.accum(&mut f);
             }
             SqliteExecute(dst, db_path, sql) => {
+                dst.accum(&mut f);
+                db_path.accum(&mut f);
+                sql.accum(&mut f);
+            }
+            LibsqlQuery(dst, db_path, sql) => {
+                dst.accum(&mut f);
+                db_path.accum(&mut f);
+                sql.accum(&mut f);
+            }
+            LibsqlExecute(dst, db_path, sql) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);

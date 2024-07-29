@@ -123,6 +123,8 @@ pub enum Function {
     KvClear,
     SqliteQuery,
     SqliteExecute,
+    LibsqlQuery,
+    LibsqlExecute,
     MysqlQuery,
     MysqlExecute,
     Publish,
@@ -391,6 +393,8 @@ static_map!(
     ["kv_clear", Function::KvClear],
     ["sqlite_query", Function::SqliteQuery],
     ["sqlite_execute", Function::SqliteExecute],
+    ["libsql_query", Function::LibsqlQuery],
+    ["libsql_execute", Function::LibsqlExecute],
     ["mysql_query", Function::MysqlQuery],
     ["mysql_execute", Function::MysqlExecute],
     ["publish", Function::Publish],
@@ -733,8 +737,8 @@ impl Function {
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             LogDebug | LogInfo | LogWarn | LogError => (smallvec![Str], Null),
-            SqliteQuery | MysqlQuery => (smallvec![Str, Str], MapIntStr),
-            SqliteExecute | MysqlExecute => (smallvec![Str, Str], Int),
+            SqliteQuery | LibsqlQuery | MysqlQuery => (smallvec![Str, Str], MapIntStr),
+            SqliteExecute | LibsqlExecute | MysqlExecute => (smallvec![Str, Str], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -857,7 +861,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute => 2,
+            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute => 2,
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
             IsInt | IsNum => 1,
@@ -999,7 +1003,7 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
-            SqliteQuery | MysqlQuery => {
+            SqliteQuery | MysqlQuery | LibsqlQuery | LibsqlExecute => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,

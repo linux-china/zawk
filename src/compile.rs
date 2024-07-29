@@ -2315,6 +2315,12 @@ impl<'a, 'b> View<'a, 'b> {
             SqliteExecute => {
                 self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
+            LibsqlQuery => {
+                self.pushl(LL::LibsqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
+            LibsqlExecute => {
+                self.pushl(LL::LibsqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
             MysqlQuery => {
                 self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
