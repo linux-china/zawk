@@ -105,7 +105,7 @@ shlex = "1"
 shell-escape = "0.1"
 pad = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
-libsql = { version = "0.4", default-features = false, features = ["core", "remote"] }
+libsql = { version = "0.5", default-features = false, features = ["core", "remote"] }
 mysql = { version = "25" }
 csv = "1"
 semver = "1"
