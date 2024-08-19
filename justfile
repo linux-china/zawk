@@ -20,6 +20,9 @@ release:
 dump-prometheus:
   cargo run --package zawk --bin zawk -- dump --prometheus http://localhost:8081/actuator/prometheus
 
+display-awk-file-help:
+  cargo run --package zawk --bin zawk -- -f demo.awk --help
+
 run-local:
   cargo run --package zawk --bin zawk -- -f demo.awk demo.txt
 
