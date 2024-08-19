@@ -429,6 +429,7 @@ fn main() {
         if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
             let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
             if awk_file_supplied {
+                let last_pair = last_pair.clone();
                 args.remove(args.len()-1); // remove --help and --version
                 let matches = app.get_matches_from(args);
                 let awk_file = matches.get_one::<String>("program-file").unwrap();
