@@ -32,7 +32,7 @@ mod string_constants;
 #[cfg(test)]
 mod test_string_constants;
 pub mod types;
-pub mod awk;
+pub mod awk_util;
 
 use clap::{Arg, Command};
 
@@ -434,9 +434,9 @@ fn main() {
                 let matches = app.get_matches_from(args);
                 let awk_file = matches.get_one::<String>("program-file").unwrap();
                 if last_pair.contains("-h") {
-                    awk::print_awk_file_help(awk_file);
+                    awk_util::print_awk_file_help(awk_file);
                 } else {
-                    awk::print_awk_file_version(awk_file);
+                    awk_util::print_awk_file_version(awk_file);
                 }
                 return;
             }
