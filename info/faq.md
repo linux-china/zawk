@@ -72,3 +72,27 @@ Nushell types support:
 * lists: `parse_array("[0 1 'two' 3]")`
 * file size: `to_bytes("1.5GB")`
 * records: `record("{name:'Nushell', lang: 'Rust'}")`
+
+# awk file help support
+
+You can add help information in awk file to make awk friendly, example as following: 
+
+```awk
+
+#!/usr/bin/env zawk -f
+
+# @desc this is a demo awk
+# @meta author linux_china
+# @meta version 0.1.0
+# @var nick current user nick
+# @var email current user email
+# @env DB_NAME database name
+
+```
+
+then you can use `zawk -f demo.awk --help` to get help support.
+
+- `@desc`: description for awk file
+- `@meta`: metadata for script, such as `author`, `version` etc.
+- `@var`: variable for script
+- `@env`: environment variable
