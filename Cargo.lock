@@ -1528,6 +1528,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3491,17 +3497,19 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "oneio"
-version = "0.16.9"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85a01134cc96f103d785e8c4fbe02b4f35b01f445fc078f093db07bb877ab178"
+checksum = "e60b2501ea880ed754327e90bfc38045190040b46978ff75eefe980c560e972f"
 dependencies = [
  "bzip2",
+ "dotenvy",
  "flate2",
  "lz4",
  "reqwest 0.12.5",
  "suppaftp",
  "thiserror",
  "xz2",
+ "zstd",
 ]
 
 [[package]]
