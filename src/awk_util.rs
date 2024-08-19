@@ -16,9 +16,9 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
             let tag_declare = &line[3..];
             let parts: Vec<&str> = tag_declare.splitn(2, ' ').collect();
             let tag_name = *parts.get(0).unwrap();
-            if tag_name == "describe" {
+            if tag_name == "desc" {
                 let comment_tag = CommentTag {
-                    type_name: "describe".to_owned(),
+                    type_name: "desc".to_owned(),
                     value1: "".to_owned(),
                     value2: None,
                     description: parts.get(1).map(|item| item.trim().to_string()),
@@ -58,6 +58,7 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
 pub fn print_awk_file_help(awk_file: &str) {
     if let Ok(awk_code) = std::fs::read_to_string(awk_file) {
         let tags = parse_comment_tags(&awk_code);
+        let mut awk_file_desc: Option<String> = None;
         let mut version: Option<String> = None;
         let mut author: Option<String> = None;
         for tag in &tags {
@@ -67,6 +68,9 @@ pub fn print_awk_file_help(awk_file: &str) {
                 } else if tag.value1 == "author" {
                     author = tag.value2.clone();
                 }
+            }
+            if tag.type_name == "desc" {
+                awk_file_desc = tag.description.clone();
             }
         }
         let var_tags: Vec<&CommentTag> = tags.iter()
@@ -78,6 +82,9 @@ pub fn print_awk_file_help(awk_file: &str) {
         println!("{awk_file} {}", version.unwrap_or("".to_string()));
         if let Some(author_name) = &author {
             println!("{author_name}");
+        }
+        if let Some(desc) = &awk_file_desc {
+            println!("{desc}");
         }
         if !var_tags.is_empty() {
             let params = var_tags.iter().map(|tag| format!("-v {}=[value]", tag.value1)).join(" ");
@@ -127,9 +134,10 @@ mod tests {
         let awk_code = r#"
 #!/usr/bin/env zawk -f
 
-# @describe this is a demo awk
+# @desc this is a demo awk
 # @meta author linux_china
 # @var nick user name
+# @var email user email
 # @env DB_NAME db name
 
 
