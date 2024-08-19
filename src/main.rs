@@ -430,7 +430,7 @@ fn main() {
             let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
             if awk_file_supplied {
                 let last_pair = last_pair.clone();
-                args.remove(args.len()-1); // remove --help and --version
+                args.remove(args.len() - 1); // remove --help and --version
                 let matches = app.get_matches_from(args);
                 let awk_file = matches.get_one::<String>("program-file").unwrap();
                 if last_pair.contains("-h") {
@@ -746,6 +746,11 @@ fn main() {
         }};
     }
 
+    // validate AWK code by comment tags
+    let passed = awk_util::validate_awk_code(&program_string, &raw.var_decs);
+    if !passed {
+        return;
+    }
     let a = Arena::default();
     let ctx = get_context(program_string.as_str(), &a, get_prelude(&a, &raw));
     let analysis_result = ctx.analyze_sep_assignments();
