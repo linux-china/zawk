@@ -78,7 +78,6 @@ Nushell types support:
 You can add help information in awk file to make awk friendly, example as following: 
 
 ```awk
-
 #!/usr/bin/env zawk -f
 
 # @desc this is a demo awk
@@ -90,7 +89,7 @@ You can add help information in awk file to make awk friendly, example as follow
 
 ```
 
-then you can use `zawk -f demo.awk --help` to get help support.
+then you can use `./demo.awk --help` to get help support.
 
 - `@desc`: description for awk file
 - `@meta`: metadata for script, such as `author`, `version` etc.
