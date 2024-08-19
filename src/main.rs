@@ -32,6 +32,7 @@ mod string_constants;
 #[cfg(test)]
 mod test_string_constants;
 pub mod types;
+pub mod awk;
 
 use clap::{Arg, Command};
 
@@ -317,7 +318,7 @@ fn main() {
             .help("Text file or URL to parse")
         );
     #[allow(unused_mut)]
-        let mut app = Command::new("zawk")
+    let mut app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
         .about("zawk is an AWK language implementation by Rust with stdlib support")
@@ -419,6 +420,25 @@ fn main() {
              .long("dump-llvm")
              .num_args(0)
              .help("Print LLVM-IR for the input program"));
+        }
+    }
+    // display help/version information from awk file
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.len() > 2 { // sub help from
+        let last_pair = args.last().unwrap();
+        if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
+            let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
+            if awk_file_supplied {
+                args.remove(args.len()-1); // remove --help and --version
+                let matches = app.get_matches_from(args);
+                let awk_file = matches.get_one::<String>("program-file").unwrap();
+                if last_pair.contains("-h") {
+                    awk::print_awk_file_help(awk_file);
+                } else {
+                    awk::print_awk_file_version(awk_file);
+                }
+                return;
+            }
         }
     }
     let matches = app.get_matches();
