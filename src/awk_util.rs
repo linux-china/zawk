@@ -120,6 +120,40 @@ pub fn print_awk_file_version(awk_file: &str) {
     }
 }
 
+pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
+    if awk_code.contains("\n# @") { // detect comment tag
+        let tags = parse_comment_tags(awk_code);
+        if !tags.is_empty() {
+            let missed_var_tags: Vec<&CommentTag> = tags.iter()
+                .filter(|tag| tag.type_name == "var")
+                .filter(|tag| !var_decs.contains(&tag.value1) && !tag.value1.ends_with('?'))
+                .collect();
+            let missed_env_tags: Vec<&CommentTag> = tags.iter()
+                .filter(|tag| tag.type_name == "env")
+                .filter(|tag| std::env::var(&tag.value1).is_err() && !tag.value1.ends_with('?'))
+                .collect();
+            let satisfied = missed_var_tags.is_empty() && missed_env_tags.is_empty();
+            if !satisfied {
+                eprintln!("Errors:");
+                if !missed_var_tags.is_empty() {
+                    eprintln!("Required variables were not provided: ");
+                    for tag in missed_var_tags {
+                        eprintln!("  {}", tag.value1);
+                    }
+                }
+                if !missed_env_tags.is_empty() {
+                    eprintln!("Required environment variables were not provided: ");
+                    for tag in missed_env_tags {
+                        eprintln!("  {}", tag.value1);
+                    }
+                }
+            }
+            return satisfied;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +161,22 @@ mod tests {
     #[test]
     fn test_print_awk_file_help() {
         print_awk_file_help("demo.awk");
+    }
+
+    #[test]
+    fn test_validate_awk_code() {
+        let awk_code = r#"
+#!/usr/bin/env zawk -f
+
+# @desc this is a demo awk
+# @meta author linux_china
+# @var nick user name
+# @var email? user email
+# @env USER db name
+
+"#;
+        let var_decs = vec!["nick".to_owned()];
+        validate_awk_code(awk_code, &var_decs);
     }
 
     #[test]
@@ -140,10 +190,6 @@ mod tests {
 # @var email user email
 # @env DB_NAME db name
 
-
-BEGIN {
-
-}
 "#;
         let tags = parse_comment_tags(awk_code);
         for tag in tags {
