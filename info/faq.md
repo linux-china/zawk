@@ -94,5 +94,5 @@ then you can use `zawk -f demo.awk --help` to get help support.
 
 - `@desc`: description for awk file
 - `@meta`: metadata for script, such as `author`, `version` etc.
-- `@var`: variable for script, `email?` means that the variable is optional.
-- `@env`: environment variable
+- `@var`: variable for script, `email?` means that the variable is optional. Access by `awk -v varName="$PWD" ' END {print varName}'`.
+- `@env`: environment variable, access by `ENVIRON["USER"]`.
