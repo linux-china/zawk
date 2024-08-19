@@ -7,7 +7,6 @@
 # @var email current user email
 # @env DB_NAME database name
 
-
 BEGIN {
 
 }
