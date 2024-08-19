@@ -96,3 +96,13 @@ then you can use `zawk -f demo.awk --help` to get help support.
 - `@meta`: metadata for script, such as `author`, `version` etc.
 - `@var`: variable for script, `email?` means that the variable is optional. Access by `awk -v varName="$PWD" ' END {print varName}'`.
 - `@env`: environment variable, access by `ENVIRON["USER"]`.
+
+# call zawk function from command line
+
+Create a function `cawk` to call zawk: 
+
+```shell
+cawk() { zawk "BEGIN{ print ${1} }" }
+```
+
+then call `cawk 'uuid()'` to get result.
