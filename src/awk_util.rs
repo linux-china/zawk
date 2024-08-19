@@ -38,13 +38,13 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
             } else if tag_name == "meta" {
                 let re = Regex::new("\\s+").unwrap();
                 let comment_parts: Vec<&str> = re.splitn(parts.get(1).unwrap().trim(), 3).collect();
-                if parts.len() >= 2 {
+                if parts.len() >= 1 {
                     let key = *comment_parts.get(0).unwrap();
-                    let value = *comment_parts.get(1).unwrap();
+                    let value = comment_parts.get(1).map(|item| item.trim().to_string());
                     let comment_tag = CommentTag {
                         type_name: "meta".to_owned(),
                         value1: key.to_string(),
-                        value2: Some(value.to_string()),
+                        value2: value,
                         description: comment_parts.get(2).map(|item| item.trim().to_string()),
                     };
                     tags.push(comment_tag);
@@ -186,6 +186,7 @@ mod tests {
 
 # @desc this is a demo awk
 # @meta author linux_china
+# @meta default-subcommand
 # @var nick user name
 # @var email user email
 # @env DB_NAME db name
