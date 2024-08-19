@@ -122,11 +122,12 @@ pub fn print_awk_file_version(awk_file: &str) {
 
 pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
     if awk_code.contains("\n# @") { // detect comment tag
+        let var_names: Vec<String> = var_decs.iter().map(|s| s.split('=').next().unwrap().to_string()).collect();
         let tags = parse_comment_tags(awk_code);
         if !tags.is_empty() {
             let missed_var_tags: Vec<&CommentTag> = tags.iter()
                 .filter(|tag| tag.type_name == "var")
-                .filter(|tag| !var_decs.contains(&tag.value1) && !tag.value1.ends_with('?'))
+                .filter(|tag| !var_names.contains(&tag.value1) && !tag.value1.ends_with('?'))
                 .collect();
             let missed_env_tags: Vec<&CommentTag> = tags.iter()
                 .filter(|tag| tag.type_name == "env")
@@ -138,13 +139,13 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
                 if !missed_var_tags.is_empty() {
                     eprintln!("Required variables were not provided: ");
                     for tag in missed_var_tags {
-                        eprintln!("  {}", tag.value1);
+                        eprintln!("  - {}", tag.value1);
                     }
                 }
                 if !missed_env_tags.is_empty() {
                     eprintln!("Required environment variables were not provided: ");
                     for tag in missed_env_tags {
-                        eprintln!("  {}", tag.value1);
+                        eprintln!("  - {}", tag.value1);
                     }
                 }
             }
