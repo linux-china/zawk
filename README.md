@@ -101,7 +101,7 @@ $ cargo +nightly install --path . --no-default-features --features use_jemalloc,
 ```
 
 zawk is now on [crates.io](https://crates.io/crates/zawk), so running
-`cargo install zawk` with the desired features should also work.
+`RUSTFLAGS="-C target-feature=+aes,+sse2" cargo install zawk ` with the desired features should also work.
 
 # Bugs and Feature Requests
 
