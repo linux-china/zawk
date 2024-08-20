@@ -8,9 +8,6 @@
 # @env DB_NAME database name
 
 BEGIN {
-
+    print nick, email, ENVIRON["DB_NAME"]
 }
 
-END {
-
-}
