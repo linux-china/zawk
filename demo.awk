@@ -8,9 +8,5 @@
 # @env DB_NAME database name
 
 BEGIN {
-
-}
-
-END {
-
+    print "Hello, " nick " " email
 }
