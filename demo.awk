@@ -10,4 +10,3 @@
 BEGIN {
     print nick, email, ENVIRON["DB_NAME"]
 }
-
