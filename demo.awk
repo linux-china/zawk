@@ -8,5 +8,5 @@
 # @env DB_NAME database name
 
 BEGIN {
-    print "Hello, " nick " " email
+    print nick, email, ENVIRON["DB_NAME"]
 }
