@@ -437,6 +437,7 @@ static_map!(
     ["kebab_case", Function::KebabCase],
     ["snake_case", Function::SnakeCase],
     ["title_case", Function::TitleCase],
+    ["pascal_case", Function::TitleCase],
     ["pad_end", Function::PadLeft],
     ["pad_start", Function::PadRight],
     ["pad", Function::PadBoth],
