@@ -119,7 +119,7 @@ Trim text with chars with `trim($1, "[]()")`
 
 `snake_case("hello world") # hello_world`
 
-### title_case
+### pascal_case/title_case
 
 `title_case("hello world") # Hello World`
 
