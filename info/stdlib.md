@@ -107,19 +107,19 @@ Trim text with chars with `trim($1, "[]()")`
 
 `capitalize("hello") # Hello` or `uncapitalize("Hello") # hello`
 
-### camel_case
+### camel_case: functions/attribute names
 
 `camel_case("hello World") # helloWorld`
 
-### kebab_case:
+### kebab_case: file names
 
 `kebab_case("hello world") # hello-world`
 
-### snake_case
+### snake_case: functions/attribute names
 
 `snake_case("hello world") # hello_world`
 
-### pascal_case/title_case
+### pascal_case/title_case: Component
 
 `title_case("hello world") # Hello World`
 
