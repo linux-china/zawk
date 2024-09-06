@@ -700,6 +700,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ulid = Str::from(runtime::math_util::ulid());
                         *index_mut(&mut self.strs, dst) = ulid;
                     }
+                    Tsid(dst) => {
+                        let tsid = Str::from(runtime::math_util::tsid());
+                        *index_mut(&mut self.strs, dst) = tsid;
+                    }
                     Whoami(dst) => {
                         let username = Str::from(whoami::username());
                         *index_mut(&mut self.strs, dst) = username;

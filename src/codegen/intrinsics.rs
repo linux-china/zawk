@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         uuid(str_ref_ty) -> str_ty;
         snowflake(int_ty) -> int_ty;
         ulid(rt_ty) -> str_ty;
+        tsid(rt_ty) -> str_ty;
         whoami(rt_ty) -> str_ty;
         version(rt_ty) -> str_ty;
         os(rt_ty) -> str_ty;
@@ -849,8 +850,13 @@ pub(crate) unsafe extern "C" fn user_home() -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn ulid() -> U128 {
-    let local_ip = runtime::math_util::ulid();
-    mem::transmute::<Str, U128>(Str::from(local_ip))
+    let ulid = math_util::ulid();
+    mem::transmute::<Str, U128>(Str::from(ulid))
+}
+
+pub(crate) unsafe extern "C" fn tsid() -> U128 {
+    let tsid = math_util::tsid();
+    mem::transmute::<Str, U128>(Str::from(tsid))
 }
 
 pub(crate) unsafe extern "C" fn systime() -> Int {

@@ -197,6 +197,7 @@ pub(crate) enum Instr<'a> {
     Uuid(Reg<Str<'a>>, Reg<Str<'a>>),
     SnowFlake(Reg<Int>, Reg<Int>),
     Ulid(Reg<Str<'a>>),
+    Tsid(Reg<Str<'a>>),
     LocalIp(Reg<Str<'a>>),
     Whoami(Reg<Str<'a>>),
     Version(Reg<Str<'a>>),
@@ -594,6 +595,9 @@ impl<'a> Instr<'a> {
                 machine_id.accum(&mut f);
             }
             Ulid(sr) => {
+                sr.accum(&mut f);
+            }
+            Tsid(sr) => {
                 sr.accum(&mut f);
             }
             Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr)

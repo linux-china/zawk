@@ -32,6 +32,7 @@ pub enum Function {
     Length,
     Uuid,
     Ulid,
+    Tsid,
     SnowFlake,
     Whoami,
     Version,
@@ -338,6 +339,7 @@ static_map!(
     ["length", Function::Length],
     ["uuid", Function::Uuid],
     ["ulid", Function::Ulid],
+    ["tsid", Function::Tsid],
     ["snowflake", Function::SnowFlake],
     ["whoami", Function::Whoami],
     ["version", Function::Version],
@@ -703,7 +705,7 @@ impl Function {
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
-            Ulid => (smallvec![], Str),
+            Ulid | Tsid => (smallvec![], Str),
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
             Systime => (smallvec![], Int),
@@ -816,7 +818,7 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Ulid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
@@ -911,7 +913,7 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
+            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {

@@ -196,6 +196,7 @@ pub(crate) mod boilerplate {
             Uuid(dst, version) => f(dst.into(), Some(version.into())),
             SnowFlake(dst, machine_id) => f(dst.into(), Some(machine_id.into())),
             Ulid(dst) => f(dst.into(), None),
+            Tsid(dst) => f(dst.into(), None),
             Whoami(dst) => f(dst.into(), None),
             Version(dst) => f(dst.into(), None),
             Os(dst) => f(dst.into(), None),

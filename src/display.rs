@@ -165,6 +165,7 @@ impl Display for Function {
             Length => write!(f, "length"),
             Uuid => write!(f, "uuid"),
             Ulid => write!(f, "ulid"),
+            Tsid => write!(f, "tsid"),
             SnowFlake => write!(f, "snowflake"),
             LocalIp => write!(f, "local_ip"),
             Whoami => write!(f, "whoami"),
