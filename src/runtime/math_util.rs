@@ -387,6 +387,10 @@ pub(crate) fn ulid() -> String {
     ulid::Ulid::new().to_string()
 }
 
+pub(crate) fn tsid() -> String {
+    tsid::create_tsid().to_string()
+}
+
 pub(crate) fn strtonum(text: &str) -> Float {
     let text = text.trim().to_lowercase();
     return if text.starts_with("0x") {
@@ -697,6 +701,11 @@ mod tests {
     #[test]
     fn test_uuid() {
         println!("{}", uuid("v7"));
+    }
+
+    #[test]
+    fn test_tsid() {
+        println!("{}", tsid());
     }
 
     #[test]
