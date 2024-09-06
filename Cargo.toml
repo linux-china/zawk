@@ -55,6 +55,7 @@ bumpalo = { version = "3.16", features = ["collections"] }
 target-lexicon = "0.12.14"
 uuid = { version = "1.10", features = ["v4", "v7", "fast-rng"] }
 ulid = "1"
+tsid = "0.3"
 rs-snowflake = "0.6"
 fend-core = "1.5"
 chrono = "0.4"
