@@ -342,6 +342,10 @@ ID specs:
 
 * length: 128 bits
 
+### tsid
+
+[tsid](https://github.com/jakudlaty/tsid/): TSID generator `tsid()`
+
 ### snowflake
 
 [Snowflake ID](https://en.wikipedia.org/wiki/Snowflake_ID) is a form of unique identifier used in distributed computing.
