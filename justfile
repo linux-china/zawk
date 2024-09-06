@@ -37,6 +37,9 @@ run-uuid:
 run-ulid:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print ulid() }' demo.txt
 
+run-tsid:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print tsid() }' demo.txt
+
 run-snowflake:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print snowflake(11) }' demo.txt
 
