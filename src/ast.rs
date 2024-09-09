@@ -62,10 +62,15 @@ pub struct Prog<'a, 'b, I> {
     pub output_sep: Option<&'b [u8]>,
     // ORS
     pub output_record_sep: Option<&'b [u8]>,
+    // function declares
     pub decs: arena::Vec<'a, FunDec<'a, 'b, I>>,
+    // BEGIN blocks
     pub begin: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+    // PREPARE blocks, executed before the main loop
     pub prepare: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+    // END blocks
     pub end: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+    // pattern actions
     pub pats: arena::Vec<'a, (Pattern<'a, 'b, I>, Option<&'a Stmt<'a, 'b, I>>)>,
     pub stage: Stage<()>,
     pub argv: Vec<&'b str>,
