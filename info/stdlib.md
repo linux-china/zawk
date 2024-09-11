@@ -533,11 +533,11 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 ### from_csv
 
-`from_csv(csv_text)`
+`from_csv(csv_row)`: array of text value for one rows
 
 ### to_csv
 
-`to_csv(array)`
+`to_csv(array)`: csv row
 
 # Encoding/Decoding
 
