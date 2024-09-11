@@ -519,6 +519,16 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 `to_json(array)`
 
+### json_value
+
+`json_value(json_text, json_path)`: return only one text value
+
+**Tips**: [RFC 9535 JSONPath: Query Expressions for JSON](https://www.rfc-editor.org/rfc/rfc9535.html)
+
+### json_query
+
+`json_query(json_text, json_path)`: return array with text value
+
 # CSV
 
 ### from_csv
