@@ -3,43 +3,43 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 
 pub(crate) fn kv_get(namespace: &str, key: &str) -> String {
-    return if is_redis_url(namespace) {
+    if is_redis_url(namespace) {
         redis_kv::kv_get(namespace, key)
     } else if is_nats_url(namespace) {
         nats_kv::kv_get(namespace, key)
     } else {
         sqlite_kv::kv_get(namespace, key)
-    };
+    }
 }
 
 pub(crate) fn kv_put(namespace: &str, key: &str, value: &str) {
-    return if is_redis_url(namespace) {
+    if is_redis_url(namespace) {
         redis_kv::kv_put(namespace, key, value)
     } else if is_nats_url(namespace) {
         nats_kv::kv_put(namespace, key, value)
     } else {
         sqlite_kv::kv_put(namespace, key, value)
-    };
+    }
 }
 
 pub(crate) fn kv_delete(namespace: &str, key: &str) {
-    return if is_redis_url(namespace) {
+    if is_redis_url(namespace) {
         redis_kv::kv_delete(namespace, key)
     } else if is_nats_url(namespace) {
         nats_kv::kv_delete(namespace, key)
     } else {
         sqlite_kv::kv_delete(namespace, key)
-    };
+    }
 }
 
 pub(crate) fn kv_clear(namespace: &str) {
-    return if is_redis_url(namespace) {
+    if is_redis_url(namespace) {
         redis_kv::kv_clear(namespace)
     } else if is_nats_url(namespace) {
         nats_kv::kv_clear(namespace)
     } else {
         sqlite_kv::kv_clear(namespace)
-    };
+    }
 }
 
 lazy_static! {
