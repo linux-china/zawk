@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
 use miniserde::json;
 use miniserde::json::{Value};
 use serde_json_path::JsonPath;
@@ -141,12 +143,18 @@ fn from_json_array(json_text: &str) -> StrMap<Str> {
     StrMap::from(map)
 }
 
+lazy_static! {
+    static ref JSON_PATHS: Mutex<HashMap<String, JsonPath>> = Mutex::new(HashMap::new());
+}
+
 pub fn json_value(json_text: &str, json_path: &str) -> String {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-        if let Ok(path) = JsonPath::parse(json_path) {
-            if let Some(node) = path.query(&json).first() {
-                return node.to_string().trim_matches('"').to_owned();
-            }
+        let mut pool = JSON_PATHS.lock().unwrap();
+        let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
+            JsonPath::parse(json_path).unwrap()
+        });
+        if let Some(node) = json_path.query(&json).first() {
+            return node.to_string().trim_matches('"').to_owned();
         }
     }
     "".to_owned()
@@ -155,10 +163,12 @@ pub fn json_value(json_text: &str, json_path: &str) -> String {
 pub fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-        if let Ok(path) = JsonPath::parse(json_path) {
-            for (i, item) in path.query(&json).iter().enumerate() {
-                map.insert((i + 1) as i64, Str::from(item.to_string()));
-            }
+        let mut pool = JSON_PATHS.lock().unwrap();
+        let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
+            JsonPath::parse(json_path).unwrap()
+        });
+        for (i, item) in json_path.query(&json).iter().enumerate() {
+            map.insert((i + 1) as i64, Str::from(item.to_string()));
         }
     }
     map
@@ -167,7 +177,6 @@ pub fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use super::*;
 
     #[test]
