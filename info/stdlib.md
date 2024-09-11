@@ -615,6 +615,12 @@ namespace is NATS URL: `nats://localhost:4222/bucket_name`, please use `nats kv 
 
 `http_get(url,headers)`, `http_post(url, headers, body)`
 
+response array:
+
+- status: "200"
+- text: response as text
+- HTTP header names: response headers, such as `Content-Type`
+
 ### S3
 
 - `s3_get(bucket, object_name)`: get object, and return value is text.
