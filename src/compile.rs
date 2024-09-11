@@ -2384,6 +2384,16 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            JsonValue => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            JsonQuery => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             VarDump => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

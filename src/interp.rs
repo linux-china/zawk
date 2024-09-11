@@ -1031,6 +1031,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from("null");
                     }
+                    JsonValue(dst, json_text, json_path) => {
+                        let json_text = index(&self.strs, json_text);
+                        let json_path = index(&self.strs, json_path);
+                        let res = runtime::json::json_value(json_text.as_str(), json_path.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
+                    JsonQuery(dst, json_text, json_path) => {
+                        let json_text = index(&self.strs, json_text);
+                        let json_path = index(&self.strs, json_path);
+                        let res = runtime::json::json_query(json_text.as_str(), json_path.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     DumpMapIntInt(arr) => {
                         let arr = self.get(*arr);
                         eprintln!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));

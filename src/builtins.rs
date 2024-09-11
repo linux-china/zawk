@@ -109,6 +109,8 @@ pub enum Function {
     Rgb2Hex,
     FromJson,
     ToJson,
+    JsonValue,
+    JsonQuery,
     VarDump,
     ReadAll,
     WriteAll,
@@ -402,6 +404,8 @@ static_map!(
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
+    ["json_value", Function::JsonValue],
+    ["json_query", Function::JsonQuery],
     ["var_dump", Function::VarDump],
     ["read_all", Function::ReadAll],
     ["write_all", Function::WriteAll],
@@ -745,6 +749,8 @@ impl Function {
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
+            JsonValue => (smallvec![Str,Str], Str),
+            JsonQuery => (smallvec![Str,Str], MapIntStr),
             VarDump => (smallvec![incoming[0]], Null),
             ReadAll => (smallvec![Str], Str),
             WriteAll => (smallvec![Str, Str], Null),
@@ -827,6 +833,7 @@ impl Function {
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
+            JsonValue | JsonQuery => 2,
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
             LastPart => 2,
@@ -916,8 +923,14 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | ToCsv | TypeOfVariable | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
+            }
+            JsonQuery => {
+                Ok(Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Str,
+                }.abs())
             }
             MkPassword => {
                 Ok(Scalar(BaseTy::Str).abs())

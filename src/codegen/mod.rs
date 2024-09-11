@@ -1079,6 +1079,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(null_to_json), &mut [])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            JsonValue(dst, json_text, json_path) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let json_path = self.get_val(json_path.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_value), &mut [json_text, json_path])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            JsonQuery(dst, json_text, json_path) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let json_path = self.get_val(json_path.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_query), &mut [json_text, json_path])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             DumpMapIntInt(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_int), &mut [arr])?;

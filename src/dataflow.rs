@@ -298,7 +298,15 @@ pub(crate) mod boilerplate {
             StrToJson(dst, text) => f(dst.into(), Some(text.into())),
             IntToJson(dst, num) => f(dst.into(), Some(num.into())),
             FloatToJson(dst, num) => f(dst.into(), Some(num.into())),
-            NullToJson(_dst) => {}
+            NullToJson(_dst) => {},
+            JsonValue(dst, json_text, json_path) => {
+                f(dst.into(), Some(json_text.into()));
+                f(dst.into(), Some(json_path.into()));
+            }
+            JsonQuery(dst, json_text, json_path) => {
+                f(dst.into(), Some(json_text.into()));
+                f(dst.into(), Some(json_path.into()));
+            }
             DumpMapIntInt(_arr) => {},
             DumpMapIntFloat(_arr) => {},
             DumpMapIntStr(_arr) => {},

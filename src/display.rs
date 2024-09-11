@@ -258,6 +258,8 @@ impl Display for Function {
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),
+            JsonValue => write!(f, "json_value"),
+            JsonQuery => write!(f, "json_query"),
             VarDump => write!(f, "var_dump"),
             ReadAll => write!(f, "read_all"),
             WriteAll => write!(f, "write_all"),

@@ -254,6 +254,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] int_to_json(int_ty) -> str_ty;
         [ReadOnly] float_to_json(float_ty) -> str_ty;
         [ReadOnly] null_to_json() -> str_ty;
+        [ReadOnly] json_value(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] json_query(str_ref_ty, str_ref_ty) -> map_ty;
         dump_map_int_int(map_ty);
         dump_map_int_float(map_ty);
         dump_map_int_str(map_ty);
@@ -1634,6 +1636,20 @@ pub(crate) unsafe extern "C" fn float_to_json(num: Float) -> U128 {
 
 pub(crate) unsafe extern "C" fn null_to_json() -> U128 {
     mem::transmute::<Str, U128>(Str::from("null"))
+}
+
+pub(crate) unsafe extern "C" fn json_value(json_text: *mut U128, json_path: *mut U128) -> U128 {
+    let json_text = &*(json_text as *mut Str);
+    let json_path = &*(json_path as *mut Str);
+    let value = runtime::json::json_value(json_text.as_str(), json_path.as_str());
+    mem::transmute::<Str, U128>(Str::from(value))
+}
+
+pub(crate) unsafe extern "C" fn json_query(json_text: *mut U128, json_path: *mut U128) -> *mut c_void {
+    let json_text = &*(json_text as *mut Str);
+    let json_path = &*(json_path as *mut Str);
+    let res = runtime::json::json_query(json_text.as_str(), json_path.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn dump_map_int_int(arr: *mut c_void) {
