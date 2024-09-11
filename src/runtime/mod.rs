@@ -37,6 +37,7 @@ pub mod mysql;
 pub mod logging;
 pub mod string_util;
 pub mod faker;
+pub mod html;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
