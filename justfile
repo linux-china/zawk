@@ -285,3 +285,6 @@ run-mkpass:
 
 run-json-value:
   cargo run --package zawk --bin zawk -- 'BEGIN{ arr["origin"]="192.168.1.2"; json_text=to_json(arr); print json_value(json_text, "$.origin") }' demo.txt
+
+run-html-value:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print html_value("<head><title>this is title</title></head>", "title") }' demo.txt
