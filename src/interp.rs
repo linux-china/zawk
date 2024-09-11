@@ -1045,6 +1045,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    HtmlValue(dst, html_text, selector) => {
+                        let html_text = index(&self.strs, html_text);
+                        let selector = index(&self.strs, selector);
+                        let res = runtime::html::html_value(html_text.as_str(), selector.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
+                    HtmlQuery(dst, html_text, selector) => {
+                        let html_text = index(&self.strs, html_text);
+                        let selector = index(&self.strs, selector);
+                        let res = runtime::html::html_query(html_text.as_str(), selector.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     DumpMapIntInt(arr) => {
                         let arr = self.get(*arr);
                         eprintln!("MapIntInt: {}", runtime::json::map_int_int_to_json(arr));

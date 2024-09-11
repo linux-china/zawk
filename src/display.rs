@@ -260,6 +260,8 @@ impl Display for Function {
             ToJson => write!(f, "to_json"),
             JsonValue => write!(f, "json_value"),
             JsonQuery => write!(f, "json_query"),
+            HtmlValue => write!(f, "html_value"),
+            HtmlQuery => write!(f, "html_query"),
             VarDump => write!(f, "var_dump"),
             ReadAll => write!(f, "read_all"),
             WriteAll => write!(f, "write_all"),

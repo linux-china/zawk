@@ -307,6 +307,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(json_text.into()));
                 f(dst.into(), Some(json_path.into()));
             }
+            HtmlValue(dst, html_text, selector) => {
+                f(dst.into(), Some(html_text.into()));
+                f(dst.into(), Some(selector.into()));
+            }
+            HtmlQuery(dst, html_text, selector) => {
+                f(dst.into(), Some(html_text.into()));
+                f(dst.into(), Some(selector.into()));
+            }
             DumpMapIntInt(_arr) => {},
             DumpMapIntFloat(_arr) => {},
             DumpMapIntStr(_arr) => {},

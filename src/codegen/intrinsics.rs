@@ -256,6 +256,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] null_to_json() -> str_ty;
         [ReadOnly] json_value(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] json_query(str_ref_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] html_value(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] html_query(str_ref_ty, str_ref_ty) -> map_ty;
         dump_map_int_int(map_ty);
         dump_map_int_float(map_ty);
         dump_map_int_str(map_ty);
@@ -1649,6 +1651,20 @@ pub(crate) unsafe extern "C" fn json_query(json_text: *mut U128, json_path: *mut
     let json_text = &*(json_text as *mut Str);
     let json_path = &*(json_path as *mut Str);
     let res = runtime::json::json_query(json_text.as_str(), json_path.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn html_value(html_text: *mut U128, selector: *mut U128) -> U128 {
+    let html_text = &*(html_text as *mut Str);
+    let json_path = &*(selector as *mut Str);
+    let value = runtime::html::html_value(html_text.as_str(), json_path.as_str());
+    mem::transmute::<Str, U128>(Str::from(value))
+}
+
+pub(crate) unsafe extern "C" fn html_query(html_text: *mut U128, selector: *mut U128) -> *mut c_void {
+    let html_text = &*(html_text as *mut Str);
+    let selector = &*(selector as *mut Str);
+    let res = runtime::html::html_query(html_text.as_str(), selector.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 

@@ -2394,6 +2394,16 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::JsonQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            HtmlValue => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::HtmlValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            HtmlQuery => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::HtmlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             VarDump => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

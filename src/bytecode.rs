@@ -292,6 +292,8 @@ pub(crate) enum Instr<'a> {
     NullToJson(Reg<Str<'a>>),
     JsonValue(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     JsonQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    HtmlValue(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    HtmlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     DumpMapIntInt(Reg<runtime::IntMap<Int>>),
     DumpMapIntFloat(Reg<runtime::IntMap<Float>>),
     DumpMapIntStr(Reg<runtime::IntMap<Str<'a>>>),
@@ -919,6 +921,16 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 json_text.accum(&mut f);
                 json_path.accum(&mut f);
+            }
+            HtmlValue(dst, html_text, selector) => {
+                dst.accum(&mut f);
+                html_text.accum(&mut f);
+                selector.accum(&mut f);
+            }
+            HtmlQuery(dst, html_text, selector) => {
+                dst.accum(&mut f);
+                html_text.accum(&mut f);
+                selector.accum(&mut f);
             }
             DumpMapIntInt( arr) => {
                 arr.accum(&mut f);

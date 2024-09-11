@@ -1091,6 +1091,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(json_query), &mut [json_text, json_path])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            HtmlValue(dst, html_text, selector) => {
+                let html_text = self.get_val(html_text.reflect())?;
+                let selector = self.get_val(selector.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(html_value), &mut [html_text, selector])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            HtmlQuery(dst, html_text, selector) => {
+                let html_text = self.get_val(html_text.reflect())?;
+                let selector = self.get_val(selector.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(html_query), &mut [html_text, selector])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             DumpMapIntInt(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_int), &mut [arr])?;
