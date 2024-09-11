@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use miniserde::json;
 use miniserde::json::{Value};
+use serde_json_path::JsonPath;
 use crate::runtime::{Int, Str, StrMap, IntMap, Float};
 use crate::runtime::str_escape::escape_json;
 
@@ -39,7 +40,7 @@ pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
     let mut json_obj: HashMap<String, Int> = HashMap::new();
     obj.iter(|map| {
         for (key, value) in map {
-             json_obj.insert(key.to_string(), *value);
+            json_obj.insert(key.to_string(), *value);
         }
     });
     json::to_string(&json_obj)
@@ -49,7 +50,7 @@ pub(crate) fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
     let mut json_obj: HashMap<String, Float> = HashMap::new();
     obj.iter(|map| {
         for (key, value) in map {
-                json_obj.insert(key.to_string(), *value);
+            json_obj.insert(key.to_string(), *value);
         }
     });
     json::to_string(&json_obj)
@@ -68,7 +69,7 @@ pub(crate) fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
 }
 
 pub(crate) fn str_to_json(text: &str) -> String {
-    return format!("\"{}\"", escape_json(text))
+    return format!("\"{}\"", escape_json(text));
 }
 
 pub(crate) fn from_json(json_text: &str) -> StrMap<Str> {
@@ -140,9 +141,33 @@ fn from_json_array(json_text: &str) -> StrMap<Str> {
     StrMap::from(map)
 }
 
+pub fn json_value(json_text: &str, json_path: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
+        if let Ok(path) = JsonPath::parse(json_path) {
+            if let Some(node) = path.query(&json).first() {
+                return node.to_string().trim_matches('"').to_owned();
+            }
+        }
+    }
+    "".to_owned()
+}
+
+pub fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
+    let map: IntMap<Str> = IntMap::default();
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
+        if let Ok(path) = JsonPath::parse(json_path) {
+            for (i, item) in path.query(&json).iter().enumerate() {
+                map.insert((i + 1) as i64, Str::from(item.to_string()));
+            }
+        }
+    }
+    map
+}
+
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use super::*;
 
     #[test]
@@ -162,5 +187,16 @@ mod tests {
         println!("size: {}", json_array.len());
         let text = json::to_string(&json_array);
         println!("{}", text);
+    }
+
+    #[test]
+    fn test_json_value() {
+        let json_text = r#"{ "foo": { "bar": ["baz", 42] } }"#;
+        println!("{}", json_value(json_text, "$.foo.bar[0]"));
+    }
+    #[test]
+    fn test_json_query() {
+        let json_text = r#"{ "books": [{ "name": "a" }, { "name": "b" }] }"#;
+        println!("{:?}", json_query(json_text, "$.books[:].name"));
     }
 }
