@@ -546,6 +546,8 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 `html_value(html_code, selector)`: node's inner_text
 
+**Attention**: please follow standard CSS selector syntax.
+
 ### html_query
 
 `html_query(html_code, selector)`: array of node's inner_text
