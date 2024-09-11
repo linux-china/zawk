@@ -627,7 +627,7 @@ namespace is NATS URL: `nats://localhost:4222/bucket_name`, please use `nats kv 
 
 response array:
 
-- status: "200"
+- status: such as `200`,`404`. `0` means network error.
 - text: response as text
 - HTTP header names: response headers, such as `Content-Type`
 
