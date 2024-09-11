@@ -147,7 +147,7 @@ lazy_static! {
     static ref JSON_PATHS: Mutex<HashMap<String, JsonPath>> = Mutex::new(HashMap::new());
 }
 
-pub fn json_value(json_text: &str, json_path: &str) -> String {
+pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
         let mut pool = JSON_PATHS.lock().unwrap();
         let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
@@ -160,7 +160,7 @@ pub fn json_value(json_text: &str, json_path: &str) -> String {
     "".to_owned()
 }
 
-pub fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
+pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
         let mut pool = JSON_PATHS.lock().unwrap();
