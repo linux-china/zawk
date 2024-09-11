@@ -457,7 +457,8 @@ Please refer https://github.com/printfn/fend for more.
 
 the return value is `0` or `1` for `mkbool(s)`.
 
-examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`, `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,
+examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`,
+`mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,
 `mkbool("✓")`
 
 ### int/float
@@ -539,6 +540,16 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 `to_csv(array)`: csv row
 
+# HTML
+
+### html_value
+
+`html_value(html_code, selector)`: node's inner_text
+
+### html_query
+
+`html_query(html_code, selector)`: array of node's inner_text
+
 # Encoding/Decoding
 
 `encode("format",$1) `
@@ -551,7 +562,8 @@ Formats:
 - `base62`
 - `base64`,
 - `base64url`: url safe without pad
-- `zlib2base64url`: zlib then base64url, good for online diagram service, such as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/)
+- `zlib2base64url`: zlib then base64url, good for online diagram service, such
+  as [PlantUML](https://plantuml.com/), [Kroki](https://kroki.io/)
 - `url`,
 - `hex-base64`,
 - `hex-base64url`,
@@ -582,7 +594,8 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
 - dejwt: `dejwt("your-secret-key", token)`.
-- encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`, `encrypt("aes-256-gcm", "Secret Text", "your_pass_key")`
+- encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`,
+  `encrypt("aes-256-gcm", "Secret Text", "your_pass_key")`
 - encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
 
 Explain for `encrypt` and `decrypt`:
@@ -657,7 +670,8 @@ Publish events to NATS: `publish("nats://host:4222/topic", body)`
 
 url: `sqlite.db` db path
 
-- `sqlite_query("sqlite.db", "select nick,email,age from user")`: `sqlite_query("sqlite.db", "select nick,email,age from user")[1]`
+- `sqlite_query("sqlite.db", "select nick,email,age from user")`:
+  `sqlite_query("sqlite.db", "select nick,email,age from user")[1]`
 - `sqlite_execute("sqlite.db, "update users set nick ='demo' where id = 1")`
 
 ### libSQL
@@ -667,7 +681,7 @@ libSQL url: `./demo.db`, `http://127.0.0.1:8080` or `libsql://db-name-your-name.
 - `libsql_query(url, "select id, email from users")`,
 - `libsql_execute(url,"update users set nick ='demo' where id = 1")`
 
-**Tip**: If you don't want to put `authToken` in url,  for example `libsql://db-name-your-name.turso.io`,
+**Tip**: If you don't want to put `authToken` in url, for example `libsql://db-name-your-name.turso.io`,
 you can set up `LIBSQL_AUTH_TOKEN` environment variable.
 
 ### MySQL
