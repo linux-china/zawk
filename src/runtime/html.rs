@@ -1,7 +1,7 @@
 use crate::runtime::{IntMap, Str};
 
 pub(crate) fn html_value(html_text: &str, query: &str) -> String {
-    let mut dom = tl::parse(html_text, tl::ParserOptions::default()).unwrap();
+    let dom = tl::parse(html_text, tl::ParserOptions::default()).unwrap();
     let parser = dom.parser();
     if let Some(node_handler) = dom.query_selector(query).expect("Failed to parse query selector").next() {
         let node = node_handler.get(parser).unwrap();
@@ -12,7 +12,7 @@ pub(crate) fn html_value(html_text: &str, query: &str) -> String {
 
 pub(crate) fn html_query<'a>(html_text: &str, query: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    let mut dom = tl::parse(html_text, tl::ParserOptions::default()).unwrap();
+    let dom = tl::parse(html_text, tl::ParserOptions::default()).unwrap();
     let parser = dom.parser();
     for (i, node_handler) in dom.query_selector(query).expect("Failed to parse query selector").into_iter().enumerate() {
         let node = node_handler.get(parser).unwrap();
