@@ -570,8 +570,12 @@ impl<'a> Str<'a> {
     pub(crate) fn lines(&self) -> IntMap<Str<'a>> {
         let map: IntMap<Str> = IntMap::default();
         let src = self.as_str();
-        for (i, line) in src.lines().enumerate() {
-            map.insert((i + 1) as i64, Str::from(line));
+        let mut i: i64 = 1;
+        for line in src.lines() {
+            if !line.trim().is_empty() {
+              map.insert(i, Str::from(line));
+              i = i + 1;
+            }
         }
         map
     }
