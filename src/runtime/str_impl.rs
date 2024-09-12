@@ -567,6 +567,15 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    pub(crate) fn lines(&self) -> IntMap<Str<'a>> {
+        let map: IntMap<Str> = IntMap::default();
+        let src = self.as_str();
+        for (i, line) in src.lines().enumerate() {
+            map.insert((i + 1) as i64, Str::from(line));
+        }
+        map
+    }
+
     pub fn uncapitalize<'b>(&self) -> Str<'b> {
         let src = self.as_str();
         let mut chars = src.chars();
