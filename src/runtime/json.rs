@@ -79,29 +79,31 @@ pub(crate) fn from_json(json_text: &str) -> StrMap<Str> {
         return from_json_array(json_text);
     }
     let mut map = hashbrown::HashMap::new();
-    if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(json_text) {
-        for (key, value) in json_obj {
-            match value {
-                Value::Bool(b) => {
-                    if b {
-                        map.insert(Str::from(key), Str::from("1"));
-                    } else {
-                        map.insert(Str::from(key), Str::from("0"));
+    if !json_text.is_empty() {
+        if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(json_text) {
+            for (key, value) in json_obj {
+                match value {
+                    Value::Bool(b) => {
+                        if b {
+                            map.insert(Str::from(key), Str::from("1"));
+                        } else {
+                            map.insert(Str::from(key), Str::from("0"));
+                        }
                     }
+                    Value::Number(num) => {
+                        map.insert(Str::from(key), Str::from(num.to_string()));
+                    }
+                    Value::String(s) => {
+                        map.insert(Str::from(key), Str::from(s));
+                    }
+                    Value::Array(arr) => {
+                        map.insert(Str::from(key), Str::from(json::to_string(&arr)));
+                    }
+                    Value::Object(obj) => {
+                        map.insert(Str::from(key), Str::from(json::to_string(&obj)));
+                    }
+                    _ => {}
                 }
-                Value::Number(num) => {
-                    map.insert(Str::from(key), Str::from(num.to_string()));
-                }
-                Value::String(s) => {
-                    map.insert(Str::from(key), Str::from(s));
-                }
-                Value::Array(arr) => {
-                    map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-                }
-                Value::Object(obj) => {
-                    map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-                }
-                _ => {}
             }
         }
     }
@@ -110,32 +112,34 @@ pub(crate) fn from_json(json_text: &str) -> StrMap<Str> {
 
 fn from_json_array(json_text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
-    let result = json::from_str::<Vec<Value>>(json_text);
-    if let Ok(json_array) = result {
-        for (index, json_value) in json_array.iter().enumerate() {
-            let key = (index + 1).to_string();
-            match json_value {
-                Value::Bool(b) => {
-                    if *b {
-                        map.insert(Str::from(key), Str::from("1"));
-                    } else {
-                        map.insert(Str::from(key), Str::from("0"));
+    if !json_text.is_empty() {
+        let result = json::from_str::<Vec<Value>>(json_text);
+        if let Ok(json_array) = result {
+            for (index, json_value) in json_array.iter().enumerate() {
+                let key = (index + 1).to_string();
+                match json_value {
+                    Value::Bool(b) => {
+                        if *b {
+                            map.insert(Str::from(key), Str::from("1"));
+                        } else {
+                            map.insert(Str::from(key), Str::from("0"));
+                        }
                     }
-                }
-                Value::Number(num) => {
-                    map.insert(Str::from(key), Str::from(num.to_string()));
-                }
-                Value::String(s) => {
-                    map.insert(Str::from(key), Str::from(s.to_string()));
-                }
-                Value::Array(arr) => {
-                    map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-                }
-                Value::Object(obj) => {
-                    map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-                }
-                Value::Null => {
-                    map.insert(Str::from(key), Str::from(json::to_string("")));
+                    Value::Number(num) => {
+                        map.insert(Str::from(key), Str::from(num.to_string()));
+                    }
+                    Value::String(s) => {
+                        map.insert(Str::from(key), Str::from(s.to_string()));
+                    }
+                    Value::Array(arr) => {
+                        map.insert(Str::from(key), Str::from(json::to_string(&arr)));
+                    }
+                    Value::Object(obj) => {
+                        map.insert(Str::from(key), Str::from(json::to_string(&obj)));
+                    }
+                    Value::Null => {
+                        map.insert(Str::from(key), Str::from(json::to_string("")));
+                    }
                 }
             }
         }
