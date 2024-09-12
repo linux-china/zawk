@@ -544,7 +544,7 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 ### xml_value
 
-`html_value(xml_text, xpath)`: node's inner_text
+`xml_value(xml_text, xpath)`: node's inner_text
 
 **Attention**: Please refer [XPath cheatsheet](https://quickref.me/xpath.html) for xpath syntax.
 
