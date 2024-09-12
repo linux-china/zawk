@@ -496,6 +496,9 @@ pub(crate) mod boilerplate {
             Words(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            Lines(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             HttpGet(dst, url, headers) => {
                 f(dst.into(), Some(url.into()));
                 f(dst.into(), Some(headers.into()));

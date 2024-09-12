@@ -1537,6 +1537,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Lines(dst, text) => {
+                        let res = index(&self.strs, text).lines();
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     TypeOfArray(dst) => {
                         *index_mut(&mut self.strs, dst) = Str::from("array");
                     }

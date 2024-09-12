@@ -355,6 +355,7 @@ pub(crate) enum Instr<'a> {
     Quote(Reg<Str<'a>>, Reg<Str<'a>>),
     DoubleQuote(Reg<Str<'a>>, Reg<Str<'a>>),
     Words(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Lines(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     UpdateUsedFields(),
     // Set the corresponding index in the FI variable. This is equivalent of loading FI, but we
     // keep this as a separate instruction to make static analysis easier.
@@ -1212,6 +1213,10 @@ impl<'a> Instr<'a> {
                 text.accum(&mut f);
             }
             Words(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Lines(dst, text ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }

@@ -75,6 +75,7 @@ pub enum Function {
     Mask,
     Repeat,
     Words,
+    Lines,
     DefaultIfEmpty,
     AppendIfMissing,
     PrependIfMissing,
@@ -466,6 +467,7 @@ static_map!(
     ["quote", Function::Quote],
     ["double_quote", Function::DoubleQuote],
     ["words", Function::Words],
+    ["lines", Function::Lines],
     ["escape", Function::Escape],
     ["typeof", Function::TypeOfVariable],
     ["isarray", Function::IsArray],
@@ -781,6 +783,7 @@ impl Function {
             Mask => (smallvec![Str], Str),
             Repeat => (smallvec![Str, Int], Str),
             Words => (smallvec![Str], MapIntStr),
+            Lines => (smallvec![Str], MapIntStr),
             Escape => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
@@ -870,7 +873,7 @@ impl Function {
             MkBool => 1,
             MkPassword => 1,
             Trim => 2,
-            Capitalize | UnCapitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words => 1,
+            Capitalize | UnCapitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words | Lines => 1,
             Repeat => 2,
             Min | Max => 3,
             Seq => 3,
@@ -980,7 +983,7 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
-            Words => {
+            Words | Lines => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,

@@ -186,6 +186,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] quote(str_ref_ty) -> str_ty;
         [ReadOnly] double_quote(str_ref_ty) -> str_ty;
         [ReadOnly] words(str_ref_ty) -> map_ty;
+        [ReadOnly] lines(str_ref_ty) -> map_ty;
         [ReadOnly] truncate(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_left(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_right(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
@@ -1150,6 +1151,12 @@ pub(crate) unsafe extern "C" fn double_quote(text: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn words(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
     let res = text.words();
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn lines(text: *mut U128) -> *mut c_void {
+    let text = &*(text as *mut Str);
+    let res = text.lines();
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 

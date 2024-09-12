@@ -212,6 +212,7 @@ impl Display for Function {
             Quote => write!(f, "quote"),
             DoubleQuote => write!(f, "double_quote"),
             Words => write!(f, "words"),
+            Lines => write!(f, "lines"),
             Escape => write!(f, "escape"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
