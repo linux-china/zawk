@@ -540,17 +540,29 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 `to_csv(array)`: csv row
 
+# XML
+
+### xml_value
+
+`html_value(xml_text, xpath)`: node's inner_text
+
+**Attention**: Please refer [XPath cheatsheet](https://quickref.me/xpath.html) for xpath syntax.
+
+### xml_query
+
+`xml_query(xml_text, xpath)`: array of element's string value
+
 # HTML
 
 ### html_value
 
-`html_value(html_code, selector)`: node's inner_text
+`html_value(html_text, selector)`: node's inner_text
 
 **Attention**: please follow standard CSS selector syntax.
 
 ### html_query
 
-`html_query(html_code, selector)`: array of node's inner_text
+`html_query(html_text, selector)`: array of node's inner_text
 
 # Encoding/Decoding
 
