@@ -89,6 +89,8 @@ miniserde = "0.1"
 serde = "1"
 serde_json = "1"
 serde_json_path ="0.6"
+sxd-document = "0.3"
+sxd-xpath="0.4"
 tl = { version = "0.7" }
 logos = "0.14"
 local-ip-address = "0.6"
