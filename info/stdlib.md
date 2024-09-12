@@ -712,8 +712,8 @@ utc by default.
 functions:
 
 - systime: current Unix time
-- strftime: https://docs.rs/chrono/latest/chrono/format/strftime/index.html
-- mktime: https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
+- strftime: `strftime("%Y-%m-%dT%H:%M:%S")` https://docs.rs/chrono/latest/chrono/format/strftime/index.html
+- mktime: `mktime("2021-05-01T01:17:02")` https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
 ### Date time parse
 
