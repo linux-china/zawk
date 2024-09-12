@@ -13,10 +13,6 @@ Text is encoding with utf-8 by default.
 
 Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
 
-### lines
-
-Split text to lines: `lines(text)`: array of text.
-
 ### match(s, re)
 
 if string s matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
@@ -167,6 +163,10 @@ Most libraries include these functions, and I don't want AWK stdlib weird.
 ### strcmp:
 
 text compare `strcmp($1, $2)` return -1, 0, 1
+
+### lines
+
+Split text to none-empty lines: `lines(text)`: array of text.
 
 ### words
 
