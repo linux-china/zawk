@@ -71,7 +71,7 @@ pub(crate) fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
 }
 
 pub(crate) fn str_to_json(text: &str) -> String {
-    return format!("\"{}\"", escape_json(text));
+    format!("\"{}\"", escape_json(text))
 }
 
 pub(crate) fn from_json(json_text: &str) -> StrMap<Str> {
@@ -148,13 +148,15 @@ lazy_static! {
 }
 
 pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-        let mut pool = JSON_PATHS.lock().unwrap();
-        let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
-            JsonPath::parse(json_path).unwrap()
-        });
-        if let Some(node) = json_path.query(&json).first() {
-            return node.to_string().trim_matches('"').to_owned();
+    if !json_text.is_empty() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
+            let mut pool = JSON_PATHS.lock().unwrap();
+            let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
+                JsonPath::parse(json_path).unwrap()
+            });
+            if let Some(node) = json_path.query(&json).first() {
+                return node.to_string().trim_matches('"').to_owned();
+            }
         }
     }
     "".to_owned()
@@ -162,13 +164,15 @@ pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
 
 pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-        let mut pool = JSON_PATHS.lock().unwrap();
-        let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
-            JsonPath::parse(json_path).unwrap()
-        });
-        for (i, item) in json_path.query(&json).iter().enumerate() {
-            map.insert((i + 1) as i64, Str::from(item.to_string()));
+    if !json_text.is_empty() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
+            let mut pool = JSON_PATHS.lock().unwrap();
+            let json_path = pool.entry(json_path.to_string()).or_insert_with(|| {
+                JsonPath::parse(json_path).unwrap()
+            });
+            for (i, item) in json_path.query(&json).iter().enumerate() {
+                map.insert((i + 1) as i64, Str::from(item.to_string()));
+            }
         }
     }
     map
