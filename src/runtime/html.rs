@@ -1,4 +1,6 @@
 use crate::runtime::{IntMap, Str};
+use sxd_document::parser;
+use sxd_xpath::{evaluate_xpath, Value};
 
 pub(crate) fn html_value(html_text: &str, query: &str) -> String {
     let dom = tl::parse(html_text, tl::ParserOptions::default()).unwrap();
@@ -22,6 +24,46 @@ pub(crate) fn html_query<'a>(html_text: &str, query: &str) -> IntMap<Str<'a>> {
     map
 }
 
+pub(crate) fn xml_value(xml_text: &str, xpath: &str) -> String {
+    let package = parser::parse(xml_text).unwrap();
+    let document = package.as_document();
+    let value = evaluate_xpath(&document, xpath).unwrap();
+    match value {
+        Value::Boolean(bool) => { bool.to_string() }
+        Value::Number(num) => { num.to_string() }
+        Value::String(text) => {
+            text
+        }
+        Value::Nodeset(node_set) => {
+            node_set.iter().next().map(|node| node.string_value()).unwrap_or("".to_owned())
+        }
+    }
+}
+
+pub(crate) fn xml_query<'a>(xml_text: &str, xpath: &str) -> IntMap<Str<'a>> {
+    let map: IntMap<Str> = IntMap::default();
+    let package = parser::parse(xml_text).unwrap();
+    let document = package.as_document();
+    let value = evaluate_xpath(&document, xpath).unwrap();
+    match value {
+        Value::Boolean(bool) => {
+            map.insert(1, Str::from(bool.to_string()));
+        }
+        Value::Number(num) => {
+            map.insert(1, Str::from(num.to_string()));
+        }
+        Value::String(text) => {
+            map.insert(1, Str::from(text));
+        }
+        Value::Nodeset(node_set) => {
+            for (i, node) in node_set.iter().enumerate() {
+                map.insert((i + 1) as i64, Str::from(node.string_value()));
+            }
+        }
+    };
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +82,17 @@ mod tests {
         let query = "title";
         let result = html_query(html_code, query);
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_xml_value() {
+        let xml_text = "<books><book><title>title1</title><name>name1</name></book></books>";
+        println!("{}", xml_value(xml_text, "/books/book/title"));
+    }
+
+    #[test]
+    fn test_xml_query() {
+        let xml_text = "<books><book><title>title1</title></book><book><title>title2</title></book></books>";
+        println!("{:?}", xml_query(xml_text, "//title"));
     }
 }
