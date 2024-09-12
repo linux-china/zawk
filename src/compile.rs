@@ -2404,6 +2404,16 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::HtmlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            XmlValue => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::XmlValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            XmlQuery => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::XmlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             VarDump => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {

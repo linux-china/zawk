@@ -113,6 +113,8 @@ pub enum Function {
     JsonQuery,
     HtmlValue,
     HtmlQuery,
+    XmlValue,
+    XmlQuery,
     VarDump,
     ReadAll,
     WriteAll,
@@ -410,6 +412,8 @@ static_map!(
     ["json_query", Function::JsonQuery],
     ["html_value", Function::HtmlValue],
     ["html_query", Function::HtmlQuery],
+    ["xml_value", Function::XmlValue],
+    ["xml_query", Function::XmlQuery],
     ["var_dump", Function::VarDump],
     ["read_all", Function::ReadAll],
     ["write_all", Function::WriteAll],
@@ -757,6 +761,8 @@ impl Function {
             JsonQuery => (smallvec![Str,Str], MapIntStr),
             HtmlValue => (smallvec![Str,Str], Str),
             HtmlQuery => (smallvec![Str,Str], MapIntStr),
+            XmlValue => (smallvec![Str,Str], Str),
+            XmlQuery => (smallvec![Str,Str], MapIntStr),
             VarDump => (smallvec![incoming[0]], Null),
             ReadAll => (smallvec![Str], Str),
             WriteAll => (smallvec![Str, Str], Null),
@@ -839,7 +845,7 @@ impl Function {
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             DefaultIfEmpty => 2,
-            JsonValue | JsonQuery | HtmlValue | HtmlQuery => 2,
+            JsonValue | JsonQuery | HtmlValue | HtmlQuery | XmlValue | XmlQuery => 2,
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
             LastPart => 2,
@@ -929,10 +935,10 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | ToCsv | TypeOfVariable | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
-            JsonQuery | HtmlQuery => {
+            JsonQuery | HtmlQuery | XmlQuery => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,

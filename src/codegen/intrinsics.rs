@@ -258,6 +258,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] json_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] html_value(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] html_query(str_ref_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] xml_value(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] xml_query(str_ref_ty, str_ref_ty) -> map_ty;
         dump_map_int_int(map_ty);
         dump_map_int_float(map_ty);
         dump_map_int_str(map_ty);
@@ -1665,6 +1667,20 @@ pub(crate) unsafe extern "C" fn html_query(html_text: *mut U128, selector: *mut 
     let html_text = &*(html_text as *mut Str);
     let selector = &*(selector as *mut Str);
     let res = runtime::html::html_query(html_text.as_str(), selector.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn xml_value(xml_text: *mut U128, xpath: *mut U128) -> U128 {
+    let xml_text = &*(xml_text as *mut Str);
+    let xpath = &*(xpath as *mut Str);
+    let value = runtime::html::xml_value(xml_text.as_str(), xpath.as_str());
+    mem::transmute::<Str, U128>(Str::from(value))
+}
+
+pub(crate) unsafe extern "C" fn xml_query(xml_text: *mut U128, xpath: *mut U128) -> *mut c_void {
+    let xml_text = &*(xml_text as *mut Str);
+    let xpath = &*(xpath as *mut Str);
+    let res = runtime::html::xml_query(xml_text.as_str(), xpath.as_str());
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 

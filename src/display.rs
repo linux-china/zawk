@@ -262,6 +262,8 @@ impl Display for Function {
             JsonQuery => write!(f, "json_query"),
             HtmlValue => write!(f, "html_value"),
             HtmlQuery => write!(f, "html_query"),
+            XmlValue => write!(f, "xml_value"),
+            XmlQuery => write!(f, "xml_query"),
             VarDump => write!(f, "var_dump"),
             ReadAll => write!(f, "read_all"),
             WriteAll => write!(f, "write_all"),

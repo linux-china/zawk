@@ -315,6 +315,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(html_text.into()));
                 f(dst.into(), Some(selector.into()));
             }
+            XmlValue(dst, xml_text, xpath) => {
+                f(dst.into(), Some(xml_text.into()));
+                f(dst.into(), Some(xpath.into()));
+            }
+            XmlQuery(dst, xml_text, xpath) => {
+                f(dst.into(), Some(xml_text.into()));
+                f(dst.into(), Some(xpath.into()));
+            }
             DumpMapIntInt(_arr) => {},
             DumpMapIntFloat(_arr) => {},
             DumpMapIntStr(_arr) => {},

@@ -1103,6 +1103,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(html_query), &mut [html_text, selector])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            XmlValue(dst, xml_text, xpath) => {
+                let xml_text = self.get_val(xml_text.reflect())?;
+                let xpath = self.get_val(xpath.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(xml_value), &mut [xml_text, xpath])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            XmlQuery(dst, xml_text, xpath) => {
+                let xml_text = self.get_val(xml_text.reflect())?;
+                let xpath = self.get_val(xpath.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(xml_query), &mut [xml_text, xpath])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             DumpMapIntInt(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_int), &mut [arr])?;
