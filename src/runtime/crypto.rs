@@ -45,10 +45,6 @@ pub fn digest(algorithm: &str, text: &str) -> String {
         return xxhash_rust::xxh32::xxh32(text.as_bytes(), 0).to_string();
     } else if algorithm == "xxh64" {
         return xxhash_rust::xxh64::xxh64(text.as_bytes(), 0).to_string();
-    } else if algorithm == "gxh32" {
-        return gxhash::gxhash32(text.as_bytes(), 1234).to_string();
-    } else if algorithm == "gxh64" {
-        return gxhash::gxhash64(text.as_bytes(), 1234).to_string();
     }
     format!("{}:{}", algorithm, text)
 }
@@ -303,12 +299,6 @@ mod tests {
     #[test]
     fn test_xxh32() {
         let hash_result = xxhash_rust::xxh32::xxh32("hello".as_bytes(), 0).to_string();
-        println!("{}", hash_result);
-    }
-
-    #[test]
-    fn test_gxhash() {
-        let hash_result = gxhash::gxhash64("Hello world".as_bytes(), 1234).to_string();
         println!("{}", hash_result);
     }
 
