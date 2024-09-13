@@ -47,7 +47,7 @@ use runtime::{
     },
     ChainedReader, LineReader, CHUNK_SIZE,
 };
-use std::fs::File;
+use std::fs::{File, Permissions};
 use std::io::{self, BufReader, Write};
 use std::iter::once;
 use std::mem;
@@ -317,12 +317,19 @@ fn main() {
             .required(true)
             .help("Text file or URL to parse")
         );
+    let init_cmd = Command::new("init").about("Create a new AWK file with help info")
+        .arg(Arg::new("awk-file")
+            .index(1)
+            .required(true)
+            .help("AWK file to create")
+        );
     #[allow(unused_mut)]
     let mut app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
         .about("zawk is an AWK language implementation by Rust with stdlib support")
         .subcommand(dump_cmd)
+        .subcommand(init_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -450,6 +457,21 @@ fn main() {
             let text = runtime::csv::parse_prometheus(input_file);
             println!("{}", text);
         }
+        return;
+    }
+    // init sub command
+    if let Some(matches) = matches.subcommand_matches("init") {
+        let mut awk_file = matches.get_one::<String>("awk-file").unwrap().clone();
+        if !awk_file.ends_with(".awk") {
+            awk_file = format!("{}.awk", awk_file);
+        }
+        let author = whoami::username();
+        let template = include_str!("templates/demo.awk");
+        let template = template.replace("$USER", &author);
+        let mut tasksh_file = File::create(&awk_file).unwrap();
+        tasksh_file.write_all(template.as_bytes()).unwrap();
+        set_executable(&awk_file);
+        println!("{} created", awk_file);
         return;
     }
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
@@ -809,3 +831,12 @@ fn main() {
         }
     }
 }
+
+#[cfg(unix)]
+fn set_executable(path: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn set_executable(path: &str) {}
