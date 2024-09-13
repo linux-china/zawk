@@ -16,6 +16,8 @@ release:
   ls -al target/release/zawk
   cp target/release/zawk ~/bin/
 
+begin-file:
+  cargo run --package zawk --bin zawk -- '{print $1}' demo.txt
 
 dump-prometheus:
   cargo run --package zawk --bin zawk -- dump --prometheus http://localhost:8081/actuator/prometheus
