@@ -31,7 +31,7 @@ rand = { version = "0.8.5", features = ["default"] }
 rand_core = "0.6"
 lalrpop-util = "0.21.0"
 unicode-xid = "0.2.4"
-llvm-sys = { version = "150", optional = true }
+llvm-sys = { version = "150.2.1", optional = true }
 clap = "4.5"
 crossbeam-channel = "0.5"
 crossbeam = "0.8.4"
@@ -52,7 +52,7 @@ cranelift-native = "0.111"
 cranelift-jit = "0.111"
 fast-float = "0.2"
 bumpalo = { version = "3.16", features = ["collections"] }
-target-lexicon = "0.12.14"
+target-lexicon = "0.12.16"
 uuid = { version = "1.10", features = ["v4", "v7", "fast-rng"] }
 ulid = "1"
 tsid = "0.3"
