@@ -1,18 +1,27 @@
 AWK Examples
 ===============
 
-# awk file help
+# awk file help support
+
+Use `zawk init demo.awk` to create an AWK file, and code as following:
 
 ```
 #!/usr/bin/env zawk -f
 
-# @desc  this is a demo awk
-# @meta  author       your_name
-# @var   name         field name
-# @env   DB_NAME!     db name
+# @desc this is a demo awk
+# @meta author linux_china
+# @meta version 0.1.0
+# @var email current user email
+# @env DB_URL database url
+
+BEGIN {
+    print email, ENVIRON["DB_URL"]
+}
 
 ```
 
+Then execute `./demo.awk --help` to display help.
+ 
 # Best practise
 
 * Use `BEGIN` and `END` block to initialize and finalize
