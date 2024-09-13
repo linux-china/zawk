@@ -13,7 +13,7 @@ Time flies, and we need a new Modern AWK to work with DuckDB, ClickHouse, S3, KV
 frawk is a foundation to zawk for syntax, types, lex etc.,
 and zawk focuses to make AWK more powerful with standard library.
 Now I'm not sure that developers will accept my changes to frawk, and zawk just experimental
-work: `zawk = AWK + stdlib`.
+work: `zawk = AWK + stdlib + Rust`.
 
 Frawk still good for text processing, embedded etc.,
 and if possible I will contribute some work to frawk, for example:
@@ -33,7 +33,7 @@ and I will try my best to fix bugs in frawk.
 Now I'm not sure about the roadmap, but I will try my best to make zawk more powerful and easy to use.
 
 * gawk compatible
-* stdlib perfect
+* stdlib enhancement
 * performance optimization
 * UX: Installation, Usage, Documentation, Examples etc.
 
@@ -75,7 +75,8 @@ Nushell types support:
 
 # awk file help support
 
-You can add help information in awk file to make awk friendly, example as following: 
+You can add help information in awk file to make awk friendly.
+Use `zawk init demo.awk`, example as following: 
 
 ```awk
 #!/usr/bin/env zawk -f
