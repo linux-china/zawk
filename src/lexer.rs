@@ -143,6 +143,8 @@ keyword_map!(
     KEYWORDS<&'static [u8], (Tok<'static>, Option<Regex>)>,
     [b"PREPARE", Tok::Prepare],
     [b"BEGIN", Tok::Begin, WS_BRACE.clone()],
+    [b"BEGINFILE", Tok::BeginFile, WS_BRACE.clone()],
+    [b"ENDFILE", Tok::EndFile, WS_BRACE.clone()],
     [b"END", Tok::End, WS_BRACE.clone()],
     [b"break", Tok::Break, WS_SEMI.clone()],
     [b"continue", Tok::Continue, WS_SEMI.clone()],
