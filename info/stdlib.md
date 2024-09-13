@@ -176,12 +176,12 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 `repeat("*",3) # ***`
 
-**Tips**: please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
+**Tips**: please regex express for `is_xxx()`、`contains()`、`starts_with()`、`ends_with()` functions.
 
 - is_int: `/^\d+$/`
 - contains: `/xxxx/`
-- start_with: `/^xxxx/`
-- end_with: `/xxxx$/`
+- starts_with: `/^xxxx/`
+- ends_with: `/xxxx$/`
 
 ### default_if_empty
 
