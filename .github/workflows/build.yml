@@ -41,7 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.fileName }}
+          path: target/release/zawk
 
   build-on-windows:
     name: ${{ matrix.version }} on ${{ matrix.os }}
