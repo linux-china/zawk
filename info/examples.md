@@ -25,6 +25,10 @@ AWK Examples
 $ zawk dump --prometheus http://localhost:8081/actuator/prometheus
 ```
 
+# Output as CSV
+
+`zawk -o csv 'BEGIN { print 1, "first,seccond"}'`
+
 # NCSA Common Log Format
 
 Please refer [Common Log Format](https://en.wikipedia.org/wiki/Common_Log_Format).
