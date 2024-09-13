@@ -22,6 +22,8 @@ pub type Spanned<T> = (Loc, T, Loc);
 pub enum Tok<'a> {
     Begin,
     Prepare,
+    BeginFile,
+    EndFile,
     End,
     Break,
     Continue,

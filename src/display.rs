@@ -410,6 +410,8 @@ impl<'a> Display for lexer::Tok<'a> {
         let rep = match self {
             Begin => "BEGIN",
             Prepare => "PREPARE",
+            BeginFile => "BEGINFILE",
+            EndFile => "ENDFILE",
             End => "END",
             Break => "break",
             Continue => "continue",

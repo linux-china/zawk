@@ -68,6 +68,10 @@ pub struct Prog<'a, 'b, I> {
     pub begin: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
     // PREPARE blocks, executed before the main loop
     pub prepare: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+    // BEGINFILE
+    pub beginfile: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+    // ENDFILE
+    pub endfile: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
     // END blocks
     pub end: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
     // pattern actions
@@ -135,6 +139,8 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             decs: arena.new_vec(),
             begin: arena.new_vec(),
             prepare: arena.new_vec(),
+            beginfile: arena.new_vec(),
+            endfile: arena.new_vec(),
             end: arena.new_vec(),
             pats: arena.new_vec(),
             argv: Vec::new(),

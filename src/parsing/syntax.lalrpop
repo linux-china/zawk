@@ -20,6 +20,8 @@ ToplevelBase: () = {
    <Begin> => { prog.begin.push(<>); },
    <End> => { prog.end.push(<>); },
    <Prepare> => { prog.prepare.push(<>); },
+   <BeginFile> => { prog.beginfile.push(<>); },
+   <EndFile> => { prog.endfile.push(<>); },
    <Function> => prog.decs.push(<>),
 }
 
@@ -67,6 +69,14 @@ Begin: &'a Stmt<'a,'a,&'a str> = {
 
 Prepare: &'a Stmt<'a,'a,&'a str> = {
     "PREPARE" "\n"* <Block> => <>
+}
+
+BeginFile: &'a Stmt<'a,'a,&'a str> = {
+    "BEGINFILE" "\n"* <Block> => <>
+}
+
+EndFile: &'a Stmt<'a,'a,&'a str> = {
+    "ENDFILE" "\n"* <Block> => <>
 }
 
 End: &'a Stmt<'a,'a,&'a str> = {
@@ -424,6 +434,8 @@ extern {
       "FUNDEC" => Tok::FunDec(<&'a str>),
       "BEGIN" =>  Tok::Begin,
       "PREPARE" => Tok::Prepare,
+      "BEGINFILE" => Tok::BeginFile,
+      "ENDFILE" => Tok::EndFile,
       "END" =>  Tok::End,
       "break" =>  Tok::Break,
       "continue" =>  Tok::Continue,
