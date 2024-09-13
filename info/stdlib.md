@@ -602,7 +602,6 @@ Algorithms:
 - `bcrypt`,
 - `murmur3`,
 - `xxh32` or `xxh64`
-- `gxh32` or `gxh64`: https://github.com/ogxd/gxhash
 - `blake3`
 - `crc32`: checksum
 - `adler32`: checksum

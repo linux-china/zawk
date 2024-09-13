@@ -82,7 +82,6 @@ aes-gcm = "0.10"
 aes = "0.8"
 murmur3 = "0.5"
 xxhash-rust = { version = "0.8", features = ["xxh32", "xxh64"] }
-gxhash = "3"
 blake3 = "1"
 hex = "0.4"
 miniserde = "0.1"
