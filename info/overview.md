@@ -142,22 +142,20 @@ generates lower level code, and executes it.
 
 1. The [lexer](https://github.com/ezrosent/frawk/blob/master/src/lexer.rs)
    tokenizes the frawk source code.
-1. The parser produces an abstract syntax tree
+2. The parser produces an abstract syntax tree
    ([AST](https://github.com/ezrosent/frawk/blob/master/src/ast.rs)) from the
    stream of tokens.
-1. The AST is converted to an untyped control-flow-graph
+3. The AST is converted to an untyped control-flow-graph
    ([CFG](https://github.com/ezrosent/frawk/blob/master/src/cfg.rs)). We perform
    [SSA](https://en.wikipedia.org/wiki/Static_single_assignment_form)
    [conversion](https://github.com/ezrosent/frawk/blob/master/src/dom.rs) on
    this CFG.
-1. With the CFG in SSA form, an [inference
-   algorithm](https://github.com/ezrosent/frawk/blob/master/src/types.rs)
+4. With the CFG in SSA form, an [inference algorithm](https://github.com/ezrosent/frawk/blob/master/src/types.rs)
    assigns types to all variables in the program.
-1. Given the untyped CFG and the results of the inference algorithm, we can
+5. Given the untyped CFG and the results of the inference algorithm, we can
    produce a typed CFG with explicit bytecode instructions. (happens
    [here](https://github.com/ezrosent/frawk/blob/master/src/compile.rs))
-1. From there, the code is lowered into one of (a) [bytecode
-   instructions](https://github.com/ezrosent/frawk/blob/master/src/bytecode.rs)
+6. From there, the code is lowered into one of (a) [bytecode instructions](https://github.com/ezrosent/frawk/blob/master/src/bytecode.rs)
    that can be
    [interpreted](https://github.com/ezrosent/frawk/blob/master/src/interp.rs)
    directly, (b)
