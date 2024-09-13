@@ -178,6 +178,11 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 **Tips**: please regex express for `is_xxx()`、`contains()`、`start_with()`、`end_with()` functions.
 
+- is_int: `/^\d+$/`
+- contains: `/xxxx/`
+- start_with: `/^xxxx/`
+- end_with: `/xxxx$/`
+
 ### default_if_empty
 
 Return default value if text is empty or not exist.
