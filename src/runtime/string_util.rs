@@ -413,6 +413,16 @@ pub fn generate_password(len: usize) -> String {
     pg.generate_one().unwrap()
 }
 
+pub fn figlet(text: &str) -> String {
+    use figlet_rs::FIGfont;
+    let standard_font = FIGfont::standard().unwrap();
+    if let Some(figure) = standard_font.convert(text) {
+        figure.to_string()
+    } else {
+        text.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use unicode_segmentation::UnicodeSegmentation;
@@ -548,5 +558,10 @@ mod tests {
     #[test]
     fn test_generate_password() {
         println!("{}", generate_password(12))
+    }
+
+    #[test]
+    fn test_figlet() {
+        println!("{}", figlet("Hello").trim_matches('\n'));
     }
 }
