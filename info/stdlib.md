@@ -394,8 +394,7 @@ ID specs:
 
 ### asort
 
-`n = asort(arr)`: asort
-gawk兼容
+`n = asort(arr)`: sort array, and return sorted array length
 
 ### _max/_min/_sum/_mean
 
