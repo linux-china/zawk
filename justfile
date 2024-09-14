@@ -293,3 +293,6 @@ run-html-value:
 
 run-xml-value:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print xml_value("<head><title>this is title</title></head>", "/head/title") }' demo.txt
+
+run-figlet:
+  cargo run --package zawk --bin zawk -- 'BEGIN { print figlet("Hello zawk"); }' demo.txt
