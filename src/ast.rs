@@ -66,7 +66,7 @@ pub struct Prog<'a, 'b, I> {
     pub decs: arena::Vec<'a, FunDec<'a, 'b, I>>,
     // BEGIN blocks
     pub begin: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
-    // PREPARE blocks, executed before the main loop
+    // PREPARE blocks, executed after the main loop
     pub prepare: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
     // BEGINFILE
     pub beginfile: arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
