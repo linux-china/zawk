@@ -1271,6 +1271,7 @@ pub(crate) trait CodeGenerator: Backend {
             KebabCase(dst,text) => self.unop(intrinsic!(kebab_case), dst, text),
             SnakeCase(dst,text) => self.unop(intrinsic!(snake_case), dst, text),
             TitleCase(dst,text) => self.unop(intrinsic!(title_case), dst, text),
+            Figlet(dst,text) => self.unop(intrinsic!(figlet), dst, text),
             PadLeft(dst,text, len, pad) => {
                 let text = self.get_val(text.reflect())?;
                 let len = self.get_val(len.reflect())?;

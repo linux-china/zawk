@@ -2011,6 +2011,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Figlet => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Figlet(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             PadLeft => {
                 if res_reg != UNUSED {
                     self.pushl(LL::PadLeft(

@@ -441,6 +441,9 @@ pub(crate) mod boilerplate {
             TitleCase(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
+            Figlet(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             PadLeft(dst, text, len, pad) => {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(len.into()));

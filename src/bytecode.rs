@@ -341,6 +341,7 @@ pub(crate) enum Instr<'a> {
     KebabCase(Reg<Str<'a>>, Reg<Str<'a>>),
     SnakeCase(Reg<Str<'a>>, Reg<Str<'a>>),
     TitleCase(Reg<Str<'a>>, Reg<Str<'a>>),
+    Figlet(Reg<Str<'a>>, Reg<Str<'a>>),
     PadLeft(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     PadRight(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     PadBoth(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
@@ -1144,6 +1145,10 @@ impl<'a> Instr<'a> {
                 text.accum(&mut f);
             }
             TitleCase(dst, text ) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Figlet(dst, text ) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }

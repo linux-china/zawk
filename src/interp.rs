@@ -1462,6 +1462,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).title_case();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    Figlet(dst, text) => {
+                        let text = index(&self.strs, text);
+                        let art_text = runtime::string_util::figlet(text.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(art_text);
+                    }
                     PadLeft(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);

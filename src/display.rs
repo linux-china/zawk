@@ -198,6 +198,7 @@ impl Display for Function {
             KebabCase => write!(f, "kebab_case"),
             SnakeCase => write!(f, "snake_case"),
             TitleCase => write!(f, "title_case"),
+            Figlet => write!(f, "figlet"),
             PadLeft => write!(f, "pad_left"),
             PadRight => write!(f, "pad_right"),
             PadBoth => write!(f, "pad_both"),
