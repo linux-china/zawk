@@ -151,6 +151,13 @@ The return value is `1` or `0`.
 Why not use regex? Because starts_with/ends_with/contains are easy to use and understand.
 Most libraries include these functions, and I don't want AWK stdlib weird.
 
+**Tips**: You can use regex expression for `is_xxx()`、`contains()`、`starts_with()`、`ends_with()` functions.
+
+- is_int: `/^\d+$/`
+- contains: `/xxxx/`
+- starts_with: `/^xxxx/`
+- ends_with: `/xxxx$/`
+
 ### mask
 
 `mask("abc@example.com")`, `mask("186612347")`
@@ -176,12 +183,6 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 `repeat("*",3) # ***`
 
-**Tips**: please regex express for `is_xxx()`、`contains()`、`starts_with()`、`ends_with()` functions.
-
-- is_int: `/^\d+$/`
-- contains: `/xxxx/`
-- starts_with: `/^xxxx/`
-- ends_with: `/xxxx$/`
 
 ### default_if_empty
 
