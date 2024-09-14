@@ -13,21 +13,21 @@ Text is encoding with utf-8 by default.
 
 Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
 
-### match(s, re)
+### match(text, re)
 
-if string s matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
+if string text matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
 leftmost match of re, and RLENGTH is set with the length of this match.
 
-### substr(s, i[, j])
+### substr(text, i[, j])
 
 The 1-indexed substring of string s starting from index i and continuing for the next j characters or until the end of s
 if i+j exceeds the length of s or if s is not provided.
 
-### sub(re, t, s)
+### sub(re, text, s)
 
 Substitutes t for the first matching occurrence of regular expression re in the string s.
 
-### gsub(re, t, s)
+### gsub(re, text, s)
 
 Like sub, but with all occurrences substituted, not just the first.
 
@@ -36,9 +36,9 @@ Like sub, but with all occurrences substituted, not just the first.
 * `index()`: the first index within haystack in which the string needle occurs, 0 if needle does not appear.
 * `last_index()`: the last index within haystack in which the string needle occurs, 0 if needle does not appear.
 
-### split(s, m[, fs])
+### split(text, arr[, fs])
 
-Splits the string s according to fs, placing the results in the array m. If fs is not specified then the FS variable is
+Splits the string s according to fs, placing the results in the array `arr`. If fs is not specified then the FS variable is
 used to split s.
 
 ### last_part(s [, sep])
@@ -225,6 +225,10 @@ Generate password with numbers, lowercase/uppercase letters, and special chars.
 
 - `mkpass()`: 8 chars password
 - `mkpass(12)`: 12 chars password
+
+### figlet
+
+Help you to generate ASCII art text with figlet: `figlet("Hello")`
 
 # Text Escape
 
