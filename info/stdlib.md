@@ -228,7 +228,7 @@ Generate password with numbers, lowercase/uppercase letters, and special chars.
 
 ### figlet
 
-Help you to generate ASCII art text with figlet: `figlet("Hello")`.
+Help you to generate ASCII art text with figlet: `BEGIN { print figlet("Hello zawk"); }`.
 
 **Attention**: ascii characters only, don't use i18n characters. :) 
 
