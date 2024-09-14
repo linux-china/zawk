@@ -1126,13 +1126,14 @@ pub(crate) enum Variable {
     FI = 13,
     ENVIRON = 14,
     PROCINFO = 15,
+    CONVFMT = 16,
 }
 
 impl From<Variable> for compile::Ty {
     fn from(v: Variable) -> compile::Ty {
         use Variable::*;
         match v {
-            FS | OFS | ORS | RS | FILENAME => compile::Ty::Str,
+            FS | OFS | ORS | RS | FILENAME | CONVFMT => compile::Ty::Str,
             PID | ARGC | NF | NR | FNR | RSTART | RLENGTH => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
@@ -1159,6 +1160,7 @@ pub(crate) struct Variables<'a> {
     pub fi: StrMap<'a, Int>,
     pub environ: StrMap<'a, Str<'a>>,
     pub procinfo: StrMap<'a, Str<'a>>,
+    pub convfmt: Str<'a>,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -1174,6 +1176,7 @@ impl<'a> Default for Variables<'a> {
             fnr: 0,
             nf: 0,
             filename: Default::default(),
+            convfmt: "%.6g".into(),
             rstart: 0,
             pid: 0,
             rlength: -1,
@@ -1231,7 +1234,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart,
             RLENGTH => self.rlength,
             PID => self.pid,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         })
     }
 
@@ -1245,7 +1248,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart = i,
             RLENGTH => self.rlength = i,
             PID => self.pid = i,
-            FI | ORS | OFS | FS | RS | FILENAME | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         }
         Ok(())
     }
@@ -1258,6 +1261,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors.clone(),
             RS => self.rs.clone(),
             FILENAME => self.filename.clone(),
+            CONVFMT => self.convfmt.clone(),
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var);
             }
@@ -1272,6 +1276,7 @@ impl<'a> Variables<'a> {
             ORS => self.ors = s,
             RS => self.rs = s,
             FILENAME => self.filename = s,
+            CONVFMT => self.convfmt = s,
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var);
             }
@@ -1283,7 +1288,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1296,7 +1301,7 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1306,7 +1311,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1320,7 +1325,7 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1332,7 +1337,7 @@ impl<'a> Variables<'a> {
         match var {
             ENVIRON => Ok(self.environ.clone()),
             PROCINFO => Ok(self.environ.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1350,7 +1355,7 @@ impl<'a> Variables<'a> {
                 self.procinfo = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | RSTART | FI
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1399,7 +1404,7 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Str,
             },
-            ORS | OFS | FS | RS | FILENAME => types::TVar::Scalar(types::BaseTy::Str),
+            ORS | OFS | FS | RS | FILENAME | CONVFMT => types::TVar::Scalar(types::BaseTy::Str),
         }
     }
 }

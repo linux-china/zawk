@@ -165,6 +165,7 @@ impl<'a> Core<'a> {
         let rs: UniqueStr<'a> = self.vars.rs.clone().into();
         let ors: UniqueStr<'a> = self.vars.ors.clone().into();
         let filename: UniqueStr<'a> = self.vars.filename.clone().into();
+        let convfmt: UniqueStr<'a> = self.vars.convfmt.clone().into();
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
@@ -177,6 +178,7 @@ impl<'a> Core<'a> {
                 ors: ors.into_str(),
                 rs: rs.into_str(),
                 filename: filename.into_str(),
+                convfmt: convfmt.into_str(),
                 pid,
                 nf: 0,
                 nr: 0,

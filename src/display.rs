@@ -347,6 +347,7 @@ impl Display for Variable {
                 FI => "FI",
                 ENVIRON => "ENVIRON",
                 PROCINFO => "PROCINFO",
+                CONVFMT => "CONVFMT",
             }
         )
     }
