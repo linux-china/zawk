@@ -5,7 +5,7 @@ use anyhow::Result;
 use ini::configparser::ini::Ini;
 use crate::runtime::{Str, StrMap};
 
-pub fn read_config(file: &str) -> StrMap<Str> {
+pub(crate) fn read_config(file: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
     if file.ends_with(".ini") {
         if let Ok(data_map) = read_ini(file) {
