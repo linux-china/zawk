@@ -296,3 +296,6 @@ run-xml-value:
 
 run-figlet:
   cargo run --package zawk --bin zawk -- 'BEGIN { print figlet("Hello zawk"); }' demo.txt
+
+run-read-config:
+  cargo run --package zawk --bin zawk -- 'BEGIN { print read_config("tests/demo.ini")["key1"]; }' demo.txt
