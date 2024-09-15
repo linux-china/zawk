@@ -769,6 +769,11 @@ date/time array:
 **Tips**: `read_all` function uses [OneIO](github.com/bgpkit/oneio), and remote(https or ftp) and compressions(
 gz,bz,lz,xz) are supported.
 
+### read_config
+
+Read config file to StrStrMap: `read_config("tests/demo.ini")`.
+Now only `*.ini` and `*.properties` are supported.
+
 ### getline
 
 Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html
