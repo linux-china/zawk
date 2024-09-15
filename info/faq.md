@@ -37,6 +37,13 @@ Now I'm not sure about the roadmap, but I will try my best to make zawk more pow
 * performance optimization
 * UX: Installation, Usage, Documentation, Examples etc.
 
+# What are limits with gawk?
+
+zawk limits:
+
+- No `BEGINFILE` and `ENDFILE` blocks
+- `CONVFMT` and `OFMT` are not supported
+
 # How to query Apache Parquet?
 
 ```shell
