@@ -275,6 +275,8 @@ pub(crate) enum Instr<'a> {
     LibsqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    PgQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    PgExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterInsert(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -851,6 +853,16 @@ impl<'a> Instr<'a> {
                 sql.accum(&mut f);
             }
             MysqlExecute(dst, db_url, sql) => {
+                dst.accum(&mut f);
+                db_url.accum(&mut f);
+                sql.accum(&mut f);
+            }
+            PgQuery(dst, db_url, sql) => {
+                dst.accum(&mut f);
+                db_url.accum(&mut f);
+                sql.accum(&mut f);
+            }
+            PgExecute(dst, db_url, sql) => {
                 dst.accum(&mut f);
                 db_url.accum(&mut f);
                 sql.accum(&mut f);

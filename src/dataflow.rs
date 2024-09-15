@@ -570,6 +570,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));
             }
+            PgQuery(dst, db_url, sql) => {
+                f(dst.into(), Some(db_url.into()));
+                f(dst.into(), Some(sql.into()));
+            }
+            PgExecute(dst, db_url, sql) => {
+                f(dst.into(), Some(db_url.into()));
+                f(dst.into(), Some(sql.into()));
+            }
             Publish( _namespace, _body) => {
             }
             BloomFilterInsert( _item, _group) => {

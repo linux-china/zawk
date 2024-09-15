@@ -226,6 +226,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] libsql_execute(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] mysql_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] mysql_execute(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] pg_query(str_ref_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] pg_execute(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] s3_get(str_ref_ty, str_ref_ty) -> str_ty;
@@ -1596,6 +1598,18 @@ pub(crate) unsafe extern "C" fn mysql_execute(db_url: *mut U128, sql: *mut U128)
     runtime::mysql::mysql_execute(db_url.as_str(), sql.as_str())
 }
 
+pub(crate) unsafe extern "C" fn pg_query(db_url: *mut U128, sql: *mut U128) -> *mut c_void {
+    let db_url = &*(db_url as *mut Str);
+    let sql = &*(sql as *mut Str);
+    let res = runtime::postgres::pg_query(db_url.as_str(), sql.as_str());
+    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+}
+
+pub(crate) unsafe extern "C" fn pg_execute(db_url: *mut U128, sql: *mut U128) -> Int {
+    let db_url = &*(db_url as *mut Str);
+    let sql = &*(sql as *mut Str);
+    runtime::postgres::pg_execute(db_url.as_str(), sql.as_str())
+}
 
 pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
     let json_text = &*(src as *mut Str);

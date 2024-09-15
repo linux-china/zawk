@@ -2354,6 +2354,12 @@ impl<'a, 'b> View<'a, 'b> {
             MysqlExecute => {
                 self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
+            PgQuery => {
+                self.pushl(LL::PgQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
+            PgExecute => {
+                self.pushl(LL::PgExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
             Publish => {
                 self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into()))
             }

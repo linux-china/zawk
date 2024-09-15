@@ -137,6 +137,8 @@ pub enum Function {
     LibsqlExecute,
     MysqlQuery,
     MysqlExecute,
+    PgQuery,
+    PgExecute,
     Publish,
     Min,
     Max,
@@ -408,6 +410,8 @@ static_map!(
     ["libsql_execute", Function::LibsqlExecute],
     ["mysql_query", Function::MysqlQuery],
     ["mysql_execute", Function::MysqlExecute],
+    ["pg_query", Function::PgQuery],
+    ["pg_execute", Function::PgExecute],
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
     ["to_json", Function::ToJson],
@@ -758,8 +762,8 @@ impl Function {
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             LogDebug | LogInfo | LogWarn | LogError => (smallvec![Str], Null),
-            SqliteQuery | LibsqlQuery | MysqlQuery => (smallvec![Str, Str], MapIntStr),
-            SqliteExecute | LibsqlExecute | MysqlExecute => (smallvec![Str, Str], Int),
+            SqliteQuery | LibsqlQuery | MysqlQuery | PgQuery => (smallvec![Str, Str], MapIntStr),
+            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => (smallvec![Str, Str], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -892,7 +896,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute => 2,
+            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 2,
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
             IsInt | IsNum => 1,
@@ -1040,13 +1044,13 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
-            SqliteQuery | MysqlQuery | LibsqlQuery | LibsqlExecute => {
+            SqliteQuery | MysqlQuery | LibsqlQuery | PgQuery  => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,
                 }.abs())
             }
-            SqliteExecute | MysqlExecute => Ok(Scalar(BaseTy::Int).abs()),
+            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

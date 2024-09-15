@@ -1065,6 +1065,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(mysql_execute), &mut [db_url, sql])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            PgQuery(dst,db_url,sql) => {
+                let db_url = self.get_val(db_url.reflect())?;
+                let sql = self.get_val(sql.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pg_query), &mut [db_url, sql])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            PgExecute(dst,db_url,sql) => {
+                let db_url = self.get_val(db_url.reflect())?;
+                let sql = self.get_val(sql.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pg_execute), &mut [db_url, sql])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
             MapIntFloatToJson(dst,arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),

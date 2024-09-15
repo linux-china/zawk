@@ -257,6 +257,8 @@ impl Display for Function {
             LibsqlExecute => write!(f, "libsql_execute"),
             MysqlQuery => write!(f, "mysql_query"),
             MysqlExecute => write!(f, "mysql_execute"),
+            PgQuery => write!(f, "pg_query"),
+            PgExecute => write!(f, "pg_execute"),
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
             ToJson => write!(f, "to_json"),
