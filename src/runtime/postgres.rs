@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use postgres::{Client, NoTls};
+use uuid::Uuid;
 
 lazy_static! {
     static ref PG_POOLS: Mutex<HashMap<String, Client>> = Mutex::new(HashMap::new());
@@ -75,9 +76,21 @@ fn reflective_get(row: &postgres::Row, index: usize) -> String {
             let v: Option<f64> = row.get(index);
             v.map(|v| v.to_string())
         }
+        "date" => {
+            let v: Option<time::Date> = row.get(index);
+            v.map(|v| v.to_string())
+        }
+        "time" => {
+            let v: Option<time::Time> = row.get(index);
+            v.map(|v| v.to_string())
+        }
         "timestamp" | "timestamptz" => {
             // with-chrono feature is needed for this
             let v: Option<chrono::DateTime<Utc>> = row.get(index);
+            v.map(|v| v.to_string())
+        }
+        "uuid" => {
+            let v: Option<Uuid> = row.get(index);
             v.map(|v| v.to_string())
         }
         &_ => Some("".to_string()),
