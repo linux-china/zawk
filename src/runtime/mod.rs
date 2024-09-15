@@ -38,6 +38,7 @@ pub mod logging;
 pub mod string_util;
 pub mod faker;
 pub mod html;
+pub mod config_util;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
