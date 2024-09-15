@@ -712,6 +712,13 @@ libSQL url: `./demo.db`, `http://127.0.0.1:8080` or `libsql://db-name-your-name.
 **Tip**: If you don't want to put `authToken` in url, for example `libsql://db-name-your-name.turso.io`,
 you can set up `LIBSQL_AUTH_TOKEN` environment variable.
 
+### PostgreSQL
+
+url: `postgresql://postgres:postgres@localhost/db_name`
+
+- `pg_query(url, "select id, name from people")`,
+- `pg_execute(url,"update users set nick ='demo' where id = 1")`
+
 ### MySQL
 
 url: `mysql://root:123456@localhost:3306/test`
