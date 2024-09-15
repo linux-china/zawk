@@ -16,6 +16,7 @@ build = "build.rs"
 [dependencies]
 log = "0.4"
 env_logger = "0.11"
+anyhow = "1.0"
 petgraph = "0.6"
 smallvec = "1.13.2"
 hashbrown = "0.14"
@@ -122,6 +123,8 @@ passwords = "3"
 Inflector = "0.11"
 prometheus-parse = "0.2"
 figlet-rs="0.1"
+ini="1.3"
+java-properties = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
@@ -129,6 +132,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 [dev-dependencies]
 assert_cmd = "2.0"
 tempfile = "3"
+testresult = "0.4"
 
 [features]
 default = ["use_jemalloc"]
