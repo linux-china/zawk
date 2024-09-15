@@ -113,6 +113,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 libsql = { version = "0.5", default-features = false, features = ["core", "remote"] }
 libsql-sys = { version = "0.7", features = ["rusqlite"] }
 mysql = { version = "25" }
+postgres= { version = "0.19", features = ["with-chrono-0_4", "with-time-0_3", "with-uuid-1"] }
 csv = "1"
 semver = "1"
 ctor = "0.2"
@@ -125,6 +126,7 @@ prometheus-parse = "0.2"
 figlet-rs="0.1"
 ini="1.3"
 java-properties = "2"
+time = "0.3.36"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
