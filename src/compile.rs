@@ -23,7 +23,7 @@ use std::mem;
 use std::sync::Arc;
 use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
-pub(crate) const UNUSED: u32 = u32::max_value();
+pub(crate) const UNUSED: u32 = u32::MAX;
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
