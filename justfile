@@ -189,6 +189,9 @@ run-libsql-query:
 run-mysql-query:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print mysql_query("mysql://root:123456@localhost:3306/test", "select id, name from people")[1] }' demo.txt
 
+run-pg-query:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print pg_query("postgres://postgres:postgres@localhost/demo", "SELECT id, name FROM city")[1] }' demo.txt
+
 run-semver:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print semver("1.2.3-alpha-1")["pre"] }' demo.txt
 
