@@ -34,6 +34,7 @@ pub mod csv;
 pub mod sqlite;
 pub mod libsql;
 pub mod mysql;
+pub mod postgres;
 pub mod logging;
 pub mod string_util;
 pub mod faker;
