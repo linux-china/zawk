@@ -236,6 +236,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         kv_clear(str_ref_ty);
         [ReadOnly] read_all(str_ref_ty) -> str_ty;
         write_all(str_ref_ty, str_ref_ty);
+        [ReadOnly] read_config(str_ref_ty) -> map_ty;
         log_debug(rt_ty, str_ref_ty);
         log_info(rt_ty, str_ref_ty);
         log_warn(rt_ty, str_ref_ty);
@@ -1223,6 +1224,12 @@ pub(crate) unsafe extern "C" fn write_all(path: *mut U128, content: *mut U128) {
     let path = &*(path as *mut Str);
     let content = &*(content as *mut Str);
     runtime::string_util::write_all(path.as_str(), content.as_str());
+}
+
+pub(crate) unsafe extern "C" fn read_config(path: *mut U128) -> *mut c_void {
+    let path = &*(path as *mut Str);
+    let res = runtime::config_util::read_config(path.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn log_debug(runtime: *mut c_void, message: *mut U128) {

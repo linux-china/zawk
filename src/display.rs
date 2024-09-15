@@ -269,6 +269,7 @@ impl Display for Function {
             VarDump => write!(f, "var_dump"),
             ReadAll => write!(f, "read_all"),
             WriteAll => write!(f, "write_all"),
+            ReadConfig => write!(f, "read_config"),
             FromCsv => write!(f, "from_csv"),
             ToCsv => write!(f, "to_csv"),
             Min => write!(f, "min"),

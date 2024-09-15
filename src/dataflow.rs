@@ -535,6 +535,9 @@ pub(crate) mod boilerplate {
             }
             WriteAll( _path, _content) => {
             }
+            ReadConfig(dst, path) => {
+                f(dst.into(), Some(path.into()));
+            }
             LogDebug( _message) => {
             }
             LogInfo( _message) => {

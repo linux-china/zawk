@@ -1253,6 +1253,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let content = index(&self.strs, content);
                         runtime::string_util::write_all(path.as_str(), content.as_str());
                     }
+                    ReadConfig(dst, path) => {
+                        let path = index(&self.strs, path);
+                        let res = runtime::config_util::read_config(path.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     LogDebug(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);

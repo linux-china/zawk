@@ -264,6 +264,7 @@ pub(crate) enum Instr<'a> {
     KvClear(Reg<Str<'a>>),
     ReadAll(Reg<Str<'a>>, Reg<Str<'a>>),
     WriteAll(Reg<Str<'a>>, Reg<Str<'a>>),
+    ReadConfig(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     LogDebug(Reg<Str<'a>>),
     LogInfo(Reg<Str<'a>>),
     LogWarn(Reg<Str<'a>>),
@@ -807,6 +808,10 @@ impl<'a> Instr<'a> {
             WriteAll( path, content) => {
                 path.accum(&mut f);
                 content.accum(&mut f);
+            }
+            ReadConfig(dst, path) => {
+                dst.accum(&mut f);
+                path.accum(&mut f);
             }
             LogDebug( message) => {
                 message.accum(&mut f);

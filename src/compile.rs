@@ -2319,6 +2319,11 @@ impl<'a, 'b> View<'a, 'b> {
             WriteAll => {
                 self.pushl(LL::WriteAll(conv_regs[0].into(), conv_regs[1].into()))
             }
+            ReadConfig => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ReadConfig(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             LogDebug => {
                 self.pushl(LL::LogDebug(conv_regs[0].into()))
             }
