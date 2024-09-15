@@ -15,7 +15,11 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut pools = PG_POOLS.lock().unwrap();
     let client = pools.entry(db_url.to_string()).or_insert_with(|| {
-        Client::connect(db_url, NoTls).unwrap()
+        if db_url.starts_with("postgres://") {
+            Client::connect(&db_url.replace("postgres://", "postgresql://"), NoTls).unwrap()
+        } else {
+            Client::connect(db_url, NoTls).unwrap()
+        }
     });
     let rows = client.query(sql, &[]).unwrap();
     let mut index = 1;
@@ -35,7 +39,11 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
 pub(crate) fn pg_execute(db_url: &str, sql: &str) -> Int {
     let mut pools = PG_POOLS.lock().unwrap();
     let client = pools.entry(db_url.to_string()).or_insert_with(|| {
-        Client::connect(db_url, NoTls).unwrap()
+        if db_url.starts_with("postgres://") {
+            Client::connect(&db_url.replace("postgres://", "postgresql://"), NoTls).unwrap()
+        } else {
+            Client::connect(db_url, NoTls).unwrap()
+        }
     });
     client.execute(sql, &[]).unwrap_or(0) as Int
 }
@@ -108,7 +116,7 @@ mod tests {
     #[test]
     fn test_query() {
         let sql = "SELECT name FROM city";
-        let db_url = "postgresql://postgres:postgres@localhost/demo";
+        let db_url = "postgres://postgres:postgres@localhost/demo";
         let rows = pg_query(db_url, sql);
         for key in rows.to_vec() {
             let value = rows.get(&key);
