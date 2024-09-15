@@ -774,6 +774,8 @@ gz,bz,lz,xz) are supported.
 Read config file to StrStrMap: `read_config("tests/demo.ini")`.
 Now only `*.ini` and `*.properties` are supported.
 
+**Tips**: zawk will load `.env` as environment variables automatically if it exists in the current directory.
+
 ### getline
 
 Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html
