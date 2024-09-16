@@ -130,3 +130,4 @@ Cargo.lock
 .env
 dependencies.txt
 .envrc
+http-client.private.env.json
