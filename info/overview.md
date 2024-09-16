@@ -50,8 +50,8 @@ Awk processes data line by line, splitting by a "record separator" which is
 (essentially) a regular expression. That means it's easy enough to write the
 script
 
-```awk
-awk -F',' 'NR>1 { SUM+=$2 } END { print SUM }'
+```shell
+$ awk -F',' 'NR>1 { SUM+=$2 } END { print SUM }'
 ```
 
 To sum the second column in a file where commas always delimit fields. The
@@ -99,12 +99,12 @@ frawk's higher performance are:
    performing coercions between strings and numbers. frawk achieves this while
    maintaining just about all of Awk's semantics: the only type errors frawk
    gives you are type errors in Awk, as well.
-1. The fact that frawk produces a typed representation allows it to generate
+2. The fact that frawk produces a typed representation allows it to generate
    fairly simple CLIF or LLVM IR and then JIT that IR to machine code at
    runtime. This avoids the overhead of an interpreter at the cost of a few
    milliseconds of time at startup. frawk provides a bytecode interpreter
    (enabled via the `-Binterp` option) for smaller scripts and for help in testing.
-1. frawk uses some fairly recent techniques for [efficiently validating
+3. frawk uses some fairly recent techniques for [efficiently validating
    UTF-8](https://github.com/lemire/fastvalidate-utf-8), [parsing
    CSV](https://github.com/geofflangdale/simdcsv), and [parsing floating point
    numbers](https://github.com/lemire/fast_double_parser). On top of that, it

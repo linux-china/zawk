@@ -11,7 +11,7 @@ There are two types of values in Awk: scalars and associative arrays (the frawk
 implementation calls these "maps").  These two kinds of variable cannot overlap,
 so the command:
 
-```
+```shell
 $ awk 'BEGIN { x=1; x[2]=3; }'
 ```
 
@@ -26,7 +26,7 @@ operations like concatenation make use of the string representation. New scalar
 values initialized with one representation can fill in the other eagerly or
 lazily via Awk's coercion rules. That means commands like:
 
-```
+```shell
 $ awk 'BEGIN { x = "0"; y = x + 2; x = y + 1; print x, y;}'
 ```
 
@@ -101,6 +101,7 @@ x = "string"
 x = 3
 ```
 Into programs like:
+
 ```
 x0 = "string"
 x1 = 3
@@ -296,7 +297,9 @@ variables accessed from multiple functions might do more coercions than the same
 program in gawk or mawk. frawk also allows values that are null in some
 execution paths to be represented as integers, so the program:
 
-```BEGIN { if (0) { x=6; }; print x; }```
+```
+BEGIN { if (0) { x=6; }; print x; }
+```
 
 Prints an empty line in Awk, and prints 0 in frawk. This was a pragmatic choice
 I made based on the Awk programs that I write and read about. It hasn't been a
