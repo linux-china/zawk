@@ -1,13 +1,16 @@
-use std::collections::{BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
+use std::sync::Mutex;
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jsonwebtoken::{DecodingKey, EncodingKey, Validation};
+use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
+use jsonwebtoken::jwk::{Jwk, JwkSet};
+use lazy_static::lazy_static;
 use crate::runtime::{SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -80,15 +83,55 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
             }
         }
     });
-    let jwt_algorithm = jsonwebtoken::Algorithm::from_str(&algorithm.to_uppercase()).unwrap();
-    let header = jsonwebtoken::Header::new(jwt_algorithm);
-    let encoding_key = EncodingKey::from_secret(key.as_ref());
+    let jwt_algorithm = Algorithm::from_str(&algorithm.to_uppercase()).unwrap();
+    let encoding_key = match jwt_algorithm {
+        Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
+            EncodingKey::from_secret(key.as_ref())
+        }
+        Algorithm::ES256 | Algorithm::ES384 => {
+            EncodingKey::from_ec_pem(key.as_ref()).unwrap()
+        }
+        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
+            EncodingKey::from_rsa_pem(key.as_ref()).unwrap()
+        }
+        Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
+            EncodingKey::from_rsa_pem(key.as_ref()).unwrap()
+        }
+        Algorithm::EdDSA => {
+            EncodingKey::from_ed_pem(key.as_ref()).unwrap()
+        }
+    };
+    let header = Header::new(jwt_algorithm);
     jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
 }
 
 pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
     let mut map = hashbrown::HashMap::new();
-    if let Ok(toke_data) = jsonwebtoken::decode::<BTreeMap<String, Value>>(&token, &DecodingKey::from_secret(key.as_ref()), &Validation::default()) {
+    let header = decode_header(token).unwrap();
+    let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
+        let jwk = extract_jwk(key);
+        DecodingKey::from_jwk(&jwk).unwrap()
+    } else {
+        match header.alg {
+            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
+                DecodingKey::from_secret(key.as_ref())
+            }
+            Algorithm::ES256 | Algorithm::ES384 => {
+                DecodingKey::from_ec_pem(key.as_ref()).unwrap()
+            }
+            Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
+                DecodingKey::from_rsa_pem(key.as_ref()).unwrap()
+            }
+            Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
+                DecodingKey::from_rsa_pem(key.as_ref()).unwrap()
+            }
+            Algorithm::EdDSA => {
+                DecodingKey::from_ed_pem(key.as_ref()).unwrap()
+            }
+        }
+    };
+    let validation = Validation::new(header.alg);
+    if let Ok(toke_data) = jsonwebtoken::decode::<BTreeMap<String, Value>>(&token, &decoding_key, &validation) {
         for (key, value) in toke_data.claims {
             match value {
                 Value::Null => {}
@@ -115,6 +158,22 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
         }
     }
     SharedMap::from(map)
+}
+
+lazy_static! {
+    static ref JWK_POOLS: Mutex<HashMap<String, Jwk>> = Mutex::new(HashMap::new());
+}
+
+pub fn extract_jwk(full_http_url: &str) -> Jwk {
+    let mut pools = JWK_POOLS.lock().unwrap();
+    let jwk = pools.entry(full_http_url.to_string()).or_insert_with(|| {
+        let parts: Vec<&str> = full_http_url.split("#").collect();
+        let http_url = *parts.get(0).unwrap();
+        let kid = *parts.get(1).unwrap();
+        let jwkset: JwkSet = reqwest::blocking::get(http_url).unwrap().json::<JwkSet>().unwrap();
+        jwkset.find(kid).unwrap().clone()
+    });
+    jwk.clone()
 }
 
 /// plaintext max length 256
@@ -223,6 +282,7 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::io::BufReader;
+    use jsonwebtoken::jwk::JwkSet;
     use crate::runtime::encoding::encode;
     use super::*;
 
@@ -296,7 +356,10 @@ mod tests {
         payload.insert(Str::from("rate"), Str::from("11.11"));
         payload.insert(Str::from("exp"), Str::from("1208234234234"));
         let token = jwt("HS256", "123456", &payload);
-        println!("{}", token);
+        println!("HS256: {}", token);
+        let pem_text = include_str!("../../tests/jwt-keys/ECDSA-private.pem");
+        let token = jwt("ES256", pem_text, &payload);
+        println!("ES256: {}", token);
     }
 
     #[test]
@@ -307,6 +370,37 @@ mod tests {
         println!("{}", value);
     }
 
+    #[test]
+    fn test_dejwt_es256() {
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.rgIm0ep_VZ1LaoySp0U4dktnMtIhrrXtoo2udzpmYhh_1hQS8-LqgC5j4FRYaXtu8piSZfhCod1aarO_cYDh9Q";
+        let pem_text = include_str!("../../tests/jwt-keys/ECDSA-pub.pem");
+        let payload = dejwt(pem_text, token);
+        let value = payload.get(&Str::from("exp"));
+        println!("{}", value);
+    }
+
+    #[test]
+    fn test_jwks_url() {
+        // cd tests/jwt-keys && python3 -m http.server
+        let full_http_url = "http://localhost:8000/jwks.json#ec-1";
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.rgIm0ep_VZ1LaoySp0U4dktnMtIhrrXtoo2udzpmYhh_1hQS8-LqgC5j4FRYaXtu8piSZfhCod1aarO_cYDh9Q";
+        let payload = dejwt(full_http_url, token);
+        let value = payload.get(&Str::from("exp"));
+        println!("{}", value);
+    }
+
+    #[test]
+    fn test_jwks() {
+        let keys = include_str!("../../tests/jwt-keys/jwks.json");
+        let jwkset: JwkSet = serde_json::from_str(keys).unwrap();
+        let jwk = jwkset.find("ec-1").unwrap();
+        println!("{:?}", jwk);
+        let decoding_key = DecodingKey::from_jwk(jwk).unwrap();
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.rgIm0ep_VZ1LaoySp0U4dktnMtIhrrXtoo2udzpmYhh_1hQS8-LqgC5j4FRYaXtu8piSZfhCod1aarO_cYDh9Q";
+        let validation = Validation::new(Algorithm::ES256);
+        let token_data = jsonwebtoken::decode::<BTreeMap<String, Value>>(token, &decoding_key, &validation).unwrap();
+        println!("{:?}", token_data.claims);
+    }
 
     #[test]
     fn test_aes_cbc() {
