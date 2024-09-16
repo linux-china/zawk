@@ -142,6 +142,12 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
     } else {
         ("".to_owned(), "".to_owned())
     };
+    if env::var("DRY_RUN").is_ok() {
+        println!("====DRY_RUN MODE====");
+        println!("API URL: {}", api_url);
+        println!("JSON Body: {}", serde_json::to_string(&req).unwrap());
+        return;
+    }
     if !api_url.is_empty() {
         let client = reqwest::blocking::Client::new();
         let _resp = client.post(api_url)
