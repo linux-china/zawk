@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::env;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
+use serde::Serialize;
 use url::Url;
 use crate::runtime::{Str, StrMap};
 
@@ -104,6 +106,52 @@ pub(crate) fn publish(namespace: &str, body: &str) {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct MailSendRequest {
+    from: MailAddress,
+    to: Vec<MailAddress>,
+    subject: String,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MailAddress {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub email: String,
+}
+
+impl MailAddress {
+    pub fn new(email: &str) -> Self {
+        MailAddress {
+            name: None,
+            email: email.to_string(),
+        }
+    }
+}
+
+pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
+    let req = MailSendRequest {
+        from: MailAddress::new(from),
+        to: vec![MailAddress::new(to)],
+        subject: subject.to_string(),
+        text: text.to_string(),
+    };
+    let (api_url, api_key) = if let Ok(api_key) = env::var("MLSN_API_KEY") {
+        ("https://api.mailersend.com/v1/email".to_owned(), api_key)
+    } else {
+        ("".to_owned(), "".to_owned())
+    };
+    if !api_url.is_empty() {
+        let client = reqwest::blocking::Client::new();
+        let _resp = client.post(api_url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .json(&req)
+            .send()
+            .unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use local_ip_address::local_ip;
@@ -136,5 +184,15 @@ mod tests {
     fn test_publish_nats() {
         let url = "nats://localhost:4222/topic1";
         publish(url, "Hello World!");
+    }
+
+    #[test]
+    fn test_send_email() {
+        dotenv::dotenv().ok();
+        let from = "support@trial-3zxk54v3ykzgjy6v.mlsender.net";
+        let to = "linux_china@hotmail.com";
+        let subject = "demo.csv processed successfully by zawk";
+        let text = "rows: 180, total: 1000";
+        send_mail(from, to, subject, text);
     }
 }
