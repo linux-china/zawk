@@ -1,14 +1,13 @@
 use std::collections::{BTreeMap};
-use jwt::{AlgorithmType, Header, SignWithKey, VerifyWithKey, Token, FromBase64};
 use std::io::{BufReader, Cursor};
-use sha2::{Sha256, Sha512, Digest, Sha384};
+use std::str::FromStr;
+use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
-use jwt::header::HeaderType;
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
-
+use jsonwebtoken::{DecodingKey, EncodingKey, Validation};
 use crate::runtime::{SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -51,7 +50,7 @@ pub fn digest(algorithm: &str, text: &str) -> String {
 
 /// HMAC(Hash-based message authentication code) with HmacSHA256 and HmacSHA512
 pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
-    return if algorithm == "HmacSHA512" {
+    if algorithm == "HmacSHA512" {
         let mut mac = HmacSha512::new_from_slice(key.as_bytes()).unwrap();
         mac.update(text.as_bytes());
         format!("{:x}", mac.finalize().into_bytes())
@@ -59,7 +58,7 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(key.as_bytes()).unwrap();
         mac.update(text.as_bytes());
         format!("{:x}", mac.finalize().into_bytes())
-    };
+    }
 }
 
 pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
@@ -81,68 +80,37 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
             }
         }
     });
-    let algorithm = algorithm.to_uppercase();
-    let mut header = Header {
-        type_: Some(HeaderType::JsonWebToken),
-        ..Default::default()
-    };
-    if algorithm == "HS512" {
-        let key = Hmac::<Sha512>::new_from_slice(key.as_bytes()).unwrap();
-        header.algorithm = AlgorithmType::Hs512;
-        Token::new(header, claims).sign_with_key(&key).unwrap()
-    } else if algorithm == "HS384" {
-        let key = Hmac::<Sha384>::new_from_slice(key.as_bytes()).unwrap();
-        header.algorithm = AlgorithmType::Hs384;
-        Token::new(header, claims).sign_with_key(&key).unwrap()
-    } else {
-        let key = Hmac::<Sha256>::new_from_slice(key.as_bytes()).unwrap();
-        header.algorithm = AlgorithmType::Hs256;
-        Token::new(header, claims).sign_with_key(&key).unwrap()
-    }.as_str().to_string()
+    let jwt_algorithm = jsonwebtoken::Algorithm::from_str(&algorithm.to_uppercase()).unwrap();
+    let header = jsonwebtoken::Header::new(jwt_algorithm);
+    let encoding_key = EncodingKey::from_secret(key.as_ref());
+    jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
 }
 
 pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
-    let header_text = token[0..token.find('.').unwrap()].to_string();
-    let header = Header::from_base64(&header_text).unwrap();
     let mut map = hashbrown::HashMap::new();
-    let claims: BTreeMap<String, Value> = match header.algorithm {
-        AlgorithmType::Hs256 => {
-            let key: Hmac<Sha256> = Hmac::new_from_slice(key.as_bytes()).unwrap();
-            token.verify_with_key(&key).unwrap()
-        }
-        AlgorithmType::Hs384 => {
-            let key: Hmac<Sha384> = Hmac::new_from_slice(key.as_bytes()).unwrap();
-            token.verify_with_key(&key).unwrap()
-        }
-        AlgorithmType::Hs512 => {
-            let key: Hmac<Sha512> = Hmac::new_from_slice(key.as_bytes()).unwrap();
-            token.verify_with_key(&key).unwrap()
-        }
-        _ => {
-            BTreeMap::new()
-        }
-    };
-    for (key, value) in claims {
-        match value {
-            Value::Null => {}
-            Value::Bool(bool_value) => {
-                if bool_value {
-                    map.insert(Str::from(key), Str::from("1".to_string()));
-                } else {
-                    map.insert(Str::from(key), Str::from("0".to_string()));
+    if let Ok(toke_data) = jsonwebtoken::decode::<BTreeMap<String, Value>>(&token, &DecodingKey::from_secret(key.as_ref()), &Validation::default()) {
+        for (key, value) in toke_data.claims {
+            match value {
+                Value::Null => {}
+                Value::Bool(bool_value) => {
+                    if bool_value {
+                        map.insert(Str::from(key), Str::from("1".to_string()));
+                    } else {
+                        map.insert(Str::from(key), Str::from("0".to_string()));
+                    }
                 }
-            }
-            Value::Number(num) => {
-                map.insert(Str::from(key), Str::from(num.to_string()));
-            }
-            Value::String(text) => {
-                map.insert(Str::from(key), Str::from(text));
-            }
-            Value::Array(arr) => {
-                map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
-            }
-            Value::Object(obj) => {
-                map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+                Value::Number(num) => {
+                    map.insert(Str::from(key), Str::from(num.to_string()));
+                }
+                Value::String(text) => {
+                    map.insert(Str::from(key), Str::from(text));
+                }
+                Value::Array(arr) => {
+                    map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
+                }
+                Value::Object(obj) => {
+                    map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+                }
             }
         }
     }
@@ -332,16 +300,8 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_head() {
-        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.P2e6b_I1pfbmgoyXcEwAKM1XjgNeRku0jatyf2CYD3o";
-        let enc = token[0..token.find('.').unwrap()].to_string();
-        let header = Header::from_base64(&enc).unwrap();
-        println!("{:?}", header);
-    }
-
-    #[test]
     fn test_dejwt() {
-        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.P2e6b_I1pfbmgoyXcEwAKM1XjgNeRku0jatyf2CYD3o";
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.CoS6EPR3qt3-SiMmtU3H3VsndMmO0CWU4s7h9flP184";
         let payload = dejwt("123456", token);
         let value = payload.get(&Str::from("exp"));
         println!("{}", value);
