@@ -620,8 +620,6 @@ Algorithms:
 ### crypto
 
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
-- jwt: `jwt("HS256","your-secret-key", arr)`. algorithm: `HS256`, `HS384`, `HS512`.
-- dejwt: `dejwt("your-secret-key", token)`.
 - encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`,
   `encrypt("aes-256-gcm", "Secret Text", "your_pass_key")`
 - encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
@@ -631,6 +629,22 @@ Explain for `encrypt` and `decrypt`:
 * mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
 * plaintext — Text that need to be encrypted.
 * key — Encryption key. `16` bytes(16 ascii chars) for `128` and `32` bytes(32 ascii chars) for `256`.
+
+### JWT
+
+Hmac signature: `HS256`, `HS384`, `HS512`: 
+
+- jwt: `jwt("HS256","your-secret-key", payload_map)`
+- dejwt: `dejwt("your-secret-key", token)`, return payload map.
+
+RSA/ECDSA/EdDSA: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `EdDSA`:
+
+- jwt: `jwt("RS256", private_key_pem_text, payload_map)`
+- dejwt: `dejwt(public_key_pem_text, token)`
+
+JWK: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`,
+
+- dejwt: `dejwt("http://example.com/jwks.json#kid", token)`: please add kid as anchor.
 
 # KV
 
