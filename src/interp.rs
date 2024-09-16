@@ -965,6 +965,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    SendMail(from, to, subject, body) => {
+                        let from = index(&self.strs, from);
+                        let to = index(&self.strs, to);
+                        let subject = index(&self.strs, subject);
+                        let body = index(&self.strs, body);
+                        runtime::network::send_mail(from.as_str(), to.as_str(),
+                                                    subject.as_str(), body.as_str());
+                    }
                     S3Get(dst, bucket, object_name) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);

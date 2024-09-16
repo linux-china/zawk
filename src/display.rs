@@ -241,6 +241,7 @@ impl Display for Function {
             Func => write!(f, "func"),
             HttpGet => write!(f, "http_get"),
             HttpPost => write!(f, "http_post"),
+            SendMail => write!(f, "send_mail"),
             S3Get => write!(f, "s3_get"),
             S3Put => write!(f, "s3_put"),
             KvGet => write!(f, "kv_get"),

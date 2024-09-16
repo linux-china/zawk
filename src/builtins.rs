@@ -125,6 +125,7 @@ pub enum Function {
     ToCsv,
     HttpGet,
     HttpPost,
+    SendMail,
     S3Get,
     S3Put,
     KvGet,
@@ -398,6 +399,7 @@ static_map!(
     ["func", Function::Func],
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
+    ["send_mail", Function::SendMail],
     ["s3_get", Function::S3Get],
     ["s3_put", Function::S3Put],
     ["kv_get", Function::KvGet],
@@ -755,6 +757,7 @@ impl Function {
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
             HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
+            SendMail => (smallvec![Str, Str, Str, Str], Null),
             S3Get => (smallvec![Str, Str], Str),
             S3Put => (smallvec![Str, Str, Str], Str),
             KvGet => (smallvec![Str, Str ], Str),
@@ -891,6 +894,7 @@ impl Function {
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
+            SendMail => 4,
             S3Get => 2,
             S3Put => 3,
             KvGet | KvDelete => 2,
@@ -1063,6 +1067,7 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
+            SendMail => Ok(None),
             S3Get | S3Put => Ok(Scalar(BaseTy::Str).abs()),
             FromJson => {
                 Ok(Map {
