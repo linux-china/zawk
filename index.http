@@ -1,0 +1,17 @@
+### mail send
+POST https://api.mailersend.com/v1/email
+Content-Type: application/json
+Authorization: Bearer {{MLSN_API_KEY}}
+
+{
+  "from": {
+    "email": "{{SUPPORT_EMAIL}}"
+  },
+  "to": [
+    {
+      "email": "{{SUPPORT_EMAIL}}"
+    }
+  ],
+  "subject": "Hello from zawk!",
+  "text": "This is just a friendly hello from zawk."
+}
