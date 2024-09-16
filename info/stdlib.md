@@ -690,7 +690,7 @@ response array:
 
 ### email
 
-`send(from, to, subject, body)`: from and to are email address, and body is text content.
+`send_email(from, to, subject, body)`: from and to are email address, and body is text content.
 
 Environment variables for email sending:
 
