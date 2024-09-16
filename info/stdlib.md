@@ -688,6 +688,14 @@ response array:
 - text: response as text
 - HTTP header names: response headers, such as `Content-Type`
 
+### email
+
+`send(from, to, subject, body)`: from and to are email address, and body is text content.
+
+Environment variables for email sending:
+
+- `MLSN_API_KEY`: API key for [MailerSend](https://www.mailersend.com/)
+
 ### S3
 
 - `s3_get(bucket, object_name)`: get object, and return value is text.
