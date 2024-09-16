@@ -646,6 +646,8 @@ JWK: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`,
 
 - dejwt: `dejwt("http://example.com/jwks.json#kid", token)`: please add kid as anchor.
 
+**Tips**: you can use https://jwkset.com/generate to generate JWK json and keys PEM text.
+
 # KV
 
 Key/Value Functions:
