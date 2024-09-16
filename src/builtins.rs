@@ -400,6 +400,7 @@ static_map!(
     ["http_get", Function::HttpGet],
     ["http_post", Function::HttpPost],
     ["send_mail", Function::SendMail],
+    ["send_email", Function::SendMail],
     ["s3_get", Function::S3Get],
     ["s3_put", Function::S3Put],
     ["kv_get", Function::KvGet],
