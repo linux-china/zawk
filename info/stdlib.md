@@ -790,6 +790,23 @@ date/time array:
 - `pwd()`,
 - `user_home()`
 
+### system2
+
+You can use `getline` and pipe to get the output:
+
+```
+    while ("ls -al" | getline line) {
+        print "line: " line
+    }
+```
+
+Now you can use `system2(command_line)` to capture output and return array with `code`, `stdout`, `stderr`.
+
+```
+    result = system2("curl ifconfig.me")
+    println result["stdout"]
+```
+
 # I/O
 
 ### File
