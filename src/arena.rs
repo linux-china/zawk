@@ -3,9 +3,9 @@
 //! This used to include a custom implementation based on frozen vectors that respected Drop calls
 //! automatically (without using a Box type).  It has since been moved to a solution based on the
 //! bumpalo crate, which is now the standard in the broader Rust ecosystem. We keep this as a
-//! wrapper for a couple reasons:
+//! wrapper for a couple of reasons:
 //!
-//! 1. bumpalo returns a mutable reference by default, but all of the uses of arena-allocated data
+//! 1. bumpalo returns a mutable reference by default, but all the uses of arena-allocated data
 //!    in this project use immutable references.
 //! 2. For byte slices and strings, frawk's runtime has special runtime requirements, so we use the
 //!    extra wrapper to enforce those rather than passing them down to the user.
