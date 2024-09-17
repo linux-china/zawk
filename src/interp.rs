@@ -2128,8 +2128,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         self.read_files.close(file);
                     }
                     RunCmd(dst, cmd) => {
-                        *index_mut(&mut self.ints, dst) =
-                            index(&self.strs, cmd).with_bytes(runtime::run_command);
+                        let cmd = index(&self.strs, cmd);
+                        let res  =  runtime::run_command(cmd.as_str());
+                        *index_mut(&mut self.ints, dst) = res;
                     }
                     RunCmd2(dst, cmd) => {
                         let cmd = index(&self.strs, cmd);

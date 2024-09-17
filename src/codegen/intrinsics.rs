@@ -616,8 +616,8 @@ pub(crate) unsafe extern "C" fn exit(runtime: *mut c_void, code: Int) {
 }
 
 pub(crate) unsafe extern "C" fn run_cmd(cmd: *mut U128) -> Int {
-    let s: &Str = &*(cmd as *mut Str);
-    s.with_bytes(runtime::run_command)
+    let cmd: &Str = &*(cmd as *mut Str);
+    runtime::run_command(cmd.as_str())
 }
 
 pub(crate) unsafe extern "C" fn run_cmd2(cmd: *mut U128) -> *mut c_void {
