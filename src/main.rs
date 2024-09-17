@@ -1,7 +1,4 @@
 #![recursion_limit = "1024"]
-#![cfg_attr(feature = "unstable", feature(core_intrinsics))]
-#![cfg_attr(feature = "unstable", feature(test))]
-#![cfg_attr(feature = "unstable", feature(write_all_vectored))]
 
 #[macro_use]
 pub mod common;
@@ -121,7 +118,7 @@ fn open_file_read(f: &str) -> impl io::BufRead {
 }
 
 fn chained<LR: LineReader>(lr: LR) -> ChainedReader<LR> {
-    ChainedReader::new(std::iter::once(lr))
+    ChainedReader::new(once(lr))
 }
 
 fn get_vars<'a, 'b>(
@@ -260,10 +257,7 @@ cfg_if::cfg_if! {
         fn dump_llvm(prog: &str, cfg: codegen::Config, raw: &RawPrelude) -> String {
             let a = Arena::default();
             let mut ctx = get_context(prog, &a, get_prelude(&a, raw));
-            match compile::dump_llvm(&mut ctx, cfg) {
-                Ok(s) => s,
-                Err(e) => fail!("error compiling llvm: {}", e),
-            }
+            compile::dump_llvm(&mut ctx, cfg).unwrap_or_else(|e| fail!("error compiling llvm: {}", e))
         }
 
     }
@@ -521,29 +515,29 @@ fn main() {
         .map(|x| x.map(String::from).collect())
         .unwrap_or_else(Vec::new);
     let program_string = {
-        if let Some(pfiles) = matches.get_many::<String>("program-file") {
+        if let Some(prog_files) = matches.get_many::<String>("program-file") {
             // We specified a file on the command line, so the "program" will be
             // interpreted as another input file.
             if let Some(p) = matches.get_one::<String>("program") {
                 input_files.insert(0, p.into());
             }
             let mut prog = String::new();
-            for pfile in pfiles {
-                if pfile.starts_with("https://") || pfile.starts_with("http://") {
-                    match reqwest::blocking::get(pfile).unwrap().text() {
+            for prog_file in prog_files {
+                if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
+                    match reqwest::blocking::get(prog_file).unwrap().text() {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fail!("failed to read program from {}: {}", pfile, e),
+                        Err(e) => fail!("failed to read program from {}: {}", prog_file, e),
                     }
                 } else {
-                    match std::fs::read_to_string(pfile) {
+                    match std::fs::read_to_string(prog_file) {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fail!("failed to read program from {}: {}", pfile, e),
+                        Err(e) => fail!("failed to read program from {}: {}", prog_file, e),
                     }
                 }
             }
@@ -603,7 +597,7 @@ fn main() {
                     num_workers,
                 };
                 let _ = write!(
-                    std::io::stdout(),
+                    io::stdout(),
                     "{}",
                     dump_llvm(program_string.as_str(), config, &raw),
                 );
@@ -615,7 +609,7 @@ fn main() {
     let skip_output = opt_dump_llvm || opt_dump_bytecode || opt_dump_cfg;
     if opt_dump_bytecode {
         let _ = write!(
-            std::io::stdout(),
+            io::stdout(),
             "{}",
             dump_bytecode(program_string.as_str(), &raw),
         );
@@ -623,7 +617,7 @@ fn main() {
     if opt_dump_cfg {
         let a = Arena::default();
         let ctx = get_context(program_string.as_str(), &a, get_prelude(&a, &raw));
-        let mut stdout = std::io::stdout();
+        let mut stdout = io::stdout();
         let _ = ctx.dbg_print(&mut stdout);
     }
     if skip_output {
@@ -632,7 +626,7 @@ fn main() {
     let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();
 
-    // This horrid macro is here because all of the different ways of reading input are different
+    // This horrid macro is here because all the different ways of reading input are different
     // types, making functions hard to write. Still, there must be something to be done to clean
     // this up here.
     macro_rules! with_inp {
