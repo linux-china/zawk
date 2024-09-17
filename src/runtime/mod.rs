@@ -47,6 +47,7 @@ use splitter::regex::RegexSplitter;
 // TODO: remove the pub use for Variables here.
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
+pub use command::run_command2;
 pub(crate) use float_parse::{hextoi, strtod, strtoi};
 pub(crate) use printf::FormatArg;
 pub use splitter::{

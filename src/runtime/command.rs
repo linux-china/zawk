@@ -3,7 +3,7 @@ use std::process::{ChildStdin, Command, Stdio};
 
 use grep_cli::{CommandError, CommandReader};
 
-use crate::runtime::Int;
+use crate::runtime::{Int, Str, StrMap};
 
 fn prepare_command(bs: &[u8]) -> io::Result<Command> {
     let prog = match std::str::from_utf8(bs) {
@@ -29,10 +29,28 @@ pub fn run_command(bs: &[u8]) -> Int {
         let status = prepare_command(bs)?.status()?;
         Ok(wrap_err(status.code()))
     }
-    match run_command_inner(bs) {
-        Ok(i) => i,
-        Err(e) => wrap_err(e.raw_os_error()),
+    run_command_inner(bs).unwrap_or_else(|e| wrap_err(e.raw_os_error()))
+}
+
+pub fn run_command2(cmd: &str) -> StrMap<Str> {
+    let mut map = hashbrown::HashMap::new();
+    if let Ok(mut command) = prepare_command(cmd.as_bytes()) {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        if let Ok(output) = command.output() {
+            map.insert(Str::from("code"), Str::from(output.status.code().map(|i| i.to_string()).unwrap_or_else(|| "0".to_owned())));
+            if !output.stdout.is_empty() {
+                map.insert(Str::from("stdout"), Str::from(String::from_utf8_lossy(&output.stdout).to_string()));
+            }
+            if !output.stderr.is_empty() {
+                map.insert(Str::from("stderr"), Str::from(String::from_utf8_lossy(&output.stderr).to_string()));
+            }
+        } else {
+            map.insert(Str::from("stderr"), Str::from("Failed to execute command"));
+        }
+    } else {
+        map.insert(Str::from("stderr"), Str::from("Failed to construct command line"));
     }
+    StrMap::from(map)
 }
 
 pub fn command_for_write(bs: &[u8]) -> io::Result<ChildStdin> {

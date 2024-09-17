@@ -1444,6 +1444,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::RunCmd(res_reg.into(), conv_regs[0].into()))
             }
+            System2 => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::RunCmd2(res_reg.into(), conv_regs[0].into()))
+            }
             Exit => self.pushl(LL::Exit(conv_regs[0].into())),
             ReadErr => {
                 if res_reg != UNUSED {

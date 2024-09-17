@@ -395,6 +395,7 @@ pub(crate) enum Instr<'a> {
     },
     Close(Reg<Str<'a>>),
     RunCmd(Reg<Int>, Reg<Str<'a>>),
+    RunCmd2(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Exit(Reg<Int>),
 
     // Map operations
@@ -1595,6 +1596,10 @@ impl<'a> Instr<'a> {
             }
             Close(file) => file.accum(&mut f),
             RunCmd(dst, cmd) => {
+                dst.accum(&mut f);
+                cmd.accum(&mut f);
+            }
+            RunCmd2(dst, cmd) => {
                 dst.accum(&mut f);
                 cmd.accum(&mut f);
             }

@@ -785,6 +785,7 @@ pub(crate) mod boilerplate {
                 }
             }
             RunCmd(dst, _) => f(dst.into(), None),
+            RunCmd2(dst, command_line) => f(dst.into(), Some(command_line.into())),
             Lookup {
                 map_ty,
                 dst,

@@ -130,6 +130,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
 
         exit(rt_ty, int_ty);
         run_system(str_ref_ty) -> int_ty;
+        run_cmd2(str_ref_ty) -> map_ty;
         print_all_stdout(rt_ty, pa_args_ty, int_ty);
         print_all_file(rt_ty, pa_args_ty, int_ty, str_ref_ty, int_ty);
         sprintf_impl(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty) -> str_ty;
@@ -617,6 +618,12 @@ pub(crate) unsafe extern "C" fn exit(runtime: *mut c_void, code: Int) {
 pub(crate) unsafe extern "C" fn run_system(cmd: *mut U128) -> Int {
     let s: &Str = &*(cmd as *mut Str);
     s.with_bytes(runtime::run_command)
+}
+
+pub(crate) unsafe extern "C" fn run_cmd2(cmd: *mut U128) -> *mut c_void {
+    let s: &Str = &*(cmd as *mut Str);
+    let res = runtime::run_command2(s.as_str());
+    mem::transmute::<StrMap<Str>, *mut c_void>(res)
 }
 
 pub(crate) unsafe extern "C" fn rand_float(runtime: *mut c_void) -> f64 {

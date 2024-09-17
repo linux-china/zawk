@@ -2131,6 +2131,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.ints, dst) =
                             index(&self.strs, cmd).with_bytes(runtime::run_command);
                     }
+                    RunCmd2(dst, cmd) => {
+                        let cmd = index(&self.strs, cmd);
+                        let res  =  runtime::run_command2(cmd.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Exit(code) => return Ok(*index(&self.ints, code) as i32),
                     Lookup {
                         map_ty,

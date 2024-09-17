@@ -184,6 +184,7 @@ pub enum Function {
     Srand,
     ReseedRng,
     System,
+    System2,
     // For header-parsing logic
     UpdateUsedFields,
     SetFI,
@@ -527,6 +528,7 @@ static_map!(
     ["toupper", Function::ToUpper],
     ["tolower", Function::ToLower],
     ["system", Function::System],
+    ["system2", Function::System2],
     ["exit", Function::Exit]
 );
 
@@ -706,6 +708,7 @@ impl Function {
             }
             Srand => (smallvec![Int], Int),
             System | HexToInt => (smallvec![Str], Int),
+            System2 => (smallvec![Str], MapStrStr),
             ReseedRng => (smallvec![], Int),
             Rand => (smallvec![], Float),
             ToInt => {
@@ -855,7 +858,7 @@ impl Function {
             UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
-            Exit | ToUpper | ToLower | Clear | Srand | System | HexToInt | ToInt | EscapeCSV
+            Exit | ToUpper | ToLower | Clear | Srand | System | System2 | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
@@ -950,6 +953,10 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
+            System2 => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
+            }.abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt

@@ -1545,6 +1545,7 @@ pub(crate) trait CodeGenerator: Backend {
                 Ok(())
             }
             RunCmd(dst, cmd) => self.unop(intrinsic!(run_system), dst, cmd),
+            RunCmd2(dst, cmd) => self.unop(intrinsic!(run_cmd2), dst, cmd),
             Exit(code) => {
                 let rt = self.runtime_val();
                 let codev = self.get_val(code.reflect())?;
