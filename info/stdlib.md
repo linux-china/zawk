@@ -797,9 +797,12 @@ date/time array:
 To capture output of a command, and ou can use `getline` and pipe to get the output:
 
 ```
-    while ("ls -al" | getline line) {
-        print "line: " line
+function  get_output(command) {
+    while (command | getline line) {
+        lines[i++] = line
     }
+    return lines
+}
 ```
 
 With new `system2` function, you can get the output directly:
