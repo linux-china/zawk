@@ -792,7 +792,9 @@ date/time array:
 
 ### system2
 
-You can use `getline` and pipe to get the output:
+`system2(cmd)` is different from `system(cmd)`, and it will return array with `code`, `stdout`, `stderr`.
+
+To capture output of a command, and ou can use `getline` and pipe to get the output:
 
 ```
     while ("ls -al" | getline line) {
@@ -800,12 +802,13 @@ You can use `getline` and pipe to get the output:
     }
 ```
 
-Now you can use `system2(command_line)` to capture output and return array with `code`, `stdout`, `stderr`.
-
+With new `system2` function, you can get the output directly:
 ```
     result = system2("curl ifconfig.me")
     println result["stdout"]
 ```
+
+**Attention**: If you don't want to capture output, you can use `system` function.
 
 # I/O
 
