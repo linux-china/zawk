@@ -15,7 +15,7 @@
 ///
 ///    TODO It is not clear that this is the right move long-term: lots of regex implementations
 ///    (like HyperScan, or BurntSushi's engine in use here) achieve higher throughput by matching a
-///    string against several patterns at once. There is probably a transormation we could do here
+///    string against several patterns at once. There is probably a transformation we could do here
 ///    to take advantage of that, but it would probably involve building out def-use chains (which
 ///    we currently don't do), and we'd want to verify that performance didn't degrade when the
 ///    patterns are _not sparse_ in the input.
@@ -306,22 +306,22 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 let mut block = arena.vec_with_capacity(self.prepare.len() + 1);
                 block.push(main_portion);
                 block.extend(self.prepare.iter().cloned());
-                arena.alloc(Stmt::Block(block))
+                arena.alloc(Block(block))
             });
         }
         if !self.end.is_empty() {
-            end = Some(arena.alloc(Stmt::Block(self.end.clone())));
+            end = Some(arena.alloc(Block(self.end.clone())));
         }
         match self.stage {
             Stage::Main(_) => {
                 begin.extend(main_loop.into_iter().chain(end));
-                Stage::Main(arena.alloc(Stmt::Block(begin)))
+                Stage::Main(arena.alloc(Block(begin)))
             }
             Stage::Par { .. } => Stage::Par {
                 begin: if begin.is_empty() {
                     None
                 } else {
-                    Some(arena.alloc(Stmt::Block(begin)))
+                    Some(arena.alloc(Block(begin)))
                 },
                 main_loop,
                 end,
