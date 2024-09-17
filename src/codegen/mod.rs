@@ -1544,7 +1544,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(close_file), &mut [rt, filev])?;
                 Ok(())
             }
-            RunCmd(dst, cmd) => self.unop(intrinsic!(run_system), dst, cmd),
+            RunCmd(dst, cmd) => self.unop(intrinsic!(run_cmd), dst, cmd),
             RunCmd2(dst, cmd) => self.unop(intrinsic!(run_cmd2), dst, cmd),
             Exit(code) => {
                 let rt = self.runtime_val();
