@@ -8,6 +8,7 @@ on:
       - 'README.md'
       - '.gitignore'
       - 'justfile'
+      - 'index.http'
   pull_request:
     branches: [ "master" ]
 
