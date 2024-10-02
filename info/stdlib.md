@@ -688,6 +688,9 @@ response array:
 - text: response as text
 - HTTP header names: response headers, such as `Content-Type`
 
+**Attention**: If body is json text that starts with `{` or `[` and ends with `{` or `[`,
+and `Content-Type = application/json` will be added as HTTP header by default.
+
 ### email
 
 `send_mail(from, to, subject, body)`: from and to are email address, and body is text content.
