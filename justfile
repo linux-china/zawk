@@ -311,3 +311,6 @@ run-run-system:
 
 run-run-system2:
   cargo run --package zawk --bin zawk -- 'BEGIN { result = system2("ls -al"); print result["stdout"]; }'
+
+run-run-http-post:
+  cargo run --package zawk --bin zawk -- 'BEGIN { result = http_post("https://httpbin.org/post", "Hello"); print result["text"]; }'
