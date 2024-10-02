@@ -97,6 +97,7 @@ local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking","json"] }
 oneio = { version = "0.17", default-features = false, features = ["remote", "compressions"] }
 nats = "0.25"
+paho-mqtt = "0.12"
 redis = "0.27"
 minio = "0.1.0"
 tokio = { version = "1", features = ["full"] }
