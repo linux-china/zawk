@@ -116,6 +116,32 @@ pub(crate) fn publish(namespace: &str, body: &str) {
             let password = url.password();
             let topic = url.path()[1..].to_string();
             let connection_url = format!("mqtt://{}:{}", schema, url.host().unwrap());
+            let mut pool = MQTT_CONNECTIONS.lock().unwrap();
+            let cli = pool.entry(connection_url.clone()).or_insert_with(|| {
+                let client_opts = CreateOptionsBuilder::new()
+                    .mqtt_version(MQTT_VERSION_5)
+                    .server_uri(&connection_url)
+                    .finalize();
+                // Connect options
+                let mut builder = ConnectOptionsBuilder::new();
+                let mut conn_options_builder = builder.clean_start(true);
+                if schema == "mqtts" {
+                    conn_options_builder = conn_options_builder.ssl_options(SslOptions::default());
+                }
+                if !user_name.is_empty() {
+                    if let Some(password) = password {
+                        conn_options_builder = conn_options_builder.user_name(user_name).password(password);
+                    } else {
+                        conn_options_builder = conn_options_builder.password(user_name); // JWT style
+                    }
+                }
+                // Create the MQTT client
+                let cli = Client::new(client_opts).expect("Error creating MQTT client");
+                // Connect to your broker
+                cli.connect(conn_options_builder.finalize()).expect("Error connecting to MQTT broker");
+                cli
+            });
+            cli.publish(Message::new(topic, body, 0)).unwrap();
         }
     } else {
         notify_rust::Notification::new()
