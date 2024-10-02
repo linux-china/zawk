@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -111,15 +112,28 @@ pub(crate) fn publish(namespace: &str, body: &str) {
         }
     } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
         if let Ok(url) = &Url::parse(namespace) {
-            let schema = url.scheme();
-            let user_name = url.username();
-            let password = url.password();
             let topic = url.path()[1..].to_string();
-            let connection_url = format!("mqtt://{}:{}", schema, url.host().unwrap());
             let mut pool = MQTT_CONNECTIONS.lock().unwrap();
-            let cli = pool.entry(connection_url.clone()).or_insert_with(|| {
+            let cli = pool.entry(namespace.to_string()).or_insert_with(|| {
+                let schema = url.scheme();
+                let user_name = url.username();
+                let password = url.password();
+                let connection_url = format!("mqtt://{}:{}", schema, url.host().unwrap());
+                let mut pairs = url.query_pairs();
+                let version = pairs.find(|p| p.0 == "version");
+                let mqtt_version = if let Some((version, v)) = version {
+                    if version.contains("3.1.1") {
+                        MQTT_VERSION_3_1_1
+                    } else if version.contains("3.1") {
+                        MQTT_VERSION_3_1
+                    } else {
+                        MQTT_VERSION_5
+                    }
+                } else {
+                    MQTT_VERSION_5
+                };
                 let client_opts = CreateOptionsBuilder::new()
-                    .mqtt_version(MQTT_VERSION_5)
+                    .mqtt_version(mqtt_version)
                     .server_uri(&connection_url)
                     .finalize();
                 // Connect options
@@ -252,5 +266,8 @@ mod tests {
         let text = "mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic";
         let url = Url::parse(text).unwrap();
         println!("{:?}", url);
+        let mut pairs = url.query_pairs();
+        let version = pairs.find(|p| p.0 == "version");
+        println!("version: {:?}", version);
     }
 }
