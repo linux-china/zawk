@@ -6,6 +6,7 @@ use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Serialize;
 use url::Url;
+use paho_mqtt::*;
 use crate::runtime::{Str, StrMap};
 
 pub fn local_ip() -> String {
@@ -40,8 +41,17 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
     if headers.len() > 0 {
         builder = builder.headers(convert_to_http_headers(headers));
     }
+    let body_text = body.to_string();
     if !body.is_empty() {
-        builder = builder.body(body.to_string());
+        if !headers.contains(&Str::from("Content-Type")) {
+            if (body_text.starts_with("{") && body_text.ends_with("}"))
+                || (body_text.starts_with("[") && body_text.ends_with("]")) {
+                builder = builder.header("Content-Type", "application/json");
+            } else {
+                builder = builder.header("Content-Type", "text/plain");
+            }
+        }
+        builder = builder.body(body_text);
     }
     if let Ok(resp) = builder.send() {
         fill_response(resp, &resp_obj);
@@ -76,6 +86,7 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
 // todo graceful shutdown
 lazy_static! {
     static ref NATS_CONNECTIONS: Mutex<HashMap<String, nats::Connection>> = Mutex::new(HashMap::new());
+    static ref MQTT_CONNECTIONS: Mutex<HashMap<String, paho_mqtt::Client>> = Mutex::new(HashMap::new());
 }
 
 pub(crate) fn publish(namespace: &str, body: &str) {
@@ -97,6 +108,14 @@ pub(crate) fn publish(namespace: &str, body: &str) {
                 nats::connect(&conn_url).unwrap()
             });
             nc.publish(&topic, body).unwrap();
+        }
+    } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
+        if let Ok(url) = &Url::parse(namespace) {
+            let schema = url.scheme();
+            let user_name = url.username();
+            let password = url.password();
+            let topic = url.path()[1..].to_string();
+            let connection_url = format!("mqtt://{}:{}", schema, url.host().unwrap());
         }
     } else {
         notify_rust::Notification::new()
@@ -200,5 +219,12 @@ mod tests {
         let subject = "demo.csv processed successfully by zawk";
         let text = "rows: 180, total: 1000";
         send_mail(from, to, subject, text);
+    }
+
+    #[test]
+    fn test_mqtt_url() {
+        let text = "mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic";
+        let url = Url::parse(text).unwrap();
+        println!("{:?}", url);
     }
 }
