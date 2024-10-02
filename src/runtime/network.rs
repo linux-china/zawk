@@ -42,10 +42,10 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
         builder = builder.headers(convert_to_http_headers(headers));
     }
     let body_text = body.to_string();
-    if !body.is_empty() {
+    if !body_text.is_empty() {
         if !headers.contains(&Str::from("Content-Type")) {
-            if (body_text.starts_with("{") && body_text.ends_with("}"))
-                || (body_text.starts_with("[") && body_text.ends_with("]")) {
+            if (body_text.starts_with('{') && body_text.ends_with('}'))
+                || (body_text.starts_with('[') && body_text.ends_with(']')) {
                 builder = builder.header("Content-Type", "application/json");
             } else {
                 builder = builder.header("Content-Type", "text/plain");
@@ -200,7 +200,7 @@ mod tests {
     fn test_http_post() {
         let url = "https://httpbin.org/post";
         let headers: StrMap<Str> = StrMap::default();
-        let body = Str::from("Hello");
+        let body = Str::from(r#"{"status": "ok"}"#);
         let resp = http_post(url, &headers, &body);
         println!("{}", resp.get(&Str::from("text")));
     }
