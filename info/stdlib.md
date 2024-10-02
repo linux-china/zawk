@@ -38,7 +38,8 @@ Like sub, but with all occurrences substituted, not just the first.
 
 ### split(text, arr[, fs])
 
-Splits the string s according to fs, placing the results in the array `arr`. If fs is not specified then the FS variable is
+Splits the string s according to fs, placing the results in the array `arr`. If fs is not specified then the FS variable
+is
 used to split s.
 
 ### last_part(s [, sep])
@@ -183,7 +184,6 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 `repeat("*",3) # ***`
 
-
 ### default_if_empty
 
 Return default value if text is empty or not exist.
@@ -230,7 +230,7 @@ Generate password with numbers, lowercase/uppercase letters, and special chars.
 
 Help you to generate ASCII art text with figlet: `BEGIN { print figlet("Hello zawk"); }`.
 
-**Attention**: ascii characters only, don't use i18n characters. :) 
+**Attention**: ascii characters only, don't use i18n characters. :)
 
 # Text Escape
 
@@ -632,7 +632,7 @@ Explain for `encrypt` and `decrypt`:
 
 ### JWT
 
-Hmac signature: `HS256`, `HS384`, `HS512`: 
+Hmac signature: `HS256`, `HS384`, `HS512`:
 
 - jwt: `jwt("HS256","your-secret-key", payload_map)`
 - dejwt: `dejwt("your-secret-key", token)`, return payload map.
@@ -711,6 +711,12 @@ Environment variables for S3 access:
 ### NATS
 
 Publish events to NATS: `publish("nats://host:4222/topic", body)`
+
+### MQTT
+
+Publish events to MQTT: `publish("mqtt://servername:1883/topic", body)`
+
+- CloudFlare Pub/Sub: `mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic`
 
 ### local_ip
 
@@ -806,6 +812,7 @@ function  get_output(command) {
 ```
 
 With new `system2` function, you can get the output directly:
+
 ```
     result = system2("curl ifconfig.me")
     println result["stdout"]
