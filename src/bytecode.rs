@@ -255,7 +255,7 @@ pub(crate) enum Instr<'a> {
     IsStrNum(Reg<Int>, Reg<Str<'a>>),
     IsFormat(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
-    HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     SendMail(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     S3Put(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -771,7 +771,7 @@ impl<'a> Instr<'a> {
                 url.accum(&mut f);
                 headers.accum(&mut f);
             }
-            HttpPost(dst, url,headers, body) => {
+            HttpPost(dst, url,body, headers) => {
                 dst.accum(&mut f);
                 url.accum(&mut f);
                 headers.accum(&mut f);

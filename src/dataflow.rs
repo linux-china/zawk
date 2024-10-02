@@ -506,10 +506,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(url.into()));
                 f(dst.into(), Some(headers.into()));
             }
-            HttpPost(dst, url, headers, body) => {
+            HttpPost(dst, url, body, headers) => {
                 f(dst.into(), Some(url.into()));
-                f(dst.into(), Some(headers.into()));
                 f(dst.into(), Some(body.into()));
+                f(dst.into(), Some(headers.into()));
             }
             SendMail( _from, _to, _subject, _body) => {
             }

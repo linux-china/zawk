@@ -1796,14 +1796,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::HttpGet if args_len == 1 => {
                         prim_args.push(PrimVal::Var(Ident::unused()));
                     }
-                    // http_post(url) => asort(url,headers, body);
+                    // http_post(url) => asort(url,body,headers);
                     builtins::Function::HttpPost if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
                         prim_args.push(PrimVal::Var(Ident::unused()));
-                        prim_args.push(PrimVal::StrLit(b""));
                     }
-                    // http_post(url,headers) => asort(url,headers, body);
+                    // http_post(url,body) => asort(url,body,headers);
                     builtins::Function::HttpPost if args_len == 2 => {
-                        prim_args.push(PrimVal::StrLit(b""));
+                        prim_args.push(PrimVal::Var(Ident::unused()));
                     }
                     _ => {}
                 }

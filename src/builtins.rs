@@ -760,7 +760,7 @@ impl Function {
             Variant => (smallvec![Str], MapStrStr),
             Func => (smallvec![Str], MapIntStr),
             HttpGet => (smallvec![Str, MapStrStr], MapStrStr),
-            HttpPost => (smallvec![Str, MapStrStr, Str ], MapStrStr),
+            HttpPost => (smallvec![Str, Str, MapStrStr], MapStrStr),
             SendMail => (smallvec![Str, Str, Str, Str], Null),
             S3Get => (smallvec![Str, Str], Str),
             S3Put => (smallvec![Str, Str, Str], Str),

@@ -957,7 +957,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    HttpPost(dst, url, headers, body) => {
+                    HttpPost(dst, url, body, headers) => {
                         let url = index(&self.strs, url);
                         let headers = self.get(*headers);
                         let body = index(&self.strs, body);

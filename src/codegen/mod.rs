@@ -1230,7 +1230,7 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(http_get), &mut [url, headers])?;
                 self.bind_val(dst.reflect(),resv)
             },
-            HttpPost(dst, url,headers, body) => {
+            HttpPost(dst, url, body, headers) => {
                 let url = self.get_val(url.reflect())?;
                 let headers = self.get_val(headers.reflect())?;
                 let body = self.get_val(body.reflect())?;
