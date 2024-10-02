@@ -680,7 +680,9 @@ namespace is NATS URL: `nats://localhost:4222/bucket_name`, please use `nats kv 
 
 ### HTTP
 
-`http_get(url,headers)`, `http_post(url, headers, body)`
+`http_get(url,headers)`, `http_post(url, body, headers)`.
+
+you can ignore headers if not required. 
 
 response array:
 
