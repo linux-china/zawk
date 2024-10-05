@@ -11,6 +11,8 @@ fn init() {
         .filter_module("hyper_rustls", LevelFilter::Error)
         .filter_module("rustls", LevelFilter::Error)
         .filter_module("tokio_postgres", LevelFilter::Error)
+        .filter_module("paho_mqtt", LevelFilter::Error)
+        .filter_module("paho_mqtt_c", LevelFilter::Error)
         .filter_level(LevelFilter::Debug)
         .target(env_logger::Target::Stderr)
         .init();
