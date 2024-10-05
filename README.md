@@ -43,13 +43,13 @@ Mac with Homebrew:
 
 ```shell
 $ brew install --no-quarantine linux-china/tap/zawk
-$ sudo xattr -r -d com.apple.quarantine $(readlink -f $(brew --prefix zawk))/bin/zawk
+$ sudo xattr -r -d com.apple.quarantine $(readlink -f $(brew --prefix zawk))
 ```
 
-or install by cargo:
+or install by [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 
 ```shell
-$ cargo install zawk
+$ cargo binstall zawk
 ```
 
 *Note: zawk uses some nightly-only Rust features.
