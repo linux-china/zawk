@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -118,10 +117,14 @@ pub(crate) fn publish(namespace: &str, body: &str) {
                 let schema = url.scheme();
                 let user_name = url.username();
                 let password = url.password();
-                let connection_url = format!("mqtt://{}:{}", schema, url.host().unwrap());
+                let connection_url = if let Some(port) = url.port() {
+                    format!("{}://{}:{}", schema, url.host().unwrap(), port)
+                } else {
+                    format!("{}://{}", schema, url.host().unwrap())
+                };
                 let mut pairs = url.query_pairs();
                 let version = pairs.find(|p| p.0 == "version");
-                let mqtt_version = if let Some((version, v)) = version {
+                let mqtt_version = if let Some((key, version)) = version {
                     if version.contains("3.1.1") {
                         MQTT_VERSION_3_1_1
                     } else if version.contains("3.1") {
@@ -252,6 +255,12 @@ mod tests {
     }
 
     #[test]
+    fn test_publish_mqtt() {
+        let url = "mqtt://localhost:1883/topic1";
+        publish(url, "Hello World!");
+    }
+
+    #[test]
     fn test_send_email() {
         dotenv::dotenv().ok();
         let from = "support@trial-3zxk54v3ykzgjy6v.mlsender.net";
@@ -263,11 +272,21 @@ mod tests {
 
     #[test]
     fn test_mqtt_url() {
-        let text = "mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic";
+        let text = "mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic1?version=3.1";
         let url = Url::parse(text).unwrap();
         println!("{:?}", url);
         let mut pairs = url.query_pairs();
         let version = pairs.find(|p| p.0 == "version");
-        println!("version: {:?}", version);
+        let mqtt_version = if let Some((key, value)) = version {
+            if value.contains("3.1.1") {
+                MQTT_VERSION_3_1_1
+            } else if value.contains("3.1") {
+                MQTT_VERSION_3_1
+            } else {
+                MQTT_VERSION_5
+            }
+        } else {
+            MQTT_VERSION_5
+        };
     }
 }
