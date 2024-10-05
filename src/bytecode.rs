@@ -257,6 +257,7 @@ pub(crate) enum Instr<'a> {
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     SendMail(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    SmtpSend(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     S3Put(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvGet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -778,6 +779,13 @@ impl<'a> Instr<'a> {
                 body.accum(&mut f);
             }
             SendMail(from, to,subject, body) => {
+                from.accum(&mut f);
+                to.accum(&mut f);
+                subject.accum(&mut f);
+                body.accum(&mut f);
+            }
+            SmtpSend(url, from, to,subject, body) => {
+                url.accum(&mut f);
                 from.accum(&mut f);
                 to.accum(&mut f);
                 subject.accum(&mut f);

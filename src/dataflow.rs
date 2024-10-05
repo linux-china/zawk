@@ -513,6 +513,8 @@ pub(crate) mod boilerplate {
             }
             SendMail( _from, _to, _subject, _body) => {
             }
+            SmtpSend(_url, _from, _to, _subject, _body) => {
+            }
             S3Get(dst, bucket, object_name) => {
                 f(dst.into(), Some(bucket.into()));
                 f(dst.into(), Some(object_name.into()));

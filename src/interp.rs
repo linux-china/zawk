@@ -973,6 +973,15 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         runtime::network::send_mail(from.as_str(), to.as_str(),
                                                     subject.as_str(), body.as_str());
                     }
+                    SmtpSend(url, from, to, subject, body) => {
+                        let url = index(&self.strs, url);
+                        let from = index(&self.strs, from);
+                        let to = index(&self.strs, to);
+                        let subject = index(&self.strs, subject);
+                        let body = index(&self.strs, body);
+                        runtime::network::smtp_send(url.as_str(), from.as_str(), to.as_str(),
+                                                    subject.as_str(), body.as_str());
+                    }
                     S3Get(dst, bucket, object_name) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);

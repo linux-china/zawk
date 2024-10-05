@@ -2297,6 +2297,10 @@ impl<'a, 'b> View<'a, 'b> {
                 self.pushl(LL::SendMail(conv_regs[0].into(), conv_regs[1].into(),
                                      conv_regs[2].into(), conv_regs[3].into()))
             }
+            SmtpSend => {
+                self.pushl(LL::SmtpSend(conv_regs[0].into(), conv_regs[1].into(),
+                                        conv_regs[2].into(), conv_regs[3].into(), conv_regs[4].into()))
+            }
             S3Get => {
                 if res_reg != UNUSED {
                     self.pushl(LL::S3Get(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))

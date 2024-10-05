@@ -232,6 +232,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         send_mail(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty);
+        smtp_send(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty);
         [ReadOnly] s3_get(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] s3_put(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] kv_get(str_ref_ty, str_ref_ty) -> str_ty;
@@ -1949,6 +1950,16 @@ pub(crate) unsafe extern "C" fn send_mail(from: *mut U128, to: *mut U128,
     let subject = &*(subject as *mut Str);
     let body = &*(body as *mut Str);
     network::send_mail(from.as_str(), to.as_str(), subject.as_str(), body.as_str());
+}
+
+pub(crate) unsafe extern "C" fn smtp_send(url: *mut U128, from: *mut U128, to: *mut U128,
+                                          subject: *mut U128, body: *mut U128) {
+    let url = &*(url as *mut Str);
+    let from = &*(from as *mut Str);
+    let to = &*(to as *mut Str);
+    let subject = &*(subject as *mut Str);
+    let body = &*(body as *mut Str);
+    network::smtp_send(url.as_str(), from.as_str(), to.as_str(), subject.as_str(), body.as_str());
 }
 
 pub(crate) unsafe extern "C" fn s3_get(bucket: *mut U128, object_name: *mut U128) -> U128 {
