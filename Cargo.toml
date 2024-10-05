@@ -97,7 +97,7 @@ local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 oneio = { version = "0.17", default-features = false, features = ["remote", "compressions"] }
 nats = "0.25"
-paho-mqtt = "0.12"
+paho-mqtt = { version = "0.12",features = [ "vendored-ssl"] }
 redis = "0.27"
 minio = "0.1.0"
 tokio = { version = "1", features = ["full"] }
@@ -156,4 +156,20 @@ strip = true
 lto = true
 opt-level = "z"
 codegen-units = 1
+
+# The profile that 'cargo dist' will build with
+[profile.dist]
+inherits = "release"
+lto = true
+
+# Config for 'cargo dist'
+[workspace.metadata.dist]
+# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.22.1"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 
