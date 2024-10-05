@@ -49,7 +49,7 @@ use std::io::{self, BufReader, Write};
 use std::iter::once;
 use std::mem;
 
-#[cfg(feature = "use_jemalloc")]
+#[cfg(target_family = "unix")]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
