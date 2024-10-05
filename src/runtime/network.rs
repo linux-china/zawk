@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
+use lettre::Transport;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Serialize;
@@ -124,7 +125,7 @@ pub(crate) fn publish(namespace: &str, body: &str) {
                 };
                 let mut pairs = url.query_pairs();
                 let version = pairs.find(|p| p.0 == "version");
-                let mqtt_version = if let Some((key, version)) = version {
+                let mqtt_version = if let Some((_key, version)) = version {
                     if version.contains("3.1.1") {
                         MQTT_VERSION_3_1_1
                     } else if version.contains("3.1") {
@@ -220,6 +221,18 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
     }
 }
 
+pub fn smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) {
+    let email = lettre::Message::builder()
+        .from(from.parse().unwrap())
+        .to(to.parse().unwrap())
+        .subject(subject)
+        .header(lettre::message::header::ContentType::TEXT_PLAIN)
+        .body(String::from(text))
+        .unwrap();
+    let mailer = lettre::SmtpTransport::from_url(url).unwrap().build();
+    mailer.send(&email).unwrap();
+}
+
 #[cfg(test)]
 mod tests {
     use local_ip_address::local_ip;
@@ -271,22 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn test_mqtt_url() {
-        let text = "mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic1?version=3.1";
-        let url = Url::parse(text).unwrap();
-        println!("{:?}", url);
-        let mut pairs = url.query_pairs();
-        let version = pairs.find(|p| p.0 == "version");
-        let mqtt_version = if let Some((key, value)) = version {
-            if value.contains("3.1.1") {
-                MQTT_VERSION_3_1_1
-            } else if value.contains("3.1") {
-                MQTT_VERSION_3_1
-            } else {
-                MQTT_VERSION_5
-            }
-        } else {
-            MQTT_VERSION_5
-        };
+    fn test_send_smtp() {
+        dotenv::dotenv().ok();
+        let smtp_url = env::var("SMTP_URL").unwrap();
+        let from = "libing.chen@example";
+        let to = "linux_china@example.com";
+        let subject = "demo.csv processed successfully by zawk";
+        let text = "rows: 180, total: 1000";
+        smtp_send(&smtp_url, from, to, subject, text);
     }
 }
