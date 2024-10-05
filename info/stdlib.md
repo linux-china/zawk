@@ -682,7 +682,7 @@ namespace is NATS URL: `nats://localhost:4222/bucket_name`, please use `nats kv 
 
 `http_get(url,headers)`, `http_post(url, body, headers)`.
 
-you can ignore headers if not required. 
+you can ignore headers if not required.
 
 response array:
 
@@ -695,11 +695,19 @@ and `Content-Type = application/json` will be added as HTTP header by default.
 
 ### email
 
-`send_mail(from, to, subject, body)`: from and to are email address, and body is text content.
+`send_mail(from, to, subject, body)` by REST API
 
 Environment variables for email sending:
 
 - `MLSN_API_KEY`: API key for [MailerSend](https://www.mailersend.com/)
+
+`smtp_send(smtp_url, from, to, subject, body)`: send email by SMTP
+
+SMTP URL format:
+
+- SMTP basic: `smtp://localhost:1025`
+- SMTP with auth: `smtp://user:password@host:25`
+- SMTP + TLS `smtps://user:password@host:465`
 
 ### S3
 
