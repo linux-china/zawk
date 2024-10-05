@@ -306,6 +306,9 @@ run-read-config:
 run-send-mail:
   DRY_RUN=1 cargo run --package zawk --bin zawk -- 'BEGIN { send_mail("support@example.com","customer@example.com", "subject -1","body" ); }' demo.txt
 
+run-smtp-send:
+  cargo run --package zawk --bin zawk -- 'BEGIN { smtp_send("smtp://localhost:1025","support@example.com","customer@example.com", "subject -1","body" ); }' demo.txt
+
 run-run-system:
   cargo run --package zawk --bin zawk -- 'BEGIN { result = system("ls -al"); print result; }'
 
