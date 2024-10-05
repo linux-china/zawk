@@ -2,7 +2,7 @@
 
 Nothing Yet!
 
-# Version 0.5.18 (2024-10-05)
+# Version 0.5.19 (2024-10-05)
 
 * Add `smtp_send(url, from, to, subject, body)` function to send email
 * Add MQTT support: `publish("mqtt://servername:1883/topic", body)`
