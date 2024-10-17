@@ -242,10 +242,11 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
 }
 
 pub fn smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) {
-    let email = lettre::Message::builder()
-        .from(from.parse().unwrap())
-        .to(to.parse().unwrap())
-        .subject(subject)
+    let mut builder = lettre::Message::builder().from(from.parse().unwrap()).subject(subject);
+    for email_address in to.split(",") {
+        builder = builder.to(email_address.parse().unwrap());
+    }
+    let email = builder
         .header(lettre::message::header::ContentType::TEXT_PLAIN)
         .body(String::from(text))
         .unwrap();
