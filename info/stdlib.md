@@ -695,11 +695,12 @@ and `Content-Type = application/json` will be added as HTTP header by default.
 
 ### email
 
-`send_mail(from, to, subject, body)` by REST API
+`send_mail(from, to, subject, body)` by REST API, and `to` could be multiple emails separated by `,`.
 
 Environment variables for email sending:
 
 - `MLSN_API_KEY`: API key for [MailerSend](https://www.mailersend.com/)
+- `RESEND_API_KEY`: API key for [Resend](https://resend.com/)
 
 `smtp_send(smtp_url, from, to, subject, body)`: send email by SMTP
 
