@@ -193,31 +193,51 @@ impl MailAddress {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct ResendRequest {
+    from: String,
+    to: Vec<String>,
+    subject: String,
+    text: String,
+}
+
 pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
-    let req = MailerSendRequest {
-        from: MailAddress::new(from),
-        to: vec![MailAddress::new(to)],
-        subject: subject.to_string(),
-        text: text.to_string(),
-    };
     let (api_url, api_key) = if let Ok(api_key) = env::var("MLSN_API_KEY") {
         ("https://api.mailersend.com/v1/email".to_owned(), api_key)
+    } else if let Ok(api_key) = env::var("RESEND_API_KEY") {
+        ("https://api.resend.com/emails".to_owned(), api_key)
     } else {
         ("".to_owned(), "".to_owned())
     };
     if env::var("DRY_RUN").is_ok() {
         println!("====DRY_RUN MODE====");
         println!("API URL: {}", api_url);
-        println!("JSON Body: {}", serde_json::to_string(&req).unwrap());
         return;
     }
     if !api_url.is_empty() {
         let client = reqwest::blocking::Client::new();
-        let _resp = client.post(api_url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&req)
-            .send()
-            .unwrap();
+        let mut builder = client.post(&api_url)
+            .header("Authorization", format!("Bearer {}", api_key));
+        if api_url.starts_with("https://api.resend.com") {
+            let receivers: Vec<String> = to.split(',').map(|s| s.to_string()).collect();
+            let req = ResendRequest {
+                from: from.to_string(),
+                to: receivers,
+                subject: subject.to_string(),
+                text: text.to_string(),
+            };
+            builder = builder.json(&req);
+        } else if api_key.starts_with("https://api.mailersend.com") {
+            let receivers = to.split(',').map(|email| MailAddress::new(email)).collect();
+            let req = MailerSendRequest {
+                from: MailAddress::new(from),
+                to: receivers,
+                subject: subject.to_string(),
+                text: text.to_string(),
+            };
+            builder = builder.json(&req)
+        }
+        let _resp = builder.send().unwrap();
     }
 }
 
