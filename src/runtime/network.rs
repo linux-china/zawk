@@ -170,7 +170,7 @@ pub(crate) fn publish(namespace: &str, body: &str) {
 }
 
 #[derive(Debug, Serialize)]
-struct MailSendRequest {
+struct MailerSendRequest {
     from: MailAddress,
     to: Vec<MailAddress>,
     subject: String,
@@ -194,7 +194,7 @@ impl MailAddress {
 }
 
 pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
-    let req = MailSendRequest {
+    let req = MailerSendRequest {
         from: MailAddress::new(from),
         to: vec![MailAddress::new(to)],
         subject: subject.to_string(),
