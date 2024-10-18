@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
+use evalexpr::{DefaultNumericTypes, Value};
 use lazy_static::lazy_static;
 use logos::Logos;
 use semver::{Version};
@@ -711,13 +712,7 @@ pub fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Flo
         }
     });
     let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    if let Ok(value) = result.as_float() {
-        value
-    } else if let Ok(value) = result.as_int() {
-        value as f64
-    } else {
-        0.0
-    }
+    value_to_float(&result)
 }
 pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
@@ -728,24 +723,29 @@ pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
             eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
         }
     });
-    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    if let Ok(value) = result.as_float() {
-        value
-    } else if let Ok(value) = result.as_int() {
-        value as f64
-    } else {
-        0.0
-    }
+    let result: Value<DefaultNumericTypes> = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    value_to_float(&result)
 }
+
 
 pub fn eval(formula: &str) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    if let Ok(value) = result.as_float() {
+    value_to_float(&result)
+}
+
+fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {
+    if let Ok(value) = value.as_float() {
         value
-    } else if let Ok(value) = result.as_int() {
+    } else if let Ok(value) = value.as_int() {
         value as f64
+    } else if let Ok(value) = value.as_boolean() {
+        if value {
+            1.0
+        } else {
+            0.0
+        }
     } else {
         0.0
     }
