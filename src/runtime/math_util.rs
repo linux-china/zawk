@@ -742,12 +742,12 @@ fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {
         value as f64
     } else if let Ok(value) = value.as_boolean() {
         if value {
-            1.0
+            1f64
         } else {
-            0.0
+            0f64
         }
     } else {
-        0.0
+        0f64
     }
 }
 
