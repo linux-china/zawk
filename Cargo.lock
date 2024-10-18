@@ -2889,9 +2889,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.160"
+version = "0.2.161"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0b21006cd1874ae9e650973c565615676dc4a274c965bb0a73796dac838ce4f"
+checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
 name = "libloading"
@@ -4424,9 +4424,9 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.27.4"
+version = "0.27.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc6baebe319ef5e4b470f248335620098d1c2e9261e995be05f56f719ca4bdb2"
+checksum = "81cccf17a692ce51b86564334614d72dcae1def0fd5ecebc9f02956da74352b5"
 dependencies = [
  "arc-swap",
  "combine",
@@ -4947,9 +4947,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.128"
+version = "1.0.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
+checksum = "6dbcf9b78a125ee667ae19388837dd12294b858d101fdd393cb9d5501ef09eb2"
 dependencies = [
  "itoa",
  "memchr",
@@ -6546,7 +6546,7 @@ dependencies = [
 
 [[package]]
 name = "zawk"
-version = "0.5.20"
+version = "0.5.21"
 dependencies = [
  "Inflector",
  "adler",
