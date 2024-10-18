@@ -133,8 +133,53 @@ pub(crate) fn message(text: &str) -> StrMap<Str> {
 /// parse record: `attr_name{key1=value1,key2=value2}`
 pub(crate) fn record(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
-    // table definition: table_name(id integer, value double)
-    if text.contains("(") && text.ends_with(")") {
+    if text.starts_with('{') && text.ends_with('}') { // simple map
+        let lexer = RecordToken::lexer(&text);
+        let mut key_parsed = false;
+        let mut key = "";
+        let mut value = "";
+        for token in lexer.into_iter() {
+            if let Ok(attribute) = token {
+                match attribute {
+                    RecordToken::COLON | RecordToken::EQ => { // key parsed
+                        key_parsed = true
+                    }
+                    RecordToken::COMMA => { // add pair
+                        if !key.is_empty() && !value.is_empty() {
+                            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+                        }
+                        key = "";
+                        value = "";
+                        key_parsed = false
+                    }
+                    RecordToken::RBRACE => { // end
+                        if !key.is_empty() && !value.is_empty() {
+                            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+                        }
+                        key_parsed = false
+                    }
+                    // parse key's value
+                    RecordToken::LITERAL(literal) => { // pair value
+                        if key_parsed {
+                            value = literal;
+                        } else {
+                            key = literal;
+                        }
+                    }
+                    RecordToken::Text(text) => { // pair value
+                        value = text.trim_matches('"');
+                    }
+                    RecordToken::Text2(text) => { // pair value
+                        value = text.trim_matches('\'');
+                    }
+                    RecordToken::NUM(num) => { // pair value
+                        value = num;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    } else if text.contains("(") && text.ends_with(")") { // table definition: table_name(id integer, value double)
         let offset = text.find('(').unwrap();
         let name = text[0..offset].trim().to_string();
         if !name.is_empty() {
@@ -497,6 +542,13 @@ mod tests {
         let text = "name=hello;age=12";
         let map = pairs(text, ";", "=");
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_struct() {
+        let text = r#"{host: localhost, port: 1234, desc: 'demo demo'}"#;
+        let map = record(text);
+        println!("{}", map.get(&Str::from("desc")).as_str());
     }
 
     #[test]
