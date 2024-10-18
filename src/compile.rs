@@ -2202,6 +2202,31 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Fend(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Eval => {
+                if res_reg != UNUSED {
+                    match conv_tys[1] {
+                        Ty::MapStrInt => {
+                            self.pushl(LL::MapStrIntEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        Ty::MapStrFloat => {
+                            self.pushl(LL::MapStrFloatEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        Ty::MapStrStr => {
+                            self.pushl(LL::MapStrStrEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                        }
+                        Ty::Int | Ty::Null => {
+                            self.pushl(LL::Eval(res_reg.into(), conv_regs[0].into()))
+                        }
+                        _ => {
+                            return err!(
+                                "eval only support MapStrInt, MapStrFloat, MapStrStr called with malformed types: {:?} => {:?}",
+                                &conv_tys[..],
+                                dst_ty
+                             );
+                        }
+                    }
+                }
+            }
             Url => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Url(res_reg.into(), conv_regs[0].into()))

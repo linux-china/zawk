@@ -52,6 +52,7 @@ pub enum Function {
     MkBool,
     MkPassword,
     Fend,
+    Eval,
     Trim,
     Truncate,
     Parse,
@@ -373,6 +374,7 @@ static_map!(
     ["mkbool", Function::MkBool],
     ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
+    ["eval", Function::Eval],
     ["trim", Function::Trim],
     ["encode", Function::Encode],
     ["decode", Function::Decode],
@@ -745,6 +747,7 @@ impl Function {
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
+            Eval => (smallvec![Str, incoming[1]], Float),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str,Str,Str], MapStrStr),
             Parse => (smallvec![Str, Str], MapStrStr),
@@ -866,6 +869,7 @@ impl Function {
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
+            Eval => 2,
             DefaultIfEmpty => 2,
             JsonValue | JsonQuery | HtmlValue | HtmlQuery | XmlValue | XmlQuery => 2,
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
@@ -967,6 +971,7 @@ impl Function {
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
+            Eval => Ok(Scalar(BaseTy::Float).abs()),
             JsonQuery | HtmlQuery | XmlQuery => {
                 Ok(Map {
                     key: BaseTy::Int,

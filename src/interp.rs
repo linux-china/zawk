@@ -837,6 +837,33 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;
                     }
+                    MapStrIntEval(dst, formula, context) => {
+                        let formula = index(&self.strs, formula);
+                        let context = self.get(*context);
+                        let res = runtime::math_util::eval_int_context(formula.as_str(), context);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    MapStrFloatEval(dst, formula, context) => {
+                        let formula = index(&self.strs, formula);
+                        let context = self.get(*context);
+                        let res = runtime::math_util::eval_float_context(formula.as_str(), context);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    MapStrStrEval(dst, formula, context) => {
+                        let formula = index(&self.strs, formula);
+                        let context = self.get(*context);
+                        let res = runtime::math_util::eval_context(formula.as_str(), context);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Eval(dst, formula) => {
+                        let formula = index(&self.strs, formula);
+                        let res = runtime::math_util::eval(formula.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Url(dst, src) => {
                         let res = index(&self.strs, src).url();
                         let dst = *dst;

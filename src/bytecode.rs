@@ -221,6 +221,10 @@ pub(crate) enum Instr<'a> {
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
+    MapStrIntEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Int>>),
+    MapStrFloatEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Float>>),
+    MapStrStrEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
+    Eval(Reg<Float>, Reg<Str<'a>>),
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
@@ -698,6 +702,25 @@ impl<'a> Instr<'a> {
             Fend(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
+            }
+            MapStrIntEval(dst, formula, context) => {
+                dst.accum(&mut f);
+                formula.accum(&mut f);
+                context.accum(&mut f);
+            }
+            MapStrFloatEval(dst, formula, context) => {
+                dst.accum(&mut f);
+                formula.accum(&mut f);
+                context.accum(&mut f);
+            }
+            MapStrStrEval(dst, formula, context) => {
+                dst.accum(&mut f);
+                formula.accum(&mut f);
+                context.accum(&mut f);
+            }
+            Eval(dst, formula) => {
+                dst.accum(&mut f);
+                formula.accum(&mut f);
             }
             Url(dst, src) => {
                 dst.accum(&mut f);

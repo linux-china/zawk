@@ -260,6 +260,21 @@ pub(crate) mod boilerplate {
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
+            MapStrIntEval(dst, formula, context) => {
+                f(dst.into(), Some(formula.into()));
+                f(dst.into(), Some(context.into()));
+            },
+            MapStrFloatEval(dst, formula, context) => {
+                f(dst.into(), Some(formula.into()));
+                f(dst.into(), Some(context.into()));
+            },
+            MapStrStrEval(dst, formula, context) => {
+                f(dst.into(), Some(formula.into()));
+                f(dst.into(), Some(context.into()));
+            },
+            Eval(dst, formula) => {
+                f(dst.into(), Some(formula.into()));
+            },
             Url(dst, src) => f(dst.into(), Some(src.into())),
             Pairs(dst, src, pair_sep, kv_sep) => {
                 f(dst.into(), Some(src.into()));

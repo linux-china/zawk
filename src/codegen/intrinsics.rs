@@ -164,6 +164,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
+        [ReadOnly] eval_int_context(str_ref_ty, map_ty) -> float_ty;
+        [ReadOnly] eval_float_context(str_ref_ty, map_ty) -> float_ty;
+        [ReadOnly] eval_context(str_ref_ty, map_ty) -> float_ty;
+        [ReadOnly] eval(str_ref_ty) -> float_ty;
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
         format_bytes(int_ty) -> str_ty;
@@ -1394,6 +1398,36 @@ pub(crate) unsafe extern "C" fn to_lower_ascii(s: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     let res = (*(s as *mut Str as *const Str)).fend();
     mem::transmute::<Str, U128>(res)
+}
+
+pub(crate) unsafe extern "C" fn eval_int_context(formula: *mut U128, context: *mut c_void) -> Float {
+    let formula = &*(formula as *mut Str);
+    let context = mem::transmute::<*mut c_void, StrMap<Int>>(context);
+    let result = math_util::eval_int_context(formula.as_str(), &context);
+    mem::forget(context);
+    result
+}
+
+pub(crate) unsafe extern "C" fn eval_float_context(formula: *mut U128, context: *mut c_void) -> Float {
+    let formula = &*(formula as *mut Str);
+    let context = mem::transmute::<*mut c_void, StrMap<Float>>(context);
+    let result = math_util::eval_float_context(formula.as_str(), &context);
+    mem::forget(context);
+    result
+}
+
+pub(crate) unsafe extern "C" fn eval_context(formula: *mut U128, context: *mut c_void) -> Float {
+    let formula = &*(formula as *mut Str);
+    let context = mem::transmute::<*mut c_void, StrMap<Str>>(context);
+    let result = math_util::eval_context(formula.as_str(), &context);
+    mem::forget(context);
+    result
+}
+
+pub(crate) unsafe extern "C" fn eval(formula: *mut U128) -> Float {
+    let formula = &*(formula as *mut Str);
+    let result = math_util::eval(formula.as_str());
+    result
 }
 
 pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {

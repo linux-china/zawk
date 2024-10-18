@@ -945,6 +945,29 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             MkPassword(dst,len) => self.unop(intrinsic!(mkpass), dst, len),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
+            MapStrIntEval(dst,formula, context) => {
+                let formula = self.get_val(formula.reflect())?;
+                let context = self.get_val(context.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(eval_int_context), &mut [formula, context])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            MapStrFloatEval(dst,formula, context) => {
+                let formula = self.get_val(formula.reflect())?;
+                let context = self.get_val(context.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(eval_float_context), &mut [formula, context])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            MapStrStrEval(dst,formula, context) => {
+                let formula = self.get_val(formula.reflect())?;
+                let context = self.get_val(context.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(eval_context), &mut [formula, context])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            Eval(dst,formula) => {
+                let formula = self.get_val(formula.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(eval), &mut [formula])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Url(dst,src) => self.unop(intrinsic!(url), dst, src),
             Record(dst,src) => self.unop(intrinsic!(record), dst, src),
             Message(dst,src) => self.unop(intrinsic!(message), dst, src),

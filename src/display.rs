@@ -182,6 +182,7 @@ impl Display for Function {
             MkBool => write!(f, "mkbool"),
             MkPassword => write!(f, "mkpass"),
             Fend => write!(f, "fend"),
+            Eval => write!(f, "eval"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),
             Parse => write!(f, "parse"),
