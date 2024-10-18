@@ -27,6 +27,10 @@ Then execute `./demo.awk --help` to display help.
 * Use `BEGIN` and `END` block to initialize and finalize
 * Ignore some lines by `pattern { next }`
 * Process lines by `pattern { action }`
+* Make associative array quickly:
+    - `array[$1] = $2`, 
+    - `arr = record('{host:localhost,port:1234}')`, 
+    - `arr = pairs("a=b,c=d")`
 
 # Prometheus text to CSV
 
