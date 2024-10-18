@@ -317,3 +317,6 @@ run-run-system2:
 
 run-run-http-post:
   cargo run --package zawk --bin zawk -- 'BEGIN { result = http_post("https://httpbin.org/post", "Hello"); print result["text"]; }'
+
+run-eval:
+  cargo run --package zawk --bin zawk -- 'BEGIN { arr["a"] = 1;  print eval("1 * 2"), eval("a+2", arr); }'
