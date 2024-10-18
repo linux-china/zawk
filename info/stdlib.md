@@ -458,6 +458,12 @@ Bitwise operations. All of these operations coerce their operands to integers be
 
 `round(4.4) # 4`,
 
+### eval
+
+`eval("1+2")` or `eval("a + 2", context)`
+
+Please refer https://github.com/isibboi/evalexpr for more.
+
 ### fend
 
 `fend("1+2") # 3`
