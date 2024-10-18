@@ -1,7 +1,10 @@
 [package]
 name = "zawk"
 version = "0.5.21"
-authors = ["Eli Rosenthal <ezr@cs.brown.edu>", "linux_china <libing.chen@gmail.com>"]
+authors = [
+    "Eli Rosenthal <ezr@cs.brown.edu>",
+    "linux_china <libing.chen@gmail.com>",
+]
 edition = "2021"
 description = "An efficient Awk-like language implementation by Rust with stdlib"
 homepage = "https://github.com/linux-china/zawk"
@@ -58,7 +61,7 @@ ulid = "1"
 tsid = "0.3"
 rs-snowflake = "0.6"
 fend-core = "1.5"
-evalexpr="12"
+evalexpr = "12"
 chrono = "0.4"
 chrono-systemd-time = "0.3"
 dateparser = "0.2"
@@ -95,9 +98,12 @@ tl = { version = "0.7" }
 logos = "0.14"
 local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
-oneio = { version = "0.17", default-features = false, features = ["remote", "compressions"] }
+oneio = { version = "0.17", default-features = false, features = [
+    "remote",
+    "compressions",
+] }
 nats = "0.25"
-paho-mqtt = { version = "0.12",features = [ "vendored-ssl"] }
+paho-mqtt = { version = "0.12", features = ["vendored-ssl"] }
 redis = "0.27"
 minio = "0.1.0"
 tokio = { version = "1", features = ["full"] }
@@ -111,10 +117,17 @@ shlex = "1"
 shell-escape = "0.1"
 pad = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
-libsql = { version = "0.6", default-features = false, features = ["core", "remote"] }
+libsql = { version = "0.6", default-features = false, features = [
+    "core",
+    "remote",
+] }
 libsql-sys = { version = "0.8", features = ["rusqlite"] }
 mysql = { version = "25" }
-postgres = { version = "0.19", features = ["with-chrono-0_4", "with-time-0_3", "with-uuid-1"] }
+postgres = { version = "0.19", features = [
+    "with-chrono-0_4",
+    "with-time-0_3",
+    "with-uuid-1",
+] }
 csv = "1"
 semver = "1"
 ctor = "0.2"
@@ -163,17 +176,3 @@ codegen-units = 1
 [profile.dist]
 inherits = "release"
 lto = true
-
-# Config for 'cargo dist'
-[workspace.metadata.dist]
-# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.22.1"
-# CI backends to support
-ci = "github"
-# The installers to generate for each app
-installers = ["homebrew"]
-tap = "linux-china/homebrew-tap"
-publish-jobs = ["homebrew"]
-# Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-
