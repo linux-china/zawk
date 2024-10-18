@@ -683,6 +683,42 @@ pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
 }
 
 /// eval context with https://lib.rs/crates/evalexpr
+pub fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
+    use evalexpr::*;
+    let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
+    context.iter(|map| {
+        for (key, value) in map {
+            let value: f64 = *value as f64;
+            eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
+        }
+    });
+    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    if let Ok(value) = result.as_float() {
+        value
+    } else if let Ok(value) = result.as_int() {
+        value as f64
+    } else {
+        0.0
+    }
+}
+
+pub fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Float {
+    use evalexpr::*;
+    let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
+    context.iter(|map| {
+        for (key, value) in map {
+            eval_context.set_value(key.to_string(), Value::Float(*value)).unwrap();
+        }
+    });
+    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    if let Ok(value) = result.as_float() {
+        value
+    } else if let Ok(value) = result.as_int() {
+        value as f64
+    } else {
+        0.0
+    }
+}
 pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
@@ -701,6 +737,20 @@ pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
         0.0
     }
 }
+
+pub fn eval(formula: &str) -> Float {
+    use evalexpr::*;
+    let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
+    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    if let Ok(value) = result.as_float() {
+        value
+    } else if let Ok(value) = result.as_int() {
+        value as f64
+    } else {
+        0.0
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
