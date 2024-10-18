@@ -460,9 +460,11 @@ Bitwise operations. All of these operations coerce their operands to integers be
 
 ### eval
 
-`eval("1+2")` or `eval("a + 2", context)`
+`eval("1+2")` or `eval("a + 2", context)`, and return type is Float.
 
 Please refer https://github.com/isibboi/evalexpr for more.
+
+**Attention**: Now only Int/Float/Boolean are supported, and boolean will be converted to 0/1.
 
 ### fend
 
