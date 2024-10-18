@@ -1661,6 +1661,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "evalexpr"
+version = "12.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec8ecc95be4b1d5ae115bbad71c865f11c514b292e6c14dcd7fec2ef5938c844"
+
+[[package]]
 name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6577,6 +6583,7 @@ dependencies = [
  "dotenv",
  "email_address",
  "env_logger",
+ "evalexpr",
  "fake",
  "fast-float",
  "fend-core",
