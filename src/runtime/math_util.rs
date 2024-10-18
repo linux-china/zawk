@@ -657,7 +657,7 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
     let hex_text = text.trim_start_matches("#");
     let text_len = hex_text.len();
     let mut red = 0;
-    let mut green= 0;
+    let mut green = 0;
     let mut blue = 0;
     if text_len < 6 {
         let hex_text = format!("{:0<6}", hex_text);
@@ -682,6 +682,17 @@ pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
     format!("#{:02X}{:02X}{:02X}", red, green, blue)
 }
 
+/// eval context with https://lib.rs/crates/evalexpr
+pub fn eval_context(formula: &str, context: &StrMap<Float>) -> Float {
+    use evalexpr::*;
+    let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
+    context.iter(|map| {
+        for (key, value) in map {
+            eval_context.set_value(key.to_string(), Value::Float(*value)).unwrap();
+        }
+    });
+    eval_float_with_context_mut(formula, &mut eval_context).unwrap()
+}
 
 #[cfg(test)]
 mod tests {
@@ -796,5 +807,13 @@ mod tests {
         let blue = 85;
         let hex = rgb2hex(red, green, blue);
         println!("{}", hex);
+    }
+
+    #[test]
+    fn test_eval_context() {
+        let mut context: StrMap<Float> = StrMap::default();
+        context.insert(Str::from("x"), 7.1f64);
+        let result = eval_context("x * 2", &context);
+        println!("{}", result);
     }
 }
