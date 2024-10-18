@@ -316,7 +316,7 @@ Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",c
 
 Usage:
 
-* `record("http_requests_total{method=\"post\",code=\"200\"}")`
+* `record("http_requests_total{method='post',code=200}")`
 * `record("mysql{host=localhost user=root password=123456 database=test}")`
 * `record("table1(id int, age int)")`: DB table design
 
@@ -327,8 +327,8 @@ like `http_requests_total{method="post",code="200"}(100)`
 
 Usage:
 
-* `message("http_requests_total{method=\"post\",code=\"200\"}(100)")`
-* `message("login_event{method=\"post\",code=\"200\"}('xxx@example.com')")`
+* `message("http_requests_total{method='post',code=200}(100)")`
+* `message("login_event{method='post',code=200}('xxx@example.com')")`
 
 ### Function invocation
 
