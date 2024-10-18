@@ -683,15 +683,23 @@ pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
 }
 
 /// eval context with https://lib.rs/crates/evalexpr
-pub fn eval_context(formula: &str, context: &StrMap<Float>) -> Float {
+pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
-            eval_context.set_value(key.to_string(), Value::Float(*value)).unwrap();
+            let value: f64 = value.as_str().parse().unwrap_or(0.0);
+            eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
         }
     });
-    eval_float_with_context_mut(formula, &mut eval_context).unwrap()
+    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    if let Ok(value) = result.as_float() {
+        value
+    } else if let Ok(value) = result.as_int() {
+        value as f64
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -811,9 +819,9 @@ mod tests {
 
     #[test]
     fn test_eval_context() {
-        let mut context: StrMap<Float> = StrMap::default();
-        context.insert(Str::from("x"), 7.1f64);
-        let result = eval_context("x * 2", &context);
+        let context: StrMap<Str> = StrMap::default();
+        context.insert(Str::from("x"), Str::from("7"));
+        let result = eval_context("1 + 1", &context);
         println!("{}", result);
     }
 }
