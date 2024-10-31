@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 
 pub(crate) fn kv_get(namespace: &str, key: &str) -> String {
@@ -43,9 +43,9 @@ pub(crate) fn kv_clear(namespace: &str) {
 }
 
 lazy_static! {
-    static ref SQLITE_CONNECTIONS: Mutex<HashMap<String, rusqlite::Connection>> = Mutex::new(HashMap::new());
-    static ref REDIS_CONNECTIONS: Mutex<HashMap<String, redis::Connection>> = Mutex::new(HashMap::new());
-    static ref NATS_JETSTREAM: Mutex<HashMap<String, nats::jetstream::JetStream>> = Mutex::new(HashMap::new());
+    static ref SQLITE_CONNECTIONS: Arc<Mutex<HashMap<String, rusqlite::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref REDIS_CONNECTIONS: Arc<Mutex<HashMap<String, redis::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref NATS_JETSTREAM: Arc<Mutex<HashMap<String, nats::jetstream::JetStream>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 fn is_redis_url(namespace: &str) -> bool {
@@ -267,6 +267,7 @@ mod sqlite_kv {
 
 #[cfg(test)]
 mod tests {
+    use dashmap::DashMap;
     use super::*;
 
     #[test]

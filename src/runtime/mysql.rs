@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
@@ -7,7 +7,7 @@ use mysql::*;
 use mysql::prelude::*;
 
 lazy_static! {
-    static ref MYSQL_POOLS: Mutex<HashMap<String, Pool>> = Mutex::new(HashMap::new());
+    static ref MYSQL_POOLS: Arc<Mutex<HashMap<String, Pool>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {

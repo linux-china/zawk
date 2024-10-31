@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use miniserde::json;
 use miniserde::json::{Value};
@@ -148,7 +148,7 @@ fn from_json_array(json_text: &str) -> StrMap<Str> {
 }
 
 lazy_static! {
-    static ref JSON_PATHS: Mutex<HashMap<String, JsonPath>> = Mutex::new(HashMap::new());
+    static ref JSON_PATHS: Arc<Mutex<HashMap<String, JsonPath>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {

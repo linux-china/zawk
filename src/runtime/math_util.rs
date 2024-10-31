@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use evalexpr::{DefaultNumericTypes, Value};
 use lazy_static::lazy_static;
 use logos::Logos;
@@ -370,7 +370,7 @@ pub(crate) fn uuid(version: &str) -> String {
 }
 
 lazy_static! {
-    static ref SNOWFLAKES: Mutex<HashMap<u16, SnowflakeIdGenerator>> = Mutex::new(HashMap::new());
+    static ref SNOWFLAKES: Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 ///  machine ID(10 bits) should be less 1024

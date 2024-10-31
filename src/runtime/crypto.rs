@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, Mac};
 use serde_json::{Number, Value};
@@ -161,7 +161,7 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
 }
 
 lazy_static! {
-    static ref JWK_POOLS: Mutex<HashMap<String, Jwk>> = Mutex::new(HashMap::new());
+    static ref JWK_POOLS: Arc<Mutex<HashMap<String, Jwk>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub fn extract_jwk(full_http_url: &str) -> Jwk {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::env;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use lettre::Transport;
 use reqwest::blocking::Response;
@@ -86,8 +86,8 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
 
 // todo graceful shutdown
 lazy_static! {
-    static ref NATS_CONNECTIONS: Mutex<HashMap<String, nats::Connection>> = Mutex::new(HashMap::new());
-    static ref MQTT_CONNECTIONS: Mutex<HashMap<String, paho_mqtt::Client>> = Mutex::new(HashMap::new());
+    static ref NATS_CONNECTIONS: Arc<Mutex<HashMap<String, nats::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref MQTT_CONNECTIONS: Arc<Mutex<HashMap<String, paho_mqtt::Client>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub(crate) fn publish(namespace: &str, body: &str) {

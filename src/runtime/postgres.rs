@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use chrono::Utc;
 use lazy_static::lazy_static;
 use crate::runtime::{Int, IntMap, Str};
@@ -8,7 +8,7 @@ use postgres::{Client, NoTls};
 use uuid::Uuid;
 
 lazy_static! {
-    static ref PG_POOLS: Mutex<HashMap<String, Client>> = Mutex::new(HashMap::new());
+    static ref PG_POOLS: Arc<Mutex<HashMap<String, Client>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {

@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hashbrown::HashMap;
 use urlencoding::{encode as url_encode, decode as url_decode};
@@ -140,7 +140,7 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
 }
 
 lazy_static! {
-    static ref BLOOM_FILTERS: Mutex<HashMap<String, GrowableBloom>> = Mutex::new(HashMap::new());
+    static ref BLOOM_FILTERS: Arc<Mutex<HashMap<String, GrowableBloom>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub fn bf_insert(item: &str, group: &str) {

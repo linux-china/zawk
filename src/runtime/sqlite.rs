@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection};
 use rusqlite::types::{Value};
@@ -7,7 +7,7 @@ use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 
 lazy_static! {
-    static ref SQLITE_CONNECTIONS: Mutex<HashMap<String, rusqlite::Connection>> = Mutex::new(HashMap::new());
+    static ref SQLITE_CONNECTIONS: Arc<Mutex<HashMap<String, rusqlite::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
