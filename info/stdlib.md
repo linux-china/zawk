@@ -1,9 +1,9 @@
-AWK Standard Library
+zawk Standard Library
 ====================
 
 Standard library for AWK with text, math, crypto, kv, database, network etc.
 
-AWK stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
+zawk stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
 
 # Text functions
 
