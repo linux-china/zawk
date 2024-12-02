@@ -1,13 +1,12 @@
 # zawk
 
-> zawk is an implementation of the AWK language written by Rust, and it includes a standard library for text, math,
-> datetime, crypto, parser, encode/decode, KV, SQLite/MySQL, Redis/NATS, etc.
+> zawk is an implementation of the AWK language written by Rust, and it includes a standard library for text, math etc.
 
 Things to remember to write awk script with zawk:
 
 - standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
 - csv/tsv built-in support with `zawk -i csv/tsv`
-- zawk is the successor of frawk, and all frawk scripts can run in zawk 
+- zawk is the successor of frawk, and all frawk scripts can run in zawk
 
 ## Docs
 
