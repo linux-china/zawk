@@ -10,7 +10,7 @@ use smallvec::smallvec;
 
 use std::convert::TryFrom;
 
-pub const VERSION: &'static str = "0.5.22";
+pub const VERSION: &'static str = "0.5.23";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {

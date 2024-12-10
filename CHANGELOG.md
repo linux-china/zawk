@@ -2,6 +2,11 @@
 
 Nothing Yet!
 
+# Version 0.5.23 (2024-12-10)
+
+* Add `chars($1)` function to return char array of text
+* Use fs if sep empty in `split(text,arr,sep)`
+
 # Version 0.5.22 (2024-10-18)
 
 * Add `eval(formula, context)` function for math calculation
