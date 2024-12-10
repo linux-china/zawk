@@ -509,6 +509,16 @@ impl<'a> Str<'a> {
         };
     }
 
+    pub(crate) fn chars<'b>(&self) -> runtime::IntMap<Str<'b>> {
+        let map: IntMap<Str> = IntMap::default();
+        let src = self.as_str();
+        let mut i: i64 = 1;
+        for character in src.chars() {
+           map.insert(i, Str::from(character.to_string()));
+           i = i + 1;
+        }
+        map
+    }
     pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = hashbrown::HashMap::new();
         let mut url_text = self.to_string();
