@@ -4,11 +4,17 @@
 //! try and hew closely to the steps in the `interp` module, with most functionality in the
 //! underlying runtime library.
 use super::{Backend, FunctionAttr, Sig};
-use crate::runtime::{self, printf::{printf, FormatArg}, splitter::{
-    batch::{ByteReader, CSVReader, WhitespaceOffsets},
-    chunk::{ChunkProducer, OffsetChunk},
-    regex::RegexSplitter,
-}, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap, math_util, string_util, faker, os_util, encoding, config_util, logging, network, kv, date_time};
+use crate::runtime::{
+    self, config_util, date_time, encoding, faker, kv, logging, math_util, network, os_util,
+    printf::{printf, FormatArg},
+    splitter::{
+        batch::{ByteReader, CSVReader, WhitespaceOffsets},
+        chunk::{ChunkProducer, OffsetChunk},
+        regex::RegexSplitter,
+    },
+    string_util, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str,
+    StrMap,
+};
 use crate::{
     builtins::Variable,
     common::{CancelSignal, Cleanup, FileSpec, Notification, Result},
@@ -16,7 +22,7 @@ use crate::{
     pushdown::FieldSet,
 };
 
-use libc::{c_void};
+use libc::c_void;
 use paste::paste;
 use rand::{self, Rng};
 use regex::bytes::Regex;
@@ -536,9 +542,9 @@ macro_rules! with_input {
 pub(crate) type InputTuple<LR> = (<LR as LineReader>::Line, FileRead<LR>);
 
 pub(crate) enum InputData {
-    V1(InputTuple<CSVReader<Box<dyn ChunkProducer<Chunk=OffsetChunk>>>>),
-    V2(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk=OffsetChunk<WhitespaceOffsets>>>>>),
-    V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk=OffsetChunk>>>>),
+    V1(InputTuple<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
+    V2(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>>>),
+    V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
     V4(InputTuple<ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
 }
 
@@ -759,7 +765,10 @@ pub(crate) unsafe extern "C" fn split_str(
     let runtime = &mut *(runtime as *mut Runtime);
     let into_arr = mem::transmute::<*mut c_void, StrMap<Str>>(into_arr);
     let to_split = &*(to_split as *mut Str);
-    let pat = &*(pat as *mut Str);
+    let mut pat = &*(pat as *mut Str);
+    if pat.is_empty() {
+        pat = &runtime.core.vars.fs;
+    }
     if let Err(e) = runtime
         .core
         .regexes
@@ -781,7 +790,10 @@ pub(crate) unsafe extern "C" fn split_int(
     let runtime = &mut *(runtime as *mut Runtime);
     let into_arr = mem::transmute::<*mut c_void, IntMap<Str>>(into_arr);
     let to_split = &*(to_split as *mut Str);
-    let pat = &*(pat as *mut Str);
+    let mut pat = &*(pat as *mut Str);
+    if pat.is_empty() {
+        pat = &runtime.core.vars.fs;
+    }
     if let Err(e) = runtime
         .core
         .regexes
@@ -883,7 +895,10 @@ pub(crate) unsafe extern "C" fn tsid() -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn systime() -> Int {
-    let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let seconds = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     seconds as Int
 }
 
@@ -918,7 +933,11 @@ pub(crate) unsafe extern "C" fn digest(algorithm: *mut U128, text: *mut U128) ->
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn hmac(algorithm: *mut U128, key: *mut U128, text: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn hmac(
+    algorithm: *mut U128,
+    key: *mut U128,
+    text: *mut U128,
+) -> U128 {
     let algorithm = &*(algorithm as *mut Str);
     let key = &*(key as *mut Str);
     let text = &*(text as *mut Str);
@@ -927,7 +946,11 @@ pub(crate) unsafe extern "C" fn hmac(algorithm: *mut U128, key: *mut U128, text:
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn jwt(algorithm: *mut U128, key: *mut U128, payload: *mut c_void) -> U128 {
+pub(crate) unsafe extern "C" fn jwt(
+    algorithm: *mut U128,
+    key: *mut U128,
+    payload: *mut c_void,
+) -> U128 {
     let algorithm = &*(algorithm as *mut Str);
     let key = &*(key as *mut Str);
     let payload = mem::transmute::<*mut c_void, StrMap<Str>>(payload);
@@ -944,7 +967,11 @@ pub(crate) unsafe extern "C" fn dejwt(key: *mut U128, token: *mut U128) -> *mut 
     mem::transmute::<StrMap<Str>, *mut c_void>(jwt)
 }
 
-pub(crate) unsafe extern "C" fn encrypt(mode: *mut U128, plain_text: *mut U128, key: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn encrypt(
+    mode: *mut U128,
+    plain_text: *mut U128,
+    key: *mut U128,
+) -> U128 {
     let mode = &*(mode as *mut Str);
     let plain_text = &*(plain_text as *mut Str);
     let key = &*(key as *mut Str);
@@ -953,7 +980,11 @@ pub(crate) unsafe extern "C" fn encrypt(mode: *mut U128, plain_text: *mut U128, 
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn decrypt(mode: *mut U128, encrypted_text: *mut U128, key: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn decrypt(
+    mode: *mut U128,
+    encrypted_text: *mut U128,
+    key: *mut U128,
+) -> U128 {
     let mode = &*(mode as *mut Str);
     let encrypted_text = &*(encrypted_text as *mut Str);
     let key = &*(key as *mut Str);
@@ -962,7 +993,11 @@ pub(crate) unsafe extern "C" fn decrypt(mode: *mut U128, encrypted_text: *mut U1
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn strftime(rt: *mut c_void, format: *mut U128, timestamp: Int) -> U128 {
+pub(crate) unsafe extern "C" fn strftime(
+    rt: *mut c_void,
+    format: *mut U128,
+    timestamp: Int,
+) -> U128 {
     let format = &*(format as *mut Str);
     let mut date_time_format = format.to_string();
     if format.is_empty() {
@@ -977,7 +1012,10 @@ pub(crate) unsafe extern "C" fn strftime(rt: *mut c_void, format: *mut U128, tim
         date_time_format = "%a %m %e %H:%M:%S %Z %Y".to_owned();
     }
     let timestamp = if timestamp < 0 {
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
     } else {
         timestamp as i64
     };
@@ -1017,8 +1055,7 @@ pub(crate) unsafe extern "C" fn to_bytes(text: *mut U128) -> Int {
 pub(crate) unsafe extern "C" fn starts_with(text: *mut U128, prefix: *mut U128) -> Int {
     let text = &*(text as *mut Str);
     let prefix = &*(prefix as *mut Str);
-    if !text.is_empty() && !prefix.is_empty()
-        && text.as_str().starts_with(prefix.as_str()) {
+    if !text.is_empty() && !prefix.is_empty() && text.as_str().starts_with(prefix.as_str()) {
         1
     } else {
         0
@@ -1028,8 +1065,7 @@ pub(crate) unsafe extern "C" fn starts_with(text: *mut U128, prefix: *mut U128) 
 pub(crate) unsafe extern "C" fn ends_with(text: *mut U128, suffix: *mut U128) -> Int {
     let text = &*(text as *mut Str);
     let suffix = &*(suffix as *mut Str);
-    if !text.is_empty() && !suffix.is_empty()
-        && text.as_str().ends_with(suffix.as_str()) {
+    if !text.is_empty() && !suffix.is_empty() && text.as_str().ends_with(suffix.as_str()) {
         1
     } else {
         0
@@ -1039,8 +1075,7 @@ pub(crate) unsafe extern "C" fn ends_with(text: *mut U128, suffix: *mut U128) ->
 pub(crate) unsafe extern "C" fn text_contains(text: *mut U128, child: *mut U128) -> Int {
     let text = &*(text as *mut Str);
     let child = &*(child as *mut Str);
-    if !text.is_empty() && !child.is_empty()
-        && text.as_str().contains(child.as_str()) {
+    if !text.is_empty() && !child.is_empty() && text.as_str().contains(child.as_str()) {
         1
     } else {
         0
@@ -1110,7 +1145,6 @@ pub(crate) unsafe extern "C" fn strcmp(text1: *mut U128, text2: *mut U128) -> In
     string_util::strcmp(text1.as_str(), text2.as_str())
 }
 
-
 pub(crate) unsafe extern "C" fn mask(text: *mut U128) -> U128 {
     let text = &*(text as *mut Str);
     let res = text.mask();
@@ -1123,7 +1157,10 @@ pub(crate) unsafe extern "C" fn repeat(text: *mut U128, n: Int) -> U128 {
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn default_if_empty(text: *mut U128, default_value: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn default_if_empty(
+    text: *mut U128,
+    default_value: *mut U128,
+) -> U128 {
     let text = &*(text as *mut Str);
     let default_value = &*(default_value as *mut Str);
     let res = text.default_if_empty(default_value);
@@ -1182,7 +1219,11 @@ pub(crate) unsafe extern "C" fn lines(text: *mut U128) -> *mut c_void {
     mem::transmute::<IntMap<Str>, *mut c_void>(res)
 }
 
-pub(crate) unsafe extern "C" fn truncate(src: *mut U128, len: Int, place_holder: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn truncate(
+    src: *mut U128,
+    len: Int,
+    place_holder: *mut U128,
+) -> U128 {
     let src = &*(src as *mut Str);
     let place_holder = &*(place_holder as *mut Str);
     let res = src.truncate(len, place_holder);
@@ -1305,7 +1346,6 @@ pub(crate) unsafe extern "C" fn fake(data: *mut U128, locale: *mut U128) -> U128
     mem::transmute::<Str, U128>(Str::from(result))
 }
 
-
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
     date_time::mktime(dt_text.as_str(), timezone) as Int
@@ -1400,7 +1440,10 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn eval_int_context(formula: *mut U128, context: *mut c_void) -> Float {
+pub(crate) unsafe extern "C" fn eval_int_context(
+    formula: *mut U128,
+    context: *mut c_void,
+) -> Float {
     let formula = &*(formula as *mut Str);
     let context = mem::transmute::<*mut c_void, StrMap<Int>>(context);
     let result = math_util::eval_int_context(formula.as_str(), &context);
@@ -1408,7 +1451,10 @@ pub(crate) unsafe extern "C" fn eval_int_context(formula: *mut U128, context: *m
     result
 }
 
-pub(crate) unsafe extern "C" fn eval_float_context(formula: *mut U128, context: *mut c_void) -> Float {
+pub(crate) unsafe extern "C" fn eval_float_context(
+    formula: *mut U128,
+    context: *mut c_void,
+) -> Float {
     let formula = &*(formula as *mut Str);
     let context = mem::transmute::<*mut c_void, StrMap<Float>>(context);
     let result = math_util::eval_float_context(formula.as_str(), &context);
@@ -1457,7 +1503,11 @@ pub(crate) unsafe extern "C" fn message(src: *mut U128) -> *mut c_void {
     mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
 }
 
-pub(crate) unsafe extern "C" fn pairs(src: *mut U128, pair_sep: *mut U128, kv_sep: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn pairs(
+    src: *mut U128,
+    pair_sep: *mut U128,
+    kv_sep: *mut U128,
+) -> *mut c_void {
     let src = &*(src as *mut Str);
     let pair_sep = &*(pair_sep as *mut Str);
     let kv_sep = &*(kv_sep as *mut Str);
@@ -1552,7 +1602,6 @@ pub(crate) unsafe extern "C" fn is_format(format: *mut U128, text: *mut U128) ->
     let text = &*(text as *mut Str);
     string_util::is_format(format.as_str(), text.as_str())
 }
-
 
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     let text = &*(text as *mut Str);
@@ -1726,7 +1775,10 @@ pub(crate) unsafe extern "C" fn json_value(json_text: *mut U128, json_path: *mut
     mem::transmute::<Str, U128>(Str::from(value))
 }
 
-pub(crate) unsafe extern "C" fn json_query(json_text: *mut U128, json_path: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn json_query(
+    json_text: *mut U128,
+    json_path: *mut U128,
+) -> *mut c_void {
     let json_text = &*(json_text as *mut Str);
     let json_path = &*(json_path as *mut Str);
     let res = runtime::json::json_query(json_text.as_str(), json_path.as_str());
@@ -1740,7 +1792,10 @@ pub(crate) unsafe extern "C" fn html_value(html_text: *mut U128, selector: *mut 
     mem::transmute::<Str, U128>(Str::from(value))
 }
 
-pub(crate) unsafe extern "C" fn html_query(html_text: *mut U128, selector: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn html_query(
+    html_text: *mut U128,
+    selector: *mut U128,
+) -> *mut c_void {
     let html_text = &*(html_text as *mut Str);
     let selector = &*(selector as *mut Str);
     let res = runtime::html::html_query(html_text.as_str(), selector.as_str());
@@ -1968,7 +2023,11 @@ pub(crate) unsafe extern "C" fn http_get(url: *mut U128, headers: *mut c_void) -
     mem::transmute::<StrMap<Str>, *mut c_void>(resp)
 }
 
-pub(crate) unsafe extern "C" fn http_post(url: *mut U128, headers: *mut c_void, body: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn http_post(
+    url: *mut U128,
+    headers: *mut c_void,
+    body: *mut U128,
+) -> *mut c_void {
     let url = &*(url as *mut Str);
     let body = &*(body as *mut Str);
     let headers = mem::transmute::<*mut c_void, StrMap<Str>>(headers);
@@ -1977,8 +2036,12 @@ pub(crate) unsafe extern "C" fn http_post(url: *mut U128, headers: *mut c_void, 
     mem::transmute::<StrMap<Str>, *mut c_void>(resp)
 }
 
-pub(crate) unsafe extern "C" fn send_mail(from: *mut U128, to: *mut U128,
-                                          subject: *mut U128, body: *mut U128) {
+pub(crate) unsafe extern "C" fn send_mail(
+    from: *mut U128,
+    to: *mut U128,
+    subject: *mut U128,
+    body: *mut U128,
+) {
     let from = &*(from as *mut Str);
     let to = &*(to as *mut Str);
     let subject = &*(subject as *mut Str);
@@ -1986,14 +2049,25 @@ pub(crate) unsafe extern "C" fn send_mail(from: *mut U128, to: *mut U128,
     network::send_mail(from.as_str(), to.as_str(), subject.as_str(), body.as_str());
 }
 
-pub(crate) unsafe extern "C" fn smtp_send(url: *mut U128, from: *mut U128, to: *mut U128,
-                                          subject: *mut U128, body: *mut U128) {
+pub(crate) unsafe extern "C" fn smtp_send(
+    url: *mut U128,
+    from: *mut U128,
+    to: *mut U128,
+    subject: *mut U128,
+    body: *mut U128,
+) {
     let url = &*(url as *mut Str);
     let from = &*(from as *mut Str);
     let to = &*(to as *mut Str);
     let subject = &*(subject as *mut Str);
     let body = &*(body as *mut Str);
-    network::smtp_send(url.as_str(), from.as_str(), to.as_str(), subject.as_str(), body.as_str());
+    network::smtp_send(
+        url.as_str(),
+        from.as_str(),
+        to.as_str(),
+        subject.as_str(),
+        body.as_str(),
+    );
 }
 
 pub(crate) unsafe extern "C" fn s3_get(bucket: *mut U128, object_name: *mut U128) -> U128 {
@@ -2004,11 +2078,17 @@ pub(crate) unsafe extern "C" fn s3_get(bucket: *mut U128, object_name: *mut U128
     mem::transmute::<Str, U128>(res)
 }
 
-pub(crate) unsafe extern "C" fn s3_put(bucket: *mut U128, object_name: *mut U128, body: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn s3_put(
+    bucket: *mut U128,
+    object_name: *mut U128,
+    body: *mut U128,
+) -> U128 {
     let bucket = &*(bucket as *mut Str);
     let object_name = &*(object_name as *mut Str);
     let body = &*(body as *mut Str);
-    let etag = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str()).unwrap().etag;
+    let etag = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str())
+        .unwrap()
+        .etag;
     let res = Str::from(etag);
     mem::transmute::<Str, U128>(res)
 }
