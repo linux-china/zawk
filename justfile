@@ -320,3 +320,6 @@ run-run-http-post:
 
 run-eval:
   cargo run --package zawk --bin zawk -- 'BEGIN { arr["a"] = 1;  print eval("1 * 2"), eval("a+2", arr); }'
+
+run-chars:
+  cargo run --package zawk --bin zawk -- 'BEGIN{aw=chars("你好");{print aw[1]}}'
