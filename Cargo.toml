@@ -54,7 +54,7 @@ cranelift-native = "0.114"
 cranelift-jit = "0.114"
 fast-float = "0.2"
 bumpalo = { version = "3.16", features = ["collections"] }
-target-lexicon = "0.12.16"
+target-lexicon = "0.13"
 uuid = { version = "1.11", features = ["v4", "v7", "fast-rng"] }
 ulid = "1"
 tsid = "0.3"
@@ -94,7 +94,7 @@ serde_json_path = "0.7"
 sxd-document = "0.3"
 sxd-xpath = "0.4"
 tl = { version = "0.7" }
-logos = "0.14"
+logos = "0.15"
 local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 oneio = { version = "0.17", default-features = false, features = [
@@ -152,6 +152,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 assert_cmd = "2.0"
 tempfile = "3.14"
 testresult = "0.4"
+rstest = "0.23"
 
 [build-dependencies]
 lalrpop = "0.22.0"
