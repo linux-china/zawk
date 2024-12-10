@@ -13,6 +13,10 @@ Text is encoding with utf-8 by default.
 
 Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
 
+### chars
+
+Return char array of text: `ar=chars($1)`, starts from 1.
+
 ### match(text, re)
 
 if string text matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
