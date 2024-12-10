@@ -757,6 +757,7 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(char_at), &mut [text, index])?;
                 self.bind_val(res.reflect(), resv)
             }
+            Chars(dst,text) => self.unop(intrinsic!(chars), dst, text),
             LastPart(res, s,sep) => {
                 let s = self.get_val(s.reflect())?;
                 let sep = self.get_val(sep.reflect())?;

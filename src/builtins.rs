@@ -180,6 +180,7 @@ pub enum Function {
     IsFormat,
     Substr,
     CharAt,
+    Chars,
     ToInt,
     HexToInt,
     Rand,
@@ -496,6 +497,7 @@ static_map!(
     ["gensub", Function::GenSub],
     ["substr", Function::Substr],
     ["char_at", Function::CharAt],
+    ["chars", Function::Chars],
     ["int", Function::ToInt],
     ["float", Function::Strtonum],
     ["hex", Function::HexToInt],
@@ -840,6 +842,7 @@ impl Function {
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
             Substr => (smallvec![Str, Int, Int], Str),
             CharAt => (smallvec![Str, Int], Str),
+            Chars => (smallvec![Str], MapIntStr),
             Match => (smallvec![Str, Str], Int),
             Exit => (smallvec![Int], Null),
             // Split's second input can be a map of either type
@@ -893,6 +896,7 @@ impl Function {
             Duration => 1,
             StrCmp => 2,
             CharAt => 2,
+            Chars => 1,
             MkBool => 1,
             MkPassword => 1,
             Trim => 2,
@@ -971,6 +975,10 @@ impl Function {
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
+            Chars => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
+            }.abs()),
             Eval => Ok(Scalar(BaseTy::Float).abs()),
             JsonQuery | HtmlQuery | XmlQuery => {
                 Ok(Map {

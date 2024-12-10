@@ -1930,6 +1930,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             *index_mut(&mut self.strs, dst) = text.char_at(index);
                         }
                     }
+                    Chars(dst, text) => {
+                        let res = index(&self.strs, text).chars();
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     LastPart(res, s, sep) => {
                         let s = self.get(*s);
                         let sep = self.get(*sep);

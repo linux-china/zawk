@@ -736,6 +736,9 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(index.into()));
             }
+            Chars(dst, text) => {
+                f(dst.into(), Some(text.into()));
+            }
             LastPart(dst, s, sep) => {
                 f(dst.into(), Some(s.into()));
                 f(dst.into(), Some(sep.into()));

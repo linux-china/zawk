@@ -314,6 +314,7 @@ impl Display for Function {
             JoinCols => write!(f, "join_fields"),
             Substr => write!(f, "substr"),
             CharAt => write!(f, "char_at"),
+            Chars => write!(f, "chars"),
             ToInt => write!(f, "int"),
             HexToInt => write!(f, "hex"),
             Rand => write!(f, "rand"),

@@ -267,7 +267,6 @@ mod sqlite_kv {
 
 #[cfg(test)]
 mod tests {
-    use dashmap::DashMap;
     use super::*;
 
     #[test]
