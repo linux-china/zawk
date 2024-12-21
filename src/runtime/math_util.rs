@@ -169,7 +169,7 @@ pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
 pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
-    keys.reverse();
+    keys.sort();
     for index in keys {
         items.push(obj.get(&index).to_string());
     }
@@ -179,7 +179,7 @@ pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {
 pub(crate) fn map_int_float_join(obj: &IntMap<Float>, sep: &str) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
-    keys.reverse();
+    keys.sort();
     for index in keys {
         items.push(obj.get(&index).to_string());
     }
@@ -189,7 +189,7 @@ pub(crate) fn map_int_float_join(obj: &IntMap<Float>, sep: &str) -> String {
 pub(crate) fn map_int_str_join(obj: &IntMap<Str>, sep: &str) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
-    keys.reverse();
+    keys.sort();
     for index in keys {
         items.push(obj.get(&index).to_string());
     }
