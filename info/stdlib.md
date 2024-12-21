@@ -37,8 +37,8 @@ Like sub, but with all occurrences substituted, not just the first.
 
 ### index(haystack, needle)/last_index()
 
-* `index()`: the first index within haystack in which the string needle occurs, 0 if needle does not appear.
-* `last_index()`: the last index within haystack in which the string needle occurs, 0 if needle does not appear.
+* `index(text, 's')`: the first index within haystack in which the string needle occurs, 0 if needle does not appear.
+* `last_index(text,'s')`: the last index within haystack in which the string needle occurs, 0 if needle does not appear.
 
 ### split(text, arr[, fs])
 
