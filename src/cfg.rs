@@ -896,6 +896,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 } else {
                     current_open
                 };
+                // todo fix this bug with continue bug
                 let (h, b_start, _b_end, f) = self.make_loop(
                     body, *update, init_end, /*is_do*/ false, /*is_toplevel*/ false,
                 )?;
@@ -1558,13 +1559,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             self.f
                 .cfg
                 .add_edge(current_open, b_start, Transition::null());
+            self.f.cfg.add_edge(b_end, h, Transition::null());
         } else {
             // Current => Header => Body => Footer
             //             ^         |
             //             ^---------
+            self.f.cfg.add_edge(b_start, h, Transition::null());
             self.f.cfg.add_edge(current_open, h, Transition::null());
+            self.f.cfg.add_edge(b_end, h, Transition::null());
         }
-        self.f.cfg.add_edge(b_end, h, Transition::null());
         self.f.loop_ctx.pop().unwrap();
         Ok((h, b_start, b_end, f))
     }
