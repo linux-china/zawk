@@ -2,6 +2,10 @@
 
 Nothing Yet!
 
+# Version 0.5.24 (2024-12-22)
+
+* Fix `_join` with wrong sequence
+
 # Version 0.5.23 (2024-12-10)
 
 * Add `chars($1)` function to return char array of text
