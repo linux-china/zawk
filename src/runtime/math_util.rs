@@ -448,7 +448,7 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>> {
     //todo uniq implement logic with param
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
-    keys.reverse();
+    keys.sort();
     for index in keys {
         items.push(obj.get(&index).to_string());
     }
