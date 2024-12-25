@@ -2270,7 +2270,20 @@ pub(crate) unsafe extern "C" fn escape_tsv(s: *mut U128) -> U128 {
 
 pub(crate) unsafe extern "C" fn substr(base: *mut U128, l: Int, r: Int) -> U128 {
     let base = &*(base as *mut Str);
-    let res = base.sub_str((l - 1) as usize, r as usize);
+    let mut pos = l;
+    if pos == 0 {
+        pos = 1;
+    }
+    let res = if pos > 0 {
+        base.sub_str((pos - 1) as usize, r as usize)
+    } else {
+        // reverse
+        let mut new_pos = base.len() as Int + pos - 1;
+        if new_pos < 0 {
+            new_pos = 0;
+        }
+        base.sub_str(new_pos as usize, r as usize)
+    };
     mem::transmute::<Str, U128>(res)
 }
 
