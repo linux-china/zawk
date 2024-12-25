@@ -128,3 +128,17 @@ https://logback.qos.ch/manual/layouts.html
 
 - print unique lines: `zawk '!visited[$0]++' demo.txt`
 - print duplicated lines: `zawk 'visited[$0]++' demo.txt`
+
+# USV support
+
+[USV](https://github.com/SixArm/usv) markup:
+
+- `␟`: U+001F/U+241F Unit Separator.
+- `␞`: U+001E/U+241E Record Separator.
+
+```
+BEGIN {
+    RS="␞\n"
+    FS="␟"
+}
+```
