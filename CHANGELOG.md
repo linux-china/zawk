@@ -2,6 +2,8 @@
 
 Nothing Yet!
 
+* Fix `substr(s,index,len)`: 0 and negative index support now and same with gawk.
+
 # Version 0.5.24 (2024-12-22)
 
 * Fix `_join` with wrong sequence
