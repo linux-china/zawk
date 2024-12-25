@@ -549,7 +549,7 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 
 ### json_value
 
-`json_value(json_text, json_path)`: return only one text value
+`json_value(json_text, json_path)`: return only one text value - `json_value(json_text, '$.store.book[0].title')`
 
 **Tips**: [RFC 9535 JSONPath: Query Expressions for JSON](https://www.rfc-editor.org/rfc/rfc9535.html)
 
