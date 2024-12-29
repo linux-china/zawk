@@ -666,6 +666,7 @@ pub(crate) mod boilerplate {
             FloatToStr(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) => f(dst.into(), Some(src.into())),
             StrToFloat(dst, src) => f(dst.into(), Some(src.into())),
+            Strlen(dst, s) => f(dst.into(), Some(s.into())),
             LenStr(dst, src) | StrToInt(dst, src) | HexStrToInt(dst, src) => f(dst.into(), Some(src.into())),
 
             Mov(ty, dst, src) => if !ty.is_array() {

@@ -1624,6 +1624,11 @@ impl<'a, 'b> View<'a, 'b> {
                     return err!("invalid input types to split: {:?}", &conv_tys[..]);
                 })
             }
+            Strlen => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Strlen(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             Length => {
                 if res_reg != UNUSED {
                     self.pushl(match conv_tys[0] {

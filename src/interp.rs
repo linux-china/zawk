@@ -1863,6 +1863,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let t = index(&self.strs, t);
                         *self.get_mut(res) = runtime::string_search::last_index_substr(t, s);
                     }
+                    Strlen(res, s) => {
+                        let res = *res;
+                        let s = *s;
+                        // cannot exceed u32::max.
+                        let len = self.get(s).bytes_len();
+                        *self.get_mut(res) = len as Int;
+                    }
                     LenStr(res, s) => {
                         let res = *res;
                         let s = *s;

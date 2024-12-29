@@ -105,6 +105,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] hex_str_to_int(str_ref_ty) -> int_ty;
         [ReadOnly] str_to_float(str_ref_ty) -> float_ty;
         [ReadOnly] str_len(str_ref_ty) -> int_ty;
+        [ReadOnly] len_str(str_ref_ty) -> int_ty;
         starts_with_const(str_ref_ty, rt_ty, int_ty) -> int_ty;
         concat(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] match_pat(rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
@@ -2117,6 +2118,11 @@ pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut 
 }
 
 pub(crate) unsafe extern "C" fn str_len(s: *mut c_void) -> usize {
+    let s = &*(s as *mut Str);
+    s.bytes_len()
+}
+
+pub(crate) unsafe extern "C" fn len_str(s: *mut c_void) -> usize {
     let s = &*(s as *mut Str);
     s.len()
 }

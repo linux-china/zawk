@@ -30,6 +30,7 @@ pub enum Function {
     Setcol,
     Split,
     Length,
+    Strlen,
     Uuid,
     Ulid,
     Tsid,
@@ -353,6 +354,7 @@ static_map!(
     FUNCTIONS<&'static str, Function>,
     ["close", Function::Close],
     ["split", Function::Split],
+    ["strlen", Function::Strlen],
     ["length", Function::Length],
     ["uuid", Function::Uuid],
     ["ulid", Function::Ulid],
@@ -739,6 +741,7 @@ impl Function {
             ReadErrStdin => (smallvec![], Int),
             // irrelevant return type
             Setcol => (smallvec![Int, Str], Int),
+            Strlen => (smallvec![Str], Int),
             Length => (smallvec![incoming[0]], Int),
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
@@ -871,7 +874,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | System2 | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length | ReadErr | ReadErrCmd | Nextline | NextlineCmd
+            | EscapeTSV | Close | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -966,7 +969,7 @@ impl Function {
             Rand | Binop(Div) | Binop(Pow) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
-            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Split | ReadErr
+            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             System2 => Ok(Map {

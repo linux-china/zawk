@@ -120,6 +120,7 @@ pub(crate) enum Instr<'a> {
     // index(s, t) returns index of substring t in s, 0 if it does not appear.
     SubstrIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     SubstrLastIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Strlen(Reg<Int>, Reg<Str<'a>>),
     LenStr(Reg<Int>, Reg<Str<'a>>),
     Sub(
         Reg<Int>,
@@ -1465,6 +1466,10 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 s.accum(&mut f);
                 sep.accum(&mut f);
+            }
+            Strlen(res, s) => {
+                res.accum(&mut f);
+                s.accum(&mut f)
             }
             LenStr(res, s) => {
                 res.accum(&mut f);

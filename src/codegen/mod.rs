@@ -712,7 +712,8 @@ pub(crate) trait CodeGenerator: Backend {
             }
             SubstrIndex(dst, s, t) => self.binop(intrinsic!(substr_index), dst, s, t),
             SubstrLastIndex(dst, s, t) => self.binop(intrinsic!(substr_last_index), dst, s, t),
-            LenStr(dst, x) => self.unop(intrinsic!(str_len), dst, x),
+            LenStr(dst, x) => self.unop(intrinsic!(len_str), dst, x),
+            Strlen(dst, x) => self.unop(intrinsic!(str_len), dst, x),
             Sub(res, pat, s, in_s) => {
                 let rt = self.runtime_val();
                 let patv = self.get_val(pat.reflect())?;
