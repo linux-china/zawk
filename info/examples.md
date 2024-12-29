@@ -11,6 +11,16 @@ user_namme = getenv("USER", "guest")
 
 **Attention**: zawk reads `.env` file by default.
 
+# check variable null or empty
+
+```
+if(name =="") {
+   name = "guest"
+}
+# or by ternary operator
+guest_name = (name =="" ? "geust" : name)
+```
+
 # awk file help support
 
 Use `zawk init demo.awk` to create an AWK file, and code as following:
