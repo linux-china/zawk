@@ -822,6 +822,12 @@ date/time array:
 - `pwd()`,
 - `user_home()`
 
+### getenv
+
+`getenv()` is a function for `ENVIRON["NAME"]` with default value: `getenv("NAME", "default value")`.
+
+**Attention**: zawk reads `.env` file and injects them as environment variables by default
+
 ### system2
 
 `system2(cmd)` is different from `system(cmd)`, and it will return array with `code`, `stdout`, `stderr`.
