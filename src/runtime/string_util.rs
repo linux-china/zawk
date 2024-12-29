@@ -1,6 +1,6 @@
+use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
 use pad::{Alignment, PadStr};
-use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
     if text.len() > len {
@@ -50,18 +50,20 @@ pub fn write_all(path: &str, content: &str) {
 pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let is_url_query = pair_sep == "&" && kv_sep == "=";
     let mut map = hashbrown::HashMap::new();
-    text.trim_matches(|c| c == '"' || c == '\'').split(pair_sep).for_each(|pair| {
-        let kv: Vec<&str> = pair.split(kv_sep).collect();
-        if kv.len() == 2 && !kv[1].is_empty() {
-            let mut value = kv[1].to_string();
-            if is_url_query {
-                if let Ok(param_value) = urlencoding::decode(kv[1]) {
-                    value = param_value.to_string();
+    text.trim_matches(|c| c == '"' || c == '\'')
+        .split(pair_sep)
+        .for_each(|pair| {
+            let kv: Vec<&str> = pair.split(kv_sep).collect();
+            if kv.len() == 2 && !kv[1].is_empty() {
+                let mut value = kv[1].to_string();
+                if is_url_query {
+                    if let Ok(param_value) = urlencoding::decode(kv[1]) {
+                        value = param_value.to_string();
+                    }
                 }
+                map.insert(Str::from(kv[0].to_string()), Str::from(value));
             }
-            map.insert(Str::from(kv[0].to_string()), Str::from(value));
-        }
-    });
+        });
     SharedMap::from(map)
 }
 
@@ -133,7 +135,8 @@ pub(crate) fn message(text: &str) -> StrMap<Str> {
 /// parse record: `attr_name{key1=value1,key2=value2}`
 pub(crate) fn record(text: &str) -> StrMap<Str> {
     let mut map = hashbrown::HashMap::new();
-    if text.starts_with('{') && text.ends_with('}') { // simple map
+    if text.starts_with('{') && text.ends_with('}') {
+        // simple map
         let lexer = RecordToken::lexer(&text);
         let mut key_parsed = false;
         let mut key = "";
@@ -141,10 +144,12 @@ pub(crate) fn record(text: &str) -> StrMap<Str> {
         for token in lexer.into_iter() {
             if let Ok(attribute) = token {
                 match attribute {
-                    RecordToken::COLON | RecordToken::EQ => { // key parsed
+                    RecordToken::COLON | RecordToken::EQ => {
+                        // key parsed
                         key_parsed = true
                     }
-                    RecordToken::COMMA => { // add pair
+                    RecordToken::COMMA => {
+                        // add pair
                         if !key.is_empty() && !value.is_empty() {
                             map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
                         }
@@ -152,34 +157,40 @@ pub(crate) fn record(text: &str) -> StrMap<Str> {
                         value = "";
                         key_parsed = false
                     }
-                    RecordToken::RBRACE => { // end
+                    RecordToken::RBRACE => {
+                        // end
                         if !key.is_empty() && !value.is_empty() {
                             map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
                         }
                         key_parsed = false
                     }
                     // parse key's value
-                    RecordToken::LITERAL(literal) => { // pair value
+                    RecordToken::LITERAL(literal) => {
+                        // pair value
                         if key_parsed {
                             value = literal;
                         } else {
                             key = literal;
                         }
                     }
-                    RecordToken::Text(text) => { // pair value
+                    RecordToken::Text(text) => {
+                        // pair value
                         value = text.trim_matches('"');
                     }
-                    RecordToken::Text2(text) => { // pair value
+                    RecordToken::Text2(text) => {
+                        // pair value
                         value = text.trim_matches('\'');
                     }
-                    RecordToken::NUM(num) => { // pair value
+                    RecordToken::NUM(num) => {
+                        // pair value
                         value = num;
                     }
                     _ => {}
                 }
             }
         }
-    } else if text.contains("(") && text.ends_with(")") { // table definition: table_name(id integer, value double)
+    } else if text.contains("(") && text.ends_with(")") {
+        // table definition: table_name(id integer, value double)
         let offset = text.find('(').unwrap();
         let name = text[0..offset].trim().to_string();
         if !name.is_empty() {
@@ -189,10 +200,14 @@ pub(crate) fn record(text: &str) -> StrMap<Str> {
         for pair in pairs_text.split(",") {
             let kv: Vec<&str> = pair.trim().split(" ").collect();
             if kv.len() == 2 {
-                map.insert(Str::from(kv[0].trim().to_string()), Str::from(kv[1].trim().to_string()));
+                map.insert(
+                    Str::from(kv[0].trim().to_string()),
+                    Str::from(kv[1].trim().to_string()),
+                );
             }
         }
-    } else if text.contains('{') { // record_name{id=1,name="hello world"}
+    } else if text.contains('{') {
+        // record_name{id=1,name="hello world"}
         let offset = text.find('{').unwrap();
         let name = text[0..offset].trim().to_string();
         if !name.is_empty() {
@@ -206,48 +221,67 @@ pub(crate) fn record(text: &str) -> StrMap<Str> {
         for token in lexer.into_iter() {
             if let Ok(attribute) = token {
                 match attribute {
-                    RecordToken::COLON | RecordToken::EQ => { // key parsed
+                    RecordToken::COLON | RecordToken::EQ => {
+                        // key parsed
                         pair_state.key_parsed = true;
                     }
-                    RecordToken::LPAREN => { // body started
+                    RecordToken::LPAREN => {
+                        // body started
                         body_started = true;
                     }
-                    RecordToken::RPAREN => { // boyd end
+                    RecordToken::RPAREN => {
+                        // boyd end
                         if !body.is_empty() {
                             map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
                         }
                         body_started = false;
                     }
                     // parse key's value
-                    RecordToken::LITERAL(literal) if !body_started => { // pair value
+                    RecordToken::LITERAL(literal) if !body_started => {
+                        // pair value
                         if pair_state.key_parsed {
                             pair_state.value = literal.to_string();
                             if pair_state.is_legal() {
-                                map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                                map.insert(
+                                    Str::from(pair_state.key.clone()),
+                                    Str::from(pair_state.value.clone()),
+                                );
                             }
                             pair_state.reset();
                         } else {
                             pair_state.key = literal.to_string();
                         }
                     }
-                    RecordToken::Text(text) if !body_started => { // pair value
+                    RecordToken::Text(text) if !body_started => {
+                        // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
-                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                            map.insert(
+                                Str::from(pair_state.key.clone()),
+                                Str::from(pair_state.value.clone()),
+                            );
                         }
                         pair_state.reset();
                     }
-                    RecordToken::Text2(text) if !body_started => { // pair value
+                    RecordToken::Text2(text) if !body_started => {
+                        // pair value
                         pair_state.value = text[1..text.len() - 1].to_string();
                         if pair_state.is_legal() {
-                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                            map.insert(
+                                Str::from(pair_state.key.clone()),
+                                Str::from(pair_state.value.clone()),
+                            );
                         }
                         pair_state.reset();
                     }
-                    RecordToken::NUM(num)  if !body_started => { // pair value
+                    RecordToken::NUM(num) if !body_started => {
+                        // pair value
                         pair_state.value = num.to_string();
                         if pair_state.is_legal() {
-                            map.insert(Str::from(pair_state.key.clone()), Str::from(pair_state.value.clone()));
+                            map.insert(
+                                Str::from(pair_state.key.clone()),
+                                Str::from(pair_state.value.clone()),
+                            );
                         }
                         pair_state.reset();
                     }
@@ -255,7 +289,7 @@ pub(crate) fn record(text: &str) -> StrMap<Str> {
                     RecordToken::LITERAL(literal) if body_started => {
                         body = literal.to_string();
                     }
-                    RecordToken::NUM(num)  if body_started => {
+                    RecordToken::NUM(num) if body_started => {
                         body = num.to_string();
                     }
                     RecordToken::Text(text) if body_started => {
@@ -337,9 +371,17 @@ pub fn last_part(text: &str, sep: &str) -> String {
         }
     } else {
         if text.contains('/') {
-            return text.rfind('/').map(|pos| &text[pos + 1..]).unwrap_or(text).to_string();
+            return text
+                .rfind('/')
+                .map(|pos| &text[pos + 1..])
+                .unwrap_or(text)
+                .to_string();
         } else if text.contains('.') {
-            return text.rfind('.').map(|pos| &text[pos + 1..]).unwrap_or(text).to_string();
+            return text
+                .rfind('.')
+                .map(|pos| &text[pos + 1..])
+                .unwrap_or(text)
+                .to_string();
         }
     }
     text.to_string()
@@ -402,7 +444,10 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     if let Ok(re) = Regex::new(template) {
         if let Some(caps) = re.captures(text) {
             for i in 1..caps.len() {
-                map.insert(i as i64, Str::from(caps.get(i).unwrap().as_str().to_string()));
+                map.insert(
+                    i as i64,
+                    Str::from(caps.get(i).unwrap().as_str().to_string()),
+                );
             }
         }
     }
@@ -415,16 +460,13 @@ lazy_static! {
 
 pub fn is_format(format: &str, text: &str) -> Int {
     let result = match format {
-        "email" => {
-            email_address::EmailAddress::is_valid(text)
-        }
+        "email" => email_address::EmailAddress::is_valid(text),
         "url" => {
-            text.starts_with("http://") || text.starts_with("https://")
+            text.starts_with("http://")
+                || text.starts_with("https://")
                 || text.starts_with("ftp://")
         }
-        "phone" => {
-            PHONE_REGEX.is_match(text)
-        }
+        "phone" => PHONE_REGEX.is_match(text),
         "ip" => {
             use std::net::{Ipv4Addr, Ipv6Addr};
             if text.contains(":") {
@@ -470,8 +512,8 @@ pub fn figlet(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use unicode_segmentation::UnicodeSegmentation;
     use super::*;
+    use unicode_segmentation::UnicodeSegmentation;
 
     #[test]
     fn test_parse() {
@@ -574,7 +616,10 @@ mod tests {
         let cookies_text = "_octo=GH1.1.178216615.1688558702; preferred_color_mode=light; tz=Asia%2FShanghai; _device_id=c49fdb13b5c41be361ee80236919ba50; user_session=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; __Host-user_session_same_site=qDSJ7GlA3aLriNnDG-KJsqw_QIFpmTBjt0vcLy5Vq2ay6StZ; tz=Asia%2FShanghai;";
         let cookies = pairs(cookies_text, ";", "=");
         println!("{}", cookies.get(&Str::from("_octo")).as_str());
-        println!("{}", cookies.get(&Str::from("preferred_color_mode")).as_str());
+        println!(
+            "{}",
+            cookies.get(&Str::from("preferred_color_mode")).as_str()
+        );
         println!("{}", cookies.get(&Str::from("tz")).as_str());
     }
 
