@@ -1795,6 +1795,15 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::UserHome(res_reg.into()))
             }
+            GetEnv => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::GetEnv(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Encode => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Encode(

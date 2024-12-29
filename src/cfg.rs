@@ -1670,6 +1670,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // Fill params if absent
                 let args_len = args.len();
                 match bi {
+                    // getenv(name) => getenv(name, default_value)
+                    builtins::Function::GetEnv if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
                     // eval() => eval(formula, context)
                     builtins::Function::Eval if args_len == 1 => {
                         prim_args.push(PrimVal::Var(Ident::unused()));

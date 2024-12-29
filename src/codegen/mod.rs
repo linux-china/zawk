@@ -861,6 +861,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(user_home), &mut [rt])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            GetEnv(dst,name, default_value) => {
+                let name = self.get_val(name.reflect())?;
+                let default_value = self.get_val(default_value.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(getenv), &mut [name, default_value])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             LocalIp(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(local_ip), &mut [rt])?;

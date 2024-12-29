@@ -175,6 +175,7 @@ impl Display for Function {
             Arch => write!(f, "arch"),
             Pwd => write!(f, "pwd"),
             UserHome => write!(f, "user_home"),
+            GetEnv => write!(f, "getenv"),
             Systime => write!(f, "systime"),
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),

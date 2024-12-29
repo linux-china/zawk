@@ -734,6 +734,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let user_home = Str::from(runtime::os_util::user_home());
                         *index_mut(&mut self.strs, dst) = user_home;
                     }
+                    GetEnv(dst, name, default_value) => {
+                        let name = index(&self.strs, name);
+                        let default_value = index(&self.strs, default_value);
+                        let value = runtime::os_util::getenv(name.as_str(), default_value.as_str());
+                        *index_mut(&mut self.strs, dst) = value.into();
+                    }
                     LocalIp(dst) => {
                         let local_ip = Str::from(runtime::network::local_ip());
                         *index_mut(&mut self.strs, dst) = local_ip;

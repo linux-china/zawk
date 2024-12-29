@@ -207,6 +207,7 @@ pub(crate) enum Instr<'a> {
     Arch(Reg<Str<'a>>),
     Pwd(Reg<Str<'a>>),
     UserHome(Reg<Str<'a>>),
+    GetEnv(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -622,6 +623,11 @@ impl<'a> Instr<'a> {
             Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr)
             | Arch(sr) | Pwd(sr)| UserHome(sr)  => {
                 sr.accum(&mut f);
+            }
+            GetEnv(sr, name, default_value) => {
+                sr.accum(&mut f);
+                name.accum(&mut f);
+                default_value.accum(&mut f);
             }
             LocalIp(sr) => {
                 sr.accum(&mut f);

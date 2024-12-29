@@ -41,6 +41,7 @@ pub enum Function {
     Arch,
     Pwd,
     UserHome,
+    GetEnv,
     LogDebug,
     LogInfo,
     LogWarn,
@@ -364,6 +365,7 @@ static_map!(
     ["arch", Function::Arch],
     ["pwd", Function::Pwd],
     ["user_home", Function::UserHome],
+    ["getenv", Function::GetEnv],
     ["log_debug", Function::LogDebug],
     ["log_info", Function::LogInfo],
     ["log_warn", Function::LogWarn],
@@ -671,6 +673,7 @@ impl Function {
             LastPart => (smallvec![Str, Str], Str),
             Min | Max => (smallvec![Str,Str,Str], Str),
             StrCmp => (smallvec![Str,Str], Int),
+            GetEnv => (smallvec![Str,Str], Str),
             DefaultIfEmpty => (smallvec![Str,Str], Str),
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => (smallvec![Str,Str], Str),
             Quote | DoubleQuote => (smallvec![Str], Str),
@@ -880,6 +883,7 @@ impl Function {
             LastPart => 2,
             Hex2Rgb => 1,
             Rgb2Hex => 3,
+            GetEnv => 2,
             Parse | RegexParse => 2,
             Record | Message => 1,
             Quote | DoubleQuote => 1,
@@ -991,7 +995,7 @@ impl Function {
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
             Fake => Ok(Scalar(BaseTy::Str).abs()),
-            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => {
+            Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome | GetEnv => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             LastPart => {

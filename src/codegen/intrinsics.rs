@@ -165,6 +165,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         user_home(rt_ty) -> str_ty;
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
+        [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty) -> str_ty;
@@ -883,6 +884,14 @@ pub(crate) unsafe extern "C" fn pwd() -> U128 {
 
 pub(crate) unsafe extern "C" fn user_home() -> U128 {
     mem::transmute::<Str, U128>(Str::from(os_util::user_home()))
+}
+
+pub(crate) unsafe extern "C" fn getenv(name: *mut U128, default_value: *mut U128) -> U128 {
+    let name = &*(name as *mut Str);
+    let default_value = &*(default_value as *mut Str);
+    let value = os_util::getenv(name.as_str(), default_value.as_str());
+    let res = Str::from(value);
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn ulid() -> U128 {

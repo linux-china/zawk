@@ -204,6 +204,10 @@ pub(crate) mod boilerplate {
             Arch(dst) => f(dst.into(), None),
             Pwd(dst) => f(dst.into(), None),
             UserHome(dst) => f(dst.into(), None),
+            GetEnv(dst, name, default_value) => {
+                f(dst.into(), Some(name.into()));
+                f(dst.into(), Some(default_value.into()));
+            }
             LocalIp(dst) => f(dst.into(), None),
             Systime(dst) => f(dst.into(), None),
             Encode(dst, format, text) => {
