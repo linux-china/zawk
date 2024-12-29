@@ -2,6 +2,9 @@
 
 Nothing Yet!
 
+# Version 0.5.25 (2024-12-29)
+
+* Add `getenv("NAME", "default value")` function to get environment variable
 * Fix `substr(s,index,len)`: 0 and negative index support now and same with gawk.
 
 # Version 0.5.24 (2024-12-22)
