@@ -9,7 +9,7 @@ db_url = ENVIRON["DB_URL"]
 user_namme = getenv("USER", "guest")
 ```
 
-**Attention**: zawk read `.env` file by default.
+**Attention**: zawk reads `.env` file by default.
 
 # awk file help support
 
