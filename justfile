@@ -329,3 +329,6 @@ run-substr:
 
 run-getenv:
   cargo run --package zawk --bin zawk -- 'BEGIN{print getenv("NICK","guest")}'
+
+run-strlen:
+  cargo run --package zawk --bin zawk -- 'BEGIN{print strlen("你好"), length("你好")}'
