@@ -323,3 +323,9 @@ run-eval:
 
 run-chars:
   cargo run --package zawk --bin zawk -- 'BEGIN{aw=chars("你好");{print aw[1]}}'
+
+run-substr:
+  cargo run --package zawk --bin zawk -- 'BEGIN{print substr("abcd", -3, 2)}'
+
+run-getenv:
+  cargo run --package zawk --bin zawk -- 'BEGIN{print getenv("NICK","guest")}'
