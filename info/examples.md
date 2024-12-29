@@ -1,6 +1,16 @@
 AWK Examples
 ===============
 
+# Read environment variable
+
+```
+db_url = ENVIRON["DB_URL"]
+# or by `getenv` function
+user_namme = getenv("USER", "guest")
+```
+
+**Attention**: zawk read `.env` file by default.
+
 # awk file help support
 
 Use `zawk init demo.awk` to create an AWK file, and code as following:
