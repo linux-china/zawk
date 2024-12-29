@@ -9,6 +9,14 @@ zawk stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
 
 Text is encoding with utf-8 by default.
 
+### length
+
+Get unicode character length of text: `length($1)`, `length("你好")` to `2`.
+
+### strlen
+
+Get byte length of text: `strlen($1)`, `strlen("你好")` to `6`.
+
 ### char_at
 
 Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, return empty string.
