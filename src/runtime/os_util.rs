@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
+use std::path::PathBuf;
 
 pub fn os() -> String {
     std::env::consts::OS.to_string()
@@ -9,7 +9,7 @@ pub fn os() -> String {
 pub fn os_family() -> String {
     match std::env::consts::OS {
         "windows" => "windows".to_string(),
-        _ => "unix".to_string()
+        _ => "unix".to_string(),
     }
 }
 
@@ -18,13 +18,17 @@ pub fn arch() -> String {
 }
 
 pub fn pwd() -> String {
-    std::env::current_dir().unwrap().to_str().unwrap().to_string()
+    std::env::current_dir()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string()
 }
 
 pub fn user_home() -> String {
     match dirs::home_dir() {
         Some(path) => path.to_str().unwrap().to_string(),
-        None => "".to_string()
+        None => "".to_string(),
     }
 }
 
@@ -35,7 +39,10 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         map.insert(Str::from("exists"), Str::from("1"));
         if let Ok(full_path) = path_buf.canonicalize() {
             if let Some(full_path_text) = full_path.to_str() {
-                map.insert(Str::from("full_path"), Str::from(full_path_text.to_string()));
+                map.insert(
+                    Str::from("full_path"),
+                    Str::from(full_path_text.to_string()),
+                );
             }
             if let Some(parent_path) = full_path.parent() {
                 if let Some(parent_path_text) = parent_path.to_str() {
@@ -45,7 +52,10 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         }
         if let Some(file_name) = path_buf.file_name() {
             if let Some(file_name_text) = file_name.to_str() {
-                map.insert(Str::from("file_name"), Str::from(file_name_text.to_string()));
+                map.insert(
+                    Str::from("file_name"),
+                    Str::from(file_name_text.to_string()),
+                );
                 let file_stem = file_name_text.split('.').collect::<Vec<&str>>()[0];
                 map.insert(Str::from("file_stem"), Str::from(file_stem.to_string()));
             }
@@ -53,14 +63,23 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         if let Some(name_extension) = path_buf.extension() {
             if let Some(file_ext_text) = name_extension.to_str() {
                 map.insert(Str::from("file_ext"), Str::from(file_ext_text.to_string()));
-                let content_type = mime_guess::from_ext(file_ext_text).first_or_octet_stream().to_string();
+                let content_type = mime_guess::from_ext(file_ext_text)
+                    .first_or_octet_stream()
+                    .to_string();
                 map.insert(Str::from("content_type"), Str::from(content_type));
             }
         }
     } else {
         map.insert(Str::from("exists"), Str::from("0"));
     }
-    return SharedMap::from(map);
+    SharedMap::from(map)
+}
+
+pub fn getenv(key: &str, default_value: &str) -> String {
+    match std::env::var(key.to_uppercase()) {
+        Ok(value) => value,
+        Err(_) => default_value.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -88,5 +107,11 @@ mod tests {
     fn test_current_path() {
         let map = path(".");
         println!("{}", map.get(&Str::from("full_path")).to_string());
+    }
+
+    #[test]
+    fn test_getenv() {
+        let value = getenv("HOME", "default");
+        println!("{}", value);
     }
 }
