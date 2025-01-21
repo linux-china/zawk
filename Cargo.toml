@@ -20,7 +20,7 @@ build = "build.rs"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1.0"
-petgraph = "0.6"
+petgraph = "0.7"
 smallvec = "1.13.2"
 hashbrown = "0.15"
 growable-bloom-filter = "2"
@@ -43,15 +43,15 @@ cfg-if = "1.0"
 memchr = "2.7"
 grep-cli = "0.1"
 termcolor = "1.4"
-itertools = "0.13"
+itertools = "0.14"
 num-traits = "0.2"
 paste = "1.0"
-cranelift = "0.115"
-cranelift-codegen = "0.115"
-cranelift-frontend = "0.115"
-cranelift-module = "0.115"
-cranelift-native = "0.115"
-cranelift-jit = "0.115"
+cranelift = "0.116"
+cranelift-codegen = "0.116"
+cranelift-frontend = "0.116"
+cranelift-module = "0.116"
+cranelift-native = "0.116"
+cranelift-jit = "0.116"
 fast-float = "0.2"
 bumpalo = { version = "3.16", features = ["collections"] }
 target-lexicon = "0.13"
@@ -103,11 +103,11 @@ oneio = { version = "0.17", default-features = false, features = [
 ] }
 nats = "0.25"
 paho-mqtt = { version = "0.12", features = ["vendored-ssl"] }
-redis = "0.27"
+redis = "0.28"
 minio = "0.1.0"
 tokio = { version = "1", features = ["full"] }
 mime_guess = "2"
-dirs = "5"
+dirs = "6"
 notify-rust = "4"
 dotenv = "0.15"
 tempfile = "3"
@@ -115,13 +115,13 @@ whoami = "1.4"
 shlex = "1"
 shell-escape = "0.1"
 pad = "0.1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.33", features = ["bundled"] }
 libsql = { version = "0.6", default-features = false, features = [
     "core",
     "remote",
 ] }
 libsql-sys = { version = "0.8", features = ["rusqlite"] }
-mysql = { version = "25" }
+mysql = { version = "26" }
 postgres = { version = "0.19", features = [
     "with-chrono-0_4",
     "with-time-0_3",
@@ -152,7 +152,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 assert_cmd = "2.0"
 tempfile = "3.14"
 testresult = "0.4"
-rstest = "0.23"
+rstest = "0.24"
 
 [build-dependencies]
 lalrpop = "0.22.0"
