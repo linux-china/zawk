@@ -5607,9 +5607,9 @@ checksum = "a9b2228007eba4120145f785df0f6c92ea538f5a3635a612ecf4e334c8c1446d"
 
 [[package]]
 name = "typenum"
-version = "1.17.0"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
 
 [[package]]
 name = "uds_windows"
@@ -6516,8 +6516,7 @@ dependencies = [
  "petgraph",
  "postgres",
  "prometheus-parse",
- "rand 0.9.0",
- "rand_core 0.9.1",
+ "rand 0.8.5",
  "redis",
  "regex",
  "regex-syntax",
