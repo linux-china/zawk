@@ -30,8 +30,8 @@ regex-syntax = "0.8"
 itoa = "1.0"
 ryu = "1.0"
 libc = "0.2"
-rand = { version = "0.9",features = ["default"]}
-rand_core = {version = "0.9"}
+rand = { version = "0.9", features = ["default"] }
+rand_core = { version = "0.9" }
 lalrpop-util = "0.22.1"
 unicode-xid = "0.2.4"
 llvm-sys = { version = "150.2.1", optional = true }
@@ -104,7 +104,7 @@ oneio = { version = "0.17", default-features = false, features = [
 nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 paho-mqtt = { version = "0.13", features = ["vendored-ssl"] }
 redis = "0.29"
-minio = "0.1.0"
+minio = { git = "https://github.com/minio/minio-rs" }
 tokio = { version = "1", features = ["full"] }
 mime_guess = "2"
 dirs = "6"
