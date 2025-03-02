@@ -101,7 +101,7 @@ oneio = { version = "0.17", default-features = false, features = [
     "remote",
     "compressions",
 ] }
-nats = "0.25"
+nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 paho-mqtt = { version = "0.13", features = ["vendored-ssl"] }
 redis = "0.29"
 minio = "0.1.0"
