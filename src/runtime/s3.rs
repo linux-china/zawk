@@ -1,10 +1,11 @@
 use std::io::Write;
-use minio::s3::args::{GetObjectArgs, UploadObjectArgs};
+use minio::s3::args::{UploadObjectArgs};
 use minio::s3::client::Client;
 use minio::s3::creds::StaticProvider;
 use minio::s3::error::Error;
 use minio::s3::http::BaseUrl;
 use minio::s3::response::UploadObjectResponse;
+use minio::s3::types::S3Api;
 use minio::s3::utils::Multimap;
 use tempfile::NamedTempFile;
 
@@ -33,9 +34,9 @@ pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, Box<dy
     let client = s3_client().unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let get_object_args = GetObjectArgs::new(bucket_name, object_name);
-        let response = client.get_object(&get_object_args?).await?;
-        let result = response.text().await?;
+        let response = client.get_object(bucket_name, object_name).send().await?;
+        let content = response.content.to_segmented_bytes().await?.to_bytes();
+        let result = String::from_utf8(content.to_vec()).unwrap();
         Ok(result)
     })
 }
