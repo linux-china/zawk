@@ -73,7 +73,7 @@ pub fn new_offset_chunk_producer_csv<R: Read>(
     ifmt: InputFormat,
     start_version: u32,
     check_utf8: bool,
-) -> OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets)> {
+) -> OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets) + use<R>> {
     let find_indexes = get_find_indexes(ifmt);
     OffsetChunkProducer {
         name: name.into(),
@@ -96,7 +96,7 @@ pub fn new_offset_chunk_producer_bytes<R: Read>(
     start_version: u32,
     check_utf8: bool,
     find_indexes: BytesIndexKernel,
-) -> OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets)> {
+) -> OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets) + use<R>> {
     OffsetChunkProducer {
         name: name.into(),
         inner: Reader::new(r, chunk_size, /*padding=*/ 128, check_utf8),
@@ -116,7 +116,7 @@ pub fn new_offset_chunk_producer_ascii_whitespace<R: Read>(
     start_version: u32,
     check_utf8: bool,
     find_indexes: WhitespaceIndexKernel,
-) -> WhitespaceChunkProducer<R, impl FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> {
+) -> WhitespaceChunkProducer<R, impl FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64 + use<R>> {
     WhitespaceChunkProducer(
         OffsetChunkProducer {
             name: name.into(),

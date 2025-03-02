@@ -180,8 +180,8 @@ pub(crate) fn dump_llvm<'a>(
     use llvm::Generator;
     let mut typer = Typer::init_from_ctx(ctx)?;
     unsafe {
-        let mut gen = Generator::init(&mut typer, cfg)?;
-        gen.dump_module()
+        let mut generator = Generator::init(&mut typer, cfg)?;
+        generator.dump_module()
     }
 }
 
@@ -193,8 +193,8 @@ pub(crate) fn compile_llvm<'a>(
     use llvm::Generator;
     let mut typer = Typer::init_from_ctx(ctx)?;
     unsafe {
-        let mut gen = Generator::init(&mut typer, cfg)?;
-        gen.compile_main()
+        let mut generator = Generator::init(&mut typer, cfg)?;
+        generator.compile_main()
     }
 }
 
@@ -211,9 +211,9 @@ pub(crate) fn run_llvm<'a>(
     let used_fields = typer.used_fields.clone();
     let named_cols = typer.named_columns.take();
     unsafe {
-        let gen = Generator::init(&mut typer, cfg)?;
+        let generator = Generator::init(&mut typer, cfg)?;
         codegen::run_main(
-            gen,
+            generator,
             reader,
             ff,
             &used_fields,
@@ -236,9 +236,9 @@ pub(crate) fn run_cranelift<'a>(
     let used_fields = typer.used_fields.clone();
     let named_cols = typer.named_columns.take();
     unsafe {
-        let gen = Generator::init(&mut typer, cfg)?;
+        let generator = Generator::init(&mut typer, cfg)?;
         codegen::run_main(
-            gen,
+            generator,
             reader,
             ff,
             &used_fields,
@@ -716,12 +716,12 @@ impl<'a> Typer<'a> {
         // Type-check the code, then initialize a Typer, assigning registers to local
         // and global variables.
 
-        let mut gen = Typer::default();
+        let mut generator = Typer::default();
         if !pc.allow_arbitrary_commands {
-            gen.taint_analysis = Some(Default::default());
+            generator.taint_analysis = Some(Default::default());
         }
         if pc.fold_regex_constants || pc.parse_header {
-            gen.string_constants = Some(StringConstantAnalysis::from_config(
+            generator.string_constants = Some(StringConstantAnalysis::from_config(
                 string_constants::Config {
                     query_regex: pc.fold_regex_constants,
                     fi_refs: pc.parse_header,
@@ -734,14 +734,14 @@ impl<'a> Typer<'a> {
             ($v:expr, $func_id:expr, $args:expr) => {
                 // If this returns None, it seems to mean that the function is never called.
                 if let Some(ret_ty) = func_tys.get(&($func_id, $args.clone())).cloned() {
-                    let res = gen.frames.len() as NumTy;
+                    let res = generator.frames.len() as NumTy;
                     $v.insert(res);
                     let mut f = Frame::default();
                     f.src_function = $func_id;
                     f.cur_ident = res;
-                    gen.frames.push(f);
-                    gen.callgraph.add_node(Default::default());
-                    gen.func_info.push(FuncInfo {
+                    generator.frames.push(f);
+                    generator.callgraph.add_node(Default::default());
+                    generator.func_info.push(FuncInfo {
                         ret_ty,
                         arg_tys: $args.clone(),
                     });
@@ -750,24 +750,24 @@ impl<'a> Typer<'a> {
         }
         for (func_id, func) in pc.funcs.iter().enumerate() {
             let arity = func.args.len() as NumTy;
-            gen.arity.insert(func_id as NumTy, arity);
+            generator.arity.insert(func_id as NumTy, arity);
             if arity == 0 {
                 let args: SmallVec<_> = Default::default();
-                if let Entry::Vacant(v) = gen.id_map.entry((func_id as u32, args.clone())) {
+                if let Entry::Vacant(v) = generator.id_map.entry((func_id as u32, args.clone())) {
                     init_entry!(v, func_id as u32, args);
                 }
             }
         }
         for ((id, func_id, args), ty) in var_tys.iter() {
             let map = if id.is_global(&local_globals) {
-                &mut gen.regs.globals
+                &mut generator.regs.globals
             } else {
-                if let Entry::Vacant(v) = gen.id_map.entry((*func_id, args.clone())) {
+                if let Entry::Vacant(v) = generator.id_map.entry((*func_id, args.clone())) {
                     init_entry!(v, *func_id, args);
                 }
-                &mut gen.frames[gen.id_map[&(*func_id, args.clone())] as usize].locals
+                &mut generator.frames[generator.id_map[&(*func_id, args.clone())] as usize].locals
             };
-            let reg = gen.regs.stats.new_reg(
+            let reg = generator.regs.stats.new_reg(
                 *ty,
                 if id.is_global(&local_globals) {
                     RegStatus::Global
@@ -784,30 +784,30 @@ impl<'a> Typer<'a> {
                 );
             }
         }
-        gen.main_offset = pc
+        generator.main_offset = pc
             .main_stage()
-            .map_ref(|o| gen.id_map[&(*o as NumTy, Default::default())] as usize);
-        gen.local_globals = local_globals;
-        for frame in gen.frames.iter_mut() {
+            .map_ref(|o| generator.id_map[&(*o as NumTy, Default::default())] as usize);
+        generator.local_globals = local_globals;
+        for frame in generator.frames.iter_mut() {
             let src_func = frame.src_function as usize;
             let mut stream = Default::default();
             View {
                 frame,
-                regs: &mut gen.regs,
-                cg: &mut gen.callgraph,
-                id_map: &gen.id_map,
-                arity: &gen.arity,
-                local_globals: &gen.local_globals,
-                func_info: &gen.func_info,
+                regs: &mut generator.regs,
+                cg: &mut generator.callgraph,
+                id_map: &generator.id_map,
+                arity: &generator.arity,
+                local_globals: &generator.local_globals,
+                func_info: &generator.func_info,
                 stream: &mut stream,
             }
                 .process_function(&pc.funcs[src_func])?;
         }
         // TODO: mark used frames first and then exclude them from the analyses?
-        gen.run_analyses()?;
-        gen.mark_used_frames();
-        gen.add_slots()?;
-        Ok(gen)
+        generator.run_analyses()?;
+        generator.mark_used_frames();
+        generator.add_slots()?;
+        Ok(generator)
     }
 
     fn run_analyses(&mut self) -> Result<()> {

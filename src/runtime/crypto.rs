@@ -199,7 +199,7 @@ pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
             let bytes = [nonce.to_vec(), result].concat();
             STANDARD.encode(&bytes)
         } else {
-            let iv = Aes256CbcEnc::generate_iv(&mut rand_core::OsRng);
+            let iv = Aes256CbcEnc::generate_iv(&mut aes_gcm::aead::rand_core::OsRng);
             let cipher = Aes256CbcEnc::new(&key.into(), &iv);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
             let bytes = [iv.to_vec(), ct.to_vec()].concat();
@@ -220,7 +220,7 @@ pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
             let bytes = [nonce.to_vec(), result].concat();
             STANDARD.encode(&bytes)
         } else {
-            let iv = Aes256CbcEnc::generate_iv(&mut rand_core::OsRng);
+            let iv = Aes256CbcEnc::generate_iv(&mut aes_gcm::aead::rand_core::OsRng);
             let cipher = Aes128CbcEnc::new(&key.into(), &iv);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
             let bytes = [iv.to_vec(), ct.to_vec()].concat();

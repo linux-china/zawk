@@ -111,10 +111,10 @@ mod tests {
 
     fn bytes(n: usize, utf8_pct: f64) -> Vec<u8> {
         let mut res = Vec::with_capacity(n);
-        use rand::distributions::{Distribution, Uniform};
-        let ascii = Uniform::new_inclusive(0u8, 127u8);
-        let between = Uniform::new_inclusive(0.0, 1.0);
-        let mut rng = rand::thread_rng();
+        use rand::distr::{Distribution, Uniform};
+        let mut ascii = Uniform::new_inclusive(0u8, 127u8).unwrap();
+        let mut between = Uniform::new_inclusive(0.0, 1.0).unwrap();
+        let mut rng = rand::rng();
         for _ in 0..n {
             if between.sample(&mut rng) < utf8_pct {
                 let c = rand::random::<char>();
@@ -224,9 +224,10 @@ mod bench {
 
     fn bytes(n: usize, utf8_pct: f64) -> Vec<u8> {
         let mut res = Vec::with_capacity(n);
-        use rand::distributions::{Distribution, Uniform};
-        let ascii = Uniform::new_inclusive(0u8, 127u8);
-        let between = Uniform::new_inclusive(0.0, 1.0);
+        use rand::distr::{Distribution, Uniform};
+        use rand::{Rng};
+        let ascii = Uniform::new_inclusive(0u8, 127u8).unwrap();
+        let between = Uniform::new_inclusive(0.0, 1.0).unwrap();
         let mut rng = rand::thread_rng();
         for _ in 0..n {
             if between.sample(&mut rng) < utf8_pct {
@@ -389,12 +390,12 @@ mod x86 {
         // zeros have become nonzero, and that none of the nonzero entries have increased in size
         // (see [check_continuations]).
         let right1 = _mm_subs_epu8(
-            _mm_alignr_epi8(initial_lengths, previous_carries, 16 - 1),
+            _mm_alignr_epi8::<15>(initial_lengths, previous_carries),
             _mm_set1_epi8(1),
         );
         let sum = _mm_add_epi8(initial_lengths, right1);
         let right2 = _mm_subs_epu8(
-            _mm_alignr_epi8(sum, previous_carries, 16 - 2),
+            _mm_alignr_epi8::<14>(sum, previous_carries),
             _mm_set1_epi8(2),
         );
         _mm_add_epi8(sum, right2)
@@ -475,7 +476,7 @@ mod x86 {
         // comparisons, so hard-coded true and false values are given i8::max and i8::min,
         // respectively.
 
-        let off1_hibits = _mm_alignr_epi8(hibits, previous_hibits, 16 - 1);
+        let off1_hibits = _mm_alignr_epi8::<15>(hibits, previous_hibits);
         const MIN: i8 = -128;
         const MAX: i8 = 127;
         let initial_mins = _mm_shuffle_epi8(
@@ -563,13 +564,13 @@ mod x86 {
         }
         // We just want to shift all bytes right by 4, but there is no _mm_srli_epi8, so we emulate
         // it by shifting the 16-bit integers right and masking off the low nibble.
-        let high_nibbles = _mm_and_si128(_mm_srli_epi16(current_bytes, 4), _mm_set1_epi8(0x0F));
+        let high_nibbles = _mm_and_si128(_mm_srli_epi16::<4>(current_bytes), _mm_set1_epi8(0x0F));
         check_smaller_than_0xf4(current_bytes, has_error);
         let initial_lengths = continuation_lengths(high_nibbles);
         let carried_continuations =
             carry_continuations(initial_lengths, previous.carried_continuations);
         check_continuations(initial_lengths, carried_continuations, has_error);
-        let off1_current_bytes = _mm_alignr_epi8(current_bytes, previous.rawbytes, 16 - 1);
+        let off1_current_bytes = _mm_alignr_epi8::<15>(current_bytes, previous.rawbytes);
         check_first_continuation_max(current_bytes, off1_current_bytes, has_error);
         check_overlong(
             current_bytes,

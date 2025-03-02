@@ -7,7 +7,7 @@ use fake::faker::internet::raw::{FreeEmail, IPv4};
 use fake::faker::name::raw::*;
 use fake::faker::phone_number::raw::{CellNumber, PhoneNumber};
 use fake::locales::*;
-use rand::prelude::SliceRandom;
+use rand::seq::IndexedRandom;
 
 pub fn fake(name: &str, locale: &str) -> String {
     let locale = &locale.to_uppercase();
@@ -95,15 +95,15 @@ const LICENSE_CHARS: [char; 23] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 
 
 fn generate_chinese_plate_number() -> String {
     use rand::Rng;
-    let rng = &mut rand::thread_rng();
+    let rng = &mut rand::rng();
     let province: &char = PROVINCE_SHOT_NAMES.choose(rng).unwrap();
     let alphabet: &char = LICENSE_CHARS.choose(rng).unwrap();
     format!("{}{}{}{}{}{}{}", province, alphabet,
-            rng.gen_range(0..=9),
-            rng.gen_range(0..=9),
-            rng.gen_range(0..=9),
-            rng.gen_range(0..=9),
-            rng.gen_range(0..=9))
+            rng.random_range(0..=9),
+            rng.random_range(0..=9),
+            rng.random_range(0..=9),
+            rng.random_range(0..=9),
+            rng.random_range(0..=9))
 }
 
 #[cfg(test)]
