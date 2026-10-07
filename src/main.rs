@@ -278,6 +278,7 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
 fn main() {
     //.env load support
     dotenv::dotenv().ok();
+    runtime::logging::init();
     let dump_cmd = Command::new("dump").about("Dump text to CSV")
         .arg(Arg::new("prometheus")
             .long("prometheus")

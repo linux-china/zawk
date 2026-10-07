@@ -1,38 +1,52 @@
 use log::*;
-use ctor::ctor;
 
-#[ctor(unsafe)]
-fn init() {
-    env_logger::builder()
-        .filter_module("cranelift_codegen", LevelFilter::Error)
-        .filter_module("cranelift_jit", LevelFilter::Error)
-        .filter_module("reqwest", LevelFilter::Error)
-        .filter_module("hyper_util", LevelFilter::Error)
-        .filter_module("hyper", LevelFilter::Error)
-        .filter_module("hyper_rustls", LevelFilter::Error)
-        .filter_module("rustls", LevelFilter::Error)
-        .filter_module("tokio_postgres", LevelFilter::Error)
-        .filter_module("paho_mqtt", LevelFilter::Error)
-        .filter_module("paho_mqtt_c", LevelFilter::Error)
-        .filter_level(LevelFilter::Debug)
-        .target(env_logger::Target::Stderr)
-        .init();
+/// Target prefix of the `log_*()` functions called from AWK scripts.
+const SCRIPT_TARGET: &str = "zawk";
+
+/// Default filters: dependencies only report warnings (noisy ones only errors), while logs from AWK scripts
+/// (target `zawk`) keep the debug level. `RUST_LOG` directives are applied on top of them,
+/// e.g. `RUST_LOG=zawk=warn` hides debug/info logs from scripts, `RUST_LOG=reqwest=debug` debugs HTTP calls.
+const DEFAULT_FILTERS: &str = "warn,zawk=debug,\
+    cranelift_codegen=error,cranelift_jit=error,\
+    reqwest=error,hyper=error,hyper_util=error,hyper_rustls=error,rustls=error,\
+    tokio_postgres=error,paho_mqtt=error,paho_mqtt_c=error";
+
+/// Initialize logger, called from `main` after `.env` is loaded so `RUST_LOG` in `.env` is respected.
+pub fn init() {
+    let mut builder = env_logger::Builder::new();
+    builder.parse_filters(DEFAULT_FILTERS);
+    if let Ok(filters) = std::env::var("RUST_LOG") {
+        builder.parse_filters(&filters);
+    }
+    if let Ok(write_style) = std::env::var("RUST_LOG_STYLE") {
+        builder.parse_write_style(&write_style);
+    }
+    let _ = builder.target(env_logger::Target::Stderr).try_init();
 }
 
-pub fn log_debug(target: &str, text: &str) {
-    debug!(target: target, "{}", text);
+/// Log target for AWK scripts: `zawk`, or `zawk:<FILENAME>` when an input file is being processed.
+fn script_target(file_name: &str) -> String {
+    if file_name.is_empty() {
+        SCRIPT_TARGET.to_owned()
+    } else {
+        format!("{}:{}", SCRIPT_TARGET, file_name)
+    }
 }
 
-pub fn log_info(target: &str, text: &str) {
-    info!(target: target, "{}", text);
+pub fn log_debug(file_name: &str, text: &str) {
+    debug!(target: &script_target(file_name), "{}", text);
 }
 
-pub fn log_warn(target: &str, text: &str) {
-    warn!(target: target, "{}", text);
+pub fn log_info(file_name: &str, text: &str) {
+    info!(target: &script_target(file_name), "{}", text);
 }
 
-pub fn log_error(target: &str, text: &str) {
-    error!(target: target, "{}", text);
+pub fn log_warn(file_name: &str, text: &str) {
+    warn!(target: &script_target(file_name), "{}", text);
+}
+
+pub fn log_error(file_name: &str, text: &str) {
+    error!(target: &script_target(file_name), "{}", text);
 }
 
 #[cfg(test)]
@@ -41,6 +55,12 @@ mod tests {
 
     #[test]
     fn test_debug() {
-        log_debug("","Hello");
+        log_debug("", "Hello");
+    }
+
+    #[test]
+    fn test_script_target() {
+        assert_eq!(script_target(""), "zawk");
+        assert_eq!(script_target("demo.csv"), "zawk:demo.csv");
     }
 }
