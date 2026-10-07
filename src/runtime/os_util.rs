@@ -1,5 +1,6 @@
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
+use std::env::VarError;
 use std::path::PathBuf;
 
 pub fn os() -> String {
@@ -60,7 +61,10 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         }
         if let Some(file_stem) = path_buf.file_stem() {
             if let Some(file_stem_text) = file_stem.to_str() {
-                map.insert(Str::from("file_stem"), Str::from(file_stem_text.to_string()));
+                map.insert(
+                    Str::from("file_stem"),
+                    Str::from(file_stem_text.to_string()),
+                );
             }
         }
         if let Some(name_extension) = path_buf.extension() {
@@ -81,7 +85,10 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
 pub fn getenv(key: &str, default_value: &str) -> String {
     match std::env::var(key.to_uppercase()) {
         Ok(value) => value,
-        Err(_) => default_value.to_string(),
+        Err(_) => match std::env::var(key) {
+            Ok(value2) => value2.clone(),
+            Err(_) => default_value.to_string(),
+        },
     }
 }
 
@@ -110,7 +117,11 @@ mod tests {
     fn test_path_file_stem() {
         let dir = std::env::temp_dir().join("zawk_test_path_file_stem");
         std::fs::create_dir_all(&dir).unwrap();
-        for (name, stem) in [(".bashrc", ".bashrc"), ("a.tar.gz", "a.tar"), ("demo.awk", "demo")] {
+        for (name, stem) in [
+            (".bashrc", ".bashrc"),
+            ("a.tar.gz", "a.tar"),
+            ("demo.awk", "demo"),
+        ] {
             let file = dir.join(name);
             std::fs::write(&file, "").unwrap();
             let map = path(file.to_str().unwrap());
