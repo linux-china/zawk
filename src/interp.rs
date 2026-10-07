@@ -690,7 +690,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Uuid(dst, version) => {
                         let version = index(&self.strs, version);
-                        let res = Str::from(runtime::math_util::uuid(version.as_str()));
+                        let res = Str::from(runtime::math_util::uuid(&*version.as_str()));
                         *index_mut(&mut self.strs, dst) = res;
                     }
                     SnowFlake(dst, machine_id) => {
@@ -738,7 +738,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     GetEnv(dst, name, default_value) => {
                         let name = index(&self.strs, name);
                         let default_value = index(&self.strs, default_value);
-                        let value = runtime::os_util::getenv(name.as_str(), default_value.as_str());
+                        let value = runtime::os_util::getenv(&*name.as_str(), &*default_value.as_str());
                         *index_mut(&mut self.strs, dst) = value.into();
                     }
                     LocalIp(dst) => {
@@ -754,19 +754,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Encode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::encoding::encode(format.as_str(), text.as_str());
+                        let dt_text = runtime::encoding::encode(&*format.as_str(), &*text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Decode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::encoding::decode(format.as_str(), text.as_str());
+                        let dt_text = runtime::encoding::decode(&*format.as_str(), &*text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Digest(dst, algorithm, text) => {
                         let algorithm = index(&self.strs, algorithm);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::crypto::digest(algorithm.as_str(), text.as_str());
+                        let dt_text = runtime::crypto::digest(&*algorithm.as_str(), &*text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Escape(dst, format, text) => {
@@ -779,20 +779,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let algorithm = index(&self.strs, algorithm);
                         let key = index(&self.strs, key);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::crypto::hmac(algorithm.as_str(), key.as_str(), text.as_str());
+                        let dt_text = runtime::crypto::hmac(&*algorithm.as_str(), &*key.as_str(), &*text.as_str());
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Jwt(dst, algorithm, key, payload) => {
                         let algorithm = index(&self.strs, algorithm);
                         let key = index(&self.strs, key);
                         let payload = self.get(*payload);
-                        let token = runtime::crypto::jwt(algorithm.as_str(), key.as_str(), payload);
+                        let token = runtime::crypto::jwt(&*algorithm.as_str(), &*key.as_str(), payload);
                         *index_mut(&mut self.strs, dst) = token.into();
                     }
                     Dejwt(dst, key, token) => {
                         let key = index(&self.strs, key);
                         let token = index(&self.strs, token);
-                        let res = runtime::crypto::dejwt(key.as_str(), token.as_str());
+                        let res = runtime::crypto::dejwt(&*key.as_str(), &*token.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -800,38 +800,38 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let mode = index(&self.strs, mode);
                         let plain_text = index(&self.strs, plain_text);
                         let key = index(&self.strs, key);
-                        let encrypted_text = runtime::crypto::encrypt(mode.as_str(), plain_text.as_str(), key.as_str());
+                        let encrypted_text = runtime::crypto::encrypt(&*mode.as_str(), &*plain_text.as_str(), &*key.as_str());
                         *index_mut(&mut self.strs, dst) = encrypted_text.into();
                     }
                     Decrypt(dst, mode, encrypted_text, key) => {
                         let mode = index(&self.strs, mode);
                         let encrypted_text = index(&self.strs, encrypted_text);
                         let key = index(&self.strs, key);
-                        let plain_text = runtime::crypto::decrypt(mode.as_str(), encrypted_text.as_str(), key.as_str());
+                        let plain_text = runtime::crypto::decrypt(&*mode.as_str(), &*encrypted_text.as_str(), &*key.as_str());
                         *index_mut(&mut self.strs, dst) = plain_text.into();
                     }
                     Strftime(dst, format, timestamp) => {
                         let format = index(&self.strs, format);
                         let tt: i64 = *self.get(*timestamp);
-                        let dt_text = runtime::date_time::strftime(format.as_str(), tt);
+                        let dt_text = runtime::date_time::strftime(&*format.as_str(), tt);
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Mktime(dst, date_time_text, timezone) => {
                         let dt_text = index(&self.strs, date_time_text);
                         let dt_timezone: i64 = *self.get(*timezone);
-                        let result = runtime::date_time::mktime(dt_text.as_str(), dt_timezone);
+                        let result = runtime::date_time::mktime(&*dt_text.as_str(), dt_timezone);
                         let ir = *dst;
                         *self.get_mut(ir) = result;
                     }
                     Duration(dst, expr) => {
                         let expr = index(&self.strs, expr);
-                        let result = runtime::date_time::duration(expr.as_str());
+                        let result = runtime::date_time::duration(&*expr.as_str());
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
-                        let result = runtime::math_util::mkbool(text.as_str());
+                        let result = runtime::math_util::mkbool(&*text.as_str());
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
@@ -847,27 +847,27 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     MapStrIntEval(dst, formula, context) => {
                         let formula = index(&self.strs, formula);
                         let context = self.get(*context);
-                        let res = runtime::math_util::eval_int_context(formula.as_str(), context);
+                        let res = runtime::math_util::eval_int_context(&*formula.as_str(), context);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     MapStrFloatEval(dst, formula, context) => {
                         let formula = index(&self.strs, formula);
                         let context = self.get(*context);
-                        let res = runtime::math_util::eval_float_context(formula.as_str(), context);
+                        let res = runtime::math_util::eval_float_context(&*formula.as_str(), context);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     MapStrStrEval(dst, formula, context) => {
                         let formula = index(&self.strs, formula);
                         let context = self.get(*context);
-                        let res = runtime::math_util::eval_context(formula.as_str(), context);
+                        let res = runtime::math_util::eval_context(&*formula.as_str(), context);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Eval(dst, formula) => {
                         let formula = index(&self.strs, formula);
-                        let res = runtime::math_util::eval(formula.as_str());
+                        let res = runtime::math_util::eval(&*formula.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -880,87 +880,87 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let src = index(&self.strs, src);
                         let pair_sep = index(&self.strs, pair_sep);
                         let kv_sep = index(&self.strs, kv_sep);
-                        let res = runtime::string_util::pairs(src.as_str(), pair_sep.as_str(), kv_sep.as_str());
+                        let res = runtime::string_util::pairs(&*src.as_str(), &*pair_sep.as_str(), &*kv_sep.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Parse(dst, text, template) => {
                         let text = index(&self.strs, text);
                         let template = index(&self.strs, template);
-                        let res = runtime::string_util::parse(text.as_str(), template.as_str());
+                        let res = runtime::string_util::parse(&*text.as_str(), &*template.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     RegexParse(dst, text, template) => {
                         let text = index(&self.strs, text);
                         let template = index(&self.strs, template);
-                        let res = runtime::string_util::rparse(text.as_str(), template.as_str());
+                        let res = runtime::string_util::rparse(&*text.as_str(), &*template.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Record(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::record(src.as_str());
+                        let res = runtime::string_util::record(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Message(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::message(src.as_str());
+                        let res = runtime::string_util::message(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     SemVer(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::math_util::semver(src.as_str());
+                        let res = runtime::math_util::semver(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Path(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::os_util::path(src.as_str());
+                        let res = runtime::os_util::path(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     DataUrl(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::encoding::data_url(src.as_str());
+                        let res = runtime::encoding::data_url(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     DateTime(dst, timestamp) => {
                         let timestamp = index(&self.strs, timestamp);
-                        let result = runtime::date_time::datetime(timestamp.as_str());
+                        let result = runtime::date_time::datetime(&*timestamp.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = result;
                     }
                     Shlex(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::shlex(text.as_str());
+                        let res = runtime::math_util::shlex(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Tuple(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::tuple(text.as_str());
+                        let res = runtime::math_util::tuple(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Flags(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::flags(text.as_str());
+                        let res = runtime::math_util::flags(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     ParseArray(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::parse_array(text.as_str());
+                        let res = runtime::math_util::parse_array(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Hex2Rgb(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::hex2rgb(text.as_str());
+                        let res = runtime::math_util::hex2rgb(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -974,20 +974,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Variant(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::math_util::variant(src.as_str());
+                        let res = runtime::math_util::variant(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Func(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::string_util::func(text.as_str());
+                        let res = runtime::string_util::func(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     HttpGet(dst, url, headers) => {
                         let url = index(&self.strs, url);
                         let headers = self.get(*headers);
-                        let res = runtime::network::http_get(url.as_str(), headers);
+                        let res = runtime::network::http_get(&*url.as_str(), headers);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -995,7 +995,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let url = index(&self.strs, url);
                         let headers = self.get(*headers);
                         let body = index(&self.strs, body);
-                        let res = runtime::network::http_post(url.as_str(), headers, body);
+                        let res = runtime::network::http_post(&*url.as_str(), headers, body);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1004,8 +1004,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let to = index(&self.strs, to);
                         let subject = index(&self.strs, subject);
                         let body = index(&self.strs, body);
-                        runtime::network::send_mail(from.as_str(), to.as_str(),
-                                                    subject.as_str(), body.as_str());
+                        runtime::network::send_mail(&*from.as_str(), &*to.as_str(),
+                                                    &*subject.as_str(), &*body.as_str());
                     }
                     SmtpSend(url, from, to, subject, body) => {
                         let url = index(&self.strs, url);
@@ -1013,26 +1013,26 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let to = index(&self.strs, to);
                         let subject = index(&self.strs, subject);
                         let body = index(&self.strs, body);
-                        runtime::network::smtp_send(url.as_str(), from.as_str(), to.as_str(),
-                                                    subject.as_str(), body.as_str());
+                        runtime::network::smtp_send(&*url.as_str(), &*from.as_str(), &*to.as_str(),
+                                                    &*subject.as_str(), &*body.as_str());
                     }
                     S3Get(dst, bucket, object_name) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);
-                        let body = runtime::s3::get_object(bucket.as_str(), object_name.as_str()).unwrap();
+                        let body = runtime::s3::get_object(&*bucket.as_str(), &*object_name.as_str()).unwrap();
                         *index_mut(&mut self.strs, dst) = Str::from(body);
                     }
                     S3Put(dst, bucket, object_name, body) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);
                         let body = index(&self.strs, body);
-                        let result = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str()).unwrap().etag();
+                        let result = runtime::s3::put_object(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str()).unwrap().etag();
                         let etag = result.unwrap();
                         *index_mut(&mut self.strs, dst) = Str::from(etag.to_string());
                     }
                     FromJson(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::json::from_json(src.as_str());
+                        let res = runtime::json::from_json(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1069,7 +1069,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     StrToJson(dst, text) => {
                         let text = self.get(*text);
                         let dst = *dst;
-                        *self.get_mut(dst) = Str::from(runtime::json::str_to_json(text.as_str()));
+                        *self.get_mut(dst) = Str::from(runtime::json::str_to_json(&*text.as_str()));
                     }
                     IntToJson(dst, num) => {
                         let num = *self.get(*num);
@@ -1088,42 +1088,42 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     JsonValue(dst, json_text, json_path) => {
                         let json_text = index(&self.strs, json_text);
                         let json_path = index(&self.strs, json_path);
-                        let res = runtime::json::json_value(json_text.as_str(), json_path.as_str());
+                        let res = runtime::json::json_value(&*json_text.as_str(), &*json_path.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(res);
                     }
                     JsonQuery(dst, json_text, json_path) => {
                         let json_text = index(&self.strs, json_text);
                         let json_path = index(&self.strs, json_path);
-                        let res = runtime::json::json_query(json_text.as_str(), json_path.as_str());
+                        let res = runtime::json::json_query(&*json_text.as_str(), &*json_path.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     HtmlValue(dst, html_text, selector) => {
                         let html_text = index(&self.strs, html_text);
                         let selector = index(&self.strs, selector);
-                        let res = runtime::html::html_value(html_text.as_str(), selector.as_str());
+                        let res = runtime::html::html_value(&*html_text.as_str(), &*selector.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(res);
                     }
                     HtmlQuery(dst, html_text, selector) => {
                         let html_text = index(&self.strs, html_text);
                         let selector = index(&self.strs, selector);
-                        let res = runtime::html::html_query(html_text.as_str(), selector.as_str());
+                        let res = runtime::html::html_query(&*html_text.as_str(), &*selector.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     XmlValue(dst, xml_text, xpath) => {
                         let xml_text = index(&self.strs, xml_text);
                         let xpath = index(&self.strs, xpath);
-                        let res = runtime::html::xml_value(xml_text.as_str(), xpath.as_str());
+                        let res = runtime::html::xml_value(&*xml_text.as_str(), &*xpath.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(res);
                     }
                     XmlQuery(dst, xml_text, xpath) => {
                         let xml_text = index(&self.strs, xml_text);
                         let xpath = index(&self.strs, xpath);
-                        let res = runtime::html::xml_query(xml_text.as_str(), xpath.as_str());
+                        let res = runtime::html::xml_query(&*xml_text.as_str(), &*xpath.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1190,19 +1190,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     MapIntIntJoin(dst, arr, sep) => {
                         let arr = self.get(*arr);
                         let sep = self.get(*sep);
-                        let value = runtime::math_util::map_int_int_join(arr, sep.as_str());
+                        let value = runtime::math_util::map_int_int_join(arr, &*sep.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
                     MapIntFloatJoin(dst, arr, sep) => {
                         let arr = self.get(*arr);
                         let sep = self.get(*sep);
-                        let value = runtime::math_util::map_int_float_join(arr, sep.as_str());
+                        let value = runtime::math_util::map_int_float_join(arr, &*sep.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
                     MapIntStrJoin(dst, arr, sep) => {
                         let arr = self.get(*arr);
                         let sep = self.get(*sep);
-                        let value = runtime::math_util::map_int_str_join(arr, sep.as_str());
+                        let value = runtime::math_util::map_int_str_join(arr, &*sep.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
                     MapIntIntMax(dst, arr) => {
@@ -1255,7 +1255,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     FromCsv(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::csv::from_csv(src.as_str());
+                        let res = runtime::csv::from_csv(&*src.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1277,158 +1277,158 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     KvGet(dst, namespace, key) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);
-                        let value = runtime::kv::kv_get(namespace.as_str(), key.as_str());
+                        let value = runtime::kv::kv_get(&*namespace.as_str(), &*key.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
                     KvPut(namespace, key, value) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);
                         let value = index(&self.strs, value);
-                        runtime::kv::kv_put(namespace.as_str(), key.as_str(), value.as_str());
+                        runtime::kv::kv_put(&*namespace.as_str(), &*key.as_str(), &*value.as_str());
                     }
                     KvDelete(namespace, key) => {
                         let namespace = index(&self.strs, namespace);
                         let key = index(&self.strs, key);
-                        runtime::kv::kv_delete(namespace.as_str(), key.as_str());
+                        runtime::kv::kv_delete(&*namespace.as_str(), &*key.as_str());
                     }
                     KvClear(namespace) => {
                         let namespace = index(&self.strs, namespace);
-                        runtime::kv::kv_clear(namespace.as_str());
+                        runtime::kv::kv_clear(&*namespace.as_str());
                     }
                     ReadAll(dst, path) => {
                         let path = index(&self.strs, path);
-                        let value = runtime::string_util::read_all(path.as_str());
+                        let value = runtime::string_util::read_all(&*path.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(value);
                     }
                     WriteAll(path, content) => {
                         let path = index(&self.strs, path);
                         let content = index(&self.strs, content);
-                        runtime::string_util::write_all(path.as_str(), content.as_str());
+                        runtime::string_util::write_all(&*path.as_str(), &*content.as_str());
                     }
                     ReadConfig(dst, path) => {
                         let path = index(&self.strs, path);
-                        let res = runtime::config_util::read_config(path.as_str());
+                        let res = runtime::config_util::read_config(&*path.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     LogDebug(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);
-                        runtime::logging::log_debug(file_name.as_str(), message.as_str());
+                        runtime::logging::log_debug(&*file_name.as_str(), &*message.as_str());
                     }
                     LogInfo(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);
-                        runtime::logging::log_info(file_name.as_str(), message.as_str());
+                        runtime::logging::log_info(&*file_name.as_str(), &*message.as_str());
                     }
                     LogWarn(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);
-                        runtime::logging::log_warn(file_name.as_str(), message.as_str());
+                        runtime::logging::log_warn(&*file_name.as_str(), &*message.as_str());
                     }
                     LogError(message) => {
                         let file_name = &self.core.vars.filename;
                         let message = index(&self.strs, message);
-                        runtime::logging::log_error(file_name.as_str(), message.as_str());
+                        runtime::logging::log_error(&*file_name.as_str(), &*message.as_str());
                     }
                     SqliteQuery(dst, db_path, sql) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::sqlite::sqlite_query(db_path.as_str(), sql.as_str());
+                        let res = runtime::sqlite::sqlite_query(&*db_path.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     SqliteExecute(dst, db_path, sql) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::sqlite::sqlite_execute(db_path.as_str(), sql.as_str());
+                        let res = runtime::sqlite::sqlite_execute(&*db_path.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     LibsqlQuery(dst, db_path, sql) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::libsql::libsql_query(db_path.as_str(), sql.as_str());
+                        let res = runtime::libsql::libsql_query(&*db_path.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     LibsqlExecute(dst, db_path, sql) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::libsql::libsql_execute(db_path.as_str(), sql.as_str());
+                        let res = runtime::libsql::libsql_execute(&*db_path.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     MysqlQuery(dst, db_url, sql) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::mysql::mysql_query(db_url.as_str(), sql.as_str());
+                        let res = runtime::mysql::mysql_query(&*db_url.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     MysqlExecute(dst, db_url, sql) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::mysql::mysql_execute(db_url.as_str(), sql.as_str());
+                        let res = runtime::mysql::mysql_execute(&*db_url.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     PgQuery(dst, db_url, sql) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::postgres::pg_query(db_url.as_str(), sql.as_str());
+                        let res = runtime::postgres::pg_query(&*db_url.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     PgExecute(dst, db_url, sql) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::postgres::pg_execute(db_url.as_str(), sql.as_str());
+                        let res = runtime::postgres::pg_execute(&*db_url.as_str(), &*sql.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Publish(namespace, body) => {
                         let namespace = index(&self.strs, namespace);
                         let body = index(&self.strs, body);
-                        runtime::network::publish(namespace.as_str(), body.as_str());
+                        runtime::network::publish(&*namespace.as_str(), &*body.as_str());
                     }
                     BloomFilterInsert(item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        runtime::encoding::bf_insert(item.as_str(), group.as_str());
+                        runtime::encoding::bf_insert(&*item.as_str(), &*group.as_str());
                     }
                     BloomFilterContains(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_icontains(item.as_str(), group.as_str());
+                        let res = runtime::encoding::bf_icontains(&*item.as_str(), &*group.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     BloomFilterContainsWithInsert(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_contains(item.as_str(), group.as_str());
+                        let res = runtime::encoding::bf_contains(&*item.as_str(), &*group.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Fake(dst, data, locale) => {
                         let data = index(&self.strs, data);
                         let locale = index(&self.strs, locale);
-                        let res = runtime::faker::fake(data.as_str(), locale.as_str());
+                        let res = runtime::faker::fake(&*data.as_str(), &*locale.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
                     Min(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);
                         let num3 = index(&self.strs, third);
-                        let res = runtime::math_util::min(num1.as_str(), num2.as_str(), num3.as_str());
+                        let res = runtime::math_util::min(&*num1.as_str(), &*num2.as_str(), &*num3.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
                     Max(dst, first, second, third) => {
                         let num1 = index(&self.strs, first);
                         let num2 = index(&self.strs, second);
                         let num3 = index(&self.strs, third);
-                        let res = runtime::math_util::max(num1.as_str(), num2.as_str(), num3.as_str());
+                        let res = runtime::math_util::max(&*num1.as_str(), &*num2.as_str(), &*num3.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
                     Seq(dst, start, step, end) => {
@@ -1442,7 +1442,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Uniq(dst, src, param) => {
                         let src = self.get(*src);
                         let param = index(&self.strs, param);
-                        let res = runtime::math_util::uniq(src, param.as_str());
+                        let res = runtime::math_util::uniq(src, &*param.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1461,7 +1461,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Strtonum(dst, text) => {
                         let text = index(&self.strs, text);
-                        let num = runtime::math_util::strtonum(text.as_str());
+                        let num = runtime::math_util::strtonum(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = num;
                     }
@@ -1472,7 +1472,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     ToBytes(dst, text) => {
                         let text = index(&self.strs, text);
-                        let size = runtime::math_util::to_bytes(text.as_str());
+                        let size = runtime::math_util::to_bytes(&*text.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = size;
                     }
@@ -1480,7 +1480,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let prefix = index(&self.strs, prefix);
                         let res = if !text.is_empty() && !prefix.is_empty()
-                            && text.as_str().starts_with(prefix.as_str()) {
+                            && text.as_str().starts_with(&*prefix.as_str()) {
                             1
                         } else {
                             0
@@ -1492,7 +1492,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let suffix = index(&self.strs, suffix);
                         let res = if !text.is_empty() && !suffix.is_empty()
-                            && text.as_str().ends_with(suffix.as_str()) {
+                            && text.as_str().ends_with(&*suffix.as_str()) {
                             1
                         } else {
                             0
@@ -1504,7 +1504,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let child = index(&self.strs, child);
                         let res = if !text.is_empty() && !child.is_empty()
-                            && text.as_str().contains(child.as_str()) {
+                            && text.as_str().contains(&*child.as_str()) {
                             1
                         } else {
                             0
@@ -1538,34 +1538,34 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Figlet(dst, text) => {
                         let text = index(&self.strs, text);
-                        let art_text = runtime::string_util::figlet(text.as_str());
+                        let art_text = runtime::string_util::figlet(&*text.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(art_text);
                     }
                     PadLeft(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_left(text.as_str(), len as usize, pad.as_str());
+                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadRight(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_right(text.as_str(), len as usize, pad.as_str());
+                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadBoth(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_both(text.as_str(), len as usize, pad.as_str());
+                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     StrCmp(dst, text1, text2) => {
                         let text1 = index(&self.strs, text1);
                         let text2 = index(&self.strs, text2);
-                        let res = runtime::string_util::strcmp(text1.as_str(), text2.as_str());
+                        let res = runtime::string_util::strcmp(&*text1.as_str(), &*text2.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1652,7 +1652,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     IsStrInt(dst, text) => {
                         let text = index(&self.strs, text);
                         let dst = *dst;
-                        if runtime::math_util::is_str_int(text.as_str()) {
+                        if runtime::math_util::is_str_int(&*text.as_str()) {
                             *self.get_mut(dst) = 1;
                         } else {
                             *self.get_mut(dst) = 0;
@@ -1669,7 +1669,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     IsStrNum(dst, text) => {
                         let text = index(&self.strs, text);
                         let dst = *dst;
-                        if runtime::math_util::is_str_num(text.as_str()) {
+                        if runtime::math_util::is_str_num(&*text.as_str()) {
                             *self.get_mut(dst) = 1;
                         } else {
                             *self.get_mut(dst) = 0;
@@ -1679,11 +1679,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
                         let dst = *dst;
-                        *self.get_mut(dst) = runtime::string_util::is_format(format.as_str(), text.as_str());
+                        *self.get_mut(dst) = runtime::string_util::is_format(&*format.as_str(), &*text.as_str());
                     }
                     StrToInt(ir, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num = runtime::math_util::strtoint(sr.as_str());
+                        let num = runtime::math_util::strtoint(&*sr.as_str());
                         let ir = *ir;
                         *self.get_mut(ir) = num;
                     }
@@ -1694,7 +1694,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     StrToFloat(fr, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num = runtime::math_util::strtonum(sr.as_str());
+                        let num = runtime::math_util::strtonum(&*sr.as_str());
                         let fr = *fr;
                         *self.get_mut(fr) = num;
                     }
@@ -1953,7 +1953,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     LastPart(res, s, sep) => {
                         let s = self.get(*s);
                         let sep = self.get(*sep);
-                        let last_part = runtime::string_util::last_part(s.as_str(), sep.as_str());
+                        let last_part = runtime::string_util::last_part(&*s.as_str(), &*sep.as_str());
                         *index_mut(&mut self.strs, res) = Str::from(last_part);
                     }
                     LTFloat(res, l, r) => {
@@ -2185,12 +2185,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     RunCmd(dst, cmd) => {
                         let cmd = index(&self.strs, cmd);
-                        let res  =  runtime::run_command(cmd.as_str());
+                        let res  =  runtime::run_command(&*cmd.as_str());
                         *index_mut(&mut self.ints, dst) = res;
                     }
                     RunCmd2(dst, cmd) => {
                         let cmd = index(&self.strs, cmd);
-                        let res  =  runtime::run_command2(cmd.as_str());
+                        let res  =  runtime::run_command2(&*cmd.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

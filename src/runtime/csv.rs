@@ -38,12 +38,11 @@ pub(crate) fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
 }
 
 pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
-    let mut items: Vec<&str> = vec![];
     let mut keys = csv.to_vec();
     keys.sort();
-    for key in keys {
-        items.push(csv.get(&key).as_str());
-    }
+    let values: Vec<Str> = keys.iter().map(|key| csv.get(key)).collect();
+    let items: Vec<_> = values.iter().map(|value| value.as_str()).collect();
+    let items: Vec<&str> = items.iter().map(|item| item.as_ref()).collect();
     vec_to_csv(&items)
 }
 

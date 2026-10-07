@@ -427,3 +427,18 @@ fn file_from_string(
         .unwrap();
     (tmp, file)
 }
+
+#[test]
+fn non_utf8_input_does_not_panic() {
+    // "caf" + Latin-1 'é' (0xE9): invalid UTF-8 must not abort the process
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(r#"{ print length($0), length(digest("md5", $0)), substr($0, 1, 3) }"#))
+            .write_stdin(&b"caf\xe9\n"[..])
+            .assert()
+            .success()
+            .stdout(String::from("4 32 caf\n"));
+    }
+}

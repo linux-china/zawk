@@ -154,12 +154,12 @@ impl PairState {
 }
 
 /// parse message - `msg_name{key1=value1,key2=value2}(body)`
-pub(crate) fn message(text: &str) -> StrMap<'_, Str<'_>> {
+pub(crate) fn message<'b>(text: &str) -> StrMap<'b, Str<'b>> {
     record(text)
 }
 
 /// parse record: `attr_name{key1=value1,key2=value2}`
-pub(crate) fn record(text: &str) -> StrMap<'_, Str<'_>> {
+pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
     let mut map = hashbrown::HashMap::new();
     if text.starts_with('{') && text.ends_with('}') {
         // simple map
@@ -329,7 +329,7 @@ pub(crate) fn record(text: &str) -> StrMap<'_, Str<'_>> {
             }
         }
     } else {
-        map.insert(Str::from("_".to_owned()), Str::from(text));
+        map.insert(Str::from("_".to_owned()), Str::from(text.to_owned()));
     }
     SharedMap::from(map)
 }
@@ -416,7 +416,7 @@ pub fn last_part(text: &str, sep: &str) -> String {
 /// extract {name} from template, and get matched value from text
 /// for example: template = "hello {name}, welcome to {city}", text = "hello world, welcome to Beijing"
 /// result is {"name": "world", "city": "Beijing"}
-pub(crate) fn parse<'a>(text: &'a str, template: &'a str) -> StrMap<'a, Str<'a>> {
+pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
     let mut map = hashbrown::HashMap::new();
     let mut tokens: Vec<String> = vec![];
     let mut names: Vec<String> = vec![];

@@ -80,7 +80,7 @@ pub(crate) fn str_to_json(text: &str) -> String {
     format!("\"{}\"", escape_json(text))
 }
 
-pub(crate) fn from_json(json_text: &str) -> StrMap<'_, Str<'_>> {
+pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     if json_text.starts_with('[') {
         return from_json_array(json_text);
     }
@@ -116,7 +116,7 @@ pub(crate) fn from_json(json_text: &str) -> StrMap<'_, Str<'_>> {
     StrMap::from(map)
 }
 
-fn from_json_array(json_text: &str) -> StrMap<'_, Str<'_>> {
+fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     let mut map = hashbrown::HashMap::new();
     if !json_text.is_empty() {
         let result = json::from_str::<Vec<Value>>(json_text);

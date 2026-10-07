@@ -13,6 +13,7 @@ use regex::bytes::{Captures, Regex};
 use smallvec::SmallVec;
 
 use std::alloc::{alloc_zeroed, dealloc, realloc, Layout};
+use std::borrow::Cow;
 use std::cell::{Cell, UnsafeCell};
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
@@ -583,7 +584,7 @@ impl<'a> Str<'a> {
         let mut i: i64 = 1;
         for line in src.lines() {
             if !line.trim().is_empty() {
-              map.insert(i, Str::from(line));
+              map.insert(i, Str::from(line.to_string()));
               i = i + 1;
             }
         }
@@ -610,7 +611,7 @@ impl<'a> Str<'a> {
     pub fn append_if_missing(&self, suffix: &Str<'a>) -> Str<'a> {
         let text = self.as_str();
         let suffix = suffix.as_str();
-        if !text.ends_with(suffix) {
+        if !text.ends_with(&*suffix) {
             return Str::from(format!("{}{}", text, suffix));
         }
         self.clone()
@@ -619,7 +620,7 @@ impl<'a> Str<'a> {
     pub fn prepend_if_missing(&self, prefix: &Str<'a>) -> Str<'a> {
         let text = self.as_str();
         let prefix = prefix.as_str();
-        if !text.starts_with(prefix) {
+        if !text.starts_with(&*prefix) {
             return Str::from(format!("{}{}", prefix, text));
         }
         self.clone()
@@ -628,7 +629,7 @@ impl<'a> Str<'a> {
     pub fn remove_if_begin(&self, prefix: &Str<'a>) -> Str<'a> {
         let text = self.as_str();
         let prefix = prefix.as_str();
-        if text.starts_with(prefix) {
+        if text.starts_with(&*prefix) {
             return Str::from(text[prefix.len() + 1..].to_string());
         }
         self.clone()
@@ -637,7 +638,7 @@ impl<'a> Str<'a> {
     pub fn remove_if_end(&self, suffix: &Str<'a>) -> Str<'a> {
         let text = self.as_str();
         let suffix = suffix.as_str();
-        if text.ends_with(suffix) {
+        if text.ends_with(&*suffix) {
             return Str::from(text[0..(text.len() - suffix.len())].to_string());
         }
         self.clone()
@@ -661,25 +662,25 @@ impl<'a> Str<'a> {
 
     pub fn camel_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
-        let result = inflector::cases::camelcase::to_camel_case(src);
+        let result = inflector::cases::camelcase::to_camel_case(&src);
         Str::from(result)
     }
 
     pub fn kebab_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
-        let result = inflector::cases::kebabcase::to_kebab_case(src);
+        let result = inflector::cases::kebabcase::to_kebab_case(&src);
         Str::from(result)
     }
 
     pub fn snake_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
-        let result = inflector::cases::snakecase::to_snake_case(src);
+        let result = inflector::cases::snakecase::to_snake_case(&src);
         Str::from(result)
     }
 
     pub fn title_case<'b>(&self) -> Str<'b> {
         let src = self.as_str();
-        let result = inflector::cases::titlecase::to_title_case(src);
+        let result = inflector::cases::titlecase::to_title_case(&src);
         Str::from(result)
     }
 
@@ -918,9 +919,18 @@ impl<'a> Str<'a> {
         unsafe { self.rep_mut() }.len()
     }
 
+    /// Length in chars; each invalid UTF-8 sequence counts as one char.
     pub fn len(&self) -> usize {
-        // todo performance
-        self.as_str().chars().count()
+        self.with_bytes(|bs| {
+            if bs.is_ascii() {
+                bs.len()
+            } else {
+                match str::from_utf8(bs) {
+                    Ok(text) => text.chars().count(),
+                    Err(_) => String::from_utf8_lossy(bs).chars().count(),
+                }
+            }
+        })
     }
 
     pub fn concat(left: Str<'a>, right: Str<'a>) -> Str<'a> {
@@ -1192,9 +1202,11 @@ impl<'a> Str<'a> {
         unsafe { mem::transmute::<Str<'a>, Str<'static>>(self) }
     }
 
-    pub fn as_str(&self) -> &'a str {
-        let bs = unsafe { &*self.get_bytes() };
-        str::from_utf8(bs).unwrap()
+    /// Text view of the bytes: borrowed when they are valid UTF-8, otherwise invalid sequences
+    /// are replaced with U+FFFD, so non UTF-8 input (Latin-1, GBK, binary) never panics.
+    pub fn as_str(&self) -> Cow<'a, str> {
+        let bs: &'a [u8] = unsafe { &*self.get_bytes() };
+        String::from_utf8_lossy(bs)
     }
 }
 
@@ -1740,6 +1752,18 @@ fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_utf8_len_and_as_str() {
+        // "caf" + Latin-1 'é' (0xE9) is not valid UTF-8
+        let s: Str = Buf::read_from_bytes(b"caf\xe9").into_str();
+        assert_eq!(s.len(), 4);
+        assert_eq!(s.as_str(), "caf\u{FFFD}");
+        let ascii: Str = "hello".into();
+        assert_eq!(ascii.len(), 5);
+        let cjk: Str = "你好Hello".into();
+        assert_eq!(cjk.len(), 7);
+    }
 
     #[test]
     fn inline_basics() {
