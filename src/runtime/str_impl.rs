@@ -1013,7 +1013,7 @@ impl<'a> Str<'a> {
         );
         let new_len = to - from;
         if new_len <= MAX_INLINE_SIZE {
-            return Str::from_rep(Inline::from_unchecked(&(*self.get_bytes())[from..to]).into());
+            return Str::from_rep(Inline::from_unchecked(&(&(*self.get_bytes()))[from..to]).into());
         }
         let tag = self.rep().get_tag();
         let u32_max = u32::max_value() as usize;

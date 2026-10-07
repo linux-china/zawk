@@ -13,6 +13,7 @@ use regex::bytes::Regex;
 
 use std::mem;
 use std::time::SystemTime;
+use minio::s3::response_traits::HasEtagFromHeaders;
 use crate::builtins;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
@@ -664,7 +665,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             cur = loop {
                 debug_assert!(cur < unsafe { (*instrs).len() });
                 use Variable::*;
-                match unsafe { (*instrs).get_unchecked(cur) } {
+                match unsafe { (&(*instrs)).get_unchecked(cur) } {
                     StoreConstStr(sr, s) => {
                         let sr = *sr;
                         *self.get_mut(sr) = s.clone_str()
@@ -1025,8 +1026,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);
                         let body = index(&self.strs, body);
-                        let etag = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str()).unwrap().etag;
-                        *index_mut(&mut self.strs, dst) = Str::from(etag);
+                        let result = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str()).unwrap().etag();
+                        let etag = result.unwrap();
+                        *index_mut(&mut self.strs, dst) = Str::from(etag.to_string());
                     }
                     FromJson(dst, src) => {
                         let src = index(&self.strs, src);

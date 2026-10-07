@@ -3,6 +3,7 @@
 //! There is quite a lot of code here at this point, but most of it is "glue". Where possible we
 //! try and hew closely to the steps in the `interp` module, with most functionality in the
 //! underlying runtime library.
+use crate::runtime::str_impl;
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{
     self, config_util, date_time, encoding, faker, kv, logging, math_util, network, os_util,
@@ -33,6 +34,7 @@ use std::io;
 use std::mem;
 use std::slice;
 use std::time::SystemTime;
+use minio::s3::response_traits::HasEtagFromHeaders;
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -2097,10 +2099,11 @@ pub(crate) unsafe extern "C" fn s3_put(
     let bucket = &*(bucket as *mut Str);
     let object_name = &*(object_name as *mut Str);
     let body = &*(body as *mut Str);
-    let etag = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str())
+    let result = runtime::s3::put_object(bucket.as_str(), object_name.as_str(), body.as_str())
         .unwrap()
-        .etag;
-    let res = Str::from(etag);
+        .etag();
+    let etag = result.unwrap();
+    let res = Str::from(etag.as_str());
     mem::transmute::<Str, U128>(res)
 }
 

@@ -46,7 +46,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
         pool.insert(db_path.to_string(), connection);
     }
     let conn = pool.get(db_path).unwrap();
-    let mut stmt = conn.prepare(sql).await.unwrap();
+    let stmt = conn.prepare(sql).await.unwrap();
     let mut index = 1;
     let mut colum_count = 0;
     let mut rows = stmt.query(params![]).await.unwrap();
