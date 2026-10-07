@@ -637,7 +637,7 @@ pub(crate) struct Function<'a, I> {
     pub exit: NodeIx,
     // Stack of the entry and exit nodes for the loops within which the current statement is
     // nested.
-    loop_ctx: SmallVec<(NodeIx, NodeIx)>,
+    loop_ctx: SmallVec<(NodeIx, NodeIx, Option<NodeIx>)>,
     // Header node for the toplevel "pattern matching" loop of the AWK program. This is used to
     // implement the nonlocal continue of the `next` and `nextfile` statements.
     //
@@ -957,7 +957,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let footer = self.f.cfg.add_node(Default::default());
                 self.add_stmt(footer, PrimStmt::IterDrop(array_iter.clone()))?;
 
-                self.f.loop_ctx.push((cond_block, footer));
+                self.f.loop_ctx.push((cond_block, footer, None));
 
                 // Create the body, but start by getting the next element from the iterator and
                 // assigning it to `v`
@@ -1472,11 +1472,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             return err!("{} statement must be inside a loop", name);
         }
         match self.f.loop_ctx.last().cloned() {
-            Some((header, footer)) => {
-                // Break statements unconditionally jump to the end of the loop.
-                // Continue statements jump to the beginning.
-                let dst = if is_break { footer } else { header };
-                self.f.cfg.add_edge(current_open, dst, Transition::null());
+            Some((header, footer, update)) => {
+                // Continue statements jump to the update node or beginning.
+                match is_break {
+                    true => {self.f.cfg.add_edge(current_open, footer, Transition::null());},
+                    false => {
+                        match update {
+                            Some(update) => {
+                                self.f.cfg.add_edge(current_open, update, Transition::null());
+                            },
+                            None => {self.f.cfg.add_edge(current_open, header, Transition::null());}
+                        };
+                    }
+                };
                 self.seal(current_open);
                 Ok(())
             }
@@ -1536,15 +1544,27 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         // Create header and footer nodes.
         let h = self.f.cfg.add_node(Default::default());
         let f = self.f.cfg.add_node(Default::default());
-        self.f.loop_ctx.push((h, f));
+        // Create update node if necessary.
+        let u = match update {
+            Some(update) => {
+                let u = Some(self.f.cfg.add_node(Default::default()));
+                self.convert_stmt(update, u.unwrap())?;
+                u
+            },
+            None => None,
+        };
+        self.f.loop_ctx.push((h, f, u));
         if is_toplevel {
             self.f.toplevel_header = Some(h);
         }
 
         // The body is a standalone graph.
-        let (b_start, b_end) = if let Some(u) = update {
+        let (b_start, b_end) = if let Some(u) = u {
             let (start, mid) = self.standalone_block(body)?;
-            let end = self.convert_stmt(u, mid)?;
+            self.f
+                .cfg
+                .add_edge(mid, u, Transition::null());
+            let end = u;
             (start, end)
         } else {
             self.standalone_block(body)?
