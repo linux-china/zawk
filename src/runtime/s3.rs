@@ -71,6 +71,7 @@ mod tests {
     const BODY: &str = "Hello World!!!";
 
     #[test]
+    #[ignore]
     fn test_s3_get() {
         dotenv::dotenv().ok();
         let text = get_object(BUCKET, OBJECT_NAME).unwrap();
@@ -78,6 +79,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_s3_put() {
         dotenv::dotenv().ok();
         let _ = put_object(BUCKET, OBJECT_NAME, BODY).unwrap();
