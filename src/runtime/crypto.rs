@@ -25,7 +25,7 @@ pub fn digest(algorithm: &str, text: &str) -> String {
     if algorithm == "md5" || algorithm == "md-5" {
         return format!("{:x}", md5::compute(text));
     } else if algorithm == "adler32" {
-        return adler::adler32(BufReader::new("demo2".as_bytes())).unwrap().to_string();
+        return adler::adler32(BufReader::new(text.as_bytes())).unwrap().to_string();
     } else if algorithm == "crc32" {
         return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text.as_bytes()).to_string();
     } else if algorithm == "blake3" {
