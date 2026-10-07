@@ -1,6 +1,6 @@
 use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
-use pad::{Alignment, PadStr};
+use pad::Alignment;
 
 /// awk `substr` with 1-based `pos`; a negative `pos` counts back from the end of `base`.
 pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
@@ -14,28 +14,38 @@ pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
     base.sub_str(start as usize, len as usize)
 }
 
-pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
-    if text.len() > len {
-        return text[0..len].to_string();
+/// Pad `text` to `len` characters with the first char of `pad` (space if `pad` is empty);
+/// text longer than `len` characters is truncated. Lengths are counted in chars, not bytes.
+fn pad_text(text: &str, len: usize, pad: &str, alignment: Alignment) -> String {
+    let char_count = text.chars().count();
+    if char_count >= len {
+        return text.chars().take(len).collect();
     }
-    let pad_char = pad.chars().next().unwrap();
-    text.pad(len, pad_char, Alignment::Left, false)
+    let pad_char = pad.chars().next().unwrap_or(' ');
+    let fill = len - char_count;
+    let (left, right) = match alignment {
+        Alignment::Left => (0, fill),
+        Alignment::Right => (fill, 0),
+        Alignment::Middle => (fill / 2, fill - fill / 2),
+        Alignment::MiddleRight => (fill - fill / 2, fill / 2),
+    };
+    let mut result = String::with_capacity(text.len() + fill * pad_char.len_utf8());
+    result.extend(std::iter::repeat_n(pad_char, left));
+    result.push_str(text);
+    result.extend(std::iter::repeat_n(pad_char, right));
+    result
+}
+
+pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
+    pad_text(text, len, pad, Alignment::Left)
 }
 
 pub fn pad_right(text: &str, len: usize, pad: &str) -> String {
-    if text.len() > len {
-        return text[0..len].to_string();
-    }
-    let pad_char = pad.chars().next().unwrap();
-    text.pad(len, pad_char, Alignment::Right, false)
+    pad_text(text, len, pad, Alignment::Right)
 }
 
 pub fn pad_both(text: &str, len: usize, pad: &str) -> String {
-    if text.len() > len {
-        return text[0..len].to_string();
-    }
-    let pad_char = pad.chars().next().unwrap();
-    text.pad(len, pad_char, Alignment::MiddleRight, false)
+    pad_text(text, len, pad, Alignment::MiddleRight)
 }
 
 pub fn strcmp(text1: &str, text2: &str) -> i64 {
@@ -547,6 +557,18 @@ mod tests {
     fn test_pad_left() {
         let text = pad_left("hello", 100, "*");
         println!("{}", text);
+    }
+
+    #[test]
+    fn test_pad_multibyte_and_empty_pad() {
+        assert_eq!(pad_left("你好世界", 2, "*"), "你好");
+        assert_eq!(pad_right("你好世界", 3, "*"), "你好世");
+        assert_eq!(pad_both("你好世界", 1, "*"), "你");
+        assert_eq!(pad_left("你好", 4, "*"), "你好**");
+        assert_eq!(pad_right("你好", 4, "中"), "中中你好");
+        assert_eq!(pad_both("ab", 5, "*"), "**ab*");
+        assert_eq!(pad_left("ab", 4, ""), "ab  ");
+        assert_eq!(pad_right("abc", 3, ""), "abc");
     }
 
     #[test]
