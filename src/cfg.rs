@@ -1584,7 +1584,6 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             // Current => Header => Body => Footer
             //             ^         |
             //             ^---------
-            self.f.cfg.add_edge(b_start, h, Transition::null());
             self.f.cfg.add_edge(current_open, h, Transition::null());
             self.f.cfg.add_edge(b_end, h, Transition::null());
         }

@@ -2450,8 +2450,8 @@ BEGIN {
 {   row[NR] = $0
     for (i = 1; i <= NF; i++) {
         if ($i ~ number)
-            nwid[i] = max(nwid[i], length($i))
-        wid[i] = max(wid[i], length($i))
+            nwid[i] = max_of(nwid[i], length($i))
+        wid[i] = max_of(wid[i], length($i))
     }
 }
 
@@ -2468,7 +2468,7 @@ END {
     }
 }
 
-function max(x, y) { return (x > y) ? x : y }
+function max_of(x, y) { return (x > y) ? x : y }
 
 function numjust(n, s) {   # position s in field n
     return s substr(blanks, 1, int((wid[n]-nwid[n])/2))

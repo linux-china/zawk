@@ -141,11 +141,11 @@ file 2 3
         (&data_fname, input),
         (
             &prog1,
-            r#"function max(x, y) { return x<y?y:x; } BEGIN { FS = ","; } { print; } END { print "file 1"; } "#,
+            r#"function max_of(x, y) { return x<y?y:x; } BEGIN { FS = ","; } { print; } END { print "file 1"; } "#,
         ),
         (
             &prog2,
-            r#"{ x = max(int($2), x); } END { print "file 2", x; }"#,
+            r#"{ x = max_of(int($2), x); } END { print "file 2", x; }"#,
         ),
     ] {
         let mut file = File::create(fname).unwrap();

@@ -114,6 +114,7 @@ mod tests {
     fn test_spike() {}
 
     #[test]
+    #[ignore]
     fn test_query() {
         let sql = "SELECT name FROM city";
         let db_url = "postgres://postgres:postgres@localhost/demo";
@@ -125,6 +126,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_delete_row() {
         let sql = "delete from blogs where id = 2";
         let db_url = "postgresql://postgres:postgres@localhost/demo";

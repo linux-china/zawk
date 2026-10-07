@@ -336,7 +336,7 @@ pub(crate) fn strtonum(text: &str) -> Float {
     } else if text.starts_with("0b") {
         i64::from_str_radix(&text[2..], 2).unwrap_or(0) as f64
     } else {
-        text.parse::<f64>().unwrap_or(0.0)
+        crate::runtime::float_parse::strtod(text.as_bytes())
     };
 }
 
@@ -349,7 +349,7 @@ pub(crate) fn strtoint(text: &str) -> Int {
     } else if text.starts_with("0b") {
         i64::from_str_radix(&text[2..], 2).unwrap_or(0)
     } else {
-        text.parse::<i64>().unwrap_or(0)
+        crate::runtime::float_parse::strtoi(text.as_bytes())
     };
 }
 

@@ -2,6 +2,18 @@ use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
 use pad::{Alignment, PadStr};
 
+/// awk `substr` with 1-based `pos`; a negative `pos` counts back from the end of `base`.
+pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
+    let start = if pos > 0 {
+        pos - 1
+    } else if pos == 0 {
+        0
+    } else {
+        (base.len() as Int + pos - 1).max(0)
+    };
+    base.sub_str(start as usize, len as usize)
+}
+
 pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
     if text.len() > len {
         return text[0..len].to_string();

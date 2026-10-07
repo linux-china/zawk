@@ -1932,7 +1932,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, base);
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        let sub_str = text.sub_str((l - 1) as usize, r as usize);
+                        let sub_str = runtime::string_util::substr(text, l, r);
                         *index_mut(&mut self.strs, res) = sub_str;
                     }
                     CharAt(dst, text, index) => {

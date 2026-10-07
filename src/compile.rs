@@ -641,9 +641,14 @@ impl<'a> Typer<'a> {
                     if let Some(reg) = *frame.cfg.edge_weight(eix).unwrap() {
                         jmps.push(instrs.len());
                         instrs.push(LL::JmpIf(reg.into(), dst.into()));
-                    } else if dst != j + 1 {
-                        jmps.push(instrs.len());
-                        instrs.push(LL::Jmp(dst.into()));
+                    } else {
+                        if dst != j + 1 {
+                            jmps.push(instrs.len());
+                            instrs.push(LL::Jmp(dst.into()));
+                        }
+                        // Edges after an unconditional branch are unreachable; emitting them
+                        // would turn an elided fallthrough into a jump to the wrong block.
+                        break;
                     }
                 }
             }

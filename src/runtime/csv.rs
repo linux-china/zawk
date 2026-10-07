@@ -151,6 +151,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_parse_prometheus() {
         let csv = parse_prometheus("http://localhost:8081/actuator/prometheus");
         println!("{}", csv);

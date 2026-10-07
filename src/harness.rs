@@ -698,8 +698,8 @@ it has one more line"#
 
     test_program_csv!(
         csv_no_escaping,
-        r#"function max(x, y) { return x<y?y:x; }
-        { m=max($2+0, m); }
+        r#"function max_of(x, y) { return x<y?y:x; }
+        { m=max_of($2+0, m); }
         END { print m; }"#,
           "3\n",
           @input "help,1\nsomeone,2\nout,3\n"
@@ -707,8 +707,8 @@ it has one more line"#
 
     test_program_csv!(
         csv_no_escaping_partial,
-        r#"function max(x, y) { return x<(y+0)?y:x; }
-        { m=max($2, m);}
+        r#"function max_of(x, y) { return x<(y+0)?y:x; }
+        { m=max_of($2, m);}
         END { print m; }"#,
           "3.5\n",
           @input "help,1\nsomeone,2\nout,3.5"
