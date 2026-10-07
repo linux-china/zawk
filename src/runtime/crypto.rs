@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Number, Value};
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
@@ -320,14 +320,14 @@ fn encrypt_bytes(key: &[u8], gcm: bool, plaintext: &[u8]) -> Option<Vec<u8>> {
             let iv = random_bytes::<16>()?;
             let cipher = Aes256CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
-            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            let ct = cipher.encrypt_padded::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
             [iv.as_slice(), ct].concat()
         }
         (16, false) => {
             let iv = random_bytes::<16>()?;
             let cipher = Aes128CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
-            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            let ct = cipher.encrypt_padded::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
             [iv.as_slice(), ct].concat()
         }
         _ => return None,
@@ -357,8 +357,8 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
         let (iv, ciphertext) = data.split_at(16);
         let mut buf = ciphertext.to_vec();
         match key.len() {
-            32 => Aes256CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded_mut::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
-            16 => Aes128CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded_mut::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
+            32 => Aes256CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
+            16 => Aes128CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
             _ => None,
         }
     }
