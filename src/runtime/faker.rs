@@ -94,7 +94,7 @@ const PROVINCE_SHOT_NAMES: [char; 31] = ['京', '津', '晋', '冀', '蒙', '辽
 const LICENSE_CHARS: [char; 23] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'];
 
 fn generate_chinese_plate_number() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let rng = &mut rand::rng();
     let province: &char = PROVINCE_SHOT_NAMES.choose(rng).unwrap();
     let alphabet: &char = LICENSE_CHARS.choose(rng).unwrap();

@@ -8,7 +8,7 @@ use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
 use crossbeam::scope;
 use crossbeam_channel::bounded;
 use hashbrown::HashMap;
-use rand::{self, rngs::StdRng, Rng, SeedableRng};
+use rand::{self, rngs::StdRng, RngExt, SeedableRng};
 use regex::bytes::Regex;
 
 use std::mem;

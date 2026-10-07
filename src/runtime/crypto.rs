@@ -300,9 +300,9 @@ fn cbc_padded_buf(plaintext: &[u8]) -> Vec<u8> {
 
 /// random bytes from the OS CSPRNG, used as IV/nonce
 fn random_bytes<const N: usize>() -> Option<[u8; N]> {
-    use rand::{rngs::OsRng, TryRngCore};
+    use rand::{rngs::SysRng, TryRng};
     let mut buf = [0u8; N];
-    OsRng.try_fill_bytes(&mut buf).ok()?;
+    SysRng.try_fill_bytes(&mut buf).ok()?;
     Some(buf)
 }
 

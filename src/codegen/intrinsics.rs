@@ -25,7 +25,7 @@ use crate::{
 
 use libc::c_void;
 use paste::paste;
-use rand::{self, Rng};
+use rand::{self, RngExt};
 use regex::bytes::Regex;
 use smallvec;
 
