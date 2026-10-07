@@ -36,13 +36,14 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
         } else if url.starts_with("wss://") {
             url = url.replace("wss://", "https://").to_string();
         }
-        let connection = if url.starts_with("libsql://")
+        if !(url.starts_with("libsql://")
             || url.starts_with("http://")
-            || url.starts_with("https://") {
-            Builder::new_remote(url, auth_token).build().await.unwrap().connect().unwrap()
-        } else {
-            Builder::new_local(url).build().await.unwrap().connect().unwrap()
-        };
+            || url.starts_with("https://")) {
+            // local database: use rusqlite to avoid linking a second bundled SQLite
+            drop(pool);
+            return crate::runtime::sqlite::sqlite_query(url.as_str(), sql);
+        }
+        let connection = Builder::new_remote(url, auth_token).build().await.unwrap().connect().unwrap();
         pool.insert(db_path.to_string(), connection);
     }
     let conn = pool.get(db_path).unwrap();

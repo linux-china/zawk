@@ -113,7 +113,6 @@ shell-escape = "0.1"
 pad = "0.1.6"
 rusqlite = { version = "0.40", features = ["bundled"] }
 libsql = { version = "0.9.30", default-features = false, features = [
-    "core",
     "remote",
 ] }
 mysql = { version = "28.0" }

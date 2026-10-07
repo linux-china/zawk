@@ -154,12 +154,12 @@ impl PairState {
 }
 
 /// parse message - `msg_name{key1=value1,key2=value2}(body)`
-pub(crate) fn message(text: &str) -> StrMap<Str> {
+pub(crate) fn message(text: &str) -> StrMap<'_, Str<'_>> {
     record(text)
 }
 
 /// parse record: `attr_name{key1=value1,key2=value2}`
-pub(crate) fn record(text: &str) -> StrMap<Str> {
+pub(crate) fn record(text: &str) -> StrMap<'_, Str<'_>> {
     let mut map = hashbrown::HashMap::new();
     if text.starts_with('{') && text.ends_with('}') {
         // simple map

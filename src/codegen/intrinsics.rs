@@ -2521,9 +2521,9 @@ unsafe fn wrap_args<'a>(
             )
         };
         let typed_arg: FormatArg = match ty {
-            Ty::Int => mem::transmute::<usize, Int>(arg).into(),
+            Ty::Int => (arg as Int).into(),
             Ty::Float => Float::from_bits(arg as u64).into(),
-            Ty::Str => mem::transmute::<usize, &Str>(arg).clone().into(),
+            Ty::Str => (*std::ptr::with_exposed_provenance::<Str>(arg)).clone().into(),
             Ty::Null => FormatArg::Null,
             _ => fail!(
                 _rt,
