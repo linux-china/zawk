@@ -18,7 +18,7 @@ const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bcranelift"];
 fn assert_folded(p: &str) {
     let prog: String = p.into();
     let out = String::from_utf8(
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(prog)
             .arg(String::from("--dump-bytecode"))
@@ -54,7 +54,7 @@ BEGIN {
 }"#
     .into();
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -88,7 +88,7 @@ fn simple_fi() {
     }
     let prog: String = r#"{n+=$FI["Count"]} END { print n, NR; }"#.into();
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from("-icsv"))
@@ -116,7 +116,7 @@ fn file_and_data_arg() {
         prog_file.write_all(prog.as_bytes()).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
             .arg("-f")
@@ -160,7 +160,7 @@ file 2 3
         file.write_all(data.as_bytes()).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(format!("-f{}", fname_to_string(&prog1)))
@@ -180,7 +180,7 @@ mod v_args {
         let expected = "1\n";
         let prog: String = r#"BEGIN {print x;}"#.into();
         for backend_arg in BACKEND_ARGS {
-            Command::cargo_bin("frawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from("-vx=1"))
@@ -195,7 +195,7 @@ mod v_args {
         let expected = "var-with-dash\n";
         let prog: String = r#"BEGIN {print x;}"#.into();
         for backend_arg in BACKEND_ARGS {
-            Command::cargo_bin("frawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from("-vx=var-with-dash"))
@@ -210,7 +210,7 @@ mod v_args {
         let expected = "var-with\n-dash 1+1\n";
         let prog: String = r#"BEGIN {print x, y;}"#.into();
         for backend_arg in BACKEND_ARGS {
-            Command::cargo_bin("frawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from("-vx=var-with\\n-dash"))
@@ -234,7 +234,7 @@ for (k in m) {
 }}"#
     .into();
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("frawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -264,7 +264,7 @@ fn iter_across_functions() {
         END {for (k in h) { print k, h[k]; }}"#
         .into();
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("frawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -289,7 +289,7 @@ fn simple_rc() {
         (r#"BEGIN { print "hi"; exit 4; print "there"; }"#, 4),
     ] {
         for backend_arg in BACKEND_ARGS {
-            Command::cargo_bin("frawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from(prog))
@@ -308,7 +308,7 @@ fn trivial_parallel_rc() {
         (r#"END { print "hi"; exit 1; print "there"; }"#, 1),
     ] {
         for backend_arg in BACKEND_ARGS {
-            Command::cargo_bin("frawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from(prog))
@@ -334,7 +334,7 @@ fn multi_rc() {
     );
     eprintln!("data={:?}", data);
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
             .arg("-pf")
@@ -357,7 +357,7 @@ fn nested_loops() {
     let prog: String =
         "BEGIN { m[0]=0; m[1]=1; m[2]=2; for (i in m) for (j in m) print i,j; }".into();
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("frawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -374,7 +374,7 @@ fn for_loops_with_continue_and_update_statement() {
     let prog: String =
         "BEGIN { for (i = 0; i < 5; i++) { if (i == 1) { continue; } for (j = -1; j < 5;) { j += 1; if (j == 2) { continue; } print i,j; } } }".into();
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("frawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -408,7 +408,7 @@ fn dont_reorder_files_with_f() {
         .write_all(prog.as_bytes())
         .unwrap();
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(format!("-f{}", fname_to_string(&prog_file)))

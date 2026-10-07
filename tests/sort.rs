@@ -36,7 +36,7 @@ fn sort_command_single_threaded() {
     }
     let prog: String = r#"{ print $0 | "sort -n"; }"#.into();
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(prog.clone())
@@ -59,7 +59,7 @@ fn sort_command_multi_threaded() {
     let prog: String = r#"{ print $0 | "sort -n"; }"#.into();
     for backend_arg in BACKEND_ARGS {
         eprintln!("backend={:?}", backend_arg);
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from("-pr"))

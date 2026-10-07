@@ -78,7 +78,7 @@ Algeria	920	18	Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ print }"#))
@@ -104,7 +104,7 @@ Australia	2968	14	Australia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$1 == $4"#))
@@ -134,7 +134,7 @@ India	1269	637	Asia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/Asia/"#))
@@ -164,7 +164,7 @@ India
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 ~ /Asia/ { print $1 }"#))
@@ -202,7 +202,7 @@ Algeria
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 !~ /Asia/ {print $1 }"#))
@@ -224,7 +224,7 @@ fn p_test_14() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/\$/"#))
@@ -246,7 +246,7 @@ fn p_test_15() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/\\/"#))
@@ -268,7 +268,7 @@ fn p_test_16() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/^.$/"#))
@@ -290,7 +290,7 @@ fn p_test_17() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$2 !~ /^[0-9]+$/"#))
@@ -312,7 +312,7 @@ fn p_test_18() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/(apple|cherry) (pie|tart)/"#))
@@ -334,7 +334,7 @@ fn p_test_19() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -381,7 +381,7 @@ Algeria 18
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ print $1, $3 }"#))
@@ -409,7 +409,7 @@ India	1269	637	Asia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 == "Asia" && $3 > 500"#))
@@ -439,7 +439,7 @@ India	1269	637	Asia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 == "Asia" || $4 == "Europe""#))
@@ -473,7 +473,7 @@ Algeria	920	18	Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/Asia/ || /Africa/"#))
@@ -503,7 +503,7 @@ India	1269	637	Asia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 ~ /^(Asia|Europe)$/"#))
@@ -535,7 +535,7 @@ Brazil	3286	116	South America
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"/Canada/, /Brazil/"#))
@@ -570,7 +570,7 @@ fn p_test_24() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -616,7 +616,7 @@ fn p_test_25() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -643,7 +643,7 @@ fn p_test_26() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -672,7 +672,7 @@ fn p_test_26a() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -701,7 +701,7 @@ fn p_test_27() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -748,7 +748,7 @@ fn p_test_28() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ print NR ":" $0 }"#))
@@ -792,7 +792,7 @@ Algeria	920	18	Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"	{ gsub(/USA/, "United States"); print }"#))
@@ -836,7 +836,7 @@ fn p_test_3() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ printf "[%10s] [%-16d]\n", $1, $3 }"#))
@@ -880,7 +880,7 @@ fn p_test_30() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ print length($0), $0 }"#))
@@ -905,7 +905,7 @@ fn p_test_31() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -952,7 +952,7 @@ Alg 920 18 Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ $1 = substr($1, 1, 3); print }"#))
@@ -977,7 +977,7 @@ fn p_test_33() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1024,7 +1024,7 @@ Algeria 0.92 18 Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ $2 /= 1000; print }"#))
@@ -1068,7 +1068,7 @@ Algeria	920	18	Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1117,7 +1117,7 @@ Algeria	920	18	Africa	19.565217391304348
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1142,7 +1142,7 @@ fn p_test_37() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$1 "" == $2 """#))
@@ -1167,7 +1167,7 @@ fn p_test_38() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1286,7 +1286,7 @@ Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1337,7 +1337,7 @@ fn p_test_4() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"{ print NR, $0 }"#))
@@ -1449,7 +1449,7 @@ Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1475,7 +1475,7 @@ fn p_test_41() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1505,7 +1505,7 @@ African population in millions is 74
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1539,7 +1539,7 @@ North America:14934
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("frawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1590,7 +1590,7 @@ Algeria! is 1
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1662,7 +1662,7 @@ Algeria:920
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1709,7 +1709,7 @@ Algeria920
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"	{ print $1 $2 }"#))
@@ -1735,7 +1735,7 @@ fn p_test_47() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(format!(
@@ -1800,7 +1800,7 @@ South America:284
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1827,7 +1827,7 @@ fn p_test_48a() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1861,7 +1861,7 @@ USA	3615	219	North America
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1897,7 +1897,7 @@ USA	3615	219	North America
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -1925,7 +1925,7 @@ fn p_test_49() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$1 == "include" { system("cat " $2) }"#))
@@ -1970,7 +1970,7 @@ fn p_test_5() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -2009,7 +2009,7 @@ South America:Argentina:52
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -2098,7 +2098,7 @@ Algeria	920	18	Africa:
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -2212,7 +2212,7 @@ World Total		      0
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -2274,7 +2274,7 @@ fn p_test_5a() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
@@ -2303,7 +2303,7 @@ fn p_test_6() {
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"END	{ print NR }"#))
@@ -2337,7 +2337,7 @@ India	1269	637	Asia
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$3 > 100"#))
@@ -2367,7 +2367,7 @@ India
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$4 == "Asia" { print $1 }"#))
@@ -2395,7 +2395,7 @@ Sudan	968	19	Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(r#"$1 >= "S""#))
@@ -2439,7 +2439,7 @@ Algeria      920    18   Africa
         write!(file, "{}", COUNTRIES).unwrap();
     }
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("frawk")
+        Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
             .arg(String::from(
