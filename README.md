@@ -103,6 +103,15 @@ $ cargo +nightly install --path . --no-default-features --features use_jemalloc,
 zawk is now on [crates.io](https://crates.io/crates/zawk), so running
 `RUSTFLAGS="-C target-feature=+aes,+sse2" cargo install zawk ` with the desired features should also work.
 
+SIMD fast paths (SSE2/AVX2) are selected at runtime, so the default build runs on any CPU of the target
+architecture. To additionally optimize the rest of the code for the CPU you are building on, use:
+
+```
+$ RUSTFLAGS="-C target-cpu=native" cargo install zawk
+```
+
+The resulting binary may crash with `SIGILL` on other machines, so do not distribute it.
+
 # Bugs and Feature Requests
 
 frawk has bugs, and many rough edges. If you notice a bug in frawk, filing an issue
