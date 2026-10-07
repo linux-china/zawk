@@ -642,13 +642,17 @@ Algorithms:
 - hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
 - encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`,
   `encrypt("aes-256-gcm", "Secret Text", "your_pass_key")`
-- encrypt:  `decrypt("aes-128-cbc", "7b9c07a4903c9768ceeeb922bcb33448", "your_pass_key")`
+- decrypt:  `decrypt("aes-128-cbc", encrypted_text, "your_pass_key")`
 
 Explain for `encrypt` and `decrypt`:
 
 * mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
 * plaintext — Text that need to be encrypted.
-* key — Encryption key. `16` bytes(16 ascii chars) for `128` and `32` bytes(32 ascii chars) for `256`.
+* key — Password of any length. The AES key is derived with PBKDF2-HMAC-SHA256 (100,000 iterations, cached per password).
+
+Output format is `v2:` + Base64(IV/nonce + ciphertext); a random IV/nonce is used for every call.
+`decrypt` also accepts legacy ciphertext without the `v2:` prefix (key = password bytes truncated/zero padded to 16 or 32 bytes).
+`decrypt` returns an empty string when the input is malformed, the key is wrong or the plaintext is not valid UTF-8.
 
 ### JWT
 

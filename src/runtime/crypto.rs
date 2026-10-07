@@ -176,107 +176,152 @@ pub fn extract_jwk(full_http_url: &str) -> Jwk {
     jwk.clone()
 }
 
-/// plaintext max length 256
-pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
-    // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
-    // Initialization Vector for Encryption: https://www.baeldung.com/java-encryption-iv
-    // buffer must be big enough for padded plaintext
-    let mut buf = [0u8; 1024];
-    let pt_len = plaintext.len();
-    buf[..pt_len].copy_from_slice(plaintext.as_bytes());
-    if mode.contains("-256-") { // aes 256
-        let mut key = [0x0; 32];
-        if key_pass.len() > 32 {
-            key.copy_from_slice(key_pass[..32].as_bytes());
-        } else {
-            key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
+/// Prefix of ciphertext whose key is derived by PBKDF2-HMAC-SHA256 from the password.
+/// Ciphertext without this prefix is legacy format: key is the password truncated or zero padded.
+const ENCRYPT_V2_PREFIX: &str = "v2:";
+const PBKDF2_SALT: &[u8] = b"zawk-encrypt-v2";
+const PBKDF2_ITERATIONS: u32 = 100_000;
+
+lazy_static! {
+    static ref DERIVED_KEYS: Mutex<HashMap<(String, usize), Vec<u8>>> = Mutex::new(HashMap::new());
+}
+
+fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
+    let prf = HmacSha256::new_from_slice(password).unwrap();
+    for (i, chunk) in out.chunks_mut(32).enumerate() {
+        let mut mac = prf.clone();
+        mac.update(salt);
+        mac.update(&((i as u32) + 1).to_be_bytes());
+        let mut u = mac.finalize().into_bytes();
+        let mut t = u;
+        for _ in 1..iterations {
+            let mut mac = prf.clone();
+            mac.update(&u);
+            u = mac.finalize().into_bytes();
+            t.iter_mut().zip(u.iter()).for_each(|(a, b)| *a ^= b);
         }
-        if mode == "aes-256-gcm" {
-            use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm};
-            let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        chunk.copy_from_slice(&t[..chunk.len()]);
+    }
+}
+
+/// derive key with PBKDF2, cached by (password, key length) because derivation is slow by design
+fn derive_key(key_pass: &str, key_len: usize) -> Vec<u8> {
+    let mut keys = DERIVED_KEYS.lock().unwrap();
+    keys.entry((key_pass.to_string(), key_len)).or_insert_with(|| {
+        let mut key = vec![0u8; key_len];
+        pbkdf2_hmac_sha256(key_pass.as_bytes(), PBKDF2_SALT, PBKDF2_ITERATIONS, &mut key);
+        key
+    }).clone()
+}
+
+/// legacy key: password bytes truncated or zero padded to key length
+fn legacy_key(key_pass: &str, key_len: usize) -> Vec<u8> {
+    let mut key = vec![0u8; key_len];
+    let bytes = key_pass.as_bytes();
+    let n = bytes.len().min(key_len);
+    key[..n].copy_from_slice(&bytes[..n]);
+    key
+}
+
+/// returns (key length, is GCM)
+fn parse_cipher_mode(mode: &str) -> (usize, bool) {
+    let key_len = if mode.contains("-256-") { 32 } else { 16 };
+    (key_len, mode.ends_with("-gcm"))
+}
+
+/// buffer with room for PKCS7 padding (always 1..=16 bytes)
+fn cbc_padded_buf(plaintext: &[u8]) -> Vec<u8> {
+    let mut buf = vec![0u8; (plaintext.len() / 16 + 1) * 16];
+    buf[..plaintext.len()].copy_from_slice(plaintext);
+    buf
+}
+
+fn encrypt_bytes(key: &[u8], gcm: bool, plaintext: &[u8]) -> Option<Vec<u8>> {
+    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes128Gcm, Aes256Gcm};
+    let bytes = match (key.len(), gcm) {
+        (32, true) => {
             let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-            let result = cipher.encrypt(&nonce, plaintext.as_bytes()).unwrap();
-            let bytes = [nonce.to_vec(), result].concat();
-            STANDARD.encode(&bytes)
-        } else {
-            let iv = Aes256CbcEnc::generate_iv(&mut aes_gcm::aead::rand_core::OsRng);
-            let cipher = Aes256CbcEnc::new(&key.into(), &iv);
-            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
-            let bytes = [iv.to_vec(), ct.to_vec()].concat();
-            STANDARD.encode(bytes)
+            let ct = Aes256Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
+            [nonce.to_vec(), ct].concat()
         }
-    } else { // aes 128
-        let mut key = [0x0; 16];
-        if key_pass.len() > 16 {
-            key.copy_from_slice(key_pass[..16].as_bytes());
-        } else {
-            key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
-        }
-        if mode == "aes-128-gcm" {
-            use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes128Gcm};
-            let cipher = Aes128Gcm::new(&key.into());
+        (16, true) => {
             let nonce = Aes128Gcm::generate_nonce(&mut OsRng);
-            let result = cipher.encrypt(&nonce, plaintext.as_bytes()).unwrap();
-            let bytes = [nonce.to_vec(), result].concat();
-            STANDARD.encode(&bytes)
-        } else {
-            let iv = Aes256CbcEnc::generate_iv(&mut aes_gcm::aead::rand_core::OsRng);
-            let cipher = Aes128CbcEnc::new(&key.into(), &iv);
-            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len).unwrap();
-            let bytes = [iv.to_vec(), ct.to_vec()].concat();
-            STANDARD.encode(bytes)
+            let ct = Aes128Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
+            [nonce.to_vec(), ct].concat()
+        }
+        (32, false) => {
+            let iv = Aes256CbcEnc::generate_iv(&mut OsRng);
+            let cipher = Aes256CbcEnc::new_from_slices(key, &iv).ok()?;
+            let mut buf = cbc_padded_buf(plaintext);
+            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            [iv.as_slice(), ct].concat()
+        }
+        (16, false) => {
+            let iv = Aes128CbcEnc::generate_iv(&mut OsRng);
+            let cipher = Aes128CbcEnc::new_from_slices(key, &iv).ok()?;
+            let mut buf = cbc_padded_buf(plaintext);
+            let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            [iv.as_slice(), ct].concat()
+        }
+        _ => return None,
+    };
+    Some(bytes)
+}
+
+fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Aes256Gcm, Nonce};
+    if gcm {
+        // 12 bytes nonce + 16 bytes tag at least
+        if data.len() < 12 + 16 {
+            return None;
+        }
+        let (nonce, ciphertext) = data.split_at(12);
+        let nonce = Nonce::<U12>::from_slice(nonce);
+        match key.len() {
+            32 => Aes256Gcm::new_from_slice(key).ok()?.decrypt(nonce, ciphertext).ok(),
+            16 => Aes128Gcm::new_from_slice(key).ok()?.decrypt(nonce, ciphertext).ok(),
+            _ => None,
+        }
+    } else {
+        // 16 bytes IV + at least one block
+        if data.len() < 32 || data.len() % 16 != 0 {
+            return None;
+        }
+        let (iv, ciphertext) = data.split_at(16);
+        let mut buf = ciphertext.to_vec();
+        match key.len() {
+            32 => Aes256CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded_mut::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
+            16 => Aes128CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded_mut::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
+            _ => None,
         }
     }
 }
 
-pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
+/// Encrypt text with a random IV/nonce, output is `v2:` + base64(IV/nonce + ciphertext).
+/// Key is derived from key_pass by PBKDF2-HMAC-SHA256. Returns empty string on failure.
+pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
-    let encrypted_data = STANDARD.decode(encrypted_text).unwrap();
-    if mode.contains("-256-") { // aes 256
-        let mut key = [0x0; 32];
-        if key_pass.len() > 32 {
-            key.copy_from_slice(key_pass[..32].as_bytes());
-        } else {
-            key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
-        }
-        if mode == "aes-256-gcm" {
-            use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
-            let nonce = &encrypted_data[..12];
-            let ciphertext = &encrypted_data[12..];
-            let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-            let nonce = Nonce::<U12>::from_slice(nonce);
-            let pt = cipher.decrypt(nonce, ciphertext).unwrap();
-            std::str::from_utf8(&pt).unwrap().to_string()
-        } else {
-            let nonce = &encrypted_data[..16];
-            let mut ciphertext = encrypted_data[16..].to_vec();
-            let cipher = Aes256CbcDec::new(&key.into(), nonce.into());
-            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut ciphertext).unwrap();
-            std::str::from_utf8(pt).unwrap().to_string()
-        }
-    } else { // aes 128
-        let mut key = [0x0; 16];
-        if key_pass.len() > 16 {
-            key.copy_from_slice(key_pass[..16].as_bytes());
-        } else {
-            key[..key_pass.len()].copy_from_slice(key_pass.as_bytes());
-        }
-        if mode == "aes-128-gcm" {
-            let nonce = &encrypted_data[..12];
-            let ciphertext = &encrypted_data[12..];
-            use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Nonce};
-            let cipher = Aes128Gcm::new(&key.into());
-            let nonce = Nonce::<U12>::from_slice(nonce);
-            let pt = cipher.decrypt(nonce, ciphertext).unwrap();
-            std::str::from_utf8(&pt).unwrap().to_string()
-        } else {
-            let nonce = &encrypted_data[..16];
-            let mut ciphertext = encrypted_data[16..].to_vec();
-            let cipher = Aes128CbcDec::new(&key.into(), nonce.into());
-            let pt = cipher.decrypt_padded_mut::<Pkcs7>(&mut ciphertext).unwrap();
-            std::str::from_utf8(pt).unwrap().to_string()
-        }
+    // Initialization Vector for Encryption: https://www.baeldung.com/java-encryption-iv
+    let (key_len, gcm) = parse_cipher_mode(mode);
+    let key = derive_key(key_pass, key_len);
+    match encrypt_bytes(&key, gcm, plaintext.as_bytes()) {
+        Some(bytes) => format!("{}{}", ENCRYPT_V2_PREFIX, STANDARD.encode(bytes)),
+        None => String::new(),
     }
+}
+
+/// Decrypt text produced by `encrypt`, both `v2:` and legacy formats are supported.
+/// Returns empty string if the text is malformed, the key is wrong or plaintext is not UTF-8.
+pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
+    let (key_len, gcm) = parse_cipher_mode(mode);
+    let (key, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX) {
+        Some(encoded) => (derive_key(key_pass, key_len), encoded),
+        None => (legacy_key(key_pass, key_len), encrypted_text),
+    };
+    STANDARD.decode(encoded.trim()).ok()
+        .and_then(|data| decrypt_bytes(&key, gcm, &data))
+        .and_then(|pt| String::from_utf8(pt).ok())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -430,6 +475,39 @@ mod tests {
         println!("{}", encrypted_text);
         let plaintext2 = decrypt("aes-256-gcm", &encrypted_text, key_pass);
         assert_eq!(plaintext, plaintext2);
+    }
+
+    #[test]
+    fn test_encrypt_long_and_multibyte() {
+        let long_text = "x".repeat(5000);
+        let key_pass = "密码密码密码密码密码密码密码密码"; // multi-byte chars across byte 16/32
+        for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
+            let encrypted_text = encrypt(mode, &long_text, key_pass);
+            assert!(encrypted_text.starts_with("v2:"));
+            assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text);
+            assert_eq!(decrypt(mode, &encrypted_text, "wrong"), "");
+            assert_eq!(decrypt(mode, "", key_pass), "");
+            assert_eq!(decrypt(mode, "v2:AAAA", key_pass), "");
+            assert_eq!(decrypt(mode, "not base64!", key_pass), "");
+        }
+    }
+
+    #[test]
+    fn test_decrypt_legacy() {
+        let key_pass = "0123456789abcdef";
+        for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
+            let (key_len, gcm) = parse_cipher_mode(mode);
+            let bytes = encrypt_bytes(&legacy_key(key_pass, key_len), gcm, b"Hello World").unwrap();
+            assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), "Hello World");
+        }
+    }
+
+    #[test]
+    fn test_pbkdf2_vector() {
+        // RFC 7914 section 11 PBKDF2-HMAC-SHA256 test vector
+        let mut out = [0u8; 64];
+        pbkdf2_hmac_sha256(b"passwd", b"salt", 1, &mut out);
+        assert_eq!(hex::encode(&out[..16]), "55ac046e56e3089fec1691c22544b605");
     }
 
     #[test]
