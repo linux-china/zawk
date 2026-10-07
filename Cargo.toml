@@ -32,7 +32,7 @@ ryu = "1.0"
 libc = "0.2"
 rand = { version = "0.9", features = ["default"] }
 rand_core = { version = "0.9" }
-lalrpop-util = "0.22.2"
+lalrpop-util = "0.23.1"
 unicode-xid = "0.2.6"
 clap = "4.6"
 crossbeam-channel = "0.5"
@@ -150,7 +150,7 @@ testresult = "0.4"
 rstest = "0.25"
 
 [build-dependencies]
-lalrpop = "0.22.2"
+lalrpop = "0.23.1"
 
 [features]
 default = []
