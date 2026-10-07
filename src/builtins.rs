@@ -10,7 +10,7 @@ use smallvec::smallvec;
 
 use std::convert::TryFrom;
 
-pub const VERSION: &'static str = "0.5.25";
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -1185,6 +1185,7 @@ pub(crate) enum Variable {
     FI = 13,
     ENVIRON = 14,
     PROCINFO = 15,
+    #[allow(dead_code)]
     CONVFMT = 16,
 }
 
