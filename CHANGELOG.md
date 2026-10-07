@@ -4,10 +4,9 @@ Nothing Yet!
 
 # Version 0.6.0 (2026-09-10)
 
-* Fix bugs reported by LLM
-* Remve LLVM backend and keep Cranelift only
-* Fix JWT algorithm confusion in `dejwt`: allowed algorithms are decided by the key(PEM: RS*/PS*/ES*/EdDSA, plain secret: HS*, JWK: key type and `alg`), and JWKS URL must use `https://`
-
+* Fix lots of bugs reported by LLM
+* Remove LLVM backend and keep Cranelift only
+* Update to Rust edition 2024
 
 # Version 0.5.25 (2024-12-29)
 
