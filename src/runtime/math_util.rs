@@ -417,13 +417,13 @@ enum TupleToken<'a> {
     RBRACE,
     #[token(",")]
     COMMA,
-    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    #[regex(r#"[a-zA-Z0-9_]+"#)]
     LITERAL(&'a str),
     #[regex(r#""[^"]*""#)]
     Text(&'a str),
     #[regex(r#"'[^']*'"#)]
     Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#)]
+    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
     NUM(&'a str),
 }
 
@@ -466,13 +466,13 @@ enum ArrayToken<'a> {
     RBRACKET,
     #[token(",")]
     COMMA,
-    #[regex(r#"[a-zA-Z0-9_]*"#)]
+    #[regex(r#"[a-zA-Z0-9_]+"#)]
     LITERAL(&'a str),
     #[regex(r#""[^"]*""#)]
     Text(&'a str),
     #[regex(r#"'[^']*'"#)]
     Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#)]
+    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
     NUM(&'a str),
 }
 
