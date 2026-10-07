@@ -64,6 +64,7 @@ mod tests {
     fn test_spike() {}
 
     #[test]
+    #[ignore]
     fn test_query() {
         let sql = "SELECT id, name FROM people";
         let db_url = "mysql://root:123456@localhost:3306/test";
@@ -75,6 +76,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_delete_row() {
         let sql = "delete from people where id ='2'";
         let db_url = "mysql://root:123456@localhost:3306/test";

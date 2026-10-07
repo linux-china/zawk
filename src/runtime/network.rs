@@ -283,18 +283,21 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_publish_nats() {
         let url = "nats://localhost:4222/topic1";
         publish(url, "Hello World!");
     }
 
     #[test]
+    #[ignore]
     fn test_publish_mqtt() {
         let url = "mqtt://localhost:1883/topic1";
         publish(url, "Hello World!");
     }
 
     #[test]
+    #[ignore]
     fn test_send_email() {
         dotenv::dotenv().ok();
         let from = "support@trial-3zxk54v3ykzgjy6v.mlsender.net";
@@ -305,6 +308,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_send_smtp() {
         dotenv::dotenv().ok();
         let smtp_url = env::var("SMTP_URL").unwrap();
