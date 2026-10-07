@@ -121,7 +121,10 @@ postgres = { version = "0.19", features = [
     "with-chrono-0_4",
     "with-time-0_3",
     "with-uuid-1",
+    "with-serde_json-1",
 ] }
+postgres-native-tls = "0.5.3"
+native-tls = "0.2.18"
 csv = "1.4"
 semver = "1"
 ctor = "1.0"
