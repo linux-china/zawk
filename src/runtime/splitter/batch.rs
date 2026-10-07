@@ -868,6 +868,7 @@ mod generic {
         // Precondition: bptr points to at least INPUT_SIZE bytes.
         unsafe fn fill_input(btr: *const u8) -> Self;
         unsafe fn or(self, rhs: Self) -> Self;
+        #[allow(dead_code)]
         unsafe fn and(self, rhs: Self) -> Self;
         unsafe fn mask(self) -> u64;
         // Compute a mask of which bits in input match (bytewise) `m`.

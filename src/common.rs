@@ -157,6 +157,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct IntoIter<L, R>(pub Either<L, R>);
 
 impl<L, R, T> IntoIterator for IntoIter<L, R>

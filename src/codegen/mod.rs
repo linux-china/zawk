@@ -274,6 +274,7 @@ pub(crate) trait Backend {
     // mappings from compile::Ty to Self::Ty
     fn void_ptr_ty(&self) -> Self::Ty;
     fn ptr_to(&self, ty: Self::Ty) -> Self::Ty;
+    #[allow(dead_code)]
     fn usize_ty(&self) -> Self::Ty;
     fn u32_ty(&self) -> Self::Ty;
     fn get_ty(&self, ty: compile::Ty) -> Self::Ty;
