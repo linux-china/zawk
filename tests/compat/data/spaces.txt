@@ -1,0 +1,5 @@
+  leading and   multiple   spaces  
+	tab	separated	line
+single
+
+last line with trailing space 

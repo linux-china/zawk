@@ -1,0 +1,56 @@
+# Known differences between zawk and gawk, one case per line: `name  # reason`.
+# These cases still run: the test fails if one of them starts passing, so remove fixed cases here.
+
+# records and fields
+01-assign-argument                    # `var=value` operands are treated as file names
+01-nf-decrease                        # assigning NF does not rebuild $0
+01-nf-increase                        # assigning NF does not rebuild $0
+01-rs-paragraph                       # RS = "" (paragraph mode) is not supported
+01-rs-paragraph-newline-fs            # RS = "" (paragraph mode) is not supported
+04-gsub-field                         # gsub() on a field without any match still rebuilds $0 with OFS
+
+# grammar and expressions
+03-concat-precedence                  # `x++ x` does not parse; `1 " " 2 + 3` binds concatenation tighter than +
+03-string-to-number                   # concatenation binds tighter than +: `"a" $0 + 0` is `("a" $0) + 0`
+03-precedence                         # `-2 ^ 2` is 4 instead of -4
+03-increment                          # `print i++, i, ++i` evaluates side effects out of order (5 5 5)
+03-strnum-comparison                  # unparenthesized ?: in print does not parse
+03-ternary-and-logic                  # unparenthesized ?: in print does not parse
+11-print-unparenthesized-comparison   # unparenthesized != and ~ in print do not parse
+11-gawk-power-operator                # ** and **= are not supported
+
+# number output
+03-arithmetic                         # print ignores OFMT (default %.6g), prints full precision
+03-number-output-format               # print ignores OFMT (default %.6g), prints full precision
+03-ofmt-convfmt                       # OFMT and CONVFMT are ignored
+
+# string functions
+04-length                             # length(number) fails to compile
+04-length-dollar0                     # length() without argument fails to compile
+04-length-no-parens                   # `length` without parentheses is not length($0)
+04-substr                             # negative start counts from the end of the string (Python style)
+04-utf8-length-substr                 # index() returns byte offsets while length()/substr() count chars
+04-utf8-match                         # match() returns byte offsets; interp backend: match() is broken
+04-match                              # interp backend only: match() returns 1 and RSTART 0
+02-regex-bracket                      # interp backend only: `~` returns the match position instead of 1
+
+# printf
+05-printf-floats                      # %f without precision, %e format, %E, %G and %g are wrong
+05-printf-integers                    # %+d, %X and %c with a number are not supported
+05-printf-percent                     # %% prints %%; interp backend prints nothing
+05-printf-star                        # * width and precision are not supported
+05-printf-strings                     # %c with a string prints a space
+
+# input and output
+09-environ-argv                       # ARGC and ARGV do not include the operands
+09-getline-missing-file               # getline from a missing file is fatal instead of returning -1
+09-getline-plain                      # getline does not increment NR
+09-getline-var                        # getline var does not increment NR
+09-getline-var-file                   # getline var < file clears var at end of file
+09-system                             # stdout is not flushed before system()
+
+# gawk extensions
+11-gawk-asort                         # asort() does not sort correctly
+11-gawk-ignorecase                    # IGNORECASE is not supported
+11-gawk-strtonum                      # strtonum() does not parse octal (leading 0)
+11-gawk-strftime-systime              # strftime() does not accept the utc-flag argument

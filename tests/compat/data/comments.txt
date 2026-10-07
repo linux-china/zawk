@@ -1,0 +1,7 @@
+start
+/* comment
+still comment */
+code 1
+/* one line */
+code 2
+end
