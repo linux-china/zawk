@@ -295,7 +295,7 @@ impl<'a, I> ProgramContext<'a, I> {
     pub fn main_stage(&self) -> &Stage<usize> {
         &self.main_offset
     }
-    pub fn main_offsets(&self) -> impl Iterator<Item=usize> + '_ {
+    pub fn main_offsets(&self) -> impl Iterator<Item=usize> + '_ + use<'_, I> {
         self.main_offset.iter().cloned()
     }
 }

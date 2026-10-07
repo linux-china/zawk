@@ -734,7 +734,7 @@ mod tests {
         low: usize,
         high: usize,
         name: &str,
-    ) -> impl FnOnce() -> IterChunkProducer<std::ops::Range<usize>> {
+    ) -> impl FnOnce() -> IterChunkProducer<std::ops::Range<usize>> + use<> {
         let name: Arc<str> = name.into();
         move || IterChunkProducer {
             iter: (low..high),

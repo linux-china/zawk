@@ -1,4 +1,5 @@
 #![recursion_limit = "1024"]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 #[macro_use]
 pub mod common;
@@ -88,7 +89,7 @@ struct Prelude<'a> {
 }
 
 // TODO: make file reading lazy
-fn open_file_read(f: &str) -> impl io::BufRead {
+fn open_file_read(f: &str) -> impl io::BufRead + use<> {
     enum LazyReader<F, R> {
         Uninit(F),
         Init(R),

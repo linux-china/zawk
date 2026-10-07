@@ -157,7 +157,7 @@ pub fn combine_slot<T: Default>(vec: &mut Vec<T>, slot: usize, f: impl FnOnce(T)
 }
 
 impl<'a> Core<'a> {
-    pub fn shuttle(&self, pid: Int) -> impl FnOnce() -> Core<'a> + Send {
+    pub fn shuttle(&self, pid: Int) -> impl FnOnce() -> Core<'a> + Send + use<'a> {
         use crate::builtins::Variables;
         let seed: u64 = rand::rng().random();
         let fw = self.write_files.clone();

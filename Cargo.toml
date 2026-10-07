@@ -5,7 +5,7 @@ authors = [
     "Eli Rosenthal <ezr@cs.brown.edu>",
     "linux_china <libing.chen@gmail.com>",
 ]
-edition = "2021"
+edition = "2024"
 description = "An efficient Awk-like language implementation by Rust with stdlib"
 homepage = "https://github.com/linux-china/zawk"
 repository = "https://github.com/linux-china/zawk"

@@ -112,7 +112,7 @@ pub fn default_factory() -> impl FileFactory {
     open_file
 }
 
-pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory> {
+pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
     // Do a test open+truncate of the file.
     let _file = open_file(fname, FileSpec::Trunc)?;
 
