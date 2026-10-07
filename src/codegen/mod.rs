@@ -33,8 +33,6 @@ macro_rules! external {
 #[macro_use]
 pub(crate) mod intrinsics;
 pub(crate) mod clif;
-#[cfg(feature = "llvm_backend")]
-pub(crate) mod llvm;
 
 use intrinsics::Runtime;
 

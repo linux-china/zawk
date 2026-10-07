@@ -1,15 +1,9 @@
-export LLVM_SYS_150_PREFIX := "/opt/homebrew/Cellar/llvm@15/15.0.7"
-
 build:
   cargo build
 
 # build on Windows platform
 build-windows:
   cross build --no-default-features --target x86_64-pc-windows-gnu
-
-# build with LLVM backend
-build-llvm:
-  cargo build --features llvm_backend
 
 release:
   cargo build --release

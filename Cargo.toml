@@ -34,7 +34,6 @@ rand = { version = "0.9", features = ["default"] }
 rand_core = { version = "0.9" }
 lalrpop-util = "0.22.2"
 unicode-xid = "0.2.6"
-llvm-sys = { version = "150.2.1", optional = true }
 clap = "4.6"
 crossbeam-channel = "0.5"
 crossbeam = "0.8"
@@ -162,7 +161,6 @@ default = []
 # the entire application slightly slower, even on chips that support it. For
 # those cases, consider disabling allow_avx2.
 allow_avx2 = []
-llvm_backend = ["dep:llvm-sys"]
 unstable = []
 
 [profile.dev.package."*"]

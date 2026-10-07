@@ -16,9 +16,6 @@ use std::fs::{read_to_string, File};
 use std::io::Write;
 use tempfile::tempdir;
 
-#[cfg(feature = "llvm_backend")]
-const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bllvm", "-Bcranelift"];
-#[cfg(not(feature = "llvm_backend"))]
 const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bcranelift"];
 
 const COUNTRIES: &str = r#"Russia	8650	262	Asia

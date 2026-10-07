@@ -100,7 +100,7 @@ zawk's higher performance are:
    maintaining just about all of Awk's semantics: the only type errors zawk
    gives you are type errors in Awk, as well.
 2. The fact that zawk produces a typed representation allows it to generate
-   fairly simple CLIF or LLVM IR and then JIT that IR to machine code at
+   fairly simple Cranelift IR (CLIF) and then JIT that IR to machine code at
    runtime. This avoids the overhead of an interpreter at the cost of a few
    milliseconds of time at startup. zawk provides a bytecode interpreter
    (enabled via the `-Binterp` option) for smaller scripts and for help in testing.
@@ -158,10 +158,9 @@ generates lower level code, and executes it.
 6. From there, the code is lowered into one of (a) [bytecode instructions](https://github.com/linux-china/zawk/blob/master/src/bytecode.rs)
    that can be
    [interpreted](https://github.com/linux-china/zawk/blob/master/src/interp.rs)
-   directly, (b)
-   [LLVM-IR](https://github.com/linux-china/zawk/blob/master/src/codegen/llvm/mod.rs)
-   that is JIT-compiled and then run, or (c)
-   [cranelift](https://github.com/linux-china/zawk/blob/master/src/codegen/clif.rs).
+   directly, or (b)
+   [cranelift](https://github.com/linux-china/zawk/blob/master/src/codegen/clif.rs)
+   IR that is JIT-compiled and then run.
 
 Most of this is fairly standard. The first few steps can be found (for example)
 in the [Tiger Book](https://www.cs.princeton.edu/~appel/modern/ml/). I used
@@ -170,15 +169,14 @@ Lengauer-Tarjan algorithm for SSA construction that were published after the
 Tiger Book.
 
 You can view a textual representation of the untyped CFG by passing the
-`--dump-cfg` flag to zawk. Bytecode and LLVM can be viewed with the
-`--dump-bytecode` and `--dump-llvm` options. The latter will be optimized;
-passing `-O0` will roughly show the LLVM constructed by zawk.
+`--dump-cfg` flag to zawk. Bytecode can be viewed with the
+`--dump-bytecode` option.
 
-To avoid long compile times and complicated builds, the LLVM and Cranelift code
+To avoid long compile times and complicated builds, the Cranelift code
 makes function calls into the same runtime that is used to interpret bytecode
 instructions.  Smuggling more of the runtime code into the generated code at
-build time would likely result in a faster program, because it would give LLVM
-(and to a lesser extent, Cranelift) more opportunities to inline and optimize
+build time would likely result in a faster program, because it would give
+Cranelift more opportunities to inline and optimize
 runtime calls. The current approach helps keep build times low, and the build
 setup simple.
 

@@ -3,18 +3,11 @@ use std::fs::{read_to_string, File};
 use std::io::Write;
 use tempfile::tempdir;
 
-#[cfg(feature = "llvm_backend")]
-const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bllvm", "-Bcranelift"];
-#[cfg(not(feature = "llvm_backend"))]
 const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bcranelift"];
 
 // A simple function that looks for the "constant folded" regex instructions in the generated
 // output. This is a function that is possible to fool: test cases should be mindful of how it is
 // implemented to ensure it is testing what is intended.
-//
-// We don't build this without llvm at the moment because we only fold constants on higher
-// optimization levels.
-#[cfg(feature = "llvm_backend")]
 fn assert_folded(p: &str) {
     let prog: String = p.into();
     let out = String::from_utf8(
@@ -62,7 +55,6 @@ BEGIN {
             .assert()
             .stdout(String::from("1\n"));
     }
-    #[cfg(feature = "llvm_backend")]
     {
         assert_folded(
             r#"function unused() { print x; }

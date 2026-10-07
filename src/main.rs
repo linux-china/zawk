@@ -240,29 +240,6 @@ fn run_cranelift_with_context<'a>(
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "llvm_backend")] {
-        fn run_llvm_with_context<'a>(
-            mut ctx: cfg::ProgramContext<'a, &'a str>,
-            stdin: impl IntoRuntime,
-            ff: impl runtime::writers::FileFactory,
-            cfg: codegen::Config,
-            signal: CancelSignal,
-        ) {
-            if let Err(e) = compile::run_llvm(&mut ctx, stdin, ff, cfg, signal) {
-                fail!("error compiling llvm: {}", e)
-            }
-        }
-
-        fn dump_llvm(prog: &str, cfg: codegen::Config, raw: &RawPrelude) -> String {
-            let a = Arena::default();
-            let mut ctx = get_context(prog, &a, get_prelude(&a, raw));
-            compile::dump_llvm(&mut ctx, cfg).unwrap_or_else(|e| fail!("error compiling llvm: {}", e))
-        }
-
-    }
-}
-
 const DEFAULT_OPT_LEVEL: i32 = 3;
 
 fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
@@ -317,8 +294,7 @@ fn main() {
             .required(true)
             .help("AWK file to create")
         );
-    #[allow(unused_mut)]
-    let mut app = Command::new("zawk")
+    let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
         .about("zawk is an AWK language implementation by Rust with stdlib support")
@@ -335,7 +311,7 @@ fn main() {
             .short('O')
             .num_args(1)
             .allow_hyphen_values(true)
-            .help("The optimization level for the program. Positive levels determine the optimization level for LLVM. Level `-1` forces bytecode interpretation")
+            .help("The optimization level for the program. Level `-1` forces bytecode interpretation; level 3 enables constant folding of regular expressions")
             .value_parser(["-1", "0", "1", "2", "3"]))
         .arg(Arg::new("out-file")
             .long("out-file")
@@ -383,7 +359,7 @@ fn main() {
             .long("backend")
             .short('B')
             .help("The backend used to run the frawk program, ranging from fastest to compile and slowest to execute, and slowest to compile and fastest to execute. Cranelift is the default")
-            .value_parser(["interp", "cranelift", "llvm"]))
+            .value_parser(["interp", "cranelift"]))
         .arg(Arg::new("output-format")
             .long("output-format")
             .short('o')
@@ -415,14 +391,6 @@ fn main() {
             .requires("parallel-strategy")
             .num_args(1)
             .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "llvm_backend")] {
-            app = app.arg(Arg::new("dump-llvm")
-             .long("dump-llvm")
-             .num_args(0)
-             .help("Print LLVM-IR for the input program"));
-        }
-    }
     // display help/version information from awk file
     let mut args: Vec<String> = std::env::args().collect();
     if args.len() > 2 { // sub help from
@@ -588,25 +556,7 @@ fn main() {
     };
     let opt_dump_bytecode = matches.get_flag("dump-bytecode");
     let opt_dump_cfg = matches.get_flag("dump-cfg");
-    cfg_if::cfg_if! {
-        if #[cfg(feature="llvm_backend")] {
-            let opt_dump_llvm = matches.get_flag("dump-llvm");
-            if opt_dump_llvm {
-                let config = codegen::Config {
-                    opt_level: if opt_level < 0 { 3 } else { opt_level as usize },
-                    num_workers,
-                };
-                let _ = write!(
-                    io::stdout(),
-                    "{}",
-                    dump_llvm(program_string.as_str(), config, &raw),
-                );
-            }
-        } else {
-            let opt_dump_llvm = false;
-        }
-    }
-    let skip_output = opt_dump_llvm || opt_dump_bytecode || opt_dump_cfg;
+    let skip_output = opt_dump_bytecode || opt_dump_cfg;
     if opt_dump_bytecode {
         let _ = write!(
             io::stdout(),
@@ -787,24 +737,6 @@ fn main() {
         };
     }
     match matches.get_one::<String>("backend").map(|s| s.as_str()) {
-        Some("llvm") => {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "llvm_backend")] {
-                    with_io!(|inp, oup| run_llvm_with_context(
-                            ctx,
-                            inp,
-                            oup,
-                            codegen::Config {
-                                opt_level: opt_level as usize,
-                                num_workers,
-                            },
-                            signal,
-                    ));
-                } else {
-                    fail!("backend specified as LLVM, but compiled without LLVM support");
-                }
-            }
-        }
         Some("interp") => {
             with_io!(|inp, oup| run_interp_with_context(ctx, inp, oup, num_workers))
         }
@@ -814,7 +746,7 @@ fn main() {
                 inp,
                 oup,
                 codegen::Config {
-                    opt_level: opt_level as usize,
+                    opt_level: opt_level.max(0) as usize,
                     num_workers,
                 },
                 signal,

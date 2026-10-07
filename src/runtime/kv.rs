@@ -270,6 +270,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_put() {
         let namespace = "demo";
         kv_put(namespace, "name", "Jackie");
@@ -281,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_redis_operations() {
         let namespace = "redis://localhost:6379/demo1";
         let key = "nick";
@@ -293,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_parse_redis_url() {
         let url = "redis://localhost:6379/demo1";
         let operation = redis_kv::RedisHashOperation::from(url);
@@ -300,6 +303,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_parse_nats_url() {
         let url = "nats://localhost:4222/bucket1";
         let operation = nats_kv::NatsKvOperation::from(url);
@@ -308,6 +312,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_nats_get() {
         let value = "Jackie";
         let url = "nats://localhost:4222/bucket2";

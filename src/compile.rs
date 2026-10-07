@@ -2,8 +2,6 @@ use crate::builtins;
 use crate::bytecode;
 use crate::cfg::{self, is_unused, Function, Ident, PrimExpr, PrimStmt, PrimVal, ProgramContext};
 use crate::codegen;
-#[cfg(feature = "llvm_backend")]
-use crate::codegen::llvm;
 use crate::common::{
     CancelSignal, CompileError, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList,
 };
@@ -170,58 +168,6 @@ pub(crate) fn context_compiles<'a>(ctx: &mut cfg::ProgramContext<'a, &'a str>) -
 #[cfg(test)]
 pub(crate) fn used_fields<'a>(ctx: &mut cfg::ProgramContext<'a, &'a str>) -> Result<FieldSet> {
     Ok(Typer::init_from_ctx(ctx)?.used_fields)
-}
-
-#[cfg(feature = "llvm_backend")]
-pub(crate) fn dump_llvm<'a>(
-    ctx: &mut cfg::ProgramContext<'a, &'a str>,
-    cfg: llvm::Config,
-) -> Result<String> {
-    use llvm::Generator;
-    let mut typer = Typer::init_from_ctx(ctx)?;
-    unsafe {
-        let mut generator = Generator::init(&mut typer, cfg)?;
-        generator.dump_module()
-    }
-}
-
-#[cfg(all(test, feature = "llvm_backend", feature = "unstable"))]
-pub(crate) fn compile_llvm<'a>(
-    ctx: &mut cfg::ProgramContext<'a, &'a str>,
-    cfg: llvm::Config,
-) -> Result<()> {
-    use llvm::Generator;
-    let mut typer = Typer::init_from_ctx(ctx)?;
-    unsafe {
-        let mut generator = Generator::init(&mut typer, cfg)?;
-        generator.compile_main()
-    }
-}
-
-#[cfg(feature = "llvm_backend")]
-pub(crate) fn run_llvm<'a>(
-    ctx: &mut cfg::ProgramContext<'a, &'a str>,
-    reader: impl codegen::intrinsics::IntoRuntime,
-    ff: impl runtime::writers::FileFactory,
-    cfg: llvm::Config,
-    cancel_signal: CancelSignal,
-) -> Result<()> {
-    use llvm::Generator;
-    let mut typer = Typer::init_from_ctx(ctx)?;
-    let used_fields = typer.used_fields.clone();
-    let named_cols = typer.named_columns.take();
-    unsafe {
-        let generator = Generator::init(&mut typer, cfg)?;
-        codegen::run_main(
-            generator,
-            reader,
-            ff,
-            &used_fields,
-            named_cols,
-            cfg.num_workers,
-            cancel_signal,
-        )
-    }
 }
 
 pub(crate) fn run_cranelift<'a>(

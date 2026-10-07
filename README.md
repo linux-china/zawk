@@ -53,29 +53,7 @@ $ cargo binstall zawk
 ```
 
 You will need to [install Rust](https://rustup.rs/). If you have not updated rust in a while,
-run `rustup update nightly` (or `rustup update` if building using stable). If you would like
-to use the LLVM backend, you will need an installation of LLVM 15 on your machine:
-
-* See [this site](https://apt.llvm.org/) for installation instructions on some debian-based Linux distros.
-  See also the comments on [this issue](https://github.com/ezrosent/frawk/issues/63) for docker files that
-  can be used to build a binary on Ubuntu.
-* On Arch `pacman -Sy llvm llvm-libs` and a C compiler (e.g. `clang`) are sufficient as of September 2022.
-* `brew install llvm@15` or similar seem to work on macOS.
-
-Depending on where your package manager puts these libraries, you may need to
-point `LLVM_SYS_150_PREFIX` at the llvm library installation
-(e.g. `/usr/lib/llvm-15` on Linux or `/opt/homebrew/opt/llvm@15` on macOS when installing llvm@15 via Homebrew).
-
-**Attention**: Compare to Cranelift, binary with LLVM is bigger(almost 32M vs 8.5M).
-
-### Building Without LLVM
-
-While the LLVM backend is recommended, it is possible to build frawk only with
-support for the Cranelift-based JIT and its bytecode interpreter. To do this,
-build without the `llvm_backend` feature. The Cranelift backend provides
-comparable performance to LLVM for smaller scripts, but LLVM's optimizations
-can sometimes deliver a substantial performance boost over Cranelift (see the
-[benchmarks](https://github.com/linux-china/zawk/blob/master/info/performance.md) document for some examples of this).
+run `rustup update nightly` (or `rustup update` if building using stable).
 
 ### Building Using Stable
 
@@ -91,10 +69,7 @@ add to your `PATH` if you so choose:
 
 ```
 $ cd <zawk repo path>
-# Without LLVM
 $ cargo +nightly install --path .
-# With LLVM, but with other recommended defaults
-$ cargo +nightly install --path . --no-default-features --features use_jemalloc,llvm_backend,allow_avx2,unstable
 ```
 
 zawk is now on [crates.io](https://crates.io/crates/zawk), so running

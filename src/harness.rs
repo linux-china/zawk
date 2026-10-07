@@ -2,8 +2,6 @@
 //! "everything but main" end to end; there's a test suite at the end.
 #[cfg(feature = "unstable")]
 use crate::bytecode::Interp;
-#[cfg(feature = "llvm_backend")]
-use crate::codegen::llvm;
 use crate::{
     arena::Arena,
     ast,
@@ -165,73 +163,6 @@ pub(crate) fn run_program<'a>(
 ) -> ProgResult<'a> {
     let stmt = parse_program(prog, a, esc, strat)?;
     run_prog(a, stmt, stdin, esc, ifmt, strat)
-}
-
-cfg_if! {
-    if #[cfg(all(feature="llvm_backend", feature="unstable"))] {
-        pub(crate) fn compile_llvm(prog: &str, esc: Escaper) -> Result<()> {
-            let a = Arena::default();
-            let stmt = parse_program(prog, &a, esc, ExecutionStrategy::Serial)?;
-            let mut ctx = cfg::ProgramContext::from_prog(&a, stmt, esc)?;
-            compile::compile_llvm(&mut ctx, CODEGEN_CONFIG)
-        }
-    }
-}
-
-cfg_if! {
-    if #[cfg(feature="llvm_backend")] {
-        pub(crate) fn dump_llvm(prog: &str, esc: Escaper) -> Result<String> {
-            let a = Arena::default();
-            let stmt = parse_program(prog, &a, esc, ExecutionStrategy::Serial)?;
-            let mut ctx = cfg::ProgramContext::from_prog(&a, stmt, esc)?;
-            compile::dump_llvm(&mut ctx, CODEGEN_CONFIG)
-        }
-
-        // The run_llvm path implements a subset of the logic in main that specializes the input
-        // readers for whitespace, or single-byte-separator splitter implementations. The bytecode
-        // path does not, because we want to ensure that the logic works when using the more
-        // general regex-based splitter.
-        pub(crate) fn run_llvm(
-            prog: &str,
-            stdin: impl Into<String>,
-            esc: Escaper,
-            ifmt: Option<InputFormat>,
-            strat: ExecutionStrategy,
-        ) -> Result<String> {
-            let a = Arena::default();
-            let stmt = parse_program(prog, &a, esc, strat)?;
-            let mut ctx = cfg::ProgramContext::from_prog(&a, stmt, esc)?;
-            ctx.fold_regex_constants = true;
-            let sep_analysis = ctx.analyze_sep_assignments();
-            if _PRINT_DEBUG_INFO {
-                let mut buf = Vec::<u8>::new();
-                ctx.dbg_print(&mut buf).unwrap();
-                eprintln!("{}", String::from_utf8(buf).unwrap());
-            }
-            let fake_fs = FakeFs::default();
-            if let Some(ifmt) = ifmt {
-                compile::run_llvm(
-                    &mut ctx,
-                    simulate_stdin_csv(ifmt, stdin, strat),
-                    fake_fs.clone(),
-                    llvm::Config {
-                        opt_level: CODEGEN_CONFIG.opt_level,
-                        num_workers: strat.num_workers(),
-                    },
-                    Default::default(),
-                )?;
-            } else {
-                with_reader!(sep_analysis, stdin, |reader| {
-                    compile::run_llvm(&mut ctx, reader, fake_fs.clone(), CODEGEN_CONFIG, Default::default())?;
-                });
-            }
-            let v = fake_fs.stdout.read_data();
-            match String::from_utf8(v) {
-                Ok(s) => Ok(s),
-                Err(e) => err!("program produced invalid unicode: {}", e),
-            }
-        }
-    }
 }
 
 pub(crate) fn run_cranelift(
@@ -480,25 +411,6 @@ mod tests {
                         Err(e) => panic!("failed to run program: {}", e),
                     }
                 }
-                #[cfg(feature = "llvm_backend")]
-                #[test]
-                fn llvm() {
-                    match run_llvm(
-                        $e,
-                        $in,
-                        Escaper::Identity,
-                        Some(InputFormat::CSV),
-                        ExecutionStrategy::$strat,
-                    ) {
-                        Ok(out) => assert_eq!(
-                            out,
-                            $out,
-                            "llvm=\n{}",
-                            dump_llvm($e, Escaper::Identity).expect("failed to dump llvm")
-                        ),
-                        Err(e) => panic!("{}", e),
-                    }
-                }
             }
         };
     }
@@ -557,17 +469,6 @@ mod tests {
                 fn cranelift() {
                     match run_cranelift($e, $inp, $esc, $csv, ExecutionStrategy::Serial) {
                         Ok(out) => assert_eq!(out, $out),
-                        Err(e) => panic!("{}", e),
-                    }
-                }
-
-                #[cfg(feature = "llvm_backend")]
-                #[test]
-                fn llvm() {
-                    match run_llvm($e, $inp, $esc, $csv, ExecutionStrategy::Serial) {
-                        Ok(out) => assert_eq!(
-                            out, $out,
-                            "llvm=\n{}", dump_llvm($e, $esc).expect("failed to dump llvm")),
                         Err(e) => panic!("{}", e),
                     }
                 }
@@ -1515,28 +1416,11 @@ mod bench {
                         });
                     }
                 }
-
-                #[cfg(feature = "llvm_backend")]
-                mod llvm {
-                    use super::*;
-                    #[bench]
-                    fn end_to_end(b: &mut Bencher) {
-                        b.iter(|| {
-                            black_box(run_llvm($e, $inp, Escaper::Identity, None, ExecutionStrategy::Serial).unwrap());
-                        });
-                    }
-                    #[bench]
-                    fn compile_only(b: &mut Bencher) {
-                        b.iter(|| {
-                            black_box(compile_llvm($e, Escaper::Identity).unwrap());
-                        });
-                    }
-                }
             }
         };
     }
 
-    // Looks to be memory corruption somewhere in this benchmark. Inspect the llvm output
+    // Looks to be memory corruption somewhere in this benchmark.
     bench_program!(
         str_movs_split,
         r#"END {
