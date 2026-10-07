@@ -24,6 +24,8 @@ jobs:
         include:
           - os: ubuntu-latest
             fileName: zawk-x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            fileName: zawk-aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v7
       - name: Build
@@ -36,9 +38,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            fileName: zawk-x86_64-apple-darwin
-          - os: macos-14
             fileName: zawk-aarch64-apple-darwin
+          - os: macos-15-intel
+            fileName: zawk-x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v7
       - name: Build
