@@ -5,10 +5,14 @@ use crate::runtime::{Int, Str};
 
 const WEEKS: [&'static str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+/// Convert a unix timestamp to local date time, falling back to the epoch for out-of-range values.
+fn local_date_time(timestamp: i64) -> DateTime<Local> {
+    let utc = DateTime::from_timestamp(timestamp, 0).unwrap_or_default();
+    utc.with_timezone(&Local)
+}
+
 pub fn strftime(format: &str, timestamp: i64) -> String {
-    let utc_now = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
-    let local_now: DateTime<Local> = Local.from_utc_datetime(&utc_now);
-    local_now.format(&format.to_string()).to_string()
+    local_date_time(timestamp).format(format).to_string()
 }
 
 /// Sentinel timezone for `mktime(text)`: text without an explicit offset is treated as local time.
@@ -64,23 +68,24 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
         datetime2(timestamp)
     } else {
-        let timestamp = mktime(date_time_text, 0);
+        let timestamp = mktime(date_time_text, MKTIME_LOCAL_TIMEZONE);
         datetime2(timestamp)
     }
 }
 
 pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     let result: runtime::StrMap<Int> = runtime::StrMap::default();
-    let utc_now = DateTime::from_timestamp(timestamp, 0).unwrap().naive_utc();
-    result.insert(Str::from("second"), utc_now.second() as Int);
-    result.insert(Str::from("minute"), utc_now.minute() as Int);
-    result.insert(Str::from("hour"), utc_now.hour() as Int);
-    result.insert(Str::from("althour"), utc_now.hour12().1 as Int);
-    result.insert(Str::from("monthday"), utc_now.day() as Int);
-    result.insert(Str::from("month"), utc_now.month() as Int);
-    result.insert(Str::from("year"), utc_now.year() as Int);
-    result.insert(Str::from("weekday"), utc_now.weekday() as Int);
-    result.insert(Str::from("yearday"), utc_now.ordinal() as Int);
+    // use local time zone, same as strftime()
+    let local_now = local_date_time(timestamp);
+    result.insert(Str::from("second"), local_now.second() as Int);
+    result.insert(Str::from("minute"), local_now.minute() as Int);
+    result.insert(Str::from("hour"), local_now.hour() as Int);
+    result.insert(Str::from("althour"), local_now.hour12().1 as Int);
+    result.insert(Str::from("monthday"), local_now.day() as Int);
+    result.insert(Str::from("month"), local_now.month() as Int);
+    result.insert(Str::from("year"), local_now.year() as Int);
+    result.insert(Str::from("weekday"), local_now.weekday() as Int);
+    result.insert(Str::from("yearday"), local_now.ordinal() as Int);
     return result;
 }
 
@@ -109,6 +114,18 @@ mod tests {
         let format = "%c";
         let timestamp = 1621530000;
         println!("{}", strftime(format, timestamp));
+    }
+
+    #[test]
+    fn test_datetime_consistent_with_strftime() {
+        let timestamp = 1621530000;
+        let dt = datetime2(timestamp);
+        let fields = [("%Y", "year"), ("%m", "month"), ("%d", "monthday"), ("%H", "hour"), ("%M", "minute"), ("%S", "second"), ("%j", "yearday")];
+        for (format, key) in fields {
+            assert_eq!(strftime(format, timestamp).parse::<Int>().unwrap(), dt.get(&Str::from(key)), "{}", key);
+        }
+        // date time text without offset is parsed as local time
+        assert_eq!(datetime("2021-05-20 10:11:12").get(&Str::from("hour")), 10);
     }
 
     #[test]
