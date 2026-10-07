@@ -100,6 +100,7 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
         Algorithm::EdDSA => {
             EncodingKey::from_ed_pem(key.as_ref()).unwrap()
         }
+        _ => panic!("unsupported JWT algorithm: {}", algorithm),
     };
     let header = Header::new(jwt_algorithm);
     jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
@@ -120,6 +121,7 @@ fn decoding_key_from_pem(alg: Algorithm, pem: &str) -> Option<DecodingKey> {
         Algorithm::EdDSA => DecodingKey::from_ed_pem(pem.as_ref()).ok(),
         // never use public PEM text as HMAC secret: algorithm confusion attack
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => None,
+        _ => None,
     }
 }
 
@@ -134,6 +136,7 @@ fn jwk_allowed_algorithms(jwk: &Jwk) -> Vec<Algorithm> {
         },
         AlgorithmParameters::OctetKeyPair(_) => vec![Algorithm::EdDSA],
         AlgorithmParameters::OctetKey(_) => HMAC_ALGORITHMS.to_vec(),
+        _ => vec![],
     };
     match jwk.common.key_algorithm {
         // KeyAlgorithm and Algorithm share the same names for signature algorithms
