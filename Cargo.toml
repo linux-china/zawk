@@ -55,7 +55,7 @@ cranelift-jit = "0.118"
 fast-float = "0.2"
 bumpalo = { version = "3.20", features = ["collections"] }
 target-lexicon = "0.13"
-uuid = { version = "1.16", features = ["v4", "v7", "fast-rng"] }
+uuid = { version = "1.27", features = ["v4", "v7", "fast-rng"] }
 ulid = "1.2"
 tsid = "0.3"
 rs-snowflake = "0.6"
@@ -164,6 +164,16 @@ default = []
 allow_avx2 = []
 llvm_backend = ["dep:llvm-sys"]
 unstable = []
+
+[profile.dev.package."*"]
+# Set the default for dependencies in Development mode.
+opt-level = 1
+debug-assertions = true
+
+[profile.dev]
+# Turn on a small amount of optimisation in Development mode.
+opt-level = 1
+debug-assertions = true
 
 [profile.release]
 strip = true
