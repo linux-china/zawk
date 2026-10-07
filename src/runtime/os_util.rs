@@ -56,8 +56,11 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
                     Str::from("file_name"),
                     Str::from(file_name_text.to_string()),
                 );
-                let file_stem = file_name_text.split('.').collect::<Vec<&str>>()[0];
-                map.insert(Str::from("file_stem"), Str::from(file_stem.to_string()));
+            }
+        }
+        if let Some(file_stem) = path_buf.file_stem() {
+            if let Some(file_stem_text) = file_stem.to_str() {
+                map.insert(Str::from("file_stem"), Str::from(file_stem_text.to_string()));
             }
         }
         if let Some(name_extension) = path_buf.extension() {
@@ -101,6 +104,19 @@ mod tests {
         let text = "./demo.awk";
         let map = path(text);
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_path_file_stem() {
+        let dir = std::env::temp_dir().join("zawk_test_path_file_stem");
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, stem) in [(".bashrc", ".bashrc"), ("a.tar.gz", "a.tar"), ("demo.awk", "demo")] {
+            let file = dir.join(name);
+            std::fs::write(&file, "").unwrap();
+            let map = path(file.to_str().unwrap());
+            assert_eq!(map.get(&Str::from("file_stem")).to_string(), stem);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
