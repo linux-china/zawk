@@ -811,7 +811,7 @@ mod tests {
         }
 
         assert_eq!(got, (0..30).collect::<Vec<_>>());
-        assert_eq!(names, vec!["file1".into(), "file2".into(), "file3".into()]);
+        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
     }
 
     #[test]
@@ -839,7 +839,7 @@ mod tests {
         }
 
         assert_eq!(got, vec![0, 10, 20]);
-        assert_eq!(names, vec!["file1".into(), "file2".into(), "file3".into()]);
+        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
     }
 
     #[test]
@@ -870,7 +870,7 @@ mod tests {
         }
 
         assert_eq!(got, vec![0, 10, 20]);
-        assert_eq!(names, vec!["file1".into(), "file2".into(), "file3".into()]);
+        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
     }
 
     #[test]
@@ -891,7 +891,7 @@ mod tests {
                         .get_chunk(&mut chunk)
                         .expect("get_chunk should succeed")
                     {
-                        assert_eq!(chunk.name, "file1".into());
+                        assert_eq!(chunk.name, Arc::<str>::from("file1"));
                         got.lock().unwrap().push(chunk.item);
                     }
                 }));

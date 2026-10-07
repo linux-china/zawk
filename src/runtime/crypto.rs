@@ -295,28 +295,36 @@ fn cbc_padded_buf(plaintext: &[u8]) -> Vec<u8> {
     buf
 }
 
+/// random bytes from the OS CSPRNG, used as IV/nonce
+fn random_bytes<const N: usize>() -> Option<[u8; N]> {
+    use rand::{rngs::OsRng, TryRngCore};
+    let mut buf = [0u8; N];
+    OsRng.try_fill_bytes(&mut buf).ok()?;
+    Some(buf)
+}
+
 fn encrypt_bytes(key: &[u8], gcm: bool, plaintext: &[u8]) -> Option<Vec<u8>> {
-    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes128Gcm, Aes256Gcm};
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Aes256Gcm, Nonce};
     let bytes = match (key.len(), gcm) {
         (32, true) => {
-            let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+            let nonce = Nonce::<U12>::from(random_bytes::<12>()?);
             let ct = Aes256Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
             [nonce.to_vec(), ct].concat()
         }
         (16, true) => {
-            let nonce = Aes128Gcm::generate_nonce(&mut OsRng);
+            let nonce = Nonce::<U12>::from(random_bytes::<12>()?);
             let ct = Aes128Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
             [nonce.to_vec(), ct].concat()
         }
         (32, false) => {
-            let iv = Aes256CbcEnc::generate_iv(&mut OsRng);
+            let iv = random_bytes::<16>()?;
             let cipher = Aes256CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
             [iv.as_slice(), ct].concat()
         }
         (16, false) => {
-            let iv = Aes128CbcEnc::generate_iv(&mut OsRng);
+            let iv = random_bytes::<16>()?;
             let cipher = Aes128CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
             let ct = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
@@ -335,10 +343,10 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
             return None;
         }
         let (nonce, ciphertext) = data.split_at(12);
-        let nonce = Nonce::<U12>::from_slice(nonce);
+        let nonce = Nonce::<U12>::try_from(nonce).ok()?;
         match key.len() {
-            32 => Aes256Gcm::new_from_slice(key).ok()?.decrypt(nonce, ciphertext).ok(),
-            16 => Aes128Gcm::new_from_slice(key).ok()?.decrypt(nonce, ciphertext).ok(),
+            32 => Aes256Gcm::new_from_slice(key).ok()?.decrypt(&nonce, ciphertext).ok(),
+            16 => Aes128Gcm::new_from_slice(key).ok()?.decrypt(&nonce, ciphertext).ok(),
             _ => None,
         }
     } else {
@@ -594,9 +602,8 @@ mod tests {
 
     #[test]
     fn test_generate_nonce() {
-        use aes_gcm::{aead::{AeadCore, OsRng}, Aes256Gcm};
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let iv = hex::encode(nonce.to_vec());
+        let nonce = random_bytes::<12>().unwrap();
+        let iv = hex::encode(nonce);
         println!("iv1: {}", iv);
         println!("iv2: {}", hex::encode(get_iv()));
     }
