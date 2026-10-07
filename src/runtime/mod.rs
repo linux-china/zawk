@@ -56,7 +56,7 @@ pub(crate) static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::n
 
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
-pub use command::run_command2;
+pub(crate) use command::run_command2;
 pub(crate) use float_parse::{hextoi, strtod, strtoi};
 pub(crate) use printf::FormatArg;
 pub use splitter::{

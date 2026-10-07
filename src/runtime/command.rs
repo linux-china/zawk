@@ -28,7 +28,7 @@ pub fn run_command(cmd: &str) -> Int {
     run_command_inner(cmd).unwrap_or_else(|e| wrap_err(e.raw_os_error()))
 }
 
-pub fn run_command2(cmd: &str) -> StrMap<'_, Str<'_>> {
+pub(crate) fn run_command2(cmd: &str) -> StrMap<'_, Str<'_>> {
     let mut map = hashbrown::HashMap::new();
     if let Ok(mut command) = prepare_command(cmd) {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());

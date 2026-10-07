@@ -1,3 +1,6 @@
+// nats (sync client) is deprecated in favor of async-nats, but still required here
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;

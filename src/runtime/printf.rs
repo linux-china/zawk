@@ -134,7 +134,7 @@ impl Default for FormatSpec {
             minus: false,
             leading_zeros: false,
             lnum: 0,
-            rnum: usize::max_value(),
+            rnum: usize::MAX,
             spec: b'z', /* invalid */
         }
     }
@@ -151,7 +151,7 @@ fn process_spec(mut w: impl Write, fspec: &mut FormatSpec, arg: &FormatArg) -> R
                 fspec.minus,
                 fspec.leading_zeros,
                 fspec.lnum,
-                fspec.rnum == usize::max_value(),
+                fspec.rnum == usize::MAX,
             ) {
                 (true, true, lnum, true) => write!(w, concat!("{:0<l$", $s, "}"), $arg, l = lnum),
                 (true, false, lnum, true) => write!(w, concat!("{:<l$", $s, "}"), $arg, l = lnum),
@@ -190,7 +190,7 @@ fn process_spec(mut w: impl Write, fspec: &mut FormatSpec, arg: &FormatArg) -> R
     }
     let res = match fspec.spec {
         b'f' => {
-            if !fspec.leading_zeros && fspec.lnum == 0 && fspec.rnum == usize::max_value() {
+            if !fspec.leading_zeros && fspec.lnum == 0 && fspec.rnum == usize::MAX {
                 // Fast path: use Ryu, which today is more efficient than the standard library.
                 // NB Ryu prints some things a bit differently than most awk implementations.
                 // `write!(w, "{}", arg.to_float())` is a bit closer.
@@ -361,7 +361,7 @@ pub(crate) fn printf(mut w: impl Write, spec: &[u8], mut args: &[FormatArg]) -> 
                             continue;
                         }
                         (ch, Rnum) => {
-                            if fs.rnum != usize::max_value() {
+                            if fs.rnum != usize::MAX {
                                 break;
                             }
                             if ch != b'.' {

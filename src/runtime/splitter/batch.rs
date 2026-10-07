@@ -1509,7 +1509,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             progress: 0,
             record_sep,
             used_fields: FieldSet::all(),
-            last_len: usize::max_value(),
+            last_len: usize::MAX,
             check_utf8,
         }
     }
@@ -1601,7 +1601,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
             progress: 0,
             record_sep: 0, // unused
             used_fields: FieldSet::all(),
-            last_len: usize::max_value(),
+            last_len: usize::MAX,
             check_utf8,
         }
     }
@@ -1635,7 +1635,7 @@ where
                 buf_len: 0,
                 progress: 0,
                 record_sep,
-                last_len: usize::max_value(),
+                last_len: usize::MAX,
                 used_fields,
                 check_utf8,
             }) as _)

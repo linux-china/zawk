@@ -1,6 +1,5 @@
 use crate::runtime;
 use crate::runtime::{SharedMap, Str};
-use std::env::VarError;
 use std::path::PathBuf;
 
 pub fn os() -> String {

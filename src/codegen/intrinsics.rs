@@ -3,7 +3,6 @@
 //! There is quite a lot of code here at this point, but most of it is "glue". Where possible we
 //! try and hew closely to the steps in the `interp` module, with most functionality in the
 //! underlying runtime library.
-use crate::runtime::str_impl;
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{
     self, config_util, date_time, encoding, faker, kv, logging, math_util, network, os_util,

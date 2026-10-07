@@ -1774,7 +1774,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Substr if args_len == 2 => {
                         // We clamp indexes anyway, we'll just put a big number in as the
                         // rightmost index.
-                        prim_args.push(PrimVal::ILit(i64::max_value()));
+                        prim_args.push(PrimVal::ILit(i64::MAX));
                     }
                     // strftime() => strftime("", -1);
                     builtins::Function::Strftime if args_len == 0 => {

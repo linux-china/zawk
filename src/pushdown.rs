@@ -112,7 +112,7 @@ impl FieldSet {
     /// The `fi` value is ignored. for full sets we return u32::max_value()
     pub fn max_value(&self) -> u32 {
         if self == &FieldSet::all() {
-            u32::max_value()
+            u32::MAX
         } else {
             self.max_bit()
         }

@@ -619,7 +619,7 @@ pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
 }
 
 /// eval context with https://lib.rs/crates/evalexpr
-pub fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
+pub(crate)  fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
@@ -638,7 +638,7 @@ pub fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
     }
 }
 
-pub fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Float {
+pub(crate) fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
@@ -649,7 +649,7 @@ pub fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Flo
     let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
     value_to_float(&result)
 }
-pub fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
+pub(crate)  fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
