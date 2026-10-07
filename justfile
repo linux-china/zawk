@@ -20,7 +20,7 @@ display-awk-file-help:
   cargo run --package zawk --bin zawk -- -f demo.awk --help
 
 run-local:
-  cargo run --package zawk --bin zawk -- -f demo.awk demo.txt
+  cargo run --package zawk --bin zawk -- -f demo.awk -v nick="Jackie" -v email="user@example.com" demo.txt
 
 run-local-2-file:
   rm -rf output.txt
