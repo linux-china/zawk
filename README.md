@@ -52,9 +52,6 @@ or install by [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 $ cargo binstall zawk
 ```
 
-*Note: zawk uses some nightly-only Rust features.
-Build [without the `unstable`](#building-using-stable) feature to build on stable.*
-
 You will need to [install Rust](https://rustup.rs/). If you have not updated rust in a while,
 run `rustup update nightly` (or `rustup update` if building using stable). If you would like
 to use the LLVM backend, you will need an installation of LLVM 15 on your machine:
