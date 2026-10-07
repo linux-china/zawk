@@ -169,12 +169,13 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
+    // `exit` without a code has no argument: in END it keeps the code of an earlier `exit`.
     "exit" <PrecAdd?> =>
        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit),
-                                                     arena.alloc_slice(&[<>.unwrap_or_else(|| arena.alloc(Expr::ILit(0)))]))))),
+                                                     arena.alloc_slice(<>.as_slice()))))),
     "exit(" <Expr?> ")" =>
        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit),
-                                                     arena.alloc_slice(&[<>.unwrap_or_else(|| arena.alloc(Expr::ILit(0)))]))))),
+                                                     arena.alloc_slice(<>.as_slice()))))),
     "break" => arena.alloc(Stmt::Break),
     "continue" => arena.alloc(Stmt::Continue),
     "next" => arena.alloc(Stmt::Next),

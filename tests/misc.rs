@@ -442,3 +442,43 @@ fn non_utf8_input_does_not_panic() {
             .stdout(String::from("4 32 caf\n"));
     }
 }
+
+#[test]
+fn exit_runs_end_block() {
+    // (program, expected stdout, expected exit code), compared with gawk
+    let cases: &[(&str, &str, i32)] = &[
+        (r#"{exit 2} END{print "end", NR}"#, "end 1\n", 2),
+        (r#"BEGIN{exit 3} END{print "end", NR}"#, "end 0\n", 3),
+        (r#"NR==2{exit} {s+=$1} END{print "sum", s}"#, "sum 1\n", 0),
+        (r#"{exit 1; print "dead"} END{print "e"}"#, "e\n", 1),
+        // `exit` without code in END keeps the earlier code, `exit code` in END exits at once
+        (r#"{exit 4} END{print "end"; exit}"#, "end\n", 4),
+        (r#"{exit 4} END{print "end"; exit 5; print "no"}"#, "end\n", 5),
+        // `exit` inside (nested) user defined functions
+        (
+            r#"function f(x){ if (x==2) exit 7; return x*10 } {print f($1)} END{print "end", NR}"#,
+            "10\nend 2\n",
+            7,
+        ),
+        (
+            r#"function g(){ exit 9 } function f(){ g(); print "no" } {f()} END{print "end"}"#,
+            "end\n",
+            9,
+        ),
+        (r#"function f(){ exit 6 } END{print "in end"; f(); print "no"}"#, "in end\n", 6),
+        // without END block
+        (r#"{print; exit 2}"#, "1\n", 2),
+    ];
+    for (prog, expected, code) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("1\n2\n3\n")
+                .assert()
+                .code(*code)
+                .stdout(String::from(*expected));
+        }
+    }
+}

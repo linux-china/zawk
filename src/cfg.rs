@@ -1,6 +1,6 @@
 use crate::arena;
 use crate::ast::{self, Expr, Stmt, Unop};
-use crate::builtins::{self, IsSprintf};
+use crate::builtins::{self, FromStatic, IsSprintf};
 use crate::common::{Either, FileSpec, Graph, NodeIx, NumTy, Result, Stage};
 use crate::dom;
 
@@ -333,6 +333,7 @@ impl<'a, I> ProgramContext<'a, I>
         builtins::Variable: TryFrom<I>,
         builtins::Function: TryFrom<I>,
         I: IsSprintf
+        + FromStatic
         + Hash
         + Eq
         + Clone
@@ -445,6 +446,7 @@ impl<'a, I> ProgramContext<'a, I>
             max: 1, // 0 reserved for assigning to "unused" var for side-effecting operations
             conds: Default::default(),
             esc,
+            exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
         };
         let mut func_table: HashMap<FunctionName<I>, NumTy> = Default::default();
         let mut funcs: Vec<Function<'a, I>> = Default::default();
@@ -592,6 +594,9 @@ struct GlobalContext<I> {
     max: NumTy,
     conds: HashMap<usize, Ident>,
     esc: Escaper,
+    // Whether `exit` outside of the END block has to run the END block first (POSIX): true for
+    // serial programs with an END block.
+    exit_to_end: bool,
 }
 
 impl<I> GlobalContext<I> {
@@ -644,6 +649,11 @@ pub(crate) struct Function<'a, I> {
     // NB: We only support doing this from main.
     toplevel_header: Option<NodeIx>,
 
+    // Entry node of the END block, the target of `exit` from BEGIN or the main loop.
+    end_entry: Option<NodeIx>,
+    // Whether statements of the END block are being converted.
+    in_end: bool,
+
     vars: VarAssigns<'a>,
 
     // Dominance information about `cfg`.
@@ -669,6 +679,8 @@ impl<'a, I> Function<'a, I> {
             exit,
             loop_ctx: Default::default(),
             toplevel_header: None,
+            end_entry: None,
+            in_end: false,
             vars: Default::default(),
             dt: Default::default(),
             df: Default::default(),
@@ -695,9 +707,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     where
         builtins::Variable: TryFrom<I>,
         builtins::Function: TryFrom<I>,
-        I: IsSprintf,
+        I: IsSprintf + FromStatic,
 {
     fn fill<'c>(&mut self, stmt: &'c Stmt<'c, 'b, I>) -> Result<()> {
+        if self.ctx.exit_to_end && self.f.name.is_main() {
+            // Initialize the hidden exit variables, so they are always typed as integers.
+            let (exiting, code) = self.exit_vars();
+            for id in [exiting, code] {
+                self.add_stmt(self.f.entry, PrimStmt::AsgnVar(id, PrimExpr::Val(PrimVal::ILit(0))))?;
+            }
+        }
         // Add a Cfg corresponding to `stmt`
         let _next = self.convert_stmt(stmt, self.f.entry)?;
         // Insert edges to the exit nodes if where they do not exist
@@ -786,6 +805,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             LastCond(cond) => {
                 self.set_cond(current_open, *cond, 2)?;
                 current_open
+            }
+            &Expr(&ast::Expr::Call(Either::Right(builtins::Function::Exit), args)) if args.len() <= 1 => {
+                self.do_exit(args.first().copied(), current_open)?
             }
             Expr(e) => {
                 // We need to assign to unused here, otherwise we could generate the expression but
@@ -992,6 +1014,23 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             NextFile => {
                 self.do_next(current_open, /*is_next_file*/ true)?;
                 current_open
+            }
+            EndBlock(body) => {
+                let entry = self.end_entry();
+                self.guarded_else(current_open, entry);
+                // `exit` called while running END exits immediately.
+                let (exiting, code) = self.exit_vars();
+                self.add_stmt(entry, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(0))))?;
+                self.f.in_end = true;
+                let end = self.convert_stmt(body, entry)?;
+                self.f.in_end = false;
+                // Exit with the non-zero code of an earlier `exit`, if any.
+                let exit_now = self.exit_now_node()?;
+                self.f.cfg.add_edge(end, exit_now, Transition::new(PrimVal::Var(code)));
+                let next = self.f.cfg.add_node(Default::default());
+                self.f.cfg.add_edge(end, next, Transition::null());
+                self.seal(end);
+                next
             }
             Return(ret) => {
                 let (current_open, e) = if let Some(ret) = ret {
@@ -1466,6 +1505,114 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     }
 
     // Handles "break", "continue" statements.
+    /// Hidden global variables: (exiting flag, pending exit code).
+    fn exit_vars(&mut self) -> (Ident, Ident) {
+        let exiting = self.get_identifier(&I::from_static("%exiting"));
+        let code = self.get_identifier(&I::from_static("%exit_code"));
+        (exiting, code)
+    }
+
+    fn end_entry(&mut self) -> NodeIx {
+        match self.f.end_entry {
+            Some(entry) => entry,
+            None => {
+                let entry = self.f.cfg.add_node(Default::default());
+                self.f.end_entry = Some(entry);
+                entry
+            }
+        }
+    }
+
+    /// A node that exits the program with the pending exit code.
+    fn exit_now_node(&mut self) -> Result<NodeIx> {
+        let (_, code) = self.exit_vars();
+        let node = self.f.cfg.add_node(Default::default());
+        self.add_stmt(
+            node,
+            PrimStmt::AsgnVar(
+                Ident::unused(),
+                PrimExpr::CallBuiltin(builtins::Function::Exit, smallvec![PrimVal::Var(code)]),
+            ),
+        )?;
+        Ok(node)
+    }
+
+    /// Where control goes when exiting: the END block from BEGIN or the main loop, the exit
+    /// of the function (returning to the caller, which checks the exiting flag) from a user
+    /// defined function, and the program exit from the END block.
+    fn exit_target(&mut self) -> Result<NodeIx> {
+        if self.f.in_end {
+            self.exit_now_node()
+        } else if self.f.name.is_main() {
+            Ok(self.end_entry())
+        } else {
+            let node = self.f.cfg.add_node(Default::default());
+            self.add_stmt(
+                node,
+                PrimStmt::AsgnVar(self.f.ret, PrimExpr::Val(PrimVal::Var(Ident::unused()))),
+            )?;
+            self.f.cfg.add_edge(node, self.f.exit, Transition::null());
+            self.seal(node);
+            Ok(node)
+        }
+    }
+
+    /// `exit [code]`. When the END block must run first (POSIX), record the exit code and jump
+    /// to END, returning an unreachable node for any statements following `exit`. `exit` without
+    /// a code exits with 0, or with the code of an earlier `exit` when called from END.
+    fn do_exit<'c>(&mut self, code: Option<&'c Expr<'c, 'b, I>>, current_open: NodeIx) -> Result<NodeIx> {
+        let (current_open, code_v) = match code {
+            Some(code) => {
+                let (next, v) = self.convert_val(code, current_open)?;
+                (next, Some(v))
+            }
+            None => (current_open, None),
+        };
+        if !self.ctx.exit_to_end {
+            let code_v = code_v.unwrap_or(PrimVal::ILit(0));
+            self.add_stmt(
+                current_open,
+                PrimStmt::AsgnVar(
+                    Ident::unused(),
+                    PrimExpr::CallBuiltin(builtins::Function::Exit, smallvec![code_v]),
+                ),
+            )?;
+            return Ok(current_open);
+        }
+        let (exiting, code) = self.exit_vars();
+        let code_e = match code_v {
+            Some(v) => Some(PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![v])),
+            None if self.f.in_end => None,
+            None => Some(PrimExpr::Val(PrimVal::ILit(0))),
+        };
+        if let Some(code_e) = code_e {
+            self.add_stmt(current_open, PrimStmt::AsgnVar(code, code_e))?;
+        }
+        self.add_stmt(current_open, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(1))))?;
+        let target = self.exit_target()?;
+        // A never-taken branch keeps the statements after `exit` well-formed.
+        let never = self.fresh_local();
+        self.add_stmt(current_open, PrimStmt::AsgnVar(never, PrimExpr::Val(PrimVal::ILit(0))))?;
+        let dead = self.f.cfg.add_node(Default::default());
+        self.f.cfg.add_edge(current_open, dead, Transition::new(PrimVal::Var(never)));
+        self.f.cfg.add_edge(current_open, target, Transition::null());
+        self.seal(current_open);
+        Ok(dead)
+    }
+
+    /// Evaluate a call to a user defined function, then leave if it called `exit`.
+    fn after_udf_call(&mut self, call: PrimExpr<'b>, current_open: NodeIx) -> Result<(NodeIx, PrimExpr<'b>)> {
+        let res = self.fresh_local();
+        self.add_stmt(current_open, PrimStmt::AsgnVar(res, call))?;
+        let (exiting, _) = self.exit_vars();
+        let target = self.exit_target()?;
+        let next = self.f.cfg.add_node(Default::default());
+        self.f.cfg.add_edge(current_open, target, Transition::new(PrimVal::Var(exiting)));
+        self.f.cfg.add_edge(current_open, next, Transition::null());
+        self.seal(current_open);
+        Ok((next, PrimExpr::Val(PrimVal::Var(res))))
+    }
+
     fn do_break_continue(&mut self, current_open: NodeIx, is_break: bool) -> Result<()> {
         let name = if is_break { "break" } else { "continue" };
         if self.f.loop_ctx.len() == 1 && self.f.toplevel_header.is_some() {
@@ -1649,7 +1796,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         .entry(None)
                         .or_insert_with(Vec::new)
                         .push((current_open.index(), None));
-                    Ok((open, PrimExpr::CallUDF(*i, prim_args)))
+                    let call = PrimExpr::CallUDF(*i, prim_args);
+                    if self.ctx.exit_to_end {
+                        // `exit` inside the callee returns early with the exiting flag set.
+                        self.after_udf_call(call, open)
+                    } else {
+                        Ok((open, call))
+                    }
                 } else {
                     err!("Call to unknown function \"{}\"", fname)
                 };

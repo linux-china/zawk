@@ -314,6 +314,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
         }
         match self.stage {
             Stage::Main(_) => {
+                let end = end.map(|end| &*arena.alloc(EndBlock(end)));
                 begin.extend(main_loop.into_iter().chain(end));
                 Stage::Main(arena.alloc(Block(begin)))
             }
@@ -444,4 +445,7 @@ pub enum Stmt<'a, 'b, I> {
     Next,
     NextFile,
     Return(Option<&'a Expr<'a, 'b, I>>),
+    // The END block of a serial program: `exit` from BEGIN or the main loop jumps here, see
+    // `cfg::View::do_exit`.
+    EndBlock(&'a Stmt<'a, 'b, I>),
 }
