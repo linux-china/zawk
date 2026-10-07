@@ -3,7 +3,7 @@ use std::io::{BufReader, Cursor};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use sha2::{Sha256, Sha512, Digest};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use aes::cipher::consts::U12;
@@ -33,11 +33,11 @@ pub fn digest(algorithm: &str, text: &str) -> String {
     } else if algorithm == "sha256" || algorithm == "sha-256" {
         let mut hasher = Sha256::default();
         hasher.update(text.as_bytes());
-        return format!("{:x}", hasher.finalize());
+        return hex::encode(hasher.finalize());
     } else if algorithm == "sha512" || algorithm == "sha-512" {
         let mut hasher = Sha512::default();
         hasher.update(text.as_bytes());
-        return format!("{:x}", hasher.finalize());
+        return hex::encode(hasher.finalize());
     } else if algorithm == "bcrypt" {
         return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap();
     } else if algorithm == "murmur3" {
@@ -56,11 +56,11 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
     if algorithm == "HmacSHA512" {
         let mut mac = HmacSha512::new_from_slice(key.as_bytes()).unwrap();
         mac.update(text.as_bytes());
-        format!("{:x}", mac.finalize().into_bytes())
+        hex::encode(mac.finalize().into_bytes())
     } else {
         let mut mac = HmacSha256::new_from_slice(key.as_bytes()).unwrap();
         mac.update(text.as_bytes());
-        format!("{:x}", mac.finalize().into_bytes())
+        hex::encode(mac.finalize().into_bytes())
     }
 }
 

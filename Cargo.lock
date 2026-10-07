@@ -1430,13 +1430,12 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dateparser"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2ef451feee09ae5ecd8a02e738bd9adee9266b8fa9b44e22d3ce968d8694238"
+checksum = "fa7c3b5f25f753dcbf8f77a535166e08cba151529b6df9be966984053a68cf39"
 dependencies = [
  "anyhow",
  "chrono",
- "lazy_static",
  "regex",
 ]
 
@@ -1570,9 +1569,9 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
 dependencies = [
  "dirs-sys",
 ]
@@ -1820,13 +1819,13 @@ dependencies = [
 
 [[package]]
 name = "fake"
-version = "4.4.0"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b0902eb36fbab51c14eda1c186bda119fcff91e5e4e7fc2dd2077298197ce8"
+checksum = "ea6be833b323a56361118a747470a45a1bcd5c52a2ec9b1e40c83dafe687e453"
 dependencies = [
  "deunicode",
  "either",
- "rand 0.9.5",
+ "rand 0.10.3",
 ]
 
 [[package]]
@@ -6756,7 +6755,7 @@ dependencies = [
  "growable-bloom-filter",
  "hashbrown 0.15.5",
  "hex",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "identitycard",
  "ini",
  "itertools 0.14.0",
@@ -6806,7 +6805,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_path",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "shell-escape",
  "shlex 1.3.0",
  "smallvec",
