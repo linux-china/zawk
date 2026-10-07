@@ -320,7 +320,7 @@ pub(crate) fn snowflake(machine_id: u16) -> Int {
 }
 
 pub(crate) fn ulid() -> String {
-    ulid::Ulid::new().to_string()
+    ulid::Ulid::generate().to_string()
 }
 
 pub(crate) fn tsid() -> String {

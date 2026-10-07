@@ -20,7 +20,7 @@ build = "build.rs"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1.0"
-petgraph = "0.7"
+petgraph = "0.8"
 smallvec = "1.16"
 hashbrown = "0.17"
 growable-bloom-filter = "2.1"
@@ -55,7 +55,7 @@ fast-float = "0.2"
 bumpalo = { version = "3.20", features = ["collections"] }
 target-lexicon = "0.13"
 uuid = { version = "1.27", features = ["v4", "v7", "fast-rng"] }
-ulid = "1.2"
+ulid = "3.0"
 tsid = "0.3"
 rs-snowflake = "0.6"
 fend-core = "1.5"
@@ -99,7 +99,7 @@ reqwest = { version = "0.13", features = ["blocking", "json"] }
 oneio = { version = "0.26.1"}
 #nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 nats = "0.26.0"
-paho-mqtt = { version = "0.13", features = ["vendored-ssl"] }
+paho-mqtt = { version = "0.14", features = ["vendored-ssl"] }
 redis = "1.7"
 minio = { version = "0.4.0" }
 tokio = { version = "1.53", features = ["full"] }
