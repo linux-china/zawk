@@ -690,7 +690,7 @@ impl<'a> Str<'a> {
         if l >= len {
             Str::default()
         } else {
-            let end = l + r;
+            let end = l.saturating_add(r);
             if end > len {
                 let sub: String = text.chars().skip(l).take(len - l).collect();
                 Str::from(sub)
