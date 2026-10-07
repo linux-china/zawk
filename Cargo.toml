@@ -104,7 +104,7 @@ oneio = { version = "0.17", default-features = false, features = [
 nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 paho-mqtt = { version = "0.13", features = ["vendored-ssl"] }
 redis = "0.29"
-minio = { git = "https://github.com/minio/minio-rs" }
+minio = { version = "0.4.0" }
 tokio = { version = "1", features = ["full"] }
 mime_guess = "2"
 dirs = "6"
