@@ -227,7 +227,7 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
                 text: text.to_string(),
             };
             builder = builder.json(&req);
-        } else if api_key.starts_with("https://api.mailersend.com") {
+        } else if api_url.starts_with("https://api.mailersend.com") {
             let receivers = to.split(',').map(|email| MailAddress::new(email)).collect();
             let req = MailerSendRequest {
                 from: MailAddress::new(from),
@@ -235,9 +235,18 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
                 subject: subject.to_string(),
                 text: text.to_string(),
             };
-            builder = builder.json(&req)
+            builder = builder.json(&req);
         }
-        let _resp = builder.send().unwrap();
+        match builder.send() {
+            Ok(resp) => {
+                let status = resp.status();
+                if !status.is_success() {
+                    let body = resp.text().unwrap_or_default();
+                    eprintln!("Failed to send mail via {}: HTTP {} {}", api_url, status, body);
+                }
+            }
+            Err(e) => eprintln!("Failed to send mail via {}: {}", api_url, e),
+        }
     }
 }
 
