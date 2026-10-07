@@ -309,19 +309,21 @@ impl Generator {
         // Now, build each global variable "by hand". Allocate a variable for it, assign it to the
         // address of a default value of the type in question on the stack.
         for (reg, ty) in globals {
-            let var = Variable::new(view.f.n_vars);
-            vars.push((var, ty));
             view.f.n_vars += 1;
             let cl_ty = view.get_ty(ty);
             let ptr_ty = view.ptr_to(cl_ty);
-            view.builder.declare_var(var, ptr_ty);
+            let var = view.builder.declare_var(ptr_ty);
+            vars.push((var, ty));
 
             let slot = view.stack_slot_bytes(cl_ty.lane_bits() / 8);
             let default = view.default_value(ty)?;
             if let compile::Ty::Str = ty {
                 view.store_string(slot, default);
             } else {
-                view.builder.ins().stack_store(default, slot, 0);
+                let void_ptr_ty = view.void_ptr_ty();
+                view.builder
+                    .ins()
+                    .stack_store(void_ptr_ty, default, slot, 0);
             }
 
             let addr = view.builder.ins().stack_addr(ptr_ty, slot, 0);
@@ -341,7 +343,8 @@ impl Generator {
             view.drop_val(ty, val);
         }
         view.builder.ins().return_(&[]);
-        view.builder.finalize();
+        let frontend_config = view.shared.module.target_config();
+        view.builder.finalize(frontend_config);
         self.define_cur_function(res)?;
         Ok(res)
     }
@@ -574,7 +577,8 @@ impl<'a> View<'a> {
         if DUMP_IR {
             eprintln!("{}", self.builder.func);
         }
-        self.builder.finalize();
+        let frontend_config = self.shared.module.target_config();
+        self.builder.finalize(frontend_config);
         Ok(())
     }
 
@@ -609,9 +613,8 @@ impl<'a> View<'a> {
             .cloned()
             .collect();
         for (i, (val, (rf, ty))) in params.into_iter().zip(param_tys).enumerate() {
-            let var = Variable::new(self.f.n_vars);
             self.f.n_vars += 1;
-            self.builder.declare_var(var, ty);
+            let var = self.builder.declare_var(ty);
             self.builder.def_var(var, val);
             if i == self.f.n_params - 1 {
                 // runtime
@@ -739,7 +742,7 @@ impl<'a> View<'a> {
                 }
                 if let compile::Ty::Str = ty {
                     let str_ty = self.get_ty(*ty);
-                    v = self.builder.ins().load(str_ty, MemFlags::trusted(), v, 0);
+                    v = self.builder.ins().load(str_ty, MemFlagsData::trusted(), v, 0);
                 }
                 self.drop_all();
                 self.builder.ins().return_(&[v]);
@@ -796,7 +799,7 @@ impl<'a> View<'a> {
         let ptr_ty = self.ptr_to(str_ty);
         // We get an error if we do a direct stack_store here
         let addr = self.builder.ins().stack_addr(ptr_ty, ss, 0);
-        self.builder.ins().store(MemFlags::trusted(), v, addr, 0);
+        self.builder.ins().store(MemFlagsData::trusted(), v, addr, 0);
     }
 
     fn execute_actions(&mut self) -> Result<()> {
@@ -830,26 +833,23 @@ impl<'a> View<'a> {
     /// Initialize the `Variable` associated with a non-iterator local variable of type `ty`.
     fn declare_local(&mut self, ty: compile::Ty) -> Result<Variable> {
         use compile::Ty::*;
-        let next_var = Variable::new(self.f.n_vars);
-        self.f.n_vars += 1;
         let cl_ty = self.get_ty(ty);
+        let next_var = match ty {
+            Null | Int | Float => self.builder.declare_var(cl_ty),
+            Str => {
+                let ptr_ty = self.ptr_to(cl_ty);
+                self.builder.declare_var(ptr_ty)
+            }
+            MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
+                self.builder.declare_var(cl_ty)
+            }
+            IterInt | IterStr => return err!("iterators cannot be declared"),
+        };
+        self.f.n_vars += 1;
         // Remember to allocate/initialize this variable in the header
         self.f
             .header_actions
             .push(EntryDeclaration { ty, var: next_var });
-        match ty {
-            Null | Int | Float => {
-                self.builder.declare_var(next_var, cl_ty);
-            }
-            Str => {
-                let ptr_ty = self.ptr_to(cl_ty);
-                self.builder.declare_var(next_var, ptr_ty);
-            }
-            MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
-                self.builder.declare_var(next_var, cl_ty);
-            }
-            IterInt | IterStr => return err!("iterators cannot be declared"),
-        }
         Ok(next_var)
     }
 
@@ -858,13 +858,11 @@ impl<'a> View<'a> {
         use compile::Ty::*;
         match ty {
             IterStr | IterInt => {
-                let bytes = Variable::new(self.f.n_vars);
-                let cur = Variable::new(self.f.n_vars + 1);
-                let base = Variable::new(self.f.n_vars + 2);
                 self.f.n_vars += 3;
-                self.builder.declare_var(bytes, types::I64);
-                self.builder.declare_var(cur, types::I64);
-                self.builder.declare_var(base, self.void_ptr_ty());
+                let bytes = self.builder.declare_var(types::I64);
+                let cur = self.builder.declare_var(types::I64);
+                let void_ptr_ty = self.void_ptr_ty();
+                let base = self.builder.declare_var(void_ptr_ty);
                 Ok(IterState { bytes, cur, base })
             }
             Null | Int | Float | Str | MapIntInt | MapIntFloat | MapIntStr | MapStrInt
@@ -1083,16 +1081,17 @@ impl<'a> View<'a> {
         let type_slot = self.stack_slot_bytes(mem::size_of::<u32>() as u32 * len);
 
         // Store arguments and types into the corresponding stack slot.
+        let void_ptr_ty = self.void_ptr_ty();
         for (ix, rf) in args.iter().cloned().enumerate() {
             let ix = ix as i32;
             let arg = self.get_val(rf)?;
             let ty = self.builder.ins().iconst(types::I32, rf.1 as i64);
             self.builder
                 .ins()
-                .stack_store(arg, arg_slot, ix * slot_size);
+                .stack_store(void_ptr_ty, arg, arg_slot, ix * slot_size);
             self.builder
                 .ins()
-                .stack_store(ty, type_slot, ix * mem::size_of::<u32>() as i32);
+                .stack_store(void_ptr_ty, ty, type_slot, ix * mem::size_of::<u32>() as i32);
         }
         let num_args = self.const_int(len as _);
         Ok((arg_slot, type_slot, num_args))
@@ -1121,7 +1120,7 @@ impl<'a> View<'a> {
             Int | Float => {
                 if let VarKind::Global = kind {
                     let p = self.builder.use_var(var);
-                    self.builder.ins().store(MemFlags::trusted(), v, p, 0);
+                    self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
                 } else {
                     self.builder.def_var(var, v);
                 }
@@ -1132,7 +1131,7 @@ impl<'a> View<'a> {
                 // first, drop the value currently in the pointer
                 let p = self.builder.use_var(var);
                 self.drop_val(Str, p);
-                self.builder.ins().store(MemFlags::trusted(), v, p, 0);
+                self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 if let VarKind::Global = kind {
@@ -1141,11 +1140,11 @@ impl<'a> View<'a> {
                     let pointee = self
                         .builder
                         .ins()
-                        .load(types::I64, MemFlags::trusted(), p, 0);
+                        .load(types::I64, MemFlagsData::trusted(), p, 0);
                     self.drop_val(r.1, pointee);
 
                     // And slot the new value in
-                    self.builder.ins().store(MemFlags::trusted(), v, p, 0);
+                    self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
                 } else {
                     let cur = self.builder.use_var(var);
                     self.drop_val(r.1, cur);
@@ -1172,7 +1171,7 @@ impl<'a> View<'a> {
             Str => {
                 self.call_external_void(external!(ref_str), &[src]);
                 let str_ty = self.get_ty(Str);
-                let loaded = self.builder.ins().load(str_ty, MemFlags::trusted(), src, 0);
+                let loaded = self.builder.ins().load(str_ty, MemFlagsData::trusted(), src, 0);
                 self.bind_val_inner((dst, Str), loaded, skip_drop)?;
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
@@ -1310,7 +1309,7 @@ impl<'a> CodeGenerator for View<'a> {
             | Float => {
                 if is_global {
                     let ty = self.get_ty(r.1);
-                    Ok(self.builder.ins().load(ty, MemFlags::trusted(), val, 0))
+                    Ok(self.builder.ins().load(ty, MemFlagsData::trusted(), val, 0))
                 } else {
                     Ok(val)
                 }
@@ -1445,11 +1444,12 @@ impl<'a> CodeGenerator for View<'a> {
         let slot = self.stack_slot_bytes(bytes);
 
         // Now, store pointers to each of the strings into the array.
+        let void_ptr_ty = self.void_ptr_ty();
         for (ix, reg) in args.iter().cloned().enumerate() {
             let arg = self.get_val(reg.reflect())?;
             self.builder
                 .ins()
-                .stack_store(arg, slot, ix as i32 * slot_size);
+                .stack_store(void_ptr_ty, arg, slot, ix as i32 * slot_size);
         }
 
         let rt = self.runtime_val();
@@ -1516,7 +1516,7 @@ impl<'a> CodeGenerator for View<'a> {
         let cur_val = self.builder.use_var(cur);
         let ptr = self.builder.ins().iadd(base, cur_val);
         let ty = self.get_ty(dst.1);
-        let contents = self.builder.ins().load(ty, MemFlags::trusted(), ptr, 0);
+        let contents = self.builder.ins().load(ty, MemFlagsData::trusted(), ptr, 0);
 
         // Increment cur
         let type_size = self.get_ty(dst.1).lane_bits() / 8;
