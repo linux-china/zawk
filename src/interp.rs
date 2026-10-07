@@ -821,7 +821,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_timezone: i64 = *self.get(*timezone);
                         let result = runtime::date_time::mktime(dt_text.as_str(), dt_timezone);
                         let ir = *dst;
-                        *self.get_mut(ir) = result as Int;
+                        *self.get_mut(ir) = result;
                     }
                     Duration(dst, expr) => {
                         let expr = index(&self.strs, expr);

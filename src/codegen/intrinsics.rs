@@ -1361,7 +1361,7 @@ pub(crate) unsafe extern "C" fn fake(data: *mut U128, locale: *mut U128) -> U128
 
 pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
     let dt_text = &*(date_time_text as *mut Str);
-    date_time::mktime(dt_text.as_str(), timezone) as Int
+    date_time::mktime(dt_text.as_str(), timezone)
 }
 
 pub(crate) unsafe extern "C" fn duration(expr: *mut U128) -> Int {

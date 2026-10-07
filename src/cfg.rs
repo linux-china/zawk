@@ -1785,9 +1785,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Strftime if args_len == 1 => {
                         prim_args.push(PrimVal::ILit(-1 as Int));
                     }
-                    // mktime(date_text, timezone) => mktime(date_text, -1);
+                    // mktime(date_text) => mktime(date_text, MKTIME_LOCAL_TIMEZONE);
                     builtins::Function::Mktime if args_len == 1 => {
-                        prim_args.push(PrimVal::ILit(-1 as Int));
+                        prim_args.push(PrimVal::ILit(crate::runtime::date_time::MKTIME_LOCAL_TIMEZONE as Int));
                     }
                     // trim(s) => trim(s, " ");
                     builtins::Function::Trim if args_len == 1 => {

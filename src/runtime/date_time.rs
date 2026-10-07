@@ -1,5 +1,5 @@
 use std::time::SystemTime;
-use chrono::{Datelike, DateTime, Local, Timelike, TimeZone, Utc};
+use chrono::{Datelike, DateTime, FixedOffset, Local, NaiveDateTime, Timelike, TimeZone};
 use crate::runtime;
 use crate::runtime::{Int, Str};
 
@@ -11,38 +11,40 @@ pub fn strftime(format: &str, timestamp: i64) -> String {
     local_now.format(&format.to_string()).to_string()
 }
 
-pub fn mktime(date_time_text: &str, timezone: i64) -> u64 {
-    let dt_text_timezone = if timezone > 0 {
-        format!("{} {}", date_time_text, timezone_offset_text(timezone))
-    } else {
-        date_time_text.to_string()
-    };
-    if let Some(timestamp) = parse_systemd_time_timestamp(date_time_text, timezone) {
-        return timestamp as u64;
-    } else if let Ok(date_time) = dateparser::parse(&dt_text_timezone) {
-        return date_time.timestamp() as u64;
-    } else {
-        // fend date format: Thursday, 20 May 2021
-        if is_fend_date(&dt_text_timezone) {
-            let adjusted_dt_text = &dt_text_timezone[dt_text_timezone.find(' ').unwrap() + 1..];
-            if let Ok(date_time) = dateparser::parse(&adjusted_dt_text) {
-                return date_time.timestamp() as u64;
-            }
-        }
-        let dt_text = format!("{} {}", date_time_text, timezone_offset_text(timezone));
-        //gawk compatible parser
-        if let Ok(date_time) = DateTime::parse_from_str(&dt_text, "%Y %m %d %H %M %S %z") {
-            return date_time.timestamp() as u64;
-        }
-    }
-    0
+/// Sentinel timezone for `mktime(text)`: text without an explicit offset is treated as local time.
+pub const MKTIME_LOCAL_TIMEZONE: i64 = i64::MIN;
+
+/// Parse date time text to a unix timestamp.
+/// `timezone` is the UTC offset in hours (e.g. `8` for UTC+8, `-5` for UTC-5) applied to text without an explicit offset;
+/// [`MKTIME_LOCAL_TIMEZONE`] or an out-of-range value means local time.
+pub fn mktime(date_time_text: &str, timezone: i64) -> i64 {
+    let offset = timezone.checked_mul(3600)
+        .and_then(|seconds| i32::try_from(seconds).ok())
+        .and_then(FixedOffset::east_opt);
+    match offset {
+        Some(offset) => mktime_tz(date_time_text, &offset),
+        None => mktime_tz(date_time_text, &Local),
+    }.unwrap_or(0)
 }
 
-fn parse_systemd_time_timestamp(timestamp: &str, timezone: i64) -> Option<i64> {
-    if let Ok(timestamp) = chrono_systemd_time::parse_timestamp_tz(timestamp, Utc)
-        .map(|x| x.single().unwrap())
-        .map(|x| x.timestamp()) {
-        return Some(timestamp + timezone * 3600);
+fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
+    if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone()).ok()
+        .and_then(|x| x.single()) {
+        return Some(timestamp.timestamp());
+    }
+    if let Ok(date_time) = dateparser::parse_with_timezone(date_time_text, tz) {
+        return Some(date_time.timestamp());
+    }
+    // fend date format: Thursday, 20 May 2021
+    if is_fend_date(date_time_text) {
+        let adjusted_dt_text = &date_time_text[date_time_text.find(' ').unwrap() + 1..];
+        if let Ok(date_time) = dateparser::parse_with_timezone(adjusted_dt_text, tz) {
+            return Some(date_time.timestamp());
+        }
+    }
+    //gawk compatible parser
+    if let Ok(naive) = NaiveDateTime::parse_from_str(date_time_text, "%Y %m %d %H %M %S") {
+        return tz.from_local_datetime(&naive).earliest().map(|dt| dt.timestamp());
     }
     None
 }
@@ -55,16 +57,6 @@ fn is_fend_date(text: &str) -> bool {
     false
 }
 
-fn timezone_offset_text(timezone: i64) -> String {
-    if timezone >= 10 {
-        format!("+{}:00", timezone)
-    } else if timezone >= 0 && timezone < 10 {
-        format!("+0{}:00", timezone)
-    } else {
-        "+00:00".to_owned()
-    }
-}
-
 pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
     if date_time_text.is_empty() {
         let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -73,7 +65,7 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
         datetime2(timestamp)
     } else {
         let timestamp = mktime(date_time_text, 0);
-        datetime2(timestamp as i64)
+        datetime2(timestamp)
     }
 }
 
@@ -125,6 +117,22 @@ mod tests {
         for item in date_text_items {
             println!("{}", mktime(item, 0));
         }
+    }
+
+    #[test]
+    fn test_mktime_timezone() {
+        // 2024-01-01 10:00:00 at UTC+8 is 2024-01-01 02:00:00 UTC
+        assert_eq!(mktime("2024-01-01 10:00:00", 8), 1704074400);
+        // 2024-01-01 10:00:00 at UTC-5 is 2024-01-01 15:00:00 UTC
+        assert_eq!(mktime("2024-01-01 10:00:00", -5), 1704121200);
+        assert_eq!(mktime("2024-01-01 10:00:00", 0), 1704103200);
+        // gawk format
+        assert_eq!(mktime("2024 01 01 10 00 00", 8), 1704074400);
+        assert_eq!(mktime("2024 01 01 10 00 00", -5), 1704121200);
+        // explicit offset in text wins over timezone argument
+        assert_eq!(mktime("2024-01-01 10:00:00 +08:00", -5), 1704074400);
+        // before 1970
+        assert_eq!(mktime("1969-12-31 23:00:00", 0), -3600);
     }
 
     #[test]
