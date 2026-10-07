@@ -98,6 +98,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn test_query_async() {
         let sql = "SELECT id, email FROM users";
         let db_path = "http://127.0.0.1:8080";
@@ -109,6 +110,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_query() {
         let sql = "SELECT id, email FROM users";
         let db_path = "http://127.0.0.1:8080";
@@ -120,6 +122,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_create_db() {
         let sql = "CREATE TABLE IF NOT EXISTS user (nick VARCHAR UNIQUE, email VARCHAR, age INT)";
         let db_path = "http://127.0.0.1:8080";
