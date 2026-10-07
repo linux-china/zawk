@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 use lazy_static::lazy_static;
 use lettre::Transport;
 use reqwest::blocking::Response;
@@ -17,11 +18,18 @@ pub fn local_ip() -> String {
     "127.0.0.1".to_owned()
 }
 
+/// Shared HTTP client: reuses the connection pool across calls, with explicit timeouts.
+static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Failed to build HTTP client")
+});
+
 pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
-    use reqwest::blocking::Client;
-    let client = Client::new();
     let resp_obj: StrMap<Str> = StrMap::default();
-    let mut builder = client.get(url);
+    let mut builder = HTTP_CLIENT.get(url);
     if headers.len() > 0 {
         builder = builder.headers(convert_to_http_headers(headers));
     }
@@ -35,10 +43,8 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
 
 
 pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str) -> StrMap<'a, Str<'a>> {
-    use reqwest::blocking::Client;
-    let client = Client::new();
     let resp_obj: StrMap<Str> = StrMap::default();
-    let mut builder = client.post(url);
+    let mut builder = HTTP_CLIENT.post(url);
     if headers.len() > 0 {
         builder = builder.headers(convert_to_http_headers(headers));
     }
@@ -215,8 +221,7 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
         return;
     }
     if !api_url.is_empty() {
-        let client = reqwest::blocking::Client::new();
-        let mut builder = client.post(&api_url)
+        let mut builder = HTTP_CLIENT.post(&api_url)
             .header("Authorization", format!("Bearer {}", api_key));
         if api_url.starts_with("https://api.resend.com") {
             let receivers: Vec<String> = to.split(',').map(|s| s.to_string()).collect();
