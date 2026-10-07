@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use evalexpr::{DefaultNumericTypes, Value};
@@ -8,95 +9,29 @@ use snowflake::SnowflakeIdGenerator;
 use crate::runtime::{Float, Int, IntMap, Str, StrMap};
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
-    let num1_result = first.parse::<f64>();
-    let num2_result = second.parse::<f64>();
-    if third.is_empty() { // only 2 params
-        return if num1_result.is_ok() && num2_result.is_ok() {
-            if num1_result.unwrap() < num2_result.unwrap() {
-                first
-            } else {
-                second
-            }
-        } else {
-            if first < third {
-                first
-            } else {
-                second
-            }
-        }.to_string();
-    } else { // 3 params
-        let num3_result = third.parse::<f64>();
-        return if num1_result.is_ok() && num2_result.is_ok() && num3_result.is_ok() {
-            let num1 = num1_result.unwrap();
-            let num2 = num2_result.unwrap();
-            let num3 = num3_result.unwrap();
-            if num1 < num2 && num1 < num3 {
-                first
-            } else if num2 < num1 && num2 < num3 {
-                second
-            } else if num3 < num1 && num3 < num2 {
-                third
-            } else {
-                first
-            }
-        } else {
-            if first < second && first < second {
-                first
-            } else if second < second && second < third {
-                second
-            } else if third < first && third < second {
-                third
-            } else {
-                first
-            }
-        }.to_string();
-    }
+    pick(first, second, third, Ordering::Less)
 }
 
 pub fn max(first: &str, second: &str, third: &str) -> String {
-    let num1_result = first.parse::<f64>();
-    let num2_result = second.parse::<f64>();
-    if third.is_empty() { // only 2 params
-        return if num1_result.is_ok() && num2_result.is_ok() {
-            if num1_result.unwrap() > num2_result.unwrap() {
-                first
-            } else {
-                second
-            }
-        } else {
-            if first > third {
-                first
-            } else {
-                second
-            }
-        }.to_string();
-    } else { // 3 params
-        let num3_result = third.parse::<f64>();
-        return if num1_result.is_ok() && num2_result.is_ok() && num3_result.is_ok() {
-            let num1 = num1_result.unwrap();
-            let num2 = num2_result.unwrap();
-            let num3 = num3_result.unwrap();
-            if num1 > num2 && num1 > num3 {
-                first
-            } else if num2 > num1 && num2 > num3 {
-                second
-            } else if num3 > num1 && num3 > num2 {
-                third
-            } else {
-                first
-            }
-        } else {
-            if first > second && first > second {
-                first
-            } else if second > second && second > third {
-                second
-            } else if third > first && third > second {
-                third
-            } else {
-                first
-            }
-        }.to_string();
+    pick(first, second, third, Ordering::Greater)
+}
+
+/// Pick the min/max item: compare as numbers if all items are numeric, otherwise as strings.
+/// An empty `third` means only 2 params; on ties the earliest item wins.
+fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
+    let items: &[&str] = if third.is_empty() { &[first, second] } else { &[first, second, third] };
+    let nums: Option<Vec<f64>> = items.iter().map(|item| item.parse::<f64>().ok()).collect();
+    let mut best = 0;
+    for i in 1..items.len() {
+        let ordering = match &nums {
+            Some(nums) => nums[i].total_cmp(&nums[best]),
+            None => items[i].cmp(items[best]),
+        };
+        if ordering == wanted {
+            best = i;
+        }
     }
+    items[best].to_string()
 }
 
 pub(crate) fn map_int_int_asort(obj: &IntMap<Int>, target_obj: &IntMap<Int>) {
@@ -755,6 +690,30 @@ fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_min_max() {
+        // numbers
+        assert_eq!(min("2", "1", ""), "1");
+        assert_eq!(max("2", "10", ""), "10");
+        assert_eq!(min("2", "1", "1"), "1");
+        assert_eq!(min("1", "1", "2"), "1");
+        assert_eq!(max("1", "2", "2"), "2");
+        assert_eq!(max("3", "3", "1"), "3");
+        assert_eq!(min("-1.5", "0", "2"), "-1.5");
+        // ties keep the earliest item
+        assert_eq!(min("1.0", "1", ""), "1.0");
+        assert_eq!(max("1", "1.0", "0"), "1");
+        // strings
+        assert_eq!(max("a", "b", ""), "b");
+        assert_eq!(min("b", "a", ""), "a");
+        assert_eq!(min("b", "c", "a"), "a");
+        assert_eq!(max("b", "c", "a"), "c");
+        assert_eq!(min("b", "b", "a"), "a");
+        // mixed numbers and strings compare as strings
+        assert_eq!(min("10", "9", "x"), "10");
+        assert_eq!(max("10", "9", "x"), "x");
+    }
 
     #[test]
     fn test_mkbool() {
