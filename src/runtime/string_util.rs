@@ -513,8 +513,8 @@ pub fn generate_password(len: usize) -> String {
 }
 
 pub fn figlet(text: &str) -> String {
-    use figlet_rs::FIGfont;
-    let standard_font = FIGfont::standard().unwrap();
+    use figlet_rs::FIGlet;
+    let standard_font = FIGlet::standard().unwrap();
     if let Some(figure) = standard_font.convert(text) {
         figure.to_string()
     } else {
