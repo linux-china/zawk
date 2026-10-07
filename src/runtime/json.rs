@@ -9,32 +9,38 @@ use crate::runtime::str_escape::escape_json;
 
 
 pub(crate) fn map_int_int_to_json(arr: &IntMap<Int>) -> String {
-    let mut items: Vec<Int> = vec![];
+    let mut entries: Vec<(Int, Int)> = vec![];
     arr.iter(|map| {
-        for (_, value) in map {
-            items.push(*value);
+        for (key, value) in map {
+            entries.push((*key, *value));
         }
     });
+    entries.sort_by_key(|(key, _)| *key);
+    let items: Vec<Int> = entries.into_iter().map(|(_, value)| value).collect();
     json::to_string(&items)
 }
 
 pub(crate) fn map_int_float_to_json(arr: &IntMap<Float>) -> String {
-    let mut items: Vec<Float> = vec![];
+    let mut entries: Vec<(Int, Float)> = vec![];
     arr.iter(|map| {
-        for (_, value) in map {
-            items.push(*value);
+        for (key, value) in map {
+            entries.push((*key, *value));
         }
     });
+    entries.sort_by_key(|(key, _)| *key);
+    let items: Vec<Float> = entries.into_iter().map(|(_, value)| value).collect();
     json::to_string(&items)
 }
 
 pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
-    let mut items: Vec<String> = vec![];
+    let mut entries: Vec<(Int, String)> = vec![];
     arr.iter(|map| {
-        for (_, value) in map {
-            items.push(value.to_string());
+        for (key, value) in map {
+            entries.push((*key, value.to_string()));
         }
     });
+    entries.sort_by_key(|(key, _)| *key);
+    let items: Vec<String> = entries.into_iter().map(|(_, value)| value).collect();
     json::to_string(&items)
 }
 
