@@ -1,14 +1,14 @@
-# frawk Builtin Functions and Commands
+# zawk Builtin Functions and Commands
 
 This document lists all of the builtin functions and commands supported by
-frawk. For those interested in a source of truth on these components, check out
+zawk. For those interested in a source of truth on these components, check out
 the "builtins" module in
-[`src/builtins.rs`](https://github.com/ezrosent/frawk/blob/master/src/builtins.rs).
+[`src/builtins.rs`](https://github.com/linux-china/zawk/blob/master/src/builtins.rs).
 
 Unlike Awk, builtin functions must have parentheses directly following the
 function name. Awk supports C-style syntax like `length (s)`, but only with
 builtin functions: user-defined functions must still be called like `foo(x)`. In
-frawk, builtin and user-defined functions are called with the same syntax: with
+zawk, builtin and user-defined functions are called with the same syntax: with
 no spaces allowed.
 
 ## Operators

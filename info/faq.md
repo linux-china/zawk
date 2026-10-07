@@ -3,30 +3,30 @@ FAQ
 
 # Why to create zawk?
 
-[frawk](https://github.com/ezrosent/frawk) is good tool created by Eli Rosenthal.
+[zawk](https://github.com/linux-china/zawk) is good tool created by Eli Rosenthal.
 We just want to make AWK more powerful with standard library. `zawk = frawk + stdlib`.
 
 Time flies, and we need a new Modern AWK to work with DuckDB, ClickHouse, S3, KV etc. for text processing.
 
-# Why not just contribute to frawk?
+# Why not just contribute to zawk?
 
-frawk is a foundation to zawk for syntax, types, lex etc.,
+zawk is a foundation to awk for syntax, types, lex etc.,
 and zawk focuses to make AWK more powerful with standard library.
-Now I'm not sure that developers will accept my changes to frawk, and zawk just experimental
+Now I'm not sure that developers will accept my changes to zawk, and zawk just experimental
 work: `zawk = AWK + stdlib + Rust`.
 
-Frawk still good for text processing, embedded etc.,
-and if possible I will contribute some work to frawk, for example:
+zawk still good for text processing, embedded etc.,
+and if possible I will contribute some work to zawk, for example:
 
 * Upgrade to Rust 2021
 * Upgrade to Clap 4.5
 * Dependencies updated to latest
 * gawk compatible: global variables(ENVIRON, PROCINFO) and functions(datetime etc.)
 
-# zawk will fix some bugs in frawk?
+# zawk will fix some bugs in zawk?
 
-Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for frawk,
-and I will try my best to fix bugs in frawk.
+Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for zawk,
+and I will try my best to fix bugs in zawk.
 
 # Any roadmap for zawk?
 

@@ -1,15 +1,15 @@
-# Parallelism in frawk
+# Parallelism in zawk
 
-frawk provides a rudamentary model of parallelism that can speed up many simple 
-scripts with little or no modifications. One relatively unique aspect of frawk's implementation is that it can achieve
+zawk provides a rudamentary model of parallelism that can speed up many simple 
+scripts with little or no modifications. One relatively unique aspect of zawk's implementation is that it can achieve
 nontrivial speedups even when the input is only a single input file or stream.
-The first part of this doc explains the architecture that frawk uses to read
+The first part of this doc explains the architecture that zawk uses to read
 formats like CSV in a parallel-friendly manner. While simple aggregations do not need to be modified
 to successfully run in parallel, running a script in
 this mode _can_ change the meaning of a script. The second portion provides an
-overview of the semantics of a frawk script when it is run in parallel.
+overview of the semantics of a zawk script when it is run in parallel.
 
-> Note: frawk only supports parallel execution for CSV, TSV, scripts that only
+> Note: zawk only supports parallel execution for CSV, TSV, scripts that only
 > split by whitespace, and scripts that only use a unique, single-byte field
 > separator and single-byte record separator. In time, this limitation may be
 > relaxed, but those formats are unlikely to support the same level of
@@ -23,12 +23,12 @@ provide a succinct means of performing shell commands in parallel. I have 2
 reasons for this, with reason 2 being more important than reason 1.
 
 1. While existing solutions are quite succinct, some simple aggregations can be
-   even easier to write in a single frawk program.
+   even easier to write in a single zawk program.
 2. While it is relatively straightforward to run a command in parallel across
    multiple input files, existing tools have a hard time achieving parallelism
    _within a single input file_.
 
-frawk supports a file-per-worker model of parallelism using the `-pf` option,
+zawk supports a file-per-worker model of parallelism using the `-pf` option,
 but I think its support for record-level parallelism (under the `-pr` option) is
 more interesting.
 
@@ -50,7 +50,7 @@ Because this first phase can be implemented _extremely_ cheaply using SIMD
 instructions, this approach achieves substantial end-to-end performance gains on
 recent CPUs.
 
-frawk implements this approach for scripts with CSV, TSV and
+zawk implements this approach for scripts with CSV, TSV and
 single-byte-separator inputs. Not only does this approach provide high
 performance for all scripts that consume input in this form, the separation of
 parsing into two phases provides us with an opportunity to parallelize the reading
@@ -63,19 +63,19 @@ This architecture doesn't scale perfectly --- I've seen diminishing marginal
 returns after 4-6 workers depending on the machine --- but it scales fast enough
 to process CSV files at >2GB/s on my laptop, which is much faster than I have
 been able to process CSV otherwise. The [performance
-doc](https://github.com/ezrosent/frawk/blob/master/info/performance.md) provides
-measurements of the speedups that different frawk scripts achieve when run this
+doc](https://github.com/linux-china/zawk/blob/master/info/performance.md) provides
+measurements of the speedups that different zawk scripts achieve when run this
 way, as well as comparisons to other tools performing the same task.
 
-## The Meaning of Parallel frawk Programs
+## The Meaning of Parallel zawk Programs
 
-frawk supports a limited notion of parallelism suitable for performing simple
-aggregations or transformations on textual data. The goal of frawk's parallelism
-in its current form is to facilitate parallelizing frawk scripts that are
+zawk supports a limited notion of parallelism suitable for performing simple
+aggregations or transformations on textual data. The goal of zawk's parallelism
+in its current form is to facilitate parallelizing zawk scripts that are
 already embarrassingly parallel. While there are many possible directions to
 go from here, this strikes me as a modest but useful first step.
 
-Like Awk, frawk executes programs as a sequence of "patterns" and "actions."
+Like Awk, zawk executes programs as a sequence of "patterns" and "actions."
 Actions are blocks of code that are executed if a pattern matches. Most patterns
 are tested against each successive line of input, with the exception being
 the `BEGIN` and `END` patterns whose corresponding actions are executed before
@@ -84,8 +84,8 @@ and after any input is read, respectively.
 > To be precise, Awk scripts that only have a `BEGIN` pattern never read any
 > input outside of explicit `getline` calls.
 
-When frawk is passed the `pr` or `pf` command-line options, it compiles the program
-in _parallel mode_. In this mode, the frawk program is broken into three "stages":
+When zawk is passed the `pr` or `pf` command-line options, it compiles the program
+in _parallel mode_. In this mode, the zawk program is broken into three "stages":
 
 1. The `BEGIN` block is executed by a single thread.
 2. The main loop (i.e. pattern/action pairs aside from `BEGIN` and `END`) is
@@ -98,7 +98,7 @@ in _parallel mode_. In this mode, the frawk program is broken into three "stages
    copied from each worker thread and _aggregated_ before being accessed by the
    thread executing the `END` block.
 
-Here is a simple "select" script written in frawk that extracts the 2nd column
+Here is a simple "select" script written in zawk that extracts the 2nd column
 of an input source:
 ```awk
 { print $2; }
@@ -109,7 +109,7 @@ script in parallel, with a dynamic number of worker threads each getting a rough
 The output of the parallel script will be the same
 as an invocation without the `-pr` option up to a reordering of of the output rows.
 A similar workload in the [performance
-doc](https://github.com/ezrosent/frawk/blob/master/info/performance.md) gets
+doc](https://github.com/linux-china/zawk/blob/master/info/performance.md) gets
 close to a 2x speedup in record-oriented parallel mode, despite the fact that
 writes to output files are all serialized, and all input records come from a
 single file.
@@ -122,7 +122,7 @@ Scalars are aggregated according to rules that are a bit arbitrary, but as we
 shall see you always have the option of performing the aggregation explicitly.
 
 * Scalars are aggregated differently based on their
-  [type](https://github.com/ezrosent/frawk/blob/master/info/types.md). Integer
+  [type](https://github.com/linux-china/zawk/blob/master/info/types.md). Integer
   and floating-point values are summed. String variables are aggregated by picking
   an arbitrary non-empty representative value from one of the worker threads.
 * Maps are aggregated by performing a union of the underlying sets of key/value
@@ -193,7 +193,7 @@ END {
 ```
 
 Because the repeated map references are both annoying to write and inefficient
-to execute, frawk has a `PREPARE` block which executes in the worker threads at
+to execute, zawk has a `PREPARE` block which executes in the worker threads at
 the end of its input:
 
 ```awk
@@ -216,4 +216,4 @@ END {
 
 For a more involved example of an explicit aggregation, see the "Statistics"
 benchmark in the [performance
-doc](https://github.com/ezrosent/frawk/blob/master/info/performance.md).
+doc](https://github.com/linux-china/zawk/blob/master/info/performance.md).
