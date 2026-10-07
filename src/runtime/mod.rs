@@ -10,6 +10,7 @@ use std::iter::FromIterator;
 use std::mem;
 use std::rc::Rc;
 use std::str;
+use std::sync::LazyLock;
 
 mod command;
 pub mod float_parse;
@@ -44,7 +45,15 @@ pub mod config_util;
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
 
-// TODO: remove the pub use for Variables here.
+/// Shared tokio runtime for blocking on async builtins (s3, libsql, ...),
+/// so per-record calls don't rebuild a runtime each time.
+pub(crate) static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+});
+
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
 pub use command::run_command2;

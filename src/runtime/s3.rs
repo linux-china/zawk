@@ -31,8 +31,7 @@ pub fn get_object(
     object_name: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = s3_client()?;
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
+    crate::runtime::TOKIO_RUNTIME.block_on(async {
         let response = client.get_object(bucket_name, object_name).unwrap().build().send().await?;
         let content = response.content().unwrap().to_segmented_bytes().await?.to_bytes();
         let result = String::from_utf8(content.to_vec().into()).unwrap();
@@ -46,8 +45,7 @@ pub fn put_object(
     body: &str,
 ) -> Result<PutObjectContentResponse, Box<dyn std::error::Error + Send + Sync>> {
     let client = s3_client().unwrap();
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
+    crate::runtime::TOKIO_RUNTIME.block_on(async {
         let mut file = NamedTempFile::new().unwrap();
         let _ = file.write_all(body.as_bytes());
         let file_path = file.path().to_str().unwrap().to_string();

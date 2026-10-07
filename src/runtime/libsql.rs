@@ -11,7 +11,7 @@ lazy_static! {
 }
 
 pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    crate::runtime::TOKIO_RUNTIME.block_on(async {
         libsql_query_async(db_path, sql).await
     })
 }
@@ -78,7 +78,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
 }
 
 pub(crate) fn libsql_execute(db_path: &str, sql: &str) -> Int {
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    crate::runtime::TOKIO_RUNTIME.block_on(async {
         libsql_execute_async(db_path, sql).await
     })
 }
