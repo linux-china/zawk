@@ -524,7 +524,7 @@ fn main() {
             let mut prog = String::new();
             for prog_file in prog_files {
                 if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
-                    match reqwest::blocking::get(prog_file).unwrap().text() {
+                    match reqwest::blocking::get(prog_file).and_then(|resp| resp.text()) {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');
