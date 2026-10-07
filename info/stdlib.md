@@ -901,6 +901,14 @@ and http://awk.freeshell.org/AllAboutGetline
 
 **Attention**: dump/logging output will be directed to std err to avoid std output pollution.
 
+Logs from AWK scripts use the `zawk` target (`zawk:<FILENAME>` while processing an input file) and are enabled
+at debug level by default, while dependencies only report warnings.
+Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
+
+* `RUST_LOG=zawk=warn`: only output `log_warn()` and `log_error()`
+* `RUST_LOG=zawk=off`: disable logs from AWK scripts
+* `RUST_LOG=reqwest=debug`: debug HTTP requests made by `http_get()`/`http_post()`
+
 ### Reflection
 
 - `isarray(x)`,
