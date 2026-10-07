@@ -5,6 +5,7 @@ use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use mysql::*;
 use mysql::prelude::*;
+use mysql::consts::ColumnType;
 
 lazy_static! {
     static ref MYSQL_POOLS: Arc<Mutex<HashMap<String, Pool>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -30,11 +31,12 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
                 Value::UInt(num) => { num.to_string() }
                 Value::Float(num) => { num.to_string() }
                 Value::Double(num) => { num.to_string() }
-                Value::Date(year, month, day, hour, minutes, seconds, _micro_seconds) => {
-                    format!("{}-{}-{} {}:{}:{}", year, month, day, hour, minutes, seconds)
+                Value::Date(year, month, day, hour, minutes, seconds, micro_seconds) => {
+                    let date_only = row.columns_ref()[i].column_type() == ColumnType::MYSQL_TYPE_DATE;
+                    format_mysql_date(year, month, day, hour, minutes, seconds, micro_seconds, date_only)
                 }
-                Value::Time(_negative, _days, hours, minutes, seconds, _micro_seconds) => {
-                    format!("{}:{}:{}", hours, minutes, seconds)
+                Value::Time(negative, days, hours, minutes, seconds, micro_seconds) => {
+                    format_mysql_time(negative, days, hours, minutes, seconds, micro_seconds)
                 }
             };
             items.push(text_value);
@@ -44,6 +46,27 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
         index += 1;
     }
     map
+}
+
+fn format_mysql_date(year: u16, month: u8, day: u8, hour: u8, minutes: u8, seconds: u8, micro_seconds: u32, date_only: bool) -> String {
+    if date_only {
+        return format!("{:04}-{:02}-{:02}", year, month, day);
+    }
+    let mut text = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hour, minutes, seconds);
+    if micro_seconds > 0 {
+        text.push_str(&format!(".{:06}", micro_seconds));
+    }
+    text
+}
+
+fn format_mysql_time(negative: bool, days: u32, hours: u8, minutes: u8, seconds: u8, micro_seconds: u32) -> String {
+    let total_hours = days as u64 * 24 + hours as u64;
+    let sign = if negative { "-" } else { "" };
+    let mut text = format!("{}{:02}:{:02}:{:02}", sign, total_hours, minutes, seconds);
+    if micro_seconds > 0 {
+        text.push_str(&format!(".{:06}", micro_seconds));
+    }
+    text
 }
 
 pub(crate) fn mysql_execute(db_url: &str, sql: &str) -> Int {
@@ -62,6 +85,20 @@ mod tests {
 
     #[test]
     fn test_spike() {}
+
+    #[test]
+    fn test_format_mysql_date() {
+        assert_eq!(format_mysql_date(2024, 1, 5, 3, 4, 5, 0, false), "2024-01-05 03:04:05");
+        assert_eq!(format_mysql_date(2024, 1, 5, 3, 4, 5, 123, false), "2024-01-05 03:04:05.000123");
+        assert_eq!(format_mysql_date(2024, 1, 5, 0, 0, 0, 0, true), "2024-01-05");
+    }
+
+    #[test]
+    fn test_format_mysql_time() {
+        assert_eq!(format_mysql_time(false, 0, 3, 4, 5, 0), "03:04:05");
+        assert_eq!(format_mysql_time(true, 1, 2, 3, 4, 0), "-26:03:04");
+        assert_eq!(format_mysql_time(false, 34, 22, 59, 59, 500000), "838:59:59.500000");
+    }
 
     #[test]
     #[ignore]
