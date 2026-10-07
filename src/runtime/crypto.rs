@@ -9,7 +9,7 @@ use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvI
 use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
-use jsonwebtoken::jwk::{Jwk, JwkSet};
+use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
 use lazy_static::lazy_static;
 use crate::runtime::{SharedMap, Str, StrMap};
 
@@ -105,31 +105,90 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
     jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
 }
 
-pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
-    let mut map = hashbrown::HashMap::new();
-    let header = decode_header(token).unwrap();
-    let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
-        let jwk = extract_jwk(key);
-        DecodingKey::from_jwk(&jwk).unwrap()
-    } else {
-        match header.alg {
-            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-                DecodingKey::from_secret(key.as_ref())
-            }
-            Algorithm::ES256 | Algorithm::ES384 => {
-                DecodingKey::from_ec_pem(key.as_ref()).unwrap()
-            }
-            Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
-                DecodingKey::from_rsa_pem(key.as_ref()).unwrap()
-            }
-            Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
-                DecodingKey::from_rsa_pem(key.as_ref()).unwrap()
-            }
-            Algorithm::EdDSA => {
-                DecodingKey::from_ed_pem(key.as_ref()).unwrap()
-            }
-        }
+const HMAC_ALGORITHMS: &[Algorithm] = &[Algorithm::HS256, Algorithm::HS384, Algorithm::HS512];
+const RSA_ALGORITHMS: &[Algorithm] = &[
+    Algorithm::RS256, Algorithm::RS384, Algorithm::RS512,
+    Algorithm::PS256, Algorithm::PS384, Algorithm::PS512,
+];
+
+/// Build decoding key from PEM text, key type must match the algorithm
+fn decoding_key_from_pem(alg: Algorithm, pem: &str) -> Option<DecodingKey> {
+    match alg {
+        Algorithm::ES256 | Algorithm::ES384 => DecodingKey::from_ec_pem(pem.as_ref()).ok(),
+        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512
+        | Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => DecodingKey::from_rsa_pem(pem.as_ref()).ok(),
+        Algorithm::EdDSA => DecodingKey::from_ed_pem(pem.as_ref()).ok(),
+        // never use public PEM text as HMAC secret: algorithm confusion attack
+        Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => None,
+    }
+}
+
+/// Algorithms allowed by JWK: decided by the key type and the optional `alg` of the JWK, not by the token
+fn jwk_allowed_algorithms(jwk: &Jwk) -> Vec<Algorithm> {
+    let by_key_type: Vec<Algorithm> = match &jwk.algorithm {
+        AlgorithmParameters::RSA(_) => RSA_ALGORITHMS.to_vec(),
+        AlgorithmParameters::EllipticCurve(params) => match params.curve {
+            EllipticCurve::P256 => vec![Algorithm::ES256],
+            EllipticCurve::P384 => vec![Algorithm::ES384],
+            _ => vec![],
+        },
+        AlgorithmParameters::OctetKeyPair(_) => vec![Algorithm::EdDSA],
+        AlgorithmParameters::OctetKey(_) => HMAC_ALGORITHMS.to_vec(),
     };
+    match jwk.common.key_algorithm {
+        // KeyAlgorithm and Algorithm share the same names for signature algorithms
+        Some(key_alg) => match Algorithm::from_str(&format!("{:?}", key_alg)) {
+            Ok(alg) => by_key_type.into_iter().filter(|item| *item == alg).collect(),
+            Err(_) => vec![], // encryption only key, e.g. RSA-OAEP
+        },
+        None => by_key_type,
+    }
+}
+
+/// JWKS must be fetched over https, http is only allowed for loopback address(local test)
+fn is_trusted_jwks_url(url: &str) -> bool {
+    if url.starts_with("https://") {
+        return true;
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host = rest.split(['/', '#', '?']).next().unwrap_or("");
+        let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+        return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
+    }
+    false
+}
+
+pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
+    let map = hashbrown::HashMap::new();
+    let header = match decode_header(token) {
+        Ok(header) => header,
+        Err(_) => return SharedMap::from(map),
+    };
+    // allowed algorithms are decided by the key, and header.alg must be in the white list
+    let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
+        if !is_trusted_jwks_url(key) {
+            return SharedMap::from(map);
+        }
+        let jwk = match extract_jwk(key) {
+            Some(jwk) => jwk,
+            None => return SharedMap::from(map),
+        };
+        if !jwk_allowed_algorithms(&jwk).contains(&header.alg) {
+            return SharedMap::from(map);
+        }
+        DecodingKey::from_jwk(&jwk).ok()
+    } else if key.trim_start().starts_with("-----BEGIN") {
+        decoding_key_from_pem(header.alg, key)
+    } else if HMAC_ALGORITHMS.contains(&header.alg) {
+        Some(DecodingKey::from_secret(key.as_ref()))
+    } else {
+        None
+    };
+    let decoding_key = match decoding_key {
+        Some(decoding_key) => decoding_key,
+        None => return SharedMap::from(map),
+    };
+    let mut map = map;
     let validation = Validation::new(header.alg);
     if let Ok(toke_data) = jsonwebtoken::decode::<BTreeMap<String, Value>>(&token, &decoding_key, &validation) {
         for (key, value) in toke_data.claims {
@@ -164,16 +223,16 @@ lazy_static! {
     static ref JWK_POOLS: Arc<Mutex<HashMap<String, Jwk>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
-pub fn extract_jwk(full_http_url: &str) -> Jwk {
+pub fn extract_jwk(full_http_url: &str) -> Option<Jwk> {
     let mut pools = JWK_POOLS.lock().unwrap();
-    let jwk = pools.entry(full_http_url.to_string()).or_insert_with(|| {
-        let parts: Vec<&str> = full_http_url.split("#").collect();
-        let http_url = *parts.get(0).unwrap();
-        let kid = *parts.get(1).unwrap();
-        let jwkset: JwkSet = reqwest::blocking::get(http_url).unwrap().json::<JwkSet>().unwrap();
-        jwkset.find(kid).unwrap().clone()
-    });
-    jwk.clone()
+    if let Some(jwk) = pools.get(full_http_url) {
+        return Some(jwk.clone());
+    }
+    let (http_url, kid) = full_http_url.split_once('#')?;
+    let jwkset: JwkSet = reqwest::blocking::get(http_url).ok()?.json::<JwkSet>().ok()?;
+    let jwk = jwkset.find(kid)?.clone();
+    pools.insert(full_http_url.to_string(), jwk.clone());
+    Some(jwk)
 }
 
 /// Prefix of ciphertext whose key is derived by PBKDF2-HMAC-SHA256 from the password.
@@ -420,8 +479,31 @@ mod tests {
         let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.rgIm0ep_VZ1LaoySp0U4dktnMtIhrrXtoo2udzpmYhh_1hQS8-LqgC5j4FRYaXtu8piSZfhCod1aarO_cYDh9Q";
         let pem_text = include_str!("../../tests/jwt-keys/ECDSA-pub.pem");
         let payload = dejwt(pem_text, token);
-        let value = payload.get(&Str::from("exp"));
-        println!("{}", value);
+        assert_eq!(payload.get(&Str::from("exp")).as_str(), "1208234234234");
+    }
+
+    #[test]
+    fn test_dejwt_alg_confusion() {
+        // HS256 token signed with the public PEM text as HMAC secret must be rejected
+        let pem_text = include_str!("../../tests/jwt-keys/ECDSA-pub.pem");
+        let payload: StrMap<Str> = StrMap::default();
+        payload.insert(Str::from("name"), Str::from("attacker"));
+        let token = jwt("HS256", pem_text, &payload);
+        let claims = dejwt(pem_text, &token);
+        assert_eq!(claims.len(), 0);
+        // plain secret must not be used for asymmetric algorithms
+        let claims = dejwt("123456", "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.e30.sig");
+        assert_eq!(claims.len(), 0);
+        // invalid token should not panic
+        assert_eq!(dejwt("123456", "not-a-token").len(), 0);
+    }
+
+    #[test]
+    fn test_trusted_jwks_url() {
+        assert!(is_trusted_jwks_url("https://example.com/jwks.json#kid"));
+        assert!(is_trusted_jwks_url("http://localhost:8000/jwks.json#kid"));
+        assert!(!is_trusted_jwks_url("http://example.com/jwks.json#kid"));
+        assert!(!is_trusted_jwks_url("http://localhost.evil.com/jwks.json#kid"));
     }
 
     #[test]

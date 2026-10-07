@@ -668,7 +668,12 @@ RSA/ECDSA/EdDSA: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `EdDSA`:
 
 JWK: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`,
 
-- dejwt: `dejwt("http://example.com/jwks.json#kid", token)`: please add kid as anchor.
+- dejwt: `dejwt("https://example.com/jwks.json#kid", token)`: please add kid as anchor.
+  JWKS URL must use `https://`, and `http://` is only allowed for `localhost`/`127.0.0.1` for local test.
+
+**Security**: the allowed algorithms are decided by the key, not by the `alg` in token header:
+a PEM key only accepts `RS*`/`PS*`/`ES*`/`EdDSA`, a plain secret only accepts `HS*`,
+and a JWK only accepts algorithms matching its key type and `alg`. An empty map is returned if verification fails.
 
 **Tips**: you can use https://jwkset.com/generate to generate JWK json and keys PEM text.
 
