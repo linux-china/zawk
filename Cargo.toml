@@ -64,7 +64,7 @@ chrono = "0.4"
 chrono-systemd-time = "0.4.0"
 dateparser = "0.2"
 base58 = "0.2"
-base64 = "0.22"
+base64 = "0.23"
 base-62 = "0.1"
 base85 = "2"
 data-encoding = "2.11"
@@ -78,7 +78,7 @@ crc = "3.4"
 adler = "1"
 hmac = "0.12"
 jsonwebtoken = { version = "9.3", features = ["use_pem"] }
-bcrypt = "0.17"
+bcrypt = "0.19"
 cbc = "0.1"
 aes-gcm = "0.10"
 aes = "0.8"
@@ -96,10 +96,7 @@ tl = { version = "0.7" }
 logos = "0.15"
 local-ip-address = "0.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
-oneio = { version = "0.17", default-features = false, features = [
-    "remote",
-    "compressions",
-] }
+oneio = { version = "0.26.1"}
 #nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 nats = "0.26.0"
 paho-mqtt = { version = "0.13", features = ["vendored-ssl"] }
@@ -128,7 +125,7 @@ postgres = { version = "0.19", features = [
 ] }
 csv = "1.4"
 semver = "1"
-ctor = "0.4"
+ctor = "1.0"
 unicode-segmentation = "1.13"
 fake = "4"
 identitycard = "0.1"

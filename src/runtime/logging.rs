@@ -1,6 +1,7 @@
 use log::*;
+use ctor::ctor;
 
-#[ctor::ctor]
+#[ctor(unsafe)]
 fn init() {
     env_logger::builder()
         .filter_module("cranelift_codegen", LevelFilter::Error)
