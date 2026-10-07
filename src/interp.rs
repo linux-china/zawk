@@ -708,7 +708,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.strs, dst) = tsid;
                     }
                     Whoami(dst) => {
-                        let username = Str::from(whoami::username());
+                        let username = Str::from(whoami::username().unwrap_or("".to_owned()));
                         *index_mut(&mut self.strs, dst) = username;
                     }
                     Version(dst) => {

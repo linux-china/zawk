@@ -427,7 +427,7 @@ fn main() {
         if !awk_file.ends_with(".awk") {
             awk_file = format!("{}.awk", awk_file);
         }
-        let author = whoami::username();
+        let author = whoami::username().unwrap_or("".to_owned());
         let template = include_str!("templates/demo.awk");
         let template = template.replace("$USER", &author);
         let mut tasksh_file = File::create(&awk_file).unwrap();

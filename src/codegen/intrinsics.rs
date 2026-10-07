@@ -862,7 +862,7 @@ pub(crate) unsafe extern "C" fn local_ip() -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn whoami() -> U128 {
-    mem::transmute::<Str, U128>(Str::from(whoami::username()))
+    mem::transmute::<Str, U128>(Str::from(whoami::username().unwrap_or("".to_owned())))
 }
 
 pub(crate) unsafe extern "C" fn version() -> U128 {
