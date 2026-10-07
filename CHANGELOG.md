@@ -2,6 +2,12 @@
 
 Nothing Yet!
 
+# Version 0.6.0 (2026-09-10)
+
+* Fix bugs reported by LLM
+* Fix JWT algorithm confusion in `dejwt`: allowed algorithms are decided by the key(PEM: RS*/PS*/ES*/EdDSA, plain secret: HS*, JWK: key type and `alg`), and JWKS URL must use `https://`
+
+
 # Version 0.5.25 (2024-12-29)
 
 * Add `getenv("NAME", "default value")` function to get environment variable

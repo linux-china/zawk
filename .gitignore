@@ -131,3 +131,5 @@ Cargo.lock
 dependencies.txt
 .envrc
 http-client.private.env.json
+review.md
+sqlite.db
