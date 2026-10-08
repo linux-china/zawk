@@ -426,6 +426,8 @@ pub(crate) enum Instr<'a> {
     },
     // close(file): stores the exit status of a command, 0 for a file, -1 if it was not open.
     Close(Reg<Int>, Reg<Str<'a>>),
+    // fflush(name): 0 on success, -1 if `name` is not open for output; "" flushes all output.
+    Fflush(Reg<Int>, Reg<Str<'a>>),
     RunCmd(Reg<Int>, Reg<Str<'a>>),
     RunCmd2(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Exit(Reg<Int>),
@@ -1675,7 +1677,7 @@ impl<'a> Instr<'a> {
                     reg.accum(&mut f)
                 }
             }
-            Close(dst, file) => {
+            Close(dst, file) | Fflush(dst, file) => {
                 dst.accum(&mut f);
                 file.accum(&mut f)
             }

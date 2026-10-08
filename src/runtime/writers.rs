@@ -191,12 +191,15 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>
     let (sender, receiver) = bounded(IO_CHAN_SIZE);
     let error = Arc::new(Mutex::new(None));
     let receiver_error = error.clone();
-    std::thread::spawn(move || receive_thread(receiver, receiver_error, f));
+    let open = Arc::new(AtomicBool::new(false));
+    let receiver_open = open.clone();
+    std::thread::spawn(move || receive_thread(receiver, receiver_error, &receiver_open, f));
     RawHandle {
         error,
         sender,
         line_buffer: is_stdout && io::stdout().is_terminal(),
         status,
+        open,
     }
 }
 
@@ -299,6 +302,31 @@ impl Registry {
         }
     }
 
+    /// awk's `fflush(name)`: flush the output file or command `name`, or all output if `name`
+    /// is empty. Returns whether `name` is open for output (/dev/stdout and /dev/stderr always
+    /// are).
+    pub fn flush_named(&mut self, name: &Str) -> Result<bool> {
+        if name.is_empty() {
+            self.flush_all()?;
+            return Ok(true);
+        }
+        let key = name.clone().unmoor();
+        let mut found = false;
+        for fh in [self.files.get_mut(&key), self.cmds.get_mut(&key)].into_iter().flatten() {
+            fh.flush()?;
+            found |= fh.raw.is_open();
+        }
+        let special = name.with_bytes(|bs| bs == b"/dev/stdout" || bs == b"/dev/stderr");
+        if name.with_bytes(|bs| bs == b"/dev/stdout") {
+            self.stdout.flush()?;
+        }
+        if found || special {
+            return Ok(true);
+        }
+        // The file or command may have been opened by another thread.
+        name.with_bytes(|bs| self.global.flush(bs))
+    }
+
     /// Flush all output files, commands and stdout (e.g. before `system`).
     pub fn flush_all(&mut self) -> Result<()> {
         for fh in self.files.values_mut().chain(self.cmds.values_mut()) {
@@ -347,6 +375,8 @@ trait Root: 'static + Send + Sync {
     // closes a file or command with name `fname`; see Registry::close for the return value.
     fn close(&self, fname: &[u8]) -> Result<Option<Int>>;
     fn is_command(&self, fname: &[u8]) -> bool;
+    // flushes a file or command with name `fname`; returns whether it is open.
+    fn flush(&self, fname: &[u8]) -> Result<bool>;
     // closes all commands, waiting for them to exit.
     fn close_commands(&self) -> Result<()>;
 }
@@ -378,6 +408,23 @@ impl<F: FileFactory> RootImpl<F> {
 impl<F: FileFactory> Root for RootImpl<F> {
     fn is_command(&self, fname: &[u8]) -> bool {
         self.commands.lock().unwrap().contains_key(fname)
+    }
+    fn flush(&self, fname: &[u8]) -> Result<bool> {
+        // Avoid flushing with the locks held.
+        let mut handle = self.commands.lock().unwrap().get(fname).cloned();
+        if handle.is_none() {
+            if let Ok(s) = std::str::from_utf8(fname) {
+                handle = self.handles.lock().unwrap().get(s).cloned();
+            }
+        }
+        match handle {
+            Some(h) => {
+                let mut fh = h.into_handle();
+                fh.flush()?;
+                Ok(fh.raw.is_open())
+            }
+            None => Ok(false),
+        }
     }
     fn close_commands(&self) -> Result<()> {
         // Avoid calling close with the lock held.
@@ -762,9 +809,15 @@ struct RawHandle {
     line_buffer: bool,
     /// Set when a command behind this handle exits; unused for files and stdout.
     status: StatusSlot,
+    /// Whether the file or command is currently open, as maintained by the writer thread. Up to
+    /// date after a flush.
+    open: Arc<AtomicBool>,
 }
 
 impl RawHandle {
+    fn is_open(&self) -> bool {
+        self.open.load(Ordering::Acquire)
+    }
     /// The exit status of the command closed most recently, or 0 (e.g. for files).
     fn take_status(&self) -> Int {
         self.status.lock().ok().and_then(|mut s| s.take()).unwrap_or(0)
@@ -874,10 +927,11 @@ impl WriteBatch {
 fn receive_thread<W: io::Write>(
     receiver: Receiver<Request>,
     error: Arc<Mutex<Option<CompileError>>>,
+    open: &AtomicBool,
     f: impl Fn(FileSpec) -> io::Result<W>,
 ) {
     let mut batch = WriteBatch::default();
-    if let Err(e) = receive_loop(&receiver, &mut batch, f) {
+    if let Err(e) = receive_loop(&receiver, &mut batch, open, f) {
         // We got an error! install it in the `error` mutex.
         {
             let mut err = error.lock().unwrap();
@@ -895,6 +949,7 @@ fn receive_thread<W: io::Write>(
 fn receive_loop<W: io::Write>(
     receiver: &Receiver<Request>,
     batch: &mut WriteBatch,
+    open: &AtomicBool,
     f: impl Fn(FileSpec) -> io::Result<W>,
 ) -> io::Result<()> {
     const MAX_BATCH_BYTES: usize = 1 << 20;
@@ -935,9 +990,11 @@ fn receive_loop<W: io::Write>(
             // We need to (re)open the file, the first write request will tell us whether or not
             // this is an append request.
             writer = Some(f(batch.get_spec())?);
+            open.store(true, Ordering::Release);
         }
         if batch.issue(writer.as_mut().unwrap())? {
             writer = None;
+            open.store(false, Ordering::Release);
         }
     }
     Ok(())

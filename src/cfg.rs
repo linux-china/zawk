@@ -1986,6 +1986,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         prim_args.push(PrimVal::ILit(i64::MAX));
                     }
                     // strftime() => strftime("", -1);
+                    // fflush() => fflush(""): flush all output.
+                    builtins::Function::Fflush if args_len == 0 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
                     builtins::Function::Strftime if args_len == 0 => {
                         prim_args.push(PrimVal::StrLit(b"")); // ISO 8601 / RFC 3339 date & time format
                         prim_args.push(PrimVal::ILit(-1 as Int));

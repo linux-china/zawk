@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         printf_impl_file(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty, str_ref_ty, int_ty);
         printf_impl_stdout(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty);
         close_file(rt_ty, str_ref_ty) -> int_ty;
+        fflush(rt_ty, str_ref_ty) -> int_ty;
         mod_by_zero(rt_ty);
         int_overflow(rt_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
@@ -3187,6 +3188,16 @@ pub(crate) unsafe extern "C" fn printf_impl_stdout(
         );
         // Like print, exit silently on write errors (e.g. stdout piped to `head`).
         try_silent_abort!(rt, (*rt).core.write_files.write_printf(None, &text))
+    })
+}
+
+/// awk's fflush(name): 0 on success, -1 if `name` is not open for output.
+pub(crate) unsafe extern "C" fn fflush(rt: *mut c_void, file: *mut U128) -> Int {
+    guard_panic(stringify!(fflush), || {
+        let rt = rt as *mut Runtime;
+        let file = &*(file as *mut Str);
+        // Write errors exit silently, as with print.
+        try_silent_abort!(rt, (*rt).core.write_files.fflush(file))
     })
 }
 

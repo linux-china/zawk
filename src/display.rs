@@ -303,6 +303,7 @@ impl Display for Function {
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
             Close => write!(f, "close"),
+            Fflush => write!(f, "fflush"),
             Match => write!(f, "match"),
             SubstrIndex => write!(f, "index"),
             SubstrLastIndex => write!(f, "last_index"),

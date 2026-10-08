@@ -22,6 +22,7 @@ pub enum Function {
     FloatFunc(FloatFunc),
     IntFunc(Bitwise),
     Close,
+    Fflush,
     ReadErr,
     ReadErrCmd,
     Nextline,
@@ -356,6 +357,7 @@ impl FloatFunc {
 static_map!(
     FUNCTIONS<&'static str, Function>,
     ["close", Function::Close],
+    ["fflush", Function::Fflush],
     ["split", Function::Split],
     ["strlen", Function::Strlen],
     ["length", Function::Length],
@@ -862,6 +864,7 @@ impl Function {
                 }
             }
             Close => (smallvec![Str], Int),
+            Fflush => (smallvec![Str], Int),
             Strnum => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
@@ -894,7 +897,7 @@ impl Function {
             | ReadLineStdinFused => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | System2 | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
+            | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -1158,7 +1161,7 @@ impl Function {
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),
-            Close => Ok(Scalar(BaseTy::Int).abs()),
+            Close | Fflush => Ok(Scalar(BaseTy::Int).abs()),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),
             ReadAll => Ok(Scalar(BaseTy::Str).abs()),
             WriteAll => Ok(None),

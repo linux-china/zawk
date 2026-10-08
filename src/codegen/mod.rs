@@ -1615,6 +1615,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(close_file), &mut [rt, filev])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            Fflush(dst, file) => {
+                let rt = self.runtime_val();
+                let filev = self.get_val(file.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(fflush), &mut [rt, filev])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             RunCmd(dst, cmd) => {
                 let rt = self.runtime_val();
                 let cmdv = self.get_val(cmd.reflect())?;

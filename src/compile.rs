@@ -1766,6 +1766,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Close(res_reg.into(), conv_regs[0].into()));
             }
+            Fflush => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::Fflush(res_reg.into(), conv_regs[0].into()));
+            }
             JoinCSV => {
                 if res_reg != UNUSED {
                     self.pushl(LL::JoinCSV(

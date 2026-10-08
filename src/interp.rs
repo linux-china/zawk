@@ -2223,6 +2223,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Fflush(dst, file) => {
+                        let file = index(&self.strs, file);
+                        // Write errors exit silently, as with print.
+                        let res = match self.core.write_files.fflush(file) {
+                            Ok(res) => res,
+                            Err(_) => return Ok(0),
+                        };
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     RunCmd(dst, cmd) => {
                         // As in gawk, flush all output first so that it appears before the
                         // command's output. Write errors exit silently, as with print.
