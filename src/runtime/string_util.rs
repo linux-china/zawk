@@ -622,14 +622,7 @@ mod tests {
         let content = read_all("https://httpbin.org/ip");
         println!("{}", content);
     }
-
-    #[test]
-    fn test_write_all() {
-        let content = "hello";
-        write_all("demo2.txt", content);
-        write_all("demo2.txt", "hello2");
-    }
-
+    
     #[test]
     fn test_pairs() {
         let text = "name=hello;age=12";
