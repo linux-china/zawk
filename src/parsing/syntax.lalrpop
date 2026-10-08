@@ -320,14 +320,16 @@ PrecAndNoIn: &'a Expr<'a, 'a, &'a str> = {
 }
 
 
+// Comparison operators are non-associative, as in POSIX awk, gawk and onetrue awk: a chain such
+// as `a < b < c` is a syntax error and needs parentheses.
 PrecCmp<G>: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecAdd> "<" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
-    <l: PrecAdd> "<=" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
+    <l: PrecAdd> "<" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
+    <l: PrecAdd> "<=" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
     // Not in unparenthesized print arguments, where `>` is output redirection.
-    <l: PrecAdd> ">" <r: PrecCmp<G>> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
-    <l: PrecAdd> ">=" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
-    <l: PrecAdd> "==" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
-    <l: PrecAdd> "!=" <r: PrecCmp<G>> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
+    <l: PrecAdd> ">" <r: PrecAdd> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
+    <l: PrecAdd> ">=" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
+    <l: PrecAdd> "==" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
+    <l: PrecAdd> "!=" <r: PrecAdd> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
     PrecAdd
 }
 
