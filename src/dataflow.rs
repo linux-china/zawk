@@ -810,7 +810,11 @@ pub(crate) mod boilerplate {
                 }
             }
             RunCmd(dst, _) => f(dst.into(), None),
-            RunCmd2(dst, command_line) => f(dst.into(), Some(command_line.into())),
+            RunCmd2(dst, command_line) => {
+                let (reg, ty) = dst.reflect();
+                f(Key::MapKey(reg, ty), Some(command_line.into()));
+                f(Key::MapVal(reg, ty), Some(command_line.into()));
+            }
             Lookup {
                 map_ty,
                 dst,

@@ -43,10 +43,10 @@
 //! Users who wish to execute a script they believe is safe, but is rejected by the analysis
 //! (either because the analysis is too conservative, or because they trust user input) can opt out
 //! of taint analysis using the -A flag.
-use crate::bytecode::Instr;
+use crate::bytecode::{Accum, Instr};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::HighLevel;
-use crate::dataflow::{self, JoinSemiLattice};
+use crate::dataflow::{self, JoinSemiLattice, Key};
 
 /// aka bool, with join = ||; making our own enum for explicitness.
 #[derive(Copy, Clone, Debug)]
@@ -131,6 +131,14 @@ impl TaintedStringAnalysis {
                 self.dfa.add_query(cmd);
                 self.dfa.add_src(dst, Taint::Tainted);
             }
+            RunCmd2(dst, cmd) => {
+                // system2 executes `cmd` via the shell, just like system; its result map holds
+                // the command's output, so both keys and values are tainted.
+                self.dfa.add_query(cmd);
+                let (reg, ty) = dst.reflect();
+                self.dfa.add_src(Key::MapKey(reg, ty), Taint::Tainted);
+                self.dfa.add_src(Key::MapVal(reg, ty), Taint::Tainted);
+            }
             _ => dataflow::boilerplate::visit_ll(inst, |dst, src| {
                 if let Some(src) = src {
                     self.dfa.add_dep(dst, src, ())
@@ -190,6 +198,9 @@ mod tests {
             BEGIN {  system(x($2, "dog")); }"#,
             r#"BEGIN { for (i=1; i<10; i++) m[i]=$i; system(m[3]); }"#,
             r#"BEGIN { for (i=1; i<10; i++) m[$i]=i; for (i in m) system(i); }"#,
+            "{ system2($0); }",
+            r#"BEGIN { getline x; r = system2("echo " x); }"#,
+            r#"BEGIN { r = system2("echo hi"); system(r["stdout"]); }"#,
         ];
 
         for p in progs.iter() {
@@ -207,6 +218,7 @@ mod tests {
             BEGIN { while(x("echo ", "hi") | getline) print; }"#,
             r#"function x(a, b) { return a b; }
             BEGIN {  system(x($2, "dog") ? "echo hello" : "echo goodbye"); }"#,
+            r#"BEGIN { r = system2("echo hello"); print r["stdout"]; }"#,
         ];
         for p in progs.iter() {
             assert_analysis_accept(p);
