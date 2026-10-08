@@ -26,8 +26,6 @@
 
 # string functions
 04-length                             # length(number) fails to compile
-04-length-dollar0                     # length() without argument fails to compile
-04-length-no-parens                   # `length` without parentheses is not length($0)
 04-substr                             # negative start counts from the end of the string (Python style)
 04-utf8-length-substr                 # index() returns byte offsets while length()/substr() count chars
 04-utf8-match                         # match() returns byte offsets; interp backend: match() is broken

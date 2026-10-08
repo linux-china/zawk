@@ -1777,6 +1777,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             // that usage here.
             Either::Right(bi) => Either::Right(*bi),
         };
+        // length and length() => length($0)
+        if let (Either::Right(builtins::Function::Length), []) = (&bi, args) {
+            return self.call(
+                current_open,
+                &Either::Right(builtins::Function::Length),
+                &[&Expr::Unop(Unop::Column, &Expr::ILit(0))],
+            );
+        }
         let mut prim_args = SmallVec::with_capacity(args.len());
         let mut open = current_open;
         for a in args.iter() {

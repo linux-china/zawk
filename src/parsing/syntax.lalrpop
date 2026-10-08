@@ -373,7 +373,12 @@ Col: &'a Expr<'a,'a,&'a str> = {
 }
 
 Ident: &'a Expr<'a,'a,&'a str> = {
-  "IDENT" => arena.alloc(Expr::Var(arena.alloc_str(<>))),
+  // `length` without parentheses is `length($0)`; it is a builtin, not a variable.
+  <i:"IDENT"> => if i == "length" {
+      arena.alloc(Expr::Call(Either::Right(Function::Length), &[]))
+  } else {
+      arena.alloc(Expr::Var(arena.alloc_str(i)))
+  },
 }
 
 StrLit: &'a Expr<'a,'a,&'a str> = {
