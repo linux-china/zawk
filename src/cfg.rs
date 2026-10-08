@@ -1077,7 +1077,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 return self
                     .convert_expr(&Binop(IsMatch, &Unop(Column, &ILit(0)), expr), current_open);
             }
-            PatLit(s) | StrLit(s) => PrimExpr::Val(PrimVal::StrLit(s)),
+            PatLit(s) => PrimExpr::Val(PrimVal::StrLit(regex_literal(s))),
+            StrLit(s) => PrimExpr::Val(PrimVal::StrLit(s)),
             Cond(cond) => {
                 let id = self.get_cond(*cond);
                 PrimExpr::Val(PrimVal::Var(id))
@@ -2320,5 +2321,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
         }
         rename_recursive(self.f, cur, &mut state);
+    }
+}
+
+/// Single-character strings used as field separators (in FS and split()) are literal characters,
+/// but a regex literal such as `/./` must remain a regular expression. Regex literals and strings
+/// are both lowered to strings, so wrap the single-character regexes whose meaning differs from
+/// the literal character in a group, which does not change what they match.
+fn regex_literal(s: &[u8]) -> &[u8] {
+    match s {
+        b"." => b"(?:.)",
+        b"^" => b"(?:^)",
+        b"$" => b"(?:$)",
+        b"|" => b"(?:|)",
+        _ => s,
     }
 }

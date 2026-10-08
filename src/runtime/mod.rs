@@ -67,7 +67,19 @@ pub use splitter::{
 pub use str_impl::{Str, UniqueStr};
 
 #[derive(Default)]
-pub struct RegexCache(Registry<Regex>);
+pub struct RegexCache(
+    Registry<Regex>,
+    // Field separators that are a single character, which awk treats literally.
+    Registry<Regex>,
+);
+
+/// Whether `pat` is a single character (other than " "), which awk treats literally when used
+/// as a field separator, in FS and in split().
+fn is_literal_separator(pat: &Str) -> bool {
+    pat.with_bytes(|bs| {
+        bs != b" " && std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1)
+    })
+}
 
 impl RegexCache {
     pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
@@ -174,6 +186,24 @@ impl RegexCache {
                     used_fields,
                 )
             })
+        } else if is_literal_separator(pat) {
+            self.1.get(
+                pat,
+                |c| match Regex::new(&regex::escape(c)) {
+                    Ok(r) => Ok(r),
+                    Err(e) => err!("{}", e),
+                },
+                |re| {
+                    s.split(
+                        re,
+                        |s, _| {
+                            push(s);
+                            1
+                        },
+                        used_fields,
+                    )
+                },
+            )
         } else {
             self.with_regex(pat, |re| {
                 s.split(
