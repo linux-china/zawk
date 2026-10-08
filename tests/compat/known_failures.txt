@@ -3,8 +3,6 @@
 
 # records and fields
 01-assign-argument                    # `var=value` operands are treated as file names
-01-nf-decrease                        # assigning NF does not rebuild $0
-01-nf-increase                        # assigning NF does not rebuild $0
 01-rs-paragraph                       # RS = "" (paragraph mode) is not supported
 01-rs-paragraph-newline-fs            # RS = "" (paragraph mode) is not supported
 04-gsub-field                         # gsub() on a field without any match still rebuilds $0 with OFS

@@ -2917,6 +2917,17 @@ pub(crate) unsafe extern "C" fn store_var_int(rt: *mut c_void, var: usize, i: In
     guard_panic(stringify!(store_var_int), || {
         let runtime = &mut *(rt as *mut Runtime);
         if let Ok(var) = Variable::try_from(var) {
+            if let Variable::NF = var {
+                // Assigning NF truncates or extends the fields and rebuilds $0.
+                try_abort!(
+                    runtime,
+                    with_input!(&mut runtime.input_data, |(line, _)| line.set_nf(
+                        i,
+                        &runtime.core.vars.fs,
+                        &mut runtime.core.regexes
+                    ))
+                );
+            }
             try_abort!(runtime, runtime.core.vars.store_int(var, i));
         } else {
             fail!(runtime, "invalid variable code={}", var)

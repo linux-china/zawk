@@ -367,6 +367,10 @@ impl<'a> super::Line<'a> for Line {
     ) -> Result<()> {
         Ok(())
     }
+    // Likewise for NF.
+    fn set_nf(&mut self, _nf: super::Int, _pat: &Str, _rc: &mut super::RegexCache) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Line {

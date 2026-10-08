@@ -124,6 +124,20 @@ impl<'a> Line<'a> for JsonlLine {
         self.diverged = true;
         Ok(())
     }
+    fn set_nf(&mut self, nf: Int, _pat: &Str, _rc: &mut RegexCache) -> Result<()> {
+        if nf < 0 {
+            return err!("NF set to negative value {}", nf);
+        }
+        if nf == 0 {
+            self.line = Str::default();
+            self.fields.clear();
+            self.diverged = false;
+            return Ok(());
+        }
+        self.fields.resize_with(nf as usize, Str::default);
+        self.diverged = true;
+        Ok(())
+    }
 }
 
 pub struct JsonlReader {

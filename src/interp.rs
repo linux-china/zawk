@@ -2284,8 +2284,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         self.core.vars.store_str(*var, s)?;
                     }
                     LoadVarInt(dst, var) => {
-                        // If someone explicitly sets NF to a different value, this means we will
-                        // ignore it. I think that is fine.
+                        // NF is the number of fields of the current record (which assignments to
+                        // NF update, see StoreVarInt).
                         if let NF = *var {
                             self.core.vars.nf =
                                 self.line.nf(&self.core.vars.fs, &mut self.core.regexes)? as Int;
@@ -2297,6 +2297,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     StoreVarInt(var, src) => {
                         let src = *src;
                         let s = *self.get(src);
+                        if let NF = *var {
+                            // Assigning NF truncates or extends the fields and rebuilds $0.
+                            self.line.set_nf(s, &self.core.vars.fs, &mut self.core.regexes)?;
+                        }
                         self.core.vars.store_int(*var, s)?;
                     }
                     LoadVarIntMap(dst, var) => {

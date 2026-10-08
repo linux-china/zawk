@@ -35,6 +35,9 @@ pub trait Line<'a>: Default {
     fn nf(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<usize>;
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>>;
     fn set_col(&mut self, col: Int, s: &Str<'a>, pat: &Str, rc: &mut RegexCache) -> Result<()>;
+    /// Assign to NF: truncate the fields or extend them with empty fields, and rebuild $0 (with
+    /// OFS) the next time it is read, even if the number of fields does not change.
+    fn set_nf(&mut self, nf: Int, pat: &Str, rc: &mut RegexCache) -> Result<()>;
 }
 
 pub trait LineReader: Sized {
@@ -119,6 +122,39 @@ impl DefaultLine {
         }
         Ok(())
     }
+
+    /// Make sure `fields` holds every field of the record, including fields that were projected
+    /// out, while keeping any fields that were assigned.
+    fn split_all_fields(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<()> {
+        if self.used_fields == FieldSet::all() {
+            return self.split_if_needed(pat, rc);
+        }
+        if !self.diverged {
+            self.used_fields = FieldSet::all();
+            self.fields.clear();
+            return self.split_if_needed(pat, rc);
+        }
+        // We projected out fields, but have since set one of the fields. We have to split $0 in
+        // its entirety and then copy over the fields that were already set.
+        //
+        // This is strictly more work than just reading all of the fields in the first place; so
+        // once we hit this condition we overwrite the used fields with all() so this doesn't
+        // happen again for a while.
+        let old_set = std::mem::replace(&mut self.used_fields, FieldSet::all());
+        let mut new_vec = Vec::with_capacity(self.fields.len());
+        rc.split_regex(pat, &self.line, &self.used_fields, &mut new_vec)?;
+
+        for (i, field) in self.fields.iter().enumerate().rev() {
+            if i >= new_vec.len() {
+                new_vec.resize_with(i + 1, Str::default);
+            }
+            if old_set.get(i + 1) {
+                new_vec[i] = field.clone()
+            }
+        }
+        self.fields = new_vec;
+        Ok(())
+    }
 }
 
 impl<'a> Line<'a> for DefaultLine {
@@ -154,28 +190,8 @@ impl<'a> Line<'a> for DefaultLine {
         let res = if col == 0 && !self.diverged {
             self.line.clone()
         } else if col == 0 && self.diverged {
-            if self.used_fields != FieldSet::all() {
-                // We projected out fields, but now we have set one of the interior fields and need
-                // to print out $0. That means we have to split $0 in its entirety and then copy
-                // over the fields that were already set.
-                //
-                // This is strictly more work than just reading all of the fields in the first
-                // place; so once we hit this condition we overwrite the used fields with all() so
-                // this doesn't happen again for a while.
-                let old_set = std::mem::replace(&mut self.used_fields, FieldSet::all());
-                let mut new_vec = Vec::with_capacity(self.fields.len());
-                rc.split_regex(pat, &self.line, &self.used_fields, &mut new_vec)?;
-
-                for (i, field) in self.fields.iter().enumerate().rev() {
-                    if i >= new_vec.len() {
-                        new_vec.resize_with(i + 1, Str::default);
-                    }
-                    if old_set.get(i + 1) {
-                        new_vec[i] = field.clone()
-                    }
-                }
-                self.fields = new_vec;
-            }
+            // We have set a field (or NF) and need to print out $0.
+            self.split_all_fields(pat, rc)?;
             let res = ofs.join_slice(&self.fields[..]);
             self.line = res.clone();
             self.diverged = false;
@@ -204,6 +220,22 @@ impl<'a> Line<'a> for DefaultLine {
             self.fields.resize_with(col + 1, Str::default);
         }
         self.fields[col] = s.clone().unmoor();
+        self.diverged = true;
+        Ok(())
+    }
+    fn set_nf(&mut self, nf: Int, pat: &Str, rc: &mut RegexCache) -> Result<()> {
+        if nf < 0 {
+            return err!("NF set to negative value {}", nf);
+        }
+        if nf == 0 {
+            // Equivalent to `$0 = ""` (an empty field list means "not split yet").
+            self.line = Str::default();
+            self.fields.clear();
+            self.diverged = false;
+            return Ok(());
+        }
+        self.split_all_fields(pat, rc)?;
+        self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;
         Ok(())
     }

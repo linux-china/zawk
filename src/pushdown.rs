@@ -291,6 +291,11 @@ impl UsedFieldAnalysis {
                 self.dfa.add_query(col_reg);
                 self.dfa.add_src(dst, FieldSet::all());
             }
+            // Assigning NF rebuilds $0 from all of the fields.
+            StoreVarInt(Variable::NF, _) => {
+                self.dfa.add_src(Key::Var(Variable::NF), FieldSet::all());
+                self.dfa.add_query(Key::Var(Variable::NF));
+            }
             JoinCSV(dst, start, end)
             | JoinTSV(dst, start, end)
             | JoinColumns(dst, start, end, _) => {
