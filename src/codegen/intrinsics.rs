@@ -1021,7 +1021,7 @@ pub(crate) unsafe extern "C" fn strftime(
         }
     }
     if date_time_format.is_empty() {
-        date_time_format = "%a %m %e %H:%M:%S %Z %Y".to_owned();
+        date_time_format = date_time::DEFAULT_STRFTIME_FORMAT.to_owned();
     }
     let timestamp = if timestamp < 0 {
         SystemTime::now()

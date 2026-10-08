@@ -1,5 +1,6 @@
 use crate::runtime;
 use crate::runtime::{Int, Str};
+use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Timelike};
 use std::time::SystemTime;
 
@@ -19,7 +20,16 @@ fn local_date_time(timestamp: i64) -> DateTime<Local> {
     utc.with_timezone(&Local)
 }
 
+/// Default `strftime` format, same as `PROCINFO["strftime"]`.
+pub const DEFAULT_STRFTIME_FORMAT: &str = "%a %m %e %H:%M:%S %Z %Y";
+
+/// Format a unix timestamp as local date time, falling back to [`DEFAULT_STRFTIME_FORMAT`] for an invalid format.
 pub fn strftime(format: &str, timestamp: i64) -> String {
+    let format = if StrftimeItems::new(format).any(|item| item == Item::Error) {
+        DEFAULT_STRFTIME_FORMAT
+    } else {
+        format
+    };
     local_date_time(timestamp).format(format).to_string()
 }
 
@@ -131,6 +141,11 @@ pub fn duration(text: &str) -> Int {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_strftime_invalid_format() {
+        assert_eq!(strftime("%Q", 0), strftime(DEFAULT_STRFTIME_FORMAT, 0));
+    }
 
     #[test]
     fn test_strftime() {
