@@ -33,9 +33,6 @@
 
 # input and output
 09-environ-argv                       # ARGC and ARGV do not include the operands
-09-getline-plain                      # getline does not increment NR
-09-getline-var                        # getline var does not increment NR
-09-getline-var-file                   # getline var < file clears var at end of file
 
 # gawk extensions
 11-gawk-asort                         # asort() does not sort correctly

@@ -296,6 +296,11 @@ impl UsedFieldAnalysis {
                 self.dfa.add_src(Key::Var(Variable::NF), FieldSet::all());
                 self.dfa.add_query(Key::Var(Variable::NF));
             }
+            // `getline var` reads the whole record from the main input.
+            NextLineStdin(dst) => {
+                self.dfa.add_src(dst, FieldSet::all());
+                self.dfa.add_query(dst);
+            }
             JoinCSV(dst, start, end)
             | JoinTSV(dst, start, end)
             | JoinColumns(dst, start, end, _) => {

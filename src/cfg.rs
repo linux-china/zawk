@@ -1281,14 +1281,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 };
                 let next_line = if *is_file { Nextline } else { NextlineCmd };
                 let read_err = if *is_file { ReadErr } else { ReadErrCmd };
+                //
+                // Only a successful read assigns the target and updates NR (and FNR, when
+                // reading the main input); see `getline_result`.
                 match (from, into) {
                     // an unadorned `getline` is uses the "fused" stdin construct, which in turn
-                    // enables some optimizations.
+                    // enables some optimizations. (At the end of the input, it keeps $0.)
                     (None /* stdin */, None /* $0 */) => {
-                        return self.convert_expr_inner(
-                            &ast::Expr::ReadStdin,
+                        return self.getline_result(
                             current_open,
-                            in_cond,
+                            None,
+                            &ast::Expr::ReadStdin,
+                            None,
+                            /*main_input=*/ true,
                         );
                     }
                     (from, None /* $0 */) => {
@@ -1302,35 +1307,77 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         );
                     }
                     (Some(from), Some(into)) => {
-                        let (next, _) = self.convert_expr(
-                            &ast::Expr::Assign(
-                                into,
-                                &ast::Expr::Call(Either::Right(next_line), &[from]),
-                            ),
+                        // Reading from a file or command does not update NR or FNR (as in gawk
+                        // and onetrue awk).
+                        return self.getline_result(
                             current_open,
-                        )?;
-                        return self.convert_expr(
+                            Some(&ast::Expr::Call(Either::Right(next_line), &[from])),
                             &ast::Expr::Call(Either::Right(read_err), &[from]),
-                            next,
+                            Some(into),
+                            /*main_input=*/ false,
                         );
                     }
                     (None /*stdin*/, Some(into)) => {
-                        let (next, _) = self.convert_expr(
-                            &ast::Expr::Assign(
-                                into,
-                                &ast::Expr::Call(Either::Right(NextlineStdin), &[]),
-                            ),
+                        return self.getline_result(
                             current_open,
-                        )?;
-                        return self.convert_expr(
+                            Some(&ast::Expr::Call(Either::Right(NextlineStdin), &[])),
                             &ast::Expr::Call(Either::Right(ReadErrStdin), &[]),
-                            next,
+                            Some(into),
+                            /*main_input=*/ true,
                         );
                     }
                 };
             }
         };
         Ok((current_open, res_expr))
+    }
+
+    /// Lower the end of a getline: `read` (if any) reads the line, `status` is the result of
+    /// the getline (1, 0 at end of input, -1 on error). Only if the read succeeded is the line
+    /// assigned to `into` and, for the main input, NR and FNR incremented.
+    fn getline_result<'c>(
+        &mut self,
+        current_open: NodeIx,
+        read: Option<&'c Expr<'c, 'b, I>>,
+        status: &'c Expr<'c, 'b, I>,
+        into: Option<&'c Expr<'c, 'b, I>>,
+        main_input: bool,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
+        use ast::Expr::{Assign, Var};
+        let line_var = Var(I::from_static("%getline_line"));
+        let status_var = Var(I::from_static("%getline_status"));
+        let mut next = current_open;
+        if let Some(read) = read {
+            next = self.convert_expr(&Assign(&line_var, read), next)?.0;
+        }
+        next = self.convert_expr(&Assign(&status_var, status), next)?.0;
+        // Copy the status into a fresh local: another getline in the same expression reuses
+        // %getline_status.
+        let (next, status_val) = self.convert_expr(&status_var, next)?;
+        let res = self.fresh_local();
+        self.add_stmt(next, PrimStmt::AsgnVar(res, status_val))?;
+        let mut next = next;
+        if let Some(into) = into {
+            next = self.if_read(next, &Stmt::Expr(&Assign(into, &line_var)))?;
+        }
+        if main_input {
+            for counter in ["NR", "FNR"] {
+                let inc = ast::Expr::Inc {
+                    is_inc: true,
+                    is_post: false,
+                    x: &Var(I::from_static(counter)),
+                };
+                next = self.if_read(next, &Stmt::Expr(&inc))?;
+            }
+        }
+        Ok((next, PrimExpr::Val(PrimVal::Var(res))))
+    }
+
+    /// Run `stmt` if the last getline succeeded (its status is positive).
+    fn if_read<'c>(&mut self, current_open: NodeIx, stmt: &'c Stmt<'c, 'b, I>) -> Result<NodeIx> {
+        let status_var = ast::Expr::Var(I::from_static("%getline_status"));
+        let ok = ast::Expr::Binop(ast::Binop::GT, &status_var, &ast::Expr::ILit(0));
+        self.convert_stmt(&Stmt::If(&ok, stmt, None), current_open)
     }
 
     fn guarded_else(&mut self, from: NodeIx, to: NodeIx) {

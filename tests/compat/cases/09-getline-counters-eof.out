@@ -1,0 +1,7 @@
+plain 2 2 3.5
+var 1 3 3 -2 3.5
+cmd cmd 3
+file 3
+missing -1 keep
+rest 7 10 [007] 3.5
+end 10 3.5
