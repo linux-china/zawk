@@ -230,6 +230,76 @@ pub struct Tokenizer<'a> {
     lines: Vec<usize>,
 }
 
+/// After `print` or `printf`: if `rest` is blanks followed by a parenthesized list with a
+/// top-level comma, which is not followed by `in`, returns the length up to and including the
+/// `(`. Such a list is the argument list (as in `print (a, b) > "file"`), rather than a grouping
+/// (as in `print (a) (b)`) or a membership test (as in `print (a, b) in arr`).
+fn paren_arg_list(rest: &str) -> Option<usize> {
+    let bs = rest.as_bytes();
+    let mut i = 0;
+    while i < bs.len() && matches!(bs[i], b' ' | b'\t') {
+        i += 1;
+    }
+    if i == 0 || bs.get(i) != Some(&b'(') {
+        return None;
+    }
+    let open = i;
+    let (mut parens, mut brackets) = (0usize, 0usize);
+    let mut comma = false;
+    // The last byte that was not a blank, to tell regex literals from division.
+    let mut prev = b'(';
+    while i < bs.len() {
+        let c = bs[i];
+        match c {
+            b'"' => {
+                i += 1;
+                while i < bs.len() && bs[i] != b'"' {
+                    i += if bs[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'/' if matches!(
+                prev,
+                b'(' | b',' | b'~' | b'!' | b'&' | b'|' | b'=' | b'<' | b'>' | b'?' | b':'
+                    | b'+' | b'-' | b'*' | b'%' | b'^' | b'['
+            ) =>
+            {
+                i += 1;
+                while i < bs.len() && bs[i] != b'/' && bs[i] != b'\n' {
+                    i += if bs[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' => parens += 1,
+            b')' => {
+                parens -= 1;
+                if parens == 0 {
+                    break;
+                }
+            }
+            b'[' => brackets += 1,
+            b']' => brackets = brackets.saturating_sub(1),
+            b',' if parens == 1 && brackets == 0 => comma = true,
+            b'\n' => return None,
+            _ => {}
+        }
+        if !matches!(c, b' ' | b'\t') {
+            prev = c;
+        }
+        i += 1;
+    }
+    if !comma || i >= bs.len() {
+        return None;
+    }
+    // `(a, b) in arr` is a membership test.
+    let mut j = i + 1;
+    while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+        j += 1;
+    }
+    if bs[j..].starts_with(b"in") && !bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
+        return None;
+    }
+    Some(open + 1)
+}
+
 pub fn is_ident(s: &str) -> bool {
     for (i, c) in s.chars().enumerate() {
         if i == 0 && !is_id_start(c) {
@@ -669,6 +739,18 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.keyword() {
+                        // `print (a, b) > "file"`: a parenthesized argument list after a space,
+                        // like `print(a, b)`.
+                        let (tok, len) = match tok {
+                            Tok::Print | Tok::Printf => {
+                                match paren_arg_list(&self.text[self.cur + len..]) {
+                                    Some(n) if matches!(tok, Tok::Print) => (Tok::PrintLP, len + n),
+                                    Some(n) => (Tok::PrintfLP, len + n),
+                                    None => (tok, len),
+                                }
+                            }
+                            tok => (tok, len),
+                        };
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.num() {
