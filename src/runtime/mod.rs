@@ -105,9 +105,7 @@ impl RegexCache {
         is_file: bool,
     ) -> Result<Str<'a>> {
         Ok(if is_file {
-            reg.with_file(file, |reader| {
-                self.with_regex(pat, |re| reader.read_line_regex(re))
-            })?
+            reg.with_file(file, |reader| reader.read_record(pat, self))?
         } else {
             reg.with_cmd(file, |reader| {
                 self.with_regex(pat, |re| reader.read_line_regex(re))
@@ -161,7 +159,8 @@ impl RegexCache {
         mut push: impl FnMut(Str<'a>),
     ) -> Result<()> {
         if pat == &Str::from(" ") {
-            self.with_regex(&Str::from(r#"[ \t]+"#), |re| {
+            // The default FS: fields are separated by runs of blanks and newlines.
+            self.with_regex(&Str::from(r#"[ \t\n]+"#), |re| {
                 s.split(
                     re,
                     |s, is_empty| {

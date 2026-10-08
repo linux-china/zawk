@@ -173,8 +173,9 @@ impl<'a> Core<'a> {
         let procinfo = self.vars.procinfo.shuttle();
         let slots = self.slots.clone();
         move || {
-            let vars = Variables {
+            let mut vars = Variables {
                 fs: fs.into_str(),
+                split_fs: Default::default(),
                 ofs: ofs.into_str(),
                 ors: ors.into_str(),
                 rs: rs.into_str(),
@@ -192,6 +193,7 @@ impl<'a> Core<'a> {
                 environ: environ.into(),
                 procinfo: procinfo.into(),
             };
+            vars.update_split_fs();
             Core {
                 vars,
                 regexes: Default::default(),
@@ -2099,14 +2101,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         let res = self.line.get_col(
                             col,
-                            &self.core.vars.fs,
+                            &self.core.vars.split_fs,
                             &self.core.vars.ofs,
                             &mut self.core.regexes,
                         )?;
                         *self.get_mut(dst) = res;
                     }
                     JoinCSV(dst, start, end) => {
-                        let nf = self.line.nf(&self.core.vars.fs, &mut self.core.regexes)?;
+                        let nf = self.line.nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
                         *index_mut(&mut self.strs, dst) = {
                             let start = *index(&self.ints, start);
                             let end = *index(&self.ints, end);
@@ -2116,7 +2118,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         };
                     }
                     JoinTSV(dst, start, end) => {
-                        let nf = self.line.nf(&self.core.vars.fs, &mut self.core.regexes)?;
+                        let nf = self.line.nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
                         *index_mut(&mut self.strs, dst) = {
                             let start = *index(&self.ints, start);
                             let end = *index(&self.ints, end);
@@ -2126,7 +2128,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         };
                     }
                     JoinColumns(dst, start, end, sep) => {
-                        let nf = self.line.nf(&self.core.vars.fs, &mut self.core.regexes)?;
+                        let nf = self.line.nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
                         *index_mut(&mut self.strs, dst) = {
                             let sep = index(&self.strs, sep);
                             let start = *index(&self.ints, start);
@@ -2288,7 +2290,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         // NF update, see StoreVarInt).
                         if let NF = *var {
                             self.core.vars.nf =
-                                self.line.nf(&self.core.vars.fs, &mut self.core.regexes)? as Int;
+                                self.line.nf(&self.core.vars.split_fs, &mut self.core.regexes)? as Int;
                         }
                         let i = self.core.vars.load_int(*var)?;
                         let dst = *dst;
@@ -2299,7 +2301,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let s = *self.get(src);
                         if let NF = *var {
                             // Assigning NF truncates or extends the fields and rebuilds $0.
-                            self.line.set_nf(s, &self.core.vars.fs, &mut self.core.regexes)?;
+                            self.line.set_nf(s, &self.core.vars.split_fs, &mut self.core.regexes)?;
                         }
                         self.core.vars.store_int(*var, s)?;
                     }
@@ -2406,7 +2408,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let val = *index(&self.ints, val);
                         let col = self.line.get_col(
                             key,
-                            &self.core.vars.fs,
+                            &self.core.vars.split_fs,
                             &self.core.vars.ofs,
                             &mut self.core.regexes,
                         )?;

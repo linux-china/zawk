@@ -42,21 +42,19 @@ impl<R: Read> LineReader for RegexSplitter<R> {
         self.start = false;
         old.diverged = false;
         old.fields.clear();
-        rc.with_regex(pat, |re| {
-            old.line = self.read_line_regex(re);
-        })?;
+        old.line = self.read_record(pat, rc)?;
         Ok(/* file changed */ start)
     }
 
     fn read_line(&mut self, pat: &Str, rc: &mut super::RegexCache) -> Result<(bool, Self::Line)> {
         let start = self.start;
         self.start = false;
-        let line = rc.with_regex(pat, |re| DefaultLine {
-            line: self.read_line_regex(re),
+        let line = DefaultLine {
+            line: self.read_record(pat, rc)?,
             fields: Default::default(),
             used_fields: self.used_fields.clone(),
             diverged: false,
-        })?;
+        };
         Ok((/* file changed */ start, line))
     }
     fn read_state(&self) -> i64 {
@@ -80,6 +78,50 @@ impl<R: Read> RegexSplitter<R> {
             used_fields: FieldSet::all(),
             start: true,
         }
+    }
+
+    /// Read the next record, where records are separated by the regex `rs`, or by blank lines
+    /// if `rs` is empty ("paragraph mode").
+    pub fn read_record(&mut self, rs: &Str, rc: &mut super::RegexCache) -> Result<Str<'static>> {
+        if rs.is_empty() {
+            return self.read_paragraph(rc);
+        }
+        rc.with_regex(rs, |re| self.read_line_regex(re))
+    }
+
+    /// Read a record in paragraph mode: records are separated by one or more blank lines;
+    /// newlines at the start of the input and at the end of the last record are ignored.
+    fn read_paragraph(&mut self, rc: &mut super::RegexCache) -> Result<Str<'static>> {
+        // Skip the newlines before the record.
+        loop {
+            let bs = self.reader.buf.as_bytes();
+            while self.reader.start < self.reader.end && bs[self.reader.start] == b'\n' {
+                self.reader.start += 1;
+            }
+            if self.reader.start < self.reader.end {
+                break;
+            }
+            match self.reader.reset() {
+                Ok(false) => continue,
+                Ok(true) => {
+                    // EOF
+                    self.reader.last_len = 0;
+                    return Ok(Str::default());
+                }
+                Err(_) => {
+                    self.reader.state = ReaderState::Error;
+                    self.reader.last_len = 0;
+                    return Ok(Str::default());
+                }
+            }
+        }
+        let line = rc.with_regex(&Str::from("\n\n+"), |re| self.read_line_regex(re))?;
+        // The last record may end with a single newline.
+        let len = line.len();
+        if len > 0 && line.with_bytes(|bs| bs[len - 1] == b'\n') {
+            return Ok(line.slice(0, len - 1));
+        }
+        Ok(line)
     }
 
     pub fn read_line_regex(&mut self, pat: &Regex) -> Str<'static> {

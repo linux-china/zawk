@@ -150,7 +150,18 @@ fn get_vars<'a, 'b>(
             );
         }
         let str_lit = lexer::parse_string_literal(split_buf[1], a, buf);
-        res.push((ident, a.alloc(ast::Expr::StrLit(str_lit))))
+        let val = a.alloc(ast::Expr::StrLit(str_lit));
+        // -v values of user variables are "strnums", like input. Special variables (FS, RS, ...)
+        // keep plain string literals, which lets the reader specialize on constant separators.
+        let val = if builtins::Variable::try_from(ident).is_ok() {
+            val
+        } else {
+            a.alloc(ast::Expr::Call(
+                common::Either::Right(builtins::Function::Strnum),
+                a.alloc_slice(&[&*val]),
+            ))
+        };
+        res.push((ident, &*val))
     }
     res
 }
@@ -643,7 +654,12 @@ fn main() {
                     ) => {
                         let field_sep = field_sep.unwrap_or(b" ");
                         let record_sep = record_sep.unwrap_or(b"\n");
-                        if field_sep.len() == 1 && record_sep.len() == 1 {
+                        // The default FS splits on runs of blanks and newlines, which the
+                        // single-byte splitter only handles with the default RS.
+                        if field_sep.len() == 1
+                            && record_sep.len() == 1
+                            && (field_sep != b" " || record_sep == b"\n")
+                        {
                             if field_sep == b" " && record_sep == b"\n" {
                                 let $inp = ByteReader::new_whitespace(
                                     once((_reader, String::from("-"))),
@@ -700,7 +716,12 @@ fn main() {
                     } => {
                         let field_sep = field_sep.unwrap_or(b" ");
                         let record_sep = record_sep.unwrap_or(b"\n");
-                        if field_sep.len() == 1 && record_sep.len() == 1 {
+                        // The default FS splits on runs of blanks and newlines, which the
+                        // single-byte splitter only handles with the default RS.
+                        if field_sep.len() == 1
+                            && record_sep.len() == 1
+                            && (field_sep != b" " || record_sep == b"\n")
+                        {
                             let file_handles: Vec<_> = input_files
                                 .iter()
                                 .cloned()

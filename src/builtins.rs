@@ -1217,6 +1217,8 @@ pub(crate) struct Variables<'a> {
     pub argc: Int,
     pub argv: IntMap<Str<'a>>,
     pub fs: Str<'a>,
+    // The pattern used to split records into fields; see `update_split_fs`.
+    pub split_fs: Str<'a>,
     pub ofs: Str<'a>,
     pub ors: Str<'a>,
     pub rs: Str<'a>,
@@ -1239,6 +1241,7 @@ impl<'a> Default for Variables<'a> {
             argc: 0,
             argv: Default::default(),
             fs: " ".into(),
+            split_fs: " ".into(),
             ofs: " ".into(),
             ors: "\n".into(),
             rs: "\n".into(),
@@ -1338,13 +1341,33 @@ impl<'a> Variables<'a> {
         })
     }
 
+    /// Recompute the pattern used to split records into fields. It is FS, except in paragraph
+    /// mode (RS = "") with a single-character FS, where a newline separates fields as well (as
+    /// in gawk; this does not apply to regular expression FS values). The default FS (" ")
+    /// already splits on newlines.
+    pub fn update_split_fs(&mut self) {
+        let fs = self.fs.as_str().to_string();
+        self.split_fs = if self.rs.is_empty() && fs != " " && fs.chars().count() == 1 {
+            // A single-character FS is a literal character.
+            Str::from(format!("{}|\n", regex::escape(&fs)))
+        } else {
+            self.fs.clone()
+        };
+    }
+
     pub fn store_str(&mut self, var: Variable, s: Str<'a>) -> Result<()> {
         use Variable::*;
         match var {
-            FS => self.fs = s,
+            FS => {
+                self.fs = s;
+                self.update_split_fs();
+            }
             OFS => self.ofs = s,
             ORS => self.ors = s,
-            RS => self.rs = s,
+            RS => {
+                self.rs = s;
+                self.update_split_fs();
+            }
             FILENAME => self.filename = s,
             CONVFMT => self.convfmt = s,
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {

@@ -907,7 +907,7 @@ pub(crate) unsafe extern "C" fn get_col(runtime: *mut c_void, col: Int) -> U128 
         let col_str = with_input!(&mut runtime.input_data, |(line, _)| {
             line.get_col(
                 col,
-                &runtime.core.vars.fs,
+                &runtime.core.vars.split_fs,
                 &runtime.core.vars.ofs,
                 &mut runtime.core.regexes,
             )
@@ -929,7 +929,7 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
             with_input!(&mut runtime.input_data, |(line, _)| {
                 let nf = try_abort!(
                     runtime,
-                    line.nf(&runtime.core.vars.fs, &mut runtime.core.regexes),
+                    line.nf(&runtime.core.vars.split_fs, &mut runtime.core.regexes),
                     "nf:"
                 );
                 line.join_cols(start, end, &sep, nf, |s| runtime::escape_csv(&s))
@@ -1657,7 +1657,7 @@ pub(crate) unsafe extern "C" fn join_tsv(runtime: *mut c_void, start: Int, end: 
             with_input!(&mut runtime.input_data, |(line, _)| {
                 let nf = try_abort!(
                     runtime,
-                    line.nf(&runtime.core.vars.fs, &mut runtime.core.regexes),
+                    line.nf(&runtime.core.vars.split_fs, &mut runtime.core.regexes),
                     "nf:"
                 );
                 line.join_cols(start, end, &sep, nf, |s| runtime::escape_tsv(&s))
@@ -1681,7 +1681,7 @@ pub(crate) unsafe extern "C" fn join_cols(
             with_input!(&mut runtime.input_data, |(line, _)| {
                 let nf = try_abort!(
                     runtime,
-                    line.nf(&runtime.core.vars.fs, &mut runtime.core.regexes),
+                    line.nf(&runtime.core.vars.split_fs, &mut runtime.core.regexes),
                     "nf:"
                 );
                 line.join_cols(start, end, &*(sep as *mut Str), nf, |s| s)
@@ -2900,7 +2900,7 @@ pub(crate) unsafe extern "C" fn load_var_int(rt: *mut c_void, var: usize) -> Int
         if let Ok(var) = Variable::try_from(var) {
             if let Variable::NF = var {
                 runtime.core.vars.nf = match with_input!(&mut runtime.input_data, |(line, _)| line
-                    .nf(&runtime.core.vars.fs, &mut runtime.core.regexes))
+                    .nf(&runtime.core.vars.split_fs, &mut runtime.core.regexes))
                 {
                     Ok(nf) => nf as Int,
                     Err(e) => fail!(runtime, "nf: {}", e),
@@ -2923,7 +2923,7 @@ pub(crate) unsafe extern "C" fn store_var_int(rt: *mut c_void, var: usize, i: In
                     runtime,
                     with_input!(&mut runtime.input_data, |(line, _)| line.set_nf(
                         i,
-                        &runtime.core.vars.fs,
+                        &runtime.core.vars.split_fs,
                         &mut runtime.core.regexes
                     ))
                 );
