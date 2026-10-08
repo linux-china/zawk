@@ -104,6 +104,7 @@ fn open_file(path: &str, spec: FileSpec) -> io::Result<FileWriter> {
         .write(true)
         .create(true)
         .append(matches!(spec, FileSpec::Append))
+        .truncate(matches!(spec, FileSpec::Trunc))
         .open(path)?;
     Ok(file)
 }

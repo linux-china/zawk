@@ -482,3 +482,47 @@ fn exit_runs_end_block() {
         }
     }
 }
+
+#[test]
+fn redirect_truncates_existing_file() {
+    for backend_arg in BACKEND_ARGS {
+        let tmp = tempdir().unwrap();
+        let out = tmp.path().join("out.txt");
+        let out_s = out.to_str().unwrap().to_string();
+
+        // `>` truncates on first open; later writes to the open handle append.
+        std::fs::write(&out, "xxxxxxxx\nyyyy\n").unwrap();
+        let prog = format!(r#"BEGIN {{ print "a" > "{0}"; print "b" > "{0}" }}"#, out_s);
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success();
+        assert_eq!(read_to_string(&out).unwrap(), "a\nb\n");
+
+        // `>` after close() truncates again; `>>` appends.
+        let prog = format!(
+            r#"BEGIN {{ print "c" > "{0}"; close("{0}"); print "d" > "{0}"; close("{0}"); print "e" >> "{0}" }}"#,
+            out_s
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success();
+        assert_eq!(read_to_string(&out).unwrap(), "d\ne\n");
+
+        // --out-file truncates as well.
+        std::fs::write(&out, "xxxxxxxx\nyyyy\n").unwrap();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(format!("--out-file={}", out_s))
+            .arg(String::from(r#"BEGIN { print "z" }"#))
+            .assert()
+            .success();
+        assert_eq!(read_to_string(&out).unwrap(), "z\n");
+    }
+}
