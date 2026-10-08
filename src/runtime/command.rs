@@ -1,5 +1,5 @@
 use std::io;
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 use grep_cli::{CommandError, CommandReader};
 
@@ -49,10 +49,27 @@ pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
     StrMap::from(map)
 }
 
-pub fn command_for_write(bs: &[u8]) -> io::Result<ChildStdin> {
+/// Spawn `bs` as a shell command with a piped stdin. The caller owns the child and is responsible
+/// for waiting on it (see `writers::CmdWriter`).
+pub fn command_for_write(bs: &[u8]) -> io::Result<Child> {
     let mut cmd = prepare_command(String::from_utf8_lossy(bs).as_ref())?;
-    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::inherit()).spawn()?;
-    Ok(child.stdin.take().unwrap())
+    cmd.stdin(Stdio::piped()).stdout(Stdio::inherit()).spawn()
+}
+
+/// The value of awk's `close` for a command: its exit status, or 256 plus the signal number if
+/// it was killed by a signal (as in gawk).
+pub(crate) fn exit_status_code(status: ExitStatus) -> Int {
+    if let Some(code) = status.code() {
+        return code as Int;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return 256 + sig as Int;
+        }
+    }
+    -1
 }
 
 pub fn command_for_read(bs: &[u8]) -> Result<CommandReader, CommandError> {

@@ -2187,13 +2187,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         }
                         scratch.clear();
                     }
-                    Close(file) => {
+                    Close(dst, file) => {
                         let file = index(&self.strs, file);
-                        // NB this may create an unused entry in write_files. It would not be
-                        // terribly difficult to optimize the close path to include an existence
-                        // check first.
-                        self.core.write_files.close(file)?;
-                        self.read_files.close(file);
+                        let out = self.core.write_files.close(file)?;
+                        let input = self.read_files.close(file);
+                        let res = runtime::close_result(out, input);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
                     }
                     RunCmd(dst, cmd) => {
                         let cmd = index(&self.strs, cmd);

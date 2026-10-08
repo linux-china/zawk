@@ -401,7 +401,8 @@ pub(crate) enum Instr<'a> {
         output: Option<(Reg<Str<'a>>, FileSpec)>,
         args: Vec<Reg<Str<'a>>>,
     },
-    Close(Reg<Str<'a>>),
+    // close(file): stores the exit status of a command, 0 for a file, -1 if it was not open.
+    Close(Reg<Int>, Reg<Str<'a>>),
     RunCmd(Reg<Int>, Reg<Str<'a>>),
     RunCmd2(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Exit(Reg<Int>),
@@ -1641,7 +1642,10 @@ impl<'a> Instr<'a> {
                     reg.accum(&mut f)
                 }
             }
-            Close(file) => file.accum(&mut f),
+            Close(dst, file) => {
+                dst.accum(&mut f);
+                file.accum(&mut f)
+            }
             RunCmd(dst, cmd) => {
                 dst.accum(&mut f);
                 cmd.accum(&mut f);

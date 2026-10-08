@@ -1660,11 +1660,10 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             Close => {
-                self.pushl(LL::Close(conv_regs[0].into()));
-                assert_eq!(res_ty, Ty::Str);
-                if res_reg != UNUSED {
-                    self.pushl(LL::StoreConstStr(res_reg.into(), Default::default()));
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                self.pushl(LL::Close(res_reg.into(), conv_regs[0].into()));
             }
             JoinCSV => {
                 if res_reg != UNUSED {

@@ -854,7 +854,7 @@ impl Function {
                     return err!("invalid input spec for array _max/_min: {:?}", incoming);
                 }
             }
-            Close => (smallvec![Str], Str),
+            Close => (smallvec![Str], Int),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
@@ -1147,7 +1147,8 @@ impl Function {
             },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
-            Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused | Close => Ok(None),
+            Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),
+            Close => Ok(Scalar(BaseTy::Int).abs()),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),
             ReadAll => Ok(Scalar(BaseTy::Str).abs()),
             WriteAll => Ok(None),

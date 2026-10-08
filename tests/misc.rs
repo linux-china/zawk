@@ -649,3 +649,48 @@ fn large_integer_literals() {
             ));
     }
 }
+
+#[test]
+fn close_output_command() {
+    for backend_arg in BACKEND_ARGS {
+        // close() waits for the command, so its output comes before later output, and earlier
+        // output comes before the command's.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { print "header"; print "b\na" | "sleep 0.2; sort"; close("sleep 0.2; sort"); print "done" }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from("header\na\nb\ndone\n"));
+        // Commands still open at exit are waited for.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(r#"BEGIN { print "b\na" | "sleep 0.2; sort" }"#))
+            .assert()
+            .success()
+            .stdout(String::from("a\nb\n"));
+        // close() returns the exit status of a command, 0 for files and input commands, and -1
+        // for names that were never opened.
+        let tmp = tempdir().unwrap();
+        let out = tmp.path().join("out.txt");
+        let prog = format!(
+            r#"BEGIN {{
+                print "x" | "cat >/dev/null; exit 3"; print close("cat >/dev/null; exit 3")
+                print close("never opened")
+                print "y" > "{0}"; print close("{0}")
+                "echo hi" | getline v; print close("echo hi")
+            }}"#,
+            out.to_str().unwrap()
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(String::from("3\n-1\n0\n0\n"));
+    }
+}

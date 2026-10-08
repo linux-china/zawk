@@ -1580,11 +1580,11 @@ pub(crate) trait CodeGenerator: Backend {
             Printf { output, fmt, args } => self.printf(output, fmt, &args[..]),
             Sprintf { dst, fmt, args } => self.sprintf(dst, fmt, &args[..]),
             PrintAll { output, args } => self.print_all(output, &args[..]),
-            Close(file) => {
+            Close(dst, file) => {
                 let rt = self.runtime_val();
                 let filev = self.get_val(file.reflect())?;
-                self.call_void(external!(close_file), &mut [rt, filev])?;
-                Ok(())
+                let resv = self.call_intrinsic(intrinsic!(close_file), &mut [rt, filev])?;
+                self.bind_val(dst.reflect(), resv)
             }
             RunCmd(dst, cmd) => self.unop(intrinsic!(run_cmd), dst, cmd),
             RunCmd2(dst, cmd) => self.unop(intrinsic!(run_cmd2), dst, cmd),

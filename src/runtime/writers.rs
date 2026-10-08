@@ -38,7 +38,7 @@
 use std::io::IsTerminal;
 use std::collections::VecDeque;
 use std::io::{self, Write};
-use std::process::ChildStdin;
+use std::process::{Child, ChildStdin};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -58,7 +58,10 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use hashbrown::HashMap;
 
 use crate::common::{CompileError, FileSpec, Notification, Result};
-use crate::runtime::{command::command_for_write, Str};
+use crate::runtime::{
+    command::{command_for_write, exit_status_code},
+    Int, Str,
+};
 
 /// The maximum number of pending requests in the per-file channels.
 const IO_CHAN_SIZE: usize = 8;
@@ -75,8 +78,8 @@ const BUFFER_SIZE: usize = 64 << 10;
 pub trait FileFactory: Clone + 'static + Send + Sync {
     type Output: io::Write;
     type Stdout: io::Write;
-    // TODO: make ChildStdin an associated type, to permit better testing
-    fn cmd(&self, cmd: &[u8]) -> io::Result<ChildStdin> {
+    // TODO: make Child an associated type, to permit better testing
+    fn cmd(&self, cmd: &[u8]) -> io::Result<Child> {
         command_for_write(cmd)
     }
     fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output>;
@@ -132,9 +135,58 @@ pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
     Ok(FileStdout(fname.into()))
 }
 
+/// Exit status of the most recently closed command behind a handle; see `CmdWriter`.
+type StatusSlot = Arc<Mutex<Option<Int>>>;
+
+/// The writer for an output command (`print | "cmd"`). Dropping it closes the command's stdin and
+/// waits for the command to exit, recording its exit status in `status`. Writer threads drop their
+/// writer when processing a close request, so the status is available once the close completes.
+struct CmdWriter {
+    stdin: Option<ChildStdin>,
+    child: Child,
+    status: StatusSlot,
+}
+
+impl CmdWriter {
+    fn new(mut child: Child, status: StatusSlot) -> CmdWriter {
+        CmdWriter {
+            stdin: child.stdin.take(),
+            child,
+            status,
+        }
+    }
+    fn stdin(&mut self) -> &mut ChildStdin {
+        self.stdin.as_mut().expect("stdin of command is open until drop")
+    }
+}
+
+impl Write for CmdWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stdin().write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.stdin().flush()
+    }
+}
+
+impl Drop for CmdWriter {
+    fn drop(&mut self) {
+        // Close stdin first so that the command sees EOF.
+        drop(self.stdin.take());
+        let code = match self.child.wait() {
+            Ok(status) => exit_status_code(status),
+            Err(_) => -1,
+        };
+        if let Ok(mut slot) = self.status.lock() {
+            *slot = Some(code);
+        }
+    }
+}
+
 fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>(
     f: F,
     is_stdout: bool,
+    status: StatusSlot,
 ) -> RawHandle {
     let (sender, receiver) = bounded(IO_CHAN_SIZE);
     let error = Arc::new(Mutex::new(None));
@@ -144,6 +196,7 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>
         error,
         sender,
         line_buffer: is_stdout && io::stdout().is_terminal(),
+        status,
     }
 }
 
@@ -156,6 +209,10 @@ pub struct Registry {
     files: HashMap<Str<'static>, FileHandle>,
     cmds: HashMap<Str<'static>, FileHandle>,
     stdout: FileHandle,
+    /// Whether this is the original registry rather than a clone made for a worker thread. Only
+    /// the root waits for output commands at shutdown: workers share commands, and closing one
+    /// while other workers still write to it would start the command again.
+    is_root: bool,
 }
 
 impl Registry {
@@ -167,6 +224,7 @@ impl Registry {
             files: Default::default(),
             cmds: Default::default(),
             stdout,
+            is_root: true,
         }
     }
 
@@ -182,17 +240,25 @@ impl Registry {
         }
     }
 
-    pub fn close(&mut self, path_or_cmd: &Str) -> Result<()> {
+    /// Close a file or command. Returns the exit status of a command, 0 for a file, and `None`
+    /// if `path_or_cmd` was never opened.
+    pub fn close(&mut self, path_or_cmd: &Str) -> Result<Option<Int>> {
         // TODO: implement a newtype for heterogeneous lookup. We shouldn't have to do the clone or
         // the unmoor here, but we need to because we cannot implement Borrow<Str<'a>> for
         // Borrow<Str<'static>> (conflicts with the blanket impl for Borrow).
         if let Some(fh) = self.files.get_mut(&path_or_cmd.clone().unmoor()) {
             fh.close()?;
-            return Ok(());
+            return Ok(Some(0));
         }
-        if let Some(ch) = self.cmds.get_mut(&path_or_cmd.clone().unmoor()) {
+        if let Some(mut ch) = self.cmds.remove(&path_or_cmd.clone().unmoor()) {
+            // Output already printed should appear before anything the command prints on exit.
+            self.stdout.flush()?;
             ch.close()?;
-            return Ok(());
+            return Ok(Some(ch.raw.take_status()));
+        }
+        let is_cmd = path_or_cmd.with_bytes(|bs| self.global.is_command(bs));
+        if is_cmd {
+            self.stdout.flush()?;
         }
         path_or_cmd.with_bytes(|bs| self.global.close(bs))
     }
@@ -204,6 +270,9 @@ impl Registry {
         match self.cmds.entry(cmd.clone().unmoor()) {
             Entry::Occupied(o) => Ok(o.into_mut()),
             Entry::Vacant(v) => {
+                // As in gawk, flush pending output before (possibly) starting a command, so that
+                // output printed earlier appears before the command's output.
+                self.stdout.flush()?;
                 Ok(v.insert(cmd.with_bytes(|bs| global.get_command(bs)).into_handle()))
             }
         }
@@ -238,6 +307,13 @@ impl Registry {
                 last_error = res;
             }
         }
+        if self.is_root {
+            // Wait for output commands to finish, so that their output is complete when we exit.
+            let res = self.global.close_commands();
+            if res.is_err() {
+                last_error = res;
+            }
+        }
         last_error
     }
 }
@@ -249,6 +325,7 @@ impl Clone for Registry {
             files: Default::default(),
             cmds: Default::default(),
             stdout: self.stdout.raw().into_handle(),
+            is_root: false,
         }
     }
 }
@@ -259,8 +336,11 @@ trait Root: 'static + Send + Sync {
     fn get_command(&self, cmd: &[u8]) -> RawHandle;
     fn get_handle(&self, fname: &str) -> RawHandle;
     fn get_stdout(&self) -> RawHandle;
-    // closes a file or command with name `fname`.
-    fn close(&self, fname: &[u8]) -> Result<()>;
+    // closes a file or command with name `fname`; see Registry::close for the return value.
+    fn close(&self, fname: &[u8]) -> Result<Option<Int>>;
+    fn is_command(&self, fname: &[u8]) -> bool;
+    // closes all commands, waiting for them to exit.
+    fn close_commands(&self) -> Result<()>;
 }
 
 struct RootImpl<F> {
@@ -276,6 +356,7 @@ impl<F: FileFactory> RootImpl<F> {
         let stdout_raw = build_handle(
             move |_append| Ok(local_factory.stdout()),
             /*is_stdout*/ true,
+            Default::default(),
         );
         RootImpl {
             handles: Default::default(),
@@ -287,7 +368,21 @@ impl<F: FileFactory> RootImpl<F> {
 }
 
 impl<F: FileFactory> Root for RootImpl<F> {
-    fn close(&self, fname: &[u8]) -> Result<()> {
+    fn is_command(&self, fname: &[u8]) -> bool {
+        self.commands.lock().unwrap().contains_key(fname)
+    }
+    fn close_commands(&self) -> Result<()> {
+        // Avoid calling close with the lock held.
+        let handles: Vec<RawHandle> = self.commands.lock().unwrap().values().cloned().collect();
+        let mut last_error = Ok(());
+        for h in handles {
+            if let Err(e) = h.into_handle().close() {
+                last_error = Err(e);
+            }
+        }
+        last_error
+    }
+    fn close(&self, fname: &[u8]) -> Result<Option<Int>> {
         let mut handle = None;
         {
             let cmds = self.commands.lock().unwrap();
@@ -297,8 +392,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
             }
         }
         if let Some(h) = handle.take() {
-            h.into_handle().close()?;
-            return Ok(());
+            let mut fh = h.into_handle();
+            fh.close()?;
+            return Ok(Some(fh.raw.take_status()));
         }
         {
             let fname = if let Ok(s) = std::str::from_utf8(fname) {
@@ -306,7 +402,7 @@ impl<F: FileFactory> Root for RootImpl<F> {
             } else {
                 // If this file name is invalid UTF8, we haven't opened it; no need to return an
                 // error.
-                return Ok(());
+                return Ok(None);
             };
             let files = self.handles.lock().unwrap();
             if let Some(h) = files.get(fname) {
@@ -315,9 +411,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
         }
         if let Some(h) = handle.take() {
             h.into_handle().close()?;
-            return Ok(());
+            return Ok(Some(0));
         }
-        Ok(())
+        Ok(None)
     }
     fn get_command(&self, cmd: &[u8]) -> RawHandle {
         let mut cmds = self.commands.lock().unwrap();
@@ -327,9 +423,16 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let local_factory = self.file_factory.clone();
         let local_name = Box::<[u8]>::from(cmd);
         let global_name = local_name.clone();
+        let status = StatusSlot::default();
+        let writer_status = status.clone();
         let handle = build_handle(
-            move |_| local_factory.cmd(&local_name),
+            move |_| {
+                local_factory
+                    .cmd(&local_name)
+                    .map(|child| CmdWriter::new(child, writer_status.clone()))
+            },
             /*is_stdout=*/ false,
+            status,
         );
         let _old = cmds.insert(global_name, handle.clone());
         debug_assert!(
@@ -350,6 +453,7 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let handle = build_handle(
             move |append| local_factory.build(local_name.as_str(), append),
             /*is_stdout=*/ false,
+            Default::default(),
         );
         handles.insert(global_name, handle.clone());
         handle
@@ -648,6 +752,15 @@ struct RawHandle {
     error: Arc<Mutex<Option<CompileError>>>,
     sender: Sender<Request>,
     line_buffer: bool,
+    /// Set when a command behind this handle exits; unused for files and stdout.
+    status: StatusSlot,
+}
+
+impl RawHandle {
+    /// The exit status of the command closed most recently, or 0 (e.g. for files).
+    fn take_status(&self) -> Int {
+        self.status.lock().ok().and_then(|mut s| s.take()).unwrap_or(0)
+    }
 }
 
 impl RawHandle {

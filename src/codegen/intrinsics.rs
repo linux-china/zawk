@@ -146,7 +146,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         sprintf_impl(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty) -> str_ty;
         printf_impl_file(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty, str_ref_ty, int_ty);
         printf_impl_stdout(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty);
-        close_file(rt_ty, str_ref_ty);
+        close_file(rt_ty, str_ref_ty) -> int_ty;
         mod_by_zero(rt_ty);
         int_overflow(rt_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
@@ -3180,12 +3180,13 @@ pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void) {
     guard_panic(stringify!(int_overflow), || fail!(rt, "{}", runtime::INT_OVERFLOW_MSG))
 }
 
-pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) {
+pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) -> Int {
     guard_panic(stringify!(close_file), || {
         let rt = &mut *(rt as *mut Runtime);
         let file = &*(file as *mut Str);
-        with_input!(&mut rt.input_data, |(_, read_files)| read_files.close(file));
-        try_abort!(rt, rt.core.write_files.close(file));
+        let input = with_input!(&mut rt.input_data, |(_, read_files)| read_files.close(file));
+        let out = try_abort!(rt, rt.core.write_files.close(file));
+        runtime::close_result(out, input)
     })
 }
 

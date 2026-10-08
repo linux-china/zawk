@@ -255,7 +255,9 @@ impl FileWrite {
     pub(crate) fn flush_stdout(&mut self) -> Result<()> {
         self.0.get_file(None)?.flush()
     }
-    pub(crate) fn close(&mut self, path: &Str) -> Result<()> {
+    /// Close an output file or command. Returns the command's exit status, 0 for a file, or
+    /// `None` if `path` was never opened for output.
+    pub(crate) fn close(&mut self, path: &Str) -> Result<Option<Int>> {
         self.0.close(path)
     }
     pub(crate) fn new(ff: impl writers::FileFactory) -> FileWrite {
@@ -337,9 +339,11 @@ impl<LR: LineReader> FileRead<LR> {
             .collect()
     }
 
-    pub(crate) fn close(&mut self, path: &Str) {
-        self.inputs.files.remove(path);
-        self.inputs.commands.remove(path);
+    /// Close an input file or command; returns whether it was open.
+    pub(crate) fn close(&mut self, path: &Str) -> bool {
+        let file = self.inputs.files.remove(path);
+        let cmd = self.inputs.commands.remove(path);
+        file || cmd
     }
 
     pub(crate) fn new(
@@ -481,8 +485,8 @@ impl<T> Default for Registry<T> {
 }
 
 impl<T> Registry<T> {
-    fn remove(&mut self, s: &Str) {
-        self.cached.remove(&s.clone().unmoor());
+    fn remove(&mut self, s: &Str) -> bool {
+        self.cached.remove(&s.clone().unmoor()).is_some()
     }
     fn get<R>(
         &mut self,
@@ -565,6 +569,16 @@ impl<'b, 'a> Convert<&'b Str<'a>, Float> for _Carrier {
 impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
     fn convert(s: &'b Str<'a>) -> Int {
         s.with_bytes(strtoi)
+    }
+}
+
+/// The value of awk's `close`: the exit status of an output command (0 for a file), 0 for an
+/// input that was open, and -1 if nothing named that way was open.
+pub(crate) fn close_result(output: Option<Int>, input_was_open: bool) -> Int {
+    match output {
+        Some(status) => status,
+        None if input_was_open => 0,
+        None => -1,
     }
 }
 

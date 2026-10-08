@@ -810,6 +810,7 @@ pub(crate) mod boilerplate {
                 }
             }
             RunCmd(dst, _) => f(dst.into(), None),
+            Close(dst, _) => f(dst.into(), None),
             RunCmd2(dst, command_line) => {
                 let (reg, ty) = dst.reflect();
                 f(Key::MapKey(reg, ty), Some(command_line.into()));
@@ -899,7 +900,6 @@ pub(crate) mod boilerplate {
             | Call(_)
             | Ret
             | Printf { .. }
-            | Close(_)
             | NextLineStdinFused()
             | NextFile()
             | SetColumn(_, _)
