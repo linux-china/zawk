@@ -526,3 +526,43 @@ fn redirect_truncates_existing_file() {
         assert_eq!(read_to_string(&out).unwrap(), "z\n");
     }
 }
+
+#[test]
+fn mod_by_zero_is_fatal() {
+    // Integer and floating-point `%` by zero halt with an error instead of crashing.
+    let progs = [
+        r#"BEGIN { x = 0; print 1 % x }"#,
+        r#"BEGIN { x = 0; print 1.5 % x }"#,
+        r#"BEGIN { y = 5; y %= 0; print y }"#,
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for prog in progs {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(prog))
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
+            assert!(output.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("division by zero attempted in `%'"),
+                "{} {}: {}",
+                backend_arg,
+                prog,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        // i64::MIN % -1 overflows but is well-defined in awk.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { x = -9223372036854775807 - 1; y = -1; print x % y, 7 % 3, -7 % 3 }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from("0 1 -1\n"));
+    }
+}

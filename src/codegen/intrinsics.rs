@@ -147,6 +147,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         printf_impl_file(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty, str_ref_ty, int_ty);
         printf_impl_stdout(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty);
         close_file(rt_ty, str_ref_ty);
+        mod_by_zero(rt_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
         read_err_stdin(rt_ty) -> int_ty;
         next_line(rt_ty, str_ref_ty, int_ty) -> str_ty;
@@ -3159,6 +3160,15 @@ pub(crate) unsafe extern "C" fn printf_impl_stdout(
         );
         // Like print, exit silently on write errors (e.g. stdout piped to `head`).
         try_silent_abort!(rt, (*rt).core.write_files.write_printf(None, &text))
+    })
+}
+
+/// Called by generated code when the divisor of `%` is zero; does not return.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void) {
+    guard_panic(stringify!(mod_by_zero), || {
+        fail!(rt, "division by zero attempted in `%'")
     })
 }
 

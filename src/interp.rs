@@ -1748,12 +1748,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        *self.get_mut(res) = l % r;
+                        if r == 0 {
+                            return err!("division by zero attempted in `%'");
+                        }
+                        // wrapping_rem: i64::MIN % -1 overflows (the result is 0).
+                        *self.get_mut(res) = l.wrapping_rem(r);
                     }
                     ModFloat(res, l, r) => {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
+                        if r == 0.0 {
+                            return err!("division by zero attempted in `%'");
+                        }
                         *self.get_mut(res) = l % r;
                     }
                     Div(res, l, r) => {

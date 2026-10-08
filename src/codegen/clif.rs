@@ -982,6 +982,29 @@ impl<'a> View<'a> {
 
     /// Generate a new value according to the operation specified in `op`.
     ///
+    /// Emit a check that halts execution with an error if `divisor` is zero, as `%` by zero is
+    /// fatal in awk. Code emitted after this call runs only when `divisor` is nonzero.
+    fn guard_mod_divisor(&mut self, is_float: bool, divisor: Value) {
+        let is_zero = if is_float {
+            let zero = self.builder.ins().f64const(0.0);
+            self.builder.ins().fcmp(FloatCC::Equal, divisor, zero)
+        } else {
+            self.builder.ins().icmp_imm_s(IntCC::Equal, divisor, 0)
+        };
+        let fail_block = self.builder.create_block();
+        let cont_block = self.builder.create_block();
+        self.builder.set_cold_block(fail_block);
+        self.builder
+            .ins()
+            .brif(is_zero, fail_block, &[], cont_block, &[]);
+        self.builder.switch_to_block(fail_block);
+        let rt = self.runtime_val();
+        // mod_by_zero does not return; the jump only gives the block a terminator.
+        self.call_external_void(external!(mod_by_zero), &[rt]);
+        self.builder.ins().jump(cont_block, &[]);
+        self.builder.switch_to_block(cont_block);
+    }
+
     /// We assume that `args` contains floating point or signed integer values depending on the
     /// value of `is_float`. Panics if args has the wrong arity.
     fn arith(&mut self, op: crate::codegen::Arith, is_float: bool, args: &[Value]) -> Value {
@@ -992,7 +1015,10 @@ impl<'a> View<'a> {
                 Minus => self.builder.ins().fsub(args[0], args[1]),
                 Add => self.builder.ins().fadd(args[0], args[1]),
                 // No floating-point modulo in cranelift?
-                Mod => self.call_external(external!(_frawk_fprem), args),
+                Mod => {
+                    self.guard_mod_divisor(true, args[1]);
+                    self.call_external(external!(_frawk_fprem), args)
+                }
                 Neg => self.builder.ins().fneg(args[0]),
             }
         } else {
@@ -1000,7 +1026,11 @@ impl<'a> View<'a> {
                 Mul => self.builder.ins().imul(args[0], args[1]),
                 Minus => self.builder.ins().isub(args[0], args[1]),
                 Add => self.builder.ins().iadd(args[0], args[1]),
-                Mod => self.builder.ins().srem(args[0], args[1]),
+                Mod => {
+                    // srem traps on a zero divisor.
+                    self.guard_mod_divisor(false, args[1]);
+                    self.builder.ins().srem(args[0], args[1])
+                }
                 Neg => self.builder.ins().ineg(args[0]),
             }
         }
