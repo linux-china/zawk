@@ -123,7 +123,10 @@ impl<'a> MainFunction<'a> {
     /// Unsafe because it pretends an arbitrary memory location contains code, and then runs that
     /// code.
     pub(crate) unsafe fn invoke<'b>(&self, rt: &mut Runtime<'b>) {
-        mem::transmute::<*const u8, unsafe extern "C" fn(*mut Runtime<'b>)>(self.fn_ptr)(rt)
+        let rt_ptr = rt as *mut Runtime<'b>;
+        let prev = intrinsics::set_current_runtime(rt_ptr as *mut libc::c_void);
+        mem::transmute::<*const u8, unsafe extern "C" fn(*mut Runtime<'b>)>(self.fn_ptr)(rt_ptr);
+        intrinsics::set_current_runtime(prev);
     }
 }
 
