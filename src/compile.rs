@@ -14,7 +14,6 @@ use crate::string_constants::{self, StringConstantAnalysis};
 use crate::types;
 
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
-use regex::bytes::Regex;
 use smallvec::smallvec;
 
 use std::collections::VecDeque;
@@ -822,9 +821,12 @@ impl<'a> Typer<'a> {
                     let text = std::str::from_utf8(strs[0]).map_err(|e| {
                         CompileError(format!("regex patterns must be valid UTF-8: {}", e))
                     })?;
-                    let re = Arc::new(Regex::new(text).map_err(|err| {
+                    let re = Arc::new(runtime::awk_regex::compile(text).map_err(|err| {
                         CompileError(format!("regex parse error during compilation: {}", err))
                     })?);
+                    // extract_anchored_literal parses the pattern in the syntax of `regex`.
+                    let text = runtime::awk_regex::translate(text);
+                    let text = text.as_str();
                     // TODO: finish up
                     let inst = self.frames[frame]
                         .cfg
@@ -3234,19 +3236,24 @@ fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
             let first_item = asts.get(0).unwrap();
             if let Ast::Assertion(assertion) = first_item {
                 if assertion.kind == AssertionKind::StartLine {
+                    // The pattern is "starts with a literal" only if everything after the `^`
+                    // is a literal character (anything else, e.g. `$`, a class or a
+                    // repetition, needs the regex).
                     let mut bs = Vec::new();
                     for ast in &asts[1..] {
-                        if let Ast::Literal(l) = ast {
-                            if let Some(b) = l.byte() {
-                                bs.push(b);
-                                continue;
+                        match ast {
+                            Ast::Literal(l) => {
+                                if let Some(b) = l.byte() {
+                                    bs.push(b);
+                                } else {
+                                    let mut buf = [0u8; 4];
+                                    bs.extend_from_slice(l.c.encode_utf8(&mut buf).as_bytes());
+                                }
                             }
-                            let cur = bs.len();
-                            bs.resize(cur + l.c.len_utf8(), 0);
-                            l.c.encode_utf8(&mut bs[cur..]);
-                            return Some(bs.into());
+                            _ => return None,
                         }
                     }
+                    return Some(bs.into());
                 }
             }
         }

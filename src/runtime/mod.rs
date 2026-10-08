@@ -13,6 +13,7 @@ use std::str;
 use std::sync::LazyLock;
 
 mod command;
+pub(crate) mod awk_regex;
 pub(crate) mod compare;
 pub(crate) mod numfmt;
 pub mod float_parse;
@@ -86,7 +87,7 @@ impl RegexCache {
     pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
         self.0.get(
             pat,
-            |s| match Regex::new(s) {
+            |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(r),
                 Err(e) => err!("{}", e),
             },
@@ -101,7 +102,7 @@ impl RegexCache {
     ) -> Result<T> {
         self.0.get_fallible(
             pat,
-            |s| match Regex::new(s) {
+            |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(r),
                 Err(e) => err!("{}", e),
             },

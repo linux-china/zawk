@@ -274,23 +274,20 @@ None of these differences are fundamental to zawk's approach; they _can_ be
 dispensed with, if at some cost. Let me know if you find more discrepancies, or
 if you find that the following are a serious hindrance:
 
-* *Regex Syntax* zawk currently uses rust's
-  [regex](https://docs.rs/regex/1.3.7/regex/) syntax. This is similar, but not
-  identical, to Awk's regex syntax. I've considered implementing my own regex
-  engine, or compiling Awk regexes to rust regexes; it just isn't something I've
-  gotten around to doing.
-* *String comparisons* Comparing one string to another string always uses
-  lexicographic ordering.  When comparing two strings, Awk first tests if both
-  strings are numbers and then compares them numerically if they are. I find
-  these semantics fairly counter-intuitive: for one thing, it means that two
-  strings that are "equal" can hash to different values in an array. It also
-  means that it's pretty hard to explicitly opt into lexicographic comparison.
-  On the other hand, opting into numeric comparison is fairly easy: just add one
-  of the operands to 0. To preserve some idioms, zawk coerces all operands to
-  numbers if one of their operands is a number; this preserves the common
-  use-case of (e.g.) filtering a numeric column by a numeric constant. I've
-  found these semantics to be more predictable, and also more straightforward to
-  implement.
+* *Regex Syntax* zawk translates Awk regexes (POSIX extended regular
+  expressions, plus gawk's `\y`, `\<`, `\>`, `` \` `` and `\'` operators) into
+  rust's [regex](https://docs.rs/regex) syntax. `.` matches newlines, and a `{`
+  that does not start an interval is a literal, as in gawk. One difference
+  remains: for alternations, rust's regex engine reports the leftmost-*first*
+  match, while POSIX Awk reports the leftmost-*longest* one. For example,
+  `match("xyz", /x|xy/)` sets `RLENGTH` to 1 in zawk and to 2 in gawk, and
+  `gsub(/a|ab/, "X")` turns `abab` into `XbXb` rather than `XX`. Ordering the
+  alternatives longest first (`/xy|x/`) gives the same result in both.
+* *String comparisons* zawk follows Awk's rules: strings that come from input
+  (fields, `getline`, `split`, `ARGV`, `ENVIRON`, `-v` assignments) compare
+  numerically when both look like numbers, and other strings (constants,
+  concatenations, results of string functions) compare as strings. Use
+  `x ""` to force a string comparison and `x + 0` to force a numeric one.
 * *Null values and join points* Null values in zawk may occasionally be coerced
   to integers. For example `if (0) { x = 5 }; printf "[%s]", x;` will print `[]`
   in Awk and will print `[0]` in zawk. This is the main pattern in which
