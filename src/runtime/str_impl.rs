@@ -1309,18 +1309,21 @@ impl<'a> From<Int> for Str<'a> {
     }
 }
 
+// Converting a number to a string uses CONVFMT, as in awk; see runtime::numfmt.
 impl<'a> From<Float> for Str<'a> {
     fn from(f: Float) -> Str<'a> {
-        let mut ryubuf = ryu::Buffer::new();
-        let s = ryubuf.format(f);
-        let slen = s.len();
-        // Print Float as Int if it ends in ".0".
-        let slen = if &s.as_bytes()[slen - 2..] == b".0" {
-            slen - 2
-        } else {
-            slen
-        };
-        Buf::read_from_bytes(&s.as_bytes()[..slen]).into_str()
+        crate::runtime::numfmt::with_number_bytes(f, false, |bs| {
+            Buf::read_from_bytes(bs).into_str()
+        })
+    }
+}
+
+impl<'a> Str<'a> {
+    /// A number as written by `print`, which uses OFMT rather than CONVFMT.
+    pub fn from_float_output(f: Float) -> Str<'a> {
+        crate::runtime::numfmt::with_number_bytes(f, true, |bs| {
+            Buf::read_from_bytes(bs).into_str()
+        })
     }
 }
 

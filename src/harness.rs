@@ -918,7 +918,8 @@ depth 0: k=1 v=99
         print log2("32");
         print exp(1);
         }"#,
-        "2\n2\n5\n2.718281828459045\n"
+        // print uses OFMT ("%.6g") for non-integral values.
+        "2\n2\n5\n2.71828\n"
     );
 
     test_program!(

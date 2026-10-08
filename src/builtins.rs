@@ -1198,15 +1198,15 @@ pub(crate) enum Variable {
     FI = 13,
     ENVIRON = 14,
     PROCINFO = 15,
-    #[allow(dead_code)]
     CONVFMT = 16,
+    OFMT = 17,
 }
 
 impl From<Variable> for compile::Ty {
     fn from(v: Variable) -> compile::Ty {
         use Variable::*;
         match v {
-            FS | OFS | ORS | RS | FILENAME | CONVFMT => compile::Ty::Str,
+            FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT => compile::Ty::Str,
             PID | ARGC | NF | NR | FNR | RSTART | RLENGTH => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
@@ -1236,6 +1236,7 @@ pub(crate) struct Variables<'a> {
     pub environ: StrMap<'a, Str<'a>>,
     pub procinfo: StrMap<'a, Str<'a>>,
     pub convfmt: Str<'a>,
+    pub ofmt: Str<'a>,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -1253,6 +1254,7 @@ impl<'a> Default for Variables<'a> {
             nf: 0,
             filename: Default::default(),
             convfmt: "%.6g".into(),
+            ofmt: "%.6g".into(),
             rstart: 0,
             pid: 0,
             rlength: -1,
@@ -1310,7 +1312,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart,
             RLENGTH => self.rlength,
             PID => self.pid,
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         })
     }
 
@@ -1324,7 +1326,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart = i,
             RLENGTH => self.rlength = i,
             PID => self.pid = i,
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         }
         Ok(())
     }
@@ -1338,6 +1340,7 @@ impl<'a> Variables<'a> {
             RS => self.rs.clone(),
             FILENAME => self.filename.clone(),
             CONVFMT => self.convfmt.clone(),
+            OFMT => self.ofmt.clone(),
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var);
             }
@@ -1372,7 +1375,14 @@ impl<'a> Variables<'a> {
                 self.update_split_fs();
             }
             FILENAME => self.filename = s,
-            CONVFMT => self.convfmt = s,
+            CONVFMT => {
+                crate::runtime::numfmt::set_convfmt(&*s.as_str().as_bytes());
+                self.convfmt = s;
+            }
+            OFMT => {
+                crate::runtime::numfmt::set_ofmt(&*s.as_str().as_bytes());
+                self.ofmt = s;
+            }
             FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 return err!("var {} not a string", var);
             }
@@ -1384,7 +1394,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1397,7 +1407,7 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1407,7 +1417,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1421,7 +1431,7 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | ENVIRON | PROCINFO
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1433,7 +1443,7 @@ impl<'a> Variables<'a> {
         match var {
             ENVIRON => Ok(self.environ.clone()),
             PROCINFO => Ok(self.environ.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | FI
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1451,7 +1461,7 @@ impl<'a> Variables<'a> {
                 self.procinfo = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | RSTART | FI
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1500,7 +1510,7 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Str,
             },
-            ORS | OFS | FS | RS | FILENAME | CONVFMT => types::TVar::Scalar(types::BaseTy::Str),
+            ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT => types::TVar::Scalar(types::BaseTy::Str),
         }
     }
 }
@@ -1538,6 +1548,8 @@ impl TryFrom<usize> for Variable {
             13 => Ok(FI),
             14 => Ok(ENVIRON),
             15 => Ok(PROCINFO),
+            16 => Ok(CONVFMT),
+            17 => Ok(OFMT),
             _ => Err(()),
         }
     }
@@ -1560,5 +1572,7 @@ static_map!(
     ["PID", Variable::PID],
     ["FI", Variable::FI],
     ["ENVIRON", Variable::ENVIRON],
-    ["PROCINFO", Variable::PROCINFO]
+    ["PROCINFO", Variable::PROCINFO],
+    ["CONVFMT", Variable::CONVFMT],
+    ["OFMT", Variable::OFMT]
 );

@@ -3166,6 +3166,13 @@ impl<'a, 'b> View<'a, 'b> {
                 let mut arg_regs = Vec::with_capacity(args.len());
                 for a in args {
                     let (a_reg, a_ty) = self.get_reg(a)?;
+                    if a_ty == Ty::Float {
+                        // print formats numbers with OFMT (other conversions use CONVFMT).
+                        let s_reg = self.regs.stats.reg_of_ty(Ty::Str);
+                        self.pushl(LL::FloatToStrOfmt(s_reg.into(), a_reg.into()));
+                        arg_regs.push(s_reg.into());
+                        continue;
+                    }
                     arg_regs.push(self.ensure_ty(a_reg, a_ty, Ty::Str)?.into());
                 }
                 let out_reg = if let Some((out, append)) = out {

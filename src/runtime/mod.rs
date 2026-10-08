@@ -14,6 +14,7 @@ use std::sync::LazyLock;
 
 mod command;
 pub(crate) mod compare;
+pub(crate) mod numfmt;
 pub mod float_parse;
 pub mod printf;
 pub mod splitter;

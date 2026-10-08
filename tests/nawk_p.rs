@@ -1083,27 +1083,29 @@ $4 ~ /^South America$/	{ $4 = "SA" }
 
 #[test]
 fn p_test_36() {
+    // $5 is assigned a number, which is converted to a string with CONVFMT ("%.6g"), as in gawk
+    // and onetrue awk.
     let expected = String::from(
-        r#"Russia	8650	262	Asia	30.289017341040463
-Canada	3852	24	North America	6.230529595015576
-China	3692	866	Asia	234.56121343445287
-USA	3615	219	North America	60.58091286307054
-Brazil	3286	116	South America	35.30127814972611
-Australia	2968	14	Australia	4.716981132075472
-India	1269	637	Asia	501.9700551615445
-Argentina	1072	26	South America	24.253731343283583
-Sudan	968	19	Africa	19.628099173553718
-Algeria	920	18	Africa	19.565217391304348
-Russia	8650	262	Asia	30.289017341040463
-Canada	3852	24	North America	6.230529595015576
-China	3692	866	Asia	234.56121343445287
-USA	3615	219	North America	60.58091286307054
-Brazil	3286	116	South America	35.30127814972611
-Australia	2968	14	Australia	4.716981132075472
-India	1269	637	Asia	501.9700551615445
-Argentina	1072	26	South America	24.253731343283583
-Sudan	968	19	Africa	19.628099173553718
-Algeria	920	18	Africa	19.565217391304348
+        r#"Russia	8650	262	Asia	30.289
+Canada	3852	24	North America	6.23053
+China	3692	866	Asia	234.561
+USA	3615	219	North America	60.5809
+Brazil	3286	116	South America	35.3013
+Australia	2968	14	Australia	4.71698
+India	1269	637	Asia	501.97
+Argentina	1072	26	South America	24.2537
+Sudan	968	19	Africa	19.6281
+Algeria	920	18	Africa	19.5652
+Russia	8650	262	Asia	30.289
+Canada	3852	24	North America	6.23053
+China	3692	866	Asia	234.561
+USA	3615	219	North America	60.5809
+Brazil	3286	116	South America	35.3013
+Australia	2968	14	Australia	4.71698
+India	1269	637	Asia	501.97
+Argentina	1072	26	South America	24.2537
+Sudan	968	19	Africa	19.6281
+Algeria	920	18	Africa	19.5652
 "#,
     );
     let tmpdir = tempdir().unwrap();

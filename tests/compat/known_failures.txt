@@ -13,9 +13,6 @@
 11-gawk-power-operator                # ** and **= are not supported
 
 # number output
-03-arithmetic                         # print ignores OFMT (default %.6g), prints full precision
-03-number-output-format               # print ignores OFMT (default %.6g), prints full precision
-03-ofmt-convfmt                       # OFMT and CONVFMT are ignored
 
 # string functions
 04-length                             # length(number) fails to compile

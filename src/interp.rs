@@ -167,6 +167,7 @@ impl<'a> Core<'a> {
         let ors: UniqueStr<'a> = self.vars.ors.clone().into();
         let filename: UniqueStr<'a> = self.vars.filename.clone().into();
         let convfmt: UniqueStr<'a> = self.vars.convfmt.clone().into();
+        let ofmt: UniqueStr<'a> = self.vars.ofmt.clone().into();
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
@@ -181,6 +182,7 @@ impl<'a> Core<'a> {
                 rs: rs.into_str(),
                 filename: filename.into_str(),
                 convfmt: convfmt.into_str(),
+                ofmt: ofmt.into_str(),
                 pid,
                 nf: 0,
                 nr: 0,
@@ -194,6 +196,9 @@ impl<'a> Core<'a> {
                 procinfo: procinfo.into(),
             };
             vars.update_split_fs();
+            // Number formats are thread-locals; set them up on the worker thread.
+            runtime::numfmt::set_convfmt(&*vars.convfmt.as_str().as_bytes());
+            runtime::numfmt::set_ofmt(&*vars.ofmt.as_str().as_bytes());
             Core {
                 vars,
                 regexes: Default::default(),
@@ -687,6 +692,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     FloatToStr(sr, fr) => {
                         let s = runtime::convert::<_, Str>(*self.get(*fr));
+                        let sr = *sr;
+                        *self.get_mut(sr) = s;
+                    }
+                    FloatToStrOfmt(sr, fr) => {
+                        let s = Str::from_float_output(*self.get(*fr));
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }

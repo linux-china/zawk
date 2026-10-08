@@ -360,6 +360,7 @@ impl Display for Variable {
                 ENVIRON => "ENVIRON",
                 PROCINFO => "PROCINFO",
                 CONVFMT => "CONVFMT",
+                OFMT => "OFMT",
             }
         )
     }
