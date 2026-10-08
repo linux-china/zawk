@@ -142,9 +142,9 @@ Getline : &'a Expr<'a, 'a, &'a str> = {
 // The target is a concatenation of non-comparison expressions (gawk's `common_exp`), so that
 // e.g. `print 1 > 2 ? "a" : "b"` is a syntax error rather than a write to the file "a".
 Redirect: (&'a Expr<'a, 'a, &'a str>, FileSpec) = {
-    ">" <PrecAdd> => (<>, FileSpec::Trunc),
-    ">>" <PrecAdd> => (<>, FileSpec::Append),
-    "|" <PrecAdd> => (<>, FileSpec::Cmd),
+    ">" <PrecCat> => (<>, FileSpec::Trunc),
+    ">>" <PrecCat> => (<>, FileSpec::Append),
+    "|" <PrecCat> => (<>, FileSpec::Cmd),
 }
 
 ClosedLoopBody: &'a Stmt<'a, 'a, &'a str> = {
@@ -172,7 +172,7 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
     "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     // `exit` without a code has no argument: in END it keeps the code of an earlier `exit`.
-    "exit" <PrecAdd?> =>
+    "exit" <PrecCat?> =>
        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit),
                                                      arena.alloc_slice(<>.as_slice()))))),
     "exit(" <Expr?> ")" =>
@@ -323,52 +323,59 @@ PrecAndNoIn: &'a Expr<'a, 'a, &'a str> = {
 // Comparison operators are non-associative, as in POSIX awk, gawk and onetrue awk: a chain such
 // as `a < b < c` is a syntax error and needs parentheses.
 PrecCmp<G>: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecAdd> "<" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
-    <l: PrecAdd> "<=" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
+    <l: PrecCat> "<" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
+    <l: PrecCat> "<=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
     // Not in unparenthesized print arguments, where `>` is output redirection.
-    <l: PrecAdd> ">" <r: PrecAdd> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
-    <l: PrecAdd> ">=" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
-    <l: PrecAdd> "==" <r: PrecAdd> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
-    <l: PrecAdd> "!=" <r: PrecAdd> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
-    PrecAdd
+    <l: PrecCat> ">" <r: PrecCat> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
+    <l: PrecCat> ">=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
+    <l: PrecCat> "==" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
+    <l: PrecCat> "!=" <r: PrecCat> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
+    PrecCat
 }
 
-PrecAdd: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecAdd> "+" <r:PrecMul>  => arena.alloc(Expr::Binop(Binop::Plus, l, r)),
-    <l: PrecAdd> "-" <r:PrecMul>  => arena.alloc(Expr::Binop(Binop::Minus, l, r)),
-    PrecMul,
+// Concatenation binds looser than the arithmetic operators and tighter than comparisons. Its right
+// operand may not start with a unary `+`/`-` (as in POSIX `non_unary_expr`), so `a -1` is a
+// subtraction, nor with a prefix `++`/`--`, so `x++ y` is a postfix increment (as in gawk).
+PrecCat: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecCat> <r: PrecAdd<"NU">> => arena.alloc(Expr::Binop(Binop::Concat, l, r)),
+    PrecAdd<"U">,
 }
 
-PrecMul: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecMul> "*" <r:PrecPow> => arena.alloc(Expr::Binop(Binop::Mult, l, r)),
-    <l: PrecMul> "/" <r:PrecPow> => arena.alloc(Expr::Binop(Binop::Div, l, r)),
-    <l: PrecMul> "%" <r:PrecPow> => arena.alloc(Expr::Binop(Binop::Mod, l, r)),
-    PrecPow,
+// The `U` parameter is "U" when the expression may start with a unary sign or a prefix
+// increment, and "NU" when it may not.
+PrecAdd<U>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecAdd<U>> "+" <r:PrecMul<"U">>  => arena.alloc(Expr::Binop(Binop::Plus, l, r)),
+    <l: PrecAdd<U>> "-" <r:PrecMul<"U">>  => arena.alloc(Expr::Binop(Binop::Minus, l, r)),
+    PrecMul<U>,
 }
 
-PrecPow: &'a Expr<'a, 'a, &'a str> = {
-    <l: PrecUnop> "^" <r: PrecPow> => arena.alloc(Expr::Binop(Binop::Pow, l, r)),
-    PrecUnop
+PrecMul<U>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecMul<U>> "*" <r:PrecUnop<"U">> => arena.alloc(Expr::Binop(Binop::Mult, l, r)),
+    <l: PrecMul<U>> "/" <r:PrecUnop<"U">> => arena.alloc(Expr::Binop(Binop::Div, l, r)),
+    <l: PrecMul<U>> "%" <r:PrecUnop<"U">> => arena.alloc(Expr::Binop(Binop::Mod, l, r)),
+    PrecUnop<U>,
 }
 
-PrecUnop: &'a Expr<'a,'a,&'a str> = {
-    "-" <e: PrecInc> => arena.alloc(Expr::Unop(Unop::Neg, e)),
-    "+" <e: PrecInc> => arena.alloc(Expr::Unop(Unop::Pos, e)),
-    "!" <e: PrecInc> => arena.alloc(Expr::Unop(Unop::Not, e)),
-    PrecInc
+// Unary operators bind looser than `^`: `-2 ^ 2` is `-(2 ^ 2)`.
+PrecUnop<U>: &'a Expr<'a,'a,&'a str> = {
+    "-" <e: PrecUnop<"U">> if U == "U" => arena.alloc(Expr::Unop(Unop::Neg, e)),
+    "+" <e: PrecUnop<"U">> if U == "U" => arena.alloc(Expr::Unop(Unop::Pos, e)),
+    "!" <e: PrecUnop<"U">> => arena.alloc(Expr::Unop(Unop::Not, e)),
+    PrecPow<U>,
 }
 
-PrecInc: &'a Expr<'a,'a,&'a str> = {
-    <e:CatBaseTerm>"++" => arena.alloc(Expr::Inc { is_inc: true, is_post: true, x: e }),
-    <e:CatBaseTerm>"--"=> arena.alloc(Expr::Inc { is_inc: false, is_post: true, x: e }),
-    "++" <e:CatBaseTerm> => arena.alloc(Expr::Inc { is_inc: true, is_post: false, x: e }),
-    "--" <e:CatBaseTerm> => arena.alloc(Expr::Inc { is_inc: false, is_post: false, x: e }),
-    CatBaseTerm,
+// `^` is right associative, and its right operand may have a sign: `2 ^ -1`.
+PrecPow<U>: &'a Expr<'a, 'a, &'a str> = {
+    <l: PrecInc<U>> "^" <r: PrecUnop<"U">> => arena.alloc(Expr::Binop(Binop::Pow, l, r)),
+    PrecInc<U>,
 }
 
-CatBaseTerm: &'a Expr<'a,'a, &'a str> = {
-    <l: CatBaseTerm> <r: PrecFieldRef> => arena.alloc(Expr::Binop(Binop::Concat, l, r)),
-    PrecFieldRef
+PrecInc<U>: &'a Expr<'a,'a,&'a str> = {
+    <e:PrecFieldRef> "++" => arena.alloc(Expr::Inc { is_inc: true, is_post: true, x: e }),
+    <e:PrecFieldRef> "--" => arena.alloc(Expr::Inc { is_inc: false, is_post: true, x: e }),
+    "++" <e:PrecFieldRef> if U == "U" => arena.alloc(Expr::Inc { is_inc: true, is_post: false, x: e }),
+    "--" <e:PrecFieldRef> if U == "U" => arena.alloc(Expr::Inc { is_inc: false, is_post: false, x: e }),
+    PrecFieldRef,
 }
 
 PrecFieldRef: &'a Expr<'a,'a,&'a str> = {
