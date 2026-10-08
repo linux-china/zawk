@@ -11,3 +11,4 @@ Features:
 Tech Stack:
 
 - AWK parser: [LALRPOP](https://github.com/lalrpop/lalrpop) - LR(1) parser generator for Rust
+- Compiler backend: Cranelift
