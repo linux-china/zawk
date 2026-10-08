@@ -6,7 +6,7 @@ use crate::{
   ast::{Pattern, Expr, Stmt, Binop, Unop, Prog, FunDec},
   builtins::Function,
   common::{FileSpec, Either},
-  runtime::{strtoi,strtod,hextoi},
+  runtime::{strtod,parse_int_literal,parse_hex_literal},
   lexer::{self, Tok},
 };
 
@@ -398,8 +398,9 @@ BaseTerm: &'a Expr<'a,'a, &'a str> = {
 LeafTerm: &'a Expr<'a,'a, &'a str> = {
   Ident,
   StrLit,
-  "INT" => arena.alloc(Expr::ILit(strtoi(<>.as_bytes()))),
-  "HEX" => arena.alloc(Expr::ILit(hextoi(<>.as_bytes()))),
+  // Integer literals that do not fit in an i64 become floating-point literals.
+  "INT" => arena.alloc(parse_int_literal(<>.as_bytes()).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(parse_hex_literal(<>.as_bytes()).map_or_else(Expr::FLit, Expr::ILit)),
   "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
   // TODO: not Rparen for these next two?

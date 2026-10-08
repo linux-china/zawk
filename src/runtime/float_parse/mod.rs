@@ -66,6 +66,48 @@ pub fn hextoi(mut bs: &[u8]) -> i64 {
     }
 }
 
+/// Parse a decimal integer literal (with an optional sign). Values outside the range of i64 are
+/// returned as the nearest float (`Err`), as awk numbers are doubles.
+pub fn parse_int_literal(bs: &[u8]) -> Result<i64, f64> {
+    std::str::from_utf8(bs)
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| strtod(bs))
+}
+
+/// Parse a hexadecimal integer literal (`0x...`, with an optional sign). Values outside the range
+/// of i64 are returned as the nearest float (`Err`).
+pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
+    let neg = bs.first() == Some(&b'-');
+    if neg || bs.first() == Some(&b'+') {
+        bs = &bs[1..];
+    }
+    if bs.len() >= 2 && bs[0] == b'0' && (bs[1] == b'x' || bs[1] == b'X') {
+        bs = &bs[2..];
+    }
+    // Accumulate exactly in a u128 while possible, then (for absurdly long literals) in a float.
+    let mut exact: Option<u128> = Some(0);
+    let mut approx = 0f64;
+    for b in bs.iter().cloned() {
+        let digit = match b {
+            b'A'..=b'F' => b - b'A' + 10,
+            b'a'..=b'f' => b - b'a' + 10,
+            b'0'..=b'9' => b - b'0',
+            _ => break,
+        };
+        exact = exact
+            .and_then(|i| i.checked_mul(16))
+            .and_then(|i| i.checked_add(digit as u128));
+        approx = approx * 16.0 + digit as f64;
+    }
+    let exact = exact.map(|i| if neg { -(i as i128) } else { i as i128 });
+    match exact.map(i64::try_from) {
+        Some(Ok(i)) => Ok(i),
+        Some(Err(_)) => Err(exact.unwrap() as f64),
+        None => Err(if neg { -approx } else { approx }),
+    }
+}
+
 /// Parse a floating-poing number from `bs`, returning 0 if one isn't there.
 pub fn strtod(bs: &[u8]) -> f64 {
     if let Ok((f, _)) = fast_float::parse_partial(bs) {
@@ -90,5 +132,26 @@ mod tests {
         let imin = format!("{}", i64::MIN);
         assert_eq!(strtod(imax.as_bytes()), i64::MAX as f64);
         assert_eq!(strtod(imin.as_bytes()), i64::MIN as f64);
+    }
+
+    #[test]
+    fn int_literals() {
+        assert_eq!(parse_int_literal(b"123"), Ok(123));
+        assert_eq!(parse_int_literal(b"-9223372036854775808"), Ok(i64::MIN));
+        assert_eq!(parse_int_literal(b"9223372036854775807"), Ok(i64::MAX));
+        assert_eq!(parse_int_literal(b"9223372036854775808"), Err(9223372036854775808.0));
+        assert_eq!(parse_int_literal(b"100000000000000000000"), Err(1e20));
+        assert_eq!(parse_int_literal(b"-100000000000000000000"), Err(-1e20));
+
+        assert_eq!(parse_hex_literal(b"0x1F"), Ok(31));
+        assert_eq!(parse_hex_literal(b"-0X10"), Ok(-16));
+        assert_eq!(parse_hex_literal(b"0x7fffffffffffffff"), Ok(i64::MAX));
+        assert_eq!(parse_hex_literal(b"-0x8000000000000000"), Ok(i64::MIN));
+        assert_eq!(parse_hex_literal(b"0xffffffffffffffff"), Err(18446744073709551615.0));
+        assert_eq!(parse_hex_literal(b"0x10000000000000000"), Err(18446744073709551616.0));
+        assert_eq!(
+            parse_hex_literal(b"0x1000000000000000000000000000000000"),
+            Err(2f64.powi(132))
+        );
     }
 }

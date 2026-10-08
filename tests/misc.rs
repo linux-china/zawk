@@ -627,3 +627,25 @@ fn float_array_keys() {
             .stdout(String::from("two 1\n4 1 3 4\n1 2 3\n"));
     }
 }
+
+#[test]
+fn large_integer_literals() {
+    // Integer literals outside the i64 range are parsed as floats rather than 0.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN {
+                    print (100000000000000000000 == 1e20), (9223372036854775808 == 2^63)
+                    print (-9223372036854775808 == -2^63), (0xffffffffffffffff == 2^64 - 1)
+                    print 9223372036854775807, 0x7fffffffffffffff, 0x1F
+                }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from(
+                "1 1\n1 1\n9223372036854775807 9223372036854775807 31\n",
+            ));
+    }
+}
