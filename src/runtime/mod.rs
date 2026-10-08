@@ -305,7 +305,7 @@ pub const CHUNK_SIZE: usize = 8 << 10;
 
 #[derive(Default)]
 pub(crate) struct Inputs {
-    files: Registry<RegexSplitter<File>>,
+    files: Registry<RegexSplitter<InputFile>>,
     commands: Registry<RegexSplitter<CommandReader>>,
 }
 
@@ -451,22 +451,47 @@ impl<LR: LineReader> FileRead<LR> {
     fn with_file<R>(
         &mut self,
         path: &Str,
-        f: impl FnMut(&mut RegexSplitter<File>) -> Result<R>,
+        f: impl FnMut(&mut RegexSplitter<InputFile>) -> Result<R>,
     ) -> Result<R> {
         let check_utf8 = self.stdin.check_utf8();
         self.inputs.files.get_fallible(
             path,
-            |s| match File::open(s) {
-                Ok(f) => Ok(RegexSplitter::new(
-                    f,
+            |s| {
+                Ok(RegexSplitter::new(
+                    InputFile::open(s),
                     CHUNK_SIZE,
                     path.clone().unmoor(),
                     check_utf8,
-                )),
-                Err(e) => err!("failed to open file '{}': {}", s, e),
+                ))
             },
             f,
         )
+    }
+}
+
+/// A file read by `getline < file`. In awk, failing to open the file is not fatal: getline
+/// returns -1. We model that as a reader whose reads fail, which leaves the reader in its error
+/// state just like any other read error (e.g. reading a directory).
+pub(crate) enum InputFile {
+    Open(File),
+    Failed(io::ErrorKind),
+}
+
+impl InputFile {
+    fn open(path: &str) -> InputFile {
+        match File::open(path) {
+            Ok(f) => InputFile::Open(f),
+            Err(e) => InputFile::Failed(e.kind()),
+        }
+    }
+}
+
+impl io::Read for InputFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            InputFile::Open(f) => f.read(buf),
+            InputFile::Failed(kind) => Err((*kind).into()),
+        }
     }
 }
 
