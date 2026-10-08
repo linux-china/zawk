@@ -139,10 +139,12 @@ Getline : &'a Expr<'a, 'a, &'a str> = {
       arena.alloc(Expr::Getline{into, from: Some(from), is_file: false}),
 }
 
+// The target is a concatenation of non-comparison expressions (gawk's `common_exp`), so that
+// e.g. `print 1 > 2 ? "a" : "b"` is a syntax error rather than a write to the file "a".
 Redirect: (&'a Expr<'a, 'a, &'a str>, FileSpec) = {
-    ">" <Expr> => (<>, FileSpec::Trunc),
-    ">>" <Expr> => (<>, FileSpec::Append),
-    "|" <Expr> => (<>, FileSpec::Cmd),
+    ">" <PrecAdd> => (<>, FileSpec::Trunc),
+    ">>" <PrecAdd> => (<>, FileSpec::Append),
+    "|" <PrecAdd> => (<>, FileSpec::Cmd),
 }
 
 ClosedLoopBody: &'a Stmt<'a, 'a, &'a str> = {
@@ -165,7 +167,7 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "print(" "\n"* <pa:(<Args?>)> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
-    "printf" <spec:PrecAdd> <pa: ("," "\n"* <PrintArgs>)?> <re:Redirect?> =>
+    "printf" <spec:PrintExpr> <pa: ("," "\n"* <PrintArgs>)?> <re:Redirect?> =>
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
@@ -201,11 +203,14 @@ BlockInner: Vec<&'a Stmt<'a,'a,&'a str>> = {
 }
 
 PrintArgs: Vec<&'a Expr<'a,'a,&'a str>> = {
-    // To avoid ambiguities with expressions including ">" we jump down the precedence hierarchy
-    // past the comparison operators.
-    <PrecAdd> => vec![<>],
-    <v:(<PrecAdd> "," "\n"*)+> <e:PrecAdd> => { let mut v = v; v.push(e); v },
+    <PrintExpr> => vec![<>],
+    <v:(<PrintExpr> "," "\n"*)+> <e:PrintExpr> => { let mut v = v; v.push(e); v },
 }
+
+// An expression in the argument list of print or printf. To avoid ambiguity with output
+// redirection, an unparenthesized `>` comparison is not allowed (as in POSIX awk and gawk); all
+// other operators are. Parenthesized subexpressions use the full grammar.
+PrintExpr: &'a Expr<'a,'a,&'a str> = PrecAsgn<"NoGt">;
 
 Args: Vec<&'a Expr<'a,'a,&'a str>> = {
     // To avoid ambiguities with expressions including ">" we jump down the precedence hierarchy
@@ -223,22 +228,22 @@ Args: Vec<&'a Expr<'a,'a,&'a str>> = {
 
 Expr: &'a Expr<'a,'a,&'a str> = {
     Getline,
-    PrecAsgn
+    PrecAsgn<"Gt">
 };
 
-PrecAsgn: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecIn> "=" <r: PrecAsgn> => arena.alloc(Expr::Assign(l, r)),
-    <l: PrecIn> "+=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
-    <l: PrecIn> "-=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
-    <l: PrecIn> "*=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
-    <l: PrecIn> "/=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
-    <l: PrecIn> "^=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
-    <l: PrecIn> "%=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
-    PrecTern,
+PrecAsgn<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecIn<G>> "=" <r: PrecAsgn<G>> => arena.alloc(Expr::Assign(l, r)),
+    <l: PrecIn<G>> "+=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
+    <l: PrecIn<G>> "-=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
+    <l: PrecIn<G>> "*=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
+    <l: PrecIn<G>> "/=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
+    <l: PrecIn<G>> "^=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
+    <l: PrecIn<G>> "%=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
+    PrecTern<G>,
 }
 
 LookupList: &'a Expr<'a, 'a, &'a str> = {
-    <first:PrecMatch> <rest:("," <PrecMatch>)+> => {
+    <first:PrecMatch<"Gt">> <rest:("," <PrecMatch<"Gt">>)+> => {
       let mut res = first;
       let subsep = arena.alloc(Expr::Var("SUBSEP"));
       for dim in rest.into_iter() {
@@ -249,35 +254,35 @@ LookupList: &'a Expr<'a, 'a, &'a str> = {
    }
 }
 
-PrecTern: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOr> "?" <t: PrecTern> ":" <f: PrecTern> => arena.alloc(Expr::ITE(c, t, f)),
-   PrecOr,
+PrecTern<G>: &'a Expr<'a, 'a, &'a str> = {
+   <c: PrecOr<G>> "?" <t: PrecTern<G>> ":" <f: PrecTern<G>> => arena.alloc(Expr::ITE(c, t, f)),
+   PrecOr<G>,
 }
 
-PrecOr: &'a Expr<'a, 'a, &'a str> = {
-    <l: PrecAnd> Or <r: PrecOr> => arena.alloc(Expr::Or(l, r)),
-    PrecAnd,
+PrecOr<G>: &'a Expr<'a, 'a, &'a str> = {
+    <l: PrecAnd<G>> Or <r: PrecOr<G>> => arena.alloc(Expr::Or(l, r)),
+    PrecAnd<G>,
 }
 
-PrecAnd: &'a Expr<'a, 'a, &'a str> = {
-    <l: PrecIn> And <r: PrecAnd> => arena.alloc(Expr::And(l, r)),
-    PrecIn,
+PrecAnd<G>: &'a Expr<'a, 'a, &'a str> = {
+    <l: PrecIn<G>> And <r: PrecAnd<G>> => arena.alloc(Expr::And(l, r)),
+    PrecIn<G>,
 }
 
-PrecIn: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecMatch> "in" <r: PrecMatch> =>
+PrecIn<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecMatch<G>> "in" <r: PrecMatch<G>> =>
         arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
-    "(" <l: LookupList> Rparen "in" <r: PrecMatch> =>
+    "(" <l: LookupList> Rparen "in" <r: PrecMatch<G>> =>
         arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
-    PrecMatch,
+    PrecMatch<G>,
 }
 
-PrecMatch: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecMatch> "~" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::IsMatch, l, r)),
-    <l: PrecMatch> "!~" <r: PrecCmp> => arena.alloc(Expr::Unop(
+PrecMatch<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecMatch<G>> "~" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::IsMatch, l, r)),
+    <l: PrecMatch<G>> "!~" <r: PrecCmp<G>> => arena.alloc(Expr::Unop(
             Unop::Not,
             arena.alloc(Expr::Binop(Binop::IsMatch, l, r)))),
-    PrecCmp,
+    PrecCmp<G>,
 }
 
 // XXX Replicate the first two layers of the precedence hierarchy to skip "in" expressions to avoid
@@ -289,18 +294,18 @@ ExprNoIn: &'a Expr<'a,'a,&'a str> = {
 };
 
 PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecTernNoIn> "=" <r: PrecAsgn> => arena.alloc(Expr::Assign(l, r)),
-    <l: PrecTernNoIn> "+=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
-    <l: PrecTernNoIn> "-=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
-    <l: PrecTernNoIn> "*=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
-    <l: PrecTernNoIn> "/=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
-    <l: PrecTernNoIn> "^=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
-    <l: PrecTernNoIn> "%=" <r: PrecAsgn> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
+    <l: PrecTernNoIn> "=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Assign(l, r)),
+    <l: PrecTernNoIn> "+=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
+    <l: PrecTernNoIn> "-=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
+    <l: PrecTernNoIn> "*=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
+    <l: PrecTernNoIn> "/=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
+    <l: PrecTernNoIn> "^=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
+    <l: PrecTernNoIn> "%=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
     PrecTernNoIn,
 }
 
 PrecTernNoIn: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOrNoIn> "?" <t: PrecTernNoIn> ":" <f: PrecTern> => arena.alloc(Expr::ITE(c, t, f)),
+   <c: PrecOrNoIn> "?" <t: PrecTernNoIn> ":" <f: PrecTern<"Gt">> => arena.alloc(Expr::ITE(c, t, f)),
    PrecOrNoIn,
 }
 
@@ -310,18 +315,19 @@ PrecOrNoIn: &'a Expr<'a, 'a, &'a str> = {
 }
 
 PrecAndNoIn: &'a Expr<'a, 'a, &'a str> = {
-    <l: PrecMatch> And <r: PrecAndNoIn> => arena.alloc(Expr::And(l, r)),
-    PrecMatch,
+    <l: PrecMatch<"Gt">> And <r: PrecAndNoIn> => arena.alloc(Expr::And(l, r)),
+    PrecMatch<"Gt">,
 }
 
 
-PrecCmp: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecAdd> "<" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
-    <l: PrecAdd> "<=" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
-    <l: PrecAdd> ">" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::GT, l, r)),
-    <l: PrecAdd> ">=" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
-    <l: PrecAdd> "==" <r: PrecCmp> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
-    <l: PrecAdd> "!=" <r: PrecCmp> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
+PrecCmp<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecAdd> "<" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
+    <l: PrecAdd> "<=" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
+    // Not in unparenthesized print arguments, where `>` is output redirection.
+    <l: PrecAdd> ">" <r: PrecCmp<G>> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
+    <l: PrecAdd> ">=" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
+    <l: PrecAdd> "==" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
+    <l: PrecAdd> "!=" <r: PrecCmp<G>> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
     PrecAdd
 }
 

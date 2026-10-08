@@ -15,8 +15,6 @@
 03-precedence                         # `-2 ^ 2` is 4 instead of -4
 03-increment                          # `print i++, i, ++i` evaluates side effects out of order (5 5 5)
 03-strnum-comparison                  # unparenthesized ?: in print does not parse
-03-ternary-and-logic                  # unparenthesized ?: in print does not parse
-11-print-unparenthesized-comparison   # unparenthesized != and ~ in print do not parse
 11-gawk-power-operator                # ** and **= are not supported
 
 # number output
