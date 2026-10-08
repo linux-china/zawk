@@ -237,6 +237,13 @@ fn process_spec(mut w: impl Write, fspec: &mut FormatSpec, arg: &FormatArg) -> R
     wrap_result(res)
 }
 
+/// Format `spec` with `args` into a fresh string, as `sprintf` does.
+pub(crate) fn format<'a>(spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
+    let mut buf = crate::runtime::str_impl::DynamicBuf::default();
+    spec.with_bytes(|bs| printf(&mut buf, bs, args))?;
+    Ok(buf.into_str())
+}
+
 fn wrap_result<T>(r: std::result::Result<T, impl fmt::Display>) -> Result<()> {
     match r {
         Ok(_) => Ok(()),
@@ -314,9 +321,9 @@ pub(crate) fn printf(mut w: impl Write, spec: &[u8], mut args: &[FormatArg]) -> 
                         break;
                     }
                     match (ch, stage) {
+                        // "%%" is a literal percent sign; it does not consume an argument.
                         (b'%', Begin) => {
-                            fs.spec = b'%';
-                            process_spec(&mut w, &mut fs, next_arg())?;
+                            write_bytes(&mut w, b"%")?;
                             state = Raw(ix + 1);
                             continue 'outer;
                         }
@@ -447,5 +454,14 @@ mod tests {
         assert_eq!(s1.as_str(), "2.38");
         let s2 = sprintf!(b"%.2f", 2.375);
         assert_eq!(s2.as_str(), "2.38");
+    }
+
+    #[test]
+    fn literal_percent() {
+        assert_eq!(sprintf!(b"100%%").as_str(), "100%");
+        assert_eq!(sprintf!(b"%%").as_str(), "%");
+        // "%%" must not consume an argument.
+        assert_eq!(sprintf!(b"%d%% of %s", 5, "x").as_str(), "5% of x");
+        assert_eq!(sprintf!(b"%%%d%%", 7).as_str(), "%7%");
     }
 }

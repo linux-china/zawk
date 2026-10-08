@@ -37,7 +37,6 @@
 # printf
 05-printf-floats                      # %f without precision, %e format, %E, %G and %g are wrong
 05-printf-integers                    # %+d, %X and %c with a number are not supported
-05-printf-percent                     # %% prints %%; interp backend prints nothing
 05-printf-star                        # * width and precision are not supported
 05-printf-strings                     # %c with a string prints a space
 

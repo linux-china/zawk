@@ -6,7 +6,7 @@
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{
     self, config_util, date_time, encoding, faker, kv, logging, math_util, network, os_util,
-    printf::{printf, FormatArg},
+    printf::FormatArg,
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
         jsonl::JsonlReader,
@@ -3113,13 +3113,12 @@ pub(crate) unsafe extern "C" fn printf_impl_file(
         ));
         let format_args = wrap_args(&mut *(rt as *mut _), args, tys, num_args);
         let rt = rt as *mut Runtime;
-        try_abort!(
+        let text = try_abort!(
             rt,
-            (*rt)
-                .core
-                .write_files
-                .printf(output_wrapped, &*(spec as *mut Str), &format_args[..],)
-        )
+            runtime::printf::format(&*(spec as *mut Str), &format_args[..]),
+            "printf:"
+        );
+        try_abort!(rt, (*rt).core.write_files.write_printf(output_wrapped, &text))
     })
 }
 
@@ -3131,15 +3130,15 @@ pub(crate) unsafe extern "C" fn sprintf_impl(
     num_args: Int,
 ) -> U128 {
     guard_panic(stringify!(sprintf_impl), || {
-        use runtime::str_impl::DynamicBuf;
-        let mut buf = DynamicBuf::new(0);
         let rt = &mut *(rt as *mut _);
         let format_args = wrap_args(rt, args, tys, num_args);
         let spec = &*(spec as *mut Str);
-        if let Err(e) = spec.with_bytes(|bs| printf(&mut buf, bs, &format_args[..])) {
-            fail!(rt, "unexpected failure during sprintf: {}", e);
-        }
-        mem::transmute::<Str, U128>(buf.into_str())
+        let res = try_abort!(
+            rt,
+            runtime::printf::format(spec, &format_args[..]),
+            "sprintf:"
+        );
+        mem::transmute::<Str, U128>(res)
     })
 }
 
@@ -3152,14 +3151,14 @@ pub(crate) unsafe extern "C" fn printf_impl_stdout(
 ) {
     guard_panic(stringify!(printf_impl_stdout), || {
         let format_args = wrap_args(&mut *(rt as *mut _), args, tys, num_args);
-        let res = (*(rt as *mut Runtime)).core.write_files.printf(
-            None,
-            &*(spec as *mut Str),
-            &format_args[..],
+        let rt = rt as *mut Runtime;
+        let text = try_abort!(
+            rt,
+            runtime::printf::format(&*(spec as *mut Str), &format_args[..]),
+            "printf:"
         );
-        if res.is_err() {
-            exit!(rt);
-        }
+        // Like print, exit silently on write errors (e.g. stdout piped to `head`).
+        try_silent_abort!(rt, (*rt).core.write_files.write_printf(None, &text))
     })
 }
 

@@ -2125,13 +2125,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         for a in args.iter() {
                             scratch.push(self.format_arg(*a)?);
                         }
-                        use runtime::str_impl::DynamicBuf;
                         let fmt_str = index(&self.strs, fmt);
-                        let mut buf = DynamicBuf::new(0);
-                        fmt_str
-                            .with_bytes(|bs| runtime::printf::printf(&mut buf, bs, &scratch[..]))?;
+                        let res = runtime::printf::format(fmt_str, &scratch[..])?;
                         scratch.clear();
-                        let res = buf.into_str();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -2159,16 +2155,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             scratch.push(self.format_arg(*a)?);
                         }
                         let fmt_str = index(&self.strs, fmt);
+                        // Format errors are fatal; write errors exit silently, as with print.
+                        let text = runtime::printf::format(fmt_str, &scratch[..])?;
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
-                            self.core.write_files.printf(
-                                Some((out_path, *fspec)),
-                                fmt_str,
-                                &scratch[..],
-                            )
+                            self.core
+                                .write_files
+                                .write_printf(Some((out_path, *fspec)), &text)
                         } else {
                             // print to stdout.
-                            self.core.write_files.printf(None, fmt_str, &scratch[..])
+                            self.core.write_files.write_printf(None, &text)
                         };
                         if res.is_err() {
                             return Ok(0);

@@ -266,12 +266,11 @@ impl FileWrite {
         self.0.destroy_and_flush_all_files()
     }
 
-    pub(crate) fn printf(
-        &mut self,
-        path: Option<(&Str, FileSpec)>,
-        spec: &Str,
-        pa: &[printf::FormatArg],
-    ) -> Result<()> {
+    /// Write the output of a `printf` (already formatted with `printf::format`).
+    ///
+    /// Formatting and writing are kept separate so that callers can report format errors while
+    /// still exiting silently on write errors (e.g. a closed pipe).
+    pub(crate) fn write_printf(&mut self, path: Option<(&Str, FileSpec)>, s: &Str) -> Result<()> {
         let (handle, fspec) = if let Some((out_file, fspec)) = path {
             (self.0.get_handle(Some(out_file), fspec)?, fspec)
         } else {
@@ -280,10 +279,7 @@ impl FileWrite {
                 FileSpec::default(),
             )
         };
-        let mut text = str_impl::DynamicBuf::default();
-        spec.with_bytes(|spec| printf::printf(&mut text, spec, pa))?;
-        let s = text.into_str();
-        handle.write(&s, fspec)
+        handle.write(s, fspec)
     }
     pub(crate) fn write_all(
         &mut self,

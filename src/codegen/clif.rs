@@ -1072,13 +1072,17 @@ impl<'a> View<'a> {
     )> {
         let len = i32::try_from(args.len()).expect("too many arguments to print_all") as u32;
         let slot_size = mem::size_of::<usize>() as i32;
+        // The format string still needs processing (e.g. "%%") when there are no arguments, but
+        // stack slots must be non-empty: allocate at least one entry.
+        let slots = len.max(1);
         // allocate an array for arguments on the stack
         let arg_slot = self.stack_slot_bytes(
-            len.checked_mul(slot_size as u32)
+            slots
+                .checked_mul(slot_size as u32)
                 .expect("too many arguments to print_all"),
         );
         // and for argument types
-        let type_slot = self.stack_slot_bytes(mem::size_of::<u32>() as u32 * len);
+        let type_slot = self.stack_slot_bytes(mem::size_of::<u32>() as u32 * slots);
 
         // Store arguments and types into the corresponding stack slot.
         let void_ptr_ty = self.void_ptr_ty();
@@ -1382,10 +1386,6 @@ impl<'a> CodeGenerator for View<'a> {
         fmt: &StrReg,
         args: &[Ref],
     ) -> Result<()> {
-        // For empty args, just delegate to print_all
-        if args.is_empty() {
-            return self.print_all(output, &[*fmt]);
-        }
         let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args)?;
 
         let rt = self.runtime_val();
@@ -1411,11 +1411,6 @@ impl<'a> CodeGenerator for View<'a> {
     }
 
     fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref]) -> Result<()> {
-        // For empty args, just move fmt into dst.
-        if args.is_empty() {
-            return self.mov(compile::Ty::Str, dst.reflect().0, fmt.reflect().0);
-        }
-
         let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args)?;
 
         let rt = self.runtime_val();
