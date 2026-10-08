@@ -363,6 +363,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         store_var_strstrmap(rt_ty, str_ref_ty, map_ty);
 
         [ReadOnly] str_lt(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] cmp_str_str(str_ref_ty, str_ref_ty, int_ty) -> int_ty;
+        [ReadOnly] cmp_str_num(str_ref_ty, float_ty, int_ty) -> int_ty;
         [ReadOnly] str_gt(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] str_lte(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] str_gte(str_ref_ty, str_ref_ty) -> int_ty;
@@ -3017,6 +3019,20 @@ macro_rules! str_compare {
 
 str_compare! {
     str_lt(<); str_gt(>); str_lte(<=); str_gte(>=); str_eq(==);
+}
+
+/// Compare two strings following awk's strnum rules; see runtime::compare.
+pub(crate) unsafe extern "C" fn cmp_str_str(s1: *mut c_void, s2: *mut c_void, code: Int) -> Int {
+    guard_panic(stringify!(cmp_str_str), || {
+        runtime::compare::cmp_str_str(&*(s1 as *mut Str), &*(s2 as *mut Str), code)
+    })
+}
+
+/// Compare a string and a number following awk's strnum rules; see runtime::compare.
+pub(crate) unsafe extern "C" fn cmp_str_num(s: *mut c_void, n: Float, code: Int) -> Int {
+    guard_panic(stringify!(cmp_str_num), || {
+        runtime::compare::cmp_str_num(&*(s as *mut Str), n, code)
+    })
 }
 
 pub(crate) unsafe extern "C" fn drop_iter_int(iter: *mut Int, len: usize) {

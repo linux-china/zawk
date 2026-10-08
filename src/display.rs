@@ -298,6 +298,7 @@ impl Display for Function {
             IsNum => write!(f, "isnum"),
             IsFormat => write!(f, "is"),
             Uniq => write!(f, "uniq"),
+            Strnum => write!(f, "strnum"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),

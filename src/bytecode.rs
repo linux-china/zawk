@@ -6,7 +6,11 @@ use crate::builtins::{Bitwise, FloatFunc, Variable};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::{self, Ty};
 use crate::interp::{index, index_mut, Storage};
-use crate::runtime::{self, Float, Int, Str, UniqueStr};
+use crate::runtime::{
+    self,
+    compare::{CmpOp, StrKind},
+    Float, Int, Str, UniqueStr,
+};
 
 use regex::bytes::Regex;
 pub(crate) use crate::interp::Interp;
@@ -152,6 +156,25 @@ pub(crate) enum Instr<'a> {
     LTFloat(Reg<Int>, Reg<Float>, Reg<Float>),
     LTInt(Reg<Int>, Reg<Int>, Reg<Int>),
     LTStr(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    // Comparisons with string operands, following awk's "strnum" rules (see runtime::compare).
+    // The kinds start out as Strnum for strings and are refined by the strnum analysis.
+    CmpStr {
+        op: CmpOp,
+        dst: Reg<Int>,
+        l: Reg<Str<'a>>,
+        r: Reg<Str<'a>>,
+        l_kind: StrKind,
+        r_kind: StrKind,
+    },
+    CmpStrNum {
+        op: CmpOp,
+        dst: Reg<Int>,
+        s: Reg<Str<'a>>,
+        n: Reg<Float>,
+        s_kind: StrKind,
+        // Whether `s` is the right operand.
+        str_on_right: bool,
+    },
     GTFloat(Reg<Int>, Reg<Float>, Reg<Float>),
     GTInt(Reg<Int>, Reg<Int>, Reg<Int>),
     GTStr(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1517,6 +1540,16 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 l.accum(&mut f);
                 r.accum(&mut f);
+            }
+            CmpStr { dst, l, r, .. } => {
+                dst.accum(&mut f);
+                l.accum(&mut f);
+                r.accum(&mut f)
+            }
+            CmpStrNum { dst, s, n, .. } => {
+                dst.accum(&mut f);
+                s.accum(&mut f);
+                n.accum(&mut f)
             }
             LTStr(res, l, r) => {
                 res.accum(&mut f);

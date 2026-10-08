@@ -7,6 +7,7 @@ use crate::common::{
 };
 use crate::cross_stage;
 use crate::input_taint::TaintedStringAnalysis;
+use crate::strnum_analysis::StrnumAnalysis;
 use crate::pushdown::{FieldSet, UsedFieldAnalysis};
 use crate::runtime::{self, Str};
 use crate::string_constants::{self, StringConstantAnalysis};
@@ -348,6 +349,8 @@ pub(crate) struct Frame<'a> {
     exit: NodeIx,
     pub locals: HashMap<Ident, (u32, Ty)>,
     pub arg_regs: SmallVec<NumTy>,
+    // String registers holding values marked as strnums (see strnum_analysis).
+    pub strnum_sources: SmallVec<NumTy>,
     pub cfg: Cfg<'a>,
     pub is_called: bool,
 }
@@ -763,12 +766,21 @@ impl<'a> Typer<'a> {
 
     fn run_analyses(&mut self) -> Result<()> {
         let mut ufa = UsedFieldAnalysis::default();
+        let mut sna = StrnumAnalysis::default();
         let mut refs = SmallVec::new();
         for (fix, frame) in self.frames.iter().enumerate() {
+            // Function parameters may be strnums, depending on the caller.
+            for reg in frame.arg_regs.iter().chain(frame.strnum_sources.iter()) {
+                sna.add_source(*reg, Ty::Str);
+            }
             for (bbix, bb) in frame.cfg.raw_nodes().iter().enumerate() {
                 for (stmtix, stmt) in bb.weight.insts.iter().enumerate() {
                     // not tracking function calls
                     visit_used_fields(stmt, frame.cur_ident, &mut ufa);
+                    match stmt {
+                        Either::Left(ll) => sna.visit_ll(ll),
+                        Either::Right(hl) => sna.visit_hl(frame.cur_ident, hl),
+                    }
                     if let Some(tsa) = &mut self.taint_analysis {
                         visit_taint_analysis(stmt, frame.cur_ident, tsa)
                     }
@@ -786,6 +798,7 @@ impl<'a> Typer<'a> {
             }
         }
         self.used_fields = ufa.solve();
+        self.refine_string_comparisons(&mut sna);
         if let Some(tsa) = &mut self.taint_analysis {
             if !tsa.ok() {
                 return err!(concat!(
@@ -849,6 +862,39 @@ impl<'a> Typer<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Compare string operands that cannot be strnums as plain strings.
+    fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
+        use crate::bytecode::Accum;
+        use runtime::compare::StrKind;
+        let mut refine = |kind: &mut StrKind, reg: NumTy| {
+            if *kind == StrKind::Strnum && !sna.may_be_strnum(reg) {
+                *kind = StrKind::Str;
+            }
+        };
+        for frame in self.frames.iter_mut() {
+            for bb in frame.cfg.node_weights_mut() {
+                for stmt in bb.insts.iter_mut() {
+                    match stmt {
+                        Either::Left(LL::CmpStr {
+                            l,
+                            r,
+                            l_kind,
+                            r_kind,
+                            ..
+                        }) => {
+                            refine(l_kind, l.reflect().0);
+                            refine(r_kind, r.reflect().0);
+                        }
+                        Either::Left(LL::CmpStrNum { s, s_kind, .. }) => {
+                            refine(s_kind, s.reflect().0)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     fn mark_used_frames(&mut self) {
@@ -1341,6 +1387,55 @@ impl<'a, 'b> View<'a, 'b> {
             Binop(Mod) => gen_op!(Mod, [Float, ModFloat], [Int, ModInt]),
             Binop(Concat) => gen_op!(Concat, [Str, Concat]),
             Binop(IsMatch) => gen_op!(IsMatch, [Str, IsMatch]),
+            // Comparisons with a string operand follow awk's strnum rules. Strings start out as
+            // possible strnums; `run_analyses` refines this with the strnum analysis.
+            Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ)
+            if conv_tys[0] == Ty::Str || conv_tys[1] == Ty::Str =>
+                {
+                    use runtime::compare::{CmpOp, StrKind};
+                    if res_reg != UNUSED {
+                        let op = match bf {
+                            Binop(LT) => CmpOp::Lt,
+                            Binop(GT) => CmpOp::Gt,
+                            Binop(LTE) => CmpOp::Lte,
+                            Binop(GTE) => CmpOp::Gte,
+                            _ => CmpOp::Eq,
+                        };
+                        let kind = |ty: Ty| {
+                            if ty == Ty::Null {
+                                StrKind::Uninit
+                            } else {
+                                StrKind::Strnum
+                            }
+                        };
+                        self.pushl(match (conv_tys[0], conv_tys[1]) {
+                            (Ty::Str, Ty::Str) => LL::CmpStr {
+                                op,
+                                dst: res_reg.into(),
+                                l: conv_regs[0].into(),
+                                r: conv_regs[1].into(),
+                                l_kind: kind(args_tys[0]),
+                                r_kind: kind(args_tys[1]),
+                            },
+                            (Ty::Str, _) => LL::CmpStrNum {
+                                op,
+                                dst: res_reg.into(),
+                                s: conv_regs[0].into(),
+                                n: conv_regs[1].into(),
+                                s_kind: kind(args_tys[0]),
+                                str_on_right: false,
+                            },
+                            (_, _) => LL::CmpStrNum {
+                                op,
+                                dst: res_reg.into(),
+                                s: conv_regs[1].into(),
+                                n: conv_regs[0].into(),
+                                s_kind: kind(args_tys[1]),
+                                str_on_right: true,
+                            },
+                        });
+                    }
+                }
             Binop(LT) => gen_op!(LT, [Float, LTFloat], [Int, LTInt], [Str, LTStr]),
             Binop(GT) => gen_op!(GT, [Float, GTFloat], [Int, GTInt], [Str, GTStr]),
             Binop(LTE) => gen_op!(LTE, [Float, LTEFloat], [Int, LTEInt], [Str, LTEStr]),
@@ -1657,6 +1752,12 @@ impl<'a, 'b> View<'a, 'b> {
                     })
                 } else {
                     return err!("incorrect parameter types for Clear: {:?}", &conv_tys[..]);
+                }
+            }
+            Strnum => {
+                if res_reg != UNUSED {
+                    self.mov(res_reg, conv_regs[0], Ty::Str)?;
+                    self.frame.strnum_sources.push(res_reg);
                 }
             }
             Close => {

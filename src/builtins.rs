@@ -14,6 +14,9 @@ pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
+    // Internal: the identity on strings, marking its result as a "strnum" (a string from input,
+    // which compares numerically if it looks like a number). Used for -v assignments.
+    Strnum,
     Unop(ast::Unop),
     Binop(ast::Binop),
     FloatFunc(FloatFunc),
@@ -674,11 +677,15 @@ impl Function {
                 Str => (smallvec![Str], Int),
                 _ => return err!("unexpected input to Not: {:?}", incoming),
             },
+            // String operands stay strings: whether they compare as strings or numbers depends
+            // on their value and origin (awk's "strnum" rules, see runtime::compare).
             Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) => (
                 match (incoming[0], incoming[1]) {
-                    (Str, Str) => smallvec![Str; 2],
+                    (Str, Str) | (Str, Null) | (Null, Str) => smallvec![Str; 2],
                     (Int, Int) | (Null, Int) | (Int, Null) | (Null, Null) => smallvec![Int; 2],
-                    (_, Str) | (Str, _) | (Float, _) | (_, Float) => smallvec![Float; 2],
+                    (Str, Int | Float) => smallvec![Str, Float],
+                    (Int | Float, Str) => smallvec![Float, Str],
+                    (Float, _) | (_, Float) => smallvec![Float; 2],
                     _ => return err!("invalid input spec for comparison op: {:?}", incoming),
                 },
                 Int,
@@ -855,6 +862,7 @@ impl Function {
                 }
             }
             Close => (smallvec![Str], Int),
+            Strnum => (smallvec![Str], Str),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
@@ -925,6 +933,7 @@ impl Function {
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
+            Strnum => 1,
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
@@ -1097,6 +1106,7 @@ impl Function {
                 }.abs())
             }
             SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
+            Strnum => Ok(Scalar(BaseTy::Str).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

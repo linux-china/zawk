@@ -188,10 +188,14 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             arena.alloc(Var("SUBSEP".into())),
             arena.alloc(StrLit(&[0o034u8])),
         )))));
-        // Desugar -v flags
+        // Desugar -v flags. Their values are "strnums", like input.
         for (ident, exp) in self.prelude_vardecs.iter() {
+            let val = arena.alloc(Call(
+                Either::Right(Function::Strnum),
+                arena.alloc_slice(&[*exp]),
+            ));
             begin.push(arena.alloc(Expr(
-                arena.alloc(Assign(arena.alloc(Var(ident.clone())), exp)),
+                arena.alloc(Assign(arena.alloc(Var(ident.clone())), val)),
             )));
         }
 

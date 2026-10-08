@@ -1556,27 +1556,29 @@ END	{ for (name in area)
 
 #[test]
 fn p_test_44() {
+    // The fields are non-numeric strings, so `n <= 1` compares them as strings and is false (as in
+    // gawk and onetrue awk); fact(n) then returns `n * ...`, i.e. 0.
     let expected = String::from(
-        r#"Russia! is 1
-Canada! is 1
-China! is 1
-USA! is 1
-Brazil! is 1
-Australia! is 1
-India! is 1
-Argentina! is 1
-Sudan! is 1
-Algeria! is 1
-Russia! is 1
-Canada! is 1
-China! is 1
-USA! is 1
-Brazil! is 1
-Australia! is 1
-India! is 1
-Argentina! is 1
-Sudan! is 1
-Algeria! is 1
+        r#"Russia! is 0
+Canada! is 0
+China! is 0
+USA! is 0
+Brazil! is 0
+Australia! is 0
+India! is 0
+Argentina! is 0
+Sudan! is 0
+Algeria! is 0
+Russia! is 0
+Canada! is 0
+China! is 0
+USA! is 0
+Brazil! is 0
+Australia! is 0
+India! is 0
+Argentina! is 0
+Sudan! is 0
+Algeria! is 0
 "#,
     );
     let tmpdir = tempdir().unwrap();

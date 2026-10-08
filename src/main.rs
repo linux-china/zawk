@@ -19,6 +19,7 @@ pub mod dom;
 #[cfg(test)]
 pub mod harness;
 mod input_taint;
+mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
 #[allow(unused_parens)] // Warnings appear in generated code

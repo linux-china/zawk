@@ -777,6 +777,35 @@ pub(crate) trait CodeGenerator: Backend {
             LTEFloat(res, l, r) => self.binop(cmp(Cmp::Lte, true), res, l, r),
             GTEFloat(res, l, r) => self.binop(cmp(Cmp::Gte, true), res, l, r),
             EQFloat(res, l, r) => self.binop(cmp(Cmp::Eq, true), res, l, r),
+            CmpStr {
+                op,
+                dst,
+                l,
+                r,
+                l_kind,
+                r_kind,
+            } => {
+                let lv = self.get_val(l.reflect())?;
+                let rv = self.get_val(r.reflect())?;
+                let code = self.const_int(runtime::compare::encode(*op, *l_kind, *r_kind));
+                let res = self.call_intrinsic(intrinsic!(cmp_str_str), &mut [lv, rv, code])?;
+                self.bind_val(dst.reflect(), res)
+            }
+            CmpStrNum {
+                op,
+                dst,
+                s,
+                n,
+                s_kind,
+                str_on_right,
+            } => {
+                let sv = self.get_val(s.reflect())?;
+                let nv = self.get_val(n.reflect())?;
+                let code =
+                    self.const_int(runtime::compare::str_num_code(*op, *s_kind, *str_on_right));
+                let res = self.call_intrinsic(intrinsic!(cmp_str_num), &mut [sv, nv, code])?;
+                self.bind_val(dst.reflect(), res)
+            }
             LTStr(res, l, r) => self.binop(intrinsic!(str_lt), res, l, r),
             GTStr(res, l, r) => self.binop(intrinsic!(str_gt), res, l, r),
             LTEStr(res, l, r) => self.binop(intrinsic!(str_lte), res, l, r),

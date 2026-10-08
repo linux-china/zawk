@@ -13,6 +13,7 @@ use std::str;
 use std::sync::LazyLock;
 
 mod command;
+pub(crate) mod compare;
 pub mod float_parse;
 pub mod printf;
 pub mod splitter;

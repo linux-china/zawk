@@ -764,6 +764,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(x.into()));
                 f(dst.into(), Some(y.into()));
             }
+            CmpStr { dst, l, r, .. } => {
+                f(dst.into(), Some(l.into()));
+                f(dst.into(), Some(r.into()));
+            }
+            CmpStrNum { dst, s, n, .. } => {
+                f(dst.into(), Some(s.into()));
+                f(dst.into(), Some(n.into()));
+            }
             LTStr(dst, x, y)
             | GTStr(dst, x, y)
             | LTEStr(dst, x, y)

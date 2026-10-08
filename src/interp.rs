@@ -1984,6 +1984,32 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let r = *self.get(*r);
                         *self.get_mut(res) = (l < r) as Int;
                     }
+                    CmpStr {
+                        op,
+                        dst,
+                        l,
+                        r,
+                        l_kind,
+                        r_kind,
+                    } => {
+                        use runtime::compare;
+                        let code = compare::encode(*op, *l_kind, *r_kind);
+                        let res = compare::cmp_str_str(self.get(*l), self.get(*r), code);
+                        *self.get_mut(*dst) = res;
+                    }
+                    CmpStrNum {
+                        op,
+                        dst,
+                        s,
+                        n,
+                        s_kind,
+                        str_on_right,
+                    } => {
+                        use runtime::compare;
+                        let code = compare::str_num_code(*op, *s_kind, *str_on_right);
+                        let res = compare::cmp_str_num(self.get(*s), *self.get(*n), code);
+                        *self.get_mut(*dst) = res;
+                    }
                     LTStr(res, l, r) => {
                         let res = *res;
                         let l = self.get(*l);
