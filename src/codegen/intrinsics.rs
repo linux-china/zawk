@@ -139,7 +139,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         reseed_rng(rt_ty) -> int_ty;
 
         exit(rt_ty, int_ty);
-        run_cmd(str_ref_ty) -> int_ty;
+        run_cmd(rt_ty, str_ref_ty) -> int_ty;
         run_cmd2(str_ref_ty) -> map_ty;
         print_all_stdout(rt_ty, pa_args_ty, int_ty);
         print_all_file(rt_ty, pa_args_ty, int_ty, str_ref_ty, int_ty);
@@ -685,8 +685,11 @@ pub(crate) unsafe extern "C" fn exit(runtime: *mut c_void, code: Int) {
     })
 }
 
-pub(crate) unsafe extern "C" fn run_cmd(cmd: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn run_cmd(rt: *mut c_void, cmd: *mut U128) -> Int {
     guard_panic(stringify!(run_cmd), || {
+        let rt = rt as *mut Runtime;
+        // As in gawk, flush all output first so that it appears before the command's output.
+        try_silent_abort!(rt, (*rt).core.write_files.flush_all());
         let cmd: &Str = &*(cmd as *mut Str);
         runtime::run_command(&*cmd.as_str())
     })

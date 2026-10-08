@@ -252,6 +252,9 @@ impl Default for FileWrite {
 }
 
 impl FileWrite {
+    pub(crate) fn flush_all(&mut self) -> Result<()> {
+        self.0.flush_all()
+    }
     pub(crate) fn flush_stdout(&mut self) -> Result<()> {
         self.0.get_file(None)?.flush()
     }

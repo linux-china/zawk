@@ -299,6 +299,14 @@ impl Registry {
         }
     }
 
+    /// Flush all output files, commands and stdout (e.g. before `system`).
+    pub fn flush_all(&mut self) -> Result<()> {
+        for fh in self.files.values_mut().chain(self.cmds.values_mut()) {
+            fh.flush()?;
+        }
+        self.stdout.flush()
+    }
+
     pub fn destroy_and_flush_all_files(&mut self) -> Result<()> {
         let mut last_error = Ok(());
         for (_, mut fh) in self.files.drain().chain(self.cmds.drain()) {

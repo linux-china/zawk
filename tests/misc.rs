@@ -694,3 +694,31 @@ fn close_output_command() {
             .stdout(String::from("3\n-1\n0\n0\n"));
     }
 }
+
+#[test]
+fn system_flushes_output() {
+    for backend_arg in BACKEND_ARGS {
+        // Pending stdout output appears before the command's output.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(r#"BEGIN { printf "a"; system("echo b"); print "c" }"#))
+            .assert()
+            .success()
+            .stdout(String::from("ab\nc\n"));
+        // Output files are flushed, so the command sees their contents.
+        let tmp = tempdir().unwrap();
+        let out = tmp.path().join("out.txt");
+        let prog = format!(
+            r#"BEGIN {{ print "x" > "{0}"; system("cat {0}"); print "y" }}"#,
+            out.to_str().unwrap()
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(String::from("x\ny\n"));
+    }
+}

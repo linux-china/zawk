@@ -2196,6 +2196,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(dst) = res;
                     }
                     RunCmd(dst, cmd) => {
+                        // As in gawk, flush all output first so that it appears before the
+                        // command's output. Write errors exit silently, as with print.
+                        if self.core.write_files.flush_all().is_err() {
+                            return Ok(0);
+                        }
                         let cmd = index(&self.strs, cmd);
                         let res  =  runtime::run_command(&*cmd.as_str());
                         *index_mut(&mut self.ints, dst) = res;

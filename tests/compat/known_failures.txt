@@ -46,7 +46,6 @@
 09-getline-plain                      # getline does not increment NR
 09-getline-var                        # getline var does not increment NR
 09-getline-var-file                   # getline var < file clears var at end of file
-09-system                             # stdout is not flushed before system()
 
 # gawk extensions
 11-gawk-asort                         # asort() does not sort correctly
