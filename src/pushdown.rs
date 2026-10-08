@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn max_value() {
         assert_eq!(FieldSet::singleton(23).max_value(), 24);
-        assert_eq!(FieldSet::singleton(1024).max_value(), u32::max_value());
+        assert_eq!(FieldSet::singleton(1024).max_value(), u32::MAX);
         assert_eq!(FieldSet::singleton(0).max_value(), 1);
     }
 }

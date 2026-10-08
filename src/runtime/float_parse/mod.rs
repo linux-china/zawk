@@ -86,9 +86,9 @@ mod tests {
         assert_eq!(strtod(b"752834029324532"), 752834029324532.0);
         assert_eq!(strtod(b"-3.463682231963e-01"), -3.463682231963e-01);
         assert_eq!(strtod(b""), 0.0);
-        let imax = format!("{}", i64::max_value());
-        let imin = format!("{}", i64::min_value());
-        assert_eq!(strtod(imax.as_bytes()), i64::max_value() as f64);
-        assert_eq!(strtod(imin.as_bytes()), i64::min_value() as f64);
+        let imax = format!("{}", i64::MAX);
+        let imin = format!("{}", i64::MIN);
+        assert_eq!(strtod(imax.as_bytes()), i64::MAX as f64);
+        assert_eq!(strtod(imin.as_bytes()), i64::MIN as f64);
     }
 }

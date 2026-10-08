@@ -109,8 +109,6 @@ fn generate_chinese_plate_number() -> String {
 #[cfg(test)]
 mod tests {
     use fake::{Fake};
-    use fake::faker::name::raw::*;
-    use fake::locales::*;
     use super::*;
 
     #[test]

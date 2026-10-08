@@ -23,7 +23,6 @@ use crate::{
     types::{self, get_types},
 };
 
-use cfg_if::cfg_if;
 use hashbrown::HashMap;
 use std::io::{self, Write};
 use std::iter::FromIterator;
