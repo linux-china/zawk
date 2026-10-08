@@ -1,49 +1,15 @@
-//! This module implements much of printf in awk.
+//! This module implements printf in awk.
 //!
-//! We lean heavily on ryu and the std::fmt machinery; as such, most of the work is parsing
-//! awk-style format strings and translating them to individual calls to write!.
-//!
-//! TODO: Originally, frawk enforced that all Strs contained valid UTF-8. We have since allowed
-//! strings to contain arbitrary byte sequences, but this module will eagerly replace invalid UTF8
-//! byte sequences with REPLACEMENT CHARACTER using String's from_utf8_lossy function. This means
-//! that users hoping to output raw bytes using `printf` (as may be necessary, given that print
-//! appends a newline) may find some bytes replaced inadvertently. We could solve this by adding a
-//! new print function that does not append a newline.
+//! Format strings follow C's printf: `%[flags][width][.precision][length]conversion`, with `*`
+//! widths and precisions taken from the arguments. Numeric conversions are formatted with the C
+//! library's `snprintf` (with a format we build, so it is always well-formed); `%s` and `%c` are
+//! formatted here, counting UTF-8 characters for widths and precisions, as gawk does.
 use crate::common::Result;
-use crate::runtime::{convert, strtoi, Float, Int, Str};
+use crate::runtime::{convert, Float, Int, Str};
 
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::Write;
 use std::str;
-
-type SmallVec<T> = smallvec::SmallVec<[T; 32]>;
-
-#[derive(Default)]
-struct StackWriter(pub SmallVec<u8>);
-
-impl StackWriter {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-impl Write for StackWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-struct DisplayBytes<'a>(&'a [u8]);
-impl<'a> fmt::Display for DisplayBytes<'a> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&*std::string::String::from_utf8_lossy(self.0), fmt)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(crate) enum FormatArg<'a> {
@@ -114,130 +80,266 @@ impl<'a> FormatArg<'a> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-struct FormatSpec {
-    // leading '-' ? -- left justification.
+/// A parsed conversion specification: `%[flags][width][.precision][length]conversion`.
+#[derive(Default)]
+struct Spec {
     minus: bool,
-    // number to the left of '.', if any
-    leading_zeros: bool,
-    // padding
-    lnum: usize,
-    // maximum string width, or floating point precision.
-    rnum: usize,
-    // format specifier: e.g. c, d, s, x.
-    spec: u8,
+    plus: bool,
+    space: bool,
+    alt: bool,
+    zero: bool,
+    width: Option<usize>,
+    precision: Option<usize>,
+    conv: u8,
 }
 
-impl Default for FormatSpec {
-    fn default() -> FormatSpec {
-        FormatSpec {
-            minus: false,
-            leading_zeros: false,
-            lnum: 0,
-            rnum: usize::MAX,
-            spec: b'z', /* invalid */
+impl Spec {
+    /// The (NUL-terminated) C format string for this spec, for a numeric conversion `conv` with
+    /// optional length modifier `len` (e.g. "ll").
+    fn c_format(&self, len: &[u8], conv: u8) -> CFormat {
+        let mut f = CFormat { buf: [0; 64], len: 0 };
+        f.push(b"%");
+        for (set, c) in [
+            (self.minus, b"-"),
+            (self.plus, b"+"),
+            (self.space, b" "),
+            (self.alt, b"#"),
+            (self.zero, b"0"),
+        ] {
+            if set {
+                f.push(c);
+            }
+        }
+        if let Some(w) = self.width {
+            f.push(itoa::Buffer::new().format(w).as_bytes());
+        }
+        if let Some(p) = self.precision {
+            f.push(b".");
+            f.push(itoa::Buffer::new().format(p).as_bytes());
+        }
+        f.push(len);
+        f.push(&[conv]);
+        f
+    }
+
+    /// Pad `s` (whose width in characters is `chars`) to the field width with spaces.
+    fn pad(&self, mut w: impl Write, s: &[u8], chars: usize) -> Result<()> {
+        let fill = self.width.unwrap_or(0).saturating_sub(chars);
+        if self.minus {
+            write_bytes(&mut w, s)?;
+            write_repeated(&mut w, b' ', fill)
+        } else {
+            write_repeated(&mut w, b' ', fill)?;
+            write_bytes(&mut w, s)
         }
     }
-}
 
-fn is_spec(c: u8) -> bool {
-    matches!(c, b'f' | b'c' | b'd' | b'e' | b'g' | b'o' | b's' | b'x')
-}
-
-fn process_spec(mut w: impl Write, fspec: &mut FormatSpec, arg: &FormatArg) -> Result<()> {
-    macro_rules! match_for_spec {
-        ($s:expr, $arg:expr) => {
-            match (
-                fspec.minus,
-                fspec.leading_zeros,
-                fspec.lnum,
-                fspec.rnum == usize::MAX,
-            ) {
-                (true, true, lnum, true) => write!(w, concat!("{:0<l$", $s, "}"), $arg, l = lnum),
-                (true, false, lnum, true) => write!(w, concat!("{:<l$", $s, "}"), $arg, l = lnum),
-                (true, true, lnum, false) => write!(
-                    w,
-                    concat!("{:0<l$.r$", $s, "}"),
-                    $arg,
-                    l = lnum,
-                    r = fspec.rnum
-                ),
-                (true, false, lnum, false) => write!(
-                    w,
-                    concat!("{:<l$.r$", $s, "}"),
-                    $arg,
-                    l = lnum,
-                    r = fspec.rnum
-                ),
-                (false, true, lnum, true) => write!(w, concat!("{:0>l$", $s, "}"), $arg, l = lnum),
-                (false, false, lnum, true) => write!(w, concat!("{:>l$", $s, "}"), $arg, l = lnum),
-                (false, true, lnum, false) => write!(
-                    w,
-                    concat!("{:0>l$.r$", $s, "}"),
-                    $arg,
-                    l = lnum,
-                    r = fspec.rnum
-                ),
-                (false, false, lnum, false) => write!(
-                    w,
-                    concat!("{:>l$.r$", $s, "}"),
-                    $arg,
-                    l = lnum,
-                    r = fspec.rnum
-                ),
-            }
+    /// C's "%d" conversion (with this spec's flags, width and precision) of `i`.
+    fn write_int(&self, mut w: impl Write, i: Int) -> Result<()> {
+        let mut digits_buf = itoa::Buffer::new();
+        let mut digits = digits_buf.format(i.unsigned_abs()).as_bytes();
+        if self.precision == Some(0) && i == 0 {
+            // An explicit zero precision prints no digits for zero.
+            digits = b"";
+        }
+        let zeros = self.precision.map_or(0, |p| p.saturating_sub(digits.len()));
+        let sign: &[u8] = if i < 0 {
+            b"-"
+        } else if self.plus {
+            b"+"
+        } else if self.space {
+            b" "
+        } else {
+            b""
         };
+        let len = sign.len() + zeros + digits.len();
+        let fill = self.width.unwrap_or(0).saturating_sub(len);
+        if self.minus {
+            write_bytes(&mut w, sign)?;
+            write_repeated(&mut w, b'0', zeros)?;
+            write_bytes(&mut w, digits)?;
+            write_repeated(&mut w, b' ', fill)
+        } else if self.zero && self.precision.is_none() {
+            write_bytes(&mut w, sign)?;
+            write_repeated(&mut w, b'0', zeros + fill)?;
+            write_bytes(&mut w, digits)
+        } else {
+            write_repeated(&mut w, b' ', fill)?;
+            write_bytes(&mut w, sign)?;
+            write_repeated(&mut w, b'0', zeros)?;
+            write_bytes(&mut w, digits)
+        }
     }
-    let res = match fspec.spec {
-        b'f' => {
-            if !fspec.leading_zeros && fspec.lnum == 0 && fspec.rnum == usize::MAX {
-                // Fast path: use Ryu, which today is more efficient than the standard library.
-                // NB Ryu prints some things a bit differently than most awk implementations.
-                // `write!(w, "{}", arg.to_float())` is a bit closer.
-                let mut buf = ryu::Buffer::new();
-                write!(w, "{}", buf.format(arg.to_float()))
-            } else {
-                match_for_spec!("", arg.to_float())
-            }
-        }
-        b'e' => match_for_spec!("e", arg.to_float()),
-        b'g' => {
-            let mut buf = StackWriter::default();
-            // %g means "pick the shorter of standard and scientific notation". We do the obvious
-            // thing of computing both and writing out the smaller one.
-            fspec.spec = b'f';
-            process_spec(&mut buf, fspec, arg)?;
-            let l1 = buf.len();
-            fspec.spec = b'e';
-            process_spec(&mut buf, fspec, arg)?;
-            let l2 = buf.len() - l1;
-            let bytes = if l1 < l2 {
-                &buf.0[0..l1]
-            } else {
-                &buf.0[l1..(l1 + l2)]
-            };
-            return write_bytes(&mut w, bytes);
-        }
-        b'd' => match_for_spec!("", arg.to_int()),
-        b'o' => match_for_spec!("o", arg.to_int()),
-        b'x' => match_for_spec!("x", arg.to_int()),
-        b'c' => {
-            // First, see if we have something ascii/UTF8 here
-            match char::try_from(arg.to_int() as u32) {
-                Ok(ch) => match_for_spec!("", ch),
-                // TODO: Unclear what we should do here, write out the raw bytes? write out the
-                // character code? Awk may just write the raw bytes out, but it's hard to say
-                // (different behavior across implementations)
-                _ => match_for_spec!("", "?"),
-            }
-        }
-        b's' => arg.with_bytes(|bs| match_for_spec!("", DisplayBytes(bs))),
-        x => return err!("unsupported format specifier: {}", x),
-    };
-    wrap_result(res)
 }
 
-/// Format `spec` with `args` into a fresh string, as `sprintf` does.
+/// A NUL-terminated C format string built by `Spec::c_format`.
+struct CFormat {
+    buf: [u8; 64],
+    len: usize,
+}
+
+impl CFormat {
+    fn push(&mut self, bs: &[u8]) {
+        // Leave room for the NUL terminator; formats are short (widths and precisions are at
+        // most 20 digits each).
+        let n = bs.len().min(self.buf.len() - 1 - self.len);
+        self.buf[self.len..self.len + n].copy_from_slice(&bs[..n]);
+        self.len += n;
+    }
+    fn as_ptr(&self) -> *const libc::c_char {
+        debug_assert_eq!(self.buf[self.len], 0);
+        self.buf.as_ptr() as *const libc::c_char
+    }
+}
+
+/// Write `n` copies of `b`.
+fn write_repeated(mut w: impl Write, b: u8, mut n: usize) -> Result<()> {
+    let chunk = [b; 64];
+    while n > 0 {
+        let k = n.min(chunk.len());
+        write_bytes(&mut w, &chunk[..k])?;
+        n -= k;
+    }
+    Ok(())
+}
+
+/// Run `snprintf` with a format containing exactly one conversion, whose argument is `arg`, and
+/// write the result.
+fn snprintf_with(w: impl Write, fmt: &CFormat, arg: CArg) -> Result<()> {
+    // Safety: `fmt` is built by `Spec::c_format` and has exactly one conversion, whose argument
+    // type matches `arg`; `dst` has room for `len` bytes.
+    let print = |dst: *mut u8, len: usize| unsafe {
+        let dst = dst as *mut libc::c_char;
+        match arg {
+            CArg::Double(d) => libc::snprintf(dst, len, fmt.as_ptr(), d),
+            CArg::ULongLong(u) => libc::snprintf(dst, len, fmt.as_ptr(), u),
+        }
+    };
+    let mut buf = [0u8; 128];
+    let n = print(buf.as_mut_ptr(), buf.len());
+    if n < 0 {
+        return Ok(());
+    }
+    let n = n as usize;
+    if n < buf.len() {
+        return write_bytes(w, &buf[..n]);
+    }
+    let mut big = vec![0u8; n + 1];
+    let n = print(big.as_mut_ptr(), big.len()).max(0) as usize;
+    write_bytes(w, &big[..n])
+}
+
+#[derive(Copy, Clone)]
+enum CArg {
+    Double(libc::c_double),
+    ULongLong(libc::c_ulonglong),
+}
+
+/// Number of characters in `bs` (bytes, if it is not valid UTF-8).
+fn char_count(bs: &[u8]) -> usize {
+    match str::from_utf8(bs) {
+        Ok(s) => s.chars().count(),
+        Err(_) => bs.len(),
+    }
+}
+
+/// The first `n` characters of `bs` (bytes, if it is not valid UTF-8).
+fn take_chars(bs: &[u8], n: usize) -> &[u8] {
+    match str::from_utf8(bs) {
+        Ok(s) => match s.char_indices().nth(n) {
+            Some((ix, _)) => &bs[..ix],
+            None => bs,
+        },
+        Err(_) => &bs[..n.min(bs.len())],
+    }
+}
+
+/// Infinities and NaNs are written as in gawk (and padded like strings).
+fn special_float(f: f64) -> Option<&'static [u8]> {
+    if f.is_nan() {
+        Some(if f.is_sign_negative() { b"-nan" } else { b"+nan" })
+    } else if f.is_infinite() {
+        Some(if f < 0.0 { b"-inf" } else { b"+inf" })
+    } else {
+        None
+    }
+}
+
+impl<'a> FormatArg<'a> {
+    /// The value of an argument for an integer conversion, which may not fit in an i64.
+    fn to_integer(&self) -> std::result::Result<Int, f64> {
+        let f = match self {
+            FormatArg::I(i) => return Ok(*i),
+            FormatArg::Null => return Ok(0),
+            _ => self.to_float().trunc(),
+        };
+        if f.is_finite() && f >= -9.223372036854776e18 && f < 9.223372036854776e18 {
+            Ok(f as Int)
+        } else {
+            Err(f)
+        }
+    }
+}
+
+fn process_spec(w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
+    match spec.conv {
+        b'd' | b'i' => match arg.to_integer() {
+            Ok(i) => spec.write_int(w, i),
+            Err(f) => match special_float(f) {
+                Some(s) => spec.pad(w, s, s.len()),
+                // Integral values beyond the range of an i64.
+                None => {
+                    let fmt = Spec { precision: Some(0), ..*spec };
+                    snprintf_with(w, &fmt.c_format(b"", b'f'), CArg::Double(f))
+                }
+            },
+        },
+        b'o' | b'u' | b'x' | b'X' => {
+            // Negative values are written as their two's complement, as in gawk.
+            let u = match arg.to_integer() {
+                Ok(i) => i as u64,
+                Err(f) if f.is_finite() && f > 0.0 => f as u64,
+                Err(_) => 0,
+            };
+            snprintf_with(w, &spec.c_format(b"ll", spec.conv), CArg::ULongLong(u))
+        }
+        b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a' | b'A' => {
+            let f = arg.to_float();
+            match special_float(f) {
+                Some(s) => spec.pad(w, s, s.len()),
+                None => snprintf_with(w, &spec.c_format(b"", spec.conv), CArg::Double(f)),
+            }
+        }
+        b'c' => {
+            let mut buf = [0u8; 4];
+            let bytes: Vec<u8> = match arg {
+                // A string: its first character (a NUL byte for an empty string, as in gawk).
+                FormatArg::S(_) => arg.with_bytes(|bs| {
+                    if bs.is_empty() {
+                        vec![0]
+                    } else {
+                        take_chars(bs, 1).to_vec()
+                    }
+                }),
+                // A number: the character with that code.
+                _ => match char::from_u32(arg.to_int() as u32) {
+                    Some(c) => c.encode_utf8(&mut buf).as_bytes().to_vec(),
+                    None => vec![arg.to_int() as u8],
+                },
+            };
+            spec.pad(w, &bytes, 1)
+        }
+        b's' => arg.with_bytes(|bs| {
+            let bs = match spec.precision {
+                Some(p) => take_chars(bs, p),
+                None => bs,
+            };
+            spec.pad(w, bs, char_count(bs))
+        }),
+        c => err!("unsupported format specifier: {}", c as char),
+    }
+}
+
 pub(crate) fn format<'a>(spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
     let mut buf = crate::runtime::str_impl::DynamicBuf::default();
     spec.with_bytes(|bs| printf(&mut buf, bs, args))?;
@@ -252,155 +354,115 @@ fn wrap_result<T>(r: std::result::Result<T, impl fmt::Display>) -> Result<()> {
 }
 
 fn write_bytes(mut w: impl Write, bs: &[u8]) -> Result<()> {
-    wrap_result(w.write(bs))
+    wrap_result(w.write_all(bs))
 }
 
-pub(crate) fn printf(mut w: impl Write, spec: &[u8], mut args: &[FormatArg]) -> Result<()> {
-    #[derive(Copy, Clone)]
-    enum State {
-        // Byte index of start of string
-        Raw(usize),
-        // Byte index of percent sign
-        Format(usize),
+/// Parse the conversion specification at `fmt[i..]` (just after a `%`), taking `*` widths and
+/// precisions from `next_int`. Returns the spec and the index after it, or `None` if it is not a
+/// valid specification (in which case it is written literally, as in awk).
+fn parse_spec(
+    fmt: &[u8],
+    mut i: usize,
+    next_int: &mut impl FnMut() -> Int,
+) -> Option<(Spec, usize)> {
+    let mut spec = Spec::default();
+    while let Some(c) = fmt.get(i) {
+        match c {
+            b'-' => spec.minus = true,
+            b'+' => spec.plus = true,
+            b' ' => spec.space = true,
+            b'#' => spec.alt = true,
+            b'0' => spec.zero = true,
+            _ => break,
+        }
+        i += 1;
     }
-
-    use State::*;
-    let mut iter = spec.iter().cloned().enumerate();
-    macro_rules! next_state {
-        ($e:expr) => {
-            match $e {
-                Some((_, b'%')) => Format(0),
-                Some(_) => Raw(0),
-                None => return Ok(()),
-            }
-        };
-    }
-    let mut state = next_state!(iter.next());
-    let default = FormatArg::S(Default::default());
-    let mut next_arg = || {
-        if args.is_empty() {
-            &default
+    let number = |i: &mut usize| -> Option<usize> {
+        let start = *i;
+        while fmt.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        if *i == start {
+            None
         } else {
-            let res = &args[0];
-            args = &args[1..];
-            res
+            str::from_utf8(&fmt[start..*i]).ok()?.parse().ok()
         }
     };
-    let mut buf = SmallVec::new();
-    'outer: loop {
-        match state {
-            Raw(start) => {
-                for (ix, ch) in iter.by_ref() {
-                    if ch == b'%' {
-                        write_bytes(&mut w, &spec[start..ix])?;
-                        state = Format(ix);
-                        continue 'outer;
-                    }
-                }
-                write_bytes(&mut w, &spec[start..])?;
-                break 'outer;
-            }
-            Format(start) => {
-                let mut fs = FormatSpec::default();
-                #[derive(Copy, Clone)]
-                enum Stage {
-                    Begin,
-                    Lnum,
-                    Rnum,
-                }
-                use Stage::*;
-                let mut stage = Begin;
-                let mut next = iter.next();
-                // AWK is, as usual, rather permissive when it comes to invalid format specifiers:
-                // If something is formatted incorrectly, it is simply treated like a normal
-                // string. We implement by checking for error conditions and `break`ing out of the
-                // inner loop, which will change state to Raw(start).
-                while let Some((ix, ch)) = next {
-                    if !ch.is_ascii() {
-                        // We cast characters to bytes in what follows.
-                        break;
-                    }
-                    match (ch, stage) {
-                        // "%%" is a literal percent sign; it does not consume an argument.
-                        (b'%', Begin) => {
-                            write_bytes(&mut w, b"%")?;
-                            state = Raw(ix + 1);
-                            continue 'outer;
-                        }
-                        (ch, _) if is_spec(ch) => {
-                            fs.spec = ch;
-                            process_spec(&mut w, &mut fs, next_arg())?;
-                            state = Raw(ix + 1);
-                            continue 'outer;
-                        }
-                        (b'-', Begin) => {
-                            stage = Lnum;
-                            fs.minus = true;
-                        }
-                        (b'-', _) | (b'%', _) => break,
-                        (ch, Lnum) | (ch, Begin) => {
-                            if fs.lnum != 0 {
-                                break;
-                            }
-                            buf.clear();
-                            if ch == b'0' {
-                                fs.leading_zeros = true;
-                            } else if ch == b'.' {
-                                stage = Rnum;
-                                continue;
-                            } else {
-                                buf.push(ch);
-                            };
-                            next = None;
-                            for (ix, ch) in iter.by_ref() {
-                                if !ch.is_ascii_digit() {
-                                    next = Some((ix, ch));
-                                    break;
-                                }
-                                buf.push(ch);
-                            }
-                            let num = strtoi(&buf[..]);
-                            if num < 0 {
-                                break;
-                            }
-                            fs.lnum = num as usize;
-                            stage = Rnum;
-                            continue;
-                        }
-                        (ch, Rnum) => {
-                            if fs.rnum != usize::MAX {
-                                break;
-                            }
-                            if ch != b'.' {
-                                break;
-                            }
-                            buf.clear();
-                            next = None;
-                            for (ix, ch) in iter.by_ref() {
-                                if !ch.is_ascii_digit() {
-                                    next = Some((ix, ch));
-                                    break;
-                                }
-                                buf.push(ch);
-                            }
-                            let num = strtoi(&buf[..]);
-                            if num < 0 {
-                                break;
-                            }
-                            fs.rnum = num as usize;
-                            continue;
-                        }
-                    };
-                    next = iter.next();
-                }
-                // We do not have a complete format specifier, and we have exhausted the string.
-                // Just print it out.
-                state = Raw(start);
-                continue 'outer;
-            }
+    if fmt.get(i) == Some(&b'*') {
+        i += 1;
+        let w = next_int();
+        if w < 0 {
+            spec.minus = true;
+        }
+        spec.width = Some(w.unsigned_abs() as usize);
+    } else {
+        spec.width = number(&mut i);
+    }
+    if fmt.get(i) == Some(&b'.') {
+        i += 1;
+        if fmt.get(i) == Some(&b'*') {
+            i += 1;
+            let p = next_int();
+            // A negative precision is taken as if it were omitted.
+            spec.precision = if p < 0 { None } else { Some(p as usize) };
+        } else {
+            spec.precision = Some(number(&mut i).unwrap_or(0));
         }
     }
-    Ok(())
+    // Length modifiers are accepted and ignored.
+    while matches!(fmt.get(i), Some(b'h' | b'l' | b'L' | b'q' | b'j' | b'z' | b't')) {
+        i += 1;
+    }
+    let conv = *fmt.get(i)?;
+    if !matches!(
+        conv,
+        b'd' | b'i' | b'o' | b'u' | b'x' | b'X' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a'
+            | b'A' | b'c' | b's' | b'%'
+    ) {
+        return None;
+    }
+    spec.conv = conv;
+    Some((spec, i + 1))
+}
+
+pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<()> {
+    // Missing arguments are empty strings (as in onetrue awk).
+    let default = FormatArg::S(Default::default());
+    let mut arg_ix = 0;
+    let mut i = 0;
+    let mut raw_start = 0;
+    while i < fmt.len() {
+        if fmt[i] != b'%' {
+            i += 1;
+            continue;
+        }
+        write_bytes(&mut w, &fmt[raw_start..i])?;
+        let mut next_int = || {
+            let res = args.get(arg_ix).map_or(0, FormatArg::to_int);
+            arg_ix += 1;
+            res
+        };
+        match parse_spec(fmt, i + 1, &mut next_int) {
+            Some((spec, end)) => {
+                if spec.conv == b'%' {
+                    // "%%" (with any flags or width) is a literal percent sign.
+                    write_bytes(&mut w, b"%")?;
+                } else {
+                    let arg = args.get(arg_ix).unwrap_or(&default);
+                    arg_ix += 1;
+                    process_spec(&mut w, &spec, arg)?;
+                }
+                i = end;
+            }
+            None => {
+                // Not a conversion: write the `%` literally and continue after it.
+                write_bytes(&mut w, b"%")?;
+                i += 1;
+            }
+        }
+        raw_start = i;
+    }
+    write_bytes(&mut w, &fmt[raw_start..])
 }
 
 #[cfg(test)]
@@ -433,11 +495,11 @@ mod tests {
         let s = str::from_utf8(&v[..]).unwrap();
         assert_eq!(
             s,
-            "Hi there, to my 2 friends 1.0 percent of the time: 1.25369e23!"
+            "Hi there, to my 2 friends 1.000000 percent of the time: 1.25369e+23!"
         );
 
         let s2 = sprintf!(b"%e %d ~~ %s", 12535, 3, "hi");
-        assert_eq!(s2.as_str(), "1.2535e4 3 ~~ hi");
+        assert_eq!(s2.as_str(), "1.253500e+04 3 ~~ hi");
     }
 
     #[test]
@@ -454,6 +516,77 @@ mod tests {
         assert_eq!(s1.as_str(), "2.38");
         let s2 = sprintf!(b"%.2f", 2.375);
         assert_eq!(s2.as_str(), "2.38");
+    }
+
+    #[test]
+    fn c_conversions() {
+        // Expected values are gawk's output.
+        assert_eq!(
+            sprintf!(b"%e %E %.2e %g %G %g %g %#g", 12345.678, 1e-10, 0, 100000, 1e-10, 0.0001, 123456789, 1),
+            "1.234568e+04 1.000000E-10 0.00e+00 100000 1E-10 0.0001 1.23457e+08 1.00000"
+        );
+        assert_eq!(
+            sprintf!(b"%i %u %X %#x %#o %+d % d", 3.9, -1, 255, 255, 8, 5, 5),
+            "3 18446744073709551615 FF 0xff 010 +5  5"
+        );
+        assert_eq!(
+            sprintf!(b"[%*d][%-*d][%.*f][%*d]", 5, 42, 4, 42, 2, 3.14159, -4, 7),
+            "[   42][42  ][3.14][7   ]"
+        );
+        assert_eq!(sprintf!(b"[%d][%x][%5%][%z]", 9.223372036854775808e18, -1), "[9223372036854775808][ffffffffffffffff][%][%z]");
+        assert_eq!(sprintf!(b"[%f][%5.1f]", f64::INFINITY, f64::NAN), "[+inf][ +nan]");
+    }
+
+    #[test]
+    fn native_int_matches_snprintf() {
+        let values = [0, 1, -1, 7, -7, 42, 12345, -12345, i64::MAX, i64::MIN];
+        for flags in 0..32u32 {
+            for width in [None, Some(0), Some(1), Some(5), Some(12), Some(25)] {
+                for precision in [None, Some(0), Some(1), Some(3), Some(8), Some(21)] {
+                    let spec = Spec {
+                        minus: flags & 1 != 0,
+                        plus: flags & 2 != 0,
+                        space: flags & 4 != 0,
+                        alt: flags & 8 != 0,
+                        zero: flags & 16 != 0,
+                        width,
+                        precision,
+                        conv: b'd',
+                    };
+                    for &i in &values {
+                        let mut native = Vec::new();
+                        spec.write_int(&mut native, i).unwrap();
+                        let fmt = spec.c_format(b"ll", b'd');
+                        let mut buf = [0u8; 128];
+                        let n = unsafe {
+                            libc::snprintf(
+                                buf.as_mut_ptr() as *mut libc::c_char,
+                                buf.len(),
+                                fmt.as_ptr(),
+                                i as libc::c_longlong,
+                            )
+                        } as usize;
+                        assert_eq!(
+                            String::from_utf8_lossy(&native),
+                            String::from_utf8_lossy(&buf[..n]),
+                            "{} with {}",
+                            i,
+                            String::from_utf8_lossy(&fmt.buf[..fmt.len])
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn strings_and_chars() {
+        assert_eq!(
+            sprintf!(b"[%05s][%.2s][%5.1s][%c][%c][%c][%3c]", "ab", "h\u{e9}llo", "xyz", "hello", 65, 256, "x"),
+            "[   ab][h\u{e9}][    x][h][A][\u{100}][  x]"
+        );
+        assert_eq!(sprintf!(b"%5s|%-5s|", "\u{4f60}\u{597d}", "\u{4f60}\u{597d}"), "   \u{4f60}\u{597d}|\u{4f60}\u{597d}   |");
+        assert_eq!(sprintf!(b"[%c]", ""), "[\0]");
     }
 
     #[test]
