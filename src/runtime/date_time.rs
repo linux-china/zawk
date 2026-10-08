@@ -1,9 +1,17 @@
-use std::time::SystemTime;
-use chrono::{Datelike, DateTime, FixedOffset, Local, NaiveDateTime, Timelike, TimeZone};
 use crate::runtime;
 use crate::runtime::{Int, Str};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Timelike};
+use std::time::SystemTime;
 
-const WEEKS: [&'static str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const WEEKS: [&'static str; 7] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
 
 /// Convert a unix timestamp to local date time, falling back to the epoch for out-of-range values.
 fn local_date_time(timestamp: i64) -> DateTime<Local> {
@@ -22,18 +30,22 @@ pub const MKTIME_LOCAL_TIMEZONE: i64 = i64::MIN;
 /// `timezone` is the UTC offset in hours (e.g. `8` for UTC+8, `-5` for UTC-5) applied to text without an explicit offset;
 /// [`MKTIME_LOCAL_TIMEZONE`] or an out-of-range value means local time.
 pub fn mktime(date_time_text: &str, timezone: i64) -> i64 {
-    let offset = timezone.checked_mul(3600)
+    let offset = timezone
+        .checked_mul(3600)
         .and_then(|seconds| i32::try_from(seconds).ok())
         .and_then(FixedOffset::east_opt);
     match offset {
         Some(offset) => mktime_tz(date_time_text, &offset),
         None => mktime_tz(date_time_text, &Local),
-    }.unwrap_or(0)
+    }
+    .unwrap_or(0)
 }
 
 fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
-    if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone()).ok()
-        .and_then(|x| x.single()) {
+    if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone())
+        .ok()
+        .and_then(|x| x.single())
+    {
         return Some(timestamp.timestamp());
     }
     if let Ok(date_time) = dateparser::parse_with_timezone(date_time_text, tz) {
@@ -48,7 +60,10 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
     }
     //gawk compatible parser
     if let Ok(naive) = NaiveDateTime::parse_from_str(date_time_text, "%Y %m %d %H %M %S") {
-        return tz.from_local_datetime(&naive).earliest().map(|dt| dt.timestamp());
+        return tz
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|dt| dt.timestamp());
     }
     None
 }
@@ -63,7 +78,10 @@ fn is_fend_date(text: &str) -> bool {
 
 pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
     if date_time_text.is_empty() {
-        let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let seconds = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         return datetime2(seconds);
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
         datetime2(timestamp)
@@ -100,9 +118,13 @@ pub fn duration(text: &str) -> Int {
             } else {
                 result.parse::<Int>().unwrap()
             };
-            duration_ms / 1000
+            if duration_ms % 1000 == 0 {
+                duration_ms / 1000
+            } else {
+                (duration_ms as f64 / 1000.0).round() as Int
+            }
         }
-        Err(_) => { 0 }
+        Err(_) => 0,
     }
 }
 
@@ -121,9 +143,22 @@ mod tests {
     fn test_datetime_consistent_with_strftime() {
         let timestamp = 1621530000;
         let dt = datetime2(timestamp);
-        let fields = [("%Y", "year"), ("%m", "month"), ("%d", "monthday"), ("%H", "hour"), ("%M", "minute"), ("%S", "second"), ("%j", "yearday")];
+        let fields = [
+            ("%Y", "year"),
+            ("%m", "month"),
+            ("%d", "monthday"),
+            ("%H", "hour"),
+            ("%M", "minute"),
+            ("%S", "second"),
+            ("%j", "yearday"),
+        ];
         for (format, key) in fields {
-            assert_eq!(strftime(format, timestamp).parse::<Int>().unwrap(), dt.get(&Str::from(key)), "{}", key);
+            assert_eq!(
+                strftime(format, timestamp).parse::<Int>().unwrap(),
+                dt.get(&Str::from(key)),
+                "{}",
+                key
+            );
         }
         // date time text without offset is parsed as local time
         assert_eq!(datetime("2021-05-20 10:11:12").get(&Str::from("hour")), 10);
@@ -131,7 +166,11 @@ mod tests {
 
     #[test]
     fn test_date_parse() {
-        let date_text_items = vec!["Thursday, 20 May 2021", "2024-04-27 17:07:25.684184848 +08:00", "09:11:12 -1day"];
+        let date_text_items = vec![
+            "Thursday, 20 May 2021",
+            "2024-04-27 17:07:25.684184848 +08:00",
+            "09:11:12 -1day",
+        ];
         for item in date_text_items {
             println!("{}", mktime(item, 0));
         }
