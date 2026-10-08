@@ -86,23 +86,24 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result.insert(Str::from("year"), local_now.year() as Int);
     result.insert(Str::from("weekday"), local_now.weekday() as Int);
     result.insert(Str::from("yearday"), local_now.ordinal() as Int);
-    return result;
+    result
 }
 
 pub fn duration(text: &str) -> Int {
-    let expr = format!("({}) to second", text);
+    let expr = format!("({}) to ms", text);
     let mut context = fend_core::Context::new();
-    return match fend_core::evaluate(&expr, &mut context) {
+    match fend_core::evaluate(&expr, &mut context) {
         Ok(result) => {
             let result = result.get_main_result();
-            if result.contains(' ') {
+            let duration_ms = if result.contains(' ') {
                 result[0..result.find(' ').unwrap()].parse::<Int>().unwrap()
             } else {
                 result.parse::<Int>().unwrap()
-            }
+            };
+            duration_ms / 1000
         }
         Err(_) => { 0 }
-    };
+    }
 }
 
 #[cfg(test)]
@@ -167,6 +168,8 @@ mod tests {
     #[test]
     fn test_duration() {
         let text = "2min + 12sec";
+        println!("{}", duration(text));
+        let text = "100ms";
         println!("{}", duration(text));
     }
 }
