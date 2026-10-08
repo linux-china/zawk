@@ -568,6 +568,9 @@ impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
     }
 }
 
+/// Error reported when integer addition or subtraction leaves the 64-bit range.
+pub(crate) const INT_OVERFLOW_MSG: &str = "integer overflow: result exceeds the 64-bit integer range";
+
 pub(crate) trait Inc {
     fn inc_int(&mut self, by: Int);
     fn inc_float(&mut self, by: Float);

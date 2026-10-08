@@ -375,7 +375,12 @@ impl Constraint<State> {
                 key: None,
                 val: None,
             })),
-            Constraint::KeyIn(Some(TVar::Scalar(k))) => Ok(Some(TVar::Map { key: *k, val: None })),
+            // Numeric keys are converted to strings in awk; maps only have Int or Str keys, so
+            // floating-point keys make the map Str-keyed.
+            Constraint::KeyIn(Some(TVar::Scalar(k))) => Ok(Some(TVar::Map {
+                key: k.map(|k| if k == BaseTy::Float { BaseTy::Str } else { k }),
+                val: None,
+            })),
             Constraint::KeyIn(op) => err!("Non-scalar KeyIn constraint: {:?}", op),
 
             Constraint::Key(None) => Ok(None),

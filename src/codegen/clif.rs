@@ -991,16 +991,20 @@ impl<'a> View<'a> {
         } else {
             self.builder.ins().icmp_imm_s(IntCC::Equal, divisor, 0)
         };
+        self.fail_if(is_zero, external!(mod_by_zero));
+    }
+
+    /// Emit a branch to a cold block calling `fail` (an intrinsic taking the runtime that does not
+    /// return) when `cond` is true. Code emitted after this call runs only when `cond` is false.
+    fn fail_if(&mut self, cond: Value, fail: *const u8) {
         let fail_block = self.builder.create_block();
         let cont_block = self.builder.create_block();
         self.builder.set_cold_block(fail_block);
-        self.builder
-            .ins()
-            .brif(is_zero, fail_block, &[], cont_block, &[]);
+        self.builder.ins().brif(cond, fail_block, &[], cont_block, &[]);
         self.builder.switch_to_block(fail_block);
         let rt = self.runtime_val();
-        // mod_by_zero does not return; the jump only gives the block a terminator.
-        self.call_external_void(external!(mod_by_zero), &[rt]);
+        self.call_external_void(fail, &[rt]);
+        // `fail` does not return; the jump only gives the block a terminator.
         self.builder.ins().jump(cont_block, &[]);
         self.builder.switch_to_block(cont_block);
     }
@@ -1023,9 +1027,22 @@ impl<'a> View<'a> {
             }
         } else {
             match op {
-                Mul => self.builder.ins().imul(args[0], args[1]),
-                Minus => self.builder.ins().isub(args[0], args[1]),
-                Add => self.builder.ins().iadd(args[0], args[1]),
+                // Halt on overflow rather than silently wrapping around.
+                Mul => {
+                    let (res, of) = self.builder.ins().smul_overflow(args[0], args[1]);
+                    self.fail_if(of, external!(int_overflow));
+                    res
+                }
+                Minus => {
+                    let (res, of) = self.builder.ins().ssub_overflow(args[0], args[1]);
+                    self.fail_if(of, external!(int_overflow));
+                    res
+                }
+                Add => {
+                    let (res, of) = self.builder.ins().sadd_overflow(args[0], args[1]);
+                    self.fail_if(of, external!(int_overflow));
+                    res
+                }
                 Mod => {
                     // srem traps on a zero divisor.
                     self.guard_mod_divisor(false, args[1]);

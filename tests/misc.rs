@@ -566,3 +566,64 @@ fn mod_by_zero_is_fatal() {
             .stdout(String::from("0 1 -1\n"));
     }
 }
+
+#[test]
+fn integer_overflow() {
+    for backend_arg in BACKEND_ARGS {
+        // Integer addition and subtraction halt instead of silently wrapping around.
+        for prog in [
+            r#"BEGIN { x = 9223372036854775807; print x + 1 }"#,
+            r#"BEGIN { x = -9223372036854775807; print x - 2 }"#,
+        ] {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(prog))
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
+            assert!(output.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
+                "{} {}: {}",
+                backend_arg,
+                prog,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        // Products are computed in floating point, so they do not wrap around.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { y = 3037000500; f = 1; for (i = 1; i <= 25; i++) f *= i;
+                           print (y * y > 9.2e18), (f > 1.5e25 && f < 1.6e25), 6 * 7 }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from("1 1 42\n"));
+    }
+}
+
+#[test]
+fn float_array_keys() {
+    // Floating-point keys are converted to strings, and can be mixed with integer keys.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN {
+                    x = 2.0; b[x] = "two"; print b[2], length(b)
+                    for (i = 1; i <= 4; i++) a[i / 2] = i
+                    n = 0; for (k in a) n++
+                    print n, a[0.5], a["1.5"], a[2]
+                    for (i = 1; i <= 3; i++) c[i * 2] = i
+                    print c[2], c[4], c["6"]
+                }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from("two 1\n4 1 3 4\n1 2 3\n"));
+    }
+}

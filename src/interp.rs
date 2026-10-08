@@ -1712,7 +1712,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        *self.get_mut(res) = l + r;
+                        *self.get_mut(res) = match l.checked_add(r) {
+                            Some(x) => x,
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                        };
                     }
                     AddFloat(res, l, r) => {
                         let res = *res;
@@ -1724,7 +1727,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        *self.get_mut(res) = l * r;
+                        *self.get_mut(res) = match l.checked_mul(r) {
+                            Some(x) => x,
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                        };
                     }
                     MulFloat(res, l, r) => {
                         let res = *res;
@@ -1736,7 +1742,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
-                        *self.get_mut(res) = l - r;
+                        *self.get_mut(res) = match l.checked_sub(r) {
+                            Some(x) => x,
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                        };
                     }
                     MinusFloat(res, l, r) => {
                         let res = *res;

@@ -148,6 +148,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         printf_impl_stdout(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty);
         close_file(rt_ty, str_ref_ty);
         mod_by_zero(rt_ty);
+        int_overflow(rt_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
         read_err_stdin(rt_ty) -> int_ty;
         next_line(rt_ty, str_ref_ty, int_ty) -> str_ty;
@@ -3170,6 +3171,13 @@ pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void) {
     guard_panic(stringify!(mod_by_zero), || {
         fail!(rt, "division by zero attempted in `%'")
     })
+}
+
+/// Called by generated code when integer arithmetic overflows; does not return.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void) {
+    guard_panic(stringify!(int_overflow), || fail!(rt, "{}", runtime::INT_OVERFLOW_MSG))
 }
 
 pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) {

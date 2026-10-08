@@ -692,9 +692,10 @@ impl Function {
             Quote | DoubleQuote => (smallvec![Str], Str),
             Seq => (smallvec![Float,Float,Float], MapIntFloat),
             Uniq => (smallvec![MapIntStr, Str], MapIntStr),
-            Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
-                arith_sig(incoming[0], incoming[1])
-            }
+            // Products of integers easily exceed the 64-bit range (e.g. factorials), and awk
+            // numbers are doubles: multiply in floating point.
+            Binop(Mult) => (smallvec![Float; 2], Float),
+            Binop(Plus) | Binop(Minus) | Binop(Mod) => arith_sig(incoming[0], incoming[1]),
             Binop(Pow) | Binop(Div) => (smallvec![Float;2], Float),
             Contains => match incoming[0] {
                 MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Int], Int),
@@ -973,11 +974,9 @@ impl Function {
                 }
                 x => Ok(*x),
             },
-            Binop(Plus) | Binop(Minus) | Binop(Mod) | Binop(Mult) => {
-                Ok(step_arith(&args[0], &args[1]))
-            }
+            Binop(Plus) | Binop(Minus) | Binop(Mod) => Ok(step_arith(&args[0], &args[1])),
             Min | Max => Ok(Scalar(BaseTy::Str).abs()),
-            Rand | Binop(Div) | Binop(Pow) => Ok(Scalar(BaseTy::Float).abs()),
+            Rand | Binop(Div) | Binop(Pow) | Binop(Mult) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | ReadErr
