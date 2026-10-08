@@ -9,6 +9,7 @@ use crate::runtime::{
     printf::{printf, FormatArg},
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
+        jsonl::JsonlReader,
         chunk::{ChunkProducer, OffsetChunk},
         regex::RegexSplitter,
     },
@@ -539,6 +540,7 @@ macro_rules! with_input {
             $crate::codegen::intrinsics::InputData::V2($p) => $body,
             $crate::codegen::intrinsics::InputData::V3($p) => $body,
             $crate::codegen::intrinsics::InputData::V4($p) => $body,
+            $crate::codegen::intrinsics::InputData::V5($p) => $body,
         }
     };
 }
@@ -550,6 +552,7 @@ pub(crate) enum InputData {
     V2(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>>>),
     V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
     V4(InputTuple<ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
+    V5(InputTuple<JsonlReader>),
 }
 
 pub(crate) trait IntoRuntime {
@@ -600,6 +603,7 @@ impl_into_runtime!(
 );
 impl_into_runtime!(ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>, V3);
 impl_into_runtime!(ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>, V4);
+impl_into_runtime!(JsonlReader, V5);
 
 pub(crate) struct Runtime<'a> {
     pub(crate) core: crate::interp::Core<'a>,

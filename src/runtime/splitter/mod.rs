@@ -7,6 +7,7 @@
 // TODO: add padding to the linereader trait
 pub mod batch;
 pub mod chunk;
+pub mod jsonl;
 pub mod regex;
 
 use super::str_impl::{Buf, Str, UniqueBuf};

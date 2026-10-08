@@ -1,6 +1,6 @@
 # Unreleased
 
-Nothing Yet!
+* Add JSON Lines input format `-i jsonl` (alias `ndjson`): keys of the first record populate `FI`, e.g. `zawk -i jsonl '{ print $FI["name"] }' demo.jsonl`
 
 # Version 0.6.0 (2026-09-10)
 

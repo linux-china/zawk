@@ -96,6 +96,15 @@ run-to-json:
 run-from-json:
   cargo run --package zawk --bin zawk -- 'BEGIN{  arr=from_json("{\"name\": \"jackie\", \"age\": 18}"); print arr["name"] }' demo.txt
 
+run-jsonl:
+  cargo run --package zawk --bin zawk -- -i jsonl '{ print $FI["id"], $FI["name"], $FI["age"] }' tests/demo.jsonl
+
+run-jsonl-filter:
+  cargo run --package zawk --bin zawk -- -i jsonl '$FI["age"] >= 18 { n++; total += $FI["age"]; print $FI["name"] } END { print "adults:", n, total }' tests/demo.jsonl
+
+run-jsonl-to-csv:
+  cargo run --package zawk --bin zawk -- -i jsonl -o csv 'BEGIN { print "name", "age" } { print $FI["name"], $FI["age"] }' tests/demo.jsonl
+
 run-from-csv:
   cargo run --package zawk --bin zawk -- 'BEGIN{  arr=from_csv("first,second"); print arr[1] }' demo.txt
 

@@ -120,6 +120,16 @@ pub fn print_awk_file_version(awk_file: &str) {
     }
 }
 
+/// Column names referenced as string constants through `FI`, e.g. `$FI["name"]`. With `-i jsonl`
+/// these always get a column, even when the first record does not contain the key.
+pub fn fi_constant_keys(awk_code: &str) -> Vec<String> {
+    let re = Regex::new(r#"\bFI\s*\[\s*"((?:[^"\\]|\\.)*)"\s*\]"#).unwrap();
+    re.captures_iter(awk_code)
+        .map(|cap| cap[1].replace("\\\"", "\"").replace("\\\\", "\\"))
+        .unique()
+        .collect()
+}
+
 pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
     if awk_code.contains("\n# @") { // detect comment tag
         let var_names: Vec<String> = var_decs.iter().map(|s| s.split('=').next().unwrap().to_string()).collect();

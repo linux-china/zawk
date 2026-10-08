@@ -41,6 +41,7 @@ use common::{CancelSignal, ExecutionStrategy, Stage};
 use runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
+        jsonl::JsonlReader,
         regex::RegexSplitter,
     },
     ChainedReader, LineReader, CHUNK_SIZE,
@@ -340,10 +341,10 @@ fn main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv")
+            .value_name("csv|tsv|jsonl")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv). $0 contains the unescaped line. Assigning to columns does nothing")
-            .value_parser(["csv", "tsv"]))
+            .help("Input is split according to the rules of (csv|tsv|jsonl). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -441,6 +442,7 @@ fn main() {
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
+        Some("jsonl") | Some("ndjson") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -528,7 +530,12 @@ fn main() {
         None => (Escaper::Identity, None, None),
     };
     let arbitrary_shell = matches.get_flag("arbitrary-shell");
-    let parse_header = matches.get_flag("parse-header");
+    let jsonl = matches!(
+        matches.get_one::<String>("input-format").map(|s| s.as_str()),
+        Some("jsonl") | Some("ndjson")
+    );
+    // JSON Lines records are self-describing, so FI is always populated from the first record.
+    let parse_header = matches.get_flag("parse-header") || jsonl;
 
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
@@ -583,7 +590,36 @@ fn main() {
     // this up here.
     macro_rules! with_inp {
         ($analysis:expr, $inp:ident, $body:expr) => {{
-            if input_files.len() == 0 {
+            if jsonl {
+                let fi_names = awk_util::fi_constant_keys(&program_string);
+                if input_files.len() == 0 {
+                    let _reader: Box<dyn io::Read + Send> = Box::new(io::stdin());
+                    let $inp = JsonlReader::new(
+                        once((_reader, String::from("-"))),
+                        fi_names,
+                        chunk_size,
+                        check_utf8,
+                        exec_strategy,
+                        signal.clone(),
+                    );
+                    $body
+                } else {
+                    let file_handles: Vec<_> = input_files
+                        .iter()
+                        .cloned()
+                        .map(|file| (open_file_read(file.as_str()), file))
+                        .collect();
+                    let $inp = JsonlReader::new(
+                        file_handles.into_iter(),
+                        fi_names,
+                        chunk_size,
+                        check_utf8,
+                        exec_strategy,
+                        signal.clone(),
+                    );
+                    $body
+                }
+            } else if input_files.len() == 0 {
                 let _reader: Box<dyn io::Read + Send> = Box::new(io::stdin());
                 match (ifmt, $analysis) {
                     (Some(ifmt), _) => {
