@@ -116,8 +116,8 @@ impl<R: Read> RegexSplitter<R> {
             }
         }
         let line = rc.with_regex(&Str::from("\n\n+"), |re| self.read_line_regex(re))?;
-        // The last record may end with a single newline.
-        let len = line.len();
+        // The last record may end with a single newline. (NB: Str::len counts characters.)
+        let len = line.with_bytes(|bs| bs.len());
         if len > 0 && line.with_bytes(|bs| bs[len - 1] == b'\n') {
             return Ok(line.slice(0, len - 1));
         }

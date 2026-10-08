@@ -2325,7 +2325,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
 }
 
 /// Single-character strings used as field separators (in FS and split()) are literal characters,
-/// but a regex literal such as `/./` must remain a regular expression. Regex literals and strings
+/// and " " means runs of blanks, but a regex literal such as `/./` or `/ /` must remain a regular
+/// expression. Regex literals and strings
 /// are both lowered to strings, so wrap the single-character regexes whose meaning differs from
 /// the literal character in a group, which does not change what they match.
 fn regex_literal(s: &[u8]) -> &[u8] {
@@ -2334,6 +2335,8 @@ fn regex_literal(s: &[u8]) -> &[u8] {
         b"^" => b"(?:^)",
         b"$" => b"(?:$)",
         b"|" => b"(?:|)",
+        // A single space is not the default field separator (runs of blanks) when it is a regex.
+        b" " => b"(?: )",
         _ => s,
     }
 }

@@ -437,6 +437,11 @@ impl<'a> Str<'a> {
             let mut prev = 0;
             let mut cur_field = 1;
             for m in pat.find_iter(s) {
+                // As in gawk, a separator must match at least one character: empty matches
+                // (e.g. of `x*` or `^`) do not split.
+                if m.start() == m.end() {
+                    continue;
+                }
                 let is_empty = prev == m.start();
                 cur_field += if used_fields.get(cur_field) {
                     push(self.slice(prev, m.start()), is_empty)

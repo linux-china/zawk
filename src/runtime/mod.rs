@@ -170,6 +170,28 @@ impl RegexCache {
         used_fields: &FieldSet,
         mut push: impl FnMut(Str<'a>),
     ) -> Result<()> {
+        if pat.is_empty() {
+            // An empty separator splits into characters (as in gawk).
+            s.with_bytes(|bs| {
+                let mut push_field = |i: usize, start: usize, end: usize| {
+                    if used_fields.get(i + 1) {
+                        push(s.slice(start, end));
+                    } else {
+                        push(Str::default());
+                    }
+                };
+                match std::str::from_utf8(bs) {
+                    Ok(text) => {
+                        for (i, (start, c)) in text.char_indices().enumerate() {
+                            push_field(i, start, start + c.len_utf8());
+                        }
+                    }
+                    // Not valid UTF-8: split into bytes.
+                    Err(_) => (0..bs.len()).for_each(|i| push_field(i, i, i + 1)),
+                }
+            });
+            return Ok(());
+        }
         if pat == &Str::from(" ") {
             // The default FS: fields are separated by runs of blanks and newlines.
             self.with_regex(&Str::from(r#"[ \t\n]+"#), |re| {

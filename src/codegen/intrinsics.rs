@@ -857,10 +857,8 @@ pub(crate) unsafe extern "C" fn split_str(
         let runtime = &mut *(runtime as *mut Runtime);
         let into_arr = mem::transmute::<*mut c_void, StrMap<Str>>(into_arr);
         let to_split = &*(to_split as *mut Str);
-        let mut pat = &*(pat as *mut Str);
-        if pat.is_empty() {
-            pat = &runtime.core.vars.fs;
-        }
+        // split(s, a) passes FS explicitly; an empty separator splits into characters.
+        let pat = &*(pat as *mut Str);
         if let Err(e) = runtime
             .core
             .regexes
@@ -884,10 +882,8 @@ pub(crate) unsafe extern "C" fn split_int(
         let runtime = &mut *(runtime as *mut Runtime);
         let into_arr = mem::transmute::<*mut c_void, IntMap<Str>>(into_arr);
         let to_split = &*(to_split as *mut Str);
-        let mut pat = &*(pat as *mut Str);
-        if pat.is_empty() {
-            pat = &runtime.core.vars.fs;
-        }
+        // split(s, a) passes FS explicitly; an empty separator splits into characters.
+        let pat = &*(pat as *mut Str);
         if let Err(e) = runtime
             .core
             .regexes
