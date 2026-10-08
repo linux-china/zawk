@@ -106,22 +106,13 @@ pub enum Tok<'a> {
     FLit(&'a str),
 }
 
-macro_rules! kw_inner {
-    ($m:expr, $k:expr, $v:expr) => {
-        $m.insert(&$k[..], ($v, Default::default()));
-    };
-    ($m:expr, $k:expr, $v1:expr, $v2:expr) => {
-        $m.insert(&$k[..], ($v1, Some($v2)));
-    };
-}
-
 macro_rules! keyword_map {
-    ($name:ident<&'static [u8], ($vty1:ty, $vty2:ty)>, $([$($e:tt)*]),*) => {
+    ($name:ident<&'static [u8], $vty:ty>, $([$k:expr, $v:expr]),*) => {
         lazy_static::lazy_static! {
-            pub(crate) static ref $name: hashbrown::HashMap<&'static [u8],($vty1, $vty2)> = {
+            pub(crate) static ref $name: hashbrown::HashMap<&'static [u8], $vty> = {
                 let mut m = hashbrown::HashMap::new();
                 $(
-                    kw_inner!(m, $($e)*);
+                    m.insert(&$k[..], $v);
                 )*
                 m
             };
@@ -129,45 +120,35 @@ macro_rules! keyword_map {
     }
 }
 
-lazy_static! {
-    static ref WS: Regex = Regex::new(r"^\s").unwrap();
-    static ref WS_BRACE: Regex = Regex::new(r"^[\s{}]").unwrap();
-    static ref WS_SEMI: Regex = Regex::new(r"^[\s;]").unwrap();
-    static ref WS_SEMI_NL: Regex = Regex::new(r"^[\s;\n]").unwrap();
-    static ref WS_SEMI_NL_RB: Regex = Regex::new(r"^[\s;\n}]").unwrap();
-    static ref WS_SEMI_RPAREN: Regex = Regex::new(r"^[\s;)]").unwrap();
-    static ref WS_PAREN: Regex = Regex::new(r"^[\s()]").unwrap();
-}
-
 keyword_map!(
-    KEYWORDS<&'static [u8], (Tok<'static>, Option<Regex>)>,
+    KEYWORDS<&'static [u8], Tok<'static>>,
     [b"PREPARE", Tok::Prepare],
-    [b"BEGIN", Tok::Begin, WS_BRACE.clone()],
-    [b"BEGINFILE", Tok::BeginFile, WS_BRACE.clone()],
-    [b"ENDFILE", Tok::EndFile, WS_BRACE.clone()],
-    [b"END", Tok::End, WS_BRACE.clone()],
-    [b"break", Tok::Break, WS_SEMI.clone()],
-    [b"continue", Tok::Continue, WS_SEMI.clone()],
+    [b"BEGIN", Tok::Begin],
+    [b"BEGINFILE", Tok::BeginFile],
+    [b"ENDFILE", Tok::EndFile],
+    [b"END", Tok::End],
+    [b"break", Tok::Break],
+    [b"continue", Tok::Continue],
     [b"next", Tok::Next],
     [b"nextfile", Tok::NextFile],
-    [b"for", Tok::For, WS_PAREN.clone()],
+    [b"for", Tok::For],
     [b"if", Tok::If],
     [b"else", Tok::Else],
-    [b"print", Tok::Print, WS_SEMI_NL_RB.clone()],
-    [b"printf", Tok::Printf, WS_SEMI_NL.clone()],
+    [b"print", Tok::Print],
+    [b"printf", Tok::Printf],
     [b"print(", Tok::PrintLP],
     [b"printf(", Tok::PrintfLP],
     [b"exit(", Tok::ExitLP],
     [b"exit", Tok::Exit],
-    [b"while", Tok::While, WS_PAREN.clone()],
-    [b"do", Tok::Do, WS_BRACE.clone()],
+    [b"while", Tok::While],
+    [b"do", Tok::Do],
     [b"{", Tok::LBrace],
     [b"}", Tok::RBrace],
     [b"[", Tok::LBrack],
     [b"]", Tok::RBrack],
     [b"(", Tok::LParen],
     [b")", Tok::RParen],
-    [b"getline", Tok::Getline, WS_SEMI_RPAREN.clone()],
+    [b"getline", Tok::Getline],
     [b"|", Tok::Pipe],
     [b"=", Tok::Assign],
     [b"+", Tok::Add],
@@ -197,16 +178,14 @@ keyword_map!(
     [b"\n", Tok::Newline],
     [b"\r\n", Tok::Newline],
     [b",", Tok::Comma],
-    // XXX: hack "in" must have whitespace after it.
-    [b"in ", Tok::In],
-    [b"in\t", Tok::In],
+    [b"in", Tok::In],
     [b"!", Tok::Not],
     [b"&&", Tok::AND],
     [b"||", Tok::OR],
     [b"?", Tok::QUESTION],
     [b":", Tok::COLON],
-    [b"delete", Tok::Delete, WS_PAREN.clone()],
-    [b"return", Tok::Return, WS_PAREN.clone()],
+    [b"delete", Tok::Delete],
+    [b"return", Tok::Return],
     [b"$", Tok::Dollar]
 );
 
@@ -216,7 +195,7 @@ lazy_static! {
     static ref KEYWORDS_BY_LEN: Vec<HashMap<&'static [u8], Tok<'static>>> = {
         let max_len = KEYWORDS.keys().map(|s| s.len()).max().unwrap();
         let mut res: Vec<HashMap<_, _>> = vec![Default::default(); max_len];
-        for (k, (v, _)) in KEYWORDS.iter() {
+        for (k, v) in KEYWORDS.iter() {
             res[k.len() - 1].insert(*k, v.clone());
         }
         res
@@ -474,14 +453,14 @@ impl<'a> Tokenizer<'a> {
             }
             let text = &self.text.as_bytes()[start..start + len];
             if let Some(tok) = ks.get(text) {
-                if start + len == self.text.len()
-                    || KEYWORDS
-                        .get(text)
-                        .unwrap()
-                        .1
-                        .as_ref()
-                        .map_or(true, |x| x.is_match(&self.text[start + len..]))
-                {
+                // A word keyword must end at an identifier boundary: `nextval` and `break_x` are
+                // identifiers, while `break}`, `getline<` and `print"x"` start with a keyword.
+                let ends_word = text.last().is_some_and(|c| is_id_body(*c as char));
+                let continues_word = self.text[start + len..]
+                    .chars()
+                    .next()
+                    .is_some_and(is_id_body);
+                if !(ends_word && continues_word) {
                     return Some((tok.clone(), len));
                 }
             }
@@ -879,6 +858,35 @@ and the third"#;
                 Newline,
                 RBrace,
                 Newline,
+            ]
+        );
+    }
+
+    #[test]
+    fn keyword_boundary() {
+        use Tok::*;
+        // Without the newline that ends the input.
+        let toks = |s| {
+            let mut v = lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
+            if v.last() == Some(&Newline) {
+                v.pop();
+            }
+            v
+        };
+        assert_eq!(toks("break}"), vec![Break, Semi, RBrace]);
+        assert_eq!(toks("continue}"), vec![Continue, Semi, RBrace]);
+        assert_eq!(toks("getline<f"), vec![Getline, LT, Ident("f")]);
+        assert_eq!(toks("return}"), vec![Return, Semi, RBrace]);
+        assert_eq!(toks("print\"x\""), vec![Print, StrLit("x")]);
+        assert_eq!(toks("k in a"), vec![Ident("k"), In, Ident("a")]);
+        assert_eq!(
+            toks("nextval exit_code elsewhere done index"),
+            vec![
+                Ident("nextval"),
+                Ident("exit_code"),
+                Ident("elsewhere"),
+                Ident("done"),
+                Ident("index"),
             ]
         );
     }

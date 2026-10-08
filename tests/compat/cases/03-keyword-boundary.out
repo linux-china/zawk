@@ -1,0 +1,10 @@
+break} 4
+for break} 3
+continue} 13
+getline< line one
+getline var< line two
+return} 11
+print" 1
+printf"
+1 2 3 4 5 6 7 8
+in x
