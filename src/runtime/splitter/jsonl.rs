@@ -59,7 +59,7 @@ enum Header {
     Done,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct JsonlLine {
     line: Str<'static>,
     fields: Vec<Str<'static>>,

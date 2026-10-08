@@ -134,7 +134,24 @@ impl RegexCache {
         reg: &mut FileRead<LR>,
         old_line: &mut LR::Line,
     ) -> Result</*file changed */ bool> {
-        reg.stdin.read_line_reuse(pat, self, old_line)
+        // Read into the spare buffer (reusing its allocations), so that the current record is
+        // still around if we reach the end of the input: awk keeps the last record ($0, NF and
+        // the fields) in END.
+        let spare = match &mut reg.spare_line {
+            Some(spare) => spare,
+            None => {
+                let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
+                reg.spare_line = Some(old_line.clone());
+                return Ok(changed);
+            }
+        };
+        mem::swap(old_line, spare);
+        let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
+        if reg.stdin.read_state() == 0 {
+            // End of input: no new record was read.
+            mem::swap(old_line, spare);
+        }
+        Ok(changed)
     }
     fn split_internal<'a>(
         &mut self,
@@ -310,9 +327,12 @@ pub(crate) struct Inputs {
     commands: Registry<RegexSplitter<CommandReader>>,
 }
 
-pub(crate) struct FileRead<LR = RegexSplitter<Box<dyn io::Read + Send>>> {
+pub(crate) struct FileRead<LR: LineReader = RegexSplitter<Box<dyn io::Read + Send>>> {
     pub(crate) inputs: Inputs,
     stdin: LR,
+    // A second buffer for the main input's current record, see `get_line_stdin_reuse`. It is
+    // initialized from the first record, so that it has the same field projection.
+    spare_line: Option<LR::Line>,
     named_columns: Option<Vec<Str<'static>>>,
     used_fields: FieldSet,
     backup_used_fields: FieldSet,
@@ -330,6 +350,7 @@ impl<LR: LineReader> FileRead<LR> {
                     if stdin.wait() {
                         Some(FileRead {
                             inputs: Default::default(),
+                            spare_line: None,
                             named_columns: None,
                             used_fields: fields.clone(),
                             backup_used_fields: fields,
@@ -366,6 +387,7 @@ impl<LR: LineReader> FileRead<LR> {
         };
         let mut res = FileRead {
             inputs: Default::default(),
+            spare_line: None,
             stdin,
             used_fields,
             backup_used_fields,

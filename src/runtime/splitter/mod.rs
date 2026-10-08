@@ -21,7 +21,7 @@ use std::io::{ErrorKind, Read};
 // We have several implementations of "read and split a line"; they are governed by the LineReader
 // and Line traits.
 
-pub trait Line<'a>: Default {
+pub trait Line<'a>: Default + Clone {
     fn join_cols<F>(
         &mut self,
         start: Int,
@@ -89,6 +89,7 @@ fn normalize_join_indexes(start: Int, end: Int, nf: usize) -> Result<(usize, usi
 }
 
 // Default implementation of Line; it supports assignment into fields as well as lazy splitting.
+#[derive(Clone)]
 pub struct DefaultLine {
     line: Str<'static>,
     used_fields: FieldSet,
