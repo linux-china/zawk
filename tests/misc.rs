@@ -843,3 +843,28 @@ fn exit_codes_follow_gawk() {
         }
     }
 }
+
+#[test]
+fn div_by_zero_is_fatal() {
+    // As in gawk, `/` by zero halts with an error (exit code 2) instead of producing inf/nan.
+    let progs = [
+        r#"BEGIN { x = 0; print 1 / x }"#,
+        r#"BEGIN { print 0 / 0 }"#,
+        r#"BEGIN { y = 5; y /= 0; print y }"#,
+        r#"BEGIN { x = "abc"; print 1 / x }"#,
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for prog in progs {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(prog))
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
+            assert!(output.stdout.is_empty());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("division by zero attempted"), "{} {}: {}", backend_arg, prog, stderr);
+        }
+    }
+}

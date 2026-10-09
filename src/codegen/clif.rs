@@ -982,16 +982,17 @@ impl<'a> View<'a> {
 
     /// Generate a new value according to the operation specified in `op`.
     ///
-    /// Emit a check that halts execution with an error if `divisor` is zero, as `%` by zero is
-    /// fatal in awk. Code emitted after this call runs only when `divisor` is nonzero.
-    fn guard_mod_divisor(&mut self, is_float: bool, divisor: Value) {
+    /// Emit a check that halts execution with an error (by calling `fail`) if `divisor` is zero,
+    /// as `/` and `%` by zero are fatal in awk. Code emitted after this call runs only when
+    /// `divisor` is nonzero.
+    fn guard_divisor(&mut self, is_float: bool, divisor: Value, fail: *const u8) {
         let is_zero = if is_float {
             let zero = self.builder.ins().f64const(0.0);
             self.builder.ins().fcmp(FloatCC::Equal, divisor, zero)
         } else {
             self.builder.ins().icmp_imm_s(IntCC::Equal, divisor, 0)
         };
-        self.fail_if(is_zero, external!(mod_by_zero));
+        self.fail_if(is_zero, fail);
     }
 
     /// Emit a branch to a cold block calling `fail` (an intrinsic taking the runtime that does not
@@ -1020,7 +1021,7 @@ impl<'a> View<'a> {
                 Add => self.builder.ins().fadd(args[0], args[1]),
                 // No floating-point modulo in cranelift?
                 Mod => {
-                    self.guard_mod_divisor(true, args[1]);
+                    self.guard_divisor(true, args[1], external!(mod_by_zero));
                     self.call_external(external!(_frawk_fprem), args)
                 }
                 Neg => self.builder.ins().fneg(args[0]),
@@ -1045,7 +1046,7 @@ impl<'a> View<'a> {
                 }
                 Mod => {
                     // srem traps on a zero divisor.
-                    self.guard_mod_divisor(false, args[1]);
+                    self.guard_divisor(false, args[1], external!(mod_by_zero));
                     self.builder.ins().srem(args[0], args[1])
                 }
                 Neg => self.builder.ins().ineg(args[0]),
@@ -1410,7 +1411,10 @@ impl<'a> CodeGenerator for View<'a> {
             Arith { is_float, op } => Ok(self.arith(op, is_float, args)),
             Bitwise(bw) => Ok(self.bitwise(bw, args)),
             Math(ff) => Ok(self.floatfunc(ff, args)),
-            Div => Ok(self.builder.ins().fdiv(args[0], args[1])),
+            Div => {
+                self.guard_divisor(true, args[1], external!(div_by_zero));
+                Ok(self.builder.ins().fdiv(args[0], args[1]))
+            }
             Pow => Ok(self.call_external(external!(_frawk_pow), args)),
             FloatToInt => {
                 let ty = self.get_ty(compile::Ty::Int);

@@ -1,6 +1,6 @@
 use crate::builtins::Variable;
 use crate::bytecode::{Get, Instr, Label, Reg};
-use crate::common::{NumTy, Result, Stage};
+use crate::common::{CompileError, NumTy, Result, Stage};
 use crate::compile::{self, Ty};
 use crate::pushdown::FieldSet;
 use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
@@ -1749,7 +1749,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0 {
-                            return err!("division by zero attempted in `%'");
+                            return Err(CompileError("division by zero attempted in `%'".into()));
                         }
                         // wrapping_rem: i64::MIN % -1 overflows (the result is 0).
                         *self.get_mut(res) = l.wrapping_rem(r);
@@ -1759,7 +1759,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0.0 {
-                            return err!("division by zero attempted in `%'");
+                            return Err(CompileError("division by zero attempted in `%'".into()));
                         }
                         *self.get_mut(res) = l % r;
                     }
@@ -1767,6 +1767,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = *self.get(*l);
                         let r = *self.get(*r);
+                        if r == 0.0 {
+                            return Err(CompileError("division by zero attempted".into()));
+                        }
                         *self.get_mut(res) = l / r;
                     }
                     Pow(res, l, r) => {

@@ -151,6 +151,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         close_file(rt_ty, str_ref_ty) -> int_ty;
         fflush(rt_ty, str_ref_ty) -> int_ty;
         mod_by_zero(rt_ty);
+        div_by_zero(rt_ty);
         int_overflow(rt_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
         read_err_stdin(rt_ty) -> int_ty;
@@ -489,7 +490,10 @@ macro_rules! fail {
         }
         #[cfg(not(test))]
         {
-            eprintln_ignore!("failure in runtime {}. Halting execution", format!($($es),*));
+            let msg = format!($($es),*);
+            // Output printed before the error appears before the error message.
+            let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
+            eprintln_ignore!("failure in runtime {}. Halting execution", msg);
             // fatal errors exit with code 2, as in gawk
             exit!($rt, 2)
         }
@@ -3227,6 +3231,15 @@ pub(crate) unsafe extern "C" fn fflush(rt: *mut c_void, file: *mut U128) -> Int 
 pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void) {
     guard_panic(stringify!(mod_by_zero), || {
         fail!(rt, "division by zero attempted in `%'")
+    })
+}
+
+/// Called by generated code when the divisor of `/` is zero; does not return.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn div_by_zero(rt: *mut c_void) {
+    guard_panic(stringify!(div_by_zero), || {
+        fail!(rt, "division by zero attempted")
     })
 }
 
