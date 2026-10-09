@@ -11,7 +11,8 @@
 //! dates, times and timestamps (UTC) are plain text, booleans are `1`/`0`, null is empty, binary
 //! values are hex, and nested values (LIST, MAP, STRUCT) and JSON columns are JSON text.
 //!
-//! Parquet keeps its metadata at the end of the file, so standard input is read into memory.
+//! Parquet keeps its metadata at the end of the file, so standard input and S3 objects
+//! (`s3://bucket/key`) are read into memory.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -82,6 +83,11 @@ impl ParquetJson {
     pub fn check(path: &str) -> std::result::Result<(), String> {
         use ::parquet::basic::Compression;
         let error = |e: &dyn std::fmt::Display| format!("cannot read parquet file `{}': {}", path, e);
+        // S3 objects are checked by the caller (`s3::check_object`): reading the metadata here
+        // would download the whole object an extra time.
+        if crate::runtime::s3::is_s3_url(path) {
+            return Ok(());
+        }
         let file = File::open(path).map_err(|e| error(&e))?;
         let reader = SerializedFileReader::new(file).map_err(|e| error(&e))?;
         for row_group in reader.metadata().row_groups() {
@@ -122,6 +128,11 @@ impl ParquetJson {
 
     fn open(&self) -> io::Result<Rows> {
         let reader: Box<dyn FileReader> = match &self.source {
+            Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
+                // Parquet needs random access: read the whole object into memory.
+                let data = crate::runtime::s3::read_object_bytes(path).map_err(|e| self.error(e))?;
+                Box::new(SerializedFileReader::new(data).map_err(|e| self.error(e))?)
+            }
             Source::File(path) => {
                 let file = File::open(path).map_err(|e| self.error(e))?;
                 Box::new(SerializedFileReader::new(file).map_err(|e| self.error(e))?)

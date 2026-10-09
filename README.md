@@ -15,6 +15,7 @@ Features:
 
 * CSV/TSV support by frawk
 * JSON Lines (`-i jsonl`) and Apache Parquet (`-i parquet`) input
+* Read input files from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`
 * High performance
 * gawk mostly compatible
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.

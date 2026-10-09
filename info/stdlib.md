@@ -758,6 +758,9 @@ Environment variables for S3 access:
 - S3_ACCESS_KEY_SECRET
 - S3_REGION
 
+The AWS style names `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` are also supported.
+Input files can be read from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`.
+
 ### NATS
 
 Publish events to NATS: `publish("nats://host:4222/topic", body)`

@@ -571,11 +571,15 @@ impl<LR: LineReader> FileRead<LR> {
 /// state just like any other read error (e.g. reading a directory).
 pub(crate) enum InputFile {
     Open(File),
+    S3(s3::S3Reader),
     Failed(io::ErrorKind),
 }
 
 impl InputFile {
     fn open(path: &str) -> InputFile {
+        if s3::is_s3_url(path) {
+            return InputFile::S3(s3::S3Reader::new(path));
+        }
         match File::open(path) {
             Ok(f) => InputFile::Open(f),
             Err(e) => InputFile::Failed(e.kind()),
@@ -587,6 +591,7 @@ impl io::Read for InputFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             InputFile::Open(f) => f.read(buf),
+            InputFile::S3(r) => r.read(buf),
             InputFile::Failed(kind) => Err((*kind).into()),
         }
     }

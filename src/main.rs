@@ -127,8 +127,29 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
         }
     }
 
+    // A local file, or an object of `s3://bucket/key`, streamed as it downloads.
+    enum Source {
+        Local(File),
+        S3(runtime::s3::S3Reader),
+    }
+
+    impl io::Read for Source {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self {
+                Source::Local(f) => f.read(buf),
+                Source::S3(r) => r.read(buf),
+            }
+        }
+    }
+
     let filename = String::from(f);
-    BufReader::new(LazyReader::Uninit(move || File::open(filename.as_str())))
+    BufReader::new(LazyReader::Uninit(move || {
+        if runtime::s3::is_s3_url(&filename) {
+            Ok(Source::S3(runtime::s3::S3Reader::new(filename.as_str())))
+        } else {
+            File::open(filename.as_str()).map(Source::Local)
+        }
+    }))
 }
 
 fn chained<LR: LineReader>(lr: LR) -> ChainedReader<LR> {
@@ -640,6 +661,13 @@ fn main() {
     }
     if skip_output {
         return;
+    }
+    // Report unreadable S3 objects (missing settings, bucket or object, denied access) before
+    // any input is processed.
+    for file in input_files.iter().filter(|f| runtime::s3::is_s3_url(f)) {
+        if let Err(e) = runtime::s3::check_object(file) {
+            fatal!("{}", e);
+        }
     }
     let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();

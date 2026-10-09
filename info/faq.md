@@ -69,6 +69,28 @@ are reported as errors. Parquet keeps its metadata at the end of the file, so st
 into memory: prefer file arguments for large files. With several files, columns are matched by name
 with those of the first file.
 
+# How to read files from S3?
+
+Use `s3://bucket/key` as an input file, in any input format and with `getline`:
+
+```shell
+$ zawk -i csv '{ print $1 }' s3://bucket1/demo.csv
+$ zawk -i parquet '{ print $FI["name"] }' s3://bucket1/demo.parquet
+$ zawk 'BEGIN { while ((getline line < "s3://bucket1/demo.csv") > 0) print line }'
+```
+
+The S3 settings are read from environment variables, also from a `.env` file in the current directory:
+
+- `S3_ENDPOINT` (or `AWS_ENDPOINT_URL`), e.g. `http://127.0.0.1:9000`
+- `S3_ACCESS_KEY_ID` (or `AWS_ACCESS_KEY_ID`)
+- `S3_ACCESS_KEY_SECRET` (or `AWS_SECRET_ACCESS_KEY`)
+- `S3_REGION` (or `AWS_REGION`)
+
+Objects are checked before any input is processed: a missing setting, bucket or object, or denied
+access is reported as an error, e.g. `cannot read `s3://bucket1/nope.csv': NoSuchKey: Object does not exist`.
+Objects are streamed: 8MB parts are downloaded in parallel (4 at a time) while the program processes
+the data, so memory use stays bounded for large objects. Parquet objects are read into memory.
+
 # Special types in text
 
 * bool:  `mkbool("true")`
