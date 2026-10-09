@@ -561,32 +561,35 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    #[allow(clippy::never_loop)]
     fn consume_ws(&mut self) {
-        let mut res = 0;
-        let mut iter = self.text[self.cur..].char_indices();
-        // We use loops here purely for multi-level breaks.
-        'outer: while let Some((ix, c)) = iter.next() {
-            loop {
-                res = ix;
-                if c == '\\' {
-                    // look ahead for a newline and hence a line continuation
-                    if let Some((_, next_c)) = iter.next() {
-                        if next_c == '\n' {
-                            // count this as whitespace
-                            continue 'outer;
-                        }
-                        break 'outer;
-                    }
+        let text = &self.text[self.cur..];
+        // Offset just past the last consumed whitespace.
+        let mut end = 0;
+        let mut iter = text.char_indices();
+        while let Some((ix, c)) = iter.next() {
+            if c == '\\' {
+                // A backslash before a newline (or CRLF) is a line continuation.
+                let rest = &text[ix + 1..];
+                let cont = if rest.starts_with('\n') {
+                    1
+                } else if rest.starts_with("\r\n") {
+                    2
+                } else {
+                    break;
+                };
+                end = ix + 1 + cont;
+                for _ in 0..cont {
+                    iter.next();
                 }
-                if c == '\n' || !c.is_whitespace() {
-                    break 'outer;
-                }
-
+                continue;
+            }
+            // A byte order mark (from editors on Windows) is skipped like whitespace.
+            if c == '\n' || !(c.is_whitespace() || c == '\u{feff}') {
                 break;
             }
+            end = ix + c.len_utf8();
         }
-        self.cur += res;
+        self.cur += end;
     }
 
     fn advance(&mut self) {
@@ -747,7 +750,16 @@ impl<'a> Iterator for Tokenizer<'a> {
                             self.spanned(ix, self.cur, Tok::Ident(s))
                         }
                     } else {
-                        return None;
+                        // Report unknown characters instead of ending the token stream, which
+                        // would silently drop the rest of the program.
+                        return Some(Err(Error {
+                            location: self.index_to_loc(ix),
+                            desc: if c == '@' {
+                                "unsupported '@' syntax (@include, @load, @namespace and indirect function calls are not supported)"
+                            } else {
+                                "unexpected character"
+                            },
+                        }));
                     }
                 }
             }
@@ -918,6 +930,7 @@ and the third"#;
                 ILit("1"),
                 Div,
                 FLit("3.5"),
+                Newline,
             ],
         );
         let mut buf = Vec::new();
@@ -936,5 +949,33 @@ and the third"#;
             parse_string_literal(r#"are you there \77\xh"#, &a, &mut buf),
             b"are you there ?\\xh"
         );
+    }
+
+    #[test]
+    fn unknown_character_is_an_error() {
+        for (text, desc) in [
+            ("BEGIN { x = 1 } `rest", "unexpected character"),
+            ("@namespace \"foo\"\nBEGIN { x = 1 }", "unsupported '@' syntax"),
+        ] {
+            let err = Tokenizer::new(text)
+                .find_map(Result::err)
+                .unwrap_or_else(|| panic!("no error for {:?}", text));
+            assert!(err.desc.starts_with(desc), "{:?}: {}", text, err.desc);
+        }
+    }
+
+    #[test]
+    fn trailing_whitespace_and_bom() {
+        use Tok::*;
+        for text in [
+            "x = 1 ",
+            "x = 1\r\n",
+            "x = 1\t\r",
+            "\u{feff}x = 1",
+            "x = \\\r\n1",
+        ] {
+            let toks: Vec<_> = lex_str(text).into_iter().map(|x| x.1).collect();
+            assert_eq!(&toks[..3], &[Ident("x"), Assign, ILit("1")], "{:?}", text);
+        }
     }
 }
