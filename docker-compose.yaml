@@ -1,0 +1,7 @@
+services:
+  local-s3:
+    image: linuxchina/local-s3:native-2.5.0-SNAPSHOT
+    ports:
+      - "39090:29090"
+    environment:
+      AWS_BUCKETS: "bucket1"
