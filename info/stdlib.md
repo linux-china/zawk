@@ -576,9 +576,9 @@ Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
 * locale: `EN`(default) and `CN` are supported now.
 * data: `name`, `phone`, `cell`, `email`, `wechat`, `ip`, `creditcard`, `zipcode`, `plate`, `postcode`, `id`(身份证).
 
-# Judgment(jev)
+# Decision(jev)
 
-Typed judgments with [TypeSafe System One API](https://docs.typesafe.ai/api), and `TYPESAFE_API_KEY` environment variable is required.
+Typed decision with [TypeSafe System One API](https://docs.typesafe.ai/api), and `TYPESAFE_API_KEY` environment variable is required.
 The first argument is a text or an array, and an array is sent as a JSON object.
 
 * filter: `jev(text_or_array, "the name is European")`: 1 or 0, 1 when the probability of yes is above `jev_threshold`
