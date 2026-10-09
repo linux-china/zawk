@@ -203,6 +203,21 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>
     }
 }
 
+enum Special {
+    Stdout,
+    Stderr,
+}
+
+/// The output files that gawk treats specially: they write to the process's stdout and stderr
+/// rather than opening a new file.
+fn special_file(name: &Str) -> Option<Special> {
+    name.with_bytes(|bs| match bs {
+        b"/dev/stdout" => Some(Special::Stdout),
+        b"/dev/stderr" => Some(Special::Stderr),
+        _ => None,
+    })
+}
+
 /// Registry is a thread-local handle on all files we have ever interacted with.
 ///
 /// Note that handles are never removed, even after a file is closed. The single thread continues
@@ -212,6 +227,9 @@ pub struct Registry {
     files: HashMap<Str<'static>, FileHandle>,
     cmds: HashMap<Str<'static>, FileHandle>,
     stdout: FileHandle,
+    /// `/dev/stderr`. Writes to it are synchronous, after flushing stdout, so that output to
+    /// stdout and stderr appears in program order.
+    stderr: FileHandle,
     /// Whether this is the original registry rather than a clone made for a worker thread. Only
     /// the root waits for output commands at shutdown: workers share commands, and closing one
     /// while other workers still write to it would start the command again.
@@ -222,11 +240,13 @@ impl Registry {
     pub fn from_factory(f: impl FileFactory) -> Registry {
         let root_impl = RootImpl::from_factory(f);
         let stdout = root_impl.get_stdout().into_handle();
+        let stderr = root_impl.get_stderr().into_stderr_handle();
         Registry {
             global: Arc::new(root_impl),
             files: Default::default(),
             cmds: Default::default(),
             stdout,
+            stderr,
             is_root: true,
         }
     }
@@ -246,6 +266,12 @@ impl Registry {
     /// Close a file or command. Returns the exit status of a command, 0 for a file, and `None`
     /// if `path_or_cmd` was never opened.
     pub fn close(&mut self, path_or_cmd: &Str) -> Result<Option<Int>> {
+        // As in gawk, closing /dev/stdout or /dev/stderr only flushes it.
+        match special_file(path_or_cmd) {
+            Some(Special::Stdout) => return self.stdout.flush().map(|_| Some(0)),
+            Some(Special::Stderr) => return self.stderr.flush().map(|_| Some(0)),
+            None => {}
+        }
         // TODO: implement a newtype for heterogeneous lookup. We shouldn't have to do the clone or
         // the unmoor here, but we need to because we cannot implement Borrow<Str<'a>> for
         // Borrow<Str<'static>> (conflicts with the blanket impl for Borrow).
@@ -272,6 +298,9 @@ impl Registry {
     /// (unlike other write errors, which end the program silently).
     pub fn check_output(&mut self, name: &Str, fspec: FileSpec) -> Result<()> {
         if let FileSpec::Cmd = fspec {
+            return Ok(());
+        }
+        if special_file(name).is_some() {
             return Ok(());
         }
         let global = self.global.clone();
@@ -303,6 +332,17 @@ impl Registry {
     }
 
     pub fn get_file(&mut self, name: Option<&Str>) -> Result<&mut FileHandle> {
+        match name.map(special_file) {
+            Some(Some(Special::Stdout)) => return Ok(&mut self.stdout),
+            Some(Some(Special::Stderr)) => {
+                // Keep stdout and stderr output in program order.
+                if self.stdout.dirty {
+                    self.stdout.flush()?;
+                }
+                return Ok(&mut self.stderr);
+            }
+            _ => {}
+        }
         match name {
             Some(path) => {
                 use hashbrown::hash_map::Entry;
@@ -338,8 +378,10 @@ impl Registry {
             found |= fh.raw.is_open();
         }
         let special = name.with_bytes(|bs| bs == b"/dev/stdout" || bs == b"/dev/stderr");
-        if name.with_bytes(|bs| bs == b"/dev/stdout") {
-            self.stdout.flush()?;
+        match special_file(name) {
+            Some(Special::Stdout) => self.stdout.flush()?,
+            Some(Special::Stderr) => self.stderr.flush()?,
+            None => {}
         }
         if found || special {
             return Ok(true);
@@ -382,6 +424,7 @@ impl Clone for Registry {
             files: Default::default(),
             cmds: Default::default(),
             stdout: self.stdout.raw().into_handle(),
+            stderr: self.stderr.raw().into_stderr_handle(),
             is_root: false,
         }
     }
@@ -393,6 +436,7 @@ trait Root: 'static + Send + Sync {
     fn get_command(&self, cmd: &[u8]) -> RawHandle;
     fn get_handle(&self, fname: &str) -> RawHandle;
     fn get_stdout(&self) -> RawHandle;
+    fn get_stderr(&self) -> RawHandle;
     // opens the file `fname` for appending (creating it, never truncating it) to check that it
     // can be written.
     fn check_open(&self, fname: &str) -> io::Result<()>;
@@ -409,6 +453,7 @@ struct RootImpl<F> {
     handles: Mutex<HashMap<String, RawHandle>>,
     commands: Mutex<HashMap<Box<[u8]>, RawHandle>>,
     stdout_raw: RawHandle,
+    stderr_raw: RawHandle,
     file_factory: F,
 }
 
@@ -420,10 +465,18 @@ impl<F: FileFactory> RootImpl<F> {
             /*is_stdout*/ true,
             Default::default(),
         );
+        // Writes to stderr bypass this handle's writer thread (see FileHandle::direct), it only
+        // gives the stderr FileHandle a RawHandle.
+        let stderr_raw = build_handle(
+            |_append| Ok(io::stderr()),
+            /*is_stdout*/ false,
+            Default::default(),
+        );
         RootImpl {
             handles: Default::default(),
             commands: Default::default(),
             stdout_raw,
+            stderr_raw,
             file_factory,
         }
     }
@@ -540,6 +593,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
     fn get_stdout(&self) -> RawHandle {
         self.stdout_raw.clone()
     }
+    fn get_stderr(&self) -> RawHandle {
+        self.stderr_raw.clone()
+    }
     fn check_open(&self, fname: &str) -> io::Result<()> {
         self.file_factory.build(fname, FileSpec::Append).map(drop)
     }
@@ -562,6 +618,11 @@ pub struct FileHandle {
     /// Whether opening the file was checked (see Registry::check_output) since it was last
     /// closed.
     checked: bool,
+    /// Write synchronously and unbuffered to the process's stderr from the calling thread,
+    /// rather than through the writer thread (used for /dev/stderr).
+    direct: bool,
+    /// Whether anything was written since the last flush.
+    dirty: bool,
 }
 
 impl FileHandle {
@@ -633,6 +694,17 @@ impl FileHandle {
     }
 
     pub fn write_all(&mut self, ss: &[&Str], spec: FileSpec) -> Result<()> {
+        if self.direct {
+            let mut err = io::stderr().lock();
+            for s in ss.iter() {
+                let bs = unsafe { &*s.get_bytes() };
+                if let Err(e) = err.write_all(bs) {
+                    return Err(CompileError(format!("{}", e)));
+                }
+            }
+            return err.flush().map_err(|e| CompileError(format!("{}", e)));
+        }
+        self.dirty = true;
         let cur_len = self.cur_batch.data.len();
         let mut added_bytes = 0;
         let mut last_line = None;
@@ -657,6 +729,9 @@ impl FileHandle {
     }
 
     pub fn flush(&mut self) -> Result<()> {
+        if self.direct {
+            return Ok(());
+        }
         self.clear_batch(None)?;
         let (n, req) = Request::flush();
         self.raw.sender.send(req).unwrap();
@@ -665,6 +740,7 @@ impl FileHandle {
         if let RequestStatus::Error = n.0.read() {
             Err(self.read_error())
         } else {
+            self.dirty = false;
             Ok(())
         }
     }
@@ -862,7 +938,16 @@ impl RawHandle {
             guards: Default::default(),
             old_guards: Default::default(),
             checked: false,
+            direct: false,
+            dirty: false,
         }
+    }
+
+    /// A handle writing directly to the process's stderr (see FileHandle::direct).
+    fn into_stderr_handle(self) -> FileHandle {
+        let mut fh = self.into_handle();
+        fh.direct = true;
+        fh
     }
 }
 

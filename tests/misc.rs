@@ -779,3 +779,37 @@ fn redirect_open_failure_is_fatal() {
             .stdout(String::from("4\n"));
     }
 }
+
+#[test]
+fn dev_stdout_stderr_keep_program_order() {
+    // print > "/dev/stdout" shares the buffer of standard output, and print > "/dev/stderr" is
+    // written after flushing standard output, so the merged output is in program order.
+    let zawk = assert_cmd::cargo::cargo_bin("zawk");
+    let prog = r#"BEGIN { print "1"; print "2" > "/dev/stderr"; print "3" > "/dev/stdout";
+                         printf "4\n" > "/dev/stderr"; print "5" }
+                  { print "o" $0; print "e" $0 > "/dev/stderr" }"#;
+    for backend_arg in BACKEND_ARGS {
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#""$0" "$1" "$2" 2>&1"#)
+            .arg(&zawk)
+            .arg(backend_arg)
+            .arg(prog)
+            .stdin(File::open(test_data_file("a.txt")).unwrap())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", backend_arg);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "1\n2\n3\n4\n5\noline one\neline one\noline two\neline two\n",
+            "{}",
+            backend_arg
+        );
+    }
+}
+
+fn test_data_file(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/compat/data")
+        .join(name)
+}
