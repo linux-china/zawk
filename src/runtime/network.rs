@@ -11,7 +11,6 @@ use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Serialize;
 use url::Url;
-use paho_mqtt::*;
 use crate::runtime::{stdlib_warning, Str, StrMap};
 
 pub fn local_ip() -> String {
@@ -105,7 +104,7 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
 // todo graceful shutdown
 lazy_static! {
     static ref NATS_CONNECTIONS: Arc<Mutex<HashMap<String, nats::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
-    static ref MQTT_CONNECTIONS: Arc<Mutex<HashMap<String, paho_mqtt::Client>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref MQTT_CONNECTIONS: Arc<Mutex<HashMap<String, MqttClient>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 /// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
@@ -139,11 +138,21 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             return Err(format!("missing topic in {:?}", namespace));
         }
         let mut pool = MQTT_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        if !pool.contains_key(namespace) {
-            let cli = mqtt_connect(&url)?;
+        let reused = pool.contains_key(namespace);
+        let mut cli = match pool.remove(namespace) {
+            Some(cli) => cli,
+            None => mqtt_connect(&url)?,
+        };
+        let mut result = cli.publish(&topic, body);
+        if result.is_err() && reused {
+            // the pooled connection may have been dropped by the broker while idle: reconnect once
+            cli = mqtt_connect(&url)?;
+            result = cli.publish(&topic, body);
+        }
+        if result.is_ok() {
             pool.insert(namespace.to_string(), cli);
         }
-        pool[namespace].publish(Message::new(topic, body, 0)).map_err(|e| e.to_string())
+        result
     } else {
         notify_rust::Notification::new()
             .summary(namespace)
@@ -154,50 +163,97 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     }
 }
 
-fn mqtt_connect(url: &Url) -> std::result::Result<paho_mqtt::Client, String> {
-    let schema = url.scheme();
-    let host = url.host().ok_or_else(|| format!("missing host in {:?}", url.as_str()))?;
+/// Timeout to connect to the broker and flush a published message.
+const MQTT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// MQTT client with its (synchronously driven) event loop. MQTT 3.1/3.1.1 use the v4 protocol, otherwise v5.
+enum MqttClient {
+    V4(rumqttc::Client, rumqttc::Connection),
+    V5(rumqttc::v5::Client, rumqttc::v5::Connection),
+}
+
+impl MqttClient {
+    /// Publish `body` with QoS 0, then drive the event loop (connecting if needed) until the message is
+    /// written to the network, so it is not lost when the script exits right after.
+    fn publish(&mut self, topic: &str, body: &str) -> std::result::Result<(), String> {
+        macro_rules! publish_and_flush {
+            ($client:expr, $conn:expr, $qos:expr, $event:path, $payload:expr) => {{
+                $client.publish(topic, $qos, false, $payload).map_err(|e| format!("failed to publish: {}", e))?;
+                let deadline = std::time::Instant::now() + MQTT_TIMEOUT;
+                loop {
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    match $conn.recv_timeout(remaining) {
+                        Ok(Ok($event(rumqttc::Outgoing::Publish(_)))) => return Ok(()),
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => return Err(format!("MQTT connection error: {}", e)),
+                        Err(_) => return Err("timed out publishing MQTT message".to_string()),
+                    }
+                }
+            }};
+        }
+        match self {
+            MqttClient::V4(client, conn) => {
+                publish_and_flush!(client, conn, rumqttc::QoS::AtMostOnce, rumqttc::Event::Outgoing, body.as_bytes().to_vec())
+            }
+            MqttClient::V5(client, conn) => {
+                publish_and_flush!(client, conn, rumqttc::v5::mqttbytes::QoS::AtMostOnce, rumqttc::v5::Event::Outgoing, body.to_string())
+            }
+        }
+    }
+}
+
+/// TLS config with the platform root certificates. The ring provider is set explicitly: rustls can't pick a
+/// default provider because both ring and aws-lc-rs are enabled by other dependencies.
+fn mqtt_tls_config() -> std::result::Result<rustls::ClientConfig, String> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("invalid TLS config: {}", e))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(config)
+}
+
+fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
+    let tls = url.scheme() == "mqtts";
+    let host = match url.host().ok_or_else(|| format!("missing host in {:?}", url.as_str()))? {
+        url::Host::Domain(domain) => domain.to_string(),
+        url::Host::Ipv4(ip) => ip.to_string(),
+        url::Host::Ipv6(ip) => ip.to_string(),
+    };
+    let port = url.port().unwrap_or(if tls { 8883 } else { 1883 });
+    // MQTT 3.1.1 limits client ids to 23 characters
+    let client_id = format!("zawk-{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
+    // username + password, or a token (JWT style) as the password only
     let user_name = url.username();
-    let password = url.password();
-    let connection_url = if let Some(port) = url.port() {
-        format!("{}://{}:{}", schema, host, port)
+    let credentials = if user_name.is_empty() {
+        None
+    } else if let Some(password) = url.password() {
+        Some((user_name.to_string(), password.to_string()))
     } else {
-        format!("{}://{}", schema, host)
+        Some((String::new(), user_name.to_string()))
     };
-    let mut pairs = url.query_pairs();
-    let version = pairs.find(|p| p.0 == "version");
-    let mqtt_version = if let Some((_key, version)) = version {
-        if version.contains("3.1.1") {
-            MQTT_VERSION_3_1_1
-        } else if version.contains("3.1") {
-            MQTT_VERSION_3_1
-        } else {
-            MQTT_VERSION_5
+    let is_v5 = !url.query_pairs().any(|(key, version)| key == "version" && version.contains("3.1"));
+    let transport = if tls { rumqttc::Transport::tls_with_config(mqtt_tls_config()?.into()) } else { rumqttc::Transport::tcp() };
+    let keep_alive = Duration::from_secs(60);
+    if is_v5 {
+        let mut options = rumqttc::v5::MqttOptions::new(client_id, host, port);
+        options.set_keep_alive(keep_alive).set_clean_start(true).set_transport(transport);
+        if let Some((user_name, password)) = credentials {
+            options.set_credentials(user_name, password);
         }
+        let (client, conn) = rumqttc::v5::Client::new(options, 10);
+        Ok(MqttClient::V5(client, conn))
     } else {
-        MQTT_VERSION_5
-    };
-    let client_opts = CreateOptionsBuilder::new()
-        .mqtt_version(mqtt_version)
-        .server_uri(&connection_url)
-        .finalize();
-    // Connect options
-    let mut builder = ConnectOptionsBuilder::new();
-    let mut conn_options_builder = builder.clean_start(true);
-    if schema == "mqtts" {
-        conn_options_builder = conn_options_builder.ssl_options(SslOptions::default());
-    }
-    if !user_name.is_empty() {
-        if let Some(password) = password {
-            conn_options_builder = conn_options_builder.user_name(user_name).password(password);
-        } else {
-            conn_options_builder = conn_options_builder.password(user_name); // JWT style
+        let mut options = rumqttc::MqttOptions::new(client_id, host, port);
+        options.set_keep_alive(keep_alive).set_clean_session(true).set_transport(transport);
+        if let Some((user_name, password)) = credentials {
+            options.set_credentials(user_name, password);
         }
+        let (client, conn) = rumqttc::Client::new(options, 10);
+        Ok(MqttClient::V4(client, conn))
     }
-    let cli = Client::new(client_opts).map_err(|e| format!("failed to create MQTT client: {}", e))?;
-    cli.connect(conn_options_builder.finalize())
-        .map_err(|e| format!("failed to connect to {}: {}", connection_url, e))?;
-    Ok(cli)
 }
 
 #[derive(Debug, Serialize)]

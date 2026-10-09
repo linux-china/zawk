@@ -9,7 +9,7 @@ const SCRIPT_TARGET: &str = "zawk";
 const DEFAULT_FILTERS: &str = "warn,zawk=debug,\
     cranelift_codegen=error,cranelift_jit=error,\
     reqwest=error,hyper=error,hyper_util=error,hyper_rustls=error,rustls=error,\
-    tokio_postgres=error,paho_mqtt=error,paho_mqtt_c=error";
+    tokio_postgres=error,rumqttc=error";
 
 /// Initialize logger, called from `main` after `.env` is loaded so `RUST_LOG` in `.env` is respected.
 pub fn init() {
