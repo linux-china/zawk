@@ -5,3 +5,7 @@ services:
       - "39090:29090"
     environment:
       AWS_BUCKETS: "bucket1,mj-artifacts"
+  mqtt:
+    image: eclipse-mosquitto:2.1.2-alpine
+    ports:
+      - "1883:1883"
