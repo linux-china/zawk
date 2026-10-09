@@ -317,6 +317,10 @@ pub(crate) enum Instr<'a> {
     BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContainsWithInsert(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     Fake(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Jev(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Float>),
+    JevProb(Reg<Float>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JevChoice(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JevScore(Reg<Float>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
@@ -969,6 +973,29 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 item.accum(&mut f);
                 group.accum(&mut f);
+            }
+            Jev(dst, record, instructions, threshold) => {
+                dst.accum(&mut f);
+                record.accum(&mut f);
+                instructions.accum(&mut f);
+                threshold.accum(&mut f);
+            }
+            JevProb(dst, record, instructions) => {
+                dst.accum(&mut f);
+                record.accum(&mut f);
+                instructions.accum(&mut f);
+            }
+            JevChoice(dst, record, instructions, options) => {
+                dst.accum(&mut f);
+                record.accum(&mut f);
+                instructions.accum(&mut f);
+                options.accum(&mut f);
+            }
+            JevScore(dst, record, instructions, levels) => {
+                dst.accum(&mut f);
+                record.accum(&mut f);
+                instructions.accum(&mut f);
+                levels.accum(&mut f);
             }
             Fake(dst, data, locale) => {
                 dst.accum(&mut f);

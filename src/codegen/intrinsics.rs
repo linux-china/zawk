@@ -5,7 +5,7 @@
 //! underlying runtime library.
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{
-    self, config_util, date_time, encoding, faker, kv, logging, math_util, network, os_util,
+    self, config_util, date_time, encoding, faker, jev_functions, kv, logging, math_util, network, os_util,
     printf::FormatArg,
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
@@ -273,6 +273,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] bf_contains(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] bf_icontains(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] fake(str_ref_ty, str_ref_ty) -> str_ty;
+        jev(str_ref_ty, str_ref_ty, float_ty) -> int_ty;
+        jev_prob(str_ref_ty, str_ref_ty) -> float_ty;
+        jev_choice(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        jev_score(str_ref_ty, str_ref_ty, str_ref_ty) -> float_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
@@ -1587,6 +1591,41 @@ pub(crate) unsafe extern "C" fn bf_icontains(item: *mut U128, group: *mut U128) 
         let item = &*(item as *mut Str);
         let group = &*(group as *mut Str);
         encoding::bf_icontains(&*item.as_str(), &*group.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn jev(record: *mut U128, instructions: *mut U128, threshold: Float) -> Int {
+    guard_panic(stringify!(jev), || {
+        let record = &*(record as *mut Str);
+        let instructions = &*(instructions as *mut Str);
+        jev_functions::jev(&*record.as_str(), &*instructions.as_str(), threshold)
+    })
+}
+
+pub(crate) unsafe extern "C" fn jev_prob(record: *mut U128, instructions: *mut U128) -> Float {
+    guard_panic(stringify!(jev_prob), || {
+        let record = &*(record as *mut Str);
+        let instructions = &*(instructions as *mut Str);
+        jev_functions::jev_prob(&*record.as_str(), &*instructions.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn jev_choice(record: *mut U128, instructions: *mut U128, options: *mut U128) -> U128 {
+    guard_panic(stringify!(jev_choice), || {
+        let record = &*(record as *mut Str);
+        let instructions = &*(instructions as *mut Str);
+        let options = &*(options as *mut Str);
+        let result = jev_functions::jev_choice(&*record.as_str(), &*instructions.as_str(), &*options.as_str());
+        mem::transmute::<Str, U128>(Str::from(result))
+    })
+}
+
+pub(crate) unsafe extern "C" fn jev_score(record: *mut U128, instructions: *mut U128, levels: *mut U128) -> Float {
+    guard_panic(stringify!(jev_score), || {
+        let record = &*(record as *mut Str);
+        let instructions = &*(instructions as *mut Str);
+        let levels = &*(levels as *mut Str);
+        jev_functions::jev_score(&*record.as_str(), &*instructions.as_str(), &*levels.as_str())
     })
 }
 

@@ -602,6 +602,25 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(item.into()));
                 f(dst.into(), Some(group.into()));
             }
+            Jev(dst, record, instructions, threshold) => {
+                f(dst.into(), Some(record.into()));
+                f(dst.into(), Some(instructions.into()));
+                f(dst.into(), Some(threshold.into()));
+            }
+            JevProb(dst, record, instructions) => {
+                f(dst.into(), Some(record.into()));
+                f(dst.into(), Some(instructions.into()));
+            }
+            JevChoice(dst, record, instructions, options) => {
+                f(dst.into(), Some(record.into()));
+                f(dst.into(), Some(instructions.into()));
+                f(dst.into(), Some(options.into()));
+            }
+            JevScore(dst, record, instructions, levels) => {
+                f(dst.into(), Some(record.into()));
+                f(dst.into(), Some(instructions.into()));
+                f(dst.into(), Some(levels.into()));
+            }
             Fake(dst, data, locale) => {
                 f(dst.into(), Some(data.into()));
                 f(dst.into(), Some(locale.into()));

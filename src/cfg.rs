@@ -2198,6 +2198,23 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Min if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b""));
                     }
+                    // jev(record, instructions) => jev(to_json(record), instructions, jev_threshold)
+                    // jev_prob(record, instructions) => jev_prob(to_json(record), instructions)
+                    // jev_choice(record, instructions, options) => jev_choice(to_json(record), instructions, to_json(options))
+                    builtins::Function::Jev | builtins::Function::JevProb | builtins::Function::JevChoice | builtins::Function::JevScore => {
+                        let json_args: &[usize] = if args_len >= 3 { &[0, 2] } else { &[0] };
+                        for &i in json_args {
+                            let arg = prim_args[i].clone();
+                            let json = PrimExpr::CallBuiltin(builtins::Function::ToJson, smallvec![arg]);
+                            prim_args[i] = self.to_val(json, open)?;
+                        }
+                        if bi == builtins::Function::Jev && args_len == 2 {
+                            let threshold = Expr::Var(I::from_static("jev_threshold"));
+                            let (next, v) = self.convert_val(&threshold, open)?;
+                            open = next;
+                            prim_args.push(v);
+                        }
+                    }
                     // max($1, 10) => max($1, 10, "");
                     builtins::Function::Max if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b""));

@@ -1561,6 +1561,33 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(bf_icontains), &mut [item, group])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            Jev(dst, record, instructions, threshold) => {
+                let record = self.get_val(record.reflect())?;
+                let instructions = self.get_val(instructions.reflect())?;
+                let threshold = self.get_val(threshold.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(jev), &mut [record, instructions, threshold])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            JevProb(dst, record, instructions) => {
+                let record = self.get_val(record.reflect())?;
+                let instructions = self.get_val(instructions.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(jev_prob), &mut [record, instructions])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            JevChoice(dst, record, instructions, options) => {
+                let record = self.get_val(record.reflect())?;
+                let instructions = self.get_val(instructions.reflect())?;
+                let options = self.get_val(options.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(jev_choice), &mut [record, instructions, options])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            JevScore(dst, record, instructions, levels) => {
+                let record = self.get_val(record.reflect())?;
+                let instructions = self.get_val(instructions.reflect())?;
+                let levels = self.get_val(levels.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(jev_score), &mut [record, instructions, levels])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Fake(dst, data, locale) => {
                 let data = self.get_val(data.reflect())?;
                 let locale = self.get_val(locale.reflect())?;

@@ -1406,6 +1406,36 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Jev(dst, record, instructions, threshold) => {
+                        let record = index(&self.strs, record);
+                        let instructions = index(&self.strs, instructions);
+                        let threshold = *index(&self.floats, threshold);
+                        let res = runtime::jev_functions::jev(&*record.as_str(), &*instructions.as_str(), threshold);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    JevProb(dst, record, instructions) => {
+                        let record = index(&self.strs, record);
+                        let instructions = index(&self.strs, instructions);
+                        let res = runtime::jev_functions::jev_prob(&*record.as_str(), &*instructions.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    JevChoice(dst, record, instructions, options) => {
+                        let record = index(&self.strs, record);
+                        let instructions = index(&self.strs, instructions);
+                        let options = index(&self.strs, options);
+                        let res = runtime::jev_functions::jev_choice(&*record.as_str(), &*instructions.as_str(), &*options.as_str());
+                        *index_mut(&mut self.strs, dst) = Str::from(res);
+                    }
+                    JevScore(dst, record, instructions, levels) => {
+                        let record = index(&self.strs, record);
+                        let instructions = index(&self.strs, instructions);
+                        let levels = index(&self.strs, levels);
+                        let res = runtime::jev_functions::jev_score(&*record.as_str(), &*instructions.as_str(), &*levels.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Fake(dst, data, locale) => {
                         let data = index(&self.strs, data);
                         let locale = index(&self.strs, locale);

@@ -73,6 +73,8 @@ pub enum State {
         /// Named facts keyed by name.
         facts: BTreeMap<String, String>,
     },
+    /// Structured data, e.g. a record as a JSON object or array.
+    Json(Value),
 }
 
 impl State {
@@ -101,6 +103,7 @@ impl State {
                 "text": text,
                 "facts": facts,
             }),
+            Self::Json(value) => value.clone(),
         }
     }
 }

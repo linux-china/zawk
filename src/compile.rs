@@ -2716,6 +2716,18 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::BloomFilterContainsWithInsert(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            Jev => {
+                self.pushl(LL::Jev(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+            }
+            JevProb => {
+                self.pushl(LL::JevProb(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+            }
+            JevChoice => {
+                self.pushl(LL::JevChoice(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+            }
+            JevScore => {
+                self.pushl(LL::JevScore(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+            }
             Fake => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Fake(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))

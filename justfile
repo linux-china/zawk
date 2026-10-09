@@ -343,3 +343,9 @@ run-getenv:
 
 run-strlen:
   cargo run --package zawk --bin zawk -- 'BEGIN{print strlen("你好"), length("你好")}'
+
+run-jev:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print jev("北京", "the capital of China or not?") }'
+
+run-jev_prob:
+  cargo run --package zawk --bin zawk -- 'BEGIN{ print jev_prob("I want a refund NOW", "the customer is angry") }'
