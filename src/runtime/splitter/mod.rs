@@ -33,6 +33,11 @@ pub trait Line<'a>: Default + Clone {
     where
         F: FnMut(Str<'static>) -> Str<'static>;
     fn nf(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<usize>;
+    /// Split all fields of the record with `pat` now, if they are split lazily. Called before FS
+    /// changes, as a new FS only applies from the next record.
+    fn split_now(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<()> {
+        self.nf(pat, rc).map(drop)
+    }
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>>;
     fn set_col(&mut self, col: Int, s: &Str<'a>, pat: &Str, rc: &mut RegexCache) -> Result<()>;
     /// Assign to NF: truncate the fields or extend them with empty fields, and rebuild $0 (with
@@ -183,6 +188,11 @@ impl<'a> Line<'a> for DefaultLine {
     fn nf(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<usize> {
         self.split_if_needed(pat, rc)?;
         Ok(self.fields.len())
+    }
+    fn split_now(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<()> {
+        // All fields, not only the projected ones: rebuilding $0 after a field assignment would
+        // otherwise split the record again, with the new FS.
+        self.split_all_fields(pat, rc)
     }
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>> {
         if col < 0 {

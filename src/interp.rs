@@ -2297,6 +2297,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     StoreVarStr(var, src) => {
                         let src = *src;
                         let s = self.get(src).clone();
+                        // As in awk, a new FS (or RS) applies from the next record: split the
+                        // current one with the old separator first, as fields are split lazily.
+                        if let FS | RS = *var {
+                            self.line.split_now(&self.core.vars.split_fs, &mut self.core.regexes)?;
+                        }
                         self.core.vars.store_str(*var, s)?;
                     }
                     LoadVarInt(dst, var) => {

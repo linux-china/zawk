@@ -2904,6 +2904,15 @@ pub(crate) unsafe extern "C" fn store_var_str(rt: *mut c_void, var: usize, s: *m
         let runtime = &mut *(rt as *mut Runtime);
         if let Ok(var) = Variable::try_from(var) {
             let s = (*(s as *mut Str)).clone();
+            // As in awk, a new FS (or RS) applies from the next record: split the current one
+            // with the old separator first, as fields are split lazily.
+            if let Variable::FS | Variable::RS = var {
+                try_abort!(
+                    runtime,
+                    with_input!(&mut runtime.input_data, |(line, _)| line
+                        .split_now(&runtime.core.vars.split_fs, &mut runtime.core.regexes))
+                );
+            }
             try_abort!(runtime, runtime.core.vars.store_str(var, s))
         } else {
             fail!(runtime, "invalid variable code={}", var)
