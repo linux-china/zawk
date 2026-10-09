@@ -59,6 +59,9 @@ Like sub, but with all occurrences substituted, not just the first.
 * `index(text, 's')`: the first index within haystack in which the string needle occurs, 0 if needle does not appear.
 * `last_index(text,'s')`: the last index within haystack in which the string needle occurs, 0 if needle does not appear.
 
+Positions count characters, as `length()` and `substr()` do: `index("中文abc", "a")` is `3`, so
+`substr(s, index(s, x))` works on multibyte text. `match()`, `RSTART` and `RLENGTH` count characters too.
+
 ### split(text, arr[, fs])
 
 Splits the string s according to fs, placing the results in the array `arr`. If fs is not specified then the FS variable

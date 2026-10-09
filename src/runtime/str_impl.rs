@@ -954,16 +954,7 @@ impl<'a> Str<'a> {
 
     /// Length in chars; each invalid UTF-8 sequence counts as one char.
     pub fn len(&self) -> usize {
-        self.with_bytes(|bs| {
-            if bs.is_ascii() {
-                bs.len()
-            } else {
-                match str::from_utf8(bs) {
-                    Ok(text) => text.chars().count(),
-                    Err(_) => String::from_utf8_lossy(bs).chars().count(),
-                }
-            }
-        })
+        self.with_bytes(char_count)
     }
 
     pub fn concat(left: Str<'a>, right: Str<'a>) -> Str<'a> {
@@ -2136,6 +2127,20 @@ mod formatting {
                 header.count.get(),
                 self.as_bytes(),
             )
+        }
+    }
+}
+
+/// The number of chars in `bs`, counting each invalid UTF-8 sequence as one char, as `length()`
+/// does. Used to turn byte offsets (of a substring or regex match) into the char positions of
+/// `index()`, `match()` and `RSTART`/`RLENGTH`, which `substr()` takes.
+pub(crate) fn char_count(bs: &[u8]) -> usize {
+    if bs.is_ascii() {
+        bs.len()
+    } else {
+        match str::from_utf8(bs) {
+            Ok(text) => text.chars().count(),
+            Err(_) => String::from_utf8_lossy(bs).chars().count(),
         }
     }
 }

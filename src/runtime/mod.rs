@@ -284,11 +284,12 @@ impl RegexCache {
 
     pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
         use crate::builtins::Variable;
+        // RSTART and RLENGTH count chars, as `length()` and `substr()` do.
         let (start, len) = s.with_bytes(|bs| match re.find(bs) {
             Some(m) => {
-                let start = m.start() as Int;
-                let end = m.end() as Int;
-                (start + 1, end - start)
+                let start = str_impl::char_count(&bs[..m.start()]) as Int;
+                let len = str_impl::char_count(&bs[m.start()..m.end()]) as Int;
+                (start + 1, len)
             }
             None => (0, -1),
         });
