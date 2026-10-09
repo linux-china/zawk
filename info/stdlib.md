@@ -121,7 +121,10 @@ characters are unchanged.
 
 ### strtonum:
 
-numeric value(Decimal) `strtonum("0x11")`.
+The numeric value of a string, as in gawk: `strtonum("0x11")` is `17` (hexadecimal) and `strtonum("017")` is `15`
+(octal, a leading `0`). Digits `8` or `9`, a `.` or an exponent make the number decimal: `strtonum("018")` is `18`.
+Input that looks like a decimal number, such as the field `017`, is decimal: `strtonum($1)` is `17`, while
+`strtonum($1 "")` is `15`. Use `float()` for `0o` and `0b` prefixes.
 
 ### trim
 
@@ -516,6 +519,10 @@ examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mk
 
 `int("11") # 11`,
 `float("11.2") # 11.2`
+
+`float()` reads decimal numbers, and hexadecimal, octal and binary numbers with a `0x`, `0o` or `0b` prefix:
+`float("0x11")`, `float("0o21")` and `float("0b10001")` are all `17`. A leading `0` alone is decimal: `float("017")`
+is `17`.
 
 # Date/Time
 

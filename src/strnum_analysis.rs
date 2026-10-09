@@ -92,6 +92,7 @@ impl StrnumAnalysis {
                 self.dfa.add_query(r);
             }
             CmpStrNum { s, .. } => self.dfa.add_query(s),
+            AwkStrtonum(_, s, _) => self.dfa.add_query(s),
             // Copies.
             Mov(..)
             | Lookup { .. }

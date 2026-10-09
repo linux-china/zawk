@@ -20,5 +20,4 @@
 
 # gawk extensions
 11-gawk-ignorecase                    # IGNORECASE is not supported
-11-gawk-strtonum                      # strtonum() does not parse octal (leading 0)
 11-gawk-strftime-systime              # strftime() does not accept the utc-flag argument

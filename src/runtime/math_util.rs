@@ -325,6 +325,43 @@ pub(crate) fn strtonum(text: &str) -> Float {
     };
 }
 
+/// gawk's `strtonum`. `strnum` is whether the argument may be a strnum (input such as a field):
+/// one that looks like a decimal number is that number (`strtonum($1)` is 17 for the field
+/// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
+/// octal one (`strtonum("017")` is 15), unless the digits continue with `8`, `9`, `.` or an
+/// exponent, which make it decimal (`"018"` is 18, `"017.5"` is 17.5). Leading blanks or a sign
+/// also make it decimal.
+pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
+    use crate::runtime::float_parse::strtod;
+    if strnum {
+        if let Some(n) = crate::runtime::compare::looks_numeric(bs) {
+            return n;
+        }
+    }
+    let decimal = |bs: &[u8]| {
+        let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+        start.map_or(0.0, |i| strtod(&bs[i..]))
+    };
+    match bs {
+        [b'0', b'x' | b'X', rest @ ..] => rest
+            .iter()
+            .map_while(|b| (*b as char).to_digit(16))
+            .fold(0.0, |n, d| n * 16.0 + d as Float),
+        [b'0', rest @ ..] => {
+            let mut n = 0.0;
+            for b in rest {
+                match b {
+                    b'0'..=b'7' => n = n * 8.0 + (b - b'0') as Float,
+                    b'8' | b'9' | b'.' | b'e' | b'E' => return decimal(bs),
+                    _ => break,
+                }
+            }
+            n
+        }
+        _ => decimal(bs),
+    }
+}
+
 pub(crate) fn strtoint(text: &str) -> Int {
     let text = text.trim().to_lowercase();
     return if text.starts_with("0x") {
@@ -733,6 +770,35 @@ mod tests {
         assert_eq!(3f64, strtonum("0b11"));
         assert_eq!(17f64, strtonum("17"));
         assert_eq!(17.2f64, strtonum("17.2"));
+    }
+
+    #[test]
+    fn test_awk_strtonum() {
+        let n = |s: &str| awk_strtonum(s.as_bytes(), false);
+        assert_eq!(n("0x1F"), 31.0);
+        assert_eq!(n("0X1f"), 31.0);
+        assert_eq!(n("0x1Fzz"), 31.0);
+        assert_eq!(n("0x"), 0.0);
+        assert_eq!(n("017"), 15.0);
+        assert_eq!(n("0017"), 15.0);
+        assert_eq!(n("017abc"), 15.0);
+        assert_eq!(n("018"), 18.0);
+        assert_eq!(n("0179"), 179.0);
+        assert_eq!(n("017.5"), 17.5);
+        assert_eq!(n("017e1"), 170.0);
+        assert_eq!(n("00"), 0.0);
+        assert_eq!(n("08"), 8.0);
+        assert_eq!(n(" 017"), 17.0);
+        assert_eq!(n("+017"), 17.0);
+        assert_eq!(n("-017"), -17.0);
+        assert_eq!(n("12abc"), 12.0);
+        assert_eq!(n("abc"), 0.0);
+        assert_eq!(n(""), 0.0);
+        // A strnum that looks like a number is that number; other strnums follow the rules above.
+        assert_eq!(awk_strtonum(b"017", true), 17.0);
+        assert_eq!(awk_strtonum(b" 0x11 ", true), 0.0);
+        assert_eq!(awk_strtonum(b"0x11", true), 17.0);
+        assert_eq!(awk_strtonum(b"017abc", true), 15.0);
     }
 
     #[test]

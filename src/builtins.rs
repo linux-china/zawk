@@ -66,7 +66,10 @@ pub enum Function {
     Truncate,
     Parse,
     RegexParse,
+    // zawk's float(): decimal, or hexadecimal, octal and binary with a 0x, 0o or 0b prefix.
     Strtonum,
+    // gawk's strtonum(): a leading 0 or 0x makes the string octal or hexadecimal.
+    AwkStrtonum,
     FormatBytes,
     ToBytes,
     StartsWith,
@@ -468,7 +471,7 @@ static_map!(
     ["truncate", Function::Truncate],
     ["parse", Function::Parse],
     ["rparse", Function::RegexParse],
-    ["strtonum", Function::Strtonum],
+    ["strtonum", Function::AwkStrtonum],
     ["format_bytes", Function::FormatBytes],
     ["to_bytes", Function::ToBytes],
     ["starts_with", Function::StartsWith],
@@ -857,7 +860,7 @@ impl Function {
             ToCsv => (smallvec![incoming[0]], Str),
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
-            Strtonum => (smallvec![Str], Float),
+            Strtonum | AwkStrtonum => (smallvec![Str], Float),
             FormatBytes => (smallvec![Int], Str),
             ToBytes => (smallvec![Str], Int),
             StartsWith => (smallvec![Str, Str], Int),
@@ -965,7 +968,7 @@ impl Function {
             MkBool => 1,
             MkPassword => 1,
             Trim => 2,
-            Capitalize | UnCapitalize | Mask | Strtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words | Lines => 1,
+            Capitalize | UnCapitalize | Mask | Strtonum | AwkStrtonum | CamelCase | KebabCase | SnakeCase | TitleCase | Words | Lines => 1,
             Figlet => 1,
             Repeat => 2,
             Min | Max => 3,
@@ -1075,7 +1078,7 @@ impl Function {
             BloomFilterContains | BloomFilterContainsWithInsert => {
                 Ok(Scalar(BaseTy::Int).abs())
             }
-            Strtonum => Ok(Scalar(BaseTy::Float).abs()),
+            Strtonum | AwkStrtonum => Ok(Scalar(BaseTy::Float).abs()),
             Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | Figlet | Repeat => Ok(Scalar(BaseTy::Str).abs()),
             DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => Ok(Scalar(BaseTy::Str).abs()),

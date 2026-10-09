@@ -1456,6 +1456,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = num;
                     }
+                    AwkStrtonum(dst, text, strnum) => {
+                        let num = index(&self.strs, text)
+                            .with_bytes(|bs| runtime::math_util::awk_strtonum(bs, *strnum));
+                        let dst = *dst;
+                        *self.get_mut(dst) = num;
+                    }
                     FormatBytes(dst, size) => {
                         let size = *self.get(*size);
                         let text = runtime::math_util::format_bytes(size);

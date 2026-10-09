@@ -409,7 +409,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(template.into()));
             }
-            Strtonum(dst, text) => {
+            Strtonum(dst, text) | AwkStrtonum(dst, text, _) => {
                 f(dst.into(), Some(text.into()));
             }
             StartsWith(dst, text, prefix) => {

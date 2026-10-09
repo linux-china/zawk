@@ -1343,6 +1343,12 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(),resv)
             }
             Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
+            AwkStrtonum(dst, text, strnum) => {
+                let textv = self.get_val(text.reflect())?;
+                let strnumv = self.const_int(*strnum as i64);
+                let res = self.call_intrinsic(intrinsic!(awk_strtonum), &mut [textv, strnumv])?;
+                self.bind_val(dst.reflect(), res)
+            }
             FormatBytes(dst,size) => self.unop(intrinsic!(format_bytes), dst, size),
             ToBytes(dst,text) => self.unop(intrinsic!(to_bytes), dst, text),
             StartsWith(dst,text, prefix) => {

@@ -866,7 +866,8 @@ impl<'a> Typer<'a> {
         Ok(())
     }
 
-    /// Compare string operands that cannot be strnums as plain strings.
+    /// Compare string operands that cannot be strnums as plain strings, and parse the arguments of
+    /// strtonum() that cannot be strnums by their octal and hexadecimal prefixes.
     fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
         use crate::bytecode::Accum;
         use runtime::compare::StrKind;
@@ -891,6 +892,12 @@ impl<'a> Typer<'a> {
                         }
                         Either::Left(LL::CmpStrNum { s, s_kind, .. }) => {
                             refine(s_kind, s.reflect().0)
+                        }
+                        Either::Left(LL::AwkStrtonum(_, text, strnum)) => {
+                            let mut kind =
+                                if *strnum { StrKind::Strnum } else { StrKind::Str };
+                            refine(&mut kind, text.reflect().0);
+                            *strnum = kind == StrKind::Strnum;
                         }
                         _ => {}
                     }
@@ -2044,6 +2051,13 @@ impl<'a, 'b> View<'a, 'b> {
                         res_reg.into(),
                         conv_regs[0].into(),
                     ))
+                }
+            }
+            // The argument may be a strnum; `refine_string_comparisons` clears the flag when the
+            // strnum analysis shows it is not.
+            AwkStrtonum => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::AwkStrtonum(res_reg.into(), conv_regs[0].into(), true))
                 }
             }
             FormatBytes => {
