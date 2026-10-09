@@ -1369,12 +1369,19 @@ impl<'a, 'b> View<'a, 'b> {
 
         match bf {
             Unop(Column) => self.pushl(LL::GetColumn(res_reg.into(), conv_regs[0].into())),
-            Unop(Not) => self.pushl(if conv_tys[0] == Ty::Str {
-                LL::NotStr(res_reg.into(), conv_regs[0].into())
-            } else {
-                debug_assert_eq!(conv_tys[0], Ty::Int);
-                LL::Not(res_reg.into(), conv_regs[0].into())
-            }),
+            Unop(Not) => match conv_tys[0] {
+                Ty::Str => self.pushl(LL::NotStr(res_reg.into(), conv_regs[0].into())),
+                // !x for a float is x == 0: !0.25 is 0, not !int(0.25).
+                Ty::Float => {
+                    let zero = self.regs.stats.reg_of_ty(Ty::Float);
+                    self.pushl(LL::StoreConstFloat(zero.into(), 0.0));
+                    self.pushl(LL::EQFloat(res_reg.into(), conv_regs[0].into(), zero.into()))
+                }
+                _ => {
+                    debug_assert_eq!(conv_tys[0], Ty::Int);
+                    self.pushl(LL::Not(res_reg.into(), conv_regs[0].into()))
+                }
+            },
             Unop(Neg) => self.pushl(if conv_tys[0] == Ty::Float {
                 LL::NegFloat(res_reg.into(), conv_regs[0].into())
             } else {

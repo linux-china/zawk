@@ -699,14 +699,17 @@ impl Function {
             Unop(Column) => (smallvec![Int], Str),
             Binop(Concat) => (smallvec![Str; 2], Str),
             SubstrIndex | SubstrLastIndex | Binop(IsMatch) => (smallvec![Str; 2], Int),
-            // Not doesn't unconditionally convert to integers before negating it. Nonempty strings
-            // are considered "truthy". Floating point numbers are converted beforehand:
+            // Not doesn't convert its operand to an integer before negating it, as in awk: a
+            // number is true when it is nonzero, and a string when it is nonempty (or, for a
+            // strnum, nonzero):
             //    !5 == !1 == 0
             //    !0 == 1
             //    !"hi" == 0
-            //    !(0.25) == 1
+            //    !(0.25) == 0
+            // An unassigned variable is 0 (and ""), so `!x` is 1.
             Unop(Not) => match &incoming[0] {
-                Float | Int => (smallvec![Int], Int),
+                Int | Null => (smallvec![Int], Int),
+                Float => (smallvec![Float], Int),
                 Str => (smallvec![Str], Int),
                 _ => return err!("unexpected input to Not: {:?}", incoming),
             },
@@ -1012,11 +1015,12 @@ impl Function {
         match self {
             IntFunc(bw) => Ok(bw.ret_state()),
             FloatFunc(ff) => Ok(ff.ret_state()),
+            // The result is a number, also for an unassigned variable: `-x` is 0, not "".
             Unop(Neg) | Unop(Pos) => match &args[0] {
                 Some(Scalar(Some(BaseTy::Str))) | Some(Scalar(Some(BaseTy::Float))) => {
                     Ok(Scalar(BaseTy::Float).abs())
                 }
-                x => Ok(*x),
+                _ => Ok(Scalar(BaseTy::Int).abs()),
             },
             Binop(Plus) | Binop(Minus) | Binop(Mod) => Ok(step_arith(&args[0], &args[1])),
             Min | Max => Ok(Scalar(BaseTy::Str).abs()),
