@@ -161,6 +161,9 @@ keyword_map!(
     [b"/=", Tok::DivAssign],
     [b"^", Tok::Pow],
     [b"^=", Tok::PowAssign],
+    // gawk's (and onetrue awk's) spellings of `^` and `^=`.
+    [b"**", Tok::Pow],
+    [b"**=", Tok::PowAssign],
     [b"%", Tok::Mod],
     [b"%=", Tok::ModAssign],
     [b"~", Tok::Match],

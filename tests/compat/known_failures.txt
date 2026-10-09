@@ -7,7 +7,6 @@
 
 # grammar and expressions
 03-string-to-number                   # hexadecimal input such as "0x1A" converts to 26 instead of 0
-11-gawk-power-operator                # ** and **= are not supported
 
 # number output
 
