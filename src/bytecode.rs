@@ -234,7 +234,8 @@ pub(crate) enum Instr<'a> {
     Pwd(Reg<Str<'a>>),
     UserHome(Reg<Str<'a>>),
     GetEnv(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
+    // strftime(format, timestamp, flags), see `date_time::awk_strftime`.
+    Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -721,10 +722,11 @@ impl<'a> Instr<'a> {
                 encrypted_text.accum(&mut f);
                 key.accum(&mut f);
             }
-            Strftime(res, format, timestamp) => {
+            Strftime(res, format, timestamp, flags) => {
                 res.accum(&mut f);
                 format.accum(&mut f);
                 timestamp.accum(&mut f);
+                flags.accum(&mut f);
             }
             Mktime(res, date_time_text,timezone) => {
                 res.accum(&mut f);

@@ -822,10 +822,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let plain_text = runtime::crypto::decrypt(&*mode.as_str(), &*encrypted_text.as_str(), &*key.as_str());
                         *index_mut(&mut self.strs, dst) = plain_text.into();
                     }
-                    Strftime(dst, format, timestamp) => {
+                    Strftime(dst, format, timestamp, flags) => {
                         let format = index(&self.strs, format);
-                        let tt: i64 = *self.get(*timestamp);
-                        let dt_text = runtime::date_time::strftime(&*format.as_str(), tt);
+                        let dt_text = runtime::date_time::awk_strftime(
+                            &self.core.vars.procinfo,
+                            format,
+                            *self.get(*timestamp),
+                            *self.get(*flags),
+                        );
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Mktime(dst, date_time_text, timezone) => {

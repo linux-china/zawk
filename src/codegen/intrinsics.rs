@@ -177,7 +177,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
-        [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty) -> str_ty;
+        [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
@@ -1164,32 +1164,13 @@ pub(crate) unsafe extern "C" fn strftime(
     rt: *mut c_void,
     format: *mut U128,
     timestamp: Int,
+    flags: Int,
 ) -> U128 {
     guard_panic(stringify!(strftime), || {
+        let rt = &mut *(rt as *mut Runtime);
         let format = &*(format as *mut Str);
-        let mut date_time_format = format.to_string();
-        if format.is_empty() {
-            let rt = &mut *(rt as *mut Runtime);
-            let procinfo = &mut rt.core.vars.procinfo;
-            let key = Str::from("strftime");
-            if procinfo.contains(&key) {
-                date_time_format = procinfo.get(&key).to_string();
-            }
-        }
-        if date_time_format.is_empty() {
-            date_time_format = date_time::DEFAULT_STRFTIME_FORMAT.to_owned();
-        }
-        let timestamp = if timestamp < 0 {
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64
-        } else {
-            timestamp as i64
-        };
-        let date_time_text = date_time::strftime(&date_time_format, timestamp);
-        let res = Str::from(date_time_text);
-        mem::transmute::<Str, U128>(res)
+        let text = date_time::awk_strftime(&rt.core.vars.procinfo, format, timestamp, flags);
+        mem::transmute::<Str, U128>(Str::from(text))
     })
 }
 

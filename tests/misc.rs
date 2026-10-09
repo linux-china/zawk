@@ -1095,3 +1095,26 @@ fn csv_output_of_conditional_print_argument() {
             .stdout("\"x,y\",\"a,b\"\r\n");
     }
 }
+
+#[test]
+fn strftime_arguments() {
+    // strftime(format, timestamp, utc), as in gawk, in both backends: the timestamp defaults to
+    // the current time, negative timestamps are dates before 1970, the third argument formats in
+    // UTC, an empty format is an empty string, and strftime() uses PROCINFO["strftime"].
+    let prog = r#"BEGIN {
+        print strftime("%Y-%m-%d %H", 0), strftime("%Y-%m-%d %H", 0, 1), strftime("%H", 0, "")
+        print strftime("%Y-%m-%d", -86400, 1), "[" strftime("", 0) "]"
+        print (strftime("%Y") == strftime("%Y", systime())), (index(strftime(), strftime("%Y")) > 0)
+        PROCINFO["strftime"] = "%Y-%m-%d"; print strftime("") "|" (strftime() == strftime("%Y-%m-%d"))
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("TZ", "Asia/Shanghai")
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("1970-01-01 08 1970-01-01 00 08\n1969-12-31 []\n1 1\n|1\n");
+    }
+}

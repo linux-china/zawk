@@ -536,8 +536,15 @@ utc by default.
 
 https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 
-* `strftime("%Y-%m-%d %H:%M:%S")`
-* `strftime()` or `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
+`strftime([format [, timestamp [, utc]]])`, as in gawk:
+
+* `strftime("%Y-%m-%d %H:%M:%S")`: the current time.
+* `strftime("%Y-%m-%d", 0)`: a unix timestamp; negative timestamps are dates before 1970.
+* `strftime("%H:%M", 0, 1)`: in UTC when the third argument is nonzero or a nonempty string, local time otherwise.
+* `strftime()`: the current time in the format of `PROCINFO["strftime"]` (`%a %b %e %H:%M:%S %Z %Y` by default).
+* `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
+
+`%Z` prints the UTC offset of the time zone (`+08:00`) rather than its abbreviation.
 
 ### mktime
 

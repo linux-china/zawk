@@ -992,11 +992,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(decrypt), &mut [mode,encrypted_text, key])?;
                 self.bind_val(dst.reflect(),resv)
             }
-            Strftime(dst,format, timestamp) => {
+            Strftime(dst, format, timestamp, flags) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;
+                let flags = self.get_val(flags.reflect())?;
                 let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp, flags])?;
                 self.bind_val(dst.reflect(),resv)
             }
             Mktime(dst,date_time_text,timezone) => {

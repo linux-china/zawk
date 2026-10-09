@@ -1,7 +1,7 @@
 use crate::runtime;
-use crate::runtime::{Int, Str};
+use crate::runtime::{Int, Str, StrMap};
 use chrono::format::{Item, StrftimeItems};
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Timelike};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use std::time::SystemTime;
 
 const WEEKS: [&'static str; 7] = [
@@ -21,16 +21,57 @@ fn local_date_time(timestamp: i64) -> DateTime<Local> {
 }
 
 /// Default `strftime` format, same as `PROCINFO["strftime"]`.
-pub const DEFAULT_STRFTIME_FORMAT: &str = "%a %m %e %H:%M:%S %Z %Y";
+pub const DEFAULT_STRFTIME_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
+
+/// The timestamp of `strftime(format)`: the current time. (Negative timestamps are dates before
+/// 1970, so they cannot mark it.)
+pub const STRFTIME_NOW: Int = Int::MIN;
+/// Flags of [`awk_strftime`]: format in UTC rather than local time (the third argument of
+/// `strftime`), and use `PROCINFO["strftime"]` as the format (`strftime()` without arguments).
+pub const STRFTIME_UTC: Int = 1;
+pub const STRFTIME_PROCINFO_FORMAT: Int = 2;
 
 /// Format a unix timestamp as local date time, falling back to [`DEFAULT_STRFTIME_FORMAT`] for an invalid format.
 pub fn strftime(format: &str, timestamp: i64) -> String {
+    strftime_tz(format, timestamp, false)
+}
+
+fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
     let format = if StrftimeItems::new(format).any(|item| item == Item::Error) {
         DEFAULT_STRFTIME_FORMAT
     } else {
         format
     };
-    local_date_time(timestamp).format(format).to_string()
+    if utc {
+        let date_time: DateTime<Utc> = DateTime::from_timestamp(timestamp, 0).unwrap_or_default();
+        date_time.format(format).to_string()
+    } else {
+        local_date_time(timestamp).format(format).to_string()
+    }
+}
+
+/// awk's `strftime(format, timestamp, utc)`, with the arguments filled in by the compiler: the
+/// timestamp is [`STRFTIME_NOW`] when it is not given, and `flags` holds [`STRFTIME_UTC`] and
+/// [`STRFTIME_PROCINFO_FORMAT`]. An empty format gives an empty string, as in gawk.
+pub(crate) fn awk_strftime(procinfo: &StrMap<Str>, format: &Str, timestamp: Int, flags: Int) -> String {
+    let format = if flags & STRFTIME_PROCINFO_FORMAT != 0 {
+        let key = Str::from("strftime");
+        if procinfo.contains(&key) {
+            procinfo.get(&key).to_string()
+        } else {
+            DEFAULT_STRFTIME_FORMAT.to_string()
+        }
+    } else {
+        format.to_string()
+    };
+    let timestamp = if timestamp == STRFTIME_NOW {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64)
+    } else {
+        timestamp
+    };
+    strftime_tz(&format, timestamp, flags & STRFTIME_UTC != 0)
 }
 
 /// Sentinel timezone for `mktime(text)`: text without an explicit offset is treated as local time.

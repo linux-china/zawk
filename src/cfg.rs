@@ -2154,18 +2154,33 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         // rightmost index.
                         prim_args.push(PrimVal::ILit(i64::MAX));
                     }
-                    // strftime() => strftime("", -1);
                     // fflush() => fflush(""): flush all output.
                     builtins::Function::Fflush if args_len == 0 => {
                         prim_args.push(PrimVal::StrLit(b""));
                     }
-                    builtins::Function::Strftime if args_len == 0 => {
-                        prim_args.push(PrimVal::StrLit(b"")); // ISO 8601 / RFC 3339 date & time format
-                        prim_args.push(PrimVal::ILit(-1 as Int));
+                    // strftime(format, timestamp, utc) => strftime(format, timestamp, flags):
+                    // the timestamp defaults to the current time, and the format of strftime() is
+                    // PROCINFO["strftime"] (see `date_time::awk_strftime`).
+                    builtins::Function::Strftime if args_len < 3 => {
+                        use crate::runtime::date_time::{STRFTIME_NOW, STRFTIME_PROCINFO_FORMAT};
+                        if args_len == 0 {
+                            prim_args.push(PrimVal::StrLit(b""));
+                        }
+                        if args_len < 2 {
+                            prim_args.push(PrimVal::ILit(STRFTIME_NOW));
+                        }
+                        let flags = if args_len == 0 { STRFTIME_PROCINFO_FORMAT } else { 0 };
+                        prim_args.push(PrimVal::ILit(flags));
                     }
-                    // strftime(format, timestamp) => strftime(format, -1);
-                    builtins::Function::Strftime if args_len == 1 => {
-                        prim_args.push(PrimVal::ILit(-1 as Int));
+                    // The utc flag is true when it is nonzero or a nonempty string: `!!utc`, which
+                    // is STRFTIME_UTC.
+                    builtins::Function::Strftime => {
+                        use builtins::Function::Unop;
+                        let utc = prim_args.pop().unwrap();
+                        let not = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc]);
+                        let not = self.to_val(not, open)?;
+                        let utc = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
+                        prim_args.push(self.to_val(utc, open)?);
                     }
                     // mktime(date_text) => mktime(date_text, MKTIME_LOCAL_TIMEZONE);
                     builtins::Function::Mktime if args_len == 1 => {

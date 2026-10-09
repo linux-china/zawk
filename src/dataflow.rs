@@ -250,9 +250,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(encrypted_text.into()));
                 f(dst.into(), Some(key.into()));
             }
-            Strftime(dst, format, timestamp) => {
+            Strftime(dst, format, timestamp, flags) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(timestamp.into()));
+                f(dst.into(), Some(flags.into()));
             }
             Mktime(dst, date_time_text, timezone) => {
                 f(dst.into(), Some(date_time_text.into()));
