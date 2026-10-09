@@ -250,6 +250,7 @@ impl Registry {
         // the unmoor here, but we need to because we cannot implement Borrow<Str<'a>> for
         // Borrow<Str<'static>> (conflicts with the blanket impl for Borrow).
         if let Some(fh) = self.files.get_mut(&path_or_cmd.clone().unmoor()) {
+            fh.checked = false;
             fh.close()?;
             return Ok(Some(0));
         }
@@ -264,6 +265,26 @@ impl Registry {
             self.stdout.flush()?;
         }
         path_or_cmd.with_bytes(|bs| self.global.close(bs))
+    }
+
+    /// Check that the output file `name` can be opened before writing to it, as files are opened
+    /// lazily by the writer threads. As in gawk, failing to open an output file is an error
+    /// (unlike other write errors, which end the program silently).
+    pub fn check_output(&mut self, name: &Str, fspec: FileSpec) -> Result<()> {
+        if let FileSpec::Cmd = fspec {
+            return Ok(());
+        }
+        let global = self.global.clone();
+        let fh = self.get_file(Some(name))?;
+        if fh.checked {
+            return Ok(());
+        }
+        let path = name.as_str();
+        if let Err(e) = global.check_open(&path) {
+            return Err(CompileError(format!("cannot redirect to `{}': {}", path, e)));
+        }
+        fh.checked = true;
+        Ok(())
     }
 
     pub fn get_cmd(&mut self, cmd: &Str) -> Result<&mut FileHandle> {
@@ -372,6 +393,9 @@ trait Root: 'static + Send + Sync {
     fn get_command(&self, cmd: &[u8]) -> RawHandle;
     fn get_handle(&self, fname: &str) -> RawHandle;
     fn get_stdout(&self) -> RawHandle;
+    // opens the file `fname` for appending (creating it, never truncating it) to check that it
+    // can be written.
+    fn check_open(&self, fname: &str) -> io::Result<()>;
     // closes a file or command with name `fname`; see Registry::close for the return value.
     fn close(&self, fname: &[u8]) -> Result<Option<Int>>;
     fn is_command(&self, fname: &[u8]) -> bool;
@@ -516,6 +540,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
     fn get_stdout(&self) -> RawHandle {
         self.stdout_raw.clone()
     }
+    fn check_open(&self, fname: &str) -> io::Result<()> {
+        self.file_factory.build(fname, FileSpec::Append).map(drop)
+    }
 }
 
 /// FileHandle contains thread-local state around writing to and closing an output file.
@@ -532,6 +559,9 @@ pub struct FileHandle {
     old_guards: Vec<Box<WriteGuard>>,
     guards: VecDeque<Box<WriteGuard>>,
     cur_batch: Box<WriteGuard>,
+    /// Whether opening the file was checked (see Registry::check_output) since it was last
+    /// closed.
+    checked: bool,
 }
 
 impl FileHandle {
@@ -831,6 +861,7 @@ impl RawHandle {
             raw: self,
             guards: Default::default(),
             old_guards: Default::default(),
+            checked: false,
         }
     }
 }

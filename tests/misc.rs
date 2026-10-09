@@ -738,3 +738,44 @@ fn system_flushes_output() {
             .stdout(String::from("x\ny\n"));
     }
 }
+
+#[test]
+fn redirect_open_failure_is_fatal() {
+    // As in gawk, an output file that cannot be opened stops the program with an error, after
+    // the output printed so far.
+    let tmp = tempdir().unwrap();
+    let bad = tmp.path().join("missing-dir").join("out.txt");
+    let bad = bad.to_str().unwrap();
+    let progs = [
+        format!(r#"BEGIN {{ print "before"; print "x" > "{}"; print "after" }}"#, bad),
+        format!(r#"BEGIN {{ print "before"; printf "%s\n", "x" >> "{}"; print "after" }}"#, bad),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for prog in &progs {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
+            assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n", "{}", backend_arg);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("cannot redirect to"), "{}: {}", backend_arg, stderr);
+        }
+        // Reopening a file after close() truncates it again for `>`, and appends for `>>`.
+        let out = tmp.path().join("ok.txt");
+        let prog = format!(
+            r#"BEGIN {{ f = "{0}"; print "1" > f; print "2" > f; close(f); print "3" >> f; close(f);
+                       print "4" > f; close(f); while ((getline l < f) > 0) print l }}"#,
+            out.to_str().unwrap()
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(String::from("4\n"));
+    }
+}

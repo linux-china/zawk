@@ -1077,6 +1077,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     PrimExpr::CallBuiltin(builtins::Function::Unop(*op), smallvec![v]),
                 ));
             }
+            Binop(ast::Binop::EQ, Index(arr, ix), StrLit(s))
+            | Binop(ast::Binop::EQ, StrLit(s), Index(arr, ix))
+                if s.is_empty() =>
+            {
+                return self.missing_or_empty(arr, ix, current_open);
+            }
             Binop(op, e1, e2) => {
                 let (next, v1) = self.convert_val(e1, current_open)?;
                 let (next, v2) = if let ast::Binop::IsMatch = op {
@@ -1538,6 +1544,50 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         current_open: NodeIx,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         self.convert_val_inner(expr, current_open, /*in_cond=*/ false)
+    }
+
+    /// `a[k] == ""`: true when the element did not exist before the lookup, or its value is
+    /// the empty string.
+    ///
+    /// Map values are statically typed, so a missing element of a numeric map reads as 0 rather
+    /// than the uninitialized value; checking membership first keeps this common "was the key
+    /// seen?" idiom correct. The lookup still happens, creating the element as in awk.
+    fn missing_or_empty<'c>(
+        &mut self,
+        arr: &'c Expr<'c, 'b, I>,
+        ix: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
+        use builtins::Function;
+        let (next, arr_v) = self.convert_val(arr, current_open)?;
+        let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+        let present = PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+        let present = self.to_val(present, next)?;
+        let val = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+        let val_str = PrimExpr::CallBuiltin(
+            Function::Binop(ast::Binop::Concat),
+            smallvec![val, PrimVal::StrLit(b"")],
+        );
+        let val_str = self.to_val(val_str, next)?;
+        let empty = PrimExpr::CallBuiltin(
+            Function::Binop(ast::Binop::EQ),
+            smallvec![val_str, PrimVal::StrLit(b"")],
+        );
+        let empty = self.to_val(empty, next)?;
+        let missing = PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Not), smallvec![present]);
+        let missing = self.to_val(missing, next)?;
+        let either = PrimExpr::CallBuiltin(
+            Function::Binop(ast::Binop::Plus),
+            smallvec![missing, empty],
+        );
+        let either = self.to_val(either, next)?;
+        Ok((
+            next,
+            PrimExpr::CallBuiltin(
+                Function::Binop(ast::Binop::GT),
+                smallvec![either, PrimVal::ILit(0)],
+            ),
+        ))
     }
 
     /// Converts an expression in a position that takes a regex (the right side of `~`, builtin

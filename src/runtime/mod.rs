@@ -339,6 +339,14 @@ impl FileWrite {
         );
         Ok(-1)
     }
+    /// Check that the output of a redirection can be opened; see `Registry::check_output`.
+    /// Callers treat an error as fatal, unlike errors from the write itself.
+    pub(crate) fn check_output(&mut self, path: Option<(&Str, FileSpec)>) -> Result<()> {
+        match path {
+            Some((name, fspec)) => self.0.check_output(name, fspec),
+            None => Ok(()),
+        }
+    }
     pub(crate) fn flush_stdout(&mut self) -> Result<()> {
         self.0.get_file(None)?.flush()
     }

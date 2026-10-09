@@ -233,7 +233,11 @@ fn run_interp_with_context<'a>(
             Ok(ctx) => ctx,
             Err(e) => fail!("bytecode compilation failure: {}", e),
         };
-        match interp.run() {
+        let res = interp.run();
+        // Dropping the interpreter flushes pending output, which `fail!` (exiting the process)
+        // would otherwise lose.
+        drop(interp);
+        match res {
             Err(e) => fail!("fatal error during execution: {}", e),
             Ok(0) => return,
             Ok(n) => n,

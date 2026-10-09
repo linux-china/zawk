@@ -3131,6 +3131,8 @@ pub(crate) unsafe extern "C" fn print_all_file(
             try_abort!(rt, FileSpec::try_from(append)),
         ));
 
+        // Failing to open the output is fatal; write errors exit silently.
+        try_abort!(rt, (*rt).core.write_files.check_output(output_wrapped));
         try_silent_abort!(
             rt,
             (*rt)
@@ -3162,7 +3164,9 @@ pub(crate) unsafe extern "C" fn printf_impl_file(
             runtime::printf::format(&*(spec as *mut Str), &format_args[..]),
             "printf:"
         );
-        try_abort!(rt, (*rt).core.write_files.write_printf(output_wrapped, &text))
+        try_abort!(rt, (*rt).core.write_files.check_output(output_wrapped));
+        // Like print, exit silently on write errors.
+        try_silent_abort!(rt, (*rt).core.write_files.write_printf(output_wrapped, &text))
     })
 }
 

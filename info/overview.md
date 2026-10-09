@@ -291,7 +291,10 @@ if you find that the following are a serious hindrance:
 * *Null values and join points* Null values in zawk may occasionally be coerced
   to integers. For example `if (0) { x = 5 }; printf "[%s]", x;` will print `[]`
   in Awk and will print `[0]` in zawk. This is the main pattern in which
-  zawk's approach to types can "leak" into actual programs.
+  zawk's approach to types can "leak" into actual programs. The same applies to
+  missing elements of numeric arrays (`print c["missing"]` prints `0`), with one
+  exception: comparing an element with the empty string (`c[k] == ""`,
+  `c[k] != ""`) checks whether the element exists, as in Awk.
 * *UTF-8* zawk can accept arbitrary bytes, but regular expressions and printf
   are UTF-8 aware. zawk does not validate input by default, but the `--utf8`
   flag enables zawk's efficient UTF-8 validation on all input.

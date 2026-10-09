@@ -2174,6 +2174,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         }
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
+                            // Failing to open the output is fatal; write errors exit silently.
+                            self.core
+                                .write_files
+                                .check_output(Some((out_path, *fspec)))?;
                             self.core
                                 .write_files
                                 .write_all(&scratch_strs[..], Some((out_path, *fspec)))
@@ -2194,6 +2198,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = runtime::printf::format(fmt_str, &scratch[..])?;
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
+                            self.core
+                                .write_files
+                                .check_output(Some((out_path, *fspec)))?;
                             self.core
                                 .write_files
                                 .write_printf(Some((out_path, *fspec)), &text)
