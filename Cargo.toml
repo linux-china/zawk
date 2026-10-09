@@ -63,7 +63,6 @@ chrono-systemd-time = "0.4.0"
 dateparser = "0.3"
 base58 = "0.2"
 base64 = "0.23"
-base-62 = "0.1"
 base85 = "2"
 data-encoding = "2.11"
 urlencoding = "2.1"
@@ -93,12 +92,12 @@ sxd-xpath = "0.4"
 tl = { version = "0.7" }
 logos = "0.16.1"
 local-ip-address = "0.6"
-reqwest = { version = "0.12.28",default-features = false, features = ["blocking", "json", "rustls-tls"] }
-oneio = { version = "0.26.1"}
+reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+oneio = { version = "0.26.1" }
 #nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 nats = "0.26.0"
 redis = "1.7"
-minio = { version = "0.4.0",features = ["ring", "rustls-tls"] }
+minio = { version = "0.4.0", default-features = false, features = ["ring", "rustls-tls", "default-crypto", "http2"] }
 futures-util = "0.3"
 tokio = { version = "1.53", features = ["full"] }
 mime_guess = "2"
@@ -137,7 +136,7 @@ figlet-rs = "1.0"
 ini = "2.0"
 java-properties = "2"
 time = "0.3.55"
-lettre = { version = "0.11", features = ["rustls-tls", "smtp-transport", "builder"] }
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "hostname", "rustls", "ring", "rustls-native-certs"] }
 thiserror = "2.0.21"
 rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls"] }
 # explicit ring provider for MQTT over TLS: rustls has both ring and aws-lc-rs enabled by other dependencies
