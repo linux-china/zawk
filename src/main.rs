@@ -56,10 +56,20 @@ use std::mem;
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+// Exit codes follow gawk: 1 for usage and syntax errors (`fail!`), 2 for other fatal errors
+// (`fatal!`): errors found while compiling (e.g. an undefined function) or running the program,
+// and files that cannot be read or written.
 macro_rules! fail {
     ($($t:tt)*) => {{
         eprintln_ignore!($($t)*);
         std::process::exit(1)
+    }}
+}
+
+macro_rules! fatal {
+    ($($t:tt)*) => {{
+        eprintln_ignore!($($t)*);
+        std::process::exit(2)
     }}
 }
 
@@ -144,7 +154,7 @@ fn get_vars<'a, 'b>(
         }
         let ident = a.alloc_str(split_buf[0].trim());
         if !lexer::is_ident(ident) {
-            fail!(
+            fatal!(
                 "invalid identifier for left-hand side of -v flag: {}",
                 ident
             );
@@ -218,7 +228,7 @@ fn get_context<'a>(
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
-        Err(e) => fail!("failed to create program context: {}", e),
+        Err(e) => fatal!("failed to create program context: {}", e),
     }
 }
 
@@ -231,14 +241,14 @@ fn run_interp_with_context<'a>(
     let rc = {
         let mut interp = match compile::bytecode(&mut ctx, stdin, ff, num_workers) {
             Ok(ctx) => ctx,
-            Err(e) => fail!("bytecode compilation failure: {}", e),
+            Err(e) => fatal!("bytecode compilation failure: {}", e),
         };
         let res = interp.run();
         // Dropping the interpreter flushes pending output, which `fail!` (exiting the process)
         // would otherwise lose.
         drop(interp);
         match res {
-            Err(e) => fail!("fatal error during execution: {}", e),
+            Err(e) => fatal!("fatal error during execution: {}", e),
             Ok(0) => return,
             Ok(n) => n,
         }
@@ -254,7 +264,23 @@ fn run_cranelift_with_context<'a>(
     signal: CancelSignal,
 ) {
     if let Err(e) = compile::run_cranelift(&mut ctx, stdin, ff, cfg, signal) {
-        fail!("error compiling cranelift: {}", e)
+        fatal!("error compiling cranelift: {}", e)
+    }
+}
+
+/// Parse the command line. As in gawk, usage errors exit with code 1 (clap's default is 2).
+fn get_matches(
+    app: clap::Command,
+    args: impl IntoIterator<Item = String>,
+) -> clap::ArgMatches {
+    match app.try_get_matches_from(args) {
+        Ok(matches) => matches,
+        // --help and --version are reported as "errors" that exit successfully.
+        Err(e) if e.exit_code() == 0 => e.exit(),
+        Err(e) => {
+            let _ = e.print();
+            std::process::exit(1)
+        }
     }
 }
 
@@ -279,7 +305,7 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
         /*num_workers=*/ 1,
     ) {
         Ok(ctx) => ctx,
-        Err(e) => fail!("bytecode compilation failure: {}", e),
+        Err(e) => fatal!("bytecode compilation failure: {}", e),
     };
     let mut v = Vec::<u8>::new();
     for (i, func) in interp.instrs().iter().enumerate() {
@@ -419,7 +445,7 @@ fn main() {
             if awk_file_supplied {
                 let last_pair = last_pair.clone();
                 args.remove(args.len() - 1); // remove --help and --version
-                let matches = app.get_matches_from(args);
+                let matches = get_matches(app, args);
                 let awk_file = matches.get_one::<String>("program-file").unwrap();
                 if last_pair.contains("-h") {
                     awk_util::print_awk_file_help(awk_file);
@@ -430,7 +456,7 @@ fn main() {
             }
         }
     }
-    let matches = app.get_matches();
+    let matches = get_matches(app, std::env::args());
     // dump sub command
     if let Some(matches) = matches.subcommand_matches("dump") {
         let input_file = matches.get_one::<String>("input-file").unwrap();
@@ -528,7 +554,7 @@ fn main() {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fail!("failed to read program from {}: {}", prog_file, e),
+                        Err(e) => fatal!("failed to read program from {}: {}", prog_file, e),
                     }
                 } else {
                     match std::fs::read_to_string(prog_file) {
@@ -536,7 +562,7 @@ fn main() {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fail!("failed to read program from {}: {}", prog_file, e),
+                        Err(e) => fatal!("failed to read program from {}: {}", prog_file, e),
                     }
                 }
             }
@@ -801,7 +827,7 @@ fn main() {
             match out_file {
                 Some(oup) => {
                     let $out = runtime::writers::factory_from_file(oup)
-                        .unwrap_or_else(|e| fail!("failed to open {}: {}", oup, e));
+                        .unwrap_or_else(|e| fatal!("failed to open {}: {}", oup, e));
                     with_inp!(analysis_result, $inp, $body);
                 }
                 None => {

@@ -543,7 +543,7 @@ fn mod_by_zero_is_fatal() {
                 .arg(String::from(prog))
                 .output()
                 .unwrap();
-            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
+            assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
             assert!(output.stdout.is_empty());
             assert!(
                 String::from_utf8_lossy(&output.stderr)
@@ -758,7 +758,7 @@ fn redirect_open_failure_is_fatal() {
                 .arg(prog)
                 .output()
                 .unwrap();
-            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
+            assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
             assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n", "{}", backend_arg);
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert!(stderr.contains("cannot redirect to"), "{}: {}", backend_arg, stderr);
@@ -812,4 +812,34 @@ fn test_data_file(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/compat/data")
         .join(name)
+}
+
+#[test]
+fn exit_codes_follow_gawk() {
+    // As in gawk: 1 for usage and syntax errors, 2 for other fatal errors.
+    let cases: &[(&[&str], i32)] = &[
+        (&["BEGIN { print 1 +"], 1),
+        (&["--bogus-option", "BEGIN { }"], 1),
+        (&["-v", "x", "BEGIN { }"], 1),
+        (&[], 1),
+        (&["BEGIN { x = 0; print 1 % x }"], 2),
+        (&["BEGIN { f() }"], 2),
+        (&["BEGIN { a = 1; a[1] = 2 }"], 2),
+        (&["-v", "1x=2", "BEGIN { }"], 2),
+        (&["-f", "/nonexistent/prog.awk"], 2),
+        (&["{ print }", "/nonexistent/input.txt"], 2),
+        (&["BEGIN { exit 3 }"], 3),
+        (&["--version"], 0),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, code) in cases {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(*code), "{} {:?}", backend_arg, args);
+        }
+    }
 }

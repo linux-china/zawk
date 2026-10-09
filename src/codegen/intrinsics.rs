@@ -490,7 +490,8 @@ macro_rules! fail {
         #[cfg(not(test))]
         {
             eprintln_ignore!("failure in runtime {}. Halting execution", format!($($es),*));
-            exit!($rt, 1)
+            // fatal errors exit with code 2, as in gawk
+            exit!($rt, 2)
         }
     }}
 }
@@ -604,7 +605,7 @@ unsafe fn intrinsic_panicked(name: &'static str, payload: Box<dyn std::any::Any 
             name,
             msg
         );
-        std::process::exit(1)
+        std::process::exit(2)
     }
     fail!(rt, "panic in function `{}`: {}", name, msg)
 }
