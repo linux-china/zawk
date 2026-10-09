@@ -43,6 +43,7 @@ zawk limits:
 
 - No `BEGINFILE` and `ENDFILE` blocks
 - `CONVFMT` and `OFMT` are not supported
+- With the default `FS` and `RS`, `\r` separates fields when reading input, so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?
 
