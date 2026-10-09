@@ -921,3 +921,51 @@ fn parquet_input() {
             .code(2);
     }
 }
+
+#[test]
+fn unreadable_input_is_fatal_with_regex_separators() {
+    // With a regex FS, a custom RS, paragraph mode, or FS assigned in a rule, records are read by
+    // the regex splitter. An input file that cannot be read stops the program with an error, as
+    // with the default separators and in gawk, instead of being read as empty input.
+    let tmp = tempdir().unwrap();
+    let ok = tmp.path().join("ok.txt");
+    File::create(&ok).unwrap().write_all(b"a,b\n").unwrap();
+    let ok = ok.to_str().unwrap();
+    let missing = tmp.path().join("missing.txt");
+    let missing = missing.to_str().unwrap();
+    let cases: &[&[&str]] = &[
+        &["-F[,;]", "{ print $1 }"],
+        &["-vRS=x", "{ print }"],
+        &["-vRS=", "{ print }"],
+        &["{ FS = \":\" } { print $1 }"],
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for args in cases {
+            for files in [vec![missing, ok], vec![ok, missing]] {
+                let output = Command::cargo_bin("zawk")
+                    .unwrap()
+                    .arg(backend_arg)
+                    .args(*args)
+                    .args(&files)
+                    .output()
+                    .unwrap();
+                assert_eq!(output.status.code(), Some(2), "{} {:?} {:?}", backend_arg, args, files);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(stderr.contains("missing.txt"), "{} {:?}: {}", backend_arg, args, stderr);
+            }
+        }
+        // `getline < file` and `cmd | getline` still return -1 rather than failing.
+        let prog = format!(
+            r#"BEGIN {{ RS = "x"; print (getline l < "{}"); print ("cat {} 2>/dev/null" | getline l) }}"#,
+            missing, missing
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-A")
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("-1\n-1\n");
+    }
+}

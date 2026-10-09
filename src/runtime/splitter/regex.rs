@@ -1,7 +1,7 @@
 //! Regex-based splitting routines
 use std::io::Read;
 
-use crate::common::Result;
+use crate::common::{CompileError, Result};
 use crate::pushdown::FieldSet;
 use crate::runtime::Str;
 use regex::bytes::Regex;
@@ -15,6 +15,9 @@ pub struct RegexSplitter<R> {
     used_fields: FieldSet,
     // Used to trigger updating FILENAME on the first read.
     start: bool,
+    // A read error (e.g. the file does not exist). `getline < file` reports it as -1 through the
+    // read state, while the main input loop fails with it (see `take_error`).
+    error: Option<CompileError>,
 }
 
 impl<R: Read> LineReader for RegexSplitter<R> {
@@ -43,6 +46,7 @@ impl<R: Read> LineReader for RegexSplitter<R> {
         old.diverged = false;
         old.fields.clear();
         old.line = self.read_record(pat, rc)?;
+        self.take_error()?;
         Ok(/* file changed */ start)
     }
 
@@ -55,6 +59,7 @@ impl<R: Read> LineReader for RegexSplitter<R> {
             used_fields: self.used_fields.clone(),
             diverged: false,
         };
+        self.take_error()?;
         Ok((/* file changed */ start, line))
     }
     fn read_state(&self) -> i64 {
@@ -77,7 +82,22 @@ impl<R: Read> RegexSplitter<R> {
             name: name.into(),
             used_fields: FieldSet::all(),
             start: true,
+            error: None,
         }
+    }
+
+    /// Fails with the read error of the last record, if any: an input file that cannot be read
+    /// is an error for the main input loop, as in gawk, rather than an empty input.
+    fn take_error(&mut self) -> Result<()> {
+        match self.error.take() {
+            Some(e) => Err(CompileError(format!("cannot read `{}': {}", self.name, e))),
+            None => Ok(()),
+        }
+    }
+
+    fn set_error(&mut self, e: CompileError) {
+        self.reader.state = ReaderState::Error;
+        self.error = Some(e);
     }
 
     /// Read the next record, where records are separated by the regex `rs`, or by blank lines
@@ -108,8 +128,8 @@ impl<R: Read> RegexSplitter<R> {
                     self.reader.last_len = 0;
                     return Ok(Str::default());
                 }
-                Err(_) => {
-                    self.reader.state = ReaderState::Error;
+                Err(e) => {
+                    self.set_error(e);
                     self.reader.last_len = 0;
                     return Ok(Str::default());
                 }
@@ -183,8 +203,8 @@ impl<R: Read> RegexSplitter<R> {
                             // that avoid this kind of rescanning.
                             continue;
                         }
-                        Err(_) => {
-                            self.reader.state = ReaderState::Error;
+                        Err(e) => {
+                            self.set_error(e);
                             (Str::default(), 0)
                         }
                     };
@@ -204,8 +224,8 @@ impl<R: Read> RegexSplitter<R> {
                             // See comment in the previous branch.
                             continue;
                         }
-                        Err(_) => {
-                            self.reader.state = ReaderState::Error;
+                        Err(e) => {
+                            self.set_error(e);
                             (Str::default(), 0)
                         }
                     };
