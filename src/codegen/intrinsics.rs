@@ -606,7 +606,7 @@ unsafe fn intrinsic_panicked(name: &'static str, payload: Box<dyn std::any::Any 
         );
         std::process::exit(1)
     }
-    unsafe { fail!(rt, "panic in function `{}`: {}", name, msg) }
+    fail!(rt, "panic in function `{}`: {}", name, msg)
 }
 
 pub(crate) type InputTuple<LR> = (<LR as LineReader>::Line, FileRead<LR>);

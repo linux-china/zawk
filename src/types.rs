@@ -1071,6 +1071,9 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
                 let arr_ix = self.val_node(arr);
                 let ix_ix = self.val_node(ix);
                 self.constrain_as_map(arr_ix);
+                // Referencing `a[k]` creates the element in awk, so the index type also flows
+                // into the map's key type (as in AsgnIndex).
+                self.nw.add_dep(ix_ix, arr_ix, Constraint::KeyIn(()));
                 self.nw.add_dep(arr_ix, ix_ix, Constraint::Key(()));
                 self.nw.add_dep(arr_ix, to, Constraint::Val(()));
             }

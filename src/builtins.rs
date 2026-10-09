@@ -1293,7 +1293,7 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
 /// The contents of PROCINFO, as in gawk (without gawk's internal and array-valued entries).
 fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
     let procinfo = StrMap::default();
-    let mut set = |k: &'static str, v: String| procinfo.insert(k.into(), v.into());
+    let set = |k: &'static str, v: String| procinfo.insert(k.into(), v.into());
     set("version", VERSION.into());
     // The default format of strftime().
     set("strftime", "%a %b %e %H:%M:%S %Z %Y".into());
