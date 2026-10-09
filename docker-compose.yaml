@@ -4,4 +4,4 @@ services:
     ports:
       - "39090:29090"
     environment:
-      AWS_BUCKETS: "bucket1"
+      AWS_BUCKETS: "bucket1,mj-artifacts"
