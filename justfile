@@ -10,6 +10,11 @@ release:
   ls -al target/release/zawk
   cp target/release/zawk ~/bin/
 
+# display crate dependency tree and space
+crates:
+  cargo tree > crates.txt
+  cargo bloat --release --crates -n 40 > cargo-bloat.txt
+
 begin-file:
   cargo run --package zawk --bin zawk -- '{print $1}' demo.txt
 

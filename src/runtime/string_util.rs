@@ -58,10 +58,11 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
 }
 
 pub fn read_all(path: &str) -> String {
-    let mut reader = oneio::get_reader(path).unwrap();
-    let mut text = "".to_string();
-    reader.read_to_string(&mut text).unwrap();
-    text
+    if path.starts_with("http://") || path.starts_with("https://") {
+        reqwest::blocking::get(path).unwrap().text().unwrap()
+    } else {
+        std::fs::read_to_string(path).unwrap()
+    }
 }
 
 pub fn write_all(path: &str, content: &str) {

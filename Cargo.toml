@@ -93,7 +93,6 @@ tl = { version = "0.7" }
 logos = "0.16.1"
 local-ip-address = "0.6"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-oneio = { version = "0.26.1" }
 #nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 nats = "0.26.0"
 redis = "1.7"
@@ -113,7 +112,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 libsql = { version = "0.9.30", default-features = false, features = [
     "remote",
 ] }
-mysql = { version = "28.0", default-features = false, features = ["minimal-rust", "rustls-tls"] }
+mysql = { version = "28.0", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 postgres = { version = "0.19", features = [
     "with-chrono-0_4",
     "with-time-0_3",
@@ -138,7 +137,7 @@ java-properties = "2"
 time = "0.3.55"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "hostname", "rustls", "ring", "rustls-native-certs"] }
 thiserror = "2.0.21"
-rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls"] }
+rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
 # explicit ring provider for MQTT over TLS: rustls has both ring and aws-lc-rs enabled by other dependencies
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
