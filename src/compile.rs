@@ -1461,7 +1461,13 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
-            Match => gen_op!(Match, [Str, Match]),
+            // match() sets RSTART and RLENGTH, so it runs even when its result is unused.
+            Match => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                gen_op!(Match, [Str, Match])
+            }
             SubstrIndex => gen_op!(SubstrIndex, [Str, SubstrIndex]),
             SubstrLastIndex => gen_op!(SubstrLastIndex, [Str, SubstrLastIndex]),
             Contains => {
