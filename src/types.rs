@@ -476,13 +476,13 @@ impl Rule {
                 (None, x) | (x, None) => x,
                 (Some(x), Some(y)) => match (x, y) {
                     (Iter(x), Iter(None)) | (Iter(None), Iter(x)) => Some(Iter(x)),
-                    (Iter(Some(x)), Iter(Some(y))) => {
-                        if x == y {
-                            cur
-                        } else {
-                            return err!("Incompatible iterator types: {:?} vs. {:?}", x, y);
-                        }
-                    }
+                    // Iterators range over map keys, so they widen like map keys do (see
+                    // join_key below): a key seen as Int and later as Str/Float becomes Str.
+                    (Iter(Some(x)), Iter(Some(y))) => match (x, y) {
+                        _ if x == y => cur,
+                        (BaseTy::Null, z) | (z, BaseTy::Null) => Some(Iter(Some(z))),
+                        _ => Some(Iter(Some(BaseTy::Str))),
+                    },
                     (Scalar(x), Scalar(None)) | (Scalar(None), Scalar(x)) => Some(Scalar(x)),
                     (Scalar(Some(x)), Scalar(Some(y))) => Some(Scalar(Some(value_rule(x, y)))),
                     (Map { key: k1, val: v1 }, Map { key: k2, val: v2 }) => {

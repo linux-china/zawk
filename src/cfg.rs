@@ -1057,12 +1057,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let res_expr = match expr {
             ILit(n) => PrimExpr::Val(PrimVal::ILit(*n)),
             FLit(n) => PrimExpr::Val(PrimVal::FLit(*n)),
-            PatLit(_) if in_cond => {
+            // A regex literal used as a value means `$0 ~ /re/`; it is kept as a pattern string
+            // only where a regex is expected (see `convert_regex_arg`).
+            PatLit(_) => {
                 use ast::{Binop::*, Expr::*, Unop::*};
                 return self
                     .convert_expr(&Binop(IsMatch, &Unop(Column, &ILit(0)), expr), current_open);
             }
-            PatLit(s) => PrimExpr::Val(PrimVal::StrLit(regex_literal(s))),
             StrLit(s) => PrimExpr::Val(PrimVal::StrLit(s)),
             Cond(cond) => {
                 let id = self.get_cond(*cond);
@@ -1078,7 +1079,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Binop(op, e1, e2) => {
                 let (next, v1) = self.convert_val(e1, current_open)?;
-                let (next, v2) = self.convert_val(e2, next)?;
+                let (next, v2) = if let ast::Binop::IsMatch = op {
+                    self.convert_regex_arg(e2, next)?
+                } else {
+                    self.convert_val(e2, next)?
+                };
                 let v1 = self.widen_sum_operand(*op, v1, &v2, next)?;
                 return Ok((
                     next,
@@ -1535,6 +1540,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.convert_val_inner(expr, current_open, /*in_cond=*/ false)
     }
 
+    /// Converts an expression in a position that takes a regex (the right side of `~`, builtin
+    /// arguments): a regex literal there is the pattern string rather than `$0 ~ /re/`.
+    fn convert_regex_arg<'c>(
+        &mut self,
+        expr: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        match expr {
+            Expr::PatLit(s) => Ok((current_open, PrimVal::StrLit(regex_literal(s)))),
+            _ => self.convert_val(expr, current_open),
+        }
+    }
+
     fn convert_val_inner<'c>(
         &mut self,
         expr: &'c Expr<'c, 'b, I>,
@@ -1868,6 +1886,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         for (i, a) in args.iter().enumerate() {
             let (next, v) = if key_arg && i == 1 {
                 self.convert_index(a, open, /*in_cond=*/ false)?
+            } else if matches!(bi, Either::Right(_)) {
+                // Builtins take regex literals as patterns (split, sub, match, ...); for user
+                // defined functions, as in gawk, a regex literal argument is `$0 ~ /re/`.
+                self.convert_regex_arg(a, open)?
             } else {
                 self.convert_val(a, open)?
             };
