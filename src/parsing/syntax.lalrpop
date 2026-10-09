@@ -119,14 +119,14 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
     "if" "(" <cond:Expr> Rparen <s1:ClosedStmt> Else <s2:ClosedStmt> =>
            arena.alloc(Stmt::If(cond, s1, Some(s2))),
     "while" "(" <cond:Expr> Rparen <body:ClosedStmt> => arena.alloc(Stmt::While(false, cond, body)),
-    "for" "(" <init: ExprNoIn?> ";" <cond:Expr?> ";" <update:Expr?> Rparen <body:ClosedLoopBody> =>
+    "for" "(" <init: ExprNoIn?> ";" <cond:Expr?> ";" <update:Expr?> Rparen <body:ClosedStmt> =>
         arena.alloc(Stmt::For(
                 init.map(|x| arena.alloc(Stmt::Expr(x))),
                 cond,
                 update.map(|x| arena.alloc(Stmt::Expr(x))),
                 body
         )),
-    "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedLoopBody> =>
+    "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>
         arena.alloc(Stmt::ForEach(id, arr, body)),
 
 
@@ -148,14 +148,11 @@ Redirect: (&'a Expr<'a, 'a, &'a str>, FileSpec) = {
     "|" <PrecCat> => (<>, FileSpec::Cmd),
 }
 
-ClosedLoopBody: &'a Stmt<'a, 'a, &'a str> = {
-    SemiSep => arena.alloc(Stmt::Block(arena.new_vec())),
-    ClosedStmt,
-}
-
 BaseStmt: &'a Stmt<'a, 'a, &'a str> = {
    <LeafStmt> Sep => <>,
-   Block,
+   StmtBlock,
+   // The empty statement, e.g. `while (x--) ;` or `{ ; }`.
+   SemiSep => arena.alloc(Stmt::Block(arena.new_vec())),
 }
 
 LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
@@ -186,10 +183,16 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
     "return" <Expr?> => arena.alloc(Stmt::Return(<>)),
 }
 
+// The block of a rule or function, which may be followed by a `;`.
 Block: &'a Stmt<'a,'a,&'a str> = {
-    Lbrace Rbrace SemiSep? => arena.alloc(Stmt::Block(arena.new_vec())),
-    Lbrace <LeafStmt> Rbrace SemiSep? => <>,
-    Lbrace <BlockInner> Rbrace SemiSep? => arena.alloc(Stmt::Block(arena.new_vec_from_slice(&<>[..]))),
+    <StmtBlock> SemiSep? => <>,
+}
+
+// A block statement; a `;` after it is an empty statement.
+StmtBlock: &'a Stmt<'a,'a,&'a str> = {
+    Lbrace Rbrace => arena.alloc(Stmt::Block(arena.new_vec())),
+    Lbrace <LeafStmt> Rbrace => <>,
+    Lbrace <BlockInner> Rbrace => arena.alloc(Stmt::Block(arena.new_vec_from_slice(&<>[..]))),
 }
 
 BlockInner: Vec<&'a Stmt<'a,'a,&'a str>> = {
