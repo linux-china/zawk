@@ -121,8 +121,6 @@ postgres = { version = "0.19", features = [
     "with-uuid-1",
     "with-serde_json-1",
 ] }
-postgres-native-tls = "0.5.3"
-native-tls = "0.2.18"
 csv = "1.4"
 # Parquet input (`-i parquet`): the record API only, without Arrow, and only the Snappy, ZSTD and
 # LZ4 codecs, to keep the binary small.
@@ -145,6 +143,7 @@ rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustl
 # explicit ring provider for MQTT over TLS: rustls has both ring and aws-lc-rs enabled by other dependencies
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
+tokio-postgres-rustls = "0.14.0"
 
 [target.'cfg(target_family = "unix")'.dependencies]
 tikv-jemallocator = { version = "0.7" }

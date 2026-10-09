@@ -8,7 +8,7 @@ use crate::runtime::{Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use postgres::types::{FromSql, Kind, Type};
 use postgres::Client;
-use postgres_native_tls::MakeTlsConnector;
+use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
 lazy_static! {
@@ -32,12 +32,12 @@ fn connect(db_url: &str) -> Client {
             verify_cert = true;
         }
     }
-    let connector = native_tls::TlsConnector::builder()
-        .danger_accept_invalid_certs(!verify_cert)
-        .danger_accept_invalid_hostnames(!verify_cert)
-        .build()
-        .unwrap();
-    Client::connect(&conn_str, MakeTlsConnector::new(connector)).unwrap()
+    let tls_config = if verify_cert {
+        crate::runtime::tls::client_config()
+    } else {
+        crate::runtime::tls::client_config_no_verify()
+    };
+    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config.unwrap())).unwrap()
 }
 
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {

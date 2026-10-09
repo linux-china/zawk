@@ -40,6 +40,7 @@ pub mod libsql;
 pub mod mysql;
 pub mod postgres;
 pub mod logging;
+pub(crate) mod tls;
 pub mod string_util;
 pub mod faker;
 pub mod html;

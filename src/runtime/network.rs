@@ -202,19 +202,6 @@ impl MqttClient {
     }
 }
 
-/// TLS config with the platform root certificates. The ring provider is set explicitly: rustls can't pick a
-/// default provider because both ring and aws-lc-rs are enabled by other dependencies.
-fn mqtt_tls_config() -> std::result::Result<rustls::ClientConfig, String> {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .map_err(|e| format!("invalid TLS config: {}", e))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    Ok(config)
-}
-
 fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     let tls = url.scheme() == "mqtts";
     let host = match url.host().ok_or_else(|| format!("missing host in {:?}", url.as_str()))? {
@@ -235,7 +222,7 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
         Some((String::new(), user_name.to_string()))
     };
     let is_v5 = !url.query_pairs().any(|(key, version)| key == "version" && version.contains("3.1"));
-    let transport = if tls { rumqttc::Transport::tls_with_config(mqtt_tls_config()?.into()) } else { rumqttc::Transport::tcp() };
+    let transport = if tls { rumqttc::Transport::tls_with_config(crate::runtime::tls::client_config()?.into()) } else { rumqttc::Transport::tcp() };
     let keep_alive = Duration::from_secs(60);
     if is_v5 {
         let mut options = rumqttc::v5::MqttOptions::new(client_id, host, port);
