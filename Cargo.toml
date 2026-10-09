@@ -93,7 +93,7 @@ sxd-xpath = "0.4"
 tl = { version = "0.7" }
 logos = "0.16.1"
 local-ip-address = "0.6"
-reqwest = { version = "0.13", features = ["blocking", "json"] }
+reqwest = { version = "0.12.28", features = ["blocking", "json"] }
 oneio = { version = "0.26.1"}
 #nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
 nats = "0.26.0"
@@ -124,6 +124,10 @@ postgres = { version = "0.19", features = [
 postgres-native-tls = "0.5.3"
 native-tls = "0.2.18"
 csv = "1.4"
+# Parquet input (`-i parquet`): the record API only, without Arrow, and only the Snappy, ZSTD and
+# LZ4 codecs, to keep the binary small.
+parquet = { version = "60", default-features = false, features = ["snap", "zstd", "lz4"] }
+bytes = "1"
 semver = "1"
 unicode-segmentation = "1.13"
 fake = "5.1"

@@ -105,6 +105,9 @@ run-jsonl-filter:
 run-jsonl-to-csv:
   cargo run --package zawk --bin zawk -- -i jsonl -o csv 'BEGIN { print "name", "age" } { print $FI["name"], $FI["age"] }' tests/demo.jsonl
 
+run-parquet:
+  cargo run --package zawk --bin zawk -- -i parquet '{ print $1, $FI["name"], $FI["age"] }' tests/demo.parquet
+
 run-from-csv:
   cargo run --package zawk --bin zawk -- 'BEGIN{  arr=from_csv("first,second"); print arr[1] }' demo.txt
 

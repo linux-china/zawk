@@ -246,6 +246,11 @@ surprised to discover there were bugs in zawk's parser.
   formats, assigning `$0` to the raw line and `$N` to the Nth field in the
   current row, fully escaped. There is also equivalent functionality for output
   CSV-escaped lines (enabled via `-o csv` and `-o tsv`).
+* zawk reads JSON Lines (`-i jsonl`) and Apache Parquet files (`-i parquet`).
+  `$1..$NF` are the columns, `FI` maps column names to their index (as with
+  `-H`), and for Parquet `$0` is the row as a JSON object. See the
+  [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md) for the
+  Parquet value mapping.
 * zawk has a builtin `join_fields` function that produces a string of a
   particular range of input columns.
 * zawk provides an `int` function for converting a scalar value to an integer,

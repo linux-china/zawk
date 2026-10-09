@@ -43,6 +43,7 @@ use runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
         jsonl::JsonlReader,
+        parquet::ParquetJson,
         regex::RegexSplitter,
     },
     ChainedReader, LineReader, CHUNK_SIZE,
@@ -383,10 +384,10 @@ fn main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv|jsonl")
+            .value_name("csv|tsv|jsonl|parquet")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|jsonl). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson"]))
+            .help("Input is split according to the rules of (csv|tsv|jsonl|parquet). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -484,7 +485,7 @@ fn main() {
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("jsonl") | Some("ndjson") => None,
+        Some("jsonl") | Some("ndjson") | Some("parquet") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -587,8 +588,13 @@ fn main() {
         matches.get_one::<String>("input-format").map(|s| s.as_str()),
         Some("jsonl") | Some("ndjson")
     );
-    // JSON Lines records are self-describing, so FI is always populated from the first record.
-    let parse_header = matches.get_flag("parse-header") || jsonl;
+    let parquet = matches!(
+        matches.get_one::<String>("input-format").map(|s| s.as_str()),
+        Some("parquet")
+    );
+    // JSON Lines records and Parquet files are self-describing, so FI is always populated from
+    // the first record (the column names for Parquet).
+    let parse_header = matches.get_flag("parse-header") || jsonl || parquet;
 
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
@@ -643,7 +649,32 @@ fn main() {
     // this up here.
     macro_rules! with_inp {
         ($analysis:expr, $inp:ident, $body:expr) => {{
-            if jsonl {
+            if parquet {
+                // Parquet rows are read as JSON Lines.
+                let fi_names = awk_util::fi_constant_keys(&program_string);
+                let sources: Vec<(ParquetJson, String)> = if input_files.len() == 0 {
+                    vec![(ParquetJson::stdin(), String::from("-"))]
+                } else {
+                    for file in input_files.iter() {
+                        if let Err(e) = ParquetJson::check(file) {
+                            fatal!("{}", e);
+                        }
+                    }
+                    input_files
+                        .iter()
+                        .map(|file| (ParquetJson::file(file.clone()), file.clone()))
+                        .collect()
+                };
+                let $inp = JsonlReader::new(
+                    sources.into_iter(),
+                    fi_names,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                );
+                $body
+            } else if jsonl {
                 let fi_names = awk_util::fi_constant_keys(&program_string);
                 if input_files.len() == 0 {
                     let _reader: Box<dyn io::Read + Send> = Box::new(io::stdin());

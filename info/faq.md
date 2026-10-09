@@ -47,9 +47,27 @@ zawk limits:
 
 # How to query Apache Parquet?
 
+Use `-i parquet`: `$1..$NF` are the top-level columns, `FI` maps column names to their index, and
+`$0` is the row as a JSON object.
+
 ```shell
-$ duckdb -c "COPY (select * from 'family.parquet') TO 'family.csv' (FORMAT CSV)"
+$ zawk -i parquet '$FI["age"] > 30 { print $FI["name"], $FI["city"] }' family.parquet
+$ zawk -i parquet -o csv '{ print $1, $2 }' family.parquet > family.csv
+$ cat family.parquet | zawk -i parquet '{ print $0 }'    # JSON Lines
 ```
+
+Values are converted as with `-i jsonl`:
+
+- numbers and strings as is, decimals exactly (`12345.67`), booleans as `1`/`0`, null as empty
+- DATE, TIME and TIMESTAMP as text: `2024-01-15`, `13:45:30.5`, `2024-01-15 10:30:00` (UTC)
+- UUID as `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`, other binary values as hex
+- LIST, MAP, STRUCT and JSON columns as JSON text, e.g. `[1,2,3]`, `{"city":"Beijing"}`
+- columns of a type that cannot be read (such as INTERVAL) are empty, with a warning
+
+Supported compressions: SNAPPY, ZSTD, LZ4 (and uncompressed). Files compressed with GZIP or BROTLI
+are reported as errors. Parquet keeps its metadata at the end of the file, so standard input is read
+into memory: prefer file arguments for large files. With several files, columns are matched by name
+with those of the first file.
 
 # Special types in text
 

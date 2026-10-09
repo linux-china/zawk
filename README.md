@@ -14,6 +14,7 @@ or if you want a standard AWK library to make life easy.
 Features:
 
 * CSV/TSV support by frawk
+* JSON Lines (`-i jsonl`) and Apache Parquet (`-i parquet`) input
 * High performance
 * gawk mostly compatible
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.

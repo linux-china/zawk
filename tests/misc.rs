@@ -868,3 +868,56 @@ fn div_by_zero_is_fatal() {
         }
     }
 }
+
+#[test]
+fn parquet_input() {
+    // -i parquet: $1..$NF are the columns, FI maps column names, $0 is the row as JSON, nested
+    // values (LIST, STRUCT, MAP) and JSON columns are JSON text.
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/types.parquet");
+    let cases = [
+        (
+            r#"{ print $1, $2, $FI["age"], $FI["amount"], $FI["active"], NF }"#,
+            "1 Alice 30 12345.67 1 14\n2 Bob 张三 25 -0.50 0 14\n3  41   14\n",
+        ),
+        (
+            r#"NR == 1 { print $FI["tags"]; print $FI["addr"]; print $FI["attrs"]; print $FI["doc"]; print $FI["uid"], $FI["ts"] }"#,
+            "[1,2,3]\n{\"city\":\"Beijing\",\"zip\":100000}\n{\"k1\":\"v1\"}\n{\"a\": [true, null]}\na0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 2024-01-15 10:30:00\n",
+        ),
+        (
+            r#"NR == 2"#,
+            "{\"id\":2,\"name\":\"Bob 张三\",\"age\":25,\"score\":null,\"active\":false,\"born\":\"1970-01-01\",\"ts\":\"1999-12-31 23:59:59.123\",\"amount\":-0.50,\"tags\":[],\"addr\":{\"city\":null,\"zip\":0},\"attrs\":{},\"doc\":null,\"uid\":null,\"note\":null}\n",
+        ),
+        (
+            r#"{ s += $FI["age"] } END { print NR, s, $FI["missing"] "|" }"#,
+            "3 96 |\n",
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(["-i", "parquet", prog])
+                .arg(&demo)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
+        }
+        // Standard input, and an error for a file that is not Parquet.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "parquet", r#"{ print $FI["name"] }"#])
+            .pipe_stdin(&demo)
+            .unwrap()
+            .assert()
+            .success()
+            .stdout("Alice\nBob 张三\n\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "parquet", "{ print }", "Cargo.toml"])
+            .assert()
+            .code(2);
+    }
+}
