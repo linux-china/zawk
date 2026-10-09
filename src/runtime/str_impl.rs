@@ -499,11 +499,10 @@ impl<'a> Str<'a> {
     // TODO: SIMD implementations of to_upper and to_lower aren't too difficult to write;
     // it's probably worth specializing these implementations with those if possible.
 
+    /// awk's `tolower`. Despite the name, non-ASCII UTF-8 text is converted too (see
+    /// `map_case`).
     pub fn to_lower_ascii<'b>(&self) -> Str<'b> {
-        self.map_bytes(|b| match b {
-            b'A'..=b'Z' => b - b'A' + b'a',
-            _ => b,
-        })
+        self.map_case(|b| b.to_ascii_lowercase(), char::to_lowercase)
     }
 
     pub fn fend<'b>(&self) -> Str<'b> {
@@ -779,10 +778,39 @@ impl<'a> Str<'a> {
         };
     }
 
+    /// awk's `toupper`. Despite the name, non-ASCII UTF-8 text is converted too (see
+    /// `map_case`).
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
-        self.map_bytes(|b| match b {
-            b'a'..=b'z' => b - b'a' + b'A',
-            _ => b,
+        self.map_case(|b| b.to_ascii_uppercase(), char::to_uppercase)
+    }
+
+    /// Case conversion for toupper/tolower. ASCII strings take the fast byte-wise path. Otherwise
+    /// each character is converted when its mapping is a single character, like C's
+    /// towupper/towlower used by gawk (so "ß" is unchanged rather than becoming "SS"); bytes that
+    /// are not valid UTF-8 are kept as is.
+    fn map_case<'b, I: Iterator<Item = char> + ExactSizeIterator>(
+        &self,
+        ascii: impl FnMut(u8) -> u8,
+        unicode: impl Fn(char) -> I,
+    ) -> Str<'b> {
+        if self.with_bytes(|bs| bs.is_ascii()) {
+            return self.map_bytes(ascii);
+        }
+        self.with_bytes(|bs| {
+            let mut out = DynamicBufHeap::new(bs.len());
+            for chunk in bs.utf8_chunks() {
+                for c in chunk.valid().chars() {
+                    let mut mapped = unicode(c);
+                    let c = match (mapped.len(), mapped.next()) {
+                        (1, Some(m)) => m,
+                        _ => c,
+                    };
+                    let mut buf = [0u8; 4];
+                    out.write_all(c.encode_utf8(&mut buf).as_bytes()).unwrap();
+                }
+                out.write_all(chunk.invalid()).unwrap();
+            }
+            out.into_str()
         })
     }
 
