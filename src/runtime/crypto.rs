@@ -39,7 +39,7 @@ pub fn digest(algorithm: &str, text: &str) -> String {
         hasher.update(text.as_bytes());
         return hex::encode(hasher.finalize());
     } else if algorithm == "bcrypt" {
-        return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap();
+        return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default();
     } else if algorithm == "murmur3" {
         let hashcode = murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap();
         return hashcode.to_string();
@@ -64,46 +64,59 @@ pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
     }
 }
 
+/// Create a JWT signed with `key`. Returns an empty string (with a warning) if the algorithm, the
+/// key or a registered claim (`exp`, `nbf`, `iat`) is invalid.
 pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> String {
+    try_jwt(algorithm, key, payload).unwrap_or_else(|msg| {
+        crate::runtime::stdlib_warning("jwt", msg);
+        String::new()
+    })
+}
+
+fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Result<String, String> {
     let mut claims: BTreeMap<String, Value> = BTreeMap::new();
+    let mut bad_claim = None;
     payload.iter(|map| {
         for (key, value) in map {
             let key = key.to_string();
             let value = value.to_string();
             if key == "exp" || key == "nbf" || key == "iat" {
-                claims.insert(key, Value::Number(Number::from(value.parse::<u64>().unwrap())));
-            } else {
-                if let Ok(value) = value.parse::<i64>() {
-                    claims.insert(key, Value::Number(Number::from(value)));
-                } else if let Ok(value) = value.parse::<f64>() {
-                    claims.insert(key, Value::Number(Number::from_f64(value).unwrap()));
-                } else {
-                    claims.insert(key, Value::String(value));
+                match value.parse::<u64>() {
+                    Ok(seconds) => {
+                        claims.insert(key, Value::Number(Number::from(seconds)));
+                    }
+                    Err(_) => bad_claim = Some(format!("invalid `{}` claim {:?}, expected seconds since the epoch", key, value)),
                 }
+            } else if let Ok(value) = value.parse::<i64>() {
+                claims.insert(key, Value::Number(Number::from(value)));
+            } else if let Some(number) = value.parse::<f64>().ok().and_then(Number::from_f64) {
+                claims.insert(key, Value::Number(number));
+            } else {
+                // also NaN and infinity, which are not JSON numbers
+                claims.insert(key, Value::String(value));
             }
         }
     });
-    let jwt_algorithm = Algorithm::from_str(&algorithm.to_uppercase()).unwrap();
+    if let Some(msg) = bad_claim {
+        return Err(msg);
+    }
+    let jwt_algorithm = Algorithm::from_str(&algorithm.to_uppercase())
+        .map_err(|_| format!("unsupported algorithm {:?}", algorithm))?;
+    let bad_key = |e: jsonwebtoken::errors::Error| format!("invalid {} key: {}", algorithm, e);
     let encoding_key = match jwt_algorithm {
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
             EncodingKey::from_secret(key.as_ref())
         }
-        Algorithm::ES256 | Algorithm::ES384 => {
-            EncodingKey::from_ec_pem(key.as_ref()).unwrap()
+        Algorithm::ES256 | Algorithm::ES384 => EncodingKey::from_ec_pem(key.as_ref()).map_err(bad_key)?,
+        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512
+        | Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
+            EncodingKey::from_rsa_pem(key.as_ref()).map_err(bad_key)?
         }
-        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
-            EncodingKey::from_rsa_pem(key.as_ref()).unwrap()
-        }
-        Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
-            EncodingKey::from_rsa_pem(key.as_ref()).unwrap()
-        }
-        Algorithm::EdDSA => {
-            EncodingKey::from_ed_pem(key.as_ref()).unwrap()
-        }
-        _ => panic!("unsupported JWT algorithm: {}", algorithm),
+        Algorithm::EdDSA => EncodingKey::from_ed_pem(key.as_ref()).map_err(bad_key)?,
+        _ => return Err(format!("unsupported algorithm {:?}", algorithm)),
     };
     let header = Header::new(jwt_algorithm);
-    jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
+    jsonwebtoken::encode(&header, &claims, &encoding_key).map_err(|e| e.to_string())
 }
 
 const HMAC_ALGORITHMS: &[Algorithm] = &[Algorithm::HS256, Algorithm::HS384, Algorithm::HS512];
@@ -400,6 +413,20 @@ mod tests {
     use jsonwebtoken::jwk::JwkSet;
     use crate::runtime::encoding::encode;
     use super::*;
+
+    #[test]
+    fn test_jwt_invalid_input() {
+        // invalid input gives an empty token (and a warning) instead of a panic
+        let claims: StrMap<Str> = StrMap::default();
+        claims.insert(Str::from("name"), Str::from("Jackie"));
+        assert_eq!(jwt("NOPE", "key", &claims), "");
+        assert_eq!(jwt("RS256", "not a PEM key", &claims), "");
+        assert_eq!(jwt("ES256", "not a PEM key", &claims), "");
+        claims.insert(Str::from("ratio"), Str::from("nan"));
+        assert!(!jwt("HS256", "key", &claims).is_empty());
+        claims.insert(Str::from("exp"), Str::from("tomorrow"));
+        assert_eq!(jwt("HS256", "key", &claims), "");
+    }
 
     #[test]
     fn test_md5() {

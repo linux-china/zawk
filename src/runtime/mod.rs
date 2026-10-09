@@ -697,6 +697,20 @@ impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
     }
 }
 
+/// Report the failure of a stdlib function (network, database, crypto, ...) on stderr, e.g.
+/// `zawk: warning: jwt: unsupported algorithm "NOPE"`. The function then returns an empty value
+/// instead of aborting the program. Each distinct message is reported once, so that a function
+/// failing on every record does not flood stderr.
+pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
+    static WARNED: LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        LazyLock::new(Default::default);
+    let msg = format!("zawk: warning: {}: {}", func, msg);
+    let first = WARNED.lock().map_or(true, |mut warned| warned.insert(msg.clone()));
+    if first {
+        eprintln_ignore!("{}", msg);
+    }
+}
+
 /// The value of awk's `close`: the exit status of an output command (0 for a file), 0 for an
 /// input that was open, and -1 if nothing named that way was open.
 pub(crate) fn close_result(output: Option<Int>, input_was_open: bool) -> Int {

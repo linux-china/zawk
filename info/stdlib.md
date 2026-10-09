@@ -5,6 +5,12 @@ Standard library for AWK with text, math, crypto, kv, database, network etc.
 
 zawk stdlib Cheat Sheet: https://cheatography.com/linux-china/cheat-sheets/zawk/
 
+Functions working with external services or user supplied keys (network, kv, crypto, ...) do not stop
+the program on failure: they print a warning to stderr, such as
+`zawk: warning: kv_get: failed to connect to redis://127.0.0.1:6379: Connection refused`, and return
+an empty value (an empty string or array, or `0` for an HTTP status). Each distinct warning is printed
+once.
+
 # Text functions
 
 Text is encoding with utf-8 by default.

@@ -12,7 +12,7 @@ use reqwest::header::{HeaderMap, HeaderName};
 use serde::Serialize;
 use url::Url;
 use paho_mqtt::*;
-use crate::runtime::{Str, StrMap};
+use crate::runtime::{stdlib_warning, Str, StrMap};
 
 pub fn local_ip() -> String {
     if let Ok(my_ip) = local_ip_address::local_ip() {
@@ -71,10 +71,18 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
     resp_obj
 }
 
+/// Request headers from an awk array; invalid header names or values are skipped with a warning.
 fn convert_to_http_headers<'a>(headers: &StrMap<'a, Str<'a>>) -> HeaderMap {
     let mut request_headers = HeaderMap::new();
     for name in &headers.to_vec() {
-        request_headers.insert(HeaderName::from_bytes(name.to_string().as_bytes()).unwrap(), headers.get(name).to_string().parse().unwrap());
+        let name_text = name.to_string();
+        let value_text = headers.get(name).to_string();
+        match (HeaderName::from_bytes(name_text.as_bytes()), value_text.parse()) {
+            (Ok(header_name), Ok(header_value)) => {
+                request_headers.insert(header_name, header_value);
+            }
+            _ => stdlib_warning("http", format!("invalid HTTP header {:?}: {:?}", name_text, value_text)),
+        }
     }
     request_headers
 }
@@ -84,7 +92,8 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
     let response_headers = resp.headers();
     for (name, value) in response_headers.into_iter() {
-        resp_obj.insert(Str::from(name.to_string()), Str::from(value.to_str().unwrap().to_string()));
+        // header values are not necessarily ASCII
+        resp_obj.insert(Str::from(name.to_string()), Str::from(String::from_utf8_lossy(value.as_bytes()).into_owned()));
     }
     if let Ok(body) = resp.text() {
         if !body.is_empty() {
@@ -99,83 +108,96 @@ lazy_static! {
     static ref MQTT_CONNECTIONS: Arc<Mutex<HashMap<String, paho_mqtt::Client>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
+/// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
+/// reported as warnings.
 pub(crate) fn publish(namespace: &str, body: &str) {
+    if let Err(msg) = try_publish(namespace, body) {
+        stdlib_warning("publish", msg);
+    }
+}
+
+fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
-        if let Ok(url) = &Url::parse(namespace) {
-            let schema = url.scheme();
-            let topic = if url.path().starts_with('/') {
-                url.path()[1..].to_string()
-            } else {
-                url.path().to_string()
-            };
-            let conn_url = if schema.contains("tls") {
-                format!("tls://{}:{}", url.host().unwrap(), url.port().unwrap_or(4443))
-            } else {
-                format!("{}:{}", url.host().unwrap(), url.port().unwrap_or(4222))
-            };
-            let mut pool = NATS_CONNECTIONS.lock().unwrap();
-            let nc = pool.entry(conn_url.clone()).or_insert_with(|| {
-                nats::connect(&conn_url).unwrap()
-            });
-            nc.publish(&topic, body).unwrap();
+        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", namespace, e))?;
+        let host = url.host().ok_or_else(|| format!("missing host in {:?}", namespace))?;
+        let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
+        let conn_url = if url.scheme().contains("tls") {
+            format!("tls://{}:{}", host, url.port().unwrap_or(4443))
+        } else {
+            format!("{}:{}", host, url.port().unwrap_or(4222))
+        };
+        let mut pool = NATS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
+        if !pool.contains_key(&conn_url) {
+            let nc = nats::connect(&conn_url).map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
+            pool.insert(conn_url.clone(), nc);
         }
+        pool[&conn_url].publish(&topic, body).map_err(|e| e.to_string())
     } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
-        if let Ok(url) = &Url::parse(namespace) {
-            let topic = url.path()[1..].to_string();
-            let mut pool = MQTT_CONNECTIONS.lock().unwrap();
-            let cli = pool.entry(namespace.to_string()).or_insert_with(|| {
-                let schema = url.scheme();
-                let user_name = url.username();
-                let password = url.password();
-                let connection_url = if let Some(port) = url.port() {
-                    format!("{}://{}:{}", schema, url.host().unwrap(), port)
-                } else {
-                    format!("{}://{}", schema, url.host().unwrap())
-                };
-                let mut pairs = url.query_pairs();
-                let version = pairs.find(|p| p.0 == "version");
-                let mqtt_version = if let Some((_key, version)) = version {
-                    if version.contains("3.1.1") {
-                        MQTT_VERSION_3_1_1
-                    } else if version.contains("3.1") {
-                        MQTT_VERSION_3_1
-                    } else {
-                        MQTT_VERSION_5
-                    }
-                } else {
-                    MQTT_VERSION_5
-                };
-                let client_opts = CreateOptionsBuilder::new()
-                    .mqtt_version(mqtt_version)
-                    .server_uri(&connection_url)
-                    .finalize();
-                // Connect options
-                let mut builder = ConnectOptionsBuilder::new();
-                let mut conn_options_builder = builder.clean_start(true);
-                if schema == "mqtts" {
-                    conn_options_builder = conn_options_builder.ssl_options(SslOptions::default());
-                }
-                if !user_name.is_empty() {
-                    if let Some(password) = password {
-                        conn_options_builder = conn_options_builder.user_name(user_name).password(password);
-                    } else {
-                        conn_options_builder = conn_options_builder.password(user_name); // JWT style
-                    }
-                }
-                // Create the MQTT client
-                let cli = Client::new(client_opts).expect("Error creating MQTT client");
-                // Connect to your broker
-                cli.connect(conn_options_builder.finalize()).expect("Error connecting to MQTT broker");
-                cli
-            });
-            cli.publish(Message::new(topic, body, 0)).unwrap();
+        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", namespace, e))?;
+        let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
+        if topic.is_empty() {
+            return Err(format!("missing topic in {:?}", namespace));
         }
+        let mut pool = MQTT_CONNECTIONS.lock().map_err(|e| e.to_string())?;
+        if !pool.contains_key(namespace) {
+            let cli = mqtt_connect(&url)?;
+            pool.insert(namespace.to_string(), cli);
+        }
+        pool[namespace].publish(Message::new(topic, body, 0)).map_err(|e| e.to_string())
     } else {
         notify_rust::Notification::new()
             .summary(namespace)
             .body(body)
-            .show().unwrap();
+            .show()
+            .map(drop)
+            .map_err(|e| format!("failed to show notification: {}", e))
     }
+}
+
+fn mqtt_connect(url: &Url) -> std::result::Result<paho_mqtt::Client, String> {
+    let schema = url.scheme();
+    let host = url.host().ok_or_else(|| format!("missing host in {:?}", url.as_str()))?;
+    let user_name = url.username();
+    let password = url.password();
+    let connection_url = if let Some(port) = url.port() {
+        format!("{}://{}:{}", schema, host, port)
+    } else {
+        format!("{}://{}", schema, host)
+    };
+    let mut pairs = url.query_pairs();
+    let version = pairs.find(|p| p.0 == "version");
+    let mqtt_version = if let Some((_key, version)) = version {
+        if version.contains("3.1.1") {
+            MQTT_VERSION_3_1_1
+        } else if version.contains("3.1") {
+            MQTT_VERSION_3_1
+        } else {
+            MQTT_VERSION_5
+        }
+    } else {
+        MQTT_VERSION_5
+    };
+    let client_opts = CreateOptionsBuilder::new()
+        .mqtt_version(mqtt_version)
+        .server_uri(&connection_url)
+        .finalize();
+    // Connect options
+    let mut builder = ConnectOptionsBuilder::new();
+    let mut conn_options_builder = builder.clean_start(true);
+    if schema == "mqtts" {
+        conn_options_builder = conn_options_builder.ssl_options(SslOptions::default());
+    }
+    if !user_name.is_empty() {
+        if let Some(password) = password {
+            conn_options_builder = conn_options_builder.user_name(user_name).password(password);
+        } else {
+            conn_options_builder = conn_options_builder.password(user_name); // JWT style
+        }
+    }
+    let cli = Client::new(client_opts).map_err(|e| format!("failed to create MQTT client: {}", e))?;
+    cli.connect(conn_options_builder.finalize())
+        .map_err(|e| format!("failed to connect to {}: {}", connection_url, e))?;
+    Ok(cli)
 }
 
 #[derive(Debug, Serialize)]
@@ -258,17 +280,30 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
     }
 }
 
+/// Send a mail through the SMTP server `url`. Failures are reported as warnings.
 pub fn smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) {
-    let mut builder = lettre::Message::builder().from(from.parse().unwrap()).subject(subject);
+    if let Err(msg) = try_smtp_send(url, from, to, subject, text) {
+        stdlib_warning("smtp_send", msg);
+    }
+}
+
+fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> std::result::Result<(), String> {
+    let address = |text: &str| {
+        text.trim().parse::<lettre::message::Mailbox>()
+            .map_err(|e| format!("invalid mail address {:?}: {}", text, e))
+    };
+    let mut builder = lettre::Message::builder().from(address(from)?).subject(subject);
     for email_address in to.split(",") {
-        builder = builder.to(email_address.parse().unwrap());
+        builder = builder.to(address(email_address)?);
     }
     let email = builder
         .header(lettre::message::header::ContentType::TEXT_PLAIN)
         .body(String::from(text))
-        .unwrap();
-    let mailer = lettre::SmtpTransport::from_url(url).unwrap().build();
-    mailer.send(&email).unwrap();
+        .map_err(|e| e.to_string())?;
+    let mailer = lettre::SmtpTransport::from_url(url)
+        .map_err(|e| format!("invalid SMTP URL: {}", e))?
+        .build();
+    mailer.send(&email).map(drop).map_err(|e| format!("failed to send mail: {}", e))
 }
 
 #[cfg(test)]
