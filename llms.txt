@@ -5,7 +5,7 @@
 Things to remember to write awk script with zawk:
 
 - standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
-- csv/tsv built-in support with `zawk -i csv/tsv`
+- csv/tsv/jsonl/parquet built-in support with `zawk -i csv/tsv/jsonl/parquet`
 - JSON Lines support with `zawk -i jsonl '{ print $FI["name"] }'`: keys of the first record populate `FI`, nested values keep raw JSON text
 - zawk is the successor of frawk, and all frawk scripts can run in zawk
 
