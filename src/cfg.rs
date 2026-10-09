@@ -460,8 +460,10 @@ impl<'a, I> ProgramContext<'a, I>
             {
                 return err!("duplicate function found for name {}", fundec.name);
             }
-            if let Ok(bi) = builtins::Function::try_from(fundec.name.clone()) {
-                return err!("attempted redefinition of builtin function {}", bi);
+            // POSIX and gawk builtins cannot be redefined; zawk's stdlib functions are shadowed by
+            // the user-defined function (see `call`).
+            if builtins::is_awk_builtin(&fundec.name.to_string()) {
+                return err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
             }
             // All exit blocks simply return the designated return node. Return statements in the
             // AST will becode assignments to this variable followed by an unconditional jump to
@@ -1908,6 +1910,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // function that occurs in expression position.
                 return self.do_sprintf(args, current_open);
             }
+            // A user-defined function shadows a zawk stdlib function of the same name.
+            Either::Left(fname)
+            if self.func_table.contains_key(&FunctionName::Named(fname.clone())) =>
+                {
+                    Either::Left(fname.clone())
+                }
             Either::Left(fname) => {
                 if let Ok(bi) = builtins::Function::try_from(fname.clone()) {
                     // Okay, there's a builtin in here.

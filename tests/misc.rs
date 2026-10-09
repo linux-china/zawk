@@ -969,3 +969,112 @@ fn unreadable_input_is_fatal_with_regex_separators() {
             .stdout("-1\n-1\n");
     }
 }
+
+#[test]
+fn default_fs_records_across_buffers() {
+    // With the default FS, records longer than the read buffer (which then grows), and records
+    // that cross buffer boundaries, keep all their fields: a record of a 100-byte field and a
+    // 1-byte field must not become a single field, and a field before trailing whitespace must
+    // not include it.
+    let mut input = String::new();
+    let mut seed = 7u64;
+    let mut next = |n: u64| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) % n
+    };
+    for _ in 0..200 {
+        for _ in 0..next(6) {
+            input.push_str([" ", "  ", "\t", " \t ", ""][next(5) as usize]);
+            let len = [1, 3, 10, 63, 64, 65, 100, 300, 1000][next(9) as usize];
+            input.push_str(&"x".repeat(len));
+        }
+        input.push_str(["", " ", "\t"][next(3) as usize]);
+        input.push('\n');
+    }
+    let expected: String = input
+        .lines()
+        .map(|line| {
+            let fields: Vec<_> = line.split_ascii_whitespace().collect();
+            let mut s = fields.len().to_string();
+            for f in fields {
+                s.push_str(&format!(" {}", f.len()));
+            }
+            s + "\n"
+        })
+        .collect();
+    let prog = r#"{ s = NF; for (i = 1; i <= NF; i++) s = s " " length($i); print s }"#;
+    for backend_arg in BACKEND_ARGS {
+        for chunk_size in ["64", "100", "1000", "8192"] {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg("--chunk-size")
+                .arg(chunk_size)
+                .arg(prog)
+                .write_stdin(input.clone())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{} {}", backend_arg, chunk_size);
+            assert!(
+                String::from_utf8_lossy(&output.stdout) == expected,
+                "{} --chunk-size {}: fields differ",
+                backend_arg,
+                chunk_size
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_input_files_do_not_end_input() {
+    // An empty input file, or one whose last record ends exactly at the end of a read buffer,
+    // ends only that file: the following files are still read.
+    let tmp = tempdir().unwrap();
+    let path = |name: &str| tmp.path().join(name).to_str().unwrap().to_string();
+    let (empty, f1, f2, exact) = (path("empty.txt"), path("f1.txt"), path("f2.txt"), path("exact.txt"));
+    File::create(&empty).unwrap();
+    File::create(&f1).unwrap().write_all(b"a,1\nb,2\n").unwrap();
+    File::create(&f2).unwrap().write_all(b"c,3\n").unwrap();
+    // 64 bytes: with --chunk-size 64, the input ends exactly at the end of the first buffer.
+    File::create(&exact).unwrap().write_all(format!("{}\n", "x".repeat(63)).as_bytes()).unwrap();
+    let prog = "{ print $1 } END { print NR }";
+    let cases: &[(&[&str], Vec<&String>, &str)] = &[
+        (&[], vec![&empty, &f1, &empty, &f2], "a,1\nb,2\nc,3\n3\n"),
+        (&["-F,"], vec![&empty, &f1, &empty, &f2], "a\nb\nc\n3\n"),
+        (&["-icsv"], vec![&empty, &f1, &empty, &f2], "a\nb\nc\n3\n"),
+        (&["-F,"], vec![&empty, &empty], "0\n"),
+        (&["--chunk-size", "64"], vec![&exact, &f2], &format!("{}\nc,3\n2\n", "x".repeat(63))),
+        (&["--chunk-size", "64", "-F,"], vec![&exact, &f2], &format!("{}\nc\n2\n", "x".repeat(63))),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (opts, files, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(*opts)
+                .arg(prog)
+                .args(files)
+                .assert()
+                .success()
+                .stdout(expected.to_string());
+        }
+    }
+}
+
+#[test]
+fn awk_builtins_cannot_be_redefined() {
+    // POSIX and gawk builtins cannot be redefined, as in gawk; zawk's stdlib extensions can (see
+    // tests/compat/cases/08-function-shadows-stdlib.awk).
+    for name in ["length", "substr", "split", "gsub", "sprintf", "gensub"] {
+        let prog = format!("function {}(s) {{ return 1 }} BEGIN {{ print 1 }}", name);
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        assert!(!output.status.success(), "{}", name);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("`{}' is a built-in function, it cannot be redefined", name)),
+            "{}: {}",
+            name,
+            stderr
+        );
+    }
+}

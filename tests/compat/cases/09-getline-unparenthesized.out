@@ -1,0 +1,9 @@
+lines: 3 third
+r: 1 first
+1 second
+eq: third
+sum: 6
+cmd: 1 x y
+missing: -1
+main: 1 line two
+rest: 0

@@ -11,6 +11,11 @@ the program on failure: they print a warning to stderr, such as
 an empty value (an empty string or array, or `0` for an HTTP status). Each distinct warning is printed
 once.
 
+A user-defined function with the same name as a stdlib function (such as `trim`, `max` or `abs`)
+takes precedence over it in the whole program, so existing AWK programs that define these helpers
+keep working. The builtin functions of POSIX awk and gawk (`length`, `substr`, `split`, `gsub`,
+`sprintf`, ...) cannot be redefined, as in gawk.
+
 # Text functions
 
 Text is encoding with utf-8 by default.

@@ -561,6 +561,22 @@ impl<'a> TryFrom<&'a str> for Function {
     }
 }
 
+/// The builtin functions of POSIX awk and gawk that zawk implements. A user-defined function may
+/// not have one of these names, as in gawk. The other builtins are zawk's stdlib extensions
+/// (`trim`, `max`, `abs`, ...): a user-defined function with the same name takes precedence, so
+/// that existing awk programs defining these helpers keep working.
+pub(crate) fn is_awk_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "length" | "substr" | "index" | "split" | "sub" | "gsub" | "match" | "sprintf"
+            | "sin" | "cos" | "atan2" | "exp" | "log" | "sqrt" | "int" | "rand" | "srand"
+            | "tolower" | "toupper" | "system" | "close" | "fflush"
+            // gawk
+            | "gensub" | "strtonum" | "asort" | "typeof" | "isarray" | "systime" | "strftime"
+            | "mktime" | "and" | "or" | "xor" | "compl" | "lshift" | "rshift"
+    )
+}
+
 pub(crate) trait IsSprintf {
     fn is_sprintf(&self) -> bool;
 }

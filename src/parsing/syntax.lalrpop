@@ -133,11 +133,42 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
     Do <body:BaseStmt> "while" "(" <cond:Expr> ")" Sep => arena.alloc(Stmt::DoWhile(cond, body)),
 }
 
-Getline : &'a Expr<'a, 'a, &'a str> = {
-    "getline" <into:BaseTerm?> <from:("<" <Expr>)?> =>
-      arena.alloc(Expr::Getline{into, from, is_file: true}),
-    <from:PrecFieldRef> "|" "getline" <into:BaseTerm?> =>
+// getline is an operand of the comparison operators, so its result can be assigned and compared:
+// `while (getline line < file > 0)`, `r = getline`, `while ("cmd" | getline > 0)`.
+//
+// `getline [var] < file` reads the file named by a concatenation, so a following `> 0` is a
+// comparison (gawk reads `getline x < f ".txt"` as `(getline x < f) ".txt"`; zawk reads the file
+// `f ".txt"`).
+GetlineFile: &'a Expr<'a, 'a, &'a str> = {
+    "getline" <into:BaseTerm?> "<" <from:PrecCat> =>
+      arena.alloc(Expr::Getline{into, from: Some(from), is_file: true}),
+}
+
+// `getline [var]` reads the main input. It is not the left operand of `<` or `<=`, where `<` is an
+// input redirection.
+GetlinePlain: &'a Expr<'a, 'a, &'a str> = {
+    "getline" <into:BaseTerm?> =>
+      arena.alloc(Expr::Getline{into, from: None, is_file: true}),
+}
+
+// `cmd | getline [var]`.
+GetlineCmd: &'a Expr<'a, 'a, &'a str> = {
+    <from:PrecCat> "|" "getline" <into:BaseTerm?> =>
       arena.alloc(Expr::Getline{into, from: Some(from), is_file: false}),
+}
+
+// The left operand of `<` and `<=`. `cmd | getline` is not available in unparenthesized print
+// arguments (G == "NoGt"), where `|` is an output pipe.
+CmpLhsNoLt<G>: &'a Expr<'a, 'a, &'a str> = {
+    PrecCat,
+    GetlineFile,
+    GetlineCmd if G == "Gt",
+}
+
+// The left operand of the other comparison operators.
+CmpLhs<G>: &'a Expr<'a, 'a, &'a str> = {
+    CmpLhsNoLt<G>,
+    GetlinePlain,
 }
 
 // The target is a concatenation of non-comparison expressions (gawk's `common_exp`), so that
@@ -230,10 +261,7 @@ Args: Vec<&'a Expr<'a,'a,&'a str>> = {
     }
 }
 
-Expr: &'a Expr<'a,'a,&'a str> = {
-    Getline,
-    PrecAsgn<"Gt">
-};
+Expr: &'a Expr<'a,'a,&'a str> = PrecAsgn<"Gt">;
 
 PrecAsgn<G>: &'a Expr<'a,'a,&'a str> = {
     <l: PrecIn<G>> "=" <r: PrecAsgn<G>> => arena.alloc(Expr::Assign(l, r)),
@@ -292,10 +320,7 @@ PrecMatch<G>: &'a Expr<'a,'a,&'a str> = {
 // XXX Replicate the first two layers of the precedence hierarchy to skip "in" expressions to avoid
 // ambiguity between beginning of for loop and foreach loop. This is a hack; we should find a way
 // to tell LALRPOP the right thing here.
-ExprNoIn: &'a Expr<'a,'a,&'a str> = {
-    Getline,
-    PrecAsgnNoIn
-};
+ExprNoIn: &'a Expr<'a,'a,&'a str> = PrecAsgnNoIn;
 
 PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
     <l: PrecTernNoIn> "=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Assign(l, r)),
@@ -327,14 +352,14 @@ PrecAndNoIn: &'a Expr<'a, 'a, &'a str> = {
 // Comparison operators are non-associative, as in POSIX awk, gawk and onetrue awk: a chain such
 // as `a < b < c` is a syntax error and needs parentheses.
 PrecCmp<G>: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecCat> "<" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
-    <l: PrecCat> "<=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
+    <l: CmpLhsNoLt<G>> "<" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
+    <l: CmpLhsNoLt<G>> "<=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
     // Not in unparenthesized print arguments, where `>` is output redirection.
-    <l: PrecCat> ">" <r: PrecCat> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
-    <l: PrecCat> ">=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
-    <l: PrecCat> "==" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
-    <l: PrecCat> "!=" <r: PrecCat> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
-    PrecCat
+    <l: CmpLhs<G>> ">" <r: PrecCat> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
+    <l: CmpLhs<G>> ">=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
+    <l: CmpLhs<G>> "==" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
+    <l: CmpLhs<G>> "!=" <r: PrecCat> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
+    CmpLhs<G>
 }
 
 // Concatenation binds looser than the arithmetic operators and tighter than comparisons. Its right

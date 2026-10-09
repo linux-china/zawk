@@ -331,6 +331,14 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
                             chunk.len = target.unwrap();
                             Ok(false)
                         }
+                        // Nothing is left (an empty file, or input ending at the end of the
+                        // previous buffer): finish without yielding an empty chunk, which reads
+                        // as the end of all input rather than of this file.
+                        (true, true) if chunk.len == 0 => {
+                            self.inner.clear_buf();
+                            self.state = ChunkState::Done;
+                            continue;
+                        }
                         (false, true) | (true, true) => {
                             // Yield the entire buffer, this was the last piece of data.
                             self.inner.clear_buf();
@@ -377,25 +385,23 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                     chunk.name = self.0.name.clone();
                     let buf = self.0.inner.buf.clone();
                     let bs = buf.as_bytes();
-                    self.1 = (self.0.find_indexes)(bs, &mut chunk.off, self.1);
+                    // Whether the byte before this buffer is whitespace. The scan below updates
+                    // `self.1` to the state at the end of the buffer.
+                    let start_ws = self.1;
+                    self.1 = (self.0.find_indexes)(bs, &mut chunk.off, start_ws);
                     // Find the last newline in the buffer, if there is one.
                     let (is_partial, truncate_to, len_if_not_last) =
                         if let Some(nl_off) = chunk.off.0.nl.fields.last().cloned() {
                             let buf_end = nl_off as usize + 1;
                             self.0.inner.start = buf_end;
-                            let mut start = chunk.off.0.rel.fields.len() as isize - 1;
-                            while start > 0 {
-                                if chunk.off.0.rel.fields[start as usize] > nl_off {
-                                    // We are removing trailing fields from the input, but we know
-                                    // that newlines are whitespace, so we reset the start_ws
-                                    // variable to 1.
-                                    self.1 = 1;
-                                    start -= 1;
-                                } else {
-                                    break;
-                                }
-                            }
-                            (false, start as usize, buf_end)
+                            // Keep the field offsets up to the last newline; the ones after it
+                            // belong to the records of the next buffer. A field ends at the latest
+                            // at the newline, so these are complete start/end pairs, the end of
+                            // the last field included (e.g. the tab in "x\t\n").
+                            let fields = &chunk.off.0.rel.fields;
+                            let keep =
+                                fields.iter().rposition(|&off| off <= nl_off).map_or(0, |i| i + 1);
+                            (false, keep, buf_end)
                         } else {
                             (true, 0, 0)
                         };
@@ -404,11 +410,19 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                     let is_eof = self.0.inner.reset()?;
                     return match (is_partial, is_eof) {
                         (false, false) => {
-                            // Yield buffer, stay in main.
+                            // Yield buffer, stay in main. The next buffer starts right after a
+                            // newline, which is whitespace.
+                            self.1 = 1;
                             chunk.buf = Some(buf.try_unique().unwrap());
                             chunk.off.0.rel.fields.truncate(truncate_to);
                             chunk.len = len_if_not_last;
                             Ok(false)
+                        }
+                        // See the comment in OffsetChunkProducer::get_chunk.
+                        (true, true) if chunk.len == 0 => {
+                            self.0.inner.clear_buf();
+                            self.0.state = ChunkState::Done;
+                            continue;
                         }
                         (false, true) | (true, true) => {
                             // Yield the entire buffer, this was the last piece of data.
@@ -419,8 +433,12 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                         }
                         // We read an entire chunk, but we didn't find a full record. Try again
                         // (note that the call to reset read in a larger chunk and would have kept
-                        // a prefix)
-                        (true, false) => continue,
+                        // a prefix). The new buffer is scanned from the same start, so it starts
+                        // from the same whitespace state, not the one at the end of this buffer.
+                        (true, false) => {
+                            self.1 = start_ws;
+                            continue;
+                        }
                     };
                 }
                 ChunkState::Done => return Ok(true),

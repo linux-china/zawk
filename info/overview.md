@@ -314,6 +314,12 @@ if you find that the following are a serious hindrance:
   with a non-default `RS`, does not treat `\r` as a blank, as in gawk. To remove
   carriage returns explicitly in any case, use `sub(/\r$/, "")` at the start of
   the main rule.
+* *`getline < file`* The file name after `<` may be a concatenation:
+  `getline line < dir "/" name` reads the file `dir "/" name` in zawk, while
+  gawk reads it as `(getline line < dir) "/" name` and reads the file `dir`.
+  Comparisons end the file name in both, so `while (getline line < file > 0)`
+  compares the result of `getline` with 0. Parenthesize the file name
+  (`getline line < (dir "/" name)`) to get the same result in both.
 * *Batching* zawk batches reading and writing data fairly aggressively compared
   with most Awk implementations that I have come across. This is done largely for
   performance reasons, and reflects the intended use-case of "batch" data-
