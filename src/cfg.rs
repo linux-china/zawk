@@ -1210,7 +1210,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     return err!("invalid operand for increment operation {:?}", x);
                 };
                 let (next, pre) = if *is_post {
-                    let (next, e) = self.convert_expr(x, current_open)?;
+                    // The value of `x++` is the old value of x as a number: 0 if x was "v".
+                    let (next, e) =
+                        self.convert_expr(&ast::Expr::Unop(ast::Unop::Pos, x), current_open)?;
                     let f = self.fresh_local();
                     self.add_stmt(next, PrimStmt::AsgnVar(f, e))?;
                     (next, Some(PrimExpr::Val(PrimVal::Var(f))))

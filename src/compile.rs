@@ -1719,8 +1719,14 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                // A map holding strings (e.g. `a[k] = "x"; a[k]++`, or `a[k] = $1; a[k]++`) is
+                // incremented in place, as a number converted back to a string. Its new value is
+                // a string, converted to the numeric result type below.
+                let str_vals = conv_tys[0].is_array()
+                    && conv_tys[0].val()? == Ty::Str
+                    && matches!(res_ty, Ty::Int | Ty::Float);
                 if !conv_tys[0].is_array()
-                    || conv_tys[0].val()? != res_ty
+                    || (conv_tys[0].val()? != res_ty && !str_vals)
                     || conv_tys[0].key()? != conv_tys[1]
                 {
                     return err!(
@@ -1729,20 +1735,32 @@ impl<'a, 'b> View<'a, 'b> {
                         dst_ty
                     );
                 }
-                self.pushl(match conv_tys[2] {
+                let (mut by_reg, mut by_ty) = (conv_regs[2], conv_tys[2]);
+                if str_vals && by_ty == Ty::Int {
+                    // "1.5" + 1 is 2.5: add in floating point rather than truncating the string.
+                    let reg = self.regs.stats.reg_of_ty(Ty::Float);
+                    self.convert(reg, Ty::Float, by_reg, by_ty)?;
+                    (by_reg, by_ty) = (reg, Ty::Float);
+                }
+                let inc_dst = if str_vals {
+                    self.regs.stats.reg_of_ty(Ty::Str)
+                } else {
+                    res_reg
+                };
+                self.pushl(match by_ty {
                     Ty::Int => LL::IncInt {
                         map_ty: conv_tys[0],
                         map: conv_regs[0],
                         key: conv_regs[1],
-                        by: conv_regs[2].into(),
-                        dst: res_reg,
+                        by: by_reg.into(),
+                        dst: inc_dst,
                     },
                     Ty::Float => LL::IncFloat {
                         map_ty: conv_tys[0],
                         map: conv_regs[0],
                         key: conv_regs[1],
-                        by: conv_regs[2].into(),
-                        dst: res_reg,
+                        by: by_reg.into(),
+                        dst: inc_dst,
                     },
                     _ => {
                         return err!(
@@ -1750,7 +1768,10 @@ impl<'a, 'b> View<'a, 'b> {
                             &conv_tys[..]
                         );
                     }
-                })
+                });
+                if str_vals {
+                    self.convert(res_reg, res_ty, inc_dst, Ty::Str)?;
+                }
             }
             Clear => {
                 if conv_tys[0].is_array() {
