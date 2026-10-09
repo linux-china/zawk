@@ -44,6 +44,7 @@ pub mod string_util;
 pub mod faker;
 pub mod html;
 pub mod config_util;
+pub mod jev;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;

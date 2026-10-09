@@ -1290,31 +1290,39 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
     env
 }
 
-#[cfg(target_family = "unix")]
+/// The contents of PROCINFO, as in gawk (without gawk's internal and array-valued entries).
 fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
     let procinfo = StrMap::default();
-    procinfo.insert("version".into(), VERSION.into());
-    procinfo.insert("strftime".into(), "%a %m %e %H:%M:%S %Z %Y".into());
-    procinfo.insert("pid".into(), std::process::id().to_string().into());
-    procinfo.insert("platform".into(), "posix".into());
-    unsafe {
-        procinfo.insert("uid".into(), libc::getuid().to_string().into());
-        procinfo.insert("gid".into(), libc::getgid().to_string().into());
-        procinfo.insert("euid".into(), libc::geteuid().to_string().into());
-        procinfo.insert("egid".into(), libc::getegid().to_string().into());
-        procinfo.insert("pgrpid".into(), libc::getpgrp().to_string().into());
-        procinfo.insert("ppid".into(), libc::getppid().to_string().into());
+    let mut set = |k: &'static str, v: String| procinfo.insert(k.into(), v.into());
+    set("version", VERSION.into());
+    // The default format of strftime().
+    set("strftime", "%a %b %e %H:%M:%S %Z %Y".into());
+    // How fields are split: zawk only supports FS (not FIELDWIDTHS or FPAT).
+    set("FS", "FS".into());
+    set("pid", std::process::id().to_string());
+    #[cfg(target_family = "unix")]
+    {
+        set("platform", "posix".into());
+        unsafe {
+            set("uid", libc::getuid().to_string());
+            set("gid", libc::getgid().to_string());
+            set("euid", libc::geteuid().to_string());
+            set("egid", libc::getegid().to_string());
+            set("pgrpid", libc::getpgrp().to_string());
+            set("ppid", libc::getppid().to_string());
+            // The supplementary groups: group1, group2, ...
+            let n = libc::getgroups(0, std::ptr::null_mut());
+            if n > 0 {
+                let mut groups = vec![0 as libc::gid_t; n as usize];
+                let n = libc::getgroups(n, groups.as_mut_ptr());
+                for (i, g) in groups.iter().take(n.max(0) as usize).enumerate() {
+                    procinfo.insert(format!("group{}", i + 1).into(), g.to_string().into());
+                }
+            }
+        }
     }
-    procinfo
-}
-
-#[cfg(target_family = "windows")]
-fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
-    let procinfo = StrMap::default();
-    procinfo.insert("version".into(), VERSION.into());
-    procinfo.insert("strftime".into(), "%a %m %e %H:%M:%S %Z %Y".into());
-    procinfo.insert("pid".into(), std::process::id().to_string().into());
-    procinfo.insert("platform".into(), "windows".into());
+    #[cfg(target_family = "windows")]
+    set("platform", "windows".into());
     procinfo
 }
 
@@ -1459,7 +1467,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ENVIRON => Ok(self.environ.clone()),
-            PROCINFO => Ok(self.environ.clone()),
+            PROCINFO => Ok(self.procinfo.clone()),
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | FI
             | RLENGTH => {
                 err!("var {} is not a string-keyed map", var)

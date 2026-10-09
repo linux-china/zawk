@@ -484,9 +484,16 @@ fn main() {
         },
         None => exec_strategy.num_workers(),
     };
-    let argv: Vec<String> = std::env::args()
+    // As in gawk, ARGV[0] is the name zawk was invoked with, without its directory.
+    let program_name = std::env::args()
         .next()
-        .into_iter()
+        .and_then(|arg0| {
+            std::path::Path::new(&arg0)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| String::from("zawk"));
+    let argv: Vec<String> = std::iter::once(program_name)
         .chain(
             matches
                 .get_many::<String>("input-files")

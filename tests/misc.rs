@@ -629,6 +629,21 @@ fn float_array_keys() {
 }
 
 #[test]
+fn argv0_is_program_name() {
+    // As in gawk, ARGV[0] is the name zawk was invoked with, without its directory.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(r#"BEGIN { print ARGV[0], ARGC, ARGV[1] }"#))
+            .arg(String::from("x"))
+            .assert()
+            .success()
+            .stdout(String::from("zawk 2 x\n"));
+    }
+}
+
+#[test]
 fn large_integer_literals() {
     // Integer literals that are not exact as doubles (beyond 2^53, including those outside the
     // i64 range) are parsed as floats, as in gawk.
