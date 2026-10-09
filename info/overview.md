@@ -222,19 +222,25 @@ surprised to discover there were bugs in zawk's parser.
 
 ### What is missing
 
-* By default, zawk uses the [ryu](https://github.com/dtolnay/ryu) crate to
-  print floating point numbers, rather than the `CONVFMT` variable. Explicitly
-  changing the precision of floating point output requires an appropriate
-  invocation of `printf` or `sprintf`.
+* Numbers are converted to strings as in Awk: integral values print as
+  integers, and other numbers use `OFMT` in `print` and `CONVFMT` elsewhere
+  (concatenation, array subscripts), both `"%.6g"` by default. Both can be set
+  with `-v` or assigned in the program. One exception: a variable that holds a
+  non-integral number and is also used as an array subscript (`a[x]`) is
+  stored as a string when it is assigned, with the `CONVFMT` in effect at that
+  point, so later uses see the rounded value (`x = 1/3; a[x] = 1; print x * 3`
+  prints `0.999999`). Use a separate variable for the subscript
+  (`k = x ""; a[k] = 1`) to keep the full precision of `x`.
 * `next`,  or `nextfile` are supported in zawk, but they can only be invoked
   from the main loop. I haven't come across any Awk scripts that use either of
   these commands from within a function, and it's a major simplification to just
   disallow this case. Again, let me know if this is an important use-case for
   you.
-* Many of the extensions in gawk (e.g. co-processes, multidimensional
-  arrays) are also not implemented. Most "book" awk builtin functions and
-  commands are supported at this point, but please file an issue if you notice
-  any gaps.
+* Some extensions of gawk are not implemented, such as co-processes (`|&`) and
+  true arrays of arrays (`a[i][j]`). Multidimensional arrays in the POSIX
+  style are supported: `a[i, j]`, `(i, j) in a`, `delete a[i, j]` and
+  `SUBSEP`. Most "book" awk builtin functions and commands are supported at
+  this point, but please file an issue if you notice any gaps.
 * While it has never been tried, I sincerely doubt that zawk will run at all
   well --- or at all --- on a 32-bit platform. I suspect it would run much
   slower on a 64-bit non-x86 architecture.
@@ -299,7 +305,24 @@ if you find that the following are a serious hindrance:
   zawk's approach to types can "leak" into actual programs. The same applies to
   missing elements of numeric arrays (`print c["missing"]` prints `0`), with one
   exception: comparing an element with the empty string (`c[k] == ""`,
-  `c[k] != ""`) checks whether the element exists, as in Awk.
+  `c[k] != ""`) checks whether the element exists, as in Awk. That check no
+  longer helps once the element has been referenced, because a reference
+  creates the element, and in a numeric array its value is `0` rather than an
+  uninitialized value:
+
+  ```awk
+  { c[$1]++ }
+  END {
+      print "[" c["zzz"] "]"     # [] in Awk, [0] in zawk; this also creates c["zzz"]
+      print (c["zzz"] == "")     # 1 in Awk, 0 in zawk
+  }
+  ```
+
+  This is a deliberate trade-off: arrays of numbers (counters, sums) keep their
+  values as numbers, which makes `c[$1]++` about twice as fast as with string
+  values. To test whether a key exists in a way that works the same in every
+  Awk, use `(k in c)`, which never creates the element; to print a possibly
+  missing element as an empty string, use `((k in c) ? c[k] : "")`.
 * *UTF-8* zawk can accept arbitrary bytes, but regular expressions and printf
   are UTF-8 aware. zawk does not validate input by default, but the `--utf8`
   flag enables zawk's efficient UTF-8 validation on all input.
