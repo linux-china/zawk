@@ -519,7 +519,11 @@ fn main() {
             let mut prog = String::new();
             for prog_file in prog_files {
                 if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
-                    match reqwest::blocking::get(prog_file).and_then(|resp| resp.text()) {
+                    // Error pages (404, proxy errors, ...) must not be run as programs.
+                    match reqwest::blocking::get(prog_file)
+                        .and_then(|resp| resp.error_for_status())
+                        .and_then(|resp| resp.text())
+                    {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');

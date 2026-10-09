@@ -113,3 +113,22 @@ cawk() { zawk "BEGIN{ print ${1} }" }
 ```
 
 then call `cawk 'uuid()'` to get result.
+
+# Run a program from a URL
+
+`-f` also accepts an `http://` or `https://` URL, and the downloaded text is run as the program:
+
+```shell
+zawk -f https://example.com/scripts/report.awk data.txt
+```
+
+Only a successful response (status 2xx) is used: an error response such as `404 Not Found` stops
+zawk with an error instead of running the error page.
+
+Running code from the network has the same risks as `curl ... | sh`. zawk does not verify the
+downloaded program, and AWK programs can run commands (`system()`, `print | "cmd"`), write files
+and use the network functions of the standard library. So:
+
+- Only use URLs you trust, and prefer `https://` (plain `http://` can be modified in transit).
+- The content behind a URL can change; for reproducible runs, pin a version (e.g. a tag or
+  commit in the URL) or download the program, review it, and run the local file.
