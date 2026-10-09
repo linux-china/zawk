@@ -1029,10 +1029,9 @@ fn response_text(response: Response) -> String {
 
 mod test {
     use super::{State, TypeSafeClient};
-    use dotenv::dotenv;
     #[test]
     fn test_filter() {
-        dotenv().ok();
+        dotenv::dotenv().ok();
         let client = TypeSafeClient::from_env().unwrap();
         let state = State::text("The door creaks open.");
         let chance: f64 = client.yes_no(&state, "Is the door open?").unwrap();
