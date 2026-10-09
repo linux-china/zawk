@@ -136,6 +136,7 @@ ini = "2.0"
 java-properties = "2"
 time = "0.3.55"
 lettre = "0.11"
+thiserror = "1.0.69"
 
 [target.'cfg(target_family = "unix")'.dependencies]
 tikv-jemallocator = { version = "0.7" }
