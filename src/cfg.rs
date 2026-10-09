@@ -826,9 +826,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Printf(fmt, args, out) => {
                 let (mut current_open, fmt_v) = self.convert_val(fmt, current_open)?;
+                let fmt_v = self.snapshot_before(fmt_v, args, current_open)?;
                 let mut arg_vs = SmallVec::with_capacity(args.len());
-                for a in args.iter() {
+                for (i, a) in args.iter().enumerate() {
                     let (next, arg_v) = self.convert_val(a, current_open)?;
+                    let arg_v = self.snapshot_before(arg_v, &args[i + 1..], next)?;
                     arg_vs.push(arg_v);
                     current_open = next;
                 }
@@ -893,7 +895,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let mut print_args = SmallVec::with_capacity(vs.len() * 2);
                 for (i, v) in vs.iter().enumerate() {
                     let (next, mut to_print) = self.convert_val(*v, current_open)?;
-                    to_print = self.escape(to_print, current_open)?;
+                    to_print = self.snapshot_before(to_print, &vs[i + 1..], next)?;
+                    to_print = self.escape(to_print, next)?;
                     current_open = next;
                     print_args.push(to_print);
                     if i == vs.len() - 1 {
@@ -1087,6 +1090,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Binop(op, e1, e2) => {
                 let (next, v1) = self.convert_val(e1, current_open)?;
+                let v1 = self.snapshot_before(v1, &[e2], next)?;
                 let (next, v2) = if let ast::Binop::IsMatch = op {
                     self.convert_regex_arg(e2, next)?
                 } else {
@@ -1403,12 +1407,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         if args.is_empty() {
             return err!("sprintf must have at least one argument");
         }
-        let mut iter = args.iter();
-        let (next, fmt) = self.convert_val(iter.next().unwrap(), current_open)?;
+        let (next, fmt) = self.convert_val(args[0], current_open)?;
+        let fmt = self.snapshot_before(fmt, &args[1..], next)?;
         current_open = next;
         let mut res = SmallVec::with_capacity(args.len() - 1);
-        for a in iter {
+        for (i, a) in args.iter().enumerate().skip(1) {
             let (next, v) = self.convert_val(a, current_open)?;
+            let v = self.snapshot_before(v, &args[i + 1..], next)?;
             current_open = next;
             res.push(v);
         }
@@ -1886,6 +1891,54 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     }
 
     #[allow(clippy::wrong_self_convention)]
+    /// Operands are evaluated from left to right: in `i + i++`, `print i, i++` or `i (i = 9)`, the
+    /// first operand is the value of `i` before the later operands change it. A variable operand
+    /// is read where it is used, so when a later operand may assign variables, `v` is copied into
+    /// a fresh local first.
+    fn snapshot_before<'c>(
+        &mut self,
+        v: PrimVal<'b>,
+        later: &[&'c Expr<'c, 'b, I>],
+        current_open: NodeIx,
+    ) -> Result<PrimVal<'b>> {
+        if !matches!(v, PrimVal::Var(_)) || !later.iter().any(|e| self.may_assign(e)) {
+            return Ok(v);
+        }
+        let f = self.fresh_local();
+        self.add_stmt(current_open, PrimStmt::AsgnVar(f, PrimExpr::Val(v)))?;
+        Ok(PrimVal::Var(f))
+    }
+
+    /// Whether evaluating `e` may assign a variable: an assignment, an increment, getline, sub or
+    /// gsub, or a call of a user-defined function (which may assign globals).
+    fn may_assign<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
+        use builtins::Function::{GSub, Sub};
+        use Expr::*;
+        match e {
+            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Var(_) | Cond(_) => false,
+            Unop(_, e) => self.may_assign(e),
+            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) => {
+                self.may_assign(l) || self.may_assign(r)
+            }
+            ITE(c, t, f) => self.may_assign(c) || self.may_assign(t) || self.may_assign(f),
+            Assign(..) | AssignOp(..) | Inc { .. } | Getline { .. } | ReadStdin => true,
+            Call(f, args) => {
+                let assigns = match f {
+                    Either::Left(name) if name.is_sprintf() => false,
+                    Either::Left(name) => {
+                        self.func_table.contains_key(&FunctionName::Named(name.clone()))
+                            || !matches!(
+                                builtins::Function::try_from(name.clone()),
+                                Ok(bi) if !matches!(bi, Sub | GSub)
+                            )
+                    }
+                    Either::Right(bi) => matches!(bi, Sub | GSub),
+                };
+                assigns || args.iter().any(|a| self.may_assign(a))
+            }
+        }
+    }
+
     fn to_val(&mut self, exp: PrimExpr<'b>, current_open: NodeIx) -> Result<PrimVal<'b>> {
         Ok(if let PrimExpr::Val(v) = exp {
             v

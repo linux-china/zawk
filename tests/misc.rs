@@ -1078,3 +1078,20 @@ fn awk_builtins_cannot_be_redefined() {
         );
     }
 }
+
+#[test]
+fn csv_output_of_conditional_print_argument() {
+    // With -o csv, a print argument that is a conditional expression is escaped like the others
+    // (it was printed as an empty field).
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ocsv")
+            .arg(r#"{ print (NR > 0 ? "x,y" : "z"), $1 }"#)
+            .write_stdin("a,b\n")
+            .assert()
+            .success()
+            .stdout("\"x,y\",\"a,b\"\r\n");
+    }
+}
