@@ -275,8 +275,17 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                     //      if (Cond(0) == 2) EndCond(0); # _cond_0 = 0;
                     //      next;
                     //  }
-                    inner.push(arena.alloc(If(l, arena.alloc(StartCond(conds)), None)));
-                    inner.push(arena.alloc(If(r, arena.alloc(LastCond(conds)), None)));
+                    //
+                    // As in POSIX awk and gawk, the start pattern is only evaluated outside of the
+                    // range and the end pattern only inside of it (including the line that starts
+                    // it), so a line matching only the end pattern does not run the action:
+                    //   if (Cond(0) == 0) { if (/\/*/) StartCond(0); }
+                    //   if (Cond(0) == 1) { if (/*\//) LastCond(0); }
+                    let cond_is = |v| arena.alloc(Binop(EQ, arena.alloc(Cond(conds)), arena.alloc(ILit(v))));
+                    let start = arena.alloc(If(l, arena.alloc(StartCond(conds)), None));
+                    inner.push(arena.alloc(If(cond_is(0), start, None)));
+                    let last = arena.alloc(If(r, arena.alloc(LastCond(conds)), None));
+                    inner.push(arena.alloc(If(cond_is(1), last, None)));
                     block.push(arena.alloc(If(
                         arena.alloc(Binop(EQ, arena.alloc(Cond(conds)), arena.alloc(ILit(2)))),
                         arena.alloc(EndCond(conds)),

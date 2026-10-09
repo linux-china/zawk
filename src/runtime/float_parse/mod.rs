@@ -66,6 +66,16 @@ pub fn hextoi(mut bs: &[u8]) -> i64 {
     }
 }
 
+/// The value of an integer literal of the program: an integer if it is exact as a double (at most
+/// 2^53 in magnitude), a float otherwise, as awk numbers are doubles. This also keeps arithmetic
+/// on such literals from overflowing 64-bit integers (`9223372036854775807 + 1`).
+pub fn exact_int_literal(lit: Result<i64, f64>) -> Result<i64, f64> {
+    match lit {
+        Ok(i) if i.unsigned_abs() > 1 << 53 => Err(i as f64),
+        lit => lit,
+    }
+}
+
 /// Parse a decimal integer literal (with an optional sign). Values outside the range of i64 are
 /// returned as the nearest float (`Err`), as awk numbers are doubles.
 pub fn parse_int_literal(bs: &[u8]) -> Result<i64, f64> {

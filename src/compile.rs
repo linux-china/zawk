@@ -1756,6 +1756,11 @@ impl<'a, 'b> View<'a, 'b> {
                     return err!("incorrect parameter types for Clear: {:?}", &conv_tys[..]);
                 }
             }
+            ToFloat => {
+                if res_reg != UNUSED {
+                    self.mov(res_reg, conv_regs[0], Ty::Float)?;
+                }
+            }
             Strnum => {
                 if res_reg != UNUSED {
                     self.mov(res_reg, conv_regs[0], Ty::Str)?;

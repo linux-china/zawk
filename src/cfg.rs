@@ -1079,6 +1079,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             Binop(op, e1, e2) => {
                 let (next, v1) = self.convert_val(e1, current_open)?;
                 let (next, v2) = self.convert_val(e2, next)?;
+                let v1 = self.widen_sum_operand(*op, v1, &v2, next)?;
                 return Ok((
                     next,
                     PrimExpr::CallBuiltin(builtins::Function::Binop(*op), smallvec![v1, v2]),
@@ -1126,7 +1127,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Index(arr, ix) => {
                 let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
-                let (next, ix_v) = self.convert_val_inner(ix, next, in_cond)?;
+                let (next, ix_v) = self.convert_index(ix, next, in_cond)?;
                 return Ok((next, PrimExpr::Index(arr_v, ix_v)));
             }
             Call(fname, args) => return self.call(current_open, fname, args),
@@ -1143,8 +1144,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if let ast::Binop::Plus = op {
                     // We don't need in_cond here, it would seem, because there aren't
                     // subexpressions which should be considered patterns.
+                    // Adding a non-constant amount is done in floating point, as in
+                    // `widen_sum_operand`.
+                    let by = &Expr::Call(Either::Right(builtins::Function::ToFloat), &[to]);
+                    let by = if matches!(to, ILit(_) | FLit(_)) { to } else { by };
                     return self.convert_expr(
-                        &Expr::Call(Either::Right(builtins::Function::IncMap), &[arr, ix, to]),
+                        &Expr::Call(Either::Right(builtins::Function::IncMap), &[arr, ix, by]),
                         current_open,
                     );
                 }
@@ -1154,6 +1159,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     |slf, arr_v, ix_v, open| {
                         let (next, to_v) = slf.convert_val(to, open)?;
                         let arr_cell_v = slf.to_val(PrimExpr::Index(arr_v, ix_v.clone()), next)?;
+                        let arr_cell_v = slf.widen_sum_operand(*op, arr_cell_v, &to_v, next)?;
                         Ok((
                             next,
                             PrimExpr::CallBuiltin(
@@ -1175,6 +1181,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             AssignOp(x, op, to) => {
                 let (next, to_v) = self.convert_val(to, current_open)?;
+                // `x` is not a constant: `x += y` is done in floating point unless `y` is one.
+                let to_v = self.widen_sum_operand(*op, to_v, &PrimVal::Var(Ident::unused()), next)?;
                 return self.do_assign(
                     x,
                     |v| {
@@ -1477,7 +1485,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         };
 
         let arr_v = PrimVal::Var(arr_id);
-        let (next, ix_v) = self.convert_val(ix, next)?;
+        let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
         let (next, to_e) = to_f(self, arr_v.clone(), ix_v.clone(), next)?;
         self.add_stmt(
             next,
@@ -1624,6 +1632,45 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.add_stmt(current_open, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(1))))?;
         let target = self.exit_target()?;
         self.jump_to(current_open, target)
+    }
+
+    /// Awk numbers are doubles, while zawk computes with 64-bit integers where it can. A sum or
+    /// difference that adds a constant (`i + 1`, `NR - 1`, `i++`) stays an integer: overflowing
+    /// would take more than 2^31 steps. Otherwise (`a + b`, as in a Fibonacci sequence) it may grow
+    /// without bound, so `v` is converted to a float, which makes the operation a float one.
+    fn widen_sum_operand(
+        &mut self,
+        op: ast::Binop,
+        v: PrimVal<'b>,
+        other: &PrimVal<'b>,
+        current_open: NodeIx,
+    ) -> Result<PrimVal<'b>> {
+        let is_const = |v: &PrimVal| matches!(v, PrimVal::ILit(_) | PrimVal::FLit(_));
+        if !matches!(op, ast::Binop::Plus | ast::Binop::Minus) || is_const(&v) || is_const(other) {
+            return Ok(v);
+        }
+        self.to_val(
+            PrimExpr::CallBuiltin(builtins::Function::ToFloat, smallvec![v]),
+            current_open,
+        )
+    }
+
+    /// Converts an array subscript. Unlike elsewhere (see `widen_sum_operand`), a sum or
+    /// difference used directly as a subscript stays an integer operation, as with `a[i + j]`:
+    /// an integer key keeps the array integer-keyed, and such a key never gets near overflowing.
+    fn convert_index<'c>(
+        &mut self,
+        ix: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+        in_cond: bool,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        if let Expr::Binop(op @ (ast::Binop::Plus | ast::Binop::Minus), e1, e2) = ix {
+            let (next, v1) = self.convert_val_inner(e1, current_open, in_cond)?;
+            let (next, v2) = self.convert_val_inner(e2, next, in_cond)?;
+            let sum = PrimExpr::CallBuiltin(builtins::Function::Binop(*op), smallvec![v1, v2]);
+            return Ok((next, self.to_val(sum, next)?));
+        }
+        self.convert_val_inner(ix, current_open, in_cond)
     }
 
     /// Ends `current_open` with a jump to `target` (for `exit`, `break`, `continue`, `next` and
@@ -1815,8 +1862,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
         let mut prim_args = SmallVec::with_capacity(args.len());
         let mut open = current_open;
-        for a in args.iter() {
-            let (next, v) = self.convert_val(a, open)?;
+        // The second argument of these is an array subscript.
+        use builtins::Function::{Contains, Delete, IncMap};
+        let key_arg = matches!(bi, Either::Right(IncMap | Contains | Delete));
+        for (i, a) in args.iter().enumerate() {
+            let (next, v) = if key_arg && i == 1 {
+                self.convert_index(a, open, /*in_cond=*/ false)?
+            } else {
+                self.convert_val(a, open)?
+            };
             open = next;
             prim_args.push(v);
         }

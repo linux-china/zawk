@@ -570,26 +570,26 @@ fn mod_by_zero_is_fatal() {
 #[test]
 fn integer_overflow() {
     for backend_arg in BACKEND_ARGS {
-        // Integer addition and subtraction halt instead of silently wrapping around.
-        for prog in [
-            r#"BEGIN { x = 9223372036854775807; print x + 1 }"#,
-            r#"BEGIN { x = -9223372036854775807; print x - 2 }"#,
+        // Integer literals beyond 2^53 are floats, and sums of two non-constant values are
+        // computed in floating point, so they neither wrap around nor halt (as in gawk).
+        for (prog, expected) in [
+            (r#"BEGIN { x = 9223372036854775807; print x + 1 }"#, "9223372036854775808\n"),
+            (r#"BEGIN { x = -9223372036854775807; print x - 2 }"#, "-9223372036854775808\n"),
+            (
+                r#"BEGIN { a = 0; b = 1; for (i = 0; i < 100; i++) { c = a + b; a = b; b = c }
+                           x = 1; for (i = 0; i < 70; i++) x += x
+                           m[1] = 1; for (i = 0; i < 70; i++) m[1] += m[1]
+                           print b, x, m[1], i + 1 }"#,
+                "573147844013817200640 1180591620717411303424 1180591620717411303424 71\n",
+            ),
         ] {
-            let output = Command::cargo_bin("zawk")
+            Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(String::from(*backend_arg))
                 .arg(String::from(prog))
-                .output()
-                .unwrap();
-            assert_eq!(output.status.code(), Some(1), "{} {}", backend_arg, prog);
-            assert!(output.stdout.is_empty());
-            assert!(
-                String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
-                "{} {}: {}",
-                backend_arg,
-                prog,
-                String::from_utf8_lossy(&output.stderr)
-            );
+                .assert()
+                .success()
+                .stdout(String::from(expected));
         }
         // Products are computed in floating point, so they do not wrap around.
         Command::cargo_bin("zawk")
@@ -630,7 +630,8 @@ fn float_array_keys() {
 
 #[test]
 fn large_integer_literals() {
-    // Integer literals outside the i64 range are parsed as floats rather than 0.
+    // Integer literals that are not exact as doubles (beyond 2^53, including those outside the
+    // i64 range) are parsed as floats, as in gawk.
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -645,7 +646,7 @@ fn large_integer_literals() {
             .assert()
             .success()
             .stdout(String::from(
-                "1 1\n1 1\n9223372036854775807 9223372036854775807 31\n",
+                "1 1\n1 1\n9223372036854775808 9223372036854775808 31\n",
             ));
     }
 }

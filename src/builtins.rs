@@ -17,6 +17,9 @@ pub enum Function {
     // Internal: the identity on strings, marking its result as a "strnum" (a string from input,
     // which compares numerically if it looks like a number). Used for -v assignments.
     Strnum,
+    // Internal: converts a number to a float. Sums and differences of two non-constant integers
+    // are computed in floating point (awk numbers are doubles), so they cannot overflow.
+    ToFloat,
     Unop(ast::Unop),
     Binop(ast::Binop),
     FloatFunc(FloatFunc),
@@ -878,6 +881,7 @@ impl Function {
             Close => (smallvec![Str], Int),
             Fflush => (smallvec![Str], Int),
             Strnum => (smallvec![Str], Str),
+            ToFloat => (smallvec![Float], Float),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
@@ -948,7 +952,7 @@ impl Function {
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
-            Strnum => 1,
+            Strnum | ToFloat => 1,
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
@@ -1122,6 +1126,7 @@ impl Function {
             }
             SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
+            ToFloat => Ok(Scalar(BaseTy::Float).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

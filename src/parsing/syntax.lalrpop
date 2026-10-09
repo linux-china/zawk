@@ -6,7 +6,7 @@ use crate::{
   ast::{Pattern, Expr, Stmt, Binop, Unop, Prog, FunDec},
   builtins::Function,
   common::{FileSpec, Either},
-  runtime::{strtod,parse_int_literal,parse_hex_literal},
+  runtime::{strtod,exact_int_literal,parse_int_literal,parse_hex_literal},
   lexer::{self, Tok},
 };
 
@@ -32,7 +32,7 @@ ToplevelBraced: () = {
 
 UnbracedPattern: () = {
   <Expr> "\n"+ => prog.pats.push((Pattern::Bool(<>), None)),
-  <e1:BaseTerm> "," <e2:BaseTerm> "\n"+ => prog.pats.push((Pattern::Comma(e1, e2), None)),
+  <e1:Expr> "," "\n"* <e2:Expr> "\n"+ => prog.pats.push((Pattern::Comma(e1, e2), None)),
 }
 
 ProgInner: () = {
@@ -88,7 +88,8 @@ PatAction: (Pattern<'a,'a,&'a str>, Option<&'a Stmt<'a,'a,&'a str>>) = {
                    Some(e) => Pattern::Bool(e),
                    None => Pattern::Null,
               }, Some(b)),
-  <l:BaseTerm> "," <r:BaseTerm> <b:Block> => (Pattern::Comma(l, r), Some(b)),
+  // A range pattern: both ends are full expressions, as in `NR == 1, NR == 3`.
+  <l:Expr> "," "\n"* <r:Expr> <b:Block> => (Pattern::Comma(l, r), Some(b)),
 }
 
 // Resolving if/else groupings courtesy of wikipedia
@@ -418,9 +419,9 @@ BaseTerm: &'a Expr<'a,'a, &'a str> = {
 LeafTerm: &'a Expr<'a,'a, &'a str> = {
   Ident,
   StrLit,
-  // Integer literals that do not fit in an i64 become floating-point literals.
-  "INT" => arena.alloc(parse_int_literal(<>.as_bytes()).map_or_else(Expr::FLit, Expr::ILit)),
-  "HEX" => arena.alloc(parse_hex_literal(<>.as_bytes()).map_or_else(Expr::FLit, Expr::ILit)),
+  // Integer literals that are not exact as doubles (beyond 2^53) become floating-point literals.
+  "INT" => arena.alloc(exact_int_literal(parse_int_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
   "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
   // TODO: not Rparen for these next two?

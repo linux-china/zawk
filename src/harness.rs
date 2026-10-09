@@ -1038,7 +1038,8 @@ depth 0: k=1 v=99
         }"#,
         "0 1 2.5 4\n",
         @input "",
-        @types [ r0 :: Int, r1 :: Int, r2 :: Float, r3 :: Int, m :: MapIntInt  ]
+        // `length(a) + b` adds two non-constant values, computed in floating point.
+        @types [ r0 :: Float, r1 :: Float, r2 :: Float, r3 :: Float, m :: MapIntInt  ]
     );
 
     test_program!(
