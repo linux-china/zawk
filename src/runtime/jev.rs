@@ -1,6 +1,6 @@
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 
 use std::{
     collections::BTreeMap,
@@ -24,7 +24,6 @@ pub const JEV_THRESHOLD: f32 = 0.5;
 const MAX_ATTEMPTS: u32 = 3;
 const BACKOFF_BASE_MS: u64 = 500;
 const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
-
 
 #[derive(Debug, Error)]
 pub enum TypeSafeError {
@@ -57,7 +56,6 @@ pub enum TypeSafeError {
         detail: String,
     },
 }
-
 
 /// Application state sent with a request.
 ///
@@ -339,10 +337,10 @@ impl Evaluation {
     pub fn choice(&self, id: &str) -> Result<ChoiceAnswer, TypeSafeError> {
         match self.answers.get(id) {
             Some(Answer::Choice {
-                     choice,
-                     probabilities,
-                     confidence,
-                 }) => Ok(ChoiceAnswer {
+                choice,
+                probabilities,
+                confidence,
+            }) => Ok(ChoiceAnswer {
                 choice: choice.clone(),
                 probabilities: probabilities.clone(),
                 confidence: *confidence,
@@ -377,11 +375,11 @@ impl Evaluation {
     pub fn score(&self, id: &str) -> Result<ScoreAnswer, TypeSafeError> {
         match self.answers.get(id) {
             Some(Answer::Score {
-                     score,
-                     legend,
-                     probabilities,
-                     confidence,
-                 }) => Ok(ScoreAnswer {
+                score,
+                legend,
+                probabilities,
+                confidence,
+            }) => Ok(ScoreAnswer {
                 score: *score,
                 legend: legend.clone(),
                 probabilities: probabilities.clone(),
@@ -620,7 +618,6 @@ pub struct TypeSafeClient {
     timeout: Duration,
     client: Client,
 }
-
 
 impl TypeSafeClient {
     /// Reads the key from the `TYPESAFE_API_KEY` environment variable.
@@ -1028,4 +1025,17 @@ const fn retry_delay(attempt: u32) -> Duration {
 
 fn response_text(response: Response) -> String {
     response.text().unwrap_or_else(|_| String::new())
+}
+
+mod test {
+    use super::{State, TypeSafeClient};
+    use dotenv::dotenv;
+    #[test]
+    fn test_filter() {
+        dotenv().ok();
+        let client = TypeSafeClient::from_env().unwrap();
+        let state = State::text("The door creaks open.");
+        let chance: f64 = client.yes_no(&state, "Is the door open?").unwrap();
+        println!("Chance: {}", chance)
+    }
 }
