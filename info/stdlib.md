@@ -45,6 +45,8 @@ leftmost match of re, and RLENGTH is set with the length of this match.
 
 The 1-indexed substring of string s starting from index i and continuing for the next j characters or until the end of s
 if i+j exceeds the length of s or if s is not provided.
+As in gawk, a start before the first character starts at the first character and keeps the length:
+`substr("hello", 0, 3)` and `substr("hello", -1, 3)` are both `hel`. Positions count characters, not bytes.
 
 ### sub(re, text, s)
 

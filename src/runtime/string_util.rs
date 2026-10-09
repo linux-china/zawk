@@ -2,19 +2,14 @@ use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
 use pad::Alignment;
 
-/// awk `substr` with 1-based `pos`; a negative `pos` counts back from the end of `base`
-/// (`-1` is the last char). A non-positive `len` yields an empty string.
+/// awk `substr` with 1-based `pos`, counting chars. As in gawk and onetrue awk, a `pos` before
+/// the first char starts at the first char and keeps `len`: `substr("hello", -1, 3)` and
+/// `substr("hello", 0, 3)` are both `"hel"`. A non-positive `len` yields an empty string.
 pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
     if len <= 0 {
         return Str::default();
     }
-    let start = if pos > 0 {
-        pos - 1
-    } else if pos == 0 {
-        0
-    } else {
-        (base.as_str().chars().count() as Int + pos).max(0)
-    };
+    let start = pos.max(1) - 1;
     base.sub_str(start as usize, len as usize)
 }
 
@@ -546,12 +541,16 @@ mod tests {
         let s = Str::from("hello");
         assert_eq!(substr(&s, 2, 3).as_str(), "ell");
         assert_eq!(substr(&s, 2, Int::MAX).as_str(), "ello");
-        assert_eq!(substr(&s, -1, 1).as_str(), "o");
-        assert_eq!(substr(&s, -3, 2).as_str(), "ll");
+        // A start before the first char starts at the first char, keeping the length.
+        assert_eq!(substr(&s, -1, 3).as_str(), "hel");
+        assert_eq!(substr(&s, 0, 1).as_str(), "h");
         assert_eq!(substr(&s, -10, 2).as_str(), "he");
+        assert_eq!(substr(&s, -1, Int::MAX).as_str(), "hello");
         assert_eq!(substr(&s, 2, -1).as_str(), "");
         assert_eq!(substr(&s, 2, 0).as_str(), "");
-        assert_eq!(substr(&Str::from("你好Hello"), -5, 2).as_str(), "He");
+        assert_eq!(substr(&s, 6, 1).as_str(), "");
+        assert_eq!(substr(&Str::from("你好Hello"), 2, 2).as_str(), "好H");
+        assert_eq!(substr(&Str::from("你好Hello"), -5, 2).as_str(), "你好");
     }
 
     #[test]

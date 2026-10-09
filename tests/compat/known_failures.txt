@@ -14,7 +14,6 @@
 
 # string functions
 04-length                             # length(number) fails to compile
-04-substr                             # negative start counts from the end of the string (Python style)
 
 # printf
 
