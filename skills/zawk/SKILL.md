@@ -1,13 +1,13 @@
 ---
 name: zawk
 description: >
-  zawk is AWK implement in Rust with stdlib support and gawk compatibility. It can read CSV/TSV, JSONL, 
+  zawk is AWK implement in Rust with stdlib support and gawk mostly compatible. It can read CSV/TSV, JSONL, 
   and stdlib has text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc. support.
   It has Jev decision support with filter, rank, classify, score.
 allowed-tools: Bash
 ---
 
-zawk is AWK implementation with gawk compatible, and you can use zawk to replace gawk for text process.
+zawk is AWK implementation with gawk compatible, and you can use zawk to replace gawk for most text process.
 
 zawk has great features:
 
