@@ -597,6 +597,18 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
+            // asort(src, dst): both are maps, the values of `src` flow into `dst` so they share a
+            // value type, while their key types are independent.
+            Function::Asort => {
+                let (src, dst) = (args[0], args[1]);
+                ctx.constrain_as_map(src);
+                ctx.constrain_as_map(dst);
+                let val = ctx.fresh_var();
+                for map in [src, dst] {
+                    ctx.nw.add_dep(map, val, Constraint::Val(()));
+                    ctx.nw.add_dep(val, map, Constraint::ValIn(()));
+                }
+            }
             Function::Clear => {
                 let is_map = ctx.constant(Some(Map {
                     key: None,
@@ -844,7 +856,7 @@ impl Function {
             Dejwt => (smallvec![Str, Str], MapStrStr),
             Encrypt => (smallvec![Str, Str, Str], Str),
             Decrypt => (smallvec![Str, Str, Str], Str),
-            Asort => (smallvec![incoming[0],incoming[0]], Int),
+            Asort => (smallvec![incoming[0], incoming[1]], Int),
             BloomFilterInsert => (smallvec![Str, Str], Null),
             BloomFilterContains | BloomFilterContainsWithInsert => (smallvec![Str, Str], Int),
             Fake => (smallvec![Str, Str], Str),

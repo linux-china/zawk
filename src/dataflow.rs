@@ -352,18 +352,6 @@ pub(crate) mod boilerplate {
             DumpInt(_num) => {},
             DumpFloat(_num) => {},
             DumpNull() => {}
-            MapIntIntAsort(dst, arr, target) => {
-                f(dst.into(), Some(arr.into()));
-                f(dst.into(), Some(target.into()));
-            }
-            MapIntFloatAsort(dst, arr, target) => {
-                f(dst.into(), Some(arr.into()));
-                f(dst.into(), Some(target.into()));
-            },
-            MapIntStrAsort(dst, arr, target) => {
-                f(dst.into(), Some(arr.into()));
-                f(dst.into(), Some(target.into()));
-            },
             MapIntIntJoin(dst, arr, sep) => {
                 f(dst.into(), Some(arr.into()));
                 f(dst.into(), Some(sep.into()));
@@ -837,6 +825,11 @@ pub(crate) mod boilerplate {
                 f(Key::Reg(*dst, map_ty.val().unwrap()), Some(Key::MapVal(*map, *map_ty)))
             }
             Len { map_ty, dst, map } => f(Key::Reg(*dst, Ty::Int), Some(Key::Reg(*map, *map_ty))),
+            Asort { res, src_ty, src, dst_ty, dst } => {
+                f(res.into(), None);
+                f(Key::MapKey(*dst, *dst_ty), None);
+                f(Key::MapVal(*dst, *dst_ty), Some(Key::MapVal(*src, *src_ty)));
+            }
             Store { map_ty, map, key, val } => {
                 f(Key::MapKey(*map, *map_ty), Some(Key::Reg(*key, map_ty.key().unwrap())));
                 f(Key::MapVal(*map, *map_ty), Some(Key::Reg(*val, map_ty.val().unwrap())));

@@ -999,22 +999,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
 
                 footer
             }
-            Break => {
-                self.do_break_continue(current_open, /*is_break*/ true)?;
-                current_open
-            }
-            Continue => {
-                self.do_break_continue(current_open, /*is_break*/ false)?;
-                current_open
-            }
-            Next => {
-                self.do_next(current_open, /*is_next_file*/ false)?;
-                current_open
-            }
-            NextFile => {
-                self.do_next(current_open, /*is_next_file*/ true)?;
-                current_open
-            }
+            Break => self.do_break_continue(current_open, /*is_break*/ true)?,
+            Continue => self.do_break_continue(current_open, /*is_break*/ false)?,
+            Next => self.do_next(current_open, /*is_next_file*/ false)?,
+            NextFile => self.do_next(current_open, /*is_next_file*/ true)?,
             EndBlock(body) => {
                 let entry = self.end_entry();
                 self.guarded_else(current_open, entry);
@@ -1039,11 +1027,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     (current_open, PrimExpr::Val(PrimVal::Var(Ident::unused())))
                 };
                 self.add_stmt(current_open, PrimStmt::AsgnVar(self.f.ret, e))?;
-                self.f
-                    .cfg
-                    .add_edge(current_open, self.f.exit, Transition::null());
-                self.seal(current_open);
-                current_open
+                let exit = self.f.exit;
+                self.jump_to(current_open, exit)?
             }
         })
     }
@@ -1638,7 +1623,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
         self.add_stmt(current_open, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(1))))?;
         let target = self.exit_target()?;
-        // A never-taken branch keeps the statements after `exit` well-formed.
+        self.jump_to(current_open, target)
+    }
+
+    /// Ends `current_open` with a jump to `target` (for `exit`, `break`, `continue`, `next` and
+    /// `return`), and returns a new block for the statements that follow, which never run. A
+    /// never-taken branch into that block keeps those statements well-formed.
+    fn jump_to(&mut self, current_open: NodeIx, target: NodeIx) -> Result<NodeIx> {
         let never = self.fresh_local();
         self.add_stmt(current_open, PrimStmt::AsgnVar(never, PrimExpr::Val(PrimVal::ILit(0))))?;
         let dead = self.f.cfg.add_node(Default::default());
@@ -1661,7 +1652,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         Ok((next, PrimExpr::Val(PrimVal::Var(res))))
     }
 
-    fn do_break_continue(&mut self, current_open: NodeIx, is_break: bool) -> Result<()> {
+    fn do_break_continue(&mut self, current_open: NodeIx, is_break: bool) -> Result<NodeIx> {
         let name = if is_break { "break" } else { "continue" };
         if self.f.loop_ctx.len() == 1 && self.f.toplevel_header.is_some() {
             return err!("{} statement must be inside a loop", name);
@@ -1669,19 +1660,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         match self.f.loop_ctx.last().cloned() {
             Some((header, footer, update)) => {
                 // Continue statements jump to the update node or beginning.
-                match is_break {
-                    true => {self.f.cfg.add_edge(current_open, footer, Transition::null());},
-                    false => {
-                        match update {
-                            Some(update) => {
-                                self.f.cfg.add_edge(current_open, update, Transition::null());
-                            },
-                            None => {self.f.cfg.add_edge(current_open, header, Transition::null());}
-                        };
-                    }
+                let target = match (is_break, update) {
+                    (true, _) => footer,
+                    (false, Some(update)) => update,
+                    (false, None) => header,
                 };
-                self.seal(current_open);
-                Ok(())
+                self.jump_to(current_open, target)
             }
             None => {
                 err!("{} statement must be inside a loop", name)
@@ -1698,7 +1682,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     }
 
     // Handles "next", "nextfile" statements.
-    fn do_next(&mut self, current_open: NodeIx, is_next_file: bool) -> Result<()> {
+    fn do_next(&mut self, current_open: NodeIx, is_next_file: bool) -> Result<NodeIx> {
         if let Some(header) = self.f.toplevel_header {
             if is_next_file {
                 self.add_stmt(
@@ -1709,11 +1693,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     ),
                 )?;
             }
-            self.f
-                .cfg
-                .add_edge(current_open, header, Transition::null());
-            self.seal(current_open);
-            Ok(())
+            self.jump_to(current_open, header)
         } else {
             err!(
                 "Cannot use `{}` from outside of the toplevel loop! \
@@ -2031,9 +2011,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         prim_args.push(PrimVal::ILit(1));
                         prim_args.push(max);
                     }
-                    // asort(arr) => asort(arr,dst);
+                    // asort(arr) => asort(arr, arr): sort in place.
                     builtins::Function::Asort if args_len == 1 => {
-                        prim_args.push(PrimVal::Var(Ident::unused()));
+                        prim_args.push(prim_args[0].clone());
                     }
                     // http_get(url) => http_get(url,headers);
                     builtins::Function::HttpGet if args_len == 1 => {
@@ -2180,7 +2160,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             return err!(
                 "appending to sealed basic block ({}). Last instr={:?}",
                 at.index(),
-                bb.q.back().unwrap()
+                bb.q.back()
             );
         }
         bb.q.push_back(stmt);

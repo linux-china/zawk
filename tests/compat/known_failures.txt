@@ -16,9 +16,7 @@
 04-length                             # length(number) fails to compile
 04-substr                             # negative start counts from the end of the string (Python style)
 04-utf8-length-substr                 # index() returns byte offsets while length()/substr() count chars
-04-utf8-match                         # match() returns byte offsets; interp backend: match() is broken
-04-match                              # interp backend only: match() returns 1 and RSTART 0
-02-regex-bracket                      # interp backend only: `~` returns the match position instead of 1
+04-utf8-match                         # match() returns byte offsets
 
 # printf
 
@@ -26,7 +24,6 @@
 09-environ-argv                       # ARGC and ARGV do not include the operands
 
 # gawk extensions
-11-gawk-asort                         # asort() does not sort correctly
 11-gawk-ignorecase                    # IGNORECASE is not supported
 11-gawk-strtonum                      # strtonum() does not parse octal (leading 0)
 11-gawk-strftime-systime              # strftime() does not accept the utc-flag argument

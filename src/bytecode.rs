@@ -343,9 +343,6 @@ pub(crate) enum Instr<'a> {
     DumpInt(Reg<Int>),
     DumpFloat(Reg<Float>),
     DumpNull(),
-    MapIntIntAsort(Reg<Int>, Reg<runtime::IntMap<Int>>, Reg<runtime::IntMap<Int>>),
-    MapIntFloatAsort(Reg<Int>, Reg<runtime::IntMap<Float>>, Reg<runtime::IntMap<Float>>),
-    MapIntStrAsort(Reg<Int>, Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>),
     MapIntIntJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>, Reg<Str<'a>>),
     MapIntFloatJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>, Reg<Str<'a>>),
     MapIntStrJoin(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
@@ -455,6 +452,14 @@ pub(crate) enum Instr<'a> {
     Clear {
         map_ty: Ty,
         map: NumTy,
+    },
+    // asort(src, dst): the two maps have the same value type, but their key types may differ.
+    Asort {
+        res: Reg<Int>,
+        src_ty: Ty,
+        src: NumTy,
+        dst_ty: Ty,
+        dst: NumTy,
     },
     Len {
         map_ty: Ty,
@@ -1066,21 +1071,6 @@ impl<'a> Instr<'a> {
                 num.accum(&mut f);
             }
             DumpNull() => {
-            }
-            MapIntIntAsort( dst, arr, target) => {
-                dst.accum(&mut f);
-                arr.accum(&mut f);
-                target.accum(&mut f);
-            }
-            MapIntFloatAsort(dst, arr,target) => {
-                dst.accum(&mut f);
-                arr.accum(&mut f);
-                target.accum(&mut f);
-            }
-            MapIntStrAsort(dst, arr,target) => {
-                dst.accum(&mut f);
-                arr.accum(&mut f);
-                target.accum(&mut f);
             }
             MapIntIntJoin( dst, arr, target) => {
                 dst.accum(&mut f);
@@ -1720,6 +1710,11 @@ impl<'a> Instr<'a> {
                 f(*map, *map_ty);
             }
             Clear { map_ty, map } => f(*map, *map_ty),
+            Asort { res, src_ty, src, dst_ty, dst } => {
+                res.accum(&mut f);
+                f(*src, *src_ty);
+                f(*dst, *dst_ty);
+            }
             Len { map_ty, map, dst } => {
                 f(*dst, Ty::Int);
                 f(*map, *map_ty);

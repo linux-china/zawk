@@ -2632,26 +2632,20 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             Asort => {
-                if res_reg != UNUSED {
-                    match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapIntStr => {
-                            self.pushl(LL::MapIntStrAsort(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        _ => {
-                            return err!(
-                                "asort only support IntMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
-                        }
-                    }
+                // Sorting has side effects even when the result is not used.
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                if !(conv_tys[0].is_array() && conv_tys[1].is_array()) {
+                    return err!("invalid input types to asort: {:?}", &conv_tys[..]);
+                }
+                self.pushl(LL::Asort {
+                    res: res_reg.into(),
+                    src_ty: conv_tys[0],
+                    src: conv_regs[0],
+                    dst_ty: conv_tys[1],
+                    dst: conv_regs[1],
+                })
             }
             BloomFilterInsert => {
                 if res_reg != UNUSED {

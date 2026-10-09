@@ -6,7 +6,9 @@ use lazy_static::lazy_static;
 use logos::Logos;
 use semver::{Version};
 use snowflake::SnowflakeIdGenerator;
-use crate::runtime::{Float, Int, IntMap, Str, StrMap};
+use std::hash::Hash;
+use crate::runtime::{Float, Int, IntMap, SharedMap, Str, StrMap};
+use crate::runtime::compare::looks_numeric;
 
 pub fn min(first: &str, second: &str, third: &str) -> String {
     pick(first, second, third, Ordering::Less)
@@ -34,71 +36,54 @@ fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
     items[best].to_string()
 }
 
-pub(crate) fn map_int_int_asort(obj: &IntMap<Int>, target_obj: &IntMap<Int>) {
-    let mut items: Vec<Int> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index));
+/// A value that `asort()` can sort, in gawk's order: numbers before strings, numbers in numeric
+/// order and strings in string order.
+pub(crate) trait AsortValue: Clone {
+    fn asort_cmp(&self, other: &Self) -> Ordering;
+}
+
+impl AsortValue for Int {
+    fn asort_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
-    items.sort();
-    if target_obj.len() > 0 {
-        target_obj.clear();
-        let mut index = 1;
-        for item in items {
-            target_obj.insert(index, item);
-            index += 1;
-        }
-    } else {
-        obj.clear();
-        let mut index = 1;
-        for item in items {
-            obj.insert(index, item);
-            index += 1;
+}
+
+impl AsortValue for Float {
+    fn asort_cmp(&self, other: &Self) -> Ordering {
+        self.total_cmp(other)
+    }
+}
+
+impl<'a> AsortValue for Str<'a> {
+    fn asort_cmp(&self, other: &Self) -> Ordering {
+        // Strings are untyped at runtime, so strings that look numeric (such as the elements
+        // created by split()) sort as numbers.
+        let num = |s: &Str| s.with_bytes(looks_numeric);
+        match (num(self), num(other)) {
+            (Some(x), Some(y)) => x.total_cmp(&y),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => self.with_bytes(|x| other.with_bytes(|y| x.cmp(y))),
         }
     }
 }
 
-pub(crate) fn map_int_float_asort(obj: &IntMap<Float>, target_obj: &IntMap<Float>) {
-    let mut items: Vec<Float> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index));
+/// `asort(src, dst)`: replaces the contents of `dst` with the values of `src` sorted, indexed from
+/// 1, and returns their number. `src` and `dst` may be the same array (`asort(arr)`).
+pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>) -> Int
+where
+    K1: Hash + Eq,
+    K2: Hash + Eq + From<Int>,
+    V: AsortValue,
+{
+    let mut items: Vec<V> = src.iter(|it| it.map(|(_, v)| v.clone()).collect());
+    items.sort_by(|x, y| x.asort_cmp(y));
+    dst.clear();
+    let len = items.len() as Int;
+    for (i, item) in items.into_iter().enumerate() {
+        dst.insert(K2::from(i as Int + 1), item);
     }
-    if target_obj.len() > 0 {
-        target_obj.clear();
-        let mut index = 1;
-        for item in items {
-            target_obj.insert(index, item);
-            index += 1;
-        }
-    } else {
-        obj.clear();
-        let mut index = 1;
-        for item in items {
-            obj.insert(index, item);
-            index += 1;
-        }
-    }
-}
-
-pub(crate) fn map_int_str_asort(obj: &IntMap<Str>, target_obj: &IntMap<Str>) {
-    let mut items: Vec<String> = vec![];
-    for index in obj.to_vec() {
-        items.push(obj.get(&index).to_string());
-    }
-    if target_obj.len() > 0 {
-        target_obj.clear();
-        let mut index = 1;
-        for item in items {
-            target_obj.insert(index, Str::from(item));
-            index += 1;
-        }
-    } else {
-        obj.clear();
-        let mut index = 1;
-        for item in items {
-            obj.insert(index, Str::from(item));
-            index += 1;
-        }
-    }
+    len
 }
 
 pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {

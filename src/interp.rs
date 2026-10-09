@@ -1178,27 +1178,6 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     DumpNull() => {
                         eprintln!("Null");
                     }
-                    MapIntIntAsort(dst, arr, target) => {
-                        let arr = self.get(*arr);
-                        let target = self.get(*target);
-                        runtime::math_util::map_int_int_asort(arr, target);
-                        let dst = *dst;
-                        *self.get_mut(dst) = arr.len() as Int;
-                    }
-                    MapIntFloatAsort(dst, arr, target) => {
-                        let arr = self.get(*arr);
-                        let target = self.get(*target);
-                        runtime::math_util::map_int_float_asort(arr, target);
-                        let dst = *dst;
-                        *self.get_mut(dst) = arr.len() as Int;
-                    }
-                    MapIntStrAsort(dst, arr, target) => {
-                        let arr = self.get(*arr);
-                        let target = self.get(*target);
-                        runtime::math_util::map_int_str_asort(arr, target);
-                        let dst = *dst;
-                        *self.get_mut(dst) = arr.len() as Int;
-                    }
                     MapIntIntJoin(dst, arr, sep) => {
                         let arr = self.get(*arr);
                         let sep = self.get(*sep);
@@ -1872,14 +1851,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             .is_match_regex(index(&self.strs, l), index(&self.strs, r))?
                             as Int;
                     }
+                    // match(): the position of the match, also setting RSTART and RLENGTH.
                     MatchConst(res, x, pat) => {
+                        *index_mut(&mut self.ints, res) =
+                            self.core.match_const_regex(index(&self.strs, x), pat)?;
+                    }
+                    // `~`: 1 if the pattern matches, 0 otherwise.
+                    IsMatchConst(res, x, pat) => {
                         *index_mut(&mut self.ints, res) =
                             runtime::RegexCache::regex_const_match(pat, index(&self.strs, x))
                                 as Int;
-                    }
-                    IsMatchConst(res, x, pat) => {
-                        *index_mut(&mut self.ints, res) =
-                            self.core.match_const_regex(index(&self.strs, x), pat)?;
                     }
                     SubstrIndex(res, s, t) => {
                         let res = *res;
@@ -2274,6 +2255,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     } => self.contains(*map_ty, *dst, *map, *key),
                     Delete { map_ty, map, key } => self.delete(*map_ty, *map, *key),
                     Clear { map_ty, map } => self.clear(*map_ty, *map),
+                    Asort { res, src_ty, src, dst_ty, dst } => {
+                        self.asort(*res, *src_ty, *src, *dst_ty, *dst)
+                    }
                     Len { map_ty, map, dst } => self.len(*map_ty, *map, *dst),
                     Store {
                         map_ty,
@@ -2533,6 +2517,38 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     }
     fn clear(&mut self, map_ty: Ty, map: NumTy) {
         map_regs!(map_ty, map, self.get(map).clear());
+    }
+
+    fn asort(&mut self, res: Reg<Int>, src_ty: Ty, src: NumTy, dst_ty: Ty, dst: NumTy) {
+        use runtime::{IntMap, StrMap};
+        // The maps have the same value type: one case per pair of key types and value type.
+        macro_rules! asort_maps {
+            ($([$src_ty:ident, $src_map:ty, $dst_ty:ident, $dst_map:ty]),*) => {
+                match (src_ty, dst_ty) {
+                    $((Ty::$src_ty, Ty::$dst_ty) => {
+                        let src: Reg<$src_map> = src.into();
+                        let dst: Reg<$dst_map> = dst.into();
+                        runtime::math_util::asort(self.get(src), self.get(dst))
+                    })*
+                    _ => panic!("invalid map types for asort: {:?}, {:?}", src_ty, dst_ty),
+                }
+            };
+        }
+        let n = asort_maps!(
+            [MapIntInt, IntMap<Int>, MapIntInt, IntMap<Int>],
+            [MapIntInt, IntMap<Int>, MapStrInt, StrMap<'a, Int>],
+            [MapStrInt, StrMap<'a, Int>, MapIntInt, IntMap<Int>],
+            [MapStrInt, StrMap<'a, Int>, MapStrInt, StrMap<'a, Int>],
+            [MapIntFloat, IntMap<Float>, MapIntFloat, IntMap<Float>],
+            [MapIntFloat, IntMap<Float>, MapStrFloat, StrMap<'a, Float>],
+            [MapStrFloat, StrMap<'a, Float>, MapIntFloat, IntMap<Float>],
+            [MapStrFloat, StrMap<'a, Float>, MapStrFloat, StrMap<'a, Float>],
+            [MapIntStr, IntMap<Str<'a>>, MapIntStr, IntMap<Str<'a>>],
+            [MapIntStr, IntMap<Str<'a>>, MapStrStr, StrMap<'a, Str<'a>>],
+            [MapStrStr, StrMap<'a, Str<'a>>, MapIntStr, IntMap<Str<'a>>],
+            [MapStrStr, StrMap<'a, Str<'a>>, MapStrStr, StrMap<'a, Str<'a>>]
+        );
+        *self.get_mut(res) = n;
     }
 
     // Allowing this because it allows for easier use of the map_regs macro.

@@ -848,6 +848,11 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
         }
     }
+    /// A new type variable, e.g. to relate the types of builtin function arguments.
+    pub(crate) fn fresh_var(&mut self) -> NodeIx {
+        self.nw.add_rule(Rule::Var)
+    }
+
     pub(crate) fn constrain_as_map(&mut self, ix: NodeIx) {
         // To be completely explicit, this function assigns a unique `Flows` constraint into a map
         // from the constant node that "just specifies the node is a Map".

@@ -491,6 +491,30 @@ pub(crate) trait CodeGenerator: Backend {
         Ok(())
     }
 
+    /// Sorts the values of `src` into `dst` and stores their number in `res`.
+    fn asort(&mut self, src: Ref, dst: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match (src.1, dst.1) {
+            (MapIntInt, MapIntInt) => intrinsic!(asort_intint_intint),
+            (MapIntInt, MapStrInt) => intrinsic!(asort_intint_strint),
+            (MapStrInt, MapIntInt) => intrinsic!(asort_strint_intint),
+            (MapStrInt, MapStrInt) => intrinsic!(asort_strint_strint),
+            (MapIntFloat, MapIntFloat) => intrinsic!(asort_intfloat_intfloat),
+            (MapIntFloat, MapStrFloat) => intrinsic!(asort_intfloat_strfloat),
+            (MapStrFloat, MapIntFloat) => intrinsic!(asort_strfloat_intfloat),
+            (MapStrFloat, MapStrFloat) => intrinsic!(asort_strfloat_strfloat),
+            (MapIntStr, MapIntStr) => intrinsic!(asort_intstr_intstr),
+            (MapIntStr, MapStrStr) => intrinsic!(asort_intstr_strstr),
+            (MapStrStr, MapIntStr) => intrinsic!(asort_strstr_intstr),
+            (MapStrStr, MapStrStr) => intrinsic!(asort_strstr_strstr),
+            (s, d) => return err!("invalid map types for asort: {:?}, {:?}", s, d),
+        };
+        let srcv = self.get_val(src)?;
+        let dstv = self.get_val(dst)?;
+        let resv = self.call_intrinsic(func, &mut [srcv, dstv])?;
+        self.bind_val(res, resv)
+    }
+
     /// Determines if `map` contains `key` and stores the result (0 or 1) in `dst`.
     ///
     /// Assumes that map and key types match up.
@@ -1239,24 +1263,6 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(dump_null), &mut [])?;
                 Ok(())
             }
-            MapIntIntAsort(dst, arr,target) => {
-                let arr = self.get_val(arr.reflect())?;
-                let target = self.get_val(target.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(map_int_int_asort), &mut [arr, target])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            MapIntFloatAsort(dst, arr,target) => {
-                let arr = self.get_val(arr.reflect())?;
-                let target = self.get_val(target.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(map_int_float_asort), &mut [arr, target])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            MapIntStrAsort(dst, arr,target) => {
-                let arr = self.get_val(arr.reflect())?;
-                let target = self.get_val(target.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(map_int_str_asort), &mut [arr, target])?;
-                self.bind_val(dst.reflect(),resv)
-            },
             MapIntIntJoin(dst, arr,sep) => {
                 let arr = self.get_val(arr.reflect())?;
                 let sep = self.get_val(sep.reflect())?;
@@ -1707,6 +1713,9 @@ pub(crate) trait CodeGenerator: Backend {
             ),
             Delete { map_ty, map, key } => self.delete_map((*map, *map_ty), (*key, map_ty.key()?)),
             Clear { map_ty, map } => self.clear_map((*map, *map_ty)),
+            Asort { res, src_ty, src, dst_ty, dst } => {
+                self.asort((*src, *src_ty), (*dst, *dst_ty), res.reflect())
+            }
             Len { map_ty, map, dst } => self.len_map((*map, *map_ty), (*dst, compile::Ty::Int)),
             Store {
                 map_ty,

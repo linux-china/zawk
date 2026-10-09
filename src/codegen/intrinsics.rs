@@ -298,9 +298,18 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         dump_int(int_ty);
         dump_float(float_ty);
         dump_null();
-        map_int_int_asort(map_ty, map_ty) -> int_ty;
-        map_int_float_asort(map_ty, map_ty) -> int_ty;
-        map_int_str_asort(map_ty, map_ty) -> int_ty;
+        asort_intint_intint(map_ty, map_ty) -> int_ty;
+        asort_intint_strint(map_ty, map_ty) -> int_ty;
+        asort_strint_intint(map_ty, map_ty) -> int_ty;
+        asort_strint_strint(map_ty, map_ty) -> int_ty;
+        asort_intfloat_intfloat(map_ty, map_ty) -> int_ty;
+        asort_intfloat_strfloat(map_ty, map_ty) -> int_ty;
+        asort_strfloat_intfloat(map_ty, map_ty) -> int_ty;
+        asort_strfloat_strfloat(map_ty, map_ty) -> int_ty;
+        asort_intstr_intstr(map_ty, map_ty) -> int_ty;
+        asort_intstr_strstr(map_ty, map_ty) -> int_ty;
+        asort_strstr_intstr(map_ty, map_ty) -> int_ty;
+        asort_strstr_strstr(map_ty, map_ty) -> int_ty;
         [ReadOnly] map_int_int_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_float_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_str_join(map_ty, str_ref_ty) -> str_ty;
@@ -2287,41 +2296,39 @@ pub(crate) unsafe extern "C" fn dump_null() {
     })
 }
 
-pub(crate) unsafe extern "C" fn map_int_int_asort(arr: *mut c_void, target: *mut c_void) -> Int {
-    guard_panic(stringify!(map_int_int_asort), || {
-        let obj = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
-        let target_obj = mem::transmute::<*mut c_void, IntMap<Int>>(target);
-        math_util::map_int_int_asort(&obj, &target_obj);
-        let result = obj.len() as Int;
-        mem::forget(obj);
-        mem::forget(target_obj);
-        result
-    })
+// asort(src, dst): one intrinsic per pair of map types with the same value type. `src` and `dst`
+// may be the same map.
+macro_rules! asort_intrinsics {
+    ($([$name:ident, $src_map:ty, $dst_map:ty]),*) => {
+        $(
+            pub(crate) unsafe extern "C" fn $name(src: *mut c_void, dst: *mut c_void) -> Int {
+                guard_panic(stringify!($name), || {
+                    let src = mem::transmute::<*mut c_void, $src_map>(src);
+                    let dst = mem::transmute::<*mut c_void, $dst_map>(dst);
+                    let res = math_util::asort(&src, &dst);
+                    mem::forget(src);
+                    mem::forget(dst);
+                    res
+                })
+            }
+        )*
+    };
 }
 
-pub(crate) unsafe extern "C" fn map_int_float_asort(arr: *mut c_void, target: *mut c_void) -> Int {
-    guard_panic(stringify!(map_int_float_asort), || {
-        let obj = mem::transmute::<*mut c_void, IntMap<Float>>(arr);
-        let target_obj = mem::transmute::<*mut c_void, IntMap<Float>>(target);
-        math_util::map_int_float_asort(&obj, &target_obj);
-        let result = obj.len() as Int;
-        mem::forget(obj);
-        mem::forget(target_obj);
-        result
-    })
-}
-
-pub(crate) unsafe extern "C" fn map_int_str_asort(arr: *mut c_void, target: *mut c_void) -> Int {
-    guard_panic(stringify!(map_int_str_asort), || {
-        let obj = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
-        let target_obj = mem::transmute::<*mut c_void, IntMap<Str>>(target);
-        math_util::map_int_str_asort(&obj, &target_obj);
-        let result = obj.len() as Int;
-        mem::forget(obj);
-        mem::forget(target_obj);
-        result
-    })
-}
+asort_intrinsics!(
+    [asort_intint_intint, IntMap<Int>, IntMap<Int>],
+    [asort_intint_strint, IntMap<Int>, StrMap<Int>],
+    [asort_strint_intint, StrMap<Int>, IntMap<Int>],
+    [asort_strint_strint, StrMap<Int>, StrMap<Int>],
+    [asort_intfloat_intfloat, IntMap<Float>, IntMap<Float>],
+    [asort_intfloat_strfloat, IntMap<Float>, StrMap<Float>],
+    [asort_strfloat_intfloat, StrMap<Float>, IntMap<Float>],
+    [asort_strfloat_strfloat, StrMap<Float>, StrMap<Float>],
+    [asort_intstr_intstr, IntMap<Str>, IntMap<Str>],
+    [asort_intstr_strstr, IntMap<Str>, StrMap<Str>],
+    [asort_strstr_intstr, StrMap<Str>, IntMap<Str>],
+    [asort_strstr_strstr, StrMap<Str>, StrMap<Str>]
+);
 
 pub(crate) unsafe extern "C" fn map_int_int_join(arr: *mut c_void, sep: *mut U128) -> U128 {
     guard_panic(stringify!(map_int_int_join), || {
