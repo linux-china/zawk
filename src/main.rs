@@ -62,16 +62,22 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 // Exit codes follow gawk: 1 for usage and syntax errors (`fail!`), 2 for other fatal errors
 // (`fatal!`): errors found while compiling (e.g. an undefined function) or running the program,
 // and files that cannot be read or written.
+// Messages are reported in the gawk style: `zawk: msg` and `zawk: fatal: msg`.
 macro_rules! fail {
     ($($t:tt)*) => {{
-        eprintln_ignore!($($t)*);
+        let msg = format!($($t)*);
+        if msg.starts_with("zawk: ") {
+            eprintln_ignore!("{}", msg);
+        } else {
+            eprintln_ignore!("zawk: {}", msg);
+        }
         std::process::exit(1)
     }}
 }
 
 macro_rules! fatal {
     ($($t:tt)*) => {{
-        eprintln_ignore!($($t)*);
+        eprintln_ignore!("{}", common::fatal_message(&format!($($t)*)));
         std::process::exit(2)
     }}
 }
@@ -247,8 +253,8 @@ fn get_context<'a>(
     a: &'a Arena,
     mut prelude: Prelude<'a>,
 ) -> cfg::ProgramContext<'a, &'a str> {
-    let prog = a.alloc_str(prog);
-    let lexer = lexer::Tokenizer::new(prog);
+    let text: &'a str = a.alloc_str(prog);
+    let lexer = lexer::Tokenizer::new(text);
     let mut buf = Vec::new();
     let parser = parsing::syntax::ProgParser::new();
     let mut prog = ast::Prog::from_stage(a, prelude.scalars.stage.clone());
@@ -263,7 +269,7 @@ fn get_context<'a>(
             a.alloc(prog)
         }
         Err(e) => {
-            fail!("{}", e);
+            fail!("{}", parsing::syntax_error(text, &e));
         }
     };
     match cfg::ProgramContext::from_prog(a, stmt, prelude.scalars.escaper) {
@@ -272,7 +278,7 @@ fn get_context<'a>(
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
-        Err(e) => fatal!("failed to create program context: {}", e),
+        Err(e) => fatal!("{}", e),
     }
 }
 
@@ -285,15 +291,14 @@ fn run_interp_with_context<'a>(
     let rc = {
         let mut interp = match compile::bytecode(&mut ctx, stdin, ff, num_workers) {
             Ok(ctx) => ctx,
-            Err(e) => fatal!("bytecode compilation failure: {}", e),
+            Err(e) => fatal!("{}", e),
         };
         let res = interp.run();
         // Dropping the interpreter flushes pending output, which `fail!` (exiting the process)
         // would otherwise lose.
         drop(interp);
         match res {
-            Err(e) if e.is_fatal() => fatal!("zawk: {}", e),
-            Err(e) => fatal!("fatal error during execution: {}", e),
+            Err(e) => fatal!("{}", e),
             Ok(0) => return,
             Ok(n) => n,
         }
@@ -309,7 +314,7 @@ fn run_cranelift_with_context<'a>(
     signal: CancelSignal,
 ) {
     if let Err(e) = compile::run_cranelift(&mut ctx, stdin, ff, cfg, signal) {
-        fatal!("error compiling cranelift: {}", e)
+        fatal!("{}", e)
     }
 }
 
@@ -350,7 +355,7 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
         /*num_workers=*/ 1,
     ) {
         Ok(ctx) => ctx,
-        Err(e) => fatal!("bytecode compilation failure: {}", e),
+        Err(e) => fatal!("{}", e),
     };
     let mut v = Vec::<u8>::new();
     for (i, func) in interp.instrs().iter().enumerate() {
@@ -592,7 +597,7 @@ fn main() {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fatal!("failed to read program from {}: {}", prog_file, e),
+                        Err(e) => fatal!("can't open source file `{}' for reading: {}", prog_file, e),
                     }
                 } else {
                     match std::fs::read_to_string(prog_file) {
@@ -600,7 +605,11 @@ fn main() {
                             prog.push_str(p.as_str());
                             prog.push('\n');
                         }
-                        Err(e) => fatal!("failed to read program from {}: {}", prog_file, e),
+                        Err(e) => fatal!(
+                            "can't open source file `{}' for reading: {}",
+                            prog_file,
+                            common::io_error_reason(&e)
+                        ),
                     }
                 }
             }

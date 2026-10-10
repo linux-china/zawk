@@ -32,6 +32,23 @@ pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
         .build()
 }
 
+/// The syntax error in `pat`, if any, e.g. "unclosed group".
+pub(crate) fn syntax_error(pat: &str) -> Option<String> {
+    regex_syntax::ast::parse::Parser::new()
+        .parse(&translate(pat))
+        .err()
+        .map(|e| e.kind().to_string())
+}
+
+/// A one-line message for an error compiling `pat`: `invalid regex /(/: unclosed group`.
+pub(crate) fn compile_error(pat: &str, err: &regex::Error) -> String {
+    let reason = syntax_error(pat).unwrap_or_else(|| match err {
+        regex::Error::CompiledTooBig(_) => "regex too big".to_string(),
+        _ => err.to_string(),
+    });
+    format!("invalid regex /{}/: {}", pat, reason)
+}
+
 /// What it takes to turn a leftmost-first match into the leftmost-longest one.
 struct Longest {
     /// A lazy DFA reporting all matches, so that an anchored forward search ends at the longest.

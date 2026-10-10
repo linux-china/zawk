@@ -105,7 +105,7 @@ impl RegexCache {
             pat,
             |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(r),
-                Err(e) => err!("{}", e),
+                Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
             // eta-expansion required to get this compiling..
             |x| f(x),
@@ -142,7 +142,7 @@ impl RegexCache {
             pat,
             |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(r),
-                Err(e) => err!("{}", e),
+                Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
             // eta-expansion required to get this compiling..
             |x| f(x),

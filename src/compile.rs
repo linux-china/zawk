@@ -822,7 +822,7 @@ impl<'a> Typer<'a> {
                         CompileError(format!("regex patterns must be valid UTF-8: {}", e))
                     })?;
                     let re = Arc::new(runtime::awk_regex::compile(text).map_err(|err| {
-                        CompileError(format!("regex parse error during compilation: {}", err))
+                        CompileError(runtime::awk_regex::compile_error(text, &err))
                     })?);
                     // extract_anchored_literal parses the pattern in the syntax of `regex`.
                     let text = runtime::awk_regex::translate(text);

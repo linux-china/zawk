@@ -1360,3 +1360,89 @@ fn extension_functions_reject_invalid_args_without_panic() {
         }
     }
 }
+
+#[test]
+fn error_messages_are_gawk_style() {
+    // (program, exit code, expected parts of stderr)
+    let cases: &[(&str, i32, &[&str])] = &[
+        (
+            r#"BEGIN { undefined_fn() }"#,
+            2,
+            &[r#"zawk: fatal: Call to unknown function "undefined_fn""#],
+        ),
+        (
+            r#"BEGIN { x = -1; print $x }"#,
+            2,
+            &["zawk: fatal: attempt to access field -1"],
+        ),
+        (
+            r#"BEGIN { a[1][2] = 1 }"#,
+            2,
+            &["zawk: fatal: a variable is used both as an array and as a scalar"],
+        ),
+        (
+            r#"BEGIN { if (1) { }}}"#,
+            1,
+            &[
+                "zawk: syntax error at line 1, column 20: unexpected `}`\n",
+                "    BEGIN { if (1) { }}}\n                       ^\n",
+            ],
+        ),
+        // An error at the end of a line is reported on that line.
+        (
+            "BEGIN {\n  print 1 +\n}",
+            1,
+            &["zawk: syntax error at line 2, column 12: unexpected newline\n      print 1 +\n"],
+        ),
+        // Invalid regex literals are syntax errors, as in gawk.
+        (
+            r#"$0 ~ /a(b/"#,
+            1,
+            &["zawk: syntax error at line 1, column 6: invalid regex /a(b/: unclosed group"],
+        ),
+        // Dynamic regexes fail when they are used.
+        (
+            r#"BEGIN { r = "("; print ("x" ~ r) }"#,
+            2,
+            &["zawk: fatal: invalid regex /(/: unclosed group\n"],
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, code, parts) in cases {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .env_remove("ZAWK_DEBUG")
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(*code), "{} {}: {}", backend_arg, prog, stderr);
+            // Locations in the zawk sources are only reported by debug builds.
+            let stderr = if cfg!(debug_assertions) {
+                strip_source_locations(&stderr)
+            } else {
+                assert!(!stderr.contains("[src/"), "{} {}: {}", backend_arg, prog, stderr);
+                stderr.to_string()
+            };
+            for part in *parts {
+                assert!(stderr.contains(part), "{} {}: {}", backend_arg, prog, stderr);
+            }
+        }
+    }
+}
+
+/// Removes the `[src/file.rs:1:2] ` prefixes of error messages.
+fn strip_source_locations(s: &str) -> String {
+    let mut res = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find("[src/") {
+        res.push_str(&rest[..i]);
+        rest = match rest[i..].find("] ") {
+            Some(j) => &rest[i + j + 2..],
+            None => &rest[i..],
+        };
+    }
+    res.push_str(rest);
+    res
+}

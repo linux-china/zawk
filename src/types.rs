@@ -514,6 +514,12 @@ impl Rule {
                             val: lift(value_rule, v1, v2),
                         })
                     }
+                    (Map { .. }, Scalar(_)) | (Scalar(_), Map { .. }) => {
+                        return err!(
+                            "a variable is used both as an array and as a scalar \
+                             (arrays of arrays such as `a[i][j]` are not supported)"
+                        )
+                    }
                     (t1, t2) => return err!("kinds do not match. {:?} vs {:?}", t1, t2),
                 },
             };

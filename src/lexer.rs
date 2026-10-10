@@ -3,6 +3,7 @@
 //! This lexer is fairly rudamentary. It ought not be too slow, but it also has not been optimized
 //! very aggressively. Various edge cases still do not work.
 use hashbrown::HashMap;
+use std::borrow::Cow;
 use lazy_static::lazy_static;
 use regex::Regex;
 use unicode_xid::UnicodeXID;
@@ -14,6 +15,13 @@ pub struct Loc {
     pub line: usize,
     pub col: usize,
     offset: usize,
+}
+
+impl Loc {
+    /// The byte offset in the program text.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
 }
 
 pub type Spanned<T> = (Loc, T, Loc);
@@ -410,6 +418,26 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
 }
 
 pub(crate) fn parse_regex_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec<u8>) -> &'a [u8] {
+    unescape_regex_literal(lit, buf);
+    arena.alloc_bytes(&buf[..])
+}
+
+/// Checks the syntax of a regex literal, so that an invalid one is a syntax error (as in gawk)
+/// rather than a failure when compiling the program.
+fn check_regex_literal(lit: &str) -> Result<(), String> {
+    let mut buf = Vec::new();
+    unescape_regex_literal(lit, &mut buf);
+    // Patterns that are not valid UTF-8 are reported when the program is compiled.
+    let Ok(pat) = std::str::from_utf8(&buf) else {
+        return Ok(());
+    };
+    match crate::runtime::awk_regex::syntax_error(pat) {
+        None => Ok(()),
+        Some(reason) => Err(format!("invalid regex /{}/: {}", lit, reason)),
+    }
+}
+
+fn unescape_regex_literal(lit: &str, buf: &mut Vec<u8>) {
     // Regexes have their own escaping rules, let them apply them. The only think we look to do is
     // replace "\/" with "/".
     // NB: Awk escaping rules are a subset of Rust's regex escape rule syntax, but if we applied
@@ -442,7 +470,6 @@ pub(crate) fn parse_regex_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec
             }
         }
     }
-    arena.alloc_bytes(&buf[..])
 }
 
 impl<'a> Tokenizer<'a> {
@@ -540,7 +567,7 @@ impl<'a> Tokenizer<'a> {
             Some(end) => Ok((&self.text[self.cur..self.cur + end], self.cur + end + 1)),
             None => Err(Error {
                 location: self.index_to_loc(self.cur),
-                desc: error_msg,
+                desc: error_msg.into(),
             }),
         }
     }
@@ -628,14 +655,14 @@ impl<'a> Tokenizer<'a> {
 #[derive(Debug)]
 pub struct Error {
     pub location: Loc,
-    pub desc: &'static str,
+    pub desc: Cow<'static, str>,
 }
 
 impl From<&'static str> for Error {
     fn from(s: &'static str) -> Error {
         Error {
             location: Default::default(),
-            desc: s,
+            desc: s.into(),
         }
     }
 }
@@ -663,8 +690,9 @@ impl<'a> Tokenizer<'a> {
                 col: ix,
                 offset,
             },
+            // `ix` is the newline ending the line.
             Ok(line) => Loc {
-                line: line - 1,
+                line,
                 col: ix - self.lines[line - 1] - 1,
                 offset,
             },
@@ -720,6 +748,12 @@ impl<'a> Iterator for Tokenizer<'a> {
                 '/' if self.potential_re() => {
                     self.cur += 1;
                     let (re, new_start) = try_tok!(self.regex_lit());
+                    if let Err(desc) = check_regex_literal(re) {
+                        return Some(Err(Error {
+                            location: self.index_to_loc(ix),
+                            desc: desc.into(),
+                        }));
+                    }
                     self.cur = new_start;
                     self.spanned(ix, new_start, Tok::PatLit(re))
                 }
@@ -765,7 +799,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                                 "unsupported '@' syntax (@include, @load, @namespace and indirect function calls are not supported)"
                             } else {
                                 "unexpected character"
-                            },
+                            }
+                            .into(),
                         }));
                     }
                 }

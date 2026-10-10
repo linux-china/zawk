@@ -493,7 +493,7 @@ macro_rules! fail {
     ($rt:expr, $($es:expr),+) => {{
         #[cfg(test)]
         {
-            eprintln_ignore!("failure in runtime {}. Halting execution", format!($($es),*));
+            eprintln_ignore!("{}", $crate::common::fatal_message(&format!($($es),*)));
             panic!("failure in runtime")
         }
         #[cfg(not(test))]
@@ -501,7 +501,7 @@ macro_rules! fail {
             let msg = format!($($es),*);
             // Output printed before the error appears before the error message.
             let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
-            eprintln_ignore!("failure in runtime {}. Halting execution", msg);
+            eprintln_ignore!("{}", $crate::common::fatal_message(&msg));
             // fatal errors exit with code 2, as in gawk
             exit!($rt, 2)
         }
@@ -512,7 +512,9 @@ macro_rules! try_abort {
     ($rt:expr, $e:expr, $msg:expr) => {
         match $e {
             Ok(res) => res,
-            Err(e) => fail!($rt, concat!($msg, " {}"), e),
+            // The name of the intrinsic is only useful to debug zawk itself.
+            Err(e) if $crate::common::debug_errors() => fail!($rt, concat!($msg, " {}"), e),
+            Err(e) => fail!($rt, "{}", e),
         }
     };
     ($rt:expr, $e:expr) => {
@@ -538,7 +540,8 @@ macro_rules! try_abort_input {
                     exit!($rt, 2)
                 }
             }
-            Err(e) => fail!($rt, concat!($msg, " {}"), e),
+            Err(e) if $crate::common::debug_errors() => fail!($rt, concat!($msg, " {}"), e),
+            Err(e) => fail!($rt, "{}", e),
         }
     };
 }
@@ -636,9 +639,8 @@ unsafe fn intrinsic_panicked(name: &'static str, payload: Box<dyn std::any::Any 
     let rt = CURRENT_RUNTIME.with(|c| c.replace(std::ptr::null_mut()));
     if rt.is_null() {
         eprintln_ignore!(
-            "failure in runtime panic in function `{}`: {}. Halting execution",
-            name,
-            msg
+            "{}",
+            crate::common::fatal_message(&format!("panic in function `{}`: {}", name, msg))
         );
         std::process::exit(2)
     }
@@ -934,7 +936,7 @@ pub(crate) unsafe extern "C" fn match_arr_int(
         let core = &mut runtime.core;
         let res = match core.regexes.regex_match_intmap(&mut core.vars, pat, s, &arr) {
             Ok(res) => res,
-            Err(e) => fail!(runtime, "match_arr_int: {}", e),
+            Err(e) => fail!(runtime, "{}", e),
         };
         mem::forget(arr);
         res
@@ -955,7 +957,7 @@ pub(crate) unsafe extern "C" fn match_arr_str(
         let core = &mut runtime.core;
         let res = match core.regexes.regex_match_strmap(&mut core.vars, pat, s, &arr) {
             Ok(res) => res,
-            Err(e) => fail!(runtime, "match_arr_str: {}", e),
+            Err(e) => fail!(runtime, "{}", e),
         };
         mem::forget(arr);
         res
@@ -1000,7 +1002,7 @@ pub(crate) unsafe extern "C" fn get_col(runtime: *mut c_void, col: Int) -> U128 
         });
         let res = match col_str {
             Ok(s) => s,
-            Err(e) => fail!(runtime, "get_col: {}", e),
+            Err(e) => fail!(runtime, "{}", e),
         };
         mem::transmute::<Str, U128>(res)
     })
@@ -2679,7 +2681,7 @@ pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut 
             &runtime.core.vars.ofs,
             &mut runtime.core.regexes,
         )) {
-            fail!(runtime, "set_col: {}", e);
+            fail!(runtime, "{}", e);
         }
     })
 }
@@ -3032,7 +3034,7 @@ pub(crate) unsafe extern "C" fn load_var_int(rt: *mut c_void, var: usize) -> Int
                     .nf(&runtime.core.vars.split_fs, &mut runtime.core.regexes))
                 {
                     Ok(nf) => nf as Int,
-                    Err(e) => fail!(runtime, "nf: {}", e),
+                    Err(e) => fail!(runtime, "{}", e),
                 };
             }
             try_abort!(runtime, runtime.core.vars.load_int(var))

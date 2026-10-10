@@ -188,9 +188,29 @@ impl std::fmt::Display for CompileError {
 /// errors, rather than wrapped as an internal runtime failure.
 pub const FATAL_PREFIX: &str = "fatal: ";
 
+/// A fatal error message in the gawk style: `zawk: fatal: msg`.
+pub fn fatal_message(msg: &str) -> String {
+    if msg.starts_with("zawk: ") {
+        msg.to_string()
+    } else if msg.starts_with(FATAL_PREFIX) {
+        format!("zawk: {}", msg)
+    } else {
+        format!("zawk: {}{}", FATAL_PREFIX, msg)
+    }
+}
+
 impl CompileError {
     pub fn is_fatal(&self) -> bool {
         self.0.starts_with(FATAL_PREFIX)
+    }
+}
+
+/// The message of an I/O error without the " (os error 2)" suffix of OS errors.
+pub fn io_error_reason(e: &std::io::Error) -> String {
+    let msg = e.to_string();
+    match msg.find(" (os error ") {
+        Some(i) => msg[..i].to_string(),
+        None => msg,
     }
 }
 
@@ -202,13 +222,7 @@ pub struct InputOpenError(pub String);
 
 impl InputOpenError {
     pub fn new_io(path: &str, e: &std::io::Error) -> std::io::Error {
-        let msg = e.to_string();
-        // Drop the " (os error 2)" suffix of OS errors.
-        let reason = match msg.find(" (os error ") {
-            Some(i) => &msg[..i],
-            None => msg.as_str(),
-        };
-        let msg = format!("cannot open file `{}' for reading: {}", path, reason);
+        let msg = format!("cannot open file `{}' for reading: {}", path, io_error_reason(e));
         std::io::Error::new(e.kind(), InputOpenError(msg))
     }
 
@@ -228,15 +242,35 @@ impl std::fmt::Display for InputOpenError {
 
 impl std::error::Error for InputOpenError {}
 
+/// Whether error messages include the location in the zawk sources where they were raised: in
+/// debug builds, or when the `ZAWK_DEBUG` environment variable is set.
+pub fn debug_errors() -> bool {
+    static DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DEBUG.get_or_init(|| cfg!(debug_assertions) || std::env::var_os("ZAWK_DEBUG").is_some())
+}
+
+impl CompileError {
+    /// An error raised at `loc` in the zawk sources; see `debug_errors`.
+    pub fn located(loc: &str, msg: String) -> CompileError {
+        if debug_errors() {
+            CompileError(format!("[{}] {}", loc, msg))
+        } else {
+            CompileError(msg)
+        }
+    }
+}
+
 macro_rules! err_raw {
     ($head:expr) => {
-        $crate::common::CompileError(
-                format!(concat!("[", file!(), ":", line!(), ":", column!(), "] ", $head))
+        $crate::common::CompileError::located(
+            concat!(file!(), ":", line!(), ":", column!()),
+            format!($head),
         )
     };
     ($head:expr, $($t:expr),+) => {
-        $crate::common::CompileError(
-                format!(concat!("[", file!(), ":", line!(), ":", column!(), "] ", $head), $($t),*)
+        $crate::common::CompileError::located(
+            concat!(file!(), ":", line!(), ":", column!()),
+            format!($head, $($t),*),
         )
     };
 }
