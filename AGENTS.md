@@ -4,7 +4,7 @@ zawk is another AWK language implementation with Rust, and it's AWK + stdlib + R
 
 Features:
 
-* AWK/gawk compatible
+* AWK/gawk mostly compatible
 * More functions for data process
 * High performance
 
