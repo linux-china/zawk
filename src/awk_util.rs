@@ -178,22 +178,6 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
             }
         }
     }
-    // check S3 operation with required environment variables
-    if satisfied {
-        if awk_code.contains("s3_get(") || awk_code.contains("s3_put(") {
-            if !(std::env::var("AWS_ACCESS_KEY_ID").is_ok()
-                && std::env::var("S3_ACCESS_KEY_ID").is_ok())
-            {
-                eprintln!("Errors:");
-                eprintln!("Required environment variables were not provided: ");
-                eprintln!("  - S3_ENDPOINT");
-                eprintln!("  - S3_ACCESS_KEY_ID");
-                eprintln!("  - S3_ACCESS_KEY_SECRET");
-                eprintln!("  - S3_REGION");
-                satisfied = false;
-            }
-        }
-    }
     satisfied
 }
 
