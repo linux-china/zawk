@@ -1094,6 +1094,7 @@ impl<'a> View<'a> {
             Ceil => self.call_external(external!(_frawk_ceil), args),
             Floor => self.call_external(external!(_frawk_floor), args),
             Round => self.call_external(external!(_frawk_round), args),
+            Trunc => self.builder.ins().trunc(args[0]),
         }
     }
 

@@ -1680,7 +1680,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
-            ToInt => self.convert(res_reg, Ty::Int, conv_regs[0], conv_tys[0])?,
+            ToInt => match conv_tys[0] {
+                Ty::Float | Ty::Str => {
+                    if res_reg != UNUSED {
+                        self.convert(res_reg, Ty::Float, conv_regs[0], conv_tys[0])?;
+                        self.pushl(LL::Float1(builtins::FloatFunc::Trunc, res_reg.into(), res_reg.into()));
+                    }
+                }
+                _ => self.convert(res_reg, Ty::Int, conv_regs[0], conv_tys[0])?,
+            },
             HexToInt => {
                 if res_reg != UNUSED {
                     self.pushl(LL::HexStrToInt(res_reg.into(), conv_regs[0].into()))

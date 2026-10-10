@@ -362,17 +362,10 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
     }
 }
 
+/// Converts a string to an integer: the string's numeric value (see [`strtonum`]) truncated
+/// toward zero, saturating at the bounds of `Int` (NaN is 0).
 pub(crate) fn strtoint(text: &str) -> Int {
-    let text = text.trim().to_lowercase();
-    return if text.starts_with("0x") {
-        i64::from_str_radix(&text[2..], 16).unwrap_or(0)
-    } else if text.starts_with("0o") {
-        i64::from_str_radix(&text[2..], 8).unwrap_or(0)
-    } else if text.starts_with("0b") {
-        i64::from_str_radix(&text[2..], 2).unwrap_or(0)
-    } else {
-        crate::runtime::float_parse::strtoi(text.as_bytes())
-    };
+    strtonum(text) as Int
 }
 
 pub(crate) fn is_str_int(text: &str) -> bool {

@@ -297,6 +297,8 @@ pub enum FloatFunc {
     Ceil,
     Floor,
     Round,
+    // Truncation toward zero: `int(x)` for a float or string `x`. Not callable by name.
+    Trunc,
 }
 
 impl FloatFunc {
@@ -315,6 +317,7 @@ impl FloatFunc {
             Ceil => op.ceil(),
             Floor => op.floor(),
             Round => op.round(),
+            Trunc => op.trunc(),
             Atan2 => panic!("float: mismatched arity!"),
         }
     }
@@ -322,7 +325,7 @@ impl FloatFunc {
         use FloatFunc::*;
         match self {
             Atan2 => x.atan2(y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round => {
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -344,13 +347,14 @@ impl FloatFunc {
             Ceil => "ceil",
             Floor => "floor",
             Round => "round",
+            Trunc => "int",
         }
     }
 
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round => 1,
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => 1,
             Atan2 => 2,
         }
     }
@@ -802,8 +806,11 @@ impl Function {
             Rand => (smallvec![], Float),
             ToInt => {
                 let inc = incoming[0];
+                // `int(x)` truncates toward zero. A float or a string (converted with the usual
+                // numeric rules) stays a float, so values outside the i64 range keep their value.
                 match inc {
-                    Null | Int | Float | Str => (smallvec![inc], Int),
+                    Null | Int => (smallvec![inc], Int),
+                    Float | Str => (smallvec![inc], Float),
                     _ => {
                         return err!(
                             "can only convert scalar values to integers, got input with type: {:?}",
@@ -1058,6 +1065,12 @@ impl Function {
         match self {
             IntFunc(bw) => Ok(bw.ret_state()),
             FloatFunc(ff) => Ok(ff.ret_state()),
+            ToInt => match &args[0] {
+                Some(Scalar(Some(BaseTy::Str))) | Some(Scalar(Some(BaseTy::Float))) => {
+                    Ok(Scalar(BaseTy::Float).abs())
+                }
+                _ => Ok(Scalar(BaseTy::Int).abs()),
+            },
             // The result is a number, also for an unassigned variable: `-x` is 0, not "".
             Unop(Neg) | Unop(Pos) => match &args[0] {
                 Some(Scalar(Some(BaseTy::Str))) | Some(Scalar(Some(BaseTy::Float))) => {
@@ -1071,7 +1084,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | ToInt | Systime | Mktime | Duration
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             System2 => Ok(Map {
                 key: BaseTy::Str,
