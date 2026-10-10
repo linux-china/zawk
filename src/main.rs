@@ -568,14 +568,6 @@ fn main() {
                 .map(|name| name.to_string_lossy().into_owned())
         })
         .unwrap_or_else(|| String::from("zawk"));
-    let argv: Vec<String> = std::iter::once(program_name)
-        .chain(
-            matches
-                .get_many::<String>("input-files")
-                .into_iter()
-                .flat_map(|x| x.map(String::from)),
-        )
-        .collect();
     let mut input_files: Vec<String> = matches
         .get_many::<String>("input-files")
         .map(|x| x.map(String::from).collect())
@@ -620,6 +612,11 @@ fn main() {
             fail!("must specify program at command line, or in a file via -f");
         }
     };
+    // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
+    // as `program` and only gets added to `input_files` above.
+    let argv: Vec<String> = std::iter::once(program_name)
+        .chain(input_files.iter().cloned())
+        .collect();
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
@@ -929,7 +926,7 @@ fn main() {
     // validate AWK code by comment tags
     let passed = awk_util::validate_awk_code(&program_code, &raw.var_decs);
     if !passed {
-        return;
+        std::process::exit(1);
     }
     let a = Arena::default();
     let ctx = get_context(program_code.as_str(), &a, get_prelude(&a, &raw));

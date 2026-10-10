@@ -15,7 +15,6 @@
 # printf
 
 # input and output
-09-environ-argv                       # ARGC and ARGV do not include the operands
 
 # gawk extensions
 11-gawk-ignorecase                    # IGNORECASE is not supported
