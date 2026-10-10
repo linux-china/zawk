@@ -71,12 +71,25 @@ pub use splitter::{
 };
 pub use str_impl::{Str, UniqueStr};
 
-#[derive(Default)]
+/// Maximum number of compiled regexes kept per cache. Dynamic regexes can come from input data
+/// (`$0 ~ $1`, `split($0, a, $2)`), so the cache is cleared once it reaches this size to keep
+/// memory bounded.
+const MAX_CACHED_REGEXES: usize = 1024;
+
 pub struct RegexCache(
     Registry<Regex>,
     // Field separators that are a single character, which awk treats literally.
     Registry<Regex>,
 );
+
+impl Default for RegexCache {
+    fn default() -> Self {
+        RegexCache(
+            Registry::with_capacity_limit(MAX_CACHED_REGEXES),
+            Registry::with_capacity_limit(MAX_CACHED_REGEXES),
+        )
+    }
+}
 
 /// Whether `pat` is a single character (other than " "), which awk treats literally when used
 /// as a field separator, in FS and in split().
@@ -704,16 +717,25 @@ pub(crate) struct Registry<T> {
     // as we go by swapping out one Rc for another as we encounter them. That would keep the
     // fast path fast, but we would have to make sure we weren't keeping any Refs alive.
     cached: HashMap<Str<'static>, T>,
+    // When set, the registry is cleared before inserting a new entry once it holds this many.
+    limit: Option<usize>,
 }
 impl<T> Default for Registry<T> {
     fn default() -> Self {
         Registry {
             cached: Default::default(),
+            limit: None,
         }
     }
 }
 
 impl<T> Registry<T> {
+    fn with_capacity_limit(limit: usize) -> Self {
+        Registry {
+            cached: Default::default(),
+            limit: Some(limit),
+        }
+    }
     fn remove(&mut self, s: &Str) -> bool {
         self.take(s).is_some()
     }
@@ -736,6 +758,7 @@ impl<T> Registry<T> {
     ) -> Result<R> {
         use hashbrown::hash_map::Entry;
         let k_str = s.clone().unmoor();
+        let full = self.limit.is_some_and(|limit| self.cached.len() >= limit);
         match self.cached.entry(k_str) {
             Entry::Occupied(mut o) => getter(o.get_mut()),
             Entry::Vacant(v) => {
@@ -748,7 +771,13 @@ impl<T> Registry<T> {
                     let res = getter(&mut val);
                     Ok((val, res))
                 })?;
-                v.insert(val);
+                if full {
+                    let key = v.into_key();
+                    self.cached.clear();
+                    self.cached.insert(key, val);
+                } else {
+                    v.insert(val);
+                }
                 res
             }
         }
@@ -1101,5 +1130,23 @@ impl<S> Iter<S> {
         let res = self.items.get_unchecked(cur);
         self.cur.set(cur + 1);
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regex_cache_is_bounded() {
+        let mut rc = RegexCache::default();
+        for i in 0..(MAX_CACHED_REGEXES * 3) {
+            let pat = Str::from(format!("x{}", i));
+            assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
+            assert!(rc.0.cached.len() <= MAX_CACHED_REGEXES);
+        }
+        // Entries still hit after the cache has been cleared.
+        let pat = Str::from("x0".to_string());
+        assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).unwrap());
     }
 }
