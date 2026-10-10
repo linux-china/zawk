@@ -1336,3 +1336,27 @@ fn empty_match_respects_utf8_boundaries() {
         }
     }
 }
+
+#[test]
+fn extension_functions_reject_invalid_args_without_panic() {
+    let cases = [
+        (r#"BEGIN{print mask("é")}"#, "*\n"),
+        (r#"BEGIN{print mask("中文")}"#, "中*\n"),
+        (r#"BEGIN{print truncate("中文字符串", 4, "..")}"#, "中文..\n"),
+        (r#"BEGIN{print truncate("abcdef", 1, "...")}"#, "a\n"),
+        (r#"BEGIN{print truncate("abcdef", 5, "..")}"#, "abc..\n"),
+        (r#"BEGIN{print "[" repeat("a", -1) "]"}"#, "[]\n"),
+        (r#"BEGIN{print "[" pad("a", -5, "*") "]"}"#, "[]\n"),
+        (r#"BEGIN{print "[" mkpass(-1) "]"}"#, "[]\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, prog])
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&output.stdout), expected, "{} {}", backend_arg, prog);
+        }
+    }
+}

@@ -854,7 +854,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     MkPassword(dst, len) => {
                         let len: i64 = *self.get(*len);
-                        let password = runtime::string_util::generate_password(len as usize);
+                        let password = runtime::string_util::generate_password(len.max(0) as usize);
                         *index_mut(&mut self.strs, dst) = password.into();
                     }
                     Fend(dst, src) => {
@@ -1577,21 +1577,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadRight(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadBoth(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     StrCmp(dst, text1, text2) => {

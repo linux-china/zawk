@@ -1386,7 +1386,7 @@ pub(crate) unsafe extern "C" fn pad_left(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_left), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_left(&*text.as_str(), len as usize, &*pad.as_str());
+        let res = string_util::pad_left(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1395,7 +1395,7 @@ pub(crate) unsafe extern "C" fn pad_right(text: *mut U128, len: Int, pad: *mut U
     guard_panic(stringify!(pad_right), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_right(&*text.as_str(), len as usize, &*pad.as_str());
+        let res = string_util::pad_right(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1404,7 +1404,7 @@ pub(crate) unsafe extern "C" fn pad_both(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_both), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_both(&*text.as_str(), len as usize, &*pad.as_str());
+        let res = string_util::pad_both(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1882,7 +1882,7 @@ pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
 
 pub(crate) unsafe extern "C" fn mkpass(len: Int) -> U128 {
     guard_panic(stringify!(mkpass), || {
-        let password = string_util::generate_password(len as usize);
+        let password = string_util::generate_password(len.max(0) as usize);
         mem::transmute::<Str, U128>(Str::from(password))
     })
 }

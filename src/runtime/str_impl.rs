@@ -726,18 +726,20 @@ impl<'a> Str<'a> {
         result
     }
 
+    /// Mask the middle of the string with `*`. Lengths are counted in chars, not bytes.
     pub fn mask<'b>(&self) -> Str<'b> {
         let src = self.as_str();
-        let src_len = src.len();
+        let src_len = src.chars().count();
         if src_len == 0 {
             return Str::from("".to_string());
         } else if src_len == 1 {
             return Str::from("*");
         } else if src_len <= 3 {
-            let result = format!("{}{}", &src[0..1], "*".repeat(src_len - 1));
+            let first = src.chars().next().unwrap();
+            let result = format!("{}{}", first, "*".repeat(src_len - 1));
             return Str::from(result);
         }
-        let mask_len = src.len() / 3;
+        let mask_len = src_len / 3;
         let prefix_len = if mask_len > 2 { 2 } else { 0 };
         let mut result = String::new();
         // for loop for src with index and char
@@ -751,9 +753,10 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
+    /// Repeat the string `n` times; a negative `n` yields an empty string.
     pub fn repeat<'b>(&self, n: Int) -> Str<'b> {
         let src = self.as_str();
-        Str::from(src.repeat(n as usize))
+        Str::from(src.repeat(n.max(0) as usize))
     }
 
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
@@ -762,20 +765,22 @@ impl<'a> Str<'a> {
         Str::from(escape(&format, &src))
     }
 
+    /// Truncate the string to at most `len` chars, ending with `place_holder` when truncated.
+    /// If `place_holder` does not fit in `len` chars, the string is cut to `len` chars without
+    /// it. A negative `len` is treated as 0.
     pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {
         let src = self.to_string();
-        let max_len = len as usize;
-        let place_holder_len = place_holder.bytes_len();
-        let src_len = src.len();
-        return if src_len <= max_len { // src length is less than truncate max length
-            Str::from(src)
-        } else if src_len > max_len { // src length is greater than truncate max length
-            let text_max_len = max_len - place_holder_len;
-            Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
-        } else {
-            let text_max_len = src_len - place_holder_len;
-            Str::from(format!("{}{}", &src[0..text_max_len], place_holder.to_string()))
-        };
+        let max_len = len.max(0) as usize;
+        if src.chars().count() <= max_len {
+            return Str::from(src);
+        }
+        let place_holder = place_holder.to_string();
+        let place_holder_len = place_holder.chars().count();
+        if place_holder_len >= max_len {
+            return Str::from(src.chars().take(max_len).collect::<String>());
+        }
+        let text: String = src.chars().take(max_len - place_holder_len).collect();
+        Str::from(format!("{}{}", text, place_holder))
     }
 
     /// awk's `toupper`. Despite the name, non-ASCII UTF-8 text is converted too (see
