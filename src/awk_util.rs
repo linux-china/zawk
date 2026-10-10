@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use regex::Regex;
+use std::sync::LazyLock;
 
 #[derive(Debug)]
 pub struct CommentTag {
@@ -196,26 +197,30 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
     satisfied
 }
 
+/// Field references accepted by the column sugar: `$1`, `$NF`, `$(NF-1)`, and comma separated
+/// lists of them such as `$1,$3,$NF`.
+static FIELD_LIST: LazyLock<Regex> = LazyLock::new(|| {
+    let field = r"\$(?:\d+|NF|\(\s*NF\s*-\s*\d+\s*\))";
+    Regex::new(&format!(r"^{field}(?:\s*,\s*{field})*$")).unwrap()
+});
+
+/// Sugar syntax for programs given on the command line:
+///
+/// * a program that is only a list of fields prints them: `$1,$3` is `{ print $1,$3 }`.
+/// * a program that is only a regex prints the matching records: `/error/` is
+///   `/error/ { print $0 }` (the same as standard awk).
+///
+/// Anything else, e.g. `$1 > 1`, `$1 ~ /x/` or `$1 { print $2 }`, is left as is, so that
+/// standard awk programs keep their meaning.
 pub fn sugar_syntax_convert(awk_code: String) -> String {
-    // output single column
-    if awk_code.starts_with("$") && !contains_conditional_ops(&awk_code) {
-        return format!("{{ print {} }}", awk_code);
-    } else if awk_code.starts_with("/") && awk_code.ends_with("/") {
-        // conditional
-        return format!("{} {{ print $0 }}", awk_code);
+    let code = awk_code.trim();
+    if FIELD_LIST.is_match(code) {
+        return format!("{{ print {} }}", code);
+    }
+    if code.len() > 1 && code.starts_with('/') && code.ends_with('/') {
+        return format!("{} {{ print $0 }}", code);
     }
     awk_code
-}
-
-fn contains_conditional_ops(awk_code: &str) -> bool {
-    awk_code.contains("==")
-        || awk_code.contains("!=")
-        || awk_code.contains("<")
-        || awk_code.contains(">")
-        || awk_code.contains("<=")
-        || awk_code.contains(">=")
-        || awk_code.contains("&&")
-        || awk_code.contains("||")
 }
 
 #[cfg(test)]
@@ -264,10 +269,29 @@ mod tests {
 
     #[test]
     fn test_sugar_syntax_convert() {
-        let new_code = sugar_syntax_convert("$1".to_owned());
-        println!("{}", new_code);
-        assert!(new_code.contains("print"));
-        let new_code = sugar_syntax_convert("/error/".to_owned());
-        println!("{}", new_code);
+        for code in ["$1", "$NF", "$(NF-1)", "$1,$3", "$1, $3, $NF", " $2 "] {
+            let new_code = sugar_syntax_convert(code.to_owned());
+            assert_eq!(new_code, format!("{{ print {} }}", code.trim()), "{}", code);
+        }
+        assert_eq!(sugar_syntax_convert("/error/".to_owned()), "/error/ { print $0 }");
+        for code in [
+            "$1 {print $2}",
+            "$1{print}",
+            "$1 {n++} END{print n}",
+            "$1 ~ /x/",
+            "$1 !~ /x/",
+            "$1 % 2",
+            "$2 + 0",
+            "$1 in a",
+            "$1 = \"X\"",
+            "$1;$2",
+            "$1>1",
+            "$1 == \"a\" {print}",
+            "$1 \" \" $3",
+            "/",
+            "{ print }",
+        ] {
+            assert_eq!(sugar_syntax_convert(code.to_owned()), code, "{}", code);
+        }
     }
 }

@@ -613,13 +613,12 @@ fn main() {
             }
             prog
         } else if let Some(p) = matches.get_one::<String>("program") {
-            String::from(p.trim())
+            // Sugar syntax only applies to programs given on the command line, not to `-f` files.
+            awk_util::sugar_syntax_convert(String::from(p.trim()))
         } else {
             fail!("must specify program at command line, or in a file via -f");
         }
     };
-    // sugar syntax convert for AWK
-    let program_code = awk_util::sugar_syntax_convert(program_code);
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
