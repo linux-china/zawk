@@ -180,7 +180,9 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
 }
 
 pub fn sugar_syntax_convert(awk_code: String) -> String {
-    if awk_code.starts_with("$") && !awk_code.contains("{") {
+    if awk_code.starts_with("/") && awk_code.ends_with("/") {
+        return format!("{{ {} {{ print $0 }} }}", awk_code);
+    } else if !awk_code.contains("{") && !awk_code.contains("}") {
         return format!("{{ print {} }}", awk_code);
     }
     awk_code
@@ -232,9 +234,10 @@ mod tests {
 
     #[test]
     fn test_sugar_syntax_convert() {
-        let code = "$1";
-        let new_code = sugar_syntax_convert(code.to_string());
+        let new_code = sugar_syntax_convert("$1".to_owned());
         println!("{}", new_code);
         assert!(new_code.contains("print"));
+        let new_code = sugar_syntax_convert("/error/".to_owned());
+        println!("{}", new_code);
     }
 }
