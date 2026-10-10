@@ -2320,9 +2320,24 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         let utc = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
                         prim_args.push(self.to_val(utc, open)?);
                     }
-                    // mktime(date_text) => mktime(date_text, MKTIME_LOCAL_TIMEZONE);
-                    builtins::Function::Mktime if args_len == 1 => {
-                        prim_args.push(PrimVal::ILit(crate::runtime::date_time::MKTIME_LOCAL_TIMEZONE as Int));
+                    // mktime(date_text [, utc [, timezone]]): the utc flag defaults to 0 and is true
+                    // when it is nonzero or a nonempty string (`!!utc`), as in gawk; the timezone
+                    // defaults to MKTIME_LOCAL_TIMEZONE.
+                    builtins::Function::Mktime => {
+                        use builtins::Function::Unop;
+                        let timezone = if args_len == 3 { prim_args.pop() } else { None };
+                        if args_len == 1 {
+                            prim_args.push(PrimVal::ILit(0));
+                        } else {
+                            let utc = prim_args.pop().unwrap();
+                            let not = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc]);
+                            let not = self.to_val(not, open)?;
+                            let utc = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
+                            prim_args.push(self.to_val(utc, open)?);
+                        }
+                        prim_args.push(timezone.unwrap_or(PrimVal::ILit(
+                            crate::runtime::date_time::MKTIME_LOCAL_TIMEZONE as Int,
+                        )));
                     }
                     // trim(s) => trim(s, " ");
                     builtins::Function::Trim if args_len == 1 => {

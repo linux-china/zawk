@@ -255,8 +255,9 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(timestamp.into()));
                 f(dst.into(), Some(flags.into()));
             }
-            Mktime(dst, date_time_text, timezone) => {
+            Mktime(dst, date_time_text, utc, timezone) => {
                 f(dst.into(), Some(date_time_text.into()));
+                f(dst.into(), Some(utc.into()));
                 f(dst.into(), Some(timezone.into()));
             }
             Duration(dst, expr) => {

@@ -246,7 +246,7 @@ pub(crate) enum Instr<'a> {
     Dejwt( Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Encrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
+    Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     Duration(Reg<Int>, Reg<Str<'a>>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
     MkPassword(Reg<Str<'a>>, Reg<Int>),
@@ -747,9 +747,10 @@ impl<'a> Instr<'a> {
                 timestamp.accum(&mut f);
                 flags.accum(&mut f);
             }
-            Mktime(res, date_time_text,timezone) => {
+            Mktime(res, date_time_text, utc, timezone) => {
                 res.accum(&mut f);
                 date_time_text.accum(&mut f);
+                utc.accum(&mut f);
                 timezone.accum(&mut f);
             }
             Duration(res, expr) => {

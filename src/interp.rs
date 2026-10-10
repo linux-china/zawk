@@ -833,10 +833,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         );
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
-                    Mktime(dst, date_time_text, timezone) => {
+                    Mktime(dst, date_time_text, utc, timezone) => {
                         let dt_text = index(&self.strs, date_time_text);
+                        let utc = *self.get(*utc) != 0;
                         let dt_timezone: i64 = *self.get(*timezone);
-                        let result = runtime::date_time::mktime(&*dt_text.as_str(), dt_timezone);
+                        let result = runtime::date_time::mktime(&*dt_text.as_str(), utc, dt_timezone);
                         let ir = *dst;
                         *self.get_mut(ir) = result;
                     }

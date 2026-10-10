@@ -1,7 +1,7 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
 use chrono::format::{Item, StrftimeItems};
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
 use std::time::SystemTime;
 
 const WEEKS: [&'static str; 7] = [
@@ -74,25 +74,36 @@ pub(crate) fn awk_strftime(procinfo: &StrMap<Str>, format: &Str, timestamp: Int,
     strftime_tz(&format, timestamp, flags & STRFTIME_UTC != 0)
 }
 
-/// Sentinel timezone for `mktime(text)`: text without an explicit offset is treated as local time.
+/// Sentinel timezone for `mktime(text [, utc])`: no UTC offset is given, so text without an
+/// explicit offset is parsed as local time, or as UTC when the utc flag is set.
 pub const MKTIME_LOCAL_TIMEZONE: i64 = i64::MIN;
 
-/// Parse date time text to a unix timestamp.
-/// `timezone` is the UTC offset in hours (e.g. `8` for UTC+8, `-5` for UTC-5) applied to text without an explicit offset;
-/// [`MKTIME_LOCAL_TIMEZONE`] or an out-of-range value means local time.
-pub fn mktime(date_time_text: &str, timezone: i64) -> i64 {
+/// awk's `mktime(text [, utc [, timezone]])`: parse date time text to a unix timestamp, `-1` if
+/// the text cannot be parsed (as in gawk).
+/// Text without an explicit offset is parsed in `timezone`, the UTC offset in hours (e.g. `8` for
+/// UTC+8, `-5` for UTC-5); when it is [`MKTIME_LOCAL_TIMEZONE`] or out of range, in UTC if `utc` is
+/// nonzero (gawk's utc-flag) and in local time otherwise.
+pub fn mktime(date_time_text: &str, utc: bool, timezone: i64) -> i64 {
     let offset = timezone
         .checked_mul(3600)
         .and_then(|seconds| i32::try_from(seconds).ok())
         .and_then(FixedOffset::east_opt);
     match offset {
         Some(offset) => mktime_tz(date_time_text, &offset),
+        None if utc => mktime_tz(date_time_text, &Utc),
         None => mktime_tz(date_time_text, &Local),
     }
-    .unwrap_or(0)
+    .unwrap_or(-1)
 }
 
 fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
+    // gawk format first, so that the lenient parsers below cannot misread it
+    if let Some(naive) = parse_gawk_date_time(date_time_text) {
+        return tz
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|dt| dt.timestamp());
+    }
     if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone())
         .ok()
         .and_then(|x| x.single())
@@ -109,14 +120,33 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
             return Some(date_time.timestamp());
         }
     }
-    //gawk compatible parser
-    if let Ok(naive) = NaiveDateTime::parse_from_str(date_time_text, "%Y %m %d %H %M %S") {
-        return tz
-            .from_local_datetime(&naive)
-            .earliest()
-            .map(|dt| dt.timestamp());
-    }
     None
+}
+
+/// gawk's `"YYYY MM DD HH MM SS [DST]"`: 6 or 7 integers separated by whitespace. Out-of-range
+/// values are normalized as in gawk, e.g. month `13` is January of the next year. The DST field
+/// is ignored, since the time zone decides it.
+fn parse_gawk_date_time(text: &str) -> Option<NaiveDateTime> {
+    let fields = text
+        .split_ascii_whitespace()
+        .map(|field| field.parse::<i64>().ok())
+        .collect::<Option<Vec<i64>>>()?;
+    let [year, month, day, hour, minute, second] = match fields.len() {
+        6 | 7 => [fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]],
+        _ => return None,
+    };
+    let months = year.checked_mul(12)?.checked_add(month.checked_sub(1)?)?;
+    let year = i32::try_from(months.div_euclid(12)).ok()?;
+    let month = months.rem_euclid(12) as u32 + 1;
+    let seconds = day
+        .checked_sub(1)?
+        .checked_mul(86400)?
+        .checked_add(hour.checked_mul(3600)?)?
+        .checked_add(minute.checked_mul(60)?)?
+        .checked_add(second)?;
+    NaiveDate::from_ymd_opt(year, month, 1)?
+        .and_hms_opt(0, 0, 0)?
+        .checked_add_signed(chrono::TimeDelta::try_seconds(seconds)?)
 }
 
 fn is_fend_date(text: &str) -> bool {
@@ -136,7 +166,7 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
         datetime2(timestamp)
     } else {
-        let timestamp = mktime(date_time_text, MKTIME_LOCAL_TIMEZONE);
+        let timestamp = mktime(date_time_text, false, MKTIME_LOCAL_TIMEZONE);
         datetime2(timestamp)
     }
 }
@@ -231,24 +261,40 @@ mod tests {
             "09:11:12 -1day",
         ];
         for item in date_text_items {
-            println!("{}", mktime(item, 0));
+            assert_ne!(mktime(item, true, MKTIME_LOCAL_TIMEZONE), -1, "{}", item);
         }
     }
 
     #[test]
     fn test_mktime_timezone() {
         // 2024-01-01 10:00:00 at UTC+8 is 2024-01-01 02:00:00 UTC
-        assert_eq!(mktime("2024-01-01 10:00:00", 8), 1704074400);
+        assert_eq!(mktime("2024-01-01 10:00:00", false, 8), 1704074400);
         // 2024-01-01 10:00:00 at UTC-5 is 2024-01-01 15:00:00 UTC
-        assert_eq!(mktime("2024-01-01 10:00:00", -5), 1704121200);
-        assert_eq!(mktime("2024-01-01 10:00:00", 0), 1704103200);
+        assert_eq!(mktime("2024-01-01 10:00:00", false, -5), 1704121200);
+        assert_eq!(mktime("2024-01-01 10:00:00", false, 0), 1704103200);
         // gawk format
-        assert_eq!(mktime("2024 01 01 10 00 00", 8), 1704074400);
-        assert_eq!(mktime("2024 01 01 10 00 00", -5), 1704121200);
+        assert_eq!(mktime("2024 01 01 10 00 00", false, 8), 1704074400);
+        assert_eq!(mktime("2024 01 01 10 00 00", false, -5), 1704121200);
         // explicit offset in text wins over timezone argument
-        assert_eq!(mktime("2024-01-01 10:00:00 +08:00", -5), 1704074400);
+        assert_eq!(mktime("2024-01-01 10:00:00 +08:00", false, -5), 1704074400);
         // before 1970
-        assert_eq!(mktime("1969-12-31 23:00:00", 0), -3600);
+        assert_eq!(mktime("1969-12-31 23:00:00", false, 0), -3600);
+    }
+
+    #[test]
+    fn test_mktime_gawk() {
+        // utc flag, as gawk's mktime(spec, utc-flag)
+        assert_eq!(mktime("1970 01 02 00 00 00", true, MKTIME_LOCAL_TIMEZONE), 86400);
+        assert_eq!(mktime("2024-01-01 10:00:00", true, MKTIME_LOCAL_TIMEZONE), 1704103200);
+        // the timezone wins over the utc flag
+        assert_eq!(mktime("2024 01 01 10 00 00", true, 8), 1704074400);
+        // optional DST field, unpadded and out-of-range values are normalized
+        assert_eq!(mktime("1970 1 2 0 0 0 -1", true, MKTIME_LOCAL_TIMEZONE), 86400);
+        assert_eq!(mktime("1969 13 1 24 0 0", true, MKTIME_LOCAL_TIMEZONE), 86400);
+        assert_eq!(mktime("1970 01 01 00 00 -1", true, MKTIME_LOCAL_TIMEZONE), -1);
+        // invalid text is -1
+        assert_eq!(mktime("not a date", true, MKTIME_LOCAL_TIMEZONE), -1);
+        assert_eq!(mktime("", false, MKTIME_LOCAL_TIMEZONE), -1);
     }
 
     #[test]

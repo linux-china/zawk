@@ -2357,6 +2357,7 @@ impl<'a, 'b> View<'a, 'b> {
                         res_reg.into(),
                         conv_regs[0].into(),
                         conv_regs[1].into(),
+                        conv_regs[2].into(),
                     ))
                 }
             }

@@ -552,7 +552,11 @@ please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
 - `mktime("2012 12 21 0 0 0")`:
 - `mktime("2019-11-29 08:08-08")`:
-- `mktime("2024-01-01 10:00:00", 8)`: `1704074400`, the 2nd argument is the UTC offset in hours (e.g. `8`, `-5`) for text without an explicit offset, and local time is used if omitted.
+- `mktime("1970 01 02 00 00 00", 1)`: `86400`, the 2nd argument is gawk's utc-flag: nonzero to parse text without an explicit offset as UTC, local time otherwise.
+- `mktime("2024-01-01 10:00:00", 0, 8)`: `1704074400`, the 3rd argument is the UTC offset in hours (e.g. `8`, `-5`) for text without an explicit offset, and wins over the utc-flag.
+
+`mktime()` returns `-1` if the text cannot be parsed, as gawk does.
+The gawk format `"YYYY MM DD HH MM SS [DST]"` is tried first, and out-of-range values are normalized (e.g. month `13`).
 
 ### Duration
 

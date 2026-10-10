@@ -1002,10 +1002,11 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp, flags])?;
                 self.bind_val(dst.reflect(),resv)
             }
-            Mktime(dst,date_time_text,timezone) => {
+            Mktime(dst, date_time_text, utc, timezone) => {
                 let date_time_text = self.get_val(date_time_text.reflect())?;
+                let utc = self.get_val(utc.reflect())?;
                 let timezone = self.get_val(timezone.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, timezone])?;
+                let resv = self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, utc, timezone])?;
                 self.bind_val(dst.reflect(),resv)
             },
             Duration(dst,expr) => self.unop(intrinsic!(duration), dst, expr),

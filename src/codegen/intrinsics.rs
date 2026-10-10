@@ -177,7 +177,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         local_ip(rt_ty) -> str_ty;
         systime(rt_ty) -> int_ty;
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
-        [ReadOnly] mktime(str_ref_ty, int_ty) -> int_ty;
+        [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
@@ -1713,10 +1713,10 @@ pub(crate) unsafe extern "C" fn fake(data: *mut U128, locale: *mut U128) -> U128
     })
 }
 
-pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, timezone: Int) -> Int {
+pub(crate) unsafe extern "C" fn mktime(date_time_text: *mut U128, utc: Int, timezone: Int) -> Int {
     guard_panic(stringify!(mktime), || {
         let dt_text = &*(date_time_text as *mut Str);
-        date_time::mktime(&*dt_text.as_str(), timezone)
+        date_time::mktime(&*dt_text.as_str(), utc != 0, timezone)
     })
 }
 
