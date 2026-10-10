@@ -436,19 +436,19 @@ impl<'a> Str<'a> {
         self.with_bytes(|s| {
             let mut prev = 0;
             let mut cur_field = 1;
-            for m in pat.find_iter(s) {
+            for (start, end) in super::awk_regex::find_iter(pat, s) {
                 // As in gawk, a separator must match at least one character: empty matches
                 // (e.g. of `x*` or `^`) do not split.
-                if m.start() == m.end() {
+                if start == end {
                     continue;
                 }
-                let is_empty = prev == m.start();
+                let is_empty = prev == start;
                 cur_field += if used_fields.get(cur_field) {
-                    push(self.slice(prev, m.start()), is_empty)
+                    push(self.slice(prev, start), is_empty)
                 } else {
                     push(Str::default(), is_empty)
                 };
-                prev = m.end();
+                prev = end;
             }
             let is_empty = prev == s.len();
             if used_fields.get(cur_field) {
@@ -840,11 +840,11 @@ impl<'a> Str<'a> {
     pub fn subst_first(&self, pat: &Regex, subst: &Str<'a>) -> (Str<'a>, bool) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
-                if let Some(m) = pat.find(s) {
+                if let Some((start, end)) = super::awk_regex::find_at(pat, s, 0) {
                     let mut buf = DynamicBuf::new(s.len());
-                    buf.write_all(&s[0..m.start()]).unwrap();
-                    process_match(&s[m.start()..m.end()], subst, &mut buf).unwrap();
-                    buf.write_all(&s[m.end()..s.len()]).unwrap();
+                    buf.write_all(&s[0..start]).unwrap();
+                    process_match(&s[start..end], subst, &mut buf).unwrap();
+                    buf.write_all(&s[end..s.len()]).unwrap();
                     (buf.into_str(), true)
                 } else {
                     (self.clone(), false)
@@ -860,13 +860,13 @@ impl<'a> Str<'a> {
                 let mut prev = 0;
                 let mut count = 0;
                 let mut bound = CharBoundary::new(s);
-                for m in pat.find_iter(s) {
-                    if bound.splits_char(m.start(), m.end()) {
+                for (start, end) in super::awk_regex::find_iter(pat, s) {
+                    if bound.splits_char(start, end) {
                         continue;
                     }
-                    buf.write_all(&s[prev..m.start()]).unwrap();
-                    process_match(&s[m.start()..m.end()], subst, &mut buf).unwrap();
-                    prev = m.end();
+                    buf.write_all(&s[prev..start]).unwrap();
+                    process_match(&s[start..end], subst, &mut buf).unwrap();
+                    prev = end;
                     count += 1;
                 }
                 if count == 0 {
@@ -899,14 +899,16 @@ impl<'a> Str<'a> {
                 let mut prev = 0;
                 let mut count = 0;
                 let mut bound = CharBoundary::new(s);
-                for c in pat.captures_iter(s) {
-                    let m = c.get(0).unwrap();
-                    if bound.splits_char(m.start(), m.end()) {
+                for (start, end) in super::awk_regex::find_iter(pat, s) {
+                    if bound.splits_char(start, end) {
                         continue;
                     }
-                    buf.write_all(&s[prev..m.start()]).unwrap();
+                    let Some(c) = super::awk_regex::captures_at(pat, s, start, end) else {
+                        continue;
+                    };
+                    buf.write_all(&s[prev..start]).unwrap();
                     process_match_gen(c, subst, &mut buf).unwrap();
-                    prev = m.end();
+                    prev = end;
                     count += 1;
                 }
                 if count == 0 {
@@ -927,16 +929,12 @@ impl<'a> Str<'a> {
                 // Match against the whole string (not a suffix) so that anchors and word
                 // boundaries keep their context.
                 let mut bound = CharBoundary::new(s);
-                let nth = pat
-                    .captures_iter(s)
-                    .filter(|c| {
-                        let m = c.get(0).unwrap();
-                        !bound.splits_char(m.start(), m.end())
-                    })
+                let nth = super::awk_regex::find_iter(pat, s)
+                    .filter(|&(start, end)| !bound.splits_char(start, end))
                     .nth(which as usize - 1);
-                if let Some(c) = nth {
-                    let m = c.get(0).unwrap();
-                    let (start, end) = (m.start(), m.end());
+                if let Some((start, end, c)) = nth.and_then(|(start, end)| {
+                    super::awk_regex::captures_at(pat, s, start, end).map(|c| (start, end, c))
+                }) {
                     let mut buf = DynamicBuf::new(s.len());
                     buf.write_all(&s[0..start]).unwrap();
                     process_match_gen(c, subst, &mut buf).unwrap();

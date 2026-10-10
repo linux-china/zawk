@@ -170,7 +170,7 @@ impl<R: Read> RegexSplitter<R> {
             // Why this map invocation? Match objects hold a reference to the substring, which
             // makes it harder for us to call mutable methods like advance in the body, so just get
             // the start and end pointers.
-            match pat.find(s).map(|m| (m.start(), m.end())) {
+            match crate::runtime::awk_regex::find_at(pat, s, 0) {
                 // We need this check in case the regex matches across a chunk boundary.
                 Some((start, end)) if end + self.reader.start < self.reader.end => {
                     // Valid offsets guaranteed by correctness of regex `find`.

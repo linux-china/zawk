@@ -320,10 +320,10 @@ impl RegexCache {
     pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
         use crate::builtins::Variable;
         // RSTART and RLENGTH count chars, as `length()` and `substr()` do.
-        let (start, len) = s.with_bytes(|bs| match re.find(bs) {
-            Some(m) => {
-                let start = str_impl::char_count(&bs[..m.start()]) as Int;
-                let len = str_impl::char_count(&bs[m.start()..m.end()]) as Int;
+        let (start, len) = s.with_bytes(|bs| match awk_regex::find_at(re, bs, 0) {
+            Some((from, to)) => {
+                let start = str_impl::char_count(&bs[..from]) as Int;
+                let len = str_impl::char_count(&bs[from..to]) as Int;
                 (start + 1, len)
             }
             None => (0, -1),
@@ -352,7 +352,9 @@ impl RegexCache {
         mut f: impl FnMut(Int, Str<'a>, Int, Int),
     ) -> Result<Int> {
         self.with_regex_fallible(pat, |re| {
-            let groups: Vec<(Int, usize, usize)> = s.with_bytes(|bs| match re.captures(bs) {
+            let groups: Vec<(Int, usize, usize)> = s.with_bytes(|bs| match awk_regex::find_at(re, bs, 0)
+                .and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
+            {
                 Some(caps) => caps
                     .iter()
                     .enumerate()

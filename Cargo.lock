@@ -6567,6 +6567,7 @@ dependencies = [
  "rand 0.10.3",
  "redis",
  "regex",
+ "regex-automata",
  "regex-syntax",
  "reqwest",
  "rs-snowflake",

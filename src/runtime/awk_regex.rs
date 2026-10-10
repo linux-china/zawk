@@ -14,15 +14,132 @@
 //! * In bracket expressions, `[`, `&`, `~` and `-` sequences that the `regex` crate treats as
 //!   nested classes or set operations are literal characters.
 //!
-//! One difference remains: `regex` reports the leftmost-first match of an alternation (e.g. `x`
-//! for `x|xy` against "xyz"), where POSIX awk reports the leftmost-longest one (`xy`).
-use regex::bytes::{Regex, RegexBuilder};
+//! `regex` reports the leftmost-first match of an alternation (e.g. `x` for `x|xy` against
+//! "xyz"), where POSIX awk reports the leftmost-longest one (`xy`). The `find_at`, `find_iter`
+//! and `captures_at` helpers below restore the POSIX semantics for patterns with an alternation;
+//! other patterns use `regex` directly.
+use regex::bytes::{Captures, Regex, RegexBuilder};
+use regex_automata::hybrid::dfa::{Cache, DFA};
+use regex_automata::{Anchored, Input, MatchKind};
+use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 /// Compile an awk regular expression.
 pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
     RegexBuilder::new(&translate(pat))
         .dot_matches_new_line(true)
         .build()
+}
+
+/// What it takes to turn a leftmost-first match into the leftmost-longest one.
+struct Longest {
+    /// A lazy DFA reporting all matches, so that an anchored forward search ends at the longest.
+    dfa: DFA,
+    cache: RefCell<Cache>,
+    /// The pattern anchored at the end, `(?:pat)\z`, to get capture groups of a given span.
+    exact: OnceCell<Option<Regex>>,
+}
+
+thread_local! {
+    static LONGEST: RefCell<HashMap<String, Option<Rc<Longest>>>> = RefCell::new(HashMap::new());
+}
+
+/// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
+/// (no alternation) or the DFA cannot be built.
+fn longest(re: &Regex) -> Option<Rc<Longest>> {
+    let pat = re.as_str();
+    if !pat.contains('|') {
+        return None;
+    }
+    LONGEST.with(|cell| {
+        if let Some(l) = cell.borrow().get(pat) {
+            return l.clone();
+        }
+        let dfa = DFA::builder()
+            .configure(DFA::config().match_kind(MatchKind::All))
+            .syntax(
+                regex_automata::util::syntax::Config::new()
+                    .utf8(false)
+                    .dot_matches_new_line(true),
+            )
+            .thompson(regex_automata::nfa::thompson::Config::new().utf8(false))
+            .build(pat)
+            .ok();
+        let l = dfa.map(|dfa| {
+            let cache = RefCell::new(dfa.create_cache());
+            Rc::new(Longest {
+                dfa,
+                cache,
+                exact: OnceCell::new(),
+            })
+        });
+        cell.borrow_mut().insert(pat.to_string(), l.clone());
+        l
+    })
+}
+
+/// The end of the longest match of `l` starting at `start`.
+fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
+    let input = Input::new(hay).range(start..).anchored(Anchored::Yes);
+    let mut cache = l.cache.borrow_mut();
+    // The lazy DFA gives up on e.g. Unicode word boundaries next to non-ASCII text; the caller
+    // then keeps the leftmost-first match.
+    l.dfa.try_search_fwd(&mut cache, &input).ok().flatten().map(|m| m.offset())
+}
+
+/// The leftmost-longest match of `re` in `hay` starting at or after `start`, as (start, end).
+pub(crate) fn find_at(re: &Regex, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+    let m = re.find_at(hay, start)?;
+    let (from, to) = (m.start(), m.end());
+    match longest(re) {
+        Some(l) => Some((from, longest_end(&l, hay, from).map_or(to, |e| e.max(to)))),
+        None => Some((from, to)),
+    }
+}
+
+/// All successive non-overlapping leftmost-longest matches of `re` in `hay`, as (start, end).
+/// As with `Regex::find_iter`, an empty match right after the previous match is skipped.
+pub(crate) fn find_iter<'h>(
+    re: &'h Regex,
+    hay: &'h [u8],
+) -> impl Iterator<Item = (usize, usize)> + 'h {
+    let mut pos = 0;
+    let mut last_end = None;
+    std::iter::from_fn(move || loop {
+        if pos > hay.len() {
+            return None;
+        }
+        let (from, to) = find_at(re, hay, pos)?;
+        if from == to && last_end == Some(to) {
+            pos = to + 1;
+            continue;
+        }
+        pos = to;
+        last_end = Some(to);
+        return Some((from, to));
+    })
+}
+
+/// The capture groups of `re` for the match `from..to` of `hay` (as found by `find_at`).
+pub(crate) fn captures_at<'h>(re: &Regex, hay: &'h [u8], from: usize, to: usize) -> Option<Captures<'h>> {
+    if let Some(l) = longest(re) {
+        let exact = l.exact.get_or_init(|| {
+            RegexBuilder::new(&format!("(?:{})\\z", re.as_str()))
+                .dot_matches_new_line(true)
+                .build()
+                .ok()
+        });
+        if let Some(exact) = exact {
+            // Text before `from` stays visible to look-behind assertions such as `\b`.
+            if let Some(c) = exact.captures_at(&hay[..to], from) {
+                if c.get(0).map(|m| m.start()) == Some(from) {
+                    return Some(c);
+                }
+            }
+        }
+    }
+    re.captures_at(hay, from)
 }
 
 fn push_literal(out: &mut String, c: char) {
@@ -323,6 +440,22 @@ mod tests {
         assert!(is_match(r"\101", "A"));
         assert!(is_match(r"\q", "q"));
         assert!(is_match("[[:digit:]]+", "x12"));
+    }
+
+    #[test]
+    fn leftmost_longest() {
+        let spans = |pat: &str, s: &str| -> Vec<(usize, usize)> {
+            find_iter(&compile(pat).unwrap(), s.as_bytes()).collect()
+        };
+        assert_eq!(spans("a|ab", "abcd"), vec![(0, 2)]);
+        assert_eq!(spans("x|xy", "xyz"), vec![(0, 2)]);
+        assert_eq!(spans("o|oo", "foobar"), vec![(1, 3)]);
+        assert_eq!(spans("y|", "x"), vec![(0, 0), (1, 1)]);
+        assert_eq!(spans("ab", "abab"), vec![(0, 2), (2, 4)]);
+        let re = compile("(x|xy)(z?)").unwrap();
+        let caps = captures_at(&re, b"xyz", 0, 3).unwrap();
+        assert_eq!(&caps[1], b"xy");
+        assert_eq!(&caps[2], b"z");
     }
 
     #[test]
