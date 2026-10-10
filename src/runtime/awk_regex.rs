@@ -9,6 +9,8 @@
 //!   `\'` (start/end of the string), and `\B`.
 //! * Escapes: `\b` is a backspace (gawk uses `\y` for word boundaries), `\a`, `\v`, `\f` and
 //!   octal escapes (`\101`); other letters that are not operators are literal characters.
+//! * POSIX character classes (`[:alpha:]` etc.) match non-ASCII characters too, as in gawk under a
+//!   UTF-8 locale (the `regex` crate's own versions are ASCII-only); see `posix_class`.
 //! * In bracket expressions, `[`, `&`, `~` and `-` sequences that the `regex` crate treats as
 //!   nested classes or set operations are literal characters.
 //!
@@ -81,6 +83,29 @@ fn translate_escape(out: &mut String, chars: &[char], i: &mut usize, in_bracket:
     }
 }
 
+/// The Unicode-aware equivalent of the POSIX character class `[:name:]`, for use inside a
+/// bracket expression. `digit` and `xdigit` stay ASCII, like glibc's in a UTF-8 locale, and (also
+/// like glibc) other decimal digits such as `٣` count as `alpha`. Unknown
+/// names are passed through, so that `regex` reports them.
+fn posix_class(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "alpha" => r"\p{Alphabetic}[\p{Nd}--0-9]",
+        "alnum" => r"\p{Alphabetic}\p{Nd}",
+        "upper" => r"\p{Uppercase}",
+        "lower" => r"\p{Lowercase}",
+        "digit" => "0-9",
+        "xdigit" => "0-9A-Fa-f",
+        "space" => r"\p{White_Space}",
+        "blank" => r"\t\p{Zs}",
+        "punct" => r"\p{P}\p{S}",
+        "cntrl" => r"\p{Cc}",
+        "graph" => r"[^\p{C}\p{Z}]",
+        "print" => r"[^\p{C}\p{Zl}\p{Zp}]",
+        "word" => r"\w",
+        _ => return None,
+    })
+}
+
 /// Whether `chars[i..]` starts with a valid interval: `{n}`, `{n,}` or `{n,m}`.
 fn interval_len(chars: &[char], i: usize) -> Option<usize> {
     let mut j = i + 1;
@@ -136,7 +161,11 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
                         .find(|&k| chars[k] == ':' && chars[k + 1] == ']');
                     match end {
                         Some(end) => {
-                            res.extend(&chars[j..end + 2]);
+                            let name: String = chars[j + 2..end].iter().collect();
+                            match posix_class(&name) {
+                                Some(class) => res.push_str(class),
+                                None => res.extend(&chars[j..end + 2]),
+                            }
                             j = end + 2;
                         }
                         None => {
@@ -269,7 +298,8 @@ mod tests {
         assert_eq!(translate("[[]"), r"[\[]");
         assert_eq!(translate("[]a]"), r"[\]a]");
         assert_eq!(translate("[^]a]"), r"[^\]a]");
-        assert_eq!(translate("[[:alpha:]_]"), "[[:alpha:]_]");
+        assert_eq!(translate("[[:alpha:]_]"), r"[\p{Alphabetic}[\p{Nd}--0-9]_]");
+        assert_eq!(translate("[^[:digit:]]"), "[^0-9]");
         assert_eq!(translate("[a&&b]"), r"[a\&\&b]");
         assert_eq!(translate("(?:.)"), "(?:.)");
     }
@@ -293,5 +323,25 @@ mod tests {
         assert!(is_match(r"\101", "A"));
         assert!(is_match(r"\q", "q"));
         assert!(is_match("[[:digit:]]+", "x12"));
+    }
+
+    #[test]
+    fn unicode_posix_classes() {
+        assert!(is_match("^[[:alpha:]]+$", "héllo中文"));
+        assert!(!is_match("[[:alpha:]]", "123 !"));
+        assert!(is_match("^[[:alnum:]]+$", "é9"));
+        assert!(is_match("^[[:upper:]]$", "É"));
+        assert!(is_match("^[[:lower:]]$", "é"));
+        assert!(!is_match("[[:digit:]]", "٣"));
+        assert!(is_match("[[:alpha:]]", "٣"));
+        assert!(is_match("^[[:space:]]$", "\u{3000}"));
+        assert!(is_match("^[[:blank:]]$", "\t"));
+        assert!(is_match("^[[:punct:]]+$", "，。!$"));
+        assert!(is_match("^[[:graph:]]+$", "中!"));
+        assert!(!is_match("[[:graph:]]", " \t"));
+        assert!(is_match("^[[:print:]]+$", "中 a"));
+        assert!(!is_match("[[:print:]]", "\n"));
+        assert!(is_match("^[^[:alpha:]]+$", "123"));
+        assert!(!is_match("[^[:alpha:]]", "中文"));
     }
 }
