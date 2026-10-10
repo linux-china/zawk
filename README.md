@@ -21,6 +21,9 @@ Features:
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
 * i18n support: `length("你好Hello") # 7`, `substr("你好Hello", 1, 2) # 你好`
 * Load awk script from URL
+* Field list shorthand: a command-line program that is only a comma-separated list of two or more fields
+  prints them, e.g. `zawk '$1,$3'` is `zawk '{ print $1,$3 }'`. A single field such as `zawk '$2'` keeps the
+  standard awk meaning (print records whose `$2` is non-empty/non-zero).
 * awk file help support
 
 The info subdirectory has more in-depth information on zawk:

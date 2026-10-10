@@ -182,15 +182,18 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
 }
 
 /// Field references accepted by the column sugar: `$1`, `$NF`, `$(NF-1)`, and comma separated
-/// lists of them such as `$1,$3,$NF`.
+/// lists of them such as `$1,$3,$NF`. At least two fields are required: a single field
+/// such as `$2` is a standard awk pattern (print records whose `$2` is non-empty/non-zero).
 static FIELD_LIST: LazyLock<Regex> = LazyLock::new(|| {
     let field = r"\$(?:\d+|NF|\(\s*NF\s*-\s*\d+\s*\))";
-    Regex::new(&format!(r"^{field}(?:\s*,\s*{field})*$")).unwrap()
+    Regex::new(&format!(r"^{field}(?:\s*,\s*{field})+$")).unwrap()
 });
 
 /// Sugar syntax for programs given on the command line:
 ///
-/// * a program that is only a list of fields prints them: `$1,$3` is `{ print $1,$3 }`.
+/// * a program that is only a comma-separated list of two or more fields prints them:
+///   `$1,$3` is `{ print $1,$3 }`. A single field (`$2`, `$NF`) is left as is, since it
+///   is a standard awk pattern that filters out records with an empty/zero field.
 /// * a program that is only a regex prints the matching records: `/error/` is
 ///   `/error/ { print $0 }` (the same as standard awk).
 ///
@@ -253,12 +256,15 @@ mod tests {
 
     #[test]
     fn test_sugar_syntax_convert() {
-        for code in ["$1", "$NF", "$(NF-1)", "$1,$3", "$1, $3, $NF", " $2 "] {
+        for code in ["$1,$3", "$1, $3, $NF", " $2,$(NF-1) "] {
             let new_code = sugar_syntax_convert(code.to_owned());
             assert_eq!(new_code, format!("{{ print {} }}", code.trim()), "{}", code);
         }
         assert_eq!(sugar_syntax_convert("/error/".to_owned()), "/error/ { print $0 }");
         for code in [
+            "$1",
+            "$NF",
+            "$(NF-1)",
             "$1 {print $2}",
             "$1{print}",
             "$1 {n++} END{print n}",
