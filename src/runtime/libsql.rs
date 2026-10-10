@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
-use crate::runtime::{Int, IntMap, Str};
+use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use libsql::{Builder, params, Value};
 
@@ -18,24 +18,9 @@ pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
 
 pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    let mut pool = LIBSQL_CONNECTIONS.lock().unwrap();
+    let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
-        let mut url = db_path.to_string();
-        let mut auth_token = env::var("LIBSQL_AUTH_TOKEN").unwrap_or("".to_owned());
-        if db_path.contains('?') {
-            let offset = db_path.find('?').unwrap();
-            url = db_path[0..offset].to_string();
-            if let Some(pos) = db_path.find("authToken=") {
-                auth_token = db_path[pos + 10..].to_string();
-            } else {
-                auth_token = db_path[offset + 1..].to_string();
-            }
-        }
-        if url.starts_with("ws://") {
-            url = url.replace("ws://", "http://").to_string();
-        } else if url.starts_with("wss://") {
-            url = url.replace("wss://", "https://").to_string();
-        }
+        let (url, auth_token) = remote_url(db_path);
         if !(url.starts_with("libsql://")
             || url.starts_with("http://")
             || url.starts_with("https://")) {
@@ -43,15 +28,52 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
             drop(pool);
             return crate::runtime::sqlite::sqlite_query(url.as_str(), sql);
         }
-        let connection = Builder::new_remote(url, auth_token).build().await.unwrap().connect().unwrap();
-        pool.insert(db_path.to_string(), connection);
+        match connect(url, auth_token).await {
+            Ok(connection) => {
+                pool.insert(db_path.to_string(), connection);
+            }
+            Err(e) => {
+                stdlib_warning("libsql_query", e);
+                return map;
+            }
+        }
     }
-    let conn = pool.get(db_path).unwrap();
-    let stmt = conn.prepare(sql).await.unwrap();
+    let conn = &pool[db_path];
+    if let Err(e) = libsql_query_into(conn, sql, &map).await {
+        stdlib_warning("libsql_query", e);
+    }
+    map
+}
+
+fn remote_url(db_path: &str) -> (String, String) {
+    let mut url = db_path.to_string();
+    let mut auth_token = env::var("LIBSQL_AUTH_TOKEN").unwrap_or("".to_owned());
+    if let Some(offset) = db_path.find('?') {
+        url = db_path[0..offset].to_string();
+        if let Some(pos) = db_path.find("authToken=") {
+            auth_token = db_path[pos + 10..].to_string();
+        } else {
+            auth_token = db_path[offset + 1..].to_string();
+        }
+    }
+    if url.starts_with("ws://") {
+        url = url.replace("ws://", "http://").to_string();
+    } else if url.starts_with("wss://") {
+        url = url.replace("wss://", "https://").to_string();
+    }
+    (url, auth_token)
+}
+
+async fn connect(url: String, auth_token: String) -> libsql::Result<libsql::Connection> {
+    Builder::new_remote(url, auth_token).build().await?.connect()
+}
+
+async fn libsql_query_into(conn: &libsql::Connection, sql: &str, map: &IntMap<Str<'_>>) -> libsql::Result<()> {
+    let stmt = conn.prepare(sql).await?;
     let mut index = 1;
     let mut colum_count = 0;
-    let mut rows = stmt.query(params![]).await.unwrap();
-    while let Some(row) = rows.next().await.unwrap() {
+    let mut rows = stmt.query(params![]).await?;
+    while let Some(row) = rows.next().await? {
         let mut items: Vec<String> = vec![];
         let mut i: i32 = 0;
         if colum_count == 0 {
@@ -75,9 +97,8 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
         map.insert(index, Str::from(vec_to_csv(&v2)));
         index += 1;
     }
-    map
+    Ok(())
 }
-
 pub(crate) fn libsql_execute(db_path: &str, sql: &str) -> Int {
     crate::runtime::TOKIO_RUNTIME.block_on(async {
         libsql_execute_async(db_path, sql).await
@@ -85,13 +106,25 @@ pub(crate) fn libsql_execute(db_path: &str, sql: &str) -> Int {
 }
 
 pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str) -> Int {
-    let mut pool = LIBSQL_CONNECTIONS.lock().unwrap();
+    let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
-        let connection = Builder::new_remote(db_path.to_string(), "".to_string()).build().await.unwrap().connect().unwrap();
-        pool.insert(db_path.to_string(), connection);
+        match connect(db_path.to_string(), "".to_string()).await {
+            Ok(connection) => {
+                pool.insert(db_path.to_string(), connection);
+            }
+            Err(e) => {
+                stdlib_warning("libsql_execute", e);
+                return 0;
+            }
+        }
     }
-    let conn = pool.get(db_path).unwrap();
-    conn.execute(sql, params![]).await.unwrap_or(0) as Int
+    match pool[db_path].execute(sql, params![]).await {
+        Ok(n) => n as Int,
+        Err(e) => {
+            stdlib_warning("libsql_execute", e);
+            0
+        }
+    }
 }
 
 #[cfg(test)]

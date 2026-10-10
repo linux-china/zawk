@@ -310,7 +310,7 @@ impl Display for Function {
             Clear => write!(f, "clear"),
             Close => write!(f, "close"),
             Fflush => write!(f, "fflush"),
-            Match => write!(f, "match"),
+            Match | MatchArr => write!(f, "match"),
             SubstrIndex => write!(f, "index"),
             SubstrLastIndex => write!(f, "last_index"),
             LastPart => write!(f, "last_part"),

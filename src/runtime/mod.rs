@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::str;
 use std::sync::LazyLock;
 
-mod command;
+pub(crate) mod command;
 pub(crate) mod awk_regex;
 pub(crate) mod compare;
 pub(crate) mod numfmt;
@@ -326,6 +326,75 @@ impl RegexCache {
         s: &Str,
     ) -> Result<Int> {
         self.with_regex_fallible(pat, |re| Self::regex_const_match_loc(vars, re, s))
+    }
+
+    /// gawk's `match(s, re, arr)`: like `match(s, re)`, and also clears `arr` and passes the whole
+    /// match (group 0) and each participating capture group to `f` as (group, text, start, len),
+    /// with the start (1-based) and length counted in chars.
+    fn regex_match_captures<'a>(
+        &mut self,
+        vars: &mut Variables,
+        pat: &Str<'a>,
+        s: &Str<'a>,
+        mut f: impl FnMut(Int, Str<'a>, Int, Int),
+    ) -> Result<Int> {
+        self.with_regex_fallible(pat, |re| {
+            let groups: Vec<(Int, usize, usize)> = s.with_bytes(|bs| match re.captures(bs) {
+                Some(caps) => caps
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, m)| m.map(|m| (i as Int, m.start(), m.end())))
+                    .collect(),
+                None => Vec::new(),
+            });
+            let (start, len) = s.with_bytes(|bs| {
+                for &(i, from, to) in groups.iter() {
+                    let start = str_impl::char_count(&bs[..from]) as Int + 1;
+                    let len = str_impl::char_count(&bs[from..to]) as Int;
+                    f(i, s.slice(from, to), start, len);
+                }
+                match groups.first() {
+                    Some(&(_, from, to)) => (
+                        str_impl::char_count(&bs[..from]) as Int + 1,
+                        str_impl::char_count(&bs[from..to]) as Int,
+                    ),
+                    None => (0, -1),
+                }
+            });
+            use crate::builtins::Variable;
+            vars.store_int(Variable::RSTART, start)?;
+            vars.store_int(Variable::RLENGTH, len)?;
+            Ok(start)
+        })
+    }
+
+    /// `match(s, re, arr)` with an integer-keyed `arr`: `arr[n]` is the text of group `n`.
+    pub(crate) fn regex_match_intmap<'a>(
+        &mut self,
+        vars: &mut Variables,
+        pat: &Str<'a>,
+        s: &Str<'a>,
+        m: &IntMap<Str<'a>>,
+    ) -> Result<Int> {
+        m.clear();
+        self.regex_match_captures(vars, pat, s, |i, text, _, _| m.insert(i, text))
+    }
+
+    /// `match(s, re, arr)` with a string-keyed `arr`: as gawk, `arr[n]` is the text of group `n`,
+    /// and `arr[n, "start"]` and `arr[n, "length"]` its position.
+    pub(crate) fn regex_match_strmap<'a>(
+        &mut self,
+        vars: &mut Variables,
+        pat: &Str<'a>,
+        s: &Str<'a>,
+        m: &StrMap<'a, Str<'a>>,
+    ) -> Result<Int> {
+        m.clear();
+        self.regex_match_captures(vars, pat, s, |i, text, start, len| {
+            m.insert(Str::from(i), text);
+            m.insert(Str::from(format!("{}\x1cstart", i)), Str::from(start));
+            m.insert(Str::from(format!("{}\x1clength", i)), Str::from(len));
+        })
     }
 
     pub(crate) fn regex_const_match(pat: &Regex, s: &Str) -> bool {

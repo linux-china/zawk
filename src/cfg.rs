@@ -1026,6 +1026,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 next
             }
             Return(ret) => {
+                if !matches!(self.f.name, FunctionName::Named(_)) {
+                    return err!("`return' used outside function context");
+                }
                 let (current_open, e) = if let Some(ret) = ret {
                     self.convert_expr(ret, current_open)?
                 } else {
@@ -2043,6 +2046,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         PrimStmt::AsgnVar(fs, PrimExpr::LoadBuiltin(builtins::Variable::FS)),
                     )?;
                     prim_args.push(PrimVal::Var(fs));
+                }
+                // match(s, re, arr) => gawk's capturing form
+                if bi == builtins::Function::Match && args.len() == 3 {
+                    bi = builtins::Function::MatchArr;
                 }
 
                 // join_fields(start, end) => join_{c,t}sv (if in csv/tsv output mode)

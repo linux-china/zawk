@@ -87,6 +87,8 @@ impl StrnumAnalysis {
             | FloatToStr(dst, _) => self.dfa.add_src(dst, Strnum::Maybe),
             SplitInt(_, _, map, _) => self.add_map_vals(map),
             SplitStr(_, _, map, _) => self.add_map_vals(map),
+            MatchArrInt(_, _, _, map) => self.add_map_vals(map),
+            MatchArrStr(_, _, _, map) => self.add_map_vals(map),
             CmpStr { l, r, .. } => {
                 self.dfa.add_query(l);
                 self.dfa.add_query(r);

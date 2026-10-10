@@ -11,7 +11,7 @@ use flate2::read::{ZlibDecoder};
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use lazy_static::lazy_static;
 use crate::runtime;
-use crate::runtime::{SharedMap, Str};
+use crate::runtime::{stdlib_warning, SharedMap, Str};
 
 
 pub fn encode(format: &str, text: &str) -> String {
@@ -32,25 +32,38 @@ pub fn encode(format: &str, text: &str) -> String {
         "url" => url_encode(text).to_string(),
         "hex" => hex::encode(text),
         "hex-base64" => {
-            let bytes = hex::decode(text).unwrap();
-            STANDARD.encode(&bytes)
+            match hex::decode(text) {
+                Ok(bytes) => STANDARD.encode(&bytes),
+                Err(e) => encode_failed(format, e),
+            }
         }
         "hex-base64url" => {
-            let bytes = hex::decode(text).unwrap();
-            URL_SAFE_NO_PAD.encode(&bytes)
+            match hex::decode(text) {
+                Ok(bytes) => URL_SAFE_NO_PAD.encode(&bytes),
+                Err(e) => encode_failed(format, e),
+            }
         }
         "base64-hex" => {
-            let bytes = STANDARD.decode(text).unwrap();
-            hex::encode(&bytes)
+            match STANDARD.decode(text) {
+                Ok(bytes) => hex::encode(&bytes),
+                Err(e) => encode_failed(format, e),
+            }
         }
         "base64url-hex" => {
-            let bytes = URL_SAFE_NO_PAD.decode(text).unwrap();
-            hex::encode(&bytes)
+            match URL_SAFE_NO_PAD.decode(text) {
+                Ok(bytes) => hex::encode(&bytes),
+                Err(e) => encode_failed(format, e),
+            }
         }
         &_ => {
             format!("{}:{}", format, text)
         }
     }
+}
+
+fn encode_failed(format: &str, err: impl std::fmt::Display) -> String {
+    stdlib_warning("encode", format!("{}: {}", format, err));
+    String::new()
 }
 
 pub fn decode(format: &str, text: &str) -> String {
@@ -100,8 +113,10 @@ pub fn decode(format: &str, text: &str) -> String {
         if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
             let mut d = ZlibDecoder::new(bytes.as_slice());
             let mut s = String::new();
-            d.read_to_string(&mut s).unwrap();
-            return s;
+            match d.read_to_string(&mut s) {
+                Ok(_) => return s,
+                Err(e) => stdlib_warning("decode", format!("{}: {}", format, e)),
+            }
         }
     } else if format == "url" {
         if let Ok(url_text) = url_decode(text) {

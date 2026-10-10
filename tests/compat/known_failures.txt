@@ -11,7 +11,6 @@
 # number output
 
 # string functions
-04-length                             # length(number) fails to compile
 
 # printf
 

@@ -176,6 +176,8 @@ pub enum Function {
     Delete,
     Clear,
     Match,
+    // gawk's match(s, re, arr); `match` with three arguments maps to it.
+    MatchArr,
     SubstrIndex,
     SubstrLastIndex,
     LastPart,
@@ -627,6 +629,16 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
+            Function::MatchArr => {
+                let arg2 = ctx.constant(
+                    Map {
+                        key: BaseTy::Int,
+                        val: BaseTy::Str,
+                    }
+                        .abs(),
+                );
+                ctx.nw.add_dep(arg2, args[2], Constraint::Flows(()));
+            }
             // asort(src, dst): both are maps, the values of `src` flow into `dst` so they share a
             // value type, while their key types are independent.
             Function::Asort => {
@@ -808,7 +820,11 @@ impl Function {
             // irrelevant return type
             Setcol => (smallvec![Int, Str], Int),
             Strlen => (smallvec![Str], Int),
-            Length => (smallvec![incoming[0]], Int),
+            Length => match incoming[0] {
+                // scalars are converted to strings first, as POSIX specifies
+                Int | Float | Null => (smallvec![Str], Int),
+                other => (smallvec![other], Int),
+            },
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
             Ulid | Tsid => (smallvec![], Str),
@@ -923,6 +939,14 @@ impl Function {
             CharAt => (smallvec![Str, Int], Str),
             Chars => (smallvec![Str], MapIntStr),
             Match => (smallvec![Str, Str], Int),
+            // Like split, the array can be a map of either type
+            MatchArr => {
+                if let MapIntStr | MapStrStr = incoming[2] {
+                    (smallvec![Str, Str, incoming[2]], Int)
+                } else {
+                    return err!("invalid input spec for match: {:?}", incoming);
+                }
+            }
             Exit => (smallvec![Int], Null),
             // Split's second input can be a map of either type
             Split => {
@@ -950,6 +974,7 @@ impl Function {
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
+            MatchArr => 3,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Eval => 2,
             DefaultIfEmpty => 2,
@@ -1046,7 +1071,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | Sub | GSub | ToInt | Systime | Mktime | Duration
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | ToInt | Systime | Mktime | Duration
             | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             System2 => Ok(Map {
                 key: BaseTy::Str,
@@ -1328,6 +1353,7 @@ fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
     for (k, v) in std::env::vars() {
         env.insert(k.into(), v.into());
     }
+    crate::runtime::command::register_environ(&env);
     env
 }
 
@@ -1520,6 +1546,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ENVIRON => {
+                crate::runtime::command::register_environ(&m);
                 self.environ = m;
                 Ok(())
             }

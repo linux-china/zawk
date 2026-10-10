@@ -41,7 +41,7 @@ pub fn hextoi(mut bs: &[u8]) -> i64 {
         neg = true;
         bs = &bs[1..]
     }
-    if bs.len() >= 2 && bs[0..2] == [b'0', b'x'] || bs[0..2] == [b'0', b'X'] {
+    if bs.len() >= 2 && (bs[0..2] == [b'0', b'x'] || bs[0..2] == [b'0', b'X']) {
         bs = &bs[2..]
     }
     let mut i = 0i64;

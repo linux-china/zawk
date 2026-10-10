@@ -103,8 +103,8 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
         return Some(date_time.timestamp());
     }
     // fend date format: Thursday, 20 May 2021
-    if is_fend_date(date_time_text) {
-        let adjusted_dt_text = &date_time_text[date_time_text.find(' ').unwrap() + 1..];
+    if let Some(space) = date_time_text.find(' ').filter(|_| is_fend_date(date_time_text)) {
+        let adjusted_dt_text = &date_time_text[space + 1..];
         if let Ok(date_time) = dateparser::parse_with_timezone(adjusted_dt_text, tz) {
             return Some(date_time.timestamp());
         }
@@ -120,11 +120,10 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
 }
 
 fn is_fend_date(text: &str) -> bool {
-    if text.contains(',') {
-        let temp = &text[0..text.find(',').unwrap()];
-        return WEEKS.contains(&temp);
+    match text.find(',') {
+        Some(comma) => WEEKS.contains(&&text[0..comma]),
+        None => false,
     }
-    false
 }
 
 pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
@@ -164,18 +163,22 @@ pub fn duration(text: &str) -> Int {
     match fend_core::evaluate(&expr, &mut context) {
         Ok(result) => {
             let result = result.get_main_result();
-            let duration_ms = if result.contains(' ') {
-                result[0..result.find(' ').unwrap()].parse::<Int>().unwrap()
-            } else {
-                result.parse::<Int>().unwrap()
-            };
-            if duration_ms % 1000 == 0 {
-                duration_ms / 1000
-            } else {
-                (duration_ms as f64 / 1000.0).round() as Int
+            // "1500 ms", "approx. 33.3333 ms", ...: take the first number
+            let duration_ms = result
+                .split(' ')
+                .find_map(|part| part.replace(',', "").parse::<f64>().ok());
+            match duration_ms {
+                Some(ms) => (ms / 1000.0).round() as Int,
+                None => {
+                    runtime::stdlib_warning("duration", format!("invalid duration {:?}", text));
+                    0
+                }
             }
         }
-        Err(_) => 0,
+        Err(e) => {
+            runtime::stdlib_warning("duration", e);
+            0
+        }
     }
 }
 

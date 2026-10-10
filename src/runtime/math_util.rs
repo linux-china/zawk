@@ -650,7 +650,7 @@ pub(crate)  fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) ->
             eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
         }
     });
-    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
+    let Some(result) = run_eval(formula, &mut eval_context) else { return 0.0 };
     if let Ok(value) = result.as_float() {
         value
     } else if let Ok(value) = result.as_int() {
@@ -668,8 +668,7 @@ pub(crate) fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>)
             eval_context.set_value(key.to_string(), Value::Float(*value)).unwrap();
         }
     });
-    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    value_to_float(&result)
+    run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
 }
 pub(crate)  fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
@@ -680,16 +679,28 @@ pub(crate)  fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) ->
             eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
         }
     });
-    let result: Value<DefaultNumericTypes> = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    value_to_float(&result)
+    run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
 }
 
 
 pub fn eval(formula: &str) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
-    let result = eval_with_context_mut(formula, &mut eval_context).unwrap();
-    value_to_float(&result)
+    run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
+}
+
+/// Evaluates `formula`, warning (once) and returning `None` if it is malformed.
+fn run_eval(
+    formula: &str,
+    context: &mut evalexpr::HashMapContext<evalexpr::DefaultNumericTypes>,
+) -> Option<evalexpr::Value<evalexpr::DefaultNumericTypes>> {
+    match evalexpr::eval_with_context_mut(formula, context) {
+        Ok(value) => Some(value),
+        Err(e) => {
+            crate::runtime::stdlib_warning("eval", format!("{:?}: {}", formula, e));
+            None
+        }
+    }
 }
 
 fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {

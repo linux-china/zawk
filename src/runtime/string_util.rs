@@ -1,4 +1,4 @@
-use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap};
+use crate::runtime::{stdlib_warning, Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
 use pad::Alignment;
 
@@ -58,15 +58,21 @@ pub fn strcmp(text1: &str, text2: &str) -> i64 {
 }
 
 pub fn read_all(path: &str) -> String {
-    if path.starts_with("http://") || path.starts_with("https://") {
-        reqwest::blocking::get(path).unwrap().text().unwrap()
+    let result = if path.starts_with("http://") || path.starts_with("https://") {
+        reqwest::blocking::get(path).and_then(|resp| resp.text()).map_err(|e| e.to_string())
     } else {
-        std::fs::read_to_string(path).unwrap()
-    }
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    };
+    result.unwrap_or_else(|e| {
+        stdlib_warning("read_all", format!("{}: {}", path, e));
+        String::new()
+    })
 }
 
 pub fn write_all(path: &str, content: &str) {
-    std::fs::write(path, content).unwrap()
+    if let Err(e) = std::fs::write(path, content) {
+        stdlib_warning("write_all", format!("{}: {}", path, e));
+    }
 }
 
 pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
@@ -466,10 +472,9 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     if let Ok(re) = Regex::new(template) {
         if let Some(caps) = re.captures(text) {
             for i in 1..caps.len() {
-                map.insert(
-                    i as i64,
-                    Str::from(caps.get(i).unwrap().as_str().to_string()),
-                );
+                // an optional group that did not participate matches the empty string
+                let group = caps.get(i).map_or("", |m| m.as_str());
+                map.insert(i as i64, Str::from(group.to_string()));
             }
         }
     }
@@ -498,7 +503,8 @@ pub fn is_format(format: &str, text: &str) -> Int {
             }
         }
         &_ => {
-            panic!("format not supported");
+            stdlib_warning("is", format!("format not supported: {:?}", format));
+            false
         }
     };
     if result {
@@ -519,7 +525,10 @@ pub fn generate_password(len: usize) -> String {
         exclude_similar_characters: false,
         strict: true,
     };
-    pg.generate_one().unwrap()
+    pg.generate_one().unwrap_or_else(|e| {
+        stdlib_warning("mkpass", e);
+        String::new()
+    })
 }
 
 pub fn figlet(text: &str) -> String {

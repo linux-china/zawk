@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
-use crate::runtime::{Int, IntMap, Str};
+use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use mysql::*;
 use mysql::prelude::*;
@@ -13,17 +13,18 @@ lazy_static! {
 
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    let mut pools = MYSQL_POOLS.lock().unwrap();
-    let pool = pools.entry(db_url.to_string()).or_insert_with(|| {
-        Pool::new(db_url).unwrap()
-    });
-    let mut conn = pool.get_conn().unwrap();
-    let rows: Vec<Row> = conn.query(sql).unwrap();
+    let rows: Vec<Row> = match with_conn(db_url, |conn| conn.query(sql)) {
+        Ok(rows) => rows,
+        Err(e) => {
+            stdlib_warning("mysql_query", e);
+            return map;
+        }
+    };
     let mut index = 1;
     for row in rows {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
-            let col_value: Value = row.get(i).unwrap();
+            let col_value: Value = row.get(i).unwrap_or(Value::NULL);
             let text_value = match col_value {
                 Value::NULL => { "".to_owned() }
                 Value::Bytes(bytes) => { String::from_utf8(bytes).unwrap_or("".to_owned()) }
@@ -70,13 +71,23 @@ fn format_mysql_time(negative: bool, days: u32, hours: u8, minutes: u8, seconds:
 }
 
 pub(crate) fn mysql_execute(db_url: &str, sql: &str) -> Int {
-    let mut pools = MYSQL_POOLS.lock().unwrap();
-    let pool = pools.entry(db_url.to_string()).or_insert_with(|| {
-        Pool::new(db_url).unwrap()
-    });
-    let mut conn = pool.get_conn().unwrap();
-    let result: Vec<Row> = conn.exec(sql, Params::Empty).unwrap();
-    result.len() as Int
+    match with_conn(db_url, |conn| conn.exec::<Row, _, _>(sql, Params::Empty)) {
+        Ok(result) => result.len() as Int,
+        Err(e) => {
+            stdlib_warning("mysql_execute", e);
+            0
+        }
+    }
+}
+
+/// Runs `f` with a connection from the cached pool for `db_url`, creating the pool on first use.
+fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> Result<T> {
+    let mut pools = MYSQL_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    if !pools.contains_key(db_url) {
+        pools.insert(db_url.to_string(), Pool::new(db_url)?);
+    }
+    let mut conn = pools[db_url].get_conn()?;
+    f(&mut conn)
 }
 
 #[cfg(test)]

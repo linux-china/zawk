@@ -1,7 +1,7 @@
 use std::str;
 use csv::{ReaderBuilder, WriterBuilder};
 use prometheus_parse::{Labels, Value};
-use crate::runtime::{Float, Int, IntMap, Str};
+use crate::runtime::{stdlib_warning, Float, Int, IntMap, Str};
 use crate::runtime::str_escape::escape_csv;
 
 pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
@@ -9,10 +9,14 @@ pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
         .from_reader(text.as_bytes());
-    if let Some(record) = reader.records().next() {
-        for (i, item) in record.unwrap().iter().enumerate() {
-            map.insert((i + 1) as i64, Str::from(item.to_string()));
+    match reader.records().next() {
+        Some(Ok(record)) => {
+            for (i, item) in record.iter().enumerate() {
+                map.insert((i + 1) as i64, Str::from(item.to_string()));
+            }
         }
+        Some(Err(e)) => stdlib_warning("from_csv", e),
+        None => {}
     }
     map
 }
@@ -59,19 +63,30 @@ pub fn vec_to_csv(csv: &[&str]) -> String {
 }
 
 pub fn parse_prometheus(url_or_file: &str) -> String {
-    if url_or_file.starts_with("http://") || url_or_file.starts_with("https://") {
-        let body = reqwest::blocking::get(url_or_file).unwrap().text().unwrap();
-        return parse_prometheus_text(&body);
+    let text = if url_or_file.starts_with("http://") || url_or_file.starts_with("https://") {
+        reqwest::blocking::get(url_or_file).and_then(|resp| resp.text()).map_err(|e| e.to_string())
     } else {
-        let text = std::fs::read_to_string(url_or_file).unwrap();
-        return parse_prometheus_text(&text);
+        std::fs::read_to_string(url_or_file).map_err(|e| e.to_string())
+    };
+    match text {
+        Ok(text) => parse_prometheus_text(&text),
+        Err(e) => {
+            stdlib_warning("parse_prometheus", format!("{}: {}", url_or_file, e));
+            String::new()
+        }
     }
 }
 
 pub fn parse_prometheus_text(text: &str) -> String {
     let mut items = vec!["name, labels, type, value1, value2".to_owned()];
     let lines: Vec<_> = text.lines().map(|s| Ok(s.to_string())).collect();
-    let metrics = prometheus_parse::Scrape::parse(lines.into_iter()).unwrap();
+    let metrics = match prometheus_parse::Scrape::parse(lines.into_iter()) {
+        Ok(metrics) => metrics,
+        Err(e) => {
+            stdlib_warning("parse_prometheus", e);
+            return String::new();
+        }
+    };
     for metric in metrics.samples {
         let labels = if metric.labels.is_empty() {
             "".to_owned()
@@ -86,12 +101,14 @@ pub fn parse_prometheus_text(text: &str) -> String {
                 items.push(format!("{}, {}, gauge, {},", metric.metric, labels, gauge));
             }
             Value::Histogram(histogram) => {
-                let histogram_count = histogram.get(0).unwrap();
-                items.push(format!("{}, {}, histogram, {}, {}", metric.metric, labels, histogram_count.less_than, histogram_count.count));
+                if let Some(histogram_count) = histogram.first() {
+                    items.push(format!("{}, {}, histogram, {}, {}", metric.metric, labels, histogram_count.less_than, histogram_count.count));
+                }
             }
             Value::Summary(summary) => {
-                let summary_count = summary.get(0).unwrap();
-                items.push(format!("{}, {}, summary, {}, {}", metric.metric, labels, summary_count.count, summary_count.quantile));
+                if let Some(summary_count) = summary.first() {
+                    items.push(format!("{}, {}, summary, {}, {}", metric.metric, labels, summary_count.count, summary_count.quantile));
+                }
             }
             Value::Untyped(num) => {
                 items.push(format!("{}, {}, untyped, {},", metric.metric, labels, num));

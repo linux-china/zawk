@@ -4,7 +4,7 @@ use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use chrono::Utc;
 use lazy_static::lazy_static;
-use crate::runtime::{Int, IntMap, Str};
+use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use postgres::types::{FromSql, Kind, Type};
 use postgres::Client;
@@ -18,7 +18,7 @@ lazy_static! {
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
 /// `verify-ca`/`verify-full` also verify the certificate, `disable` uses plain TCP.
-fn connect(db_url: &str) -> Client {
+fn connect(db_url: &str) -> Result<Client, String> {
     let mut conn_str = if db_url.starts_with("postgres://") {
         db_url.replacen("postgres://", "postgresql://", 1)
     } else {
@@ -37,14 +37,27 @@ fn connect(db_url: &str) -> Client {
     } else {
         crate::runtime::tls::client_config_no_verify()
     };
-    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config.unwrap())).unwrap()
+    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config?)).map_err(|e| e.to_string())
+}
+
+/// The cached client for `db_url`, connecting on first use.
+fn client<'p>(pools: &'p mut HashMap<String, Client>, db_url: &str) -> Result<&'p mut Client, String> {
+    if !pools.contains_key(db_url) {
+        pools.insert(db_url.to_string(), connect(db_url)?);
+    }
+    Ok(pools.get_mut(db_url).unwrap())
 }
 
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    let mut pools = PG_POOLS.lock().unwrap();
-    let client = pools.entry(db_url.to_string()).or_insert_with(|| connect(db_url));
-    let rows = client.query(sql, &[]).unwrap();
+    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    let rows = match client(&mut pools, db_url).and_then(|client| client.query(sql, &[]).map_err(|e| e.to_string())) {
+        Ok(rows) => rows,
+        Err(e) => {
+            stdlib_warning("pg_query", e);
+            return map;
+        }
+    };
     let mut index = 1;
     for row in rows {
         let mut items: Vec<String> = vec![];
@@ -60,9 +73,14 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
 }
 
 pub(crate) fn pg_execute(db_url: &str, sql: &str) -> Int {
-    let mut pools = PG_POOLS.lock().unwrap();
-    let client = pools.entry(db_url.to_string()).or_insert_with(|| connect(db_url));
-    client.execute(sql, &[]).unwrap_or(0) as Int
+    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    match client(&mut pools, db_url).and_then(|client| client.execute(sql, &[]).map_err(|e| e.to_string())) {
+        Ok(n) => n as Int,
+        Err(e) => {
+            stdlib_warning("pg_execute", e);
+            0
+        }
+    }
 }
 
 /// Text representation of a `numeric` value decoded from the binary wire format.

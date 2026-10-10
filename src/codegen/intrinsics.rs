@@ -136,6 +136,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_col(rt_ty, int_ty, str_ref_ty);
         split_int(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
         split_str(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
+        match_arr_int(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        match_arr_str(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         rand_float(rt_ty) -> float_ty;
         seed_rng(rt_ty, int_ty) -> int_ty;
         reseed_rng(rt_ty) -> int_ty;
@@ -891,6 +893,48 @@ pub(crate) unsafe extern "C" fn split_str(
         }
         let res = into_arr.len() as Int;
         mem::forget((into_arr, to_split, pat));
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn match_arr_int(
+    runtime: *mut c_void,
+    s: *mut c_void,
+    pat: *mut c_void,
+    arr: *mut c_void,
+) -> Int {
+    guard_panic(stringify!(match_arr_int), || {
+        let runtime = &mut *(runtime as *mut Runtime);
+        let arr = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+        let s = &*(s as *mut Str);
+        let pat = &*(pat as *mut Str);
+        let core = &mut runtime.core;
+        let res = match core.regexes.regex_match_intmap(&mut core.vars, pat, s, &arr) {
+            Ok(res) => res,
+            Err(e) => fail!(runtime, "match_arr_int: {}", e),
+        };
+        mem::forget(arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn match_arr_str(
+    runtime: *mut c_void,
+    s: *mut c_void,
+    pat: *mut c_void,
+    arr: *mut c_void,
+) -> Int {
+    guard_panic(stringify!(match_arr_str), || {
+        let runtime = &mut *(runtime as *mut Runtime);
+        let arr = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+        let s = &*(s as *mut Str);
+        let pat = &*(pat as *mut Str);
+        let core = &mut runtime.core;
+        let res = match core.regexes.regex_match_strmap(&mut core.vars, pat, s, &arr) {
+            Ok(res) => res,
+            Err(e) => fail!(runtime, "match_arr_str: {}", e),
+        };
+        mem::forget(arr);
         res
     })
 }

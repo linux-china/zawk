@@ -496,7 +496,7 @@ impl<'a> Tokenizer<'a> {
     fn fundec(&self) -> Option<(Tok<'a>, usize)> {
         lazy_static! {
             static ref FN_PATTERN: Regex =
-                Regex::new(r"^(function\s+([a-zA-Z_][a-zA-Z_0-9]*))\(").unwrap();
+                Regex::new(r"^((?:function|func)\s+([a-zA-Z_][a-zA-Z_0-9]*)[ \t]*)\(").unwrap();
         }
         let captures = FN_PATTERN.captures(&self.text[self.cur..])?;
         let full = captures.get(1)?.as_str();
@@ -514,7 +514,7 @@ impl<'a> Tokenizer<'a> {
             .char_indices()
             .take_while(|(_, c)| is_id_body(*c))
             .last()
-            .map(|(ix, _)| self.cur + ix + 1)
+            .map(|(ix, c)| self.cur + ix + c.len_utf8())
             .unwrap_or(self.cur);
         (&self.text[id_start..ix], ix)
     }
@@ -617,6 +617,9 @@ impl<'a> Tokenizer<'a> {
                 | Some(Tok::FLit(_))
                 | Some(Tok::RParen)
                 | Some(Tok::RBrack)
+                // `x++ / 2`: a regex never directly follows `++`/`--`
+                | Some(Tok::Incr)
+                | Some(Tok::Decr)
         )
     }
 }

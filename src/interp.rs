@@ -196,6 +196,7 @@ impl<'a> Core<'a> {
                 procinfo: procinfo.into(),
             };
             vars.update_split_fs();
+            runtime::command::register_environ(&vars.environ);
             // Number formats are thread-locals; set them up on the worker thread.
             runtime::numfmt::set_convfmt(&*vars.convfmt.as_str().as_bytes());
             runtime::numfmt::set_ofmt(&*vars.ofmt.as_str().as_bytes());
@@ -2189,6 +2190,22 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = arr.len() as Int;
                         let flds = *flds;
                         *self.get_mut(flds) = res;
+                    }
+                    MatchArrInt(res, s, pat, arr) => {
+                        let s = index(&self.strs, s);
+                        let pat = index(&self.strs, pat);
+                        let arr = index(&self.maps_int_str, arr);
+                        let core = &mut self.core;
+                        *index_mut(&mut self.ints, res) =
+                            core.regexes.regex_match_intmap(&mut core.vars, pat, s, arr)?;
+                    }
+                    MatchArrStr(res, s, pat, arr) => {
+                        let s = index(&self.strs, s);
+                        let pat = index(&self.strs, pat);
+                        let arr = index(&self.maps_str_str, arr);
+                        let core = &mut self.core;
+                        *index_mut(&mut self.ints, res) =
+                            core.regexes.regex_match_strmap(&mut core.vars, pat, s, arr)?;
                     }
                     SplitStr(flds, to_split, arr, pat) => {
                         // Very similar to above

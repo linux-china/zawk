@@ -3,21 +3,27 @@ use std::fs::File;
 use std::io::BufReader;
 use anyhow::Result;
 use ini::configparser::ini::Ini;
-use crate::runtime::{Str, StrMap};
+use crate::runtime::{stdlib_warning, Str, StrMap};
 
 pub(crate) fn read_config<'b>(file: &str) -> StrMap<'b, Str<'b>> {
     let mut map = hashbrown::HashMap::new();
     if file.ends_with(".ini") {
-        if let Ok(data_map) = read_ini(file) {
-            for (key, value) in data_map {
-                map.insert(Str::from(key), Str::from(value));
+        match read_ini(file) {
+            Ok(data_map) => {
+                for (key, value) in data_map {
+                    map.insert(Str::from(key), Str::from(value));
+                }
             }
+            Err(e) => stdlib_warning("read_config", format!("{}: {}", file, e)),
         }
     } else if file.ends_with(".properties") {
-        if let Ok(data_map) = read_properties(file) {
-            for (key, value) in data_map {
-                map.insert(Str::from(key), Str::from(value));
+        match read_properties(file) {
+            Ok(data_map) => {
+                for (key, value) in data_map {
+                    map.insert(Str::from(key), Str::from(value));
+                }
             }
+            Err(e) => stdlib_warning("read_config", format!("{}: {}", file, e)),
         }
     }
     StrMap::from(map)
@@ -27,7 +33,7 @@ fn read_ini(ini_file: &str) -> Result<HashMap<String, String>> {
     let mut map: HashMap<String, String> = HashMap::new();
     let mut config = Ini::new();
     // You can easily load a file to get a clone of the map:
-    let root_map = config.load(ini_file).unwrap();
+    let root_map = config.load(ini_file).map_err(anyhow::Error::msg)?;
     root_map.iter().for_each(|(root_key, child_map)| {
         child_map.iter().for_each(|(key, v)| {
             if let Some(value) = v {

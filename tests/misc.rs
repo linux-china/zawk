@@ -740,6 +740,51 @@ fn system_flushes_output() {
 }
 
 #[test]
+fn environ_passed_to_commands() {
+    // As in gawk, changes to ENVIRON are passed to system, getline and print pipes.
+    let prog = r#"BEGIN {
+        ENVIRON["ZAWK_T1"] = "bar"; delete ENVIRON["ZAWK_T2"]
+        system("echo s=$ZAWK_T1 t=$ZAWK_T2")
+        "echo g=$ZAWK_T1" | getline v; print v
+        print "p" | "cat; echo $ZAWK_T1"
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("ZAWK_T2", "gone")
+            .arg(String::from(*backend_arg))
+            .arg(String::from(prog))
+            .assert()
+            .success()
+            .stdout(String::from("s=bar t=\ng=bar\np\nbar\n"));
+    }
+}
+
+#[test]
+fn match_with_array() {
+    // gawk's match(s, re, arr): arr[0] is the whole match, arr[n] the n-th capture group, and
+    // arr[n, "start"] / arr[n, "length"] their positions; a failed match clears arr.
+    let prog = r#"BEGIN {
+        n = match("foo=bar42 baz", /([a-z]+)=([a-z]+)([0-9]+)?/, m)
+        print n, RSTART, RLENGTH, m[0], m[1], m[2], m[3]
+        match("xx abc123", /([a-z]+)([0-9]+)/, a)
+        print a[0], a[1], a[2], a[1, "start"], a[1, "length"], a[2, "start"]
+        print match("zzz", /q(.)/, a), RSTART, RLENGTH, length(a)
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(prog))
+            .assert()
+            .success()
+            .stdout(String::from(
+                "1 1 9 foo=bar42 foo bar 42\nabc123 abc 123 4 3 7\n0 0 -1 0\n",
+            ));
+    }
+}
+
+#[test]
 fn redirect_open_failure_is_fatal() {
     // As in gawk, an output file that cannot be opened stops the program with an error, after
     // the output printed so far.
@@ -1116,5 +1161,70 @@ fn strftime_arguments() {
             .assert()
             .success()
             .stdout("1970-01-01 08 1970-01-01 00 08\n1969-12-31 []\n1 1\n|1\n");
+    }
+}
+
+#[test]
+fn unicode_identifiers_and_hex() {
+    // identifiers may contain multi-byte characters; hex() accepts strings shorter than "0x"
+    let prog = r#"BEGIN { 变量 = 3; print 变量 + 1; print hex("5"), hex(""), hex("-"), hex("0x1f"), hex("-ff") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("4\n5 0 0 31 -255\n");
+    }
+}
+
+#[test]
+fn return_outside_function() {
+    for prog in ["BEGIN { return 1 }", "{ return }", "END { return }"] {
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{}", prog);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("`return' used outside function context"), "{}", stderr);
+    }
+}
+
+#[test]
+fn stdlib_invalid_input_warns() {
+    // stdlib functions warn (once) and return an empty value instead of aborting
+    let prog = r#"BEGIN {
+        print "[" encode("hex-base64", "zz") "]", eval("1+"), "[" read_all("/nonexistent/zawk") "]"
+        print "[" html_value("<p>x</p>", "[[[") "]", "[" xml_value("<a", "/a") "]", "[" json_value("{}", "$[") "]"
+        print is("nope", "x"), length(sqlite_query(":memory:", "selec x"))
+        a = rparse("a", "(b)?(a)"); print "[" a[1] "]" a[2]
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "[] 0 []\n[] [] []\n0 0\n[]a\n");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("zawk: warning: encode: hex-base64"), "{}", stderr);
+    }
+}
+
+#[test]
+fn func_keyword_alias() {
+    // `func` is accepted as an alias of `function` (gawk, BWK awk)
+    let prog = "func f(x){return x*2} function g(y){return f(y)+1} BEGIN{print f(2), g(3)}";
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4 7\n");
+    }
+}
+
+#[test]
+fn function_name_space_before_paren() {
+    // whitespace is allowed between the function name and `(` in a declaration
+    let prog = "function f (a) {return a*2} func g\t(x, y){return x+y} BEGIN{print f(3), g(1, 2)}";
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "6 3\n");
     }
 }

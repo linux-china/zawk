@@ -419,6 +419,19 @@ pub(crate) enum Instr<'a> {
         Reg<runtime::StrMap<'a, Str<'a>>>,
         Reg<Str<'a>>,
     ),
+    // match(s, re, arr)
+    MatchArrInt(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    MatchArrStr(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
     Sprintf {
         dst: Reg<Str<'a>>,
         fmt: Reg<Str<'a>>,
@@ -1682,6 +1695,18 @@ impl<'a> Instr<'a> {
                 to_split.accum(&mut f);
                 arr.accum(&mut f);
                 pat.accum(&mut f);
+            }
+            MatchArrInt(res, s, pat, arr) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                pat.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            MatchArrStr(res, s, pat, arr) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                pat.accum(&mut f);
+                arr.accum(&mut f);
             }
             Sprintf { dst, fmt, args } => {
                 dst.accum(&mut f);

@@ -59,7 +59,7 @@ use hashbrown::HashMap;
 
 use crate::common::{CompileError, FileSpec, Notification, Result};
 use crate::runtime::{
-    command::{command_for_write, exit_status_code},
+    command::{command_env, command_for_write, exit_status_code, CommandEnv},
     Int, Str,
 };
 
@@ -79,8 +79,8 @@ pub trait FileFactory: Clone + 'static + Send + Sync {
     type Output: io::Write;
     type Stdout: io::Write;
     // TODO: make Child an associated type, to permit better testing
-    fn cmd(&self, cmd: &[u8]) -> io::Result<Child> {
-        command_for_write(cmd)
+    fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
+        command_for_write(cmd, env)
     }
     fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output>;
     // TODO maybe we should support this returning an error.
@@ -557,10 +557,12 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let global_name = local_name.clone();
         let status = StatusSlot::default();
         let writer_status = status.clone();
+        // The command is spawned on the writer thread; take its environment from this one.
+        let env = command_env();
         let handle = build_handle(
             move |_| {
                 local_factory
-                    .cmd(&local_name)
+                    .cmd(&local_name, env.as_ref())
                     .map(|child| CmdWriter::new(child, writer_status.clone()))
             },
             /*is_stdout=*/ false,
