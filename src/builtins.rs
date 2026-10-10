@@ -1353,7 +1353,7 @@ impl<'a> Default for Variables<'a> {
             ofmt: "%.6g".into(),
             rstart: 0,
             pid: 0,
-            rlength: -1,
+            rlength: 0,
             fi: Default::default(),
             environ: load_env_variables(),
             procinfo: load_procinfo_variables(),
