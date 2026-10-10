@@ -139,6 +139,8 @@ pub fn fi_constant_keys(awk_code: &str) -> Vec<String> {
 }
 
 pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
+    let mut satisfied = true;
+    // check metadata requirements
     if awk_code.contains("\n# @") {
         // detect comment tag
         let var_names: Vec<String> = var_decs
@@ -157,7 +159,7 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
                 .filter(|tag| tag.type_name == "env")
                 .filter(|tag| std::env::var(&tag.value1).is_err() && !tag.value1.ends_with('?'))
                 .collect();
-            let satisfied = missed_var_tags.is_empty() && missed_env_tags.is_empty();
+            satisfied = missed_var_tags.is_empty() && missed_env_tags.is_empty();
             if !satisfied {
                 eprintln!("Errors:");
                 if !missed_var_tags.is_empty() {
@@ -173,10 +175,23 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
                     }
                 }
             }
-            return satisfied;
         }
     }
-    true
+    // check S3 operation with required environment variables
+    if satisfied {
+        if awk_code.contains("s3_get(") || awk_code.contains("s3_put(") {
+            if !(std::env::var("AWS_ACCESS_KEY_ID").is_ok() && std::env::var("S3_ACCESS_KEY_ID").is_ok()) {
+                eprintln!("Errors:");
+                eprintln!("Required environment variables were not provided: ");
+                eprintln!("  - S3_ENDPOINT");
+                eprintln!("  - S3_ACCESS_KEY_ID");
+                eprintln!("  - S3_ACCESS_KEY_SECRET");
+                eprintln!("  - S3_REGION");
+                satisfied = false;
+            }
+        }
+    }
+    satisfied
 }
 
 pub fn sugar_syntax_convert(awk_code: String) -> String {
