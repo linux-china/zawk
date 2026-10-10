@@ -1823,11 +1823,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let i = *self.get(*ir);
                         *self.get_mut(res) = (i == 0) as Int;
                     }
-                    NotStr(res, sr) => {
+                    NotStr(res, sr, strnum) => {
                         let res = *res;
                         let sr = *sr;
-                        let is_empty = self.get(sr).with_bytes(|bs| bs.is_empty());
-                        *self.get_mut(res) = is_empty as Int;
+                        let is_false = self
+                            .get(sr)
+                            .with_bytes(|bs| runtime::compare::str_is_false(bs, *strnum));
+                        *self.get_mut(res) = is_false as Int;
                     }
                     NegInt(res, ir) => {
                         let res = *res;

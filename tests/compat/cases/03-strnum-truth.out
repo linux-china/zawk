@@ -1,0 +1,23 @@
+f t 1 0
+f t
+f
+t 0 t
+f 1
+t f
+f t
+4
+[0] f f 1 0 0 0 t t
+[1] t t 0 1 1 1 t t
+[x] t t 0 1 1 1 t t
+[0.0] f f 1 0 0 0 t t
+[0] f f 1 0 0 0 t t
+[+0] f f 1 0 0 0 t t
+[-0] f f 1 0 0 0 t t
+[0x] t t 0 1 1 1 t t
+[] f f 1 0 0 0 f f
+[00] f f 1 0 0 0 t t
+[1e-400] f f 1 0 0 0 t t
+[.0] f f 1 0 0 0 t t
+[abc] t t 0 1 1 1 t t
+[+nan] t t 0 1 1 1 t t
+5 9

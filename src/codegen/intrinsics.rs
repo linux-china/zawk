@@ -188,6 +188,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] trim(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
         [ReadOnly] awk_strtonum(str_ref_ty, int_ty) -> float_ty;
+        [ReadOnly] not_strnum(str_ref_ty) -> int_ty;
         format_bytes(int_ty) -> str_ty;
         [ReadOnly] to_bytes(str_ref_ty) -> int_ty;
         [ReadOnly] starts_with(str_ref_ty, str_ref_ty) -> int_ty;
@@ -1191,6 +1192,13 @@ pub(crate) unsafe extern "C" fn strtonum(text: *mut U128) -> Float {
     guard_panic(stringify!(strtonum), || {
         let text = &*(text as *mut Str);
         math_util::strtonum(&*text.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn not_strnum(text: *mut U128) -> Int {
+    guard_panic(stringify!(not_strnum), || {
+        let text = &*(text as *mut Str);
+        text.with_bytes(|bs| crate::runtime::compare::str_is_false(bs, true)) as Int
     })
 }
 

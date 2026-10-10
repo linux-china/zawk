@@ -666,7 +666,7 @@ pub(crate) trait CodeGenerator: Backend {
                 )?;
                 self.bind_val(res.reflect(), cmp)
             }
-            NotStr(res, sr) => {
+            NotStr(res, sr, false) => {
                 let sv = self.get_val(sr.reflect())?;
                 let lenv = self.call_intrinsic(intrinsic!(str_len), &mut [sv])?;
                 let zero = self.const_int(0);
@@ -679,6 +679,7 @@ pub(crate) trait CodeGenerator: Backend {
                 )?;
                 self.bind_val(res.reflect(), cmp)
             }
+            NotStr(res, sr, true) => self.unop(intrinsic!(not_strnum), res, sr),
             NegInt(res, ir) => self.unop(op(Arith::Neg, false), res, ir),
             NegFloat(res, fr) => self.unop(op(Arith::Neg, true), res, fr),
             Float1(ff, dst, src) => self.unop(Op::Math(*ff), dst, src),

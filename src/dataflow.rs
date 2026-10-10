@@ -705,7 +705,7 @@ pub(crate) mod boilerplate {
             }
             Not(dst, src) | NegInt(dst, src) | Int1(_, dst, src) => f(dst.into(), Some(src.into())),
             NegFloat(dst, src) | Float1(_, dst, src) => f(dst.into(), Some(src.into())),
-            NotStr(dst, src) => f(dst.into(), Some(src.into())),
+            NotStr(dst, src, _) => f(dst.into(), Some(src.into())),
             Rand(dst) => f(dst.into(), Some(Key::Rng)),
             Srand(old, new) => {
                 f(old.into(), Some(Key::Rng));

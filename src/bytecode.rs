@@ -102,7 +102,9 @@ pub(crate) enum Instr<'a> {
     ModFloat(Reg<Float>, Reg<Float>, Reg<Float>),
     ModInt(Reg<Int>, Reg<Int>, Reg<Int>),
     Not(Reg<Int>, Reg<Int>),
-    NotStr(Reg<Int>, Reg<Str<'a>>),
+    // `!s`: whether the string is false, i.e. empty or, if it may be a strnum (the flag), a
+    // number equal to zero.
+    NotStr(Reg<Int>, Reg<Str<'a>>, bool),
     NegInt(Reg<Int>, Reg<Int>),
     NegFloat(Reg<Float>, Reg<Float>),
     Float1(FloatFunc, Reg<Float>, Reg<Float>),
@@ -1447,7 +1449,7 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 ir.accum(&mut f)
             }
-            NotStr(res, sr) => {
+            NotStr(res, sr, _) => {
                 res.accum(&mut f);
                 sr.accum(&mut f)
             }

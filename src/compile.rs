@@ -866,8 +866,9 @@ impl<'a> Typer<'a> {
         Ok(())
     }
 
-    /// Compare string operands that cannot be strnums as plain strings, and parse the arguments of
-    /// strtonum() that cannot be strnums by their octal and hexadecimal prefixes.
+    /// Compare string operands that cannot be strnums as plain strings, test the truth of strings
+    /// that cannot be strnums by their emptiness alone, and parse the arguments of strtonum() that
+    /// cannot be strnums by their octal and hexadecimal prefixes.
     fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
         use crate::bytecode::Accum;
         use runtime::compare::StrKind;
@@ -892,6 +893,12 @@ impl<'a> Typer<'a> {
                         }
                         Either::Left(LL::CmpStrNum { s, s_kind, .. }) => {
                             refine(s_kind, s.reflect().0)
+                        }
+                        Either::Left(LL::NotStr(_, text, strnum)) => {
+                            let mut kind =
+                                if *strnum { StrKind::Strnum } else { StrKind::Str };
+                            refine(&mut kind, text.reflect().0);
+                            *strnum = kind == StrKind::Strnum;
                         }
                         Either::Left(LL::AwkStrtonum(_, text, strnum)) => {
                             let mut kind =
@@ -1061,8 +1068,12 @@ impl<'a, 'b> View<'a, 'b> {
                                 reg = dst;
                             }
                             Ty::Str => {
+                                // A string is true unless it is false as `!s` is (empty, or a
+                                // strnum equal to zero).
+                                let not = self.regs.stats.reg_of_ty(Ty::Int);
+                                self.pushl(LL::NotStr(not.into(), reg.into(), true));
                                 let dst = self.regs.stats.reg_of_ty(Ty::Int);
-                                self.pushl(LL::LenStr(dst.into(), reg.into()));
+                                self.pushl(LL::Not(dst.into(), not.into()));
                                 reg = dst;
                             }
                             _ => return err!("invalid type for branch: {:?} :: {:?}", val, ty),
@@ -1377,7 +1388,8 @@ impl<'a, 'b> View<'a, 'b> {
         match bf {
             Unop(Column) => self.pushl(LL::GetColumn(res_reg.into(), conv_regs[0].into())),
             Unop(Not) => match conv_tys[0] {
-                Ty::Str => self.pushl(LL::NotStr(res_reg.into(), conv_regs[0].into())),
+                // May be a strnum until refined by the strnum analysis.
+                Ty::Str => self.pushl(LL::NotStr(res_reg.into(), conv_regs[0].into(), true)),
                 // !x for a float is x == 0: !0.25 is 0, not !int(0.25).
                 Ty::Float => {
                     let zero = self.regs.stats.reg_of_ty(Ty::Float);

@@ -92,7 +92,7 @@ impl StrnumAnalysis {
                 self.dfa.add_query(r);
             }
             CmpStrNum { s, .. } => self.dfa.add_query(s),
-            AwkStrtonum(_, s, _) => self.dfa.add_query(s),
+            AwkStrtonum(_, s, _) | NotStr(_, s, _) => self.dfa.add_query(s),
             // Copies.
             Mov(..)
             | Lookup { .. }
@@ -125,7 +125,8 @@ impl StrnumAnalysis {
     }
 
     /// Whether the string register `reg` may hold a strnum. `reg` must have been queried, i.e. be
-    /// an operand of a `CmpStr` or `CmpStrNum` instruction visited by `visit_ll`.
+    /// an operand of a `CmpStr`, `CmpStrNum`, `AwkStrtonum` or `NotStr` instruction visited by
+    /// `visit_ll`.
     pub(crate) fn may_be_strnum(&mut self, reg: NumTy) -> bool {
         *self.dfa.query(Key::Reg(reg, Ty::Str)) == Strnum::Maybe
     }
