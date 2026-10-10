@@ -1314,3 +1314,25 @@ fn input_file_cannot_open() {
         );
     }
 }
+
+#[test]
+fn empty_match_respects_utf8_boundaries() {
+    let cases = [
+        (r#"BEGIN{s="中文"; n=gsub(//, "-", s); print n, s}"#, "3 -中-文-\n"),
+        (r#"BEGIN{s="中文"; gsub(/x*/, "-", s); print s}"#, "-中-文-\n"),
+        (r#"BEGIN{print gensub(//, "-", "g", "中文")}"#, "-中-文-\n"),
+        (r#"BEGIN{print gensub(//, "-", 2, "中文")}"#, "中-文\n"),
+        (r#"BEGIN{print gensub(/^a/, "X", 2, "aaa")}"#, "aaa\n"),
+        (r#"BEGIN{print gensub(/\<a/, "X", 2, "aaa ab")}"#, "aaa Xb\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, prog])
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&output.stdout), expected, "{} {}", backend_arg, prog);
+        }
+    }
+}

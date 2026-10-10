@@ -854,7 +854,11 @@ impl<'a> Str<'a> {
                 let mut buf = DynamicBuf::new(0);
                 let mut prev = 0;
                 let mut count = 0;
+                let mut bound = CharBoundary::new(s);
                 for m in pat.find_iter(s) {
+                    if bound.splits_char(m.start(), m.end()) {
+                        continue;
+                    }
                     buf.write_all(&s[prev..m.start()]).unwrap();
                     process_match(&s[m.start()..m.end()], subst, &mut buf).unwrap();
                     prev = m.end();
@@ -889,8 +893,12 @@ impl<'a> Str<'a> {
                 let mut buf = DynamicBuf::new(0);
                 let mut prev = 0;
                 let mut count = 0;
+                let mut bound = CharBoundary::new(s);
                 for c in pat.captures_iter(s) {
                     let m = c.get(0).unwrap();
+                    if bound.splits_char(m.start(), m.end()) {
+                        continue;
+                    }
                     buf.write_all(&s[prev..m.start()]).unwrap();
                     process_match_gen(c, subst, &mut buf).unwrap();
                     prev = m.end();
@@ -911,31 +919,19 @@ impl<'a> Str<'a> {
     pub fn gen_subst_n(&self, pat: &Regex, subst: &Str<'a>, which: Int) -> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
-                // skip first
-                let start = if which > 1 {
-                    let start = pat
-                        .find_iter(s)
-                        .skip(
-                            which as usize - 2, // 1 to convert from 1-based to 0-based
-                            // 1 to take the last "next" into account
-                        )
-                        .next();
-                    if let Some(start) = start {
-                        start.end()
-                    } else {
-                        // not enough matches, so return the string verbatim
-                        return self.clone();
-                    }
-                } else {
-                    // no need to skip anything
-                    0
-                };
-
-                if let Some(c) = pat.captures(&s[start..]) {
+                // Match against the whole string (not a suffix) so that anchors and word
+                // boundaries keep their context.
+                let mut bound = CharBoundary::new(s);
+                let nth = pat
+                    .captures_iter(s)
+                    .filter(|c| {
+                        let m = c.get(0).unwrap();
+                        !bound.splits_char(m.start(), m.end())
+                    })
+                    .nth(which as usize - 1);
+                if let Some(c) = nth {
                     let m = c.get(0).unwrap();
-                    let end = start + m.end();
-                    let start = start + m.start();
-
+                    let (start, end) = (m.start(), m.end());
                     let mut buf = DynamicBuf::new(s.len());
                     buf.write_all(&s[0..start]).unwrap();
                     process_match_gen(c, subst, &mut buf).unwrap();
@@ -1686,6 +1682,32 @@ impl Buf {
         } else {
             Err(self)
         }
+    }
+}
+
+/// Byte regexes may produce empty matches inside a multi-byte UTF-8 character; substituting at
+/// such a position would corrupt the character. This detects those matches so they can be
+/// skipped. Validity of the input is only checked (once) when such a match is actually seen, so
+/// non-UTF-8 input keeps the byte-oriented behavior.
+struct CharBoundary<'s> {
+    s: &'s [u8],
+    valid_utf8: Option<bool>,
+}
+
+impl<'s> CharBoundary<'s> {
+    fn new(s: &'s [u8]) -> Self {
+        CharBoundary { s, valid_utf8: None }
+    }
+
+    fn splits_char(&mut self, start: usize, end: usize) -> bool {
+        // UTF-8 continuation bytes are 0b10xxxxxx.
+        if start != end || start >= self.s.len() || (self.s[start] & 0xC0) != 0x80 {
+            return false;
+        }
+        let s = self.s;
+        *self
+            .valid_utf8
+            .get_or_insert_with(|| std::str::from_utf8(s).is_ok())
     }
 }
 
