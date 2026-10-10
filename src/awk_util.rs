@@ -180,7 +180,9 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
     // check S3 operation with required environment variables
     if satisfied {
         if awk_code.contains("s3_get(") || awk_code.contains("s3_put(") {
-            if !(std::env::var("AWS_ACCESS_KEY_ID").is_ok() && std::env::var("S3_ACCESS_KEY_ID").is_ok()) {
+            if !(std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+                && std::env::var("S3_ACCESS_KEY_ID").is_ok())
+            {
                 eprintln!("Errors:");
                 eprintln!("Required environment variables were not provided: ");
                 eprintln!("  - S3_ENDPOINT");
@@ -196,12 +198,24 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
 
 pub fn sugar_syntax_convert(awk_code: String) -> String {
     // output single column
-    if awk_code.starts_with("$") && !awk_code.contains(" ") {
+    if awk_code.starts_with("$") && !contains_conditional_ops(&awk_code) {
         return format!("{{ print {} }}", awk_code);
-    }else if awk_code.starts_with("/") && awk_code.ends_with("/") { // conditional
+    } else if awk_code.starts_with("/") && awk_code.ends_with("/") {
+        // conditional
         return format!("{} {{ print $0 }}", awk_code);
     }
     awk_code
+}
+
+fn contains_conditional_ops(awk_code: &str) -> bool {
+    awk_code.contains("==")
+        || awk_code.contains("!=")
+        || awk_code.contains("<")
+        || awk_code.contains(">")
+        || awk_code.contains("<=")
+        || awk_code.contains(">=")
+        || awk_code.contains("&&")
+        || awk_code.contains("||")
 }
 
 #[cfg(test)]
