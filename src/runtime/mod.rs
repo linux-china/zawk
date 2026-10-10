@@ -98,6 +98,28 @@ impl RegexCache {
             |x| f(x),
         )
     }
+    /// Runs `f` with the regex that separates records for `rs`: a single-character `RS` is
+    /// matched literally, as in POSIX awk and gawk; longer values are regexes.
+    pub(crate) fn with_record_separator<T>(
+        &mut self,
+        rs: &Str,
+        mut f: impl FnMut(&Regex) -> T,
+    ) -> Result<T> {
+        let single_char =
+            rs.with_bytes(|bs| std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1));
+        if single_char {
+            self.1.get(
+                rs,
+                |c| match Regex::new(&regex::escape(c)) {
+                    Ok(r) => Ok(r),
+                    Err(e) => err!("{}", e),
+                },
+                |x| f(x),
+            )
+        } else {
+            self.with_regex(rs, f)
+        }
+    }
     pub(crate) fn with_regex_fallible<T>(
         &mut self,
         pat: &Str,
@@ -124,9 +146,7 @@ impl RegexCache {
         Ok(if is_file {
             reg.with_file(file, |reader| reader.read_record(pat, self))?
         } else {
-            reg.with_cmd(file, |reader| {
-                self.with_regex(pat, |re| reader.read_line_regex(re))
-            })?
+            reg.with_cmd(file, |reader| reader.read_record(pat, self))?
         }
         .clone()
         .upcast())

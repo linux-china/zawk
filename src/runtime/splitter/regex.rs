@@ -100,13 +100,14 @@ impl<R: Read> RegexSplitter<R> {
         self.error = Some(e);
     }
 
-    /// Read the next record, where records are separated by the regex `rs`, or by blank lines
+    /// Read the next record, where records are separated by `rs` (literally if it is a single
+    /// character, as a regex otherwise), or by blank lines
     /// if `rs` is empty ("paragraph mode").
     pub fn read_record(&mut self, rs: &Str, rc: &mut super::RegexCache) -> Result<Str<'static>> {
         if rs.is_empty() {
             return self.read_paragraph(rc);
         }
-        rc.with_regex(rs, |re| self.read_line_regex(re))
+        rc.with_record_separator(rs, |re| self.read_line_regex(re))
     }
 
     /// Read a record in paragraph mode: records are separated by one or more blank lines;
