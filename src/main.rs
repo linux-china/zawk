@@ -592,7 +592,7 @@ fn main() {
             }
             prog
         } else if let Some(p) = matches.get_one::<String>("program") {
-            String::from(p)
+            String::from(p.trim())
         } else {
             fail!("must specify program at command line, or in a file via -f");
         }

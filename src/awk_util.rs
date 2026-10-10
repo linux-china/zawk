@@ -195,10 +195,11 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
 }
 
 pub fn sugar_syntax_convert(awk_code: String) -> String {
-    if awk_code.starts_with("/") && awk_code.ends_with("/") {
-        return format!("{} {{ print $0 }}", awk_code);
-    } else if !awk_code.contains("{") && !awk_code.contains("}") {
+    // output single column
+    if awk_code.starts_with("$") && !awk_code.contains(" ") {
         return format!("{{ print {} }}", awk_code);
+    }else if awk_code.starts_with("/") && awk_code.ends_with("/") { // conditional
+        return format!("{} {{ print $0 }}", awk_code);
     }
     awk_code
 }
