@@ -688,7 +688,7 @@ fn close_output_command() {
             .assert()
             .success()
             .stdout(String::from("a\nb\n"));
-        // close() returns the exit status of a command, 0 for files and input commands, and -1
+        // close() returns the exit status of an output or input command, 0 for files, and -1
         // for names that were never opened.
         let tmp = tempdir().unwrap();
         let out = tmp.path().join("out.txt");
@@ -698,6 +698,7 @@ fn close_output_command() {
                 print close("never opened")
                 print "y" > "{0}"; print close("{0}")
                 "echo hi" | getline v; print close("echo hi")
+                "echo hi; exit 4" | getline v; print close("echo hi; exit 4")
             }}"#,
             out.to_str().unwrap()
         );
@@ -707,7 +708,18 @@ fn close_output_command() {
             .arg(prog)
             .assert()
             .success()
-            .stdout(String::from("3\n-1\n0\n0\n"));
+            .stdout(String::from("3\n-1\n0\n0\n4\n"));
+        // A command killed by a signal gives 256 plus the signal number, as in gawk.
+        #[cfg(unix)]
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { print system("kill -9 $$"); "kill -9 $$" | getline; print close("kill -9 $$") }"#,
+            ))
+            .assert()
+            .success()
+            .stdout(String::from("265\n265\n"));
     }
 }
 
@@ -999,7 +1011,8 @@ fn unreadable_input_is_fatal_with_regex_separators() {
                 assert!(stderr.contains("missing.txt"), "{} {:?}: {}", backend_arg, args, stderr);
             }
         }
-        // `getline < file` and `cmd | getline` still return -1 rather than failing.
+        // `getline < file` still returns -1 rather than failing; a failing command that prints
+        // nothing is just at EOF (its status is reported by close()), as in gawk.
         let prog = format!(
             r#"BEGIN {{ RS = "x"; print (getline l < "{}"); print ("cat {} 2>/dev/null" | getline l) }}"#,
             missing, missing
@@ -1011,7 +1024,7 @@ fn unreadable_input_is_fatal_with_regex_separators() {
             .arg(prog)
             .assert()
             .success()
-            .stdout("-1\n-1\n");
+            .stdout("-1\n0\n");
     }
 }
 

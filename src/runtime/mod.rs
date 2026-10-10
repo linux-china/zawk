@@ -1,5 +1,5 @@
 use crate::common::{FileSpec, Result};
-use grep_cli::CommandReader;
+use command::CommandReader;
 use hashbrown::HashMap;
 use regex::bytes::Regex;
 use std::cell::{Cell, RefCell};
@@ -530,11 +530,12 @@ impl<LR: LineReader> FileRead<LR> {
             .collect()
     }
 
-    /// Close an input file or command; returns whether it was open.
-    pub(crate) fn close(&mut self, path: &Str) -> bool {
+    /// Close an input file or command. Returns the command's exit status, 0 for a file, or
+    /// `None` if `path` was not open for input.
+    pub(crate) fn close(&mut self, path: &Str) -> Option<Int> {
         let file = self.inputs.files.remove(path);
-        let cmd = self.inputs.commands.remove(path);
-        file || cmd
+        let cmd = self.inputs.commands.take(path).map(|mut c| c.inner_mut().close());
+        cmd.or(if file { Some(0) } else { None })
     }
 
     pub(crate) fn new(
@@ -714,7 +715,10 @@ impl<T> Default for Registry<T> {
 
 impl<T> Registry<T> {
     fn remove(&mut self, s: &Str) -> bool {
-        self.cached.remove(&s.clone().unmoor()).is_some()
+        self.take(s).is_some()
+    }
+    fn take(&mut self, s: &Str) -> Option<T> {
+        self.cached.remove(&s.clone().unmoor())
     }
     fn get<R>(
         &mut self,
@@ -814,14 +818,10 @@ pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
     }
 }
 
-/// The value of awk's `close`: the exit status of an output command (0 for a file), 0 for an
-/// input that was open, and -1 if nothing named that way was open.
-pub(crate) fn close_result(output: Option<Int>, input_was_open: bool) -> Int {
-    match output {
-        Some(status) => status,
-        None if input_was_open => 0,
-        None => -1,
-    }
+/// The value of awk's `close`: the exit status of an output or input command (0 for a file), and
+/// -1 if nothing named that way was open.
+pub(crate) fn close_result(output: Option<Int>, input: Option<Int>) -> Int {
+    output.or(input).unwrap_or(-1)
 }
 
 /// Error reported when integer addition or subtraction leaves the 64-bit range.

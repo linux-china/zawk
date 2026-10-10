@@ -20,6 +20,13 @@ pub struct RegexSplitter<R> {
     error: Option<CompileError>,
 }
 
+impl<R> RegexSplitter<R> {
+    /// The underlying reader.
+    pub(crate) fn inner_mut(&mut self) -> &mut R {
+        &mut self.reader.inner
+    }
+}
+
 impl<R: Read> LineReader for RegexSplitter<R> {
     type Line = DefaultLine;
     fn filename(&self) -> Str<'static> {

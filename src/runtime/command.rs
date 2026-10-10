@@ -1,9 +1,8 @@
 use std::cell::RefCell;
 use std::io;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::rc::Weak;
 
-use grep_cli::{CommandError, CommandReader};
 use hashbrown::HashMap;
 
 use crate::runtime::{Int, Str, StrMap};
@@ -59,14 +58,11 @@ fn prepare_command(prog: &str, env: Option<&CommandEnv>) -> io::Result<Command> 
 }
 
 pub fn run_command(cmd: &str) -> Int {
-    fn wrap_err(e: Option<i32>) -> Int {
-        e.map(Int::from).unwrap_or(1)
-    }
     fn run_command_inner(cmd: &str) -> io::Result<Int> {
         let status = prepare_command(cmd, command_env().as_ref())?.status()?;
-        Ok(wrap_err(status.code()))
+        Ok(exit_status_code(status))
     }
-    run_command_inner(cmd).unwrap_or_else(|e| wrap_err(e.raw_os_error()))
+    run_command_inner(cmd).unwrap_or_else(|e| e.raw_os_error().map(Int::from).unwrap_or(1))
 }
 
 pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
@@ -74,7 +70,7 @@ pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
     if let Ok(mut command) = prepare_command(cmd, command_env().as_ref()) {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Ok(output) = command.output() {
-            map.insert(Str::from("code"), Str::from(output.status.code().map(|i| i.to_string()).unwrap_or_else(|| "0".to_owned())));
+            map.insert(Str::from("code"), Str::from(exit_status_code(output.status).to_string()));
             if !output.stdout.is_empty() {
                 map.insert(Str::from("stdout"), Str::from(String::from_utf8_lossy(&output.stdout).to_string()));
             }
@@ -114,7 +110,47 @@ pub(crate) fn exit_status_code(status: ExitStatus) -> Int {
     -1
 }
 
-pub fn command_for_read(bs: &[u8]) -> Result<CommandReader, CommandError> {
+/// The output of a command run by `cmd | getline`. Unlike a plain `ChildStdout`, it keeps the
+/// child so that `close` can report its exit status.
+pub(crate) struct CommandReader {
+    child: Child,
+    stdout: Option<ChildStdout>,
+}
+
+impl CommandReader {
+    /// Close the command's output and wait for it to exit, returning the value of awk's `close`
+    /// (see `exit_status_code`). A command that has not written all of its output yet is
+    /// typically killed by SIGPIPE, as in gawk.
+    pub(crate) fn close(&mut self) -> Int {
+        drop(self.stdout.take());
+        match self.child.wait() {
+            Ok(status) => exit_status_code(status),
+            Err(_) => -1,
+        }
+    }
+}
+
+impl io::Read for CommandReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match &mut self.stdout {
+            Some(stdout) => stdout.read(buf),
+            None => Ok(0),
+        }
+    }
+}
+
+impl Drop for CommandReader {
+    fn drop(&mut self) {
+        // Reap the child so it does not linger as a zombie.
+        if self.stdout.is_some() {
+            self.close();
+        }
+    }
+}
+
+pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
     let mut cmd = prepare_command(String::from_utf8_lossy(bs).as_ref(), command_env().as_ref())?;
-    CommandReader::new(&mut cmd)
+    let mut child = cmd.stdout(Stdio::piped()).spawn()?;
+    let stdout = child.stdout.take();
+    Ok(CommandReader { child, stdout })
 }
