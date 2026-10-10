@@ -8,6 +8,7 @@
 pub mod batch;
 pub mod chunk;
 pub mod jsonl;
+pub mod markdown;
 pub mod parquet;
 pub mod regex;
 

@@ -43,6 +43,7 @@ use runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
         jsonl::JsonlReader,
+        markdown::MarkdownCsv,
         parquet::ParquetJson,
         regex::RegexSplitter,
     },
@@ -405,10 +406,10 @@ fn main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv|jsonl|parquet")
+            .value_name("csv|tsv|jsonl|parquet|markdown")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|jsonl|parquet). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet"]))
+            .help("Input is split according to the rules of (csv|tsv|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -506,7 +507,7 @@ fn main() {
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("jsonl") | Some("ndjson") | Some("parquet") => None,
+        Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -616,9 +617,13 @@ fn main() {
         matches.get_one::<String>("input-format").map(|s| s.as_str()),
         Some("parquet")
     );
-    // JSON Lines records and Parquet files are self-describing, so FI is always populated from
-    // the first record (the column names for Parquet).
-    let parse_header = matches.get_flag("parse-header") || jsonl || parquet;
+    let markdown = matches!(
+        matches.get_one::<String>("input-format").map(|s| s.as_str()),
+        Some("markdown") | Some("md")
+    );
+    // JSON Lines records, Parquet files and Markdown tables are self-describing, so FI is always
+    // populated from the first record (the column names for Parquet and Markdown tables).
+    let parse_header = matches.get_flag("parse-header") || jsonl || parquet || markdown;
 
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
@@ -680,7 +685,26 @@ fn main() {
     // this up here.
     macro_rules! with_inp {
         ($analysis:expr, $inp:ident, $body:expr) => {{
-            if parquet {
+            if markdown {
+                // The first table of a Markdown file is read as CSV with a header line.
+                let sources: Vec<(MarkdownCsv, String)> = if input_files.len() == 0 {
+                    vec![(MarkdownCsv::stdin(), String::from("-"))]
+                } else {
+                    input_files
+                        .iter()
+                        .map(|file| (MarkdownCsv::file(file.clone()), file.clone()))
+                        .collect()
+                };
+                let $inp = CSVReader::new(
+                    sources.into_iter(),
+                    InputFormat::CSV,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                );
+                $body
+            } else if parquet {
                 // Parquet rows are read as JSON Lines.
                 let fi_names = awk_util::fi_constant_keys(&program_code);
                 let sources: Vec<(ParquetJson, String)> = if input_files.len() == 0 {

@@ -113,6 +113,10 @@ run-jsonl-to-csv:
 run-parquet:
   cargo run --package zawk --bin zawk -- -i parquet '{ print $1, $FI["name"], $FI["age"] }' tests/demo.parquet
 
+run-markdown:
+  cargo run --package zawk --bin zawk -- -i markdown '{ print $FI["actor_id"], $FI["first_name"], $FI["last_name"] }' tests/demo.md
+  cargo run --package zawk --bin zawk -- -i markdown '{ print $FI["actor_id"], $FI["first_name"], $FI["last_name"] }' tests/demo.md
+
 run-from-csv:
   cargo run --package zawk --bin zawk -- 'BEGIN{  arr=from_csv("first,second"); print arr[1] }' demo.txt
 

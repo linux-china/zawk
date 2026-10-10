@@ -14,7 +14,7 @@ or if you want a standard AWK library to make life easy.
 Features:
 
 * CSV/TSV support by frawk
-* JSON Lines (`-i jsonl`) and Apache Parquet (`-i parquet`) input
+* JSON Lines (`-i jsonl`), Apache Parquet (`-i parquet`) and Markdown table (`-i markdown`) input
 * Read input files from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`
 * High performance
 * gawk mostly compatible
