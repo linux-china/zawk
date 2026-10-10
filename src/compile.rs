@@ -965,22 +965,27 @@ impl<'a> Typer<'a> {
             // closure.
             let stats = &self.regs.stats;
             let cg = &mut self.callgraph;
+            let mut visit = |reg: NumTy, ty: Ty| {
+                if reg == UNUSED {
+                    return;
+                }
+                match stats.get_status(reg, ty) {
+                    RegStatus::Global => {
+                        cg.node_weight_mut(NodeIx::new(i))
+                            .unwrap()
+                            .insert((reg, ty));
+                    }
+                    RegStatus::Ret | RegStatus::Local => {}
+                }
+            };
             for bb in frame.cfg.raw_nodes() {
                 for stmt in &bb.weight.insts {
-                    accum(stmt, |reg, ty| {
-                        if reg == UNUSED {
-                            return;
-                        }
-                        match stats.get_status(reg, ty) {
-                            RegStatus::Global => {
-                                cg.node_weight_mut(NodeIx::new(i))
-                                    .unwrap()
-                                    .insert((reg, ty));
-                            }
-                            RegStatus::Ret | RegStatus::Local => {}
-                        }
-                    });
+                    accum(stmt, &mut visit);
                 }
+            }
+            // Branch conditions are Int registers on the edges, e.g. `if (g)` on a global `g`.
+            for cond in frame.cfg.edge_weights().flatten() {
+                visit(*cond, Ty::Int);
             }
         }
 
@@ -1842,6 +1847,17 @@ impl<'a, 'b> View<'a, 'b> {
             ToFloat => {
                 if res_reg != UNUSED {
                     self.mov(res_reg, conv_regs[0], Ty::Float)?;
+                }
+            }
+            OfmtStr => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::Float => {
+                            self.pushl(LL::FloatToStrOfmt(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::Int => self.pushl(LL::IntToStr(res_reg.into(), conv_regs[0].into())),
+                        _ => self.mov(res_reg, conv_regs[0], Ty::Str)?,
+                    }
                 }
             }
             Strnum => {

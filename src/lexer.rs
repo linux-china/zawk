@@ -614,6 +614,7 @@ impl<'a> Tokenizer<'a> {
                 | Some(Tok::StrLit(_))
                 | Some(Tok::PatLit(_))
                 | Some(Tok::ILit(_))
+                | Some(Tok::HexLit(_))
                 | Some(Tok::FLit(_))
                 | Some(Tok::RParen)
                 | Some(Tok::RBrack)
@@ -967,6 +968,24 @@ and the third"#;
                 .find_map(Result::err)
                 .unwrap_or_else(|| panic!("no error for {:?}", text));
             assert!(err.desc.starts_with(desc), "{:?}: {}", text, err.desc);
+        }
+    }
+
+    #[test]
+    fn division_after_numeric_literal() {
+        use Tok::*;
+        for (text, lit) in [
+            ("1 / 2 / 1", ILit("1")),
+            ("0x10 / 2 / 1", HexLit("0x10")),
+            ("1.5 / 2 / 1", FLit("1.5")),
+        ] {
+            let toks: Vec<_> = lex_str(text).into_iter().map(|x| x.1).collect();
+            assert_eq!(
+                &toks[..5],
+                &[lit, Div, ILit("2"), Div, ILit("1")],
+                "{:?}",
+                text
+            );
         }
     }
 

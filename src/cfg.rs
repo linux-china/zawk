@@ -3,6 +3,7 @@ use crate::ast::{self, Expr, Stmt, Unop};
 use crate::builtins::{self, FromStatic, IsSprintf};
 use crate::common::{Either, FileSpec, Graph, NodeIx, NumTy, Result, Stage};
 use crate::dom;
+use crate::uninit;
 
 use hashbrown::{HashMap, HashSet};
 use petgraph::Direction;
@@ -447,7 +448,10 @@ impl<'a, I> ProgramContext<'a, I>
             conds: Default::default(),
             esc,
             exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
+            uninit: Default::default(),
         };
+        let stage = p.desugar_stage(arena);
+        shared.uninit = uninit::analyze(arena, &p.decs[..], &stage);
         let mut func_table: HashMap<FunctionName<I>, NumTy> = Default::default();
         let mut funcs: Vec<Function<'a, I>> = Default::default();
         for fundec in p.decs.iter() {
@@ -544,7 +548,7 @@ impl<'a, I> ProgramContext<'a, I>
         }
 
         // Bind the main function
-        let main_offset = match p.desugar_stage(arena) {
+        let main_offset = match stage {
             Stage::Main(main_stmt) => {
                 Stage::Main(fill!(Some(main_stmt), FunctionName::MainLoop).unwrap())
             }
@@ -612,6 +616,8 @@ struct GlobalContext<I> {
     // Whether `exit` outside of the END block has to run the END block first (POSIX): true for
     // serial programs with an END block.
     exit_to_end: bool,
+    // Numeric variables and arrays whose uninitialized value may be read as a string.
+    uninit: uninit::Uninit<I>,
 }
 
 impl<I> GlobalContext<I> {
@@ -907,7 +913,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 };
                 let mut print_args = SmallVec::with_capacity(vs.len() * 2);
                 for (i, v) in vs.iter().enumerate() {
-                    let (next, mut to_print) = self.convert_val(*v, current_open)?;
+                    let (next, mut to_print) =
+                        self.convert_str_operand(*v, current_open, /*ofmt=*/ true)?;
                     to_print = self.snapshot_before(to_print, &vs[i + 1..], next)?;
                     to_print = self.escape(to_print, next)?;
                     current_open = next;
@@ -1105,10 +1112,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 return self.missing_or_empty(arr, ix, current_open);
             }
             Binop(op, e1, e2) => {
-                let (next, v1) = self.convert_val(e1, current_open)?;
+                let (str1, str2) = uninit::string_operands(expr);
+                let (next, v1) = if str1.is_some() {
+                    self.convert_str_operand(e1, current_open, /*ofmt=*/ false)?
+                } else {
+                    self.convert_val(e1, current_open)?
+                };
                 let v1 = self.snapshot_before(v1, &[e2], next)?;
                 let (next, v2) = if let ast::Binop::IsMatch = op {
                     self.convert_regex_arg(e2, next)?
+                } else if str2.is_some() {
+                    self.convert_str_operand(e2, next, /*ofmt=*/ false)?
                 } else {
                     self.convert_val(e2, next)?
                 };
@@ -1209,14 +1223,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     StrLit(s) => Some(*s),
                     _ => None,
                 };
-                let (next, to) = self.convert_expr(to, current_open)?;
-                return self.do_assign_hint(x, |_| to, lit, next);
+                let (next, to_e) = self.convert_expr(to, current_open)?;
+                let (next, res) = self.do_assign_hint(x, |_| to_e, lit, next)?;
+                self.mark_assigned(x, Some(to), next)?;
+                return Ok((next, res));
             }
             AssignOp(x, op, to) => {
                 let (next, to_v) = self.convert_val(to, current_open)?;
                 // `x` is not a constant: `x += y` is done in floating point unless `y` is one.
                 let to_v = self.widen_sum_operand(*op, to_v, &PrimVal::Var(Ident::unused()), next)?;
-                return self.do_assign(
+                let (next, res) = self.do_assign(
                     x,
                     |v| {
                         PrimExpr::CallBuiltin(
@@ -1225,7 +1241,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         )
                     },
                     next,
-                );
+                )?;
+                self.mark_assigned(x, None, next)?;
+                return Ok((next, res));
             }
             Inc { is_inc, is_post, x } => {
                 if !valid_lhs(x) {
@@ -1569,6 +1587,104 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         current_open: NodeIx,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         self.convert_val_inner(expr, current_open, /*in_cond=*/ false)
+    }
+
+    /// The flag recording whether the tracked variable read by `e` has been assigned (see the
+    /// `uninit` module).
+    fn uninit_flag<'c>(&self, e: &'c Expr<'c, 'b, I>) -> Option<I> {
+        match e {
+            Expr::Var(x) if !self.f.args_map.contains_key(x) => self.ctx.uninit.vars.get(x).cloned(),
+            _ => None,
+        }
+    }
+
+    /// Whether `e` reads an element of a tracked array.
+    fn uninit_map_elem<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
+        match e {
+            Expr::Index(Expr::Var(a), _) => {
+                !self.f.args_map.contains_key(a) && self.ctx.uninit.maps.contains(a)
+            }
+            _ => false,
+        }
+    }
+
+    /// After an assignment to `x`: record that a tracked variable has been assigned. A copy of
+    /// another tracked variable (`x = y`) copies its flag, as `y` may be uninitialized.
+    fn mark_assigned<'c>(
+        &mut self,
+        x: &'c Expr<'c, 'b, I>,
+        rhs: Option<&'c Expr<'c, 'b, I>>,
+        current_open: NodeIx,
+    ) -> Result<()> {
+        let flag = match self.uninit_flag(x) {
+            Some(flag) => flag,
+            None => return Ok(()),
+        };
+        let val = match rhs.and_then(|rhs| self.uninit_flag(rhs)) {
+            Some(src) => PrimVal::Var(self.get_identifier(&src)),
+            None => PrimVal::ILit(1),
+        };
+        let flag = self.get_identifier(&flag);
+        self.add_stmt(current_open, PrimStmt::AsgnVar(flag, PrimExpr::Val(val)))
+    }
+
+    /// Converts `e`, which is read as a string. An uninitialized tracked variable, or a missing
+    /// element of a tracked array, is "" rather than "0". With `ofmt`, numbers are converted to
+    /// strings as print does.
+    fn convert_str_operand<'c>(
+        &mut self,
+        e: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+        ofmt: bool,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        if let Some(flag) = self.uninit_flag(e) {
+            let (next, v) = self.convert_val(e, current_open)?;
+            let flag = PrimVal::Var(self.get_identifier(&flag));
+            return self.str_or_empty(flag, v, ofmt, next);
+        }
+        if let Expr::Index(arr, ix) = e {
+            if self.uninit_map_elem(e) {
+                use builtins::Function;
+                let (next, arr_v) = self.convert_val(arr, current_open)?;
+                let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+                // Check membership first: the lookup creates the element, as in awk.
+                let present = PrimExpr::CallBuiltin(
+                    Function::Contains,
+                    smallvec![arr_v.clone(), ix_v.clone()],
+                );
+                let present = self.to_val(present, next)?;
+                let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                return self.str_or_empty(present, v, ofmt, next);
+            }
+        }
+        self.convert_val(e, current_open)
+    }
+
+    /// `cond ? v : ""`, as a string.
+    fn str_or_empty(
+        &mut self,
+        cond: PrimVal<'b>,
+        v: PrimVal<'b>,
+        ofmt: bool,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        let res = self.fresh_local();
+        self.ctx.may_rename.push(res);
+        let set = self.f.cfg.add_node(Default::default());
+        let empty = self.f.cfg.add_node(Default::default());
+        let next = self.f.cfg.add_node(Default::default());
+        let v = if ofmt {
+            PrimExpr::CallBuiltin(builtins::Function::OfmtStr, smallvec![v])
+        } else {
+            PrimExpr::Val(v)
+        };
+        self.add_stmt(set, PrimStmt::AsgnVar(res, v))?;
+        self.add_stmt(empty, PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))))?;
+        self.f.cfg.add_edge(current_open, set, Transition::new(cond));
+        self.f.cfg.add_edge(current_open, empty, Transition::null());
+        self.f.cfg.add_edge(set, next, Transition::null());
+        self.f.cfg.add_edge(empty, next, Transition::null());
+        Ok((next, PrimVal::Var(res)))
     }
 
     /// `a[k] == ""`: true when the element did not exist before the lookup, or its value is
@@ -2015,6 +2131,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         for (i, a) in args.iter().enumerate() {
             let (next, v) = if key_arg && i == 1 {
                 self.convert_index(a, open, /*in_cond=*/ false)?
+            } else if matches!(bi, Either::Right(builtins::Function::Length)) {
+                self.convert_str_operand(a, open, /*ofmt=*/ false)?
             } else if matches!(bi, Either::Right(_)) {
                 // Builtins take regex literals as patterns (split, sub, match, ...); for user
                 // defined functions, as in gawk, a regex literal argument is `$0 ~ /re/`.

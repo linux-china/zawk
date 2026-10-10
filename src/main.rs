@@ -31,6 +31,7 @@ mod string_constants;
 #[cfg(test)]
 mod test_string_constants;
 pub mod types;
+mod uninit;
 pub mod awk_util;
 
 use clap::{Arg, Command};

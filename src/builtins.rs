@@ -20,6 +20,9 @@ pub enum Function {
     // Internal: converts a number to a float. Sums and differences of two non-constant integers
     // are computed in floating point (awk numbers are doubles), so they cannot overflow.
     ToFloat,
+    // Internal: converts a value to a string the way print does, formatting floats with OFMT.
+    // Used for print arguments that may be uninitialized (see `uninit`).
+    OfmtStr,
     Unop(ast::Unop),
     Binop(ast::Binop),
     FloatFunc(FloatFunc),
@@ -939,6 +942,10 @@ impl Function {
             Fflush => (smallvec![Str], Int),
             Strnum => (smallvec![Str], Str),
             ToFloat => (smallvec![Float], Float),
+            OfmtStr => (
+                smallvec![if matches!(incoming[0], Int | Float) { incoming[0] } else { Str }],
+                Str,
+            ),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
             GenSub => (smallvec![Str, Str, Str, Str], Str),
             ToUpper | ToLower | EscapeCSV | EscapeTSV => (smallvec![Str], Str),
@@ -1021,7 +1028,7 @@ impl Function {
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
-            Strnum | ToFloat => 1,
+            Strnum | ToFloat | OfmtStr => 1,
             Asort => 2,
             HttpGet => 2,
             HttpPost => 3,
@@ -1206,6 +1213,7 @@ impl Function {
             SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
             ToFloat => Ok(Scalar(BaseTy::Float).abs()),
+            OfmtStr => Ok(Scalar(BaseTy::Str).abs()),
             Uniq => {
                 Ok(Map {
                     key: BaseTy::Int,

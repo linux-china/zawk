@@ -305,6 +305,7 @@ impl Display for Function {
             Uniq => write!(f, "uniq"),
             Strnum => write!(f, "strnum"),
             ToFloat => write!(f, "to_float"),
+            OfmtStr => write!(f, "ofmt_str"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),
