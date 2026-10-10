@@ -90,6 +90,8 @@ impl<R: Read> RegexSplitter<R> {
     /// is an error for the main input loop, as in gawk, rather than an empty input.
     fn take_error(&mut self) -> Result<()> {
         match self.error.take() {
+            // The error already names the file.
+            Some(e) if e.is_fatal() => Err(e),
             Some(e) => Err(CompileError(format!("cannot read `{}': {}", self.name, e))),
             None => Ok(()),
         }

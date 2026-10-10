@@ -184,6 +184,50 @@ impl std::fmt::Display for CompileError {
     }
 }
 
+/// Prefix of error messages that are reported as they are, as gawk-style `zawk: fatal: ...`
+/// errors, rather than wrapped as an internal runtime failure.
+pub const FATAL_PREFIX: &str = "fatal: ";
+
+impl CompileError {
+    pub fn is_fatal(&self) -> bool {
+        self.0.starts_with(FATAL_PREFIX)
+    }
+}
+
+/// An input file operand that cannot be opened, carried through `io::Read` as the payload of an
+/// `io::Error` so that the main input loop can report it as gawk does:
+/// `cannot open file `nonexist' for reading: No such file or directory`.
+#[derive(Debug)]
+pub struct InputOpenError(pub String);
+
+impl InputOpenError {
+    pub fn new_io(path: &str, e: &std::io::Error) -> std::io::Error {
+        let msg = e.to_string();
+        // Drop the " (os error 2)" suffix of OS errors.
+        let reason = match msg.find(" (os error ") {
+            Some(i) => &msg[..i],
+            None => msg.as_str(),
+        };
+        let msg = format!("cannot open file `{}' for reading: {}", path, reason);
+        std::io::Error::new(e.kind(), InputOpenError(msg))
+    }
+
+    /// The message of `e` if it is an `InputOpenError`.
+    pub fn message(e: &std::io::Error) -> Option<&str> {
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<InputOpenError>())
+            .map(|e| e.0.as_str())
+    }
+}
+
+impl std::fmt::Display for InputOpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for InputOpenError {}
+
 macro_rules! err_raw {
     ($head:expr) => {
         $crate::common::CompileError(

@@ -1252,3 +1252,52 @@ fn function_name_space_before_paren() {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "6 3\n");
     }
 }
+
+#[test]
+fn input_file_operands() {
+    // `-` is standard input, directories are skipped with a warning and empty operands are
+    // skipped, as in gawk.
+    let tmp = tempdir().unwrap();
+    let hdr = tmp.path().join("hdr");
+    File::create(&hdr).unwrap().write_all(b"h\n").unwrap();
+    let hdr = hdr.to_str().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    for backend_arg in BACKEND_ARGS {
+        for fs in ["-F ", "-F,", "-F::"] {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, fs, "{print FILENAME == \"-\", $0} END{print NR}", hdr, dir, "", "-"])
+                .write_stdin("a\nb\n")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(String::from_utf8_lossy(&output.stdout), "0 h\n1 a\n1 b\n3\n");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(&format!("zawk: warning: command line argument `{}' is a directory: skipped", dir)), "{}", stderr);
+        }
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "BEGIN{while ((getline l < \"-\") > 0) print \"got\", l}"])
+            .write_stdin("a\nb\n")
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "got a\ngot b\n");
+    }
+}
+
+#[test]
+fn input_file_cannot_open() {
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "BEGIN{print \"begin\"} {print}", "nonexist"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "begin\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "zawk: fatal: cannot open file `nonexist' for reading: No such file or directory\n"
+        );
+    }
+}

@@ -88,7 +88,9 @@ impl ParquetJson {
         if crate::runtime::s3::is_s3_url(path) {
             return Ok(());
         }
-        let file = File::open(path).map_err(|e| error(&e))?;
+        let file = File::open(path).map_err(|e| {
+            format!("zawk: {}{}", crate::common::FATAL_PREFIX, crate::common::InputOpenError::new_io(path, &e))
+        })?;
         let reader = SerializedFileReader::new(file).map_err(|e| error(&e))?;
         for row_group in reader.metadata().row_groups() {
             for column in row_group.columns() {

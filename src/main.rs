@@ -128,10 +128,13 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
         }
     }
 
-    // A local file, or an object of `s3://bucket/key`, streamed as it downloads.
+    // A local file, an object of `s3://bucket/key` streamed as it downloads, standard input
+    // (the `-` operand), or nothing (skipped operands).
     enum Source {
         Local(File),
         S3(runtime::s3::S3Reader),
+        Stdin(io::Stdin),
+        Empty,
     }
 
     impl io::Read for Source {
@@ -139,16 +142,33 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
             match self {
                 Source::Local(f) => f.read(buf),
                 Source::S3(r) => r.read(buf),
+                Source::Stdin(r) => r.read(buf),
+                Source::Empty => Ok(0),
             }
         }
     }
 
     let filename = String::from(f);
     BufReader::new(LazyReader::Uninit(move || {
-        if runtime::s3::is_s3_url(&filename) {
-            Ok(Source::S3(runtime::s3::S3Reader::new(filename.as_str())))
-        } else {
-            File::open(filename.as_str()).map(Source::Local)
+        match filename.as_str() {
+            // As in gawk, an empty operand is skipped, and `-` is standard input.
+            "" => Ok(Source::Empty),
+            "-" => Ok(Source::Stdin(io::stdin())),
+            name if runtime::s3::is_s3_url(name) => {
+                Ok(Source::S3(runtime::s3::S3Reader::new(name)))
+            }
+            name => {
+                if std::fs::metadata(name).map_or(false, |m| m.is_dir()) {
+                    eprintln_ignore!(
+                        "zawk: warning: command line argument `{}' is a directory: skipped",
+                        name
+                    );
+                    return Ok(Source::Empty);
+                }
+                File::open(name)
+                    .map(Source::Local)
+                    .map_err(|e| common::InputOpenError::new_io(name, &e))
+            }
         }
     }))
 }
@@ -271,6 +291,7 @@ fn run_interp_with_context<'a>(
         // would otherwise lose.
         drop(interp);
         match res {
+            Err(e) if e.is_fatal() => fatal!("zawk: {}", e),
             Err(e) => fatal!("fatal error during execution: {}", e),
             Ok(0) => return,
             Ok(n) => n,
@@ -692,7 +713,10 @@ fn main() {
                 } else {
                     input_files
                         .iter()
-                        .map(|file| (MarkdownCsv::file(file.clone()), file.clone()))
+                        .map(|file| match file.as_str() {
+                            "-" => (MarkdownCsv::stdin(), file.clone()),
+                            _ => (MarkdownCsv::file(file.clone()), file.clone()),
+                        })
                         .collect()
                 };
                 let $inp = CSVReader::new(
@@ -710,14 +734,17 @@ fn main() {
                 let sources: Vec<(ParquetJson, String)> = if input_files.len() == 0 {
                     vec![(ParquetJson::stdin(), String::from("-"))]
                 } else {
-                    for file in input_files.iter() {
+                    for file in input_files.iter().filter(|f| f.as_str() != "-") {
                         if let Err(e) = ParquetJson::check(file) {
                             fatal!("{}", e);
                         }
                     }
                     input_files
                         .iter()
-                        .map(|file| (ParquetJson::file(file.clone()), file.clone()))
+                        .map(|file| match file.as_str() {
+                            "-" => (ParquetJson::stdin(), file.clone()),
+                            _ => (ParquetJson::file(file.clone()), file.clone()),
+                        })
                         .collect()
                 };
                 let $inp = JsonlReader::new(

@@ -520,6 +520,29 @@ macro_rules! try_abort {
     };
 }
 
+// Like `try_abort`, but input errors that are gawk-style fatal errors (e.g. an input file that
+// cannot be opened) are reported as they are: `zawk: fatal: cannot open file ...`.
+macro_rules! try_abort_input {
+    ($rt:expr, $e:expr, $msg:expr) => {
+        match $e {
+            Ok(res) => res,
+            Err(e) if e.is_fatal() => {
+                #[cfg(test)]
+                {
+                    panic!("zawk: {}", e)
+                }
+                #[cfg(not(test))]
+                {
+                    let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
+                    eprintln_ignore!("zawk: {}", e);
+                    exit!($rt, 2)
+                }
+            }
+            Err(e) => fail!($rt, concat!($msg, " {}"), e),
+        }
+    };
+}
+
 // we use a "silent" abort for write errors to play nicely with unix tools like "head" which
 // deliberately close pipes prematurely.
 macro_rules! try_silent_abort {
@@ -784,7 +807,7 @@ pub(crate) unsafe extern "C" fn read_err_stdin(runtime: *mut c_void) -> Int {
 pub(crate) unsafe extern "C" fn next_line_stdin_fused(runtime: *mut c_void) {
     guard_panic(stringify!(next_line_stdin_fused), || {
         let runtime = &mut *(runtime as *mut Runtime);
-        let changed = try_abort!(
+        let changed = try_abort_input!(
             runtime,
             with_input!(&mut runtime.input_data, |(line, read_files)| {
                 runtime
@@ -815,7 +838,7 @@ pub(crate) unsafe extern "C" fn next_file(runtime: *mut c_void) {
 pub(crate) unsafe extern "C" fn next_line_stdin(runtime: *mut c_void) -> U128 {
     guard_panic(stringify!(next_line_stdin), || {
         let runtime = &mut *(runtime as *mut Runtime);
-        let (changed, res) = try_abort!(
+        let (changed, res) = try_abort_input!(
             runtime,
             with_input!(&mut runtime.input_data, |(_, read_files)| {
                 runtime

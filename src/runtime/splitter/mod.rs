@@ -387,7 +387,16 @@ fn read_to_slice(r: &mut impl Read, mut buf: &mut [u8]) -> Result<usize> {
                 ErrorKind::UnexpectedEof => {
                     break;
                 }
-                _ => return err!("read error {}", e),
+                _ => {
+                    if let Some(msg) = crate::common::InputOpenError::message(&e) {
+                        return Err(crate::common::CompileError(format!(
+                            "{}{}",
+                            crate::common::FATAL_PREFIX,
+                            msg
+                        )));
+                    }
+                    return err!("read error {}", e);
+                }
             },
         }
     }

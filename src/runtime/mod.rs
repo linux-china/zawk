@@ -664,11 +664,16 @@ impl<LR: LineReader> FileRead<LR> {
 pub(crate) enum InputFile {
     Open(File),
     S3(s3::S3Reader),
+    Stdin(io::Stdin),
     Failed(io::ErrorKind),
 }
 
 impl InputFile {
     fn open(path: &str) -> InputFile {
+        // As in gawk, `getline < "-"` reads standard input.
+        if path == "-" {
+            return InputFile::Stdin(io::stdin());
+        }
         if s3::is_s3_url(path) {
             return InputFile::S3(s3::S3Reader::new(path));
         }
@@ -684,6 +689,7 @@ impl io::Read for InputFile {
         match self {
             InputFile::Open(f) => f.read(buf),
             InputFile::S3(r) => r.read(buf),
+            InputFile::Stdin(r) => r.read(buf),
             InputFile::Failed(kind) => Err((*kind).into()),
         }
     }
