@@ -1,3 +1,5 @@
+Sakila DVD rent database.
+
 | actor_id:DOUBLE | first_name:VARCHAR | last_name:VARCHAR | last_update:TIMESTAMP |
 |-----------------|--------------------|-------------------|-----------------------|
 | 1.0             | PENELOPE           | GUINESS           | 2020-12-23 07:12:29   |
@@ -10,3 +12,4 @@
 | 8.0             | MATTHEW            | JOHANSSON         | 2020-12-23 07:12:29   |
 | 9.0             | JOE                | SWANK             | 2020-12-23 07:12:29   |
 | 10.0            | CHRISTIAN          | GABLE             | 2020-12-23 07:12:29   |
+first 10 of 5000 rows, hash 7389c2f5ff3cefb6
