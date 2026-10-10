@@ -1125,6 +1125,30 @@ fn awk_builtins_cannot_be_redefined() {
 }
 
 #[test]
+fn special_variables_cannot_be_parameters() {
+    // As in gawk, a special variable used as a parameter is an error (zawk used to ignore the
+    // argument and resolve the name to the global, so assignments clobbered it).
+    for (prog, name) in [
+        ("function f(NR) { return NR } BEGIN { print f(3) }", "NR"),
+        ("function f(x, NR) { NR = 5; return x } { f(1, 2); print NR }", "NR"),
+        ("function f(NF, FS) { return NF \"-\" FS } BEGIN { print f(3, \":\") }", "NF"),
+    ] {
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        assert!(!output.status.success(), "{}", prog);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "parameter `{}': cannot use a special variable as a function parameter",
+                name
+            )),
+            "{}: {}",
+            prog,
+            stderr
+        );
+    }
+}
+
+#[test]
 fn csv_output_of_conditional_print_argument() {
     // With -o csv, a print argument that is a conditional expression is escaped like the others
     // (it was printed as an empty field).

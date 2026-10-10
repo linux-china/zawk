@@ -465,6 +465,19 @@ impl<'a, I> ProgramContext<'a, I>
             if builtins::is_awk_builtin(&fundec.name.to_string()) {
                 return err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
             }
+            // Special variables (NR, FS, ...) are always resolved to the global builtin, so using
+            // one as a parameter would silently ignore the argument and clobber the global.
+            if let Some(arg) = fundec
+                .args
+                .iter()
+                .find(|a| builtins::Variable::try_from((*a).clone()).is_ok())
+            {
+                return err!(
+                    "function `{}': parameter `{}': cannot use a special variable as a function parameter",
+                    fundec.name,
+                    arg
+                );
+            }
             // All exit blocks simply return the designated return node. Return statements in the
             // AST will becode assignments to this variable followed by an unconditional jump to
             // this block.
