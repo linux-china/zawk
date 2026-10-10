@@ -1,0 +1,14 @@
+nancy
+information
+Infinity
+NaN
+inf
+nan
++infinity
+-infx
+12abc
++inf
+-inf
++nan
+  -INF  
+.5

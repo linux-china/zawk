@@ -119,7 +119,31 @@ pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
 }
 
 /// Parse a floating-poing number from `bs`, returning 0 if one isn't there.
+///
+/// Like gawk, words such as "nan", "info" or "Infinity" are not numbers: the special values are
+/// only recognized with an explicit sign and nothing but blanks after them ("+inf", "-nan").
 pub fn strtod(bs: &[u8]) -> f64 {
+    let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
+    let start = bs.iter().position(|b| !is_blank(b)).unwrap_or(bs.len());
+    let bs = &bs[start..];
+    let signed = matches!(bs.first(), Some(b'+') | Some(b'-'));
+    let body = if signed { &bs[1..] } else { bs };
+    match body.first() {
+        Some(b) if b.is_ascii_digit() || *b == b'.' => {}
+        Some(_) if signed => {
+            let end = body.iter().rposition(|b| !is_blank(b)).map_or(0, |i| i + 1);
+            let word = &body[..end];
+            let neg = bs[0] == b'-';
+            if word.eq_ignore_ascii_case(b"inf") {
+                return if neg { f64::NEG_INFINITY } else { f64::INFINITY };
+            }
+            if word.eq_ignore_ascii_case(b"nan") {
+                return if neg { -f64::NAN } else { f64::NAN };
+            }
+            return 0.0f64;
+        }
+        _ => return 0.0f64,
+    }
     if let Ok((f, _)) = fast_float::parse_partial(bs) {
         f
     } else {
@@ -142,6 +166,23 @@ mod tests {
         let imin = format!("{}", i64::MIN);
         assert_eq!(strtod(imax.as_bytes()), i64::MAX as f64);
         assert_eq!(strtod(imin.as_bytes()), i64::MIN as f64);
+    }
+
+    #[test]
+    fn special_values() {
+        for s in [
+            "nan", "NaN", "inf", "Nancy", "information", "Infinity", "+infinity", "-infx",
+            "-inf5", "+", "-", "  info", "e5",
+        ] {
+            assert_eq!(strtod(s.as_bytes()), 0.0, "{s:?}");
+        }
+        assert_eq!(strtod(b"+inf"), f64::INFINITY);
+        assert_eq!(strtod(b" -INF \n"), f64::NEG_INFINITY);
+        assert!(strtod(b"+nan").is_nan());
+        assert!(strtod(b"-NaN ").is_nan());
+        assert_eq!(strtod(b"  -1.5x"), -1.5);
+        assert_eq!(strtod(b".5"), 0.5);
+        assert_eq!(strtod(b"+.5e1"), 5.0);
     }
 
     #[test]
