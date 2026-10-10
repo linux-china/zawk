@@ -377,7 +377,7 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
                         let mut n = octal_digit(c).unwrap();
                         for _ in 0..2 {
                             if let Some(x) = iter.next() {
-                                if let Some(d) = hex_digit(x) {
+                                if let Some(d) = octal_digit(x) {
                                     // saturate on overflow
                                     n = n.saturating_mul(8);
                                     n = n.saturating_add(d);
