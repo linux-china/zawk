@@ -73,12 +73,8 @@ pub fn print_awk_file_help(awk_file: &str) {
                 awk_file_desc = tag.description.clone();
             }
         }
-        let var_tags: Vec<&CommentTag> = tags.iter()
-            .filter(|tag| tag.type_name == "var")
-            .collect();
-        let env_tags: Vec<&CommentTag> = tags.iter()
-            .filter(|tag| tag.type_name == "env")
-            .collect();
+        let var_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "var").collect();
+        let env_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "env").collect();
         println!("{awk_file} {}", version.unwrap_or("".to_string()));
         if let Some(author_name) = &author {
             println!("{author_name}");
@@ -87,13 +83,20 @@ pub fn print_awk_file_help(awk_file: &str) {
             println!("{desc}");
         }
         if !var_tags.is_empty() {
-            let params = var_tags.iter().map(|tag| format!("-v {}=[value]", tag.value1)).join(" ");
+            let params = var_tags
+                .iter()
+                .map(|tag| format!("-v {}=[value]", tag.value1))
+                .join(" ");
             println!();
             println!("USAGE: {awk_file} {} <input-file>", params);
             println!();
             println!("ARGS:");
             for var_tag in var_tags {
-                println!("  [{}]  {}", var_tag.value1, var_tag.description.clone().unwrap_or("".to_string()))
+                println!(
+                    "  [{}]  {}",
+                    var_tag.value1,
+                    var_tag.description.clone().unwrap_or("".to_string())
+                )
             }
             println!();
         }
@@ -101,7 +104,11 @@ pub fn print_awk_file_help(awk_file: &str) {
         if !env_tags.is_empty() {
             println!("Environment Variables:");
             for env_tag in env_tags {
-                println!("  [{}]  {}", env_tag.value1, env_tag.description.clone().unwrap_or("".to_string()))
+                println!(
+                    "  [{}]  {}",
+                    env_tag.value1,
+                    env_tag.description.clone().unwrap_or("".to_string())
+                )
             }
         }
     }
@@ -110,7 +117,8 @@ pub fn print_awk_file_help(awk_file: &str) {
 pub fn print_awk_file_version(awk_file: &str) {
     if let Ok(awk_code) = std::fs::read_to_string(awk_file) {
         let tags = parse_comment_tags(&awk_code);
-        let version = tags.iter()
+        let version = tags
+            .iter()
             .find(|tag| tag.type_name == "meta" && tag.value1 == "version")
             .map(|tag| tag.value2.clone().unwrap_or("No version found".to_string()))
             .unwrap_or("No version found".to_owned());
@@ -131,15 +139,21 @@ pub fn fi_constant_keys(awk_code: &str) -> Vec<String> {
 }
 
 pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
-    if awk_code.contains("\n# @") { // detect comment tag
-        let var_names: Vec<String> = var_decs.iter().map(|s| s.split('=').next().unwrap().to_string()).collect();
+    if awk_code.contains("\n# @") {
+        // detect comment tag
+        let var_names: Vec<String> = var_decs
+            .iter()
+            .map(|s| s.split('=').next().unwrap().to_string())
+            .collect();
         let tags = parse_comment_tags(awk_code);
         if !tags.is_empty() {
-            let missed_var_tags: Vec<&CommentTag> = tags.iter()
+            let missed_var_tags: Vec<&CommentTag> = tags
+                .iter()
                 .filter(|tag| tag.type_name == "var")
                 .filter(|tag| !var_names.contains(&tag.value1) && !tag.value1.ends_with('?'))
                 .collect();
-            let missed_env_tags: Vec<&CommentTag> = tags.iter()
+            let missed_env_tags: Vec<&CommentTag> = tags
+                .iter()
                 .filter(|tag| tag.type_name == "env")
                 .filter(|tag| std::env::var(&tag.value1).is_err() && !tag.value1.ends_with('?'))
                 .collect();
@@ -163,6 +177,13 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
         }
     }
     true
+}
+
+pub fn sugar_syntax_convert(awk_code: String) -> String {
+    if awk_code.starts_with("$") && !awk_code.contains("{") {
+        return format!("{{ print {} }}", awk_code);
+    }
+    awk_code
 }
 
 #[cfg(test)]
@@ -207,5 +228,13 @@ mod tests {
         for tag in tags {
             println!("{:?}", tag);
         }
+    }
+
+    #[test]
+    fn test_sugar_syntax_convert() {
+        let code = "$1";
+        let new_code = sugar_syntax_convert(code.to_string());
+        println!("{}", new_code);
+        assert!(new_code.contains("print"));
     }
 }

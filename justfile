@@ -349,3 +349,6 @@ run-jev:
 
 run-jev_prob:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print jev_prob("I want a refund NOW", "the customer is angry") }'
+
+run-sugar:
+  cargo run --package zawk --bin zawk -- '$1' demo.txt

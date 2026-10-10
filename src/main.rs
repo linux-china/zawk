@@ -557,7 +557,8 @@ fn main() {
         .get_many::<String>("input-files")
         .map(|x| x.map(String::from).collect())
         .unwrap_or_else(Vec::new);
-    let program_string = {
+    // get awk program code
+    let program_code = {
         if let Some(prog_files) = matches.get_many::<String>("program-file") {
             // We specified a file on the command line, so the "program" will be
             // interpreted as another input file.
@@ -595,6 +596,8 @@ fn main() {
             fail!("must specify program at command line, or in a file via -f");
         }
     };
+    // sugar syntax convert for AWK
+    let program_code = awk_util::sugar_syntax_convert(program_code);
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
@@ -650,12 +653,12 @@ fn main() {
         let _ = write!(
             io::stdout(),
             "{}",
-            dump_bytecode(program_string.as_str(), &raw),
+            dump_bytecode(program_code.as_str(), &raw),
         );
     }
     if opt_dump_cfg {
         let a = Arena::default();
-        let ctx = get_context(program_string.as_str(), &a, get_prelude(&a, &raw));
+        let ctx = get_context(program_code.as_str(), &a, get_prelude(&a, &raw));
         let mut stdout = io::stdout();
         let _ = ctx.dbg_print(&mut stdout);
     }
@@ -679,7 +682,7 @@ fn main() {
         ($analysis:expr, $inp:ident, $body:expr) => {{
             if parquet {
                 // Parquet rows are read as JSON Lines.
-                let fi_names = awk_util::fi_constant_keys(&program_string);
+                let fi_names = awk_util::fi_constant_keys(&program_code);
                 let sources: Vec<(ParquetJson, String)> = if input_files.len() == 0 {
                     vec![(ParquetJson::stdin(), String::from("-"))]
                 } else {
@@ -703,7 +706,7 @@ fn main() {
                 );
                 $body
             } else if jsonl {
-                let fi_names = awk_util::fi_constant_keys(&program_string);
+                let fi_names = awk_util::fi_constant_keys(&program_code);
                 if input_files.len() == 0 {
                     let _reader: Box<dyn io::Read + Send> = Box::new(io::stdin());
                     let $inp = JsonlReader::new(
@@ -873,12 +876,12 @@ fn main() {
     }
 
     // validate AWK code by comment tags
-    let passed = awk_util::validate_awk_code(&program_string, &raw.var_decs);
+    let passed = awk_util::validate_awk_code(&program_code, &raw.var_decs);
     if !passed {
         return;
     }
     let a = Arena::default();
-    let ctx = get_context(program_string.as_str(), &a, get_prelude(&a, &raw));
+    let ctx = get_context(program_code.as_str(), &a, get_prelude(&a, &raw));
     let analysis_result = ctx.analyze_sep_assignments();
     let out_file = matches.get_one::<String>("out-file");
     macro_rules! with_io {
