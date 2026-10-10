@@ -596,6 +596,12 @@ Failed requests are reported to stderr, and the functions return `0`, `-1` or em
 zawk 'jev($0, "the name is European")' names.txt
 ```
 
+You can use state object(array) instead of text:  
+
+```shell
+zawk 'BEGIN{ state["city"] = "Peking";  print jev(state, "the capital of China or not?") }'
+```
+
 # JSON
 
 ### from_json
