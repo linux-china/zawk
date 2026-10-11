@@ -120,6 +120,13 @@ Nushell types support:
 * file size: `to_bytes("1.5GB")`
 * records: `record("{name:'Nushell', lang: 'Rust'}")`
 
+# DuckDB integration
+
+You can use csv format and pipe to redirect DuckDB query result to zawk for processing.
+
+```shell
+$ duckdb -csv -c "from 'tests/demo.parquet'" | Z -i csv 'NR > 1 { print $1 }'
+```
 # awk file help support
 
 You can add help information in awk file to make awk friendly.
