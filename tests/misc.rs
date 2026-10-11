@@ -1262,6 +1262,25 @@ fn csv_output_of_conditional_print_argument() {
 }
 
 #[test]
+fn markdown_output() {
+    // -o markdown renders print records as a Markdown table: the first record is the header,
+    // followed by the delimiter row; `|` in fields is escaped and tabs/newlines are kept on one line.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-omarkdown")
+            .arg(r#"BEGIN { print "name", "age" } { print $1, $2 } END { print "a|b\tc", "x\ny" }"#)
+            .write_stdin("Alice 30\nBob 25\n")
+            .assert()
+            .success()
+            .stdout(
+                "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n| a\\|b\\tc | x\\ny |\n",
+            );
+    }
+}
+
+#[test]
 fn strftime_arguments() {
     // strftime(format, timestamp, utc), as in gawk, in both backends: the timestamp defaults to
     // the current time, negative timestamps are dates before 1970, the third argument formats in

@@ -541,9 +541,9 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .long("output-format")
             .short('o')
-            .value_name("csv|tsv")
-            .help("If set, records output via print are escaped according to the rules of the corresponding format")
-            .value_parser(["csv", "tsv"]))
+            .value_name("csv|tsv|markdown")
+            .help("If set, records output via print are escaped according to the rules of the corresponding format. markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows")
+            .value_parser(["csv", "tsv", "markdown", "md"]))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -732,8 +732,10 @@ fn real_main() {
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
+        // Records are written as TSV and rendered as table rows by `MarkdownFactory`.
+        Some("markdown") | Some("md") => (Escaper::TSV, Some("\t"), Some("\n")),
         Some(s) => fail!(
-            "invalid output format {:?}; expected csv or tsv (or the empty string)",
+            "invalid output format {:?}; expected csv, tsv or markdown (or the empty string)",
             s
         ),
         None => (Escaper::Identity, None, None),
@@ -1045,16 +1047,31 @@ fn real_main() {
     let ctx = get_context(program_code.as_str(), &a, get_prelude(&a, &raw));
     let analysis_result = ctx.analyze_sep_assignments();
     let out_file = matches.get_one::<String>("out-file");
+    let markdown_output = matches!(
+        matches.get_one::<String>("output-format").map(|s| s.as_str()),
+        Some("markdown") | Some("md")
+    );
     macro_rules! with_io {
         (|$inp:ident, $out:ident| $body:expr) => {
-            match out_file {
-                Some(oup) => {
+            match (out_file, markdown_output) {
+                (Some(oup), false) => {
                     let $out = runtime::writers::factory_from_file(oup)
                         .unwrap_or_else(|e| fatal!("failed to open {}: {}", oup, e));
                     with_inp!(analysis_result, $inp, $body);
                 }
-                None => {
+                (Some(oup), true) => {
+                    let $out = runtime::writers::MarkdownFactory(
+                        runtime::writers::factory_from_file(oup)
+                            .unwrap_or_else(|e| fatal!("failed to open {}: {}", oup, e)),
+                    );
+                    with_inp!(analysis_result, $inp, $body);
+                }
+                (None, false) => {
                     let $out = runtime::writers::default_factory();
+                    with_inp!(analysis_result, $inp, $body);
+                }
+                (None, true) => {
+                    let $out = runtime::writers::MarkdownFactory(runtime::writers::default_factory());
                     with_inp!(analysis_result, $inp, $body);
                 }
             }

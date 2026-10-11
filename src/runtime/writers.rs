@@ -135,6 +135,123 @@ pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
     Ok(FileStdout(fname.into()))
 }
 
+/// Wraps a factory so that stdout is rendered as a Markdown table (`-o markdown`).
+///
+/// Records are expected to be tab-separated and newline-terminated, with tabs and newlines
+/// inside fields already escaped (as for `-o tsv`). Each line becomes a table row; the first one
+/// is the header and is followed by the `| --- |` delimiter row.
+#[derive(Clone)]
+pub struct MarkdownFactory<F>(pub F);
+
+impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
+    type Output = F::Output;
+    type Stdout = MarkdownWriter<F::Stdout>;
+    fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
+        self.0.cmd(cmd, env)
+    }
+    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+        self.0.build(path, spec)
+    }
+    fn stdout(&self) -> Self::Stdout {
+        MarkdownWriter::new(self.0.stdout())
+    }
+}
+
+pub struct MarkdownWriter<W: io::Write> {
+    inner: W,
+    /// The current, not yet newline-terminated, record.
+    pending: Vec<u8>,
+    header_written: bool,
+}
+
+impl<W: io::Write> MarkdownWriter<W> {
+    pub fn new(inner: W) -> MarkdownWriter<W> {
+        MarkdownWriter {
+            inner,
+            pending: Vec::new(),
+            header_written: false,
+        }
+    }
+
+    fn write_row(&mut self, line: &[u8]) -> io::Result<()> {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let mut row = Vec::with_capacity(line.len() + 8);
+        let mut columns = 0;
+        for cell in line.split(|b| *b == b'\t') {
+            row.extend_from_slice(b"| ");
+            for &b in cell {
+                if b == b'|' {
+                    row.push(b'\\');
+                }
+                row.push(b);
+            }
+            row.push(b' ');
+            columns += 1;
+        }
+        row.extend_from_slice(b"|\n");
+        if !self.header_written {
+            self.header_written = true;
+            for _ in 0..columns {
+                row.extend_from_slice(b"| --- ");
+            }
+            row.extend_from_slice(b"|\n");
+        }
+        self.inner.write_all(&row)
+    }
+}
+
+impl<W: io::Write> io::Write for MarkdownWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut rest = buf;
+        while let Some(pos) = rest.iter().position(|b| *b == b'\n') {
+            if self.pending.is_empty() {
+                self.write_row(&rest[..pos])?;
+            } else {
+                self.pending.extend_from_slice(&rest[..pos]);
+                let line = std::mem::take(&mut self.pending);
+                self.write_row(&line)?;
+            }
+            rest = &rest[pos + 1..];
+        }
+        self.pending.extend_from_slice(rest);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: io::Write> Drop for MarkdownWriter<W> {
+    fn drop(&mut self) {
+        // A final record without a trailing newline (e.g. from printf) is still a row.
+        if !self.pending.is_empty() {
+            let line = std::mem::take(&mut self.pending);
+            let _ = self.write_row(&line);
+        }
+        let _ = self.inner.flush();
+    }
+}
+
+#[cfg(test)]
+mod markdown_tests {
+    use super::*;
+
+    #[test]
+    fn markdown_table() {
+        let mut out = Vec::new();
+        {
+            let mut w = MarkdownWriter::new(&mut out);
+            w.write_all(b"name\tage\nAl").unwrap();
+            w.write_all(b"ice\t3\nB|ob\t\n").unwrap();
+            w.write_all(b"last").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "| name | age |\n| --- | --- |\n| Alice | 3 |\n| B\\|ob |  |\n| last |\n"
+        );
+    }
+}
+
 /// Exit status of the most recently closed command behind a handle; see `CmdWriter`.
 type StatusSlot = Arc<Mutex<Option<Int>>>;
 
