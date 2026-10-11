@@ -241,6 +241,9 @@ enum CArg {
 
 /// Number of characters in `bs` (bytes, if it is not valid UTF-8).
 fn char_count(bs: &[u8]) -> usize {
+    if super::str_impl::characters_as_bytes() {
+        return bs.len();
+    }
     match str::from_utf8(bs) {
         Ok(s) => s.chars().count(),
         Err(_) => bs.len(),
@@ -249,6 +252,9 @@ fn char_count(bs: &[u8]) -> usize {
 
 /// The first `n` characters of `bs` (bytes, if it is not valid UTF-8).
 fn take_chars(bs: &[u8], n: usize) -> &[u8] {
+    if super::str_impl::characters_as_bytes() {
+        return &bs[..n.min(bs.len())];
+    }
     match str::from_utf8(bs) {
         Ok(s) => match s.char_indices().nth(n) {
             Some((ix, _)) => &bs[..ix],
@@ -323,7 +329,8 @@ fn process_spec(w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 _ => Some(arg.to_int()),
             };
             let bytes: Vec<u8> = match code {
-                // A number: the character with that code.
+                // A number: the character with that code (the byte, with `-b`).
+                Some(code) if super::str_impl::characters_as_bytes() => vec![code as u8],
                 Some(code) => match char::from_u32(code as u32) {
                     Some(c) => c.encode_utf8(&mut buf).as_bytes().to_vec(),
                     None => vec![code as u8],

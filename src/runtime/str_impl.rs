@@ -690,6 +690,17 @@ impl<'a> Str<'a> {
 
     /// index start from 0
     pub fn sub_str<'b>(&self, l: usize, r: usize) -> Str<'b> {
+        if characters_as_bytes() {
+            let len = self.bytes_len();
+            if l >= len {
+                return Str::default();
+            }
+            let end = l.saturating_add(r).min(len);
+            return self.with_bytes(|bs| {
+                let sub = &bs[l..end];
+                Str::from_rep(Boxed { len: sub.len() as u64, buf: Buf::read_from_bytes(sub) }.into())
+            });
+        }
         let text = self.as_str();
         let len = text.chars().count();
         if l >= len {
@@ -2156,11 +2167,24 @@ mod formatting {
     }
 }
 
+static CHARACTERS_AS_BYTES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `-b`/`--characters-as-bytes`, as in gawk: `length()`, `substr()`, `index()`, `match()` and
+/// printf widths/precisions count bytes instead of chars.
+pub fn set_characters_as_bytes(on: bool) {
+    CHARACTERS_AS_BYTES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[inline]
+pub(crate) fn characters_as_bytes() -> bool {
+    CHARACTERS_AS_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The number of chars in `bs`, counting each invalid UTF-8 sequence as one char, as `length()`
 /// does. Used to turn byte offsets (of a substring or regex match) into the char positions of
 /// `index()`, `match()` and `RSTART`/`RLENGTH`, which `substr()` takes.
 pub(crate) fn char_count(bs: &[u8]) -> usize {
-    if bs.is_ascii() {
+    if bs.is_ascii() || characters_as_bytes() {
         bs.len()
     } else {
         match str::from_utf8(bs) {

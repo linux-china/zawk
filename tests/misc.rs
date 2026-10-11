@@ -120,6 +120,89 @@ fn file_and_data_arg() {
 }
 
 #[test]
+fn source_and_program_file() {
+    let tmpdir = tempdir().unwrap();
+    let lib_fname = tmpdir.path().join("lib.awk");
+    let data_fname = tmpdir.path().join("data");
+    std::fs::write(&lib_fname, "function f(x) { return x * 2 }\n").unwrap();
+    std::fs::write(&data_fname, "a 1\nb 2\n").unwrap();
+    for backend_arg in BACKEND_ARGS {
+        // `-e` and `-f` are concatenated in command-line order.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-f")
+            .arg(&lib_fname)
+            .arg("-e")
+            .arg("{ print f($2) }")
+            .arg(&data_fname)
+            .assert()
+            .stdout("2\n4\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-e", "BEGIN { x = 1 }", "--source", "BEGIN { print x + 1 }"])
+            .assert()
+            .stdout("2\n");
+    }
+}
+
+#[test]
+fn exec_ends_options() {
+    let tmpdir = tempdir().unwrap();
+    let prog_fname = tmpdir.path().join("prog.awk");
+    std::fs::write(&prog_fname, "BEGIN { for (i = 1; i < ARGC; i++) print ARGV[i] }\n").unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-E")
+            .arg(&prog_fname)
+            .args(["-v", "x=1", "--help", "foo"])
+            .assert()
+            .success()
+            .stdout("-v\nx=1\n--help\nfoo\n");
+    }
+}
+
+#[test]
+fn characters_as_bytes() {
+    let prog = r#"BEGIN { s = "éa"; print length(s), index(s, "a"), match(s, /a/), length(substr(s, 2)); printf "[%3.1s]\n", "ab" }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("2 2 2 1\n[  a]\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-b")
+            .arg(prog)
+            .assert()
+            .stdout("3 3 3 2\n[  a]\n");
+    }
+}
+
+#[test]
+fn posix_disables_sugar_syntax() {
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("$2,$1")
+        .write_stdin("x y\n")
+        .assert()
+        .stdout("y x\n");
+    // As a POSIX program, `$2,$1` is a range pattern.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--posix", "$2,$1"])
+        .write_stdin("x y\n")
+        .assert()
+        .stdout("x y\n");
+}
+
+#[test]
 fn multiple_files() {
     let input = r#"Item,Count
 carrots,2

@@ -334,6 +334,57 @@ fn get_matches(
     }
 }
 
+/// As in gawk, `-E file` is the last option: insert `--` after it so that clap treats all the
+/// remaining arguments (even ones like `-v` or `--help`) as input files. This is what makes
+/// `#!/usr/bin/env -S zawk -E` scripts receive their own arguments untouched.
+fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
+    // Short options that take a value, either attached (`-F,`) or as the next argument.
+    const SHORT_WITH_VALUE: &str = "efEOvFBoipj";
+    const LONG_WITH_VALUE: &[&str] = &[
+        "--source", "--program-file", "--exec", "--opt-level", "--out-file", "--input-format",
+        "--field-separator", "--backend", "--output-format", "--chunk-size",
+    ];
+    let mut i = 1;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        if arg == "--" || arg == "-" || !arg.starts_with('-') {
+            return args;
+        }
+        // The index of the `-E` value, if this argument is `-E`.
+        let mut exec_value = None;
+        let mut skip_next = false;
+        if let Some(long) = arg.strip_prefix("--") {
+            if long == "exec" {
+                exec_value = Some(i + 1);
+            } else if long.starts_with("exec=") {
+                exec_value = Some(i);
+            } else if LONG_WITH_VALUE.contains(&arg) {
+                skip_next = true;
+            }
+        } else {
+            for (pos, c) in arg.char_indices().skip(1) {
+                if SHORT_WITH_VALUE.contains(c) {
+                    let attached = pos + c.len_utf8() < arg.len();
+                    if c == 'E' {
+                        exec_value = Some(if attached { i } else { i + 1 });
+                    } else {
+                        skip_next = !attached;
+                    }
+                    break;
+                }
+            }
+        }
+        if let Some(v) = exec_value {
+            if v + 1 < args.len() && args[v + 1] != "--" {
+                args.insert(v + 1, String::from("--"));
+            }
+            return args;
+        }
+        i += if skip_next { 2 } else { 1 };
+    }
+    args
+}
+
 const DEFAULT_OPT_LEVEL: i32 = 3;
 
 fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
@@ -406,6 +457,28 @@ fn real_main() {
             .num_args(1)
             .action(clap::ArgAction::Append)
             .help("Read the program source from the file/url program-file, instead of from the command line. Multiple '-f' options may be used"))
+        .arg(Arg::new("source")
+            .long("source")
+            .short('e')
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .value_name("program-text")
+            .help("Use program-text as program source code. May be mixed with '-f'; all sources are concatenated in command-line order"))
+        .arg(Arg::new("exec")
+            .long("exec")
+            .short('E')
+            .num_args(1)
+            .value_name("file")
+            .help("Like '-f', but this is the last option processed: all following arguments are input files. Intended for `#!/usr/bin/env -S zawk -E` scripts"))
+        .arg(Arg::new("characters-as-bytes")
+            .long("characters-as-bytes")
+            .short('b')
+            .num_args(0)
+            .help("Treat all input data as single-byte characters: length(), substr(), index(), match() and printf widths count bytes"))
+        .arg(Arg::new("posix")
+            .long("posix")
+            .num_args(0)
+            .help("POSIX compatibility: disable zawk's command-line sugar syntax (e.g. `zawk '$1,$2'`, `zawk '/re/'`). zawk extension functions remain available"))
         .arg(Arg::new("opt-level")
             .long("opt-level")
             .short('O')
@@ -496,12 +569,15 @@ fn real_main() {
     if args.len() > 2 { // sub help from
         let last_pair = args.last().unwrap();
         if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
-            let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
+            let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file")
+                || item == "-E" || item.starts_with("--exec"));
             if awk_file_supplied {
                 let last_pair = last_pair.clone();
                 args.remove(args.len() - 1); // remove --help and --version
                 let matches = get_matches(app, args);
-                let awk_file = matches.get_one::<String>("program-file").unwrap();
+                let awk_file = matches.get_one::<String>("exec")
+                    .or_else(|| matches.get_one::<String>("program-file"))
+                    .unwrap();
                 if last_pair.contains("-h") {
                     awk_util::print_awk_file_help(awk_file);
                 } else {
@@ -511,7 +587,7 @@ fn real_main() {
             }
         }
     }
-    let matches = get_matches(app, std::env::args());
+    let matches = get_matches(app, end_options_after_exec(std::env::args().collect()));
     // dump sub command
     if let Some(matches) = matches.subcommand_matches("dump") {
         let input_file = matches.get_one::<String>("input-file").unwrap();
@@ -583,15 +659,28 @@ fn real_main() {
         .map(|x| x.map(String::from).collect())
         .unwrap_or_else(Vec::new);
     // get awk program code
+    // `-f`, `-E` and `-e` sources, in command-line order.
+    let mut sources: Vec<(usize, bool, &String)> = Vec::new();
+    for (id, is_file) in [("program-file", true), ("exec", true), ("source", false)] {
+        if let (Some(idx), Some(vals)) = (matches.indices_of(id), matches.get_many::<String>(id)) {
+            sources.extend(idx.zip(vals).map(|(i, v)| (i, is_file, v)));
+        }
+    }
+    sources.sort_by_key(|(i, _, _)| *i);
     let program_code = {
-        if let Some(prog_files) = matches.get_many::<String>("program-file") {
-            // We specified a file on the command line, so the "program" will be
+        if !sources.is_empty() {
+            // We specified the program with options, so the "program" will be
             // interpreted as another input file.
             if let Some(p) = matches.get_one::<String>("program") {
                 input_files.insert(0, p.into());
             }
             let mut prog = String::new();
-            for prog_file in prog_files {
+            for (_, is_file, prog_file) in sources {
+                if !is_file {
+                    prog.push_str(prog_file);
+                    prog.push('\n');
+                    continue;
+                }
                 if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
                     // Error pages (404, proxy errors, ...) must not be run as programs.
                     match reqwest::blocking::get(prog_file)
@@ -621,9 +710,13 @@ fn real_main() {
             prog
         } else if let Some(p) = matches.get_one::<String>("program") {
             // Sugar syntax only applies to programs given on the command line, not to `-f` files.
-            awk_util::sugar_syntax_convert(String::from(p.trim()))
+            if matches.get_flag("posix") {
+                p.clone()
+            } else {
+                awk_util::sugar_syntax_convert(String::from(p.trim()))
+            }
         } else {
-            fail!("must specify program at command line, or in a file via -f");
+            fail!("must specify program at command line, with -e, or in a file via -f");
         }
     };
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
@@ -641,6 +734,7 @@ fn real_main() {
         None => (Escaper::Identity, None, None),
     };
     let arbitrary_shell = matches.get_flag("arbitrary-shell");
+    runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
     let jsonl = matches!(
         matches.get_one::<String>("input-format").map(|s| s.as_str()),
         Some("jsonl") | Some("ndjson")
