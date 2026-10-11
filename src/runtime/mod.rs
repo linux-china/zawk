@@ -855,6 +855,21 @@ pub(crate) fn close_result(output: Option<Int>, input: Option<Int>) -> Int {
     output.or(input).unwrap_or(-1)
 }
 
+/// Largest result a stdlib function may build: a string of this many bytes (`repeat`) or chars
+/// (`pad`, `pad_start`, `pad_end`), or an array of this many elements (`seq`). It matches the
+/// printf limit on field widths, so that a typo such as `repeat("ab", 1e12)` is a fatal error
+/// instead of an attempt to allocate terabytes (which gets the process killed).
+pub(crate) const MAX_RESULT_LEN: usize = 64 << 20;
+
+/// Fail unless `len`, the size of the result `func` is about to build, is within
+/// [`MAX_RESULT_LEN`].
+pub(crate) fn check_result_len(func: &str, what: &str, len: Float) -> Result<()> {
+    if len > MAX_RESULT_LEN as Float {
+        return err!("{}: {} {} is too large (maximum {})", func, what, len, MAX_RESULT_LEN);
+    }
+    Ok(())
+}
+
 /// Error reported when integer addition or subtraction leaves the 64-bit range.
 pub(crate) const INT_OVERFLOW_MSG: &str = "integer overflow: result exceeds the 64-bit integer range";
 

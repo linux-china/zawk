@@ -637,15 +637,28 @@ unsafe fn intrinsic_panicked(name: &'static str, payload: Box<dyn std::any::Any 
     } else {
         "unknown panic".to_string()
     };
+    fail_current_runtime(&format!("panic in function `{}`: {}", name, msg))
+}
+
+/// Unwrap the result of a runtime function, or fail with its error for intrinsics that are not
+/// passed the runtime.
+fn or_fail<T>(res: Result<T>) -> T {
+    match res {
+        Ok(res) => res,
+        Err(e) => unsafe { fail_current_runtime(&e.to_string()) },
+    }
+}
+
+/// Fail with `msg` through the runtime currently executing generated code, if there is one.
+#[cold]
+#[inline(never)]
+unsafe fn fail_current_runtime(msg: &str) -> ! {
     let rt = CURRENT_RUNTIME.with(|c| c.replace(std::ptr::null_mut()));
     if rt.is_null() {
-        eprintln_ignore!(
-            "{}",
-            crate::common::fatal_message(&format!("panic in function `{}`: {}", name, msg))
-        );
+        eprintln_ignore!("{}", crate::common::fatal_message(msg));
         std::process::exit(2)
     }
-    fail!(rt, "panic in function `{}`: {}", name, msg)
+    fail!(rt, "{}", msg)
 }
 
 pub(crate) type InputTuple<LR> = (<LR as LineReader>::Line, FileRead<LR>);
@@ -1398,7 +1411,7 @@ pub(crate) unsafe extern "C" fn pad_left(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_left), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_left(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+        let res = or_fail(string_util::pad_left(&*text.as_str(), len, &*pad.as_str()));
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1407,7 +1420,7 @@ pub(crate) unsafe extern "C" fn pad_right(text: *mut U128, len: Int, pad: *mut U
     guard_panic(stringify!(pad_right), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_right(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+        let res = or_fail(string_util::pad_right(&*text.as_str(), len, &*pad.as_str()));
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1416,7 +1429,7 @@ pub(crate) unsafe extern "C" fn pad_both(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_both), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = string_util::pad_both(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+        let res = or_fail(string_util::pad_both(&*text.as_str(), len, &*pad.as_str()));
         mem::transmute::<Str, U128>(Str::from(res))
     })
 }
@@ -1440,7 +1453,7 @@ pub(crate) unsafe extern "C" fn mask(text: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn repeat(text: *mut U128, n: Int) -> U128 {
     guard_panic(stringify!(repeat), || {
         let text = &*(text as *mut Str);
-        let res = text.repeat(n);
+        let res = or_fail(text.repeat(n));
         mem::transmute::<Str, U128>(res)
     })
 }
@@ -1761,7 +1774,7 @@ pub(crate) unsafe extern "C" fn max(first: *mut U128, second: *mut U128, third: 
 
 pub(crate) unsafe extern "C" fn seq(start: Float, step: Float, end: Float) -> *mut c_void {
     guard_panic(stringify!(seq), || {
-        let arr = math_util::seq(start, step, end);
+        let arr = or_fail(math_util::seq(start, step, end));
         mem::transmute::<IntMap<Float>, *mut c_void>(arr)
     })
 }

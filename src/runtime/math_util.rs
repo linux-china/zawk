@@ -283,7 +283,16 @@ pub(crate) fn mkbool(text: &str) -> i64 {
     };
 }
 
-pub(crate) fn seq(start: Float, step: Float, end: Float) -> IntMap<Float> {
+/// The array `[start, start + step, ...]` of the numbers up to `end`; empty if `start > end`. A
+/// non-positive step (which would never reach `end`) or more than
+/// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) elements is an error.
+pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Result<IntMap<Float>> {
+    if start <= end {
+        if !(step > 0.0) {
+            return err!("seq: step {} must be positive", step);
+        }
+        crate::runtime::check_result_len("seq", "element count", ((end - start) / step).floor() + 1.0)?;
+    }
     let result: IntMap<Float> = IntMap::default();
     let mut ir = start;
     let mut index = 1;
@@ -292,7 +301,7 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> IntMap<Float> {
         ir += step;
         index += 1;
     }
-    result
+    Ok(result)
 }
 
 pub(crate) fn uuid(version: &str) -> String {
@@ -777,7 +786,7 @@ mod tests {
 
     #[test]
     fn test_seq() {
-        let result = seq(1.0, 1.0, 10.0);
+        let result = seq(1.0, 1.0, 10.0).unwrap();
         println!("{:?}", result);
     }
 

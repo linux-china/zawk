@@ -1477,7 +1477,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let start: Float = *self.get(*start);
                         let step: Float = *self.get(*step);
                         let end: Float = *self.get(*end);
-                        let res = runtime::math_util::seq(start, step, end);
+                        let res = runtime::math_util::seq(start, step, end)?;
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1593,21 +1593,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len, &*pad.as_str())?;
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadRight(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len, &*pad.as_str())?;
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     PadBoth(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len.max(0) as usize, &*pad.as_str());
+                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len, &*pad.as_str())?;
                         *index_mut(&mut self.strs, dst) = Str::from(dt_text);
                     }
                     StrCmp(dst, text1, text2) => {
@@ -1623,7 +1623,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Repeat(dst, text, n) => {
                         let n: Int = *self.get(*n);
-                        let dt_text = index(&self.strs, text).repeat(n);
+                        let dt_text = index(&self.strs, text).repeat(n)?;
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
                     DefaultIfEmpty(dst, text, default_value) => {

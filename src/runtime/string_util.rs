@@ -1,4 +1,5 @@
-use crate::runtime::{stdlib_warning, Int, IntMap, SharedMap, Str, StrMap};
+use crate::common::Result;
+use crate::runtime::{check_result_len, stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
 use lazy_static::lazy_static;
 use pad::Alignment;
 
@@ -14,11 +15,14 @@ pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
 }
 
 /// Pad `text` to `len` characters with the first char of `pad` (space if `pad` is empty);
-/// text longer than `len` characters is truncated. Lengths are counted in chars, not bytes.
-fn pad_text(text: &str, len: usize, pad: &str, alignment: Alignment) -> String {
+/// text longer than `len` characters is truncated. Lengths are counted in chars, not bytes; a
+/// negative `len` is treated as 0, and one above [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) is an error.
+fn pad_text(func: &str, text: &str, len: Int, pad: &str, alignment: Alignment) -> Result<String> {
+    check_result_len(func, "length", len as Float)?;
+    let len = len.max(0) as usize;
     let char_count = text.chars().count();
     if char_count >= len {
-        return text.chars().take(len).collect();
+        return Ok(text.chars().take(len).collect());
     }
     let pad_char = pad.chars().next().unwrap_or(' ');
     let fill = len - char_count;
@@ -32,19 +36,19 @@ fn pad_text(text: &str, len: usize, pad: &str, alignment: Alignment) -> String {
     result.extend(std::iter::repeat_n(pad_char, left));
     result.push_str(text);
     result.extend(std::iter::repeat_n(pad_char, right));
-    result
+    Ok(result)
 }
 
-pub fn pad_left(text: &str, len: usize, pad: &str) -> String {
-    pad_text(text, len, pad, Alignment::Left)
+pub fn pad_left(text: &str, len: Int, pad: &str) -> Result<String> {
+    pad_text("pad_end", text, len, pad, Alignment::Left)
 }
 
-pub fn pad_right(text: &str, len: usize, pad: &str) -> String {
-    pad_text(text, len, pad, Alignment::Right)
+pub fn pad_right(text: &str, len: Int, pad: &str) -> Result<String> {
+    pad_text("pad_start", text, len, pad, Alignment::Right)
 }
 
-pub fn pad_both(text: &str, len: usize, pad: &str) -> String {
-    pad_text(text, len, pad, Alignment::MiddleRight)
+pub fn pad_both(text: &str, len: Int, pad: &str) -> Result<String> {
+    pad_text("pad", text, len, pad, Alignment::MiddleRight)
 }
 
 pub fn strcmp(text1: &str, text2: &str) -> i64 {
@@ -581,20 +585,20 @@ mod tests {
 
     #[test]
     fn test_pad_left() {
-        let text = pad_left("hello", 100, "*");
+        let text = pad_left("hello", 100, "*").unwrap();
         println!("{}", text);
     }
 
     #[test]
     fn test_pad_multibyte_and_empty_pad() {
-        assert_eq!(pad_left("你好世界", 2, "*"), "你好");
-        assert_eq!(pad_right("你好世界", 3, "*"), "你好世");
-        assert_eq!(pad_both("你好世界", 1, "*"), "你");
-        assert_eq!(pad_left("你好", 4, "*"), "你好**");
-        assert_eq!(pad_right("你好", 4, "中"), "中中你好");
-        assert_eq!(pad_both("ab", 5, "*"), "**ab*");
-        assert_eq!(pad_left("ab", 4, ""), "ab  ");
-        assert_eq!(pad_right("abc", 3, ""), "abc");
+        assert_eq!(pad_left("你好世界", 2, "*").unwrap(), "你好");
+        assert_eq!(pad_right("你好世界", 3, "*").unwrap(), "你好世");
+        assert_eq!(pad_both("你好世界", 1, "*").unwrap(), "你");
+        assert_eq!(pad_left("你好", 4, "*").unwrap(), "你好**");
+        assert_eq!(pad_right("你好", 4, "中").unwrap(), "中中你好");
+        assert_eq!(pad_both("ab", 5, "*").unwrap(), "**ab*");
+        assert_eq!(pad_left("ab", 4, "").unwrap(), "ab  ");
+        assert_eq!(pad_right("abc", 3, "").unwrap(), "abc");
     }
 
     #[test]

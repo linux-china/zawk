@@ -1591,6 +1591,25 @@ fn printf_width_and_precision_limits() {
 }
 
 #[test]
+fn stdlib_result_size_limits() {
+    assert_fatal(r#"BEGIN { x = repeat("ab", 1e12) }"#, "repeat: result length 2000000000000 is too large");
+    assert_fatal(r#"BEGIN { x = pad_end("a", 1e12, "*") }"#, "pad_end: length 1000000000000 is too large");
+    assert_fatal(r#"BEGIN { x = pad_start("a", 1e12, "*") }"#, "pad_start: length");
+    assert_fatal(r#"BEGIN { x = pad("a", 1e12, "*") }"#, "pad: length");
+    assert_fatal(r#"BEGIN { a = seq(1, 1, 1e12) }"#, "seq: element count 1000000000000 is too large");
+    assert_fatal(r#"BEGIN { a = seq(1, 0, 10) }"#, "seq: step 0 must be positive");
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"BEGIN { a = seq(10, 0, 1); print length(repeat("ab", 3)), pad_end("a", 3, "*"), length(a) }"#)
+            .assert()
+            .success()
+            .stdout("6 a** 0\n");
+    }
+}
+
+#[test]
 fn array_scalar_errors_name_the_variable() {
     assert_fatal(
         "function f(a) { return a + 1 } BEGIN { x[1] = 1; f(x) }",

@@ -764,10 +764,13 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
-    /// Repeat the string `n` times; a negative `n` yields an empty string.
-    pub fn repeat<'b>(&self, n: Int) -> Str<'b> {
+    /// Repeat the string `n` times; a negative `n` yields an empty string. A result longer than
+    /// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) bytes is an error.
+    pub fn repeat<'b>(&self, n: Int) -> crate::common::Result<Str<'b>> {
+        let n = n.max(0);
         let src = self.as_str();
-        Str::from(src.repeat(n.max(0) as usize))
+        crate::runtime::check_result_len("repeat", "result length", src.len() as Float * n as Float)?;
+        Ok(Str::from(src.repeat(n as usize)))
     }
 
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
