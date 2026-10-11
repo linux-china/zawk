@@ -159,7 +159,9 @@ pub fn combine_slot<T: Default>(vec: &mut Vec<T>, slot: usize, f: impl FnOnce(T)
 impl<'a> Core<'a> {
     pub fn shuttle(&self, pid: Int) -> impl FnOnce() -> Core<'a> + Send + use<'a> {
         use crate::builtins::Variables;
-        let seed: u64 = rand::rng().random();
+        // Derive a deterministic, per-worker seed so parallel runs are reproducible
+        // while workers still produce distinct sequences.
+        let seed: u64 = self.current_seed.wrapping_add(pid as u64);
         let fw = self.write_files.clone();
         let fs: UniqueStr<'a> = self.vars.fs.clone().into();
         let ofs: UniqueStr<'a> = self.vars.ofs.clone().into();
@@ -211,7 +213,8 @@ impl<'a> Core<'a> {
         }
     }
     pub fn new(ff: impl runtime::writers::FileFactory) -> Core<'a> {
-        let seed: u64 = rand::rng().random();
+        // Like gawk/BWK awk: without srand(), rand() yields a reproducible sequence (initial seed 1).
+        let seed: u64 = 1;
         Core {
             vars: Default::default(),
             regexes: Default::default(),
@@ -242,8 +245,13 @@ impl<'a> Core<'a> {
         old_seed
     }
 
+    /// `srand()` with no argument: seed with the current time of day (in seconds), like gawk.
     pub fn reseed_random(&mut self) -> u64 /* old seed */ {
-        self.reseed(rand::rng().random::<u64>())
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.reseed(now)
     }
 
     pub fn match_regex(&mut self, s: &Str<'a>, pat: &Str<'a>) -> Result<Int> {
@@ -1873,7 +1881,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(dst) = bw.eval2(ix, iy);
                     }
                     Rand(dst) => {
-                        let res: f64 = self.core.rng.random_range(0.0..=1.0);
+                        let res: f64 = self.core.rng.random_range(0.0..1.0);
                         *index_mut(&mut self.floats, dst) = res;
                     }
                     Srand(res, seed) => {

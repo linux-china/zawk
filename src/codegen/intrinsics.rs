@@ -768,7 +768,7 @@ pub(crate) unsafe extern "C" fn run_cmd2(cmd: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn rand_float(runtime: *mut c_void) -> f64 {
     guard_panic(stringify!(rand_float), || {
         let runtime = &mut *(runtime as *mut Runtime);
-        runtime.core.rng.random_range(0.0..=1.0)
+        runtime.core.rng.random_range(0.0..1.0)
     })
 }
 
