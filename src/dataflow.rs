@@ -649,8 +649,7 @@ pub(crate) mod boilerplate {
             }
             TypeOfNumber(_dst) => {
             }
-            TypeOfString(_dst) => {
-            }
+            TypeOfString(dst, src, _) => f(dst.into(), Some(src.into())),
             TypeOfUnassigned(_dst) => {
             }
             IsArrayTrue(_dst) => {

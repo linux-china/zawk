@@ -21,7 +21,8 @@ use std::hash::Hash;
 
 #[derive(Debug)]
 pub(crate) struct Uninit<I> {
-    /// Tracked global variables, mapped to the name of their "assigned" flag.
+    /// Tracked global variables, mapped to the name of their "assigned" flag: numeric variables
+    /// whose uninitialized value may be read as a string, and variables passed to `typeof`.
     pub vars: HashMap<I, I>,
     /// Tracked global arrays: their missing elements read as "" where a string is expected.
     pub maps: HashSet<I>,
@@ -105,6 +106,9 @@ struct Analysis<'a, 'b, I> {
     // The function being analyzed (`None` for the main program), and the variables read so far.
     cur_fn: Option<I>,
     scalar_refs: HashSet<(Option<I>, I)>,
+    // Global variables passed to `typeof`: they get an "assigned" flag, so that `typeof` tells
+    // at runtime whether they have been assigned yet.
+    typeof_vars: HashSet<I>,
 }
 
 impl<'a, 'b, I> Analysis<'a, 'b, I>
@@ -169,6 +173,7 @@ where
     /// `e` is assigned in a way that is not tracked.
     fn untracked_assign(&mut self, e: &'a Expr<'a, 'b, I>, params: &'a [I]) {
         if let Some(v) = self.global_var(e, params) {
+            self.assigned_vars.insert(v.clone());
             self.bad_vars.insert(v);
         } else if let Some(m) = self.global_map(e, params) {
             self.bad_maps.insert(m);
@@ -256,6 +261,11 @@ where
                     Either::Left(name) => self.udfs.contains(name),
                     Either::Right(_) => false,
                 } || matches!(bi, Some(Function::TypeOfVariable | Function::IsArray));
+                if let (Some(Function::TypeOfVariable), [a]) = (bi, args) {
+                    if let Some(v) = self.global_var(a, params) {
+                        self.typeof_vars.insert(v);
+                    }
+                }
                 for a in args.iter() {
                     if !keeps_arrays {
                         if let Some(m) = self.global_var(a, params) {
@@ -334,6 +344,7 @@ where
             }
             ForEach(v, arr, body) => {
                 if self.global(v, params) {
+                    self.assigned_vars.insert(v.clone());
                     self.bad_vars.insert(v.clone());
                 }
                 self.expr(arr, params);
@@ -390,6 +401,7 @@ where
         assigns: Default::default(),
         cur_fn: None,
         scalar_refs: Default::default(),
+        typeof_vars: Default::default(),
     };
     for dec in decs.iter() {
         a.cur_fn = Some(dec.name.clone());
@@ -403,7 +415,9 @@ where
     let vars = a
         .assigned_vars
         .iter()
-        .filter(|v| a.str_vars.contains(*v) && !a.bad_vars.contains(*v))
+        .filter(|v| {
+            (a.str_vars.contains(*v) && !a.bad_vars.contains(*v)) || a.typeof_vars.contains(*v)
+        })
         .map(|v| {
             let flag: &'a str = arena.alloc_str(&format!("%def:{}", v));
             (v.clone(), I::from(flag))

@@ -342,6 +342,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] type_of_array() -> str_ty;
         [ReadOnly] type_of_number() -> str_ty;
         [ReadOnly] type_of_string() -> str_ty;
+        [ReadOnly] type_of_strnum(str_ref_ty) -> str_ty;
         [ReadOnly] type_of_unassigned() -> str_ty;
         [ReadOnly] is_array_true() -> int_ty;
         [ReadOnly] is_array_false() -> int_ty;
@@ -1996,6 +1997,18 @@ pub(crate) unsafe extern "C" fn type_of_number() -> U128 {
 pub(crate) unsafe extern "C" fn type_of_string() -> U128 {
     guard_panic(stringify!(type_of_string), || {
         mem::transmute::<Str, U128>(Str::from("string"))
+    })
+}
+
+pub(crate) unsafe extern "C" fn type_of_strnum(text: *mut U128) -> U128 {
+    guard_panic(stringify!(type_of_strnum), || {
+        let text = &*(text as *mut Str);
+        let res = if text.with_bytes(crate::runtime::compare::looks_numeric).is_some() {
+            "strnum"
+        } else {
+            "string"
+        };
+        mem::transmute::<Str, U128>(Str::from(res))
     })
 }
 

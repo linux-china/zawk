@@ -877,8 +877,9 @@ impl<'a> Typer<'a> {
 
     /// Compare string operands that cannot be strnums as plain strings, test the truth of strings
     /// that cannot be strnums by their emptiness alone, parse the arguments of strtonum() that
-    /// cannot be strnums by their octal and hexadecimal prefixes, and format (s)printf arguments
-    /// that cannot be strnums as strings.
+    /// cannot be strnums by their octal and hexadecimal prefixes, format (s)printf arguments
+    /// that cannot be strnums as strings, and report the typeof() of strings that cannot be
+    /// strnums as "string".
     fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
         use crate::bytecode::Accum;
         use runtime::compare::StrKind;
@@ -910,7 +911,8 @@ impl<'a> Typer<'a> {
                             refine(&mut kind, text.reflect().0);
                             *strnum = kind == StrKind::Strnum;
                         }
-                        Either::Left(LL::AwkStrtonum(_, text, strnum)) => {
+                        Either::Left(LL::AwkStrtonum(_, text, strnum))
+                        | Either::Left(LL::TypeOfString(_, text, strnum)) => {
                             let mut kind =
                                 if *strnum { StrKind::Strnum } else { StrKind::Str };
                             refine(&mut kind, text.reflect().0);
@@ -2832,8 +2834,12 @@ impl<'a, 'b> View<'a, 'b> {
                             ))
                         }
                         Ty::Str => {
+                            // "strnum" or "string"; `refine_string_comparisons` clears the
+                            // flag when the argument cannot be a strnum.
                             self.pushl(LL::TypeOfString(
                                 res_reg.into(),
+                                conv_regs[0].into(),
+                                true,
                             ))
                         }
                         _ if *bf == TypeOfUntyped => {

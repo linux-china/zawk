@@ -1022,6 +1022,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let update = PrimStmt::AsgnVar(v_id, PrimExpr::Next(array_iter.clone()));
                 let body_start = self.f.cfg.add_node(Default::default());
                 self.add_stmt(body_start, update)?;
+                self.mark_assigned(&ast::Expr::Var(v.clone()), None, body_start)?;
                 let body_end = self.convert_stmt(body, body_start)?;
                 self.f
                     .cfg
@@ -1728,6 +1729,80 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.convert_val(e, current_open)
     }
 
+    /// `typeof(e)`, for the cases where the answer depends on the state at runtime (as in gawk):
+    /// a tracked variable that has not been assigned yet is "unassigned" (or "untyped" if it is
+    /// never read), a missing array element is "untyped" and a field beyond NF is "unassigned".
+    fn type_of_dynamic<'c>(
+        &mut self,
+        e: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<Option<(NodeIx, PrimExpr<'b>)>> {
+        use builtins::Function::{self, Binop as Bin, Contains, ToInt, TypeOfVariable};
+        let type_of = |v| PrimExpr::CallBuiltin(TypeOfVariable, smallvec![v]);
+        let (next, cond, v, otherwise): (_, _, _, &'static [u8]) = match e {
+            Expr::Var(x) => {
+                let flag = match self.uninit_flag(e) {
+                    Some(flag) => flag,
+                    None => return Ok(None),
+                };
+                let otherwise: &'static [u8] =
+                    if self.scalar_referenced(x) { b"unassigned" } else { b"untyped" };
+                let (next, v) = self.convert_val(e, current_open)?;
+                (next, PrimVal::Var(self.get_identifier(&flag)), type_of(v), otherwise)
+            }
+            Expr::Index(arr, ix) => {
+                let (next, arr_v) = self.convert_val(arr, current_open)?;
+                let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+                let present =
+                    PrimExpr::CallBuiltin(Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+                let present = self.to_val(present, next)?;
+                // The lookup creates the element, as in gawk.
+                let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                (next, present, type_of(v), b"untyped")
+            }
+            Expr::Unop(Unop::Column, n) => {
+                let (next, n_v) = self.convert_val(n, current_open)?;
+                let n_v = self.to_val(PrimExpr::CallBuiltin(ToInt, smallvec![n_v]), next)?;
+                let nf = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NF), next)?;
+                let in_range = PrimExpr::CallBuiltin(
+                    Bin(ast::Binop::LTE),
+                    smallvec![n_v.clone(), nf],
+                );
+                let in_range = self.to_val(in_range, next)?;
+                let v = self.to_val(
+                    PrimExpr::CallBuiltin(Function::Unop(Unop::Column), smallvec![n_v]),
+                    next,
+                )?;
+                (next, in_range, type_of(v), b"unassigned")
+            }
+            _ => return Ok(None),
+        };
+        let res = self.select(cond, v, PrimExpr::Val(PrimVal::StrLit(otherwise)), next)?;
+        Ok(Some((res.0, PrimExpr::Val(res.1))))
+    }
+
+    /// `cond ? t : f`.
+    fn select(
+        &mut self,
+        cond: PrimVal<'b>,
+        t: PrimExpr<'b>,
+        f: PrimExpr<'b>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        let res = self.fresh_local();
+        self.ctx.may_rename.push(res);
+        let t_node = self.f.cfg.add_node(Default::default());
+        let f_node = self.f.cfg.add_node(Default::default());
+        let next = self.f.cfg.add_node(Default::default());
+        self.add_stmt(t_node, PrimStmt::AsgnVar(res, t))?;
+        self.add_stmt(f_node, PrimStmt::AsgnVar(res, f))?;
+        self.f.cfg.add_edge(current_open, t_node, Transition::new(cond));
+        self.f.cfg.add_edge(current_open, f_node, Transition::null());
+        self.f.cfg.add_edge(t_node, next, Transition::null());
+        self.f.cfg.add_edge(f_node, next, Transition::null());
+        Ok((next, PrimVal::Var(res)))
+    }
+
     /// `cond ? v : ""`, as a string.
     fn str_or_empty(
         &mut self,
@@ -2191,6 +2266,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 &[&Expr::Unop(Unop::Column, &Expr::ILit(0))],
             );
         }
+        if let (Either::Right(builtins::Function::TypeOfVariable), [arg]) = (&bi, args) {
+            if let Some(res) = self.type_of_dynamic(arg, current_open)? {
+                return Ok(res);
+            }
+        }
         // typeof(x) of a variable that is never read anywhere: "untyped", as in gawk.
         let bi = match (bi, args) {
             (Either::Right(builtins::Function::TypeOfVariable), [Expr::Var(x) | Expr::Index(Expr::Var(x), _)])
@@ -2510,6 +2590,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     };
                     // Easy case! How delighful
                     if let Expr::Var(_) = assignee {
+                        self.mark_assigned(assignee, None, open)?;
                         return Ok((open, PrimExpr::CallBuiltin(bi, prim_args)));
                     }
                     // We got something like sub(x, y, m[z]);

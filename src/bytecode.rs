@@ -278,7 +278,9 @@ pub(crate) enum Instr<'a> {
     Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     TypeOfArray(Reg<Str<'a>>),
     TypeOfNumber(Reg<Str<'a>>),
-    TypeOfString(Reg<Str<'a>>),
+    // typeof() of a string: "strnum" if it may be a strnum (see strnum_analysis) and looks
+    // numeric, "string" otherwise.
+    TypeOfString(Reg<Str<'a>>, Reg<Str<'a>>, bool),
     TypeOfUnassigned(Reg<Str<'a>>),
     IsArrayTrue(Reg<Int>),
     IsArrayFalse(Reg<Int>),
@@ -1367,7 +1369,9 @@ impl<'a> Instr<'a> {
             }
             TypeOfNumber(_dst) => {
             }
-            TypeOfString(_dst) => {
+            TypeOfString(dst, src, _) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
             }
             TypeOfUnassigned(_dst) => {
             }

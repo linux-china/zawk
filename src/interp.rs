@@ -1675,8 +1675,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     TypeOfNumber(dst) => {
                         *index_mut(&mut self.strs, dst) = Str::from("number");
                     }
-                    TypeOfString(dst) => {
-                        *index_mut(&mut self.strs, dst) = Str::from("string");
+                    TypeOfString(dst, src, strnum) => {
+                        let is_strnum = *strnum
+                            && index(&self.strs, src)
+                                .with_bytes(runtime::compare::looks_numeric)
+                                .is_some();
+                        *index_mut(&mut self.strs, dst) =
+                            Str::from(if is_strnum { "strnum" } else { "string" });
                     }
                     TypeOfUnassigned(dst) => {
                         *index_mut(&mut self.strs, dst) = Str::from("unassigned");
