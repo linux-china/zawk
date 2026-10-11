@@ -135,11 +135,11 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
         }
     }
 
-    // A local file, an object of `s3://bucket/key` streamed as it downloads, standard input
-    // (the `-` operand), or nothing (skipped operands).
+    // A local file or an object of `s3://bucket/key` streamed as it downloads (both
+    // transparently decompressed), standard input (the `-` operand), or nothing (skipped
+    // operands).
     enum Source {
-        Local(File),
-        S3(runtime::s3::S3Reader),
+        File(Box<dyn io::Read + Send>),
         Stdin(io::Stdin),
         Empty,
     }
@@ -147,8 +147,7 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
     impl io::Read for Source {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match self {
-                Source::Local(f) => f.read(buf),
-                Source::S3(r) => r.read(buf),
+                Source::File(r) => r.read(buf),
                 Source::Stdin(r) => r.read(buf),
                 Source::Empty => Ok(0),
             }
@@ -162,7 +161,8 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
             "" => Ok(Source::Empty),
             "-" => Ok(Source::Stdin(io::stdin())),
             name if runtime::s3::is_s3_url(name) => {
-                Ok(Source::S3(runtime::s3::S3Reader::new(name)))
+                runtime::decompress::maybe_decompress(name, runtime::s3::S3Reader::new(name))
+                    .map(Source::File)
             }
             name => {
                 if std::fs::metadata(name).map_or(false, |m| m.is_dir()) {
@@ -172,9 +172,9 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
                     );
                     return Ok(Source::Empty);
                 }
-                File::open(name)
-                    .map(Source::Local)
-                    .map_err(|e| common::InputOpenError::new_io(name, &e))
+                let file = File::open(name)
+                    .map_err(|e| common::InputOpenError::new_io(name, &e))?;
+                runtime::decompress::maybe_decompress(name, file).map(Source::File)
             }
         }
     }))

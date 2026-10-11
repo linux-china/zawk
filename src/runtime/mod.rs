@@ -33,6 +33,7 @@ pub mod json;
 pub mod network;
 pub mod kv;
 pub mod s3;
+pub mod decompress;
 pub mod os_util;
 pub mod csv;
 pub mod sqlite;
@@ -678,8 +679,8 @@ impl<LR: LineReader> FileRead<LR> {
 /// returns -1. We model that as a reader whose reads fail, which leaves the reader in its error
 /// state just like any other read error (e.g. reading a directory).
 pub(crate) enum InputFile {
-    Open(File),
-    S3(s3::S3Reader),
+    // A local file or an `s3://` object, transparently decompressed.
+    Open(Box<dyn io::Read + Send>),
     Stdin(io::Stdin),
     Failed(io::ErrorKind),
 }
@@ -690,11 +691,13 @@ impl InputFile {
         if path == "-" {
             return InputFile::Stdin(io::stdin());
         }
-        if s3::is_s3_url(path) {
-            return InputFile::S3(s3::S3Reader::new(path));
-        }
-        match File::open(path) {
-            Ok(f) => InputFile::Open(f),
+        let opened = if s3::is_s3_url(path) {
+            decompress::maybe_decompress(path, s3::S3Reader::new(path))
+        } else {
+            File::open(path).and_then(|f| decompress::maybe_decompress(path, f))
+        };
+        match opened {
+            Ok(r) => InputFile::Open(r),
             Err(e) => InputFile::Failed(e.kind()),
         }
     }
@@ -703,8 +706,7 @@ impl InputFile {
 impl io::Read for InputFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            InputFile::Open(f) => f.read(buf),
-            InputFile::S3(r) => r.read(buf),
+            InputFile::Open(r) => r.read(buf),
             InputFile::Stdin(r) => r.read(buf),
             InputFile::Failed(kind) => Err((*kind).into()),
         }
