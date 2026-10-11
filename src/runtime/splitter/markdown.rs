@@ -59,6 +59,9 @@ impl MarkdownCsv {
             Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
                 data = crate::runtime::s3::read_object_bytes(path)?.to_vec();
             }
+            Source::File(path) if crate::runtime::http::is_http_url(path) => {
+                data = crate::runtime::http::read_bytes(path)?.to_vec();
+            }
             Source::File(path) => {
                 data = fs::read(path)
                     .map_err(|e| crate::common::InputOpenError::new_io(path, &e))?

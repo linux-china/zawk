@@ -33,6 +33,7 @@ pub mod json;
 pub mod network;
 pub mod kv;
 pub mod s3;
+pub mod http;
 pub mod decompress;
 pub mod os_util;
 pub mod csv;
@@ -679,7 +680,7 @@ impl<LR: LineReader> FileRead<LR> {
 /// returns -1. We model that as a reader whose reads fail, which leaves the reader in its error
 /// state just like any other read error (e.g. reading a directory).
 pub(crate) enum InputFile {
-    // A local file or an `s3://` object, transparently decompressed.
+    // A local file, an `s3://` object or an HTTP(S) URL, transparently decompressed.
     Open(Box<dyn io::Read + Send>),
     Stdin(io::Stdin),
     Failed(io::ErrorKind),
@@ -693,6 +694,8 @@ impl InputFile {
         }
         let opened = if s3::is_s3_url(path) {
             decompress::maybe_decompress(path, s3::S3Reader::new(path))
+        } else if http::is_http_url(path) {
+            http::open(path).and_then(|resp| decompress::maybe_decompress(path, resp))
         } else {
             File::open(path).and_then(|f| decompress::maybe_decompress(path, f))
         };

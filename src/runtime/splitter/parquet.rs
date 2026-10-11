@@ -83,9 +83,9 @@ impl ParquetJson {
     pub fn check(path: &str) -> std::result::Result<(), String> {
         use ::parquet::basic::Compression;
         let error = |e: &dyn std::fmt::Display| format!("cannot read parquet file `{}': {}", path, e);
-        // S3 objects are checked by the caller (`s3::check_object`): reading the metadata here
-        // would download the whole object an extra time.
-        if crate::runtime::s3::is_s3_url(path) {
+        // S3 objects are checked by the caller (`s3::check_object`), and remote objects are not
+        // checked here: reading the metadata would download the whole object an extra time.
+        if crate::runtime::s3::is_s3_url(path) || crate::runtime::http::is_http_url(path) {
             return Ok(());
         }
         let file = File::open(path).map_err(|e| {
@@ -133,6 +133,10 @@ impl ParquetJson {
             Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
                 // Parquet needs random access: read the whole object into memory.
                 let data = crate::runtime::s3::read_object_bytes(path).map_err(|e| self.error(e))?;
+                Box::new(SerializedFileReader::new(data).map_err(|e| self.error(e))?)
+            }
+            Source::File(path) if crate::runtime::http::is_http_url(path) => {
+                let data = crate::runtime::http::read_bytes(path).map_err(|e| self.error(e))?;
                 Box::new(SerializedFileReader::new(data).map_err(|e| self.error(e))?)
             }
             Source::File(path) => {

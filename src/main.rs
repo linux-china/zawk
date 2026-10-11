@@ -135,11 +135,12 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
         }
     }
 
-    // A local file or an object of `s3://bucket/key` streamed as it downloads (both
-    // transparently decompressed), standard input (the `-` operand), or nothing (skipped
+    // A local file, an object of `s3://bucket/key` or an HTTP(S) URL streamed as it downloads
+    // (all transparently decompressed), standard input (the `-` operand), or nothing (skipped
     // operands).
     enum Source {
         File(Box<dyn io::Read + Send>),
+        Http(Box<dyn io::Read + Send>),
         Stdin(io::Stdin),
         Empty,
     }
@@ -148,6 +149,7 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match self {
                 Source::File(r) => r.read(buf),
+                Source::Http(r) => r.read(buf),
                 Source::Stdin(r) => r.read(buf),
                 Source::Empty => Ok(0),
             }
@@ -164,6 +166,9 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
                 runtime::decompress::maybe_decompress(name, runtime::s3::S3Reader::new(name))
                     .map(Source::File)
             }
+            name if runtime::http::is_http_url(name) => runtime::http::open(name)
+                .and_then(|resp| runtime::decompress::maybe_decompress(name, resp))
+                .map(Source::Http),
             name => {
                 if std::fs::metadata(name).map_or(false, |m| m.is_dir()) {
                     eprintln_ignore!(
