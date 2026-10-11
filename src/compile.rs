@@ -1272,6 +1272,11 @@ impl<'a, 'b> View<'a, 'b> {
 
     // Store values into a register at a given type, converting if necessary.
     fn store(&mut self, dst_reg: u32, dst_ty: Ty, src: &PrimVal<'a>) -> Result<()> {
+        // Storing a variable or literal has no side effects: nothing to do if the result is
+        // unused (e.g. expression statements like `BEGIN{1}`).
+        if dst_reg == UNUSED {
+            return Ok(());
+        }
         match src {
             PrimVal::Var(id) => {
                 let (src_reg, src_ty) = self.reg_of_ident(id);

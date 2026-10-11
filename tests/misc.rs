@@ -1792,6 +1792,29 @@ fn builtins_as_statements() {
     }
 }
 
+// Every kind of expression, of every scalar type, compiles when used as a statement.
+#[test]
+fn expressions_as_statements() {
+    let exprs = [
+        "1", "-1", "1.5", "\"s\"", "i", "f", "s", "-i", "!f", "!s", "i + 1", "f * 2.5",
+        "s \"t\"", "i < f", "length(s)", "substr(s, 1)", "sqrt(f)", "int(f)", "(i, s) in m",
+        "m[s]", "i ? f : s", "i++", "f += 1", "s = s \"x\"",
+    ];
+    for expr in exprs {
+        let prog = format!(r#"BEGIN {{ i = 2; f = 2.5; s = "a"; m["k"] = 1; {expr}; {expr}
+            print "ok" }}"#);
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .arg(&prog)
+                .assert()
+                .success()
+                .stdout("ok\n");
+        }
+    }
+}
+
 #[test]
 fn single_byte_fs_unterminated_last_record() {
     // With a single-byte FS and an input that does not end in a newline, a program that does not
