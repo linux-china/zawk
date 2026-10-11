@@ -937,11 +937,13 @@ With new `system2` function, you can get the output directly:
 
 ### File
 
-- read file into text: `read_all(file_path)`, `read_all("https://example.com/text.gz")`
-- write text info file: `write_all(file_path, text)`  Replace if file exits.
+- read file into text: `read_all(file_path)`, `read_all("https://example.com/text.txt")`
+- write text into file: `write_all(file_path, text)`  Replace if file exists.
 
-**Tips**: `read_all` function uses [OneIO](github.com/bgpkit/oneio), and remote(https or ftp) and compressions(
-gz,bz,lz,xz) are supported.
+**Tips**: `read_all` reads a local file or an `http://`/`https://` URL as text. Compressed content is not
+decompressed, and other schemes (`ftp://`, `s3://`, ...) are not supported. If the file can't be read
+(missing file, invalid UTF-8, network failure), a warning is printed and an empty string is returned.
+The HTTP status is not checked: the body of an error response (404, ...) is returned as is.
 
 ### read_config
 
