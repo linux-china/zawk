@@ -1325,6 +1325,7 @@ pub(crate) enum Variable {
     PROCINFO = 15,
     CONVFMT = 16,
     OFMT = 17,
+    IGNORECASE = 18,
 }
 
 impl From<Variable> for compile::Ty {
@@ -1332,7 +1333,7 @@ impl From<Variable> for compile::Ty {
         use Variable::*;
         match v {
             FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT => compile::Ty::Str,
-            PID | ARGC | NF | NR | FNR | RSTART | RLENGTH => compile::Ty::Int,
+            PID | ARGC | NF | NR | FNR | RSTART | RLENGTH | IGNORECASE => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
             ENVIRON => compile::Ty::MapStrStr,
@@ -1362,6 +1363,8 @@ pub(crate) struct Variables<'a> {
     pub procinfo: StrMap<'a, Str<'a>>,
     pub convfmt: Str<'a>,
     pub ofmt: Str<'a>,
+    // gawk's IGNORECASE: regex matching ignores case when it is nonzero.
+    pub ignorecase: Int,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -1386,6 +1389,7 @@ impl<'a> Default for Variables<'a> {
             fi: Default::default(),
             environ: load_env_variables(),
             procinfo: load_procinfo_variables(),
+            ignorecase: 0,
         }
     }
 }
@@ -1446,6 +1450,7 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart,
             RLENGTH => self.rlength,
             PID => self.pid,
+            IGNORECASE => self.ignorecase,
             FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         })
     }
@@ -1460,6 +1465,10 @@ impl<'a> Variables<'a> {
             RSTART => self.rstart = i,
             RLENGTH => self.rlength = i,
             PID => self.pid = i,
+            IGNORECASE => {
+                crate::runtime::awk_regex::set_ignore_case(i != 0);
+                self.ignorecase = i;
+            }
             FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         }
         Ok(())
@@ -1475,7 +1484,7 @@ impl<'a> Variables<'a> {
             FILENAME => self.filename.clone(),
             CONVFMT => self.convfmt.clone(),
             OFMT => self.ofmt.clone(),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 return err!("var {} not a string", var);
             }
         })
@@ -1517,7 +1526,7 @@ impl<'a> Variables<'a> {
                 crate::runtime::numfmt::set_ofmt(&*s.as_str().as_bytes());
                 self.ofmt = s;
             }
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 return err!("var {} not a string", var);
             }
         };
@@ -1528,7 +1537,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1541,7 +1550,7 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1552,7 +1561,7 @@ impl<'a> Variables<'a> {
         match var {
             FI => Ok(self.fi.clone()),
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | ENVIRON | PROCINFO
-            | RLENGTH => {
+            | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1566,7 +1575,7 @@ impl<'a> Variables<'a> {
                 Ok(())
             }
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | ENVIRON | PROCINFO
-            | RLENGTH => {
+            | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1578,7 +1587,7 @@ impl<'a> Variables<'a> {
             ENVIRON => Ok(self.environ.clone()),
             PROCINFO => Ok(self.procinfo.clone()),
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | FI
-            | RLENGTH => {
+            | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1597,7 +1606,7 @@ impl<'a> Variables<'a> {
                 Ok(())
             }
             ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | RSTART | FI
-            | RLENGTH => {
+            | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1608,7 +1617,7 @@ impl Variable {
     pub(crate) fn ty(&self) -> types::TVar<types::BaseTy> {
         use Variable::*;
         match self {
-            PID | ARGC | NF | FNR | NR | RSTART | RLENGTH => {
+            PID | ARGC | NF | FNR | NR | RSTART | RLENGTH | IGNORECASE => {
                 types::TVar::Scalar(types::BaseTy::Int)
             }
             // NB: For full compliance, this may have to be Str -> Str
@@ -1685,6 +1694,7 @@ impl TryFrom<usize> for Variable {
             15 => Ok(PROCINFO),
             16 => Ok(CONVFMT),
             17 => Ok(OFMT),
+            18 => Ok(IGNORECASE),
             _ => Err(()),
         }
     }
@@ -1709,5 +1719,6 @@ static_map!(
     ["ENVIRON", Variable::ENVIRON],
     ["PROCINFO", Variable::PROCINFO],
     ["CONVFMT", Variable::CONVFMT],
-    ["OFMT", Variable::OFMT]
+    ["OFMT", Variable::OFMT],
+    ["IGNORECASE", Variable::IGNORECASE]
 );

@@ -368,6 +368,7 @@ impl Display for Variable {
                 PROCINFO => "PROCINFO",
                 CONVFMT => "CONVFMT",
                 OFMT => "OFMT",
+                IGNORECASE => "IGNORECASE",
             }
         )
     }

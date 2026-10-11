@@ -25,9 +25,34 @@ use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+thread_local! {
+    // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`).
+    static IGNORE_CASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Set whether regexes compiled on this thread ignore case (gawk's IGNORECASE).
+pub(crate) fn set_ignore_case(on: bool) {
+    IGNORE_CASE.with(|c| c.set(on));
+}
+
+/// Whether regexes compiled on this thread ignore case.
+pub(crate) fn ignore_case() -> bool {
+    IGNORE_CASE.with(|c| c.get())
+}
+
+/// Prefix `pat` (in the syntax of `regex`) with `(?i)` when IGNORECASE is set. The flag is part of
+/// the pattern text so that the regexes derived from `re.as_str()` below ignore case as well.
+pub(crate) fn with_case(pat: String) -> String {
+    if ignore_case() {
+        format!("(?i){}", pat)
+    } else {
+        pat
+    }
+}
+
 /// Compile an awk regular expression.
 pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
-    RegexBuilder::new(&translate(pat))
+    RegexBuilder::new(&with_case(translate(pat)))
         .dot_matches_new_line(true)
         .build()
 }

@@ -777,6 +777,15 @@ impl<'a> Typer<'a> {
                 .collect(),
         );
         let mut refs = SmallVec::new();
+        // Regexes depend on IGNORECASE at runtime when the program assigns it, so they are not
+        // folded into constants.
+        let sets_ignorecase = self.frames.iter().any(|frame| {
+            frame.cfg.raw_nodes().iter().any(|bb| {
+                bb.weight.insts.iter().any(|stmt| {
+                    matches!(stmt, Either::Left(LL::StoreVarInt(builtins::Variable::IGNORECASE, _)))
+                })
+            })
+        });
         for (fix, frame) in self.frames.iter().enumerate() {
             for reg in frame.strnum_sources.iter() {
                 sna.add_source(*reg, Ty::Str);
@@ -793,7 +802,7 @@ impl<'a> Typer<'a> {
                         visit_taint_analysis(stmt, frame.cur_ident, tsa)
                     }
                     if let Some(sca) = &mut self.string_constants {
-                        if sca.cfg().query_regex {
+                        if sca.cfg().query_regex && !sets_ignorecase {
                             if let Either::Left(LL::IsMatch(_, _, pat))
                             | Either::Left(LL::Match(_, _, pat)) = stmt
                             {

@@ -170,6 +170,7 @@ impl<'a> Core<'a> {
         let filename: UniqueStr<'a> = self.vars.filename.clone().into();
         let convfmt: UniqueStr<'a> = self.vars.convfmt.clone().into();
         let ofmt: UniqueStr<'a> = self.vars.ofmt.clone().into();
+        let ignorecase = self.vars.ignorecase;
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
@@ -196,12 +197,14 @@ impl<'a> Core<'a> {
                 fi: fi.into(),
                 environ: environ.into(),
                 procinfo: procinfo.into(),
+                ignorecase,
             };
             vars.update_split_fs();
             runtime::command::register_environ(&vars.environ);
             // Number formats are thread-locals; set them up on the worker thread.
             runtime::numfmt::set_convfmt(&*vars.convfmt.as_str().as_bytes());
             runtime::numfmt::set_ofmt(&*vars.ofmt.as_str().as_bytes());
+            runtime::awk_regex::set_ignore_case(vars.ignorecase != 0);
             Core {
                 vars,
                 regexes: Default::default(),

@@ -1829,9 +1829,19 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> ByteReaderBase for ByteReader<P> {
             }
             if fields.len() == max {
                 let start_inc = gallop(&offs.rel.fields[offs.rel.start..], |ix| ix as usize <= end);
-                let len_inc = fields.len() + start_inc;
+                // If the record is not terminated by a record separator (i.e. the input ends
+                // without a trailing newline), the last field has no separator offset after it,
+                // so it has to be counted explicitly.
+                let unterminated = end == self.buf_len;
+                let len_inc = fields.len() + start_inc + usize::from(unterminated);
                 fields.resize_with(len_inc, Str::default);
                 offs.rel.start += start_inc;
+                if unterminated {
+                    offs.nl.start += 1;
+                    self.progress = self.buf_len;
+                    let line = get_field!(0, line_start, self.buf_len);
+                    return (line, self.buf_len - line_start);
+                }
                 index = end;
                 is_record_sep = true;
             }

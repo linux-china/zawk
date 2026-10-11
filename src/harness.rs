@@ -1183,6 +1183,21 @@ this as well"#
         "5 5 2\n0 0 -1\n"
     );
 
+    test_program!(
+        ignorecase,
+        r#"BEGIN {
+        print ("ABC" ~ /abc/)
+        IGNORECASE = 1
+        print ("ABC" ~ /abc/), match("xxABC", /b+c/), RSTART, RLENGTH
+        s = "FooBARfoo"; n = gsub(/foo/, "x", s); print n, s
+        # A single-character separator is literal and keeps its case, as in gawk.
+        print split("aXbxc", a, "x"), split("aXbxc", a, "[x]")
+        IGNORECASE = 0
+        print ("ABC" ~ /abc/)
+        }"#,
+        "0\n1 4 4 2\n2 xBARx\n2 3\n0\n"
+    );
+
     test_program!(degenerate_map, r#"BEGIN { print m[1]; }"#, "\n");
 
     test_program!(

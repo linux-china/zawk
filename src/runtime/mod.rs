@@ -83,6 +83,8 @@ pub struct RegexCache(
     Registry<Regex>,
     // Field separators that are a single character, which awk treats literally.
     Registry<Regex>,
+    // The IGNORECASE setting the cached regexes were compiled with.
+    bool,
 );
 
 impl Default for RegexCache {
@@ -90,7 +92,17 @@ impl Default for RegexCache {
         RegexCache(
             Registry::with_capacity_limit(MAX_CACHED_REGEXES),
             Registry::with_capacity_limit(MAX_CACHED_REGEXES),
+            false,
         )
+    }
+}
+
+/// A regex matching the single character `c` literally. IGNORECASE does not apply to it, as in
+/// gawk.
+fn literal_regex(c: &str) -> Result<Regex> {
+    match Regex::new(&regex::escape(c)) {
+        Ok(r) => Ok(r),
+        Err(e) => err!("{}", e),
     }
 }
 
@@ -103,7 +115,16 @@ fn is_literal_separator(pat: &Str) -> bool {
 }
 
 impl RegexCache {
+    /// Drop the cached regexes if IGNORECASE changed since they were compiled.
+    fn sync_case(&mut self) {
+        let ignore_case = awk_regex::ignore_case();
+        if self.2 != ignore_case {
+            self.0.cached.clear();
+            self.2 = ignore_case;
+        }
+    }
     pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
+        self.sync_case();
         self.0.get(
             pat,
             |s| match awk_regex::compile(s) {
@@ -124,14 +145,7 @@ impl RegexCache {
         let single_char =
             rs.with_bytes(|bs| std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1));
         if single_char {
-            self.1.get(
-                rs,
-                |c| match Regex::new(&regex::escape(c)) {
-                    Ok(r) => Ok(r),
-                    Err(e) => err!("{}", e),
-                },
-                |x| f(x),
-            )
+            self.1.get(rs, literal_regex, |x| f(x))
         } else {
             self.with_regex(rs, f)
         }
@@ -141,6 +155,7 @@ impl RegexCache {
         pat: &Str,
         mut f: impl FnMut(&Regex) -> Result<T>,
     ) -> Result<T> {
+        self.sync_case();
         self.0.get_fallible(
             pat,
             |s| match awk_regex::compile(s) {
@@ -252,10 +267,7 @@ impl RegexCache {
         } else if is_literal_separator(pat) {
             self.1.get(
                 pat,
-                |c| match Regex::new(&regex::escape(c)) {
-                    Ok(r) => Ok(r),
-                    Err(e) => err!("{}", e),
-                },
+                literal_regex,
                 |re| {
                     s.split(
                         re,

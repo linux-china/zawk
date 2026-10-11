@@ -1791,3 +1791,33 @@ fn builtins_as_statements() {
             .stdout("1 0 1\nok\n");
     }
 }
+
+#[test]
+fn single_byte_fs_unterminated_last_record() {
+    // With a single-byte FS and an input that does not end in a newline, a program that does not
+    // use every field must neither undercount NF on the last record nor yield an extra empty one.
+    let cases: &[(&str, &str, &str)] = &[
+        ("a,b", "{print $1}", "a\n"),
+        ("a,b", "{print NF}", "2\n"),
+        ("a,b", "{print $0, NF}", "a,b 2\n"),
+        ("x,a,b", "{print $1; n++} END{print n}", "x\n1\n"),
+        ("x,a,b", "{print $1, NF}", "x 3\n"),
+        ("a,b\nc,d", "{print $1}", "a\nc\n"),
+        ("a,b\nc,d", "{print NF}", "2\n2\n"),
+        ("a,b\nc,d", "{print NR, NF, $0}", "1 2 a,b\n2 2 c,d\n"),
+        ("a,b,", "{print NF}", "3\n"),
+        ("a", "{print $1, NF}", "a 1\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for parallel in [None, Some("-pr")] {
+            for (input, prog, expected) in cases {
+                let mut cmd = Command::cargo_bin("zawk").unwrap();
+                cmd.arg(backend_arg);
+                if let Some(p) = parallel {
+                    cmd.args([p, "-j2"]);
+                }
+                cmd.arg("-F,").arg(prog).write_stdin(*input).assert().success().stdout(*expected);
+            }
+        }
+    }
+}
