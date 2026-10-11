@@ -1378,7 +1378,7 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { a[1][2] = 1 }"#,
             2,
-            &["zawk: fatal: a variable is used both as an array and as a scalar"],
+            &["zawk: fatal: arrays of arrays such as `a[i][j]` are not supported"],
         ),
         (
             r#"BEGIN { if (1) { }}}"#,
@@ -1445,4 +1445,91 @@ fn strip_source_locations(s: &str) -> String {
     }
     res.push_str(rest);
     res
+}
+
+// Run `prog` with each backend and check that it fails with exit code 2 and a stderr containing
+// `expected`.
+fn assert_fatal(prog: &str, expected: &str) {
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{} {}: {}", backend_arg, prog, stderr);
+        assert!(stderr.contains(expected), "{} {}: {}", backend_arg, prog, stderr);
+    }
+}
+
+#[test]
+fn deep_recursion() {
+    // The cranelift backend recurses on the native stack: programs run on a large stack, and
+    // running out of it is a fatal error rather than an abort.
+    let rec = "function rec(n) { if (n == 0) return 0; return 1 + rec(n - 1) }";
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(format!("{} BEGIN {{ print rec(1000000) }}", rec))
+            .assert()
+            .success()
+            .stdout("1000000\n");
+    }
+    let output = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-Bcranelift")
+        .arg(format!(r#"{} BEGIN {{ print "start"; print rec(100000000) }}"#, rec))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("function call nesting too deep"), "{}", stderr);
+}
+
+#[test]
+fn printf_width_and_precision_limits() {
+    assert_fatal(r#"BEGIN { printf "%999999999999d", 1 }"#, "field width 999999999999 is too large");
+    assert_fatal(r#"BEGIN { printf "%*d", 2^40, 1 }"#, "field width 1099511627776 is too large");
+    assert_fatal(r#"BEGIN { x = sprintf("%-*s", 2^40, "a") }"#, "is too large");
+    assert_fatal(r#"BEGIN { printf "%.999999999999f", 1 }"#, "precision 999999999999 is too large");
+    // A string precision only truncates.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"BEGIN { printf "%.999999999999s|%5s|\n", "abc", "x" }"#)
+            .assert()
+            .success()
+            .stdout("abc|    x|\n");
+    }
+}
+
+#[test]
+fn array_scalar_errors_name_the_variable() {
+    assert_fatal(
+        "function f(a) { return a + 1 } BEGIN { x[1] = 1; f(x) }",
+        "attempt to use array `a` (parameter of function `f`) in a scalar context",
+    );
+    assert_fatal(
+        "function g(a) { return a[1] } BEGIN { print g(1) }",
+        "attempt to use scalar `a` (parameter of function `g`) as an array",
+    );
+    assert_fatal("BEGIN { x[1] = 1; print x }", "attempt to use array `x` in a scalar context");
+    assert_fatal("BEGIN { x = 1; x[1] = 2 }", "attempt to use scalar `x` as an array");
+    assert_fatal(
+        "BEGIN { print seq(1, 10) }",
+        "attempt to use array returned by `seq()` in a scalar context",
+    );
+    assert_fatal(
+        r#"BEGIN { print from_json("{bad") }"#,
+        "attempt to use array returned by `from_json()` in a scalar context",
+    );
+    assert_fatal("BEGIN { a[1][2] = 3 }", "arrays of arrays such as `a[i][j]` are not supported");
+    assert_fatal(
+        "BEGIN { print 2--1 }",
+        "syntax error: the operand of `--` must be a variable, an array element or a field",
+    );
 }

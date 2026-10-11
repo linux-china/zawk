@@ -674,6 +674,9 @@ impl<'a> View<'a> {
 
     /// Call a frawk-level (as opposed to builtin/external) function.
     fn call_udf(&mut self, id: NumTy, args: &[Ref]) -> Result<Value> {
+        // Report deep recursion as a fatal error rather than overflowing the native stack.
+        let rt = self.builder.use_var(self.f.runtime);
+        self.call_external_void(external!(check_stack), &[rt]);
         let mut to_pass = SmallVec::<[Value; 6]>::with_capacity(args.len() + 1);
         for arg in args.iter().cloned() {
             let v = self.get_val(arg)?;

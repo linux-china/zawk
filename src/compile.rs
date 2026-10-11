@@ -1241,6 +1241,13 @@ impl<'a, 'b> View<'a, 'b> {
                 if dst == src {
                     return self.mov(dst_reg, src_reg, dst);
                 }
+                // Normally reported with the variable's name during type inference.
+                if src.is_array() && !dst.is_array() {
+                    return err!("attempt to use an array in a scalar context");
+                }
+                if dst.is_array() && !src.is_array() {
+                    return err!("attempt to use a scalar value as an array");
+                }
                 return err!(
                     "invalid attempt to convert or move dst={:?} src={:?}",
                     dst,

@@ -581,6 +581,13 @@ impl<'a> TryFrom<&'a str> for Function {
     }
 }
 
+impl Function {
+    /// The name of the function in awk programs, if it has one (used in error messages).
+    pub(crate) fn awk_name(&self) -> Option<&'static str> {
+        FUNCTIONS.iter().filter(|(_, f)| *f == self).map(|(name, _)| *name).min()
+    }
+}
+
 /// The builtin functions of POSIX awk and gawk that zawk implements. A user-defined function may
 /// not have one of these names, as in gawk. The other builtins are zawk's stdlib extensions
 /// (`trim`, `max`, `abs`, ...): a user-defined function with the same name takes precedence, so

@@ -653,6 +653,8 @@ pub(crate) struct TypeContext<'a, 'b> {
     func_table: &'a [Function<'b, &'b str>],
     local_globals: &'a HashSet<NumTy>,
     udf_nodes: Vec<NodeIx>,
+    // Names of global variables, for error messages.
+    global_names: HashMap<NumTy, &'b str>,
 }
 
 struct View<'a, 'b, 'c> {
@@ -703,6 +705,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             func_table: &pc.funcs[..],
             local_globals: pc.local_globals_ref(),
             udf_nodes: Default::default(),
+            global_names: pc.global_names(),
         };
         tc.udf_nodes = (0..pc.funcs.len())
             .map(|_| tc.nw.add_rule(Rule::AlwaysNotify))
@@ -720,6 +723,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         }
 
         tc.solve()?;
+        tc.check_builtin_args()?;
         let mut var_tys = HashMap::new();
         let mut func_tys = HashMap::new();
         for (Args { id, args, .. }, ix) in tc.funcs.iter() {
@@ -784,6 +788,9 @@ impl<'b, 'c> TypeContext<'b, 'c> {
     fn solve(&mut self) -> Result<()> {
         let mut dep_indices: SmallVec<NodeIx> = Default::default();
         let mut deps: SmallVec<State> = Default::default();
+        // For each entry of `deps`: whether it comes from using the node as an array (`a[k]`,
+        // `k in a`, ...) rather than from an array value flowing into it.
+        let mut array_uses: SmallVec<bool> = Default::default();
         // TODO are updates to UDFs getting "lost" somehow? It seems like it isn't just changes in
         // arguments that could cause a change in the return type (imagine returning a global
         // variable from within a function). How do we ensure we see those updates?
@@ -793,6 +800,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         while let Some(ix) = self.nw.wl.pop() {
             deps.clear();
             dep_indices.clear();
+            array_uses.clear();
             let Node { rule, cur_val } = self.nw.graph.node_weight(ix).unwrap().clone();
             // Iterate over the incoming edges; read their current values and evaluate the
             // constraints.
@@ -801,13 +809,66 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             while let Some((e_ix, node_ix)) = walker.next(&self.nw.graph) {
                 let edge = self.nw.graph.edge_weight(e_ix).unwrap().clone();
                 let node_val = self.nw.graph.node_weight(node_ix).unwrap().cur_val;
-                deps.push(edge.constraint.sub(node_val).eval(self)?);
+                match edge.constraint.sub(node_val).eval(self) {
+                    Ok(dep) => {
+                        deps.push(dep);
+                        let from_const = matches!(
+                            self.nw.graph.node_weight(node_ix).unwrap().rule,
+                            Rule::Const(_)
+                        );
+                        array_uses.push(match edge.constraint {
+                            Constraint::KeyIn(_) | Constraint::ValIn(_) => true,
+                            Constraint::Flows(_) => from_const,
+                            _ => false,
+                        });
+                    }
+                    Err(e) => {
+                        // Key/Val constraints read a map; the others build one from a scalar.
+                        let as_array = matches!(
+                            edge.constraint,
+                            Constraint::Key(_) | Constraint::Val(_) | Constraint::IterVal(_)
+                        );
+                        let scalar_as_array = match (as_array, node_val) {
+                            (true, Some(TVar::Scalar(_))) => true,
+                            (false, Some(TVar::Map { .. })) => false,
+                            _ => return Err(e),
+                        };
+                        return Err(self.kind_error(node_ix, scalar_as_array));
+                    }
+                }
                 if edge.constraint.is_flow() {
                     dep_indices.push(node_ix);
                 }
             }
             // Compute an update value based on the newly-evaluated constraints.
-            let (changed, next) = rule.step(&cur_val, &deps[..])?;
+            let (changed, next) = match rule.step(&cur_val, &deps[..]) {
+                Ok(res) => res,
+                // A node that is (so far) a map receiving a scalar, or vice versa.
+                Err(e) => {
+                    let is_map = |d: &State| matches!(d, Some(TVar::Map { .. }));
+                    let has_scalar = matches!(cur_val, Some(TVar::Scalar(_)))
+                        || deps.iter().any(|d| matches!(d, Some(TVar::Scalar(_))));
+                    let maps = deps.iter().zip(array_uses.iter()).filter(|(d, _)| is_map(d));
+                    let (mut array_use, mut array_value) = (false, is_map(&cur_val));
+                    for (_, used) in maps {
+                        if *used {
+                            array_use = true;
+                        } else {
+                            array_value = true;
+                        }
+                    }
+                    if !has_scalar {
+                        return Err(e);
+                    }
+                    if array_value {
+                        return Err(self.kind_error(ix, false));
+                    }
+                    if array_use {
+                        return Err(self.kind_error(ix, true));
+                    }
+                    return Err(e);
+                }
+            };
             if !changed {
                 continue;
             }
@@ -841,6 +902,82 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
         }
         Ok(())
+    }
+
+    /// Check that the arguments of builtin functions are arrays exactly where the functions expect
+    /// arrays, e.g. that an array is not passed to a function parameter used as a scalar.
+    fn check_builtin_args(&self) -> Result<()> {
+        for edge in self.nw.graph.raw_edges() {
+            let Constraint::CallBuiltin(args, f) = &edge.weight.constraint else {
+                continue;
+            };
+            let mut tys = SmallVec::new();
+            for a in args.iter() {
+                tys.push(flatten(concrete(*self.nw.read(*a)))?);
+            }
+            // Other errors in the signature are reported when the call is compiled.
+            let Ok((expected, _)) = f.type_sig(&tys[..]) else {
+                continue;
+            };
+            for ((arg, ty), exp) in args.iter().zip(tys.iter()).zip(expected.iter()) {
+                if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
+                    return Err(self.kind_error(*arg, !ty.is_array()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// An error for a value that is used both as an array and as a scalar: a scalar used as an
+    /// array if `scalar_as_array`, otherwise an array used as a scalar. As in gawk, the message
+    /// names the variable when there is one.
+    fn kind_error(&self, ix: NodeIx, scalar_as_array: bool) -> common::CompileError {
+        let desc = self.describe(ix);
+        let msg = match (scalar_as_array, desc) {
+            (true, Some(d)) => format!("attempt to use scalar {} as an array", d),
+            (true, None) => "attempt to use a scalar value as an array".to_string(),
+            (false, Some(d)) => format!("attempt to use array {} in a scalar context", d),
+            (false, None) => "attempt to use an array in a scalar context".to_string(),
+        };
+        common::CompileError(msg)
+    }
+
+    /// Describe the value at `ix` for an error message: the variable it belongs to, or the
+    /// builtin function that computed it.
+    fn describe(&self, ix: NodeIx) -> Option<String> {
+        use petgraph::Direction::Incoming;
+        if let Some(d) = self.var_name(ix) {
+            return Some(d);
+        }
+        // Values flow into a node through intermediate nodes, such as the one holding the result
+        // of a builtin call.
+        for n in self.nw.graph.neighbors_directed(ix, Incoming) {
+            if let Some(d) = self.var_name(n) {
+                return Some(d);
+            }
+            for e in self.nw.graph.edges_directed(n, Incoming) {
+                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint {
+                    if let Some(name) = f.awk_name() {
+                        return Some(format!("returned by `{}()`", name));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The name of the variable whose type is the node `ix`, if any.
+    fn var_name(&self, ix: NodeIx) -> Option<String> {
+        let (key, _) = self.env.iter().find(|(_, v)| **v == ix)?;
+        let low = key.id.low;
+        if let Some(func_id) = key.func_id {
+            let func = &self.func_table[func_id as usize];
+            if let Some(arg) = func.args.iter().find(|a| a.id.low == low) {
+                return Some(format!("`{}` (parameter of function `{}`)", arg.name, func.name));
+            }
+        }
+        // Globals referenced only from the main program are local to it.
+        self.global_names.get(&low).map(|name| format!("`{}`", name))
     }
 
     pub(crate) fn constant(&mut self, tv: State) -> NodeIx {

@@ -395,7 +395,8 @@ fn parse_spec(
         if *i == start {
             None
         } else {
-            str::from_utf8(&fmt[start..*i]).ok()?.parse().ok()
+            // Numbers too large for a usize saturate; they are rejected by `check_limits`.
+            Some(str::from_utf8(&fmt[start..*i]).ok()?.parse().unwrap_or(usize::MAX))
         }
     };
     if fmt.get(i) == Some(&b'*') {
@@ -435,6 +436,25 @@ fn parse_spec(
     Some((spec, i + 1))
 }
 
+/// Largest field width or numeric precision accepted by printf. Larger values are fatal errors
+/// rather than attempts to produce (and buffer) gigabytes of padding or digits.
+const MAX_WIDTH: usize = 64 << 20;
+
+impl Spec {
+    fn check_limits(&self) -> Result<()> {
+        if let Some(w) = self.width.filter(|w| *w > MAX_WIDTH) {
+            return err!("printf: field width {} is too large (maximum {})", w, MAX_WIDTH);
+        }
+        // A string precision only truncates, so any value is harmless.
+        if self.conv != b's' {
+            if let Some(p) = self.precision.filter(|p| *p > MAX_WIDTH) {
+                return err!("printf: precision {} is too large (maximum {})", p, MAX_WIDTH);
+            }
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<()> {
     // Missing arguments are empty strings (as in onetrue awk).
     let default = FormatArg::S(Default::default());
@@ -458,6 +478,7 @@ pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Resul
                     // "%%" (with any flags or width) is a literal percent sign.
                     write_bytes(&mut w, b"%")?;
                 } else {
+                    spec.check_limits()?;
                     let arg = args.get(arg_ix).unwrap_or(&default);
                     arg_ix += 1;
                     process_spec(&mut w, &spec, arg)?;
@@ -510,6 +531,22 @@ mod tests {
 
         let s2 = sprintf!(b"%e %d ~~ %s", 12535, 3, "hi");
         assert_eq!(s2.as_str(), "1.253500e+04 3 ~~ hi");
+    }
+
+    #[test]
+    fn width_and_precision_limits() {
+        use FormatArg::*;
+        let run = |fmt: &[u8], args: &[FormatArg]| printf(Vec::<u8>::new(), fmt, args);
+        assert!(run(b"%999999999999d", &[I(1)]).is_err());
+        assert!(run(b"%99999999999999999999999999d", &[I(1)]).is_err());
+        assert!(run(b"%.999999999999f", &[F(1.0)]).is_err());
+        assert!(run(b"%*d", &[I(1 << 40), I(1)]).is_err());
+        assert!(run(b"%*d", &[I(-(1 << 40)), I(1)]).is_err());
+        assert!(run(b"%.*f", &[I(1 << 40), F(1.0)]).is_err());
+        // A string precision only truncates.
+        assert_eq!(sprintf!(b"%.999999999999s", "abc"), "abc");
+        assert_eq!(sprintf!(b"%.*s", 1i64 << 40, "abc"), "abc");
+        assert_eq!(sprintf!(b"%*d|", 1000, 1).len(), 1001);
     }
 
     #[test]

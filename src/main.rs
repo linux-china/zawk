@@ -369,6 +369,11 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
 }
 
 fn main() {
+    // Run on a thread with a large stack: the cranelift backend recurses on the native stack.
+    common::run_with_program_stack(real_main)
+}
+
+fn real_main() {
     //.env load support
     dotenv::dotenv().ok();
     runtime::logging::init();

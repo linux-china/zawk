@@ -350,6 +350,17 @@ impl<'a, I> ProgramContext<'a, I>
         &self.shared.local_globals
     }
 
+    /// Names of the global variables, keyed by the `low` field of their identifiers; used in error
+    /// messages.
+    pub(crate) fn global_names(&self) -> HashMap<NumTy, I> {
+        self.shared
+            .hm
+            .iter()
+            .filter(|(_, id)| id.global)
+            .map(|(name, id)| (id.low, name.clone()))
+            .collect()
+    }
+
     // We want to optimize scripts that never override FS after the start of the program. We do
     // this by collecting any builtin variable assignments (as well as getline and UDF calls)
     // across all functions and providing a guess of what the FS and RS variables will be for the
@@ -1076,6 +1087,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
         use Expr::*;
 
+        // `a[i][j]` parses as indexing the element `a[i]`, which would otherwise be reported as a
+        // confusing type error.
+        if let Index(Index(..), _)
+        | Assign(Index(Index(..), _), _)
+        | AssignOp(Index(Index(..), _), _, _)
+        | Inc {
+            x: Index(Index(..), _),
+            ..
+        } = expr
+        {
+            return err!("arrays of arrays such as `a[i][j]` are not supported");
+        }
+
         // This isn't a function because we want the &s to point to the current stack frame.
         macro_rules! to_bool {
             ($e:expr) => {
@@ -1247,7 +1271,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Inc { is_inc, is_post, x } => {
                 if !valid_lhs(x) {
-                    return err!("invalid operand for increment operation {:?}", x);
+                    return err!(
+                        "syntax error: the operand of `{}` must be a variable, an array element or a field",
+                        if *is_inc { "++" } else { "--" }
+                    );
                 };
                 if let (true, Index(arr, ix)) = (*is_post, x) {
                     // Evaluate the array and the subscript once: the subscript may have side

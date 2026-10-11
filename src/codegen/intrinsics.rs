@@ -143,6 +143,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         reseed_rng(rt_ty) -> int_ty;
 
         exit(rt_ty, int_ty);
+        check_stack(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
         run_cmd2(str_ref_ty) -> map_ty;
         print_all_stdout(rt_ty, pa_args_ty, int_ty);
@@ -735,6 +736,15 @@ pub(crate) unsafe extern "C" fn exit(runtime: *mut c_void, code: Int) {
     guard_panic(stringify!(exit), || {
         exit!(runtime, code as i32);
     })
+}
+
+/// Called before each call of a user-defined function: fail instead of overflowing the stack.
+pub(crate) unsafe extern "C" fn check_stack(runtime: *mut c_void) {
+    #[cfg(test)]
+    let _ = runtime;
+    if crate::common::stack_exhausted() {
+        fail!(runtime, "function call nesting too deep");
+    }
 }
 
 pub(crate) unsafe extern "C" fn run_cmd(rt: *mut c_void, cmd: *mut U128) -> Int {

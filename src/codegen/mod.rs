@@ -214,7 +214,9 @@ where
                     let scope_res = crossbeam::scope(|s| {
                         for (reader, sender, shuttle) in launch_data.into_iter() {
                             let cancel_signal = cancel_signal.clone();
-                            s.spawn(move |_| {
+                            let builder = s.builder().stack_size(crate::common::PROGRAM_STACK_SIZE);
+                            let spawned = builder.spawn(move |_| {
+                                crate::common::init_stack_limit();
                                 if let Some(reader) = reader() {
                                     let mut runtime = Runtime {
                                         concurrent: true,
@@ -228,6 +230,7 @@ where
                                     main_loop_fn.invoke(&mut runtime);
                                 }
                             });
+                            spawned.expect("failed to spawn worker thread");
                         }
                         mem::drop(sender);
                         {
