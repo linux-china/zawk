@@ -766,10 +766,19 @@ impl<'a> Typer<'a> {
     fn run_analyses(&mut self) -> Result<()> {
         let mut ufa = UsedFieldAnalysis::default();
         let mut sna = StrnumAnalysis::default();
+        // Function parameters may be strnums (or arrays of strnums), depending on the callers.
+        sna.set_params(
+            self.frames
+                .iter()
+                .zip(self.func_info.iter())
+                .map(|(frame, info)| {
+                    frame.arg_regs.iter().cloned().zip(info.arg_tys.iter().cloned()).collect()
+                })
+                .collect(),
+        );
         let mut refs = SmallVec::new();
         for (fix, frame) in self.frames.iter().enumerate() {
-            // Function parameters may be strnums, depending on the caller.
-            for reg in frame.arg_regs.iter().chain(frame.strnum_sources.iter()) {
+            for reg in frame.strnum_sources.iter() {
                 sna.add_source(*reg, Ty::Str);
             }
             for (bbix, bb) in frame.cfg.raw_nodes().iter().enumerate() {

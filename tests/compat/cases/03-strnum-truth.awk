@@ -1,5 +1,6 @@
 # stdin: data/strnum-truth.txt
 # opts: -v zero=0 -v one=1
+# repeat: 30
 # A string that may be a strnum (input, -v, split, getline, copies of them, numbers converted to
 # strings) is false when it looks like a number equal to zero; any other string is false only
 # when it is empty.

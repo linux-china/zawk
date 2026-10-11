@@ -8,13 +8,14 @@
 //! compared as strings. This is what makes e.g. `$1 "" < $2 ""` compare as strings.
 //!
 //! Unlike taint analysis, "strnum-ness" only flows through copies: assignments, phi nodes, array
-//! stores and loads, global variables, slots and function returns. Any other operation produces a
-//! plain string. The analysis is conservative where it is imprecise: function parameters and
-//! numbers converted to strings are assumed to be strnums (such values compare numerically when
-//! they look like numbers, as numbers do), and array keys are plain strings, as in gawk.
+//! stores and loads, global variables, slots, function arguments and returns. Any other operation
+//! produces a plain string. The analysis is conservative where it is imprecise: numbers converted
+//! to strings are assumed to be strnums (such values compare numerically when they look like
+//! numbers, as numbers do), and array keys are plain strings, as in gawk.
 use crate::builtins::Variable;
 use crate::bytecode::Instr;
 use crate::common::NumTy;
+use crate::cfg::SmallVec;
 use crate::compile::{HighLevel, Ty};
 use crate::dataflow::{self, JoinSemiLattice, Key};
 
@@ -41,6 +42,8 @@ impl JoinSemiLattice for Strnum {
 
 pub(crate) struct StrnumAnalysis {
     dfa: dataflow::Analysis<Strnum>,
+    // The parameter registers of each function, indexed by function id.
+    params: Vec<SmallVec<(NumTy, Ty)>>,
 }
 
 impl Default for StrnumAnalysis {
@@ -48,29 +51,49 @@ impl Default for StrnumAnalysis {
         let mut dfa = dataflow::Analysis::default();
         dfa.add_src(Key::VarVal(Variable::ARGV), Strnum::Maybe);
         dfa.add_src(Key::VarVal(Variable::ENVIRON), Strnum::Maybe);
-        StrnumAnalysis { dfa }
+        StrnumAnalysis {
+            dfa,
+            params: Vec::new(),
+        }
     }
 }
 
 impl StrnumAnalysis {
-    /// Mark a register (e.g. a function parameter) as possibly holding a strnum.
+    /// Mark a string register as possibly holding a strnum.
     pub(crate) fn add_source(&mut self, reg: NumTy, ty: Ty) {
         self.dfa.add_src(Key::Reg(reg, ty), Strnum::Maybe);
+    }
+
+    /// Set the parameter registers (and their types) of every function, indexed by function id.
+    pub(crate) fn set_params(&mut self, params: Vec<SmallVec<(NumTy, Ty)>>) {
+        self.params = params;
     }
 
     pub(crate) fn visit_hl(&mut self, cur_fn_id: NumTy, inst: &HighLevel) {
         use HighLevel::*;
         match inst {
-            // Return values flow to the call; arguments only flow into parameters, which are
-            // sources already.
+            // Return values flow to the call and string arguments flow into the parameters.
+            // Arrays are passed by reference, so the values of array arguments and parameters
+            // flow both ways.
             Call {
                 func_id,
                 dst_reg,
                 dst_ty,
-                ..
-            } => self
-                .dfa
-                .add_dep(Key::Reg(*dst_reg, *dst_ty), Key::Func(*func_id), ()),
+                args,
+            } => {
+                self.dfa
+                    .add_dep(Key::Reg(*dst_reg, *dst_ty), Key::Func(*func_id), ());
+                let params = &self.params[*func_id as usize];
+                for (&(arg, arg_ty), &(param, ty)) in args.iter().zip(params.iter()) {
+                    debug_assert_eq!(arg_ty, ty);
+                    if ty == Ty::Str {
+                        self.dfa.add_dep(Key::Reg(param, ty), Key::Reg(arg, ty), ());
+                    } else if ty.is_array() && ty.val().ok() == Some(Ty::Str) {
+                        self.dfa.add_dep(Key::MapVal(param, ty), Key::MapVal(arg, ty), ());
+                        self.dfa.add_dep(Key::MapVal(arg, ty), Key::MapVal(param, ty), ());
+                    }
+                }
+            }
             Ret(..) | Phi(..) => dataflow::boilerplate::visit_hl(inst, cur_fn_id, |dst, src| {
                 if let Some(src) = src {
                     self.dfa.add_dep(dst, src, ())

@@ -10,6 +10,7 @@
 #   # args: ARGS      operands after the program file (files, var=value assignments)
 #   # opts: OPTS      options before `-f`, e.g. `-F:` or `-v x=1`
 #   # exit: N         expected exit code (default: 0)
+#   # repeat: N       run the case N times per backend (catches nondeterministic compilation)
 set -euo pipefail
 
 cd "$(dirname "$0")"

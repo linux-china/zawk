@@ -872,8 +872,12 @@ struct WriteGuard {
 
 impl WriteGuard {
     fn extend(&mut self, bs: &[u8], spec: FileSpec) {
+        // The spec only matters when the batch (re)opens the file, so it is the spec of the
+        // batch's first write: in `print "a" > f; print "b" >> f`, the file is still truncated.
+        if self.data.is_empty() {
+            self.spec = spec;
+        }
         self.data.extend(bs);
-        self.spec = spec;
     }
 
     fn peel(&mut self, bytes: usize, next: &mut WriteGuard) {

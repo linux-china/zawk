@@ -40,6 +40,7 @@ $3 > min { print $1 }
 | `opts` | options before `-f` | none |
 | `args` | operands after the program: files, `var=value` | none |
 | `exit` | expected exit code | `0` |
+| `repeat` | number of runs per backend, for cases sensitive to nondeterministic compilation (e.g. hash map order) | `1` |
 
 Keep the output deterministic: do not depend on the order of `for (k in a)`, time, or randomness.
 

@@ -85,9 +85,17 @@ fn awk_compatibility() {
     let mut errors = vec![];
     for awk_file in &cases {
         let name = awk_file.file_stem().unwrap().to_string_lossy().to_string();
+        // Cases sensitive to nondeterminism in the compiler (e.g. hash map order) run repeatedly.
+        let program = fs::read_to_string(awk_file).unwrap();
+        let repeat: usize = directive(&program, "repeat").map_or(1, |n| n.parse().unwrap());
         let failures: Vec<String> = BACKEND_ARGS
             .iter()
-            .filter_map(|backend| run_case(&dir, awk_file, backend).map(|diff| format!("[{}] {}", backend, diff)))
+            .filter_map(|backend| {
+                (1..=repeat).find_map(|i| {
+                    run_case(&dir, awk_file, backend)
+                        .map(|diff| format!("[{}] (run {}/{}) {}", backend, i, repeat, diff))
+                })
+            })
             .collect();
         match (known.remove(&name).is_some(), failures.is_empty()) {
             (false, false) => errors.push(format!("FAIL {}\n{}", name, failures.join("\n"))),
