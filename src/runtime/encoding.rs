@@ -56,7 +56,8 @@ pub fn encode(format: &str, text: &str) -> String {
             }
         }
         &_ => {
-            format!("{}:{}", format, text)
+            stdlib_warning("encode", format!("unsupported format {:?}", format));
+            String::new()
         }
     }
 }
@@ -66,70 +67,38 @@ fn encode_failed(format: &str, err: impl std::fmt::Display) -> String {
     String::new()
 }
 
+/// Decode `text` from `format`. Returns an empty string (with a warning) if the format is unknown,
+/// `text` is malformed, or the decoded bytes are not valid UTF-8.
 pub fn decode(format: &str, text: &str) -> String {
-    if format == "base32" {
-        if let Ok(bytes) = data_encoding::BASE32_NOPAD.decode(text.as_bytes()) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base32hex" {
-        if let Ok(bytes) = data_encoding::BASE32HEX_NOPAD.decode(text.as_bytes()) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base58" {
-        if let Ok(bytes) = text.from_base58() {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base62" {
-        if let Some(bytes) = base62_decode(text) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base64" {
-        if let Ok(bytes) = STANDARD.decode(text) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base85" {
-        if let Ok(bytes) = base85::decode(text) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "base64url" {
-        if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
-        }
-    } else if format == "zlib2base64url" {
-        if let Ok(bytes) = URL_SAFE_NO_PAD.decode(text) {
-            let mut d = ZlibDecoder::new(bytes.as_slice());
-            let mut s = String::new();
-            match d.read_to_string(&mut s) {
-                Ok(_) => return s,
-                Err(e) => stdlib_warning("decode", format!("{}: {}", format, e)),
-            }
-        }
-    } else if format == "url" {
-        if let Ok(url_text) = url_decode(text) {
-            return url_text.to_string();
-        }
-    } else if format == "hex" {
-        if let Ok(bytes) = hex::decode(text) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                return text;
-            }
+    match try_decode(format, text) {
+        Ok(text) => text,
+        Err(msg) => {
+            stdlib_warning("decode", msg);
+            String::new()
         }
     }
-    return format!("{}:{}", format, text);
+}
+
+fn try_decode(format: &str, text: &str) -> Result<String, String> {
+    let bytes = match format {
+        "base32" => data_encoding::BASE32_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
+        "base32hex" => data_encoding::BASE32HEX_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
+        "base58" => text.from_base58().map_err(|e| format!("{:?}", e)),
+        "base62" => base62_decode(text).ok_or_else(|| "invalid base62 text".to_string()),
+        "base64" => STANDARD.decode(text).map_err(|e| e.to_string()),
+        "base85" => base85::decode(text).map_err(|e| e.to_string()),
+        "base64url" => URL_SAFE_NO_PAD.decode(text).map_err(|e| e.to_string()),
+        "zlib2base64url" => URL_SAFE_NO_PAD.decode(text).map_err(|e| e.to_string()).and_then(|bytes| {
+            let mut d = ZlibDecoder::new(bytes.as_slice());
+            let mut out = Vec::new();
+            d.read_to_end(&mut out).map(|_| out).map_err(|e| e.to_string())
+        }),
+        "url" => return url_decode(text).map(|t| t.to_string()).map_err(|e| format!("{}: {}", format, e)),
+        "hex" => hex::decode(text).map_err(|e| e.to_string()),
+        _ => return Err(format!("unsupported format {:?}", format)),
+    };
+    let bytes = bytes.map_err(|e| format!("{}: {}", format, e))?;
+    String::from_utf8(bytes).map_err(|_| format!("{}: decoded bytes are not valid UTF-8", format))
 }
 
 pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {

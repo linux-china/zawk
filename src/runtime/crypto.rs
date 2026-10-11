@@ -48,7 +48,8 @@ pub fn digest(algorithm: &str, text: &str) -> String {
     } else if algorithm == "xxh64" {
         return xxhash_rust::xxh64::xxh64(text.as_bytes(), 0).to_string();
     }
-    format!("{}:{}", algorithm, text)
+    crate::runtime::stdlib_warning("digest", format!("unsupported algorithm {:?}", algorithm));
+    String::new()
 }
 
 /// HMAC(Hash-based message authentication code) with HmacSHA256 and HmacSHA512

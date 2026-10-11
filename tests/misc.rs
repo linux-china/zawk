@@ -1610,6 +1610,32 @@ fn stdlib_result_size_limits() {
 }
 
 #[test]
+fn stdlib_failures_return_empty_with_warning() {
+    let prog = r#"BEGIN { print "[" decode("base64", "!!!") "][" encode("nosuch", "x") "][" fend("1/0") "][" eval("1+") "][" digest("nosuch", "x") "]";
+                 print decode("base64", encode("base64", "hi")), fend("1+2") }"#;
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{}: {}", backend_arg, stderr);
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "[][][][0][]\nhi 3\n", "{}", backend_arg);
+        for expected in [
+            "zawk: warning: decode: base64:",
+            r#"zawk: warning: encode: unsupported format "nosuch""#,
+            r#"zawk: warning: fend: "1/0": division by zero"#,
+            r#"zawk: warning: eval: "1+":"#,
+            r#"zawk: warning: digest: unsupported algorithm "nosuch""#,
+        ] {
+            assert!(stderr.contains(expected), "{}: {}", backend_arg, stderr);
+        }
+    }
+}
+
+#[test]
 fn array_scalar_errors_name_the_variable() {
     assert_fatal(
         "function f(a) { return a + 1 } BEGIN { x[1] = 1; f(x) }",

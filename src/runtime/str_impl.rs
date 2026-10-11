@@ -510,7 +510,10 @@ impl<'a> Str<'a> {
         let expr = self.to_string();
         return match fend_core::evaluate(&expr, &mut context) {
             Ok(result) => { Str::from(result.get_main_result().to_string()) }
-            Err(error) => { Str::from(format!("FendError:{}", error)) }
+            Err(error) => {
+                crate::runtime::stdlib_warning("fend", format!("{:?}: {}", expr, error));
+                Str::default()
+            }
         };
     }
 
