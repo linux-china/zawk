@@ -1281,6 +1281,53 @@ fn markdown_output() {
 }
 
 #[test]
+fn parquet_output() {
+    // -o parquet writes the printed records as a Parquet file: the first record is the header,
+    // where `name:TYPE` sets a column type; it is read back here with -i parquet.
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("out.parquet");
+    let out = out.to_str().unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-oparquet")
+            .arg("--out-file")
+            .arg(out)
+            .arg(r#"BEGIN { print "name", "age:int32", "ok:BOOLEAN", "d:Date", "ts:Timestamp", "j:JSON", "id:UUID" }
+                { print $1, $2, $3, $4, $5, $6, $7 }"#)
+            .write_stdin(
+                "Alice 30 true 2024-01-02 2024-01-02T03:04:05Z {\"a\":1} 67e55044-10b1-426f-9247-bb680e5fe0c8\n\
+                 Bob x 0 86400 1700000000 {} -\n",
+            )
+            .assert()
+            .success();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("-iparquet")
+            .arg("{ print $0 }")
+            .arg(out)
+            .assert()
+            .success()
+            .stdout(concat!(
+                r#"{"name":"Alice","age":30,"ok":true,"d":"2024-01-02","ts":"2024-01-02 03:04:05","j":{"a":1},"id":"67e55044-10b1-426f-9247-bb680e5fe0c8"}"#,
+                "\n",
+                r#"{"name":"Bob","age":null,"ok":false,"d":"1970-01-02","ts":"2023-11-14 22:13:20","j":{},"id":null}"#,
+                "\n",
+            ));
+    }
+    // An unknown column type is a fatal error.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-oparquet")
+        .arg("--out-file")
+        .arg(out)
+        .arg(r#"BEGIN { print "a:nope" }"#)
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn strftime_arguments() {
     // strftime(format, timestamp, utc), as in gawk, in both backends: the timestamp defaults to
     // the current time, negative timestamps are dates before 1970, the third argument formats in

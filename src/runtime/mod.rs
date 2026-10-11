@@ -23,6 +23,7 @@ pub mod str_impl;
 pub mod string_search;
 pub mod utf8;
 pub mod writers;
+pub mod parquet_writer;
 pub mod date_time;
 pub mod encoding;
 pub mod crypto;

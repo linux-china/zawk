@@ -529,6 +529,12 @@ impl Registry {
             if res.is_err() {
                 last_error = res;
             }
+            // Close (rather than only flush) stdout, so that its writer is dropped before we
+            // exit: wrappers such as `ParquetWriter` write their trailer when dropped.
+            let res = self.stdout.close();
+            if res.is_err() {
+                last_error = res;
+            }
         }
         last_error
     }
