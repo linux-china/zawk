@@ -356,3 +356,6 @@ run-jev_prob:
 
 run-sugar:
   cargo run --package zawk --bin zawk -- '$1' demo.txt
+
+run-parquet-output:
+  cargo urn --package zawk --bin zawk -- -o parquet --out-file demo.parquet 'BEGIN {print "id:int32","name"} { print $2, $1 }' demo.txt
