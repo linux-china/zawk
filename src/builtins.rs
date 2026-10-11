@@ -646,6 +646,17 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
+            // headers of http_get/http_post and the payload of jwt are string maps
+            Function::HttpGet | Function::HttpPost | Function::Jwt => {
+                let map = ctx.constant(
+                    Map {
+                        key: BaseTy::Str,
+                        val: BaseTy::Str,
+                    }
+                        .abs(),
+                );
+                ctx.nw.add_dep(map, args[args.len() - 1], Constraint::Flows(()));
+            }
             Function::MatchArr => {
                 let arg2 = ctx.constant(
                     Map {

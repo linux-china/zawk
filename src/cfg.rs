@@ -2546,18 +2546,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Asort if args_len == 1 => {
                         prim_args.push(prim_args[0].clone());
                     }
-                    // http_get(url) => http_get(url,headers);
+                    // http_get(url) => http_get(url, headers), with empty headers: a fresh local
+                    // that `Function::feedback` types as a map.
                     builtins::Function::HttpGet if args_len == 1 => {
-                        prim_args.push(PrimVal::Var(Ident::unused()));
+                        prim_args.push(PrimVal::Var(self.fresh_local()));
                     }
-                    // http_post(url) => asort(url,body,headers);
+                    // http_post(url) => http_post(url, "", headers);
                     builtins::Function::HttpPost if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b""));
-                        prim_args.push(PrimVal::Var(Ident::unused()));
+                        prim_args.push(PrimVal::Var(self.fresh_local()));
                     }
-                    // http_post(url,body) => asort(url,body,headers);
+                    // http_post(url, body) => http_post(url, body, headers);
                     builtins::Function::HttpPost if args_len == 2 => {
-                        prim_args.push(PrimVal::Var(Ident::unused()));
+                        prim_args.push(PrimVal::Var(self.fresh_local()));
                     }
                     _ => {}
                 }

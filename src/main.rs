@@ -16,6 +16,7 @@ pub mod cross_stage;
 pub mod dataflow;
 mod display;
 pub mod dom;
+mod function_docs;
 #[cfg(test)]
 pub mod harness;
 mod input_taint;
@@ -450,12 +451,23 @@ fn real_main() {
             .required(true)
             .help("AWK file to create")
         );
+    let functions_cmd = Command::new("functions").about("List builtin functions with signatures, descriptions and examples")
+        .arg(Arg::new("json")
+            .long("json")
+            .num_args(0)
+            .help("Output as JSON: name, category, signature, params, returns, summary and example")
+        )
+        .arg(Arg::new("filter")
+            .index(1)
+            .help("Only list functions whose name contains FILTER, or whose category is FILTER")
+        );
     let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
         .about("zawk is an AWK language implementation by Rust with stdlib support")
         .subcommand(dump_cmd)
         .subcommand(init_cmd)
+        .subcommand(functions_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -599,6 +611,16 @@ fn real_main() {
         if matches.get_flag("prometheus") {
             let text = runtime::csv::parse_prometheus(input_file);
             println!("{}", text);
+        }
+        return;
+    }
+    // functions sub command
+    if let Some(matches) = matches.subcommand_matches("functions") {
+        let docs = function_docs::find(matches.get_one::<String>("filter").map(|s| s.as_str()));
+        if matches.get_flag("json") {
+            println!("{}", function_docs::render_json(&docs));
+        } else {
+            print!("{}", function_docs::render_text(&docs));
         }
         return;
     }

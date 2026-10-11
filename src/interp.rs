@@ -1412,14 +1412,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     BloomFilterContains(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_icontains(&*item.as_str(), &*group.as_str());
+                        let res = runtime::encoding::bf_contains(&*item.as_str(), &*group.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     BloomFilterContainsWithInsert(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_contains(&*item.as_str(), &*group.as_str());
+                        let res = runtime::encoding::bf_icontains(&*item.as_str(), &*group.as_str());
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

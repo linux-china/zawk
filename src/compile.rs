@@ -1419,6 +1419,8 @@ impl<'a, 'b> View<'a, 'b> {
         //    registers" within a function), but for now we are keeping things simple.
 
         match bf {
+            // These have no side effects: drop them when the result is unused (`!x;`).
+            Unop(Column) | Unop(Not) | Unop(Neg) | Unop(Pos) if res_reg == UNUSED => {}
             Unop(Column) => self.pushl(LL::GetColumn(res_reg.into(), conv_regs[0].into())),
             Unop(Not) => match conv_tys[0] {
                 // May be a strnum until refined by the strnum analysis.
@@ -2531,14 +2533,18 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             HttpGet => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::HttpGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                // a request is sent even when the result is unused
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                self.pushl(LL::HttpGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             HttpPost => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::HttpPost(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                // a request is sent even when the result is unused
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                self.pushl(LL::HttpPost(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             SendMail => {
                 self.pushl(LL::SendMail(conv_regs[0].into(), conv_regs[1].into(),
@@ -2554,9 +2560,11 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             S3Put => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                // a request is sent even when the result is unused
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             KvGet => {
                 if res_reg != UNUSED {
@@ -2598,27 +2606,51 @@ impl<'a, 'b> View<'a, 'b> {
                 self.pushl(LL::LogError(conv_regs[0].into()))
             }
             SqliteQuery => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::SqliteQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             SqliteExecute => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             LibsqlQuery => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::LibsqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             LibsqlExecute => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::LibsqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             MysqlQuery => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             MysqlExecute => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             PgQuery => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::PgQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             PgExecute => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::PgExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             Publish => {
@@ -2789,9 +2821,7 @@ impl<'a, 'b> View<'a, 'b> {
                 })
             }
             BloomFilterInsert => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::BloomFilterInsert(conv_regs[0].into(), conv_regs[1].into()))
-                }
+                self.pushl(LL::BloomFilterInsert(conv_regs[0].into(), conv_regs[1].into()))
             }
             BloomFilterContains => {
                 if res_reg != UNUSED {
@@ -2799,20 +2829,34 @@ impl<'a, 'b> View<'a, 'b> {
                 }
             }
             BloomFilterContainsWithInsert => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::BloomFilterContainsWithInsert(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                // it inserts the item even when the result is unused
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
+                self.pushl(LL::BloomFilterContainsWithInsert(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             Jev => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::Jev(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             JevProb => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::JevProb(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
             }
             JevChoice => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::JevChoice(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             JevScore => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
                 self.pushl(LL::JevScore(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             Fake => {

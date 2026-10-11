@@ -1737,3 +1737,57 @@ fn array_scalar_errors_name_the_variable() {
         "syntax error: the operand of `--` must be a variable, an array element or a field",
     );
 }
+
+#[test]
+fn functions_subcommand_lists_builtins() {
+    let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
+    assert!(out.status.success());
+    let docs: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let docs = docs.as_array().unwrap();
+    let trim = docs.iter().find(|f| f["name"] == "trim").unwrap();
+    assert_eq!(trim["returns"], "str");
+    assert_eq!(trim["params"][0]["optional"], false);
+    assert_eq!(trim["params"][1]["name"], "chars");
+    assert_eq!(trim["params"][1]["optional"], true);
+    // Every example compiles: it is guarded by a condition that is false at runtime, so that
+    // functions using the network, databases, ... are not called.
+    let mut failures = vec![];
+    for f in docs {
+        let example = f["example"].as_str().unwrap();
+        let prog = format!("BEGIN {{ if (ARGC > 100) {{ {} }} }}", example);
+        let out = Command::cargo_bin("zawk").unwrap().arg("-Binterp").arg(&prog).output().unwrap();
+        if !out.status.success() {
+            failures.push(format!("{}: {}", example, String::from_utf8_lossy(&out.stderr).trim()));
+        }
+    }
+    assert!(failures.is_empty(), "examples that do not compile:\n{}", failures.join("\n"));
+    let out = Command::cargo_bin("zawk").unwrap().args(["functions", "Bitwise"]).output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.starts_with("# Bitwise\n") && text.contains("xor(a: int, b: int) -> int"));
+}
+
+// Builtins with side effects run when their result is unused, and pure expressions used as
+// statements compile.
+#[test]
+fn builtins_as_statements() {
+    let prog = r#"BEGIN {
+        bf_icontains("b"); print bf_contains("b"), bf_contains("c"), bf_icontains("b")
+        !x; -x; +x; $1
+        if (ARGC > 100) {
+            http_get("http://127.0.0.1:9/"); http_post("http://127.0.0.1:9/", "x")
+            r = http_get("http://127.0.0.1:9/"); print r["status"], http_post("http://127.0.0.1:9/")["status"]
+            sqlite_execute("a.db", "delete from t"); sqlite_query("a.db", "select 1")
+            jev($0, "q"); bf_icontains("d")
+        }
+        print "ok"
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("1 0 1\nok\n");
+    }
+}

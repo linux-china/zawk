@@ -90,6 +90,12 @@ Like sprintf but the result of the operation is written to standard output, or t
 overwrite semantics specified by > or >>. Like print, printf can be called without parentheses around its arguments,
 though arguments are parsed differently in this mode to avoid ambiguities.
 
+### gensub(re, repl, how[, target])
+
+As in gawk: returns target (`$0` by default) with the `how`-th match of re replaced by repl, or all matches if `how`
+starts with `g`. Target is not changed, and `\1`..`\9` in repl refer to the groups of re:
+`gensub(/(a)(b)/, "\\2\\1", "g", "abab")` is `baba`.
+
 ### hex(s)
 
 Returns the hexadecimal integer (e.g. 0x123abc) encoded in s, or 0 otherwise.
@@ -461,8 +467,8 @@ Find unique phone numbers: `!bf_iconatins(phone) { }`
 
 # Math
 
-Floating-point operations: sin, cos, atan, atan2, log, log2, log10, sqrt, exp are delegated to the Rust standard
-library, or LLVM intrinsics where available.
+Floating-point operations: `sin(x)`, `cos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`, `log2(x)`, `log10(x)`, `sqrt(x)`,
+`exp(x)` are delegated to the Rust standard library, or LLVM intrinsics where available.
 
 ### rand()
 
@@ -471,7 +477,14 @@ Returns a uniform random floating-point number between 0 and 1.
 ### srand(x)
 
 Seeds the random number generator used by rand, returns the old seed.
-Bitwise operations. All of these operations coerce their operands to integers before being evaluated.
+
+### Bitwise operations
+
+All of these operations coerce their operands to integers before being evaluated.
+
+- `and(x, y)`, `or(x, y)`, `xor(x, y)`: bitwise and/or/xor
+- `compl(x)`: bitwise complement
+- `lshift(x, n)`: shift left, `rshift(x, n)`: arithmetic shift right, `rshiftl(x, n)`: logical shift right
 
 ### abs
 
@@ -662,7 +675,7 @@ zawk 'BEGIN{ state["city"] = "Peking";  print jev(state, "the capital of China o
 
 # Encoding/Decoding
 
-`encode("format",$1) `
+`encode("format",$1) `, and `decode("format",$1)` for the reverse.
 
 Formats:
 
@@ -684,7 +697,7 @@ Formats:
 
 ### Digest
 
-`digest("algorithm",$1)`
+`digest("algorithm",$1)`, `hash("algorithm",$1)` is an alias.
 
 Algorithms:
 
@@ -786,6 +799,7 @@ and `Content-Type = application/json` will be added as HTTP header by default.
 ### email
 
 `send_mail(from, to, subject, body)` by REST API, and `to` could be multiple emails separated by `,`.
+`send_email()` is an alias of `send_mail()`.
 
 Environment variables for email sending:
 
@@ -952,6 +966,11 @@ Now only `*.ini` and `*.properties` are supported.
 
 **Tips**: zawk will load `.env` as environment variables automatically if it exists in the current directory.
 
+### close/fflush
+
+- `close(name)`: close a file, command or pipe opened by redirection or `getline`, as in POSIX awk.
+- `fflush([name])`: flush an output file or pipe, or all output if name is not provided.
+
 ### getline
 
 Please visit: https://www.gnu.org/software/gawk/manual/html_node/Getline.html
@@ -961,7 +980,7 @@ and http://awk.freeshell.org/AllAboutGetline
 
 ### Diagnose
 
-- dump: `var_dump(name)`,
+- dump: `var_dump(name)`, `pprint(name)` is an alias.
 - logging: `log_debug(msg)`, `log_info()`, `log_warn()`, `log_error()`
 
 **Attention**: dump/logging output will be directed to std err to avoid std output pollution.
@@ -982,6 +1001,8 @@ Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
 ### zawk
 
 - `version()`: return zawk version
+- `exit([code])`: exit with code (`0` by default), END actions are still executed, as in POSIX awk.
+- `zawk functions [--json] [FILTER]`: list builtin functions with signatures, descriptions and examples.
 
 # Credits
 
