@@ -508,6 +508,7 @@ impl<'a> Display for lexer::Tok<'a> {
 
             Ident(s) => return write!(fmt, "identifier({})", s),
             StrLit(s) => return write!(fmt, "{:?}", s),
+            FStrLit(s) => return write!(fmt, "f{:?}", s),
             PatLit(s) => return write!(fmt, "/{}/", s),
             CallStart(s) => return write!(fmt, "{}(", s),
             FunDec(s) => return write!(fmt, "function {}", s),

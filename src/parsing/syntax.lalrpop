@@ -427,6 +427,7 @@ Ident: &'a Expr<'a,'a,&'a str> = {
 
 StrLit: &'a Expr<'a,'a,&'a str> = {
   "STRLIT" => arena.alloc(Expr::StrLit(lexer::parse_string_literal(<>, &arena, buf))),
+  "FSTRLIT" => lexer::parse_fstring_literal(<>, &arena, buf),
 }
 
 Index: &'a Expr<'a,'a,&'a str> = {
@@ -480,6 +481,7 @@ extern {
       "FLOAT" => Tok::FLit(<&'a str>),
       "IDENT" => Tok::Ident(<&'a str>),
       "STRLIT" => Tok::StrLit(<&'a str>),
+      "FSTRLIT" => Tok::FStrLit(<&'a str>),
       "PATLIT" => Tok::PatLit(<&'a str>),
       "CALLSTART" => Tok::CallStart(<&'a str>),
       "FUNDEC" => Tok::FunDec(<&'a str>),

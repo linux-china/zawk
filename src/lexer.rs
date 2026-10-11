@@ -9,6 +9,9 @@ use regex::Regex;
 use unicode_xid::UnicodeXID;
 
 use crate::arena::Arena;
+use crate::ast::{Binop, Expr, Unop};
+use crate::builtins::Function;
+use crate::common::Either;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub struct Loc {
@@ -105,6 +108,8 @@ pub enum Tok<'a> {
 
     Ident(&'a str),
     StrLit(&'a str),
+    /// An f-string literal `f"Hello, {name}"`; the text between the quotes.
+    FStrLit(&'a str),
     PatLit(&'a str),
     CallStart(&'a str),
     FunDec(&'a str),
@@ -417,6 +422,90 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
     arena.alloc_bytes(&buf[..])
 }
 
+/// Desugars the f-string literal `f"...{name}..."` into a concatenation of string literals and
+/// variables. A placeholder is a variable name (`{name}`, `{NR}`) or a field reference (`{$1}`,
+/// `{$NF}`); `{{` and `}}` are literal braces, and anything else in braces is kept as text.
+pub(crate) fn parse_fstring_literal<'a>(
+    lit: &str,
+    arena: &'a Arena,
+    buf: &mut Vec<u8>,
+) -> &'a Expr<'a, 'a, &'a str> {
+    fn placeholder<'a>(p: &str, arena: &'a Arena) -> Option<&'a Expr<'a, 'a, &'a str>> {
+        let p = p.trim();
+        let (col, name) = match p.strip_prefix('$') {
+            Some(rest) => (true, rest.trim_start()),
+            None => (false, p),
+        };
+        let e: &'a Expr<'a, 'a, &'a str> = if col && !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()) {
+            arena.alloc(Expr::ILit(name.parse().ok()?))
+        } else if !name.is_empty() && is_ident(name) {
+            if name == "length" && !col {
+                arena.alloc(Expr::Call(Either::Right(Function::Length), &[]))
+            } else {
+                arena.alloc(Expr::Var(arena.alloc_str(name)))
+            }
+        } else {
+            return None;
+        };
+        Some(if col { arena.alloc(Expr::Unop(Unop::Column, e)) } else { e })
+    }
+    // Split into raw literal text (escapes still unprocessed) and placeholders.
+    let mut parts: Vec<Either<String, &'a Expr<'a, 'a, &'a str>>> = Vec::new();
+    let mut text = String::new();
+    let mut iter = lit.char_indices().peekable();
+    while let Some((ix, c)) = iter.next() {
+        match c {
+            '\\' => {
+                text.push(c);
+                if let Some((_, n)) = iter.next() {
+                    text.push(n);
+                }
+            }
+            '{' if matches!(iter.peek(), Some((_, '{'))) => {
+                iter.next();
+                text.push('{');
+            }
+            '}' if matches!(iter.peek(), Some((_, '}'))) => {
+                iter.next();
+                text.push('}');
+            }
+            '{' => match lit[ix + 1..].find('}') {
+                Some(len) => match placeholder(&lit[ix + 1..ix + 1 + len], arena) {
+                    Some(e) => {
+                        if !text.is_empty() {
+                            parts.push(Either::Left(std::mem::take(&mut text)));
+                        }
+                        parts.push(Either::Right(e));
+                        while iter.peek().is_some_and(|(j, _)| *j <= ix + 1 + len) {
+                            iter.next();
+                        }
+                    }
+                    None => text.push(c),
+                },
+                None => text.push(c),
+            },
+            c => text.push(c),
+        }
+    }
+    if !text.is_empty() {
+        parts.push(Either::Left(text));
+    }
+    let mut parts = parts.into_iter().map(|p| match p {
+        Either::Left(s) => &*arena.alloc(Expr::StrLit(parse_string_literal(&s, arena, buf))),
+        Either::Right(e) => e,
+    });
+    // Start from a string literal so that the result is always a string, as in `f"{x}"`.
+    let mut res: &'a Expr<'a, 'a, &'a str> = match parts.next() {
+        Some(e @ Expr::StrLit(_)) => e,
+        Some(e) => arena.alloc(Expr::Binop(Binop::Concat, arena.alloc(Expr::StrLit(b"")), e)),
+        None => arena.alloc(Expr::StrLit(b"")),
+    };
+    for e in parts {
+        res = arena.alloc(Expr::Binop(Binop::Concat, res, e));
+    }
+    res
+}
+
 pub(crate) fn parse_regex_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec<u8>) -> &'a [u8] {
     unescape_regex_literal(lit, buf);
     arena.alloc_bytes(&buf[..])
@@ -639,6 +728,7 @@ impl<'a> Tokenizer<'a> {
             &self.prev_tok,
             Some(Tok::Ident(_))
                 | Some(Tok::StrLit(_))
+                | Some(Tok::FStrLit(_))
                 | Some(Tok::PatLit(_))
                 | Some(Tok::ILit(_))
                 | Some(Tok::HexLit(_))
@@ -756,6 +846,12 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                     self.cur = new_start;
                     self.spanned(ix, new_start, Tok::PatLit(re))
+                }
+                'f' if self.text.as_bytes().get(ix + 1) == Some(&b'"') => {
+                    self.cur += 2;
+                    let (s, new_start) = try_tok!(self.string_lit());
+                    self.cur = new_start;
+                    self.spanned(ix, new_start, Tok::FStrLit(s))
                 }
                 c => {
                     if let Some((tok, len)) = self.fundec() {

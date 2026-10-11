@@ -25,6 +25,8 @@ Features:
   prints them, e.g. `zawk '$1,$3'` is `zawk '{ print $1,$3 }'`. A single field such as `zawk '$2'` keeps the
   standard awk meaning (print records whose `$2` is non-empty/non-zero).
 * awk file help support
+* String interpolation with f-strings: `f"SELECT * FROM {table} WHERE id = {$1}"` substitutes variables and fields
+  (`{name}`, `{NR}`, `{$1}`, `{$NF}`); `{{` and `}}` are literal braces. Expressions and format specs are not supported.
 
 The info subdirectory has more in-depth information on zawk:
 

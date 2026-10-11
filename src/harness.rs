@@ -1372,6 +1372,25 @@ this as well"#
         @input "aboba\n"
     );
 
+    test_program!(
+        fstring_vars,
+        r#"BEGIN { name = "world"; n = 3; print f"Hello, {name}! n={ n } {{x}} {x+1} {}" }"#,
+        "Hello, world! n=3 {x} {x+1} {}\n"
+    );
+
+    test_program!(
+        fstring_fields,
+        r#"{ print f"{$1}-{$NF} NR={NR}\t\"{$0}\"" }"#,
+        "a-c NR=1\t\"a b c\"\n",
+        @input "a b c\n"
+    );
+
+    test_program!(
+        fstring_is_string,
+        r#"BEGIN { x = 5; y = f"{x}"; print length(y), f"" "z", f"plain" }"#,
+        "1 z plain\n"
+    );
+
     test_program!(map_global_var, r#"
 BEGIN {
 	unused_string_map["a"] = "abc"
