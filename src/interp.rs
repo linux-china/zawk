@@ -1810,7 +1810,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         if r == 0.0 {
                             return Err(CompileError("division by zero attempted in `%'".into()));
                         }
-                        *self.get_mut(res) = l % r;
+                        *self.get_mut(res) = runtime::math_util::fmod(l, r);
                     }
                     Div(res, l, r) => {
                         let res = *res;

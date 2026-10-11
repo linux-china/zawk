@@ -10,6 +10,19 @@ use std::hash::Hash;
 use crate::runtime::{Float, Int, IntMap, SharedMap, Str, StrMap};
 use crate::runtime::compare::looks_numeric;
 
+/// Floating point remainder (the result has the sign of `x`, as with C's `fmod`). Integral
+/// operands, the common case (`$1 % 100`), use integer division, which is much faster than `fmod`.
+#[inline]
+pub(crate) fn fmod(x: Float, y: Float) -> Float {
+    const LIMIT: Float = 9007199254740992.0; // 2^53
+    if x == x.trunc() && y == y.trunc() && x.abs() < LIMIT && y.abs() < LIMIT && y != 0.0 {
+        let r = ((x as Int) % (y as Int)) as Float;
+        // Keep the sign of a zero result, as fmod does: -4 % 2 is -0.
+        return if r == 0.0 { r.copysign(x) } else { r };
+    }
+    x % y
+}
+
 pub fn min(first: &str, second: &str, third: &str) -> String {
     pick(first, second, third, Ordering::Less)
 }

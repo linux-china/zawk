@@ -3466,7 +3466,7 @@ pub(crate) unsafe extern "C" fn _frawk_pow(x: Float, y: Float) -> Float {
 
 pub(crate) unsafe extern "C" fn _frawk_fprem(x: Float, y: Float) -> Float {
     guard_panic(stringify!(_frawk_fprem), || {
-        x % y
+        math_util::fmod(x, y)
     })
 }
 

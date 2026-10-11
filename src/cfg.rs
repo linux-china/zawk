@@ -1249,6 +1249,38 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if !valid_lhs(x) {
                     return err!("invalid operand for increment operation {:?}", x);
                 };
+                if let (true, Index(arr, ix)) = (*is_post, x) {
+                    // Evaluate the array and the subscript once: the subscript may have side
+                    // effects (`a[i++]++`) or be expensive to compute (`a[$1 % 100]++`).
+                    let (next, arr_e) = self.convert_expr(arr, current_open)?;
+                    let arr_v = self.to_val(arr_e, next)?;
+                    let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+                    // The value of `a[k]++` is the old value as a number: 0 if it was "v".
+                    let cell = self.to_val(PrimExpr::Index(arr_v.clone(), ix_v.clone()), next)?;
+                    let old = self.fresh_local();
+                    self.add_stmt(
+                        next,
+                        PrimStmt::AsgnVar(
+                            old,
+                            PrimExpr::CallBuiltin(
+                                builtins::Function::Unop(ast::Unop::Pos),
+                                smallvec![cell],
+                            ),
+                        ),
+                    )?;
+                    let by = PrimVal::ILit(if *is_inc { 1 } else { -1 });
+                    self.add_stmt(
+                        next,
+                        PrimStmt::AsgnVar(
+                            Ident::unused(),
+                            PrimExpr::CallBuiltin(
+                                builtins::Function::IncMap,
+                                smallvec![arr_v, ix_v, by],
+                            ),
+                        ),
+                    )?;
+                    return Ok((next, PrimExpr::Val(PrimVal::Var(old))));
+                }
                 let (next, pre) = if *is_post {
                     // The value of `x++` is the old value of x as a number: 0 if x was "v".
                     let (next, e) =
