@@ -876,8 +876,9 @@ impl<'a> Typer<'a> {
     }
 
     /// Compare string operands that cannot be strnums as plain strings, test the truth of strings
-    /// that cannot be strnums by their emptiness alone, and parse the arguments of strtonum() that
-    /// cannot be strnums by their octal and hexadecimal prefixes.
+    /// that cannot be strnums by their emptiness alone, parse the arguments of strtonum() that
+    /// cannot be strnums by their octal and hexadecimal prefixes, and format (s)printf arguments
+    /// that cannot be strnums as strings.
     fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
         use crate::bytecode::Accum;
         use runtime::compare::StrKind;
@@ -914,6 +915,15 @@ impl<'a> Typer<'a> {
                                 if *strnum { StrKind::Strnum } else { StrKind::Str };
                             refine(&mut kind, text.reflect().0);
                             *strnum = kind == StrKind::Strnum;
+                        }
+                        Either::Left(LL::Printf { args, strnum, .. })
+                        | Either::Left(LL::Sprintf { args, strnum, .. }) => {
+                            for ((reg, _), strnum) in args.iter().zip(strnum.iter_mut()) {
+                                let mut kind =
+                                    if *strnum { StrKind::Strnum } else { StrKind::Str };
+                                refine(&mut kind, *reg);
+                                *strnum = kind == StrKind::Strnum;
+                            }
                         }
                         _ => {}
                     }
@@ -3094,11 +3104,14 @@ impl<'a, 'b> View<'a, 'b> {
                 for a in args {
                     arg_regs.push(self.get_reg(a)?);
                 }
+                // String arguments may be strnums until refined by the strnum analysis.
+                let strnum: Vec<bool> = arg_regs.iter().map(|(_, ty)| *ty == Ty::Str).collect();
                 if let Ty::Str = dst_ty {
                     self.pushl(Sprintf {
                         dst: dst_reg.into(),
                         fmt: fmt_reg.into(),
                         args: arg_regs,
+                        strnum,
                     });
                 } else {
                     let reg = self.regs.stats.reg_of_ty(Ty::Str);
@@ -3106,6 +3119,7 @@ impl<'a, 'b> View<'a, 'b> {
                         dst: reg.into(),
                         fmt: fmt_reg.into(),
                         args: arg_regs,
+                        strnum,
                     });
                     self.convert(dst_reg, dst_ty, reg, Ty::Str)?;
                 }
@@ -3328,6 +3342,8 @@ impl<'a, 'b> View<'a, 'b> {
                 for a in args {
                     arg_regs.push(self.get_reg(a)?);
                 }
+                // String arguments may be strnums until refined by the strnum analysis.
+                let strnum: Vec<bool> = arg_regs.iter().map(|(_, ty)| *ty == Ty::Str).collect();
                 let out_reg = if let Some((out, append)) = out {
                     let (mut out_reg, out_ty) = self.get_reg(out)?;
                     out_reg = self.ensure_ty(out_reg, out_ty, Ty::Str)?;
@@ -3339,6 +3355,7 @@ impl<'a, 'b> View<'a, 'b> {
                     output: out_reg,
                     fmt: fmt_reg.into(),
                     args: arg_regs,
+                    strnum,
                 });
             }
             PrimStmt::IterDrop(v) => {

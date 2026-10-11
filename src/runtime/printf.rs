@@ -5,6 +5,7 @@
 //! library's `snprintf` (with a format we build, so it is always well-formed); `%s` and `%c` are
 //! formatted here, counting UTF-8 characters for widths and precisions, as gawk does.
 use crate::common::Result;
+use crate::runtime::compare::looks_numeric;
 use crate::runtime::{convert, Float, Int, Str};
 
 use std::fmt;
@@ -14,6 +15,9 @@ use std::str;
 #[derive(Clone, Debug)]
 pub(crate) enum FormatArg<'a> {
     S(Str<'a>),
+    // A string that may be a strnum (e.g. a field): `%c` formats it as a number if it looks like
+    // one.
+    Strnum(Str<'a>),
     F(Float),
     I(Int),
     Null,
@@ -53,7 +57,7 @@ impl<'a> FormatArg<'a> {
     fn to_float(&self) -> f64 {
         use FormatArg::*;
         match self {
-            S(s) => convert::<_, f64>(s),
+            S(s) | Strnum(s) => convert::<_, f64>(s),
             F(f) => *f,
             I(i) => convert::<_, f64>(*i),
             Null => 0.0,
@@ -62,7 +66,7 @@ impl<'a> FormatArg<'a> {
     fn to_int(&self) -> i64 {
         use FormatArg::*;
         match self {
-            S(s) => convert::<_, i64>(s),
+            S(s) | Strnum(s) => convert::<_, i64>(s),
             F(f) => convert::<_, i64>(*f),
             I(i) => *i,
             Null => 0,
@@ -71,7 +75,7 @@ impl<'a> FormatArg<'a> {
     fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         use FormatArg::*;
         let s: Str<'a> = match self {
-            S(s) => s.clone(),
+            S(s) | Strnum(s) => s.clone(),
             F(f) => convert::<_, Str>(*f),
             I(i) => convert::<_, Str>(*i),
             Null => return f(&[]),
@@ -312,20 +316,26 @@ fn process_spec(w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
         }
         b'c' => {
             let mut buf = [0u8; 4];
-            let bytes: Vec<u8> = match arg {
+            // A strnum that looks like a number counts as a number.
+            let code = match arg {
+                FormatArg::S(_) => None,
+                FormatArg::Strnum(s) => s.with_bytes(looks_numeric).map(|f| f as i64),
+                _ => Some(arg.to_int()),
+            };
+            let bytes: Vec<u8> = match code {
+                // A number: the character with that code.
+                Some(code) => match char::from_u32(code as u32) {
+                    Some(c) => c.encode_utf8(&mut buf).as_bytes().to_vec(),
+                    None => vec![code as u8],
+                },
                 // A string: its first character (a NUL byte for an empty string, as in gawk).
-                FormatArg::S(_) => arg.with_bytes(|bs| {
+                None => arg.with_bytes(|bs| {
                     if bs.is_empty() {
                         vec![0]
                     } else {
                         take_chars(bs, 1).to_vec()
                     }
                 }),
-                // A number: the character with that code.
-                _ => match char::from_u32(arg.to_int() as u32) {
-                    Some(c) => c.encode_utf8(&mut buf).as_bytes().to_vec(),
-                    None => vec![arg.to_int() as u8],
-                },
             };
             spec.pad(w, &bytes, 1)
         }

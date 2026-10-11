@@ -1,6 +1,5 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
-use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
 use std::time::SystemTime;
 
@@ -31,23 +30,102 @@ pub const STRFTIME_NOW: Int = Int::MIN;
 pub const STRFTIME_UTC: Int = 1;
 pub const STRFTIME_PROCINFO_FORMAT: Int = 2;
 
-/// Format a unix timestamp as local date time, falling back to [`DEFAULT_STRFTIME_FORMAT`] for an invalid format.
+/// Format a unix timestamp as local date time. Unknown conversions are output as is, and a
+/// timestamp out of range gives an empty string, as in gawk.
 pub fn strftime(format: &str, timestamp: i64) -> String {
     strftime_tz(format, timestamp, false)
 }
 
+/// `strftime` with the C library, which knows time zone abbreviations (`%Z`), the `E`/`O`
+/// modifiers and the platform's other extensions.
+#[cfg(unix)]
 fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
-    let format = if StrftimeItems::new(format).any(|item| item == Item::Error) {
-        DEFAULT_STRFTIME_FORMAT
-    } else {
-        format
-    };
-    if utc {
-        let date_time: DateTime<Utc> = DateTime::from_timestamp(timestamp, 0).unwrap_or_default();
-        date_time.format(format).to_string()
-    } else {
-        local_date_time(timestamp).format(format).to_string()
+    use std::sync::Once;
+    unsafe extern "C" {
+        fn tzset();
     }
+    static TZSET: Once = Once::new();
+    // time_t is 32-bit on some platforms
+    #[allow(irrefutable_let_patterns)]
+    let Ok(time) = libc::time_t::try_from(timestamp) else {
+        return String::new();
+    };
+    // the format stops at an embedded NUL, as in C
+    let format = format.split('\0').next().unwrap_or_default();
+    if format.is_empty() {
+        return String::new();
+    }
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let tm_ptr = unsafe {
+        if utc {
+            libc::gmtime_r(&time, &mut tm)
+        } else {
+            TZSET.call_once(|| tzset());
+            libc::localtime_r(&time, &mut tm)
+        }
+    };
+    if tm_ptr.is_null() {
+        return String::new();
+    }
+    // a trailing space tells an empty result (e.g. `%p` in some locales) from a too small buffer
+    let Ok(c_format) = std::ffi::CString::new(format!("{format} ")) else {
+        return String::new();
+    };
+    let mut size = 128 + format.len() * 4;
+    while size <= 1 << 20 {
+        let mut buf = vec![0u8; size];
+        let len = unsafe { libc::strftime(buf.as_mut_ptr().cast(), size, c_format.as_ptr(), &tm) };
+        if len > 0 {
+            buf.truncate(len - 1);
+            return String::from_utf8_lossy(&buf).into_owned();
+        }
+        size *= 2;
+    }
+    String::new()
+}
+
+/// `strftime` with chrono: format item by item, so that an unknown conversion is output as is
+/// rather than failing the whole format.
+#[cfg(not(unix))]
+fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
+    use chrono::format::{Item, StrftimeItems};
+    use std::fmt::Write;
+    let Some(utc_date_time) = DateTime::from_timestamp(timestamp, 0) else {
+        return String::new();
+    };
+    let local_date_time = utc_date_time.with_timezone(&Local);
+    let mut text = String::new();
+    let mut rest = format;
+    while !rest.is_empty() {
+        // a literal run, or one conversion with its flags/modifiers
+        let len = match rest.find('%') {
+            Some(0) => {
+                let spec = &rest[1..];
+                let skip = spec
+                    .find(|c: char| !matches!(c, '-' | '_' | '0' | '^' | '#' | ':' | '.' | '1'..='9' | 'E' | 'O'))
+                    .unwrap_or(spec.len());
+                1 + skip + spec[skip..].chars().next().map_or(0, char::len_utf8)
+            }
+            Some(n) => n,
+            None => rest.len(),
+        };
+        let item = &rest[..len];
+        rest = &rest[len..];
+        // chrono does not know the E/O modifiers: drop them
+        let item_format = if item.starts_with('%') {
+            item.replace(['E', 'O'], "")
+        } else {
+            item.to_string()
+        };
+        if StrftimeItems::new(&item_format).any(|item| item == Item::Error) {
+            text.push_str(item);
+        } else if utc {
+            let _ = write!(text, "{}", utc_date_time.format(&item_format));
+        } else {
+            let _ = write!(text, "{}", local_date_time.format(&item_format));
+        }
+    }
+    text
 }
 
 /// awk's `strftime(format, timestamp, utc)`, with the arguments filled in by the compiler: the
@@ -218,7 +296,17 @@ mod tests {
 
     #[test]
     fn test_strftime_invalid_format() {
-        assert_eq!(strftime("%Q", 0), strftime(DEFAULT_STRFTIME_FORMAT, 0));
+        // an unknown conversion is output as is: `Q` (BSD) or `%Q` (glibc)
+        let text = strftime_tz("%Y-%Q", 0, true);
+        assert!(text == "1970-Q" || text == "1970-%Q", "{text}");
+        // out of range timestamp
+        assert_eq!(strftime("%Y", 1 << 62), "");
+    }
+
+    #[test]
+    fn test_strftime_utc() {
+        assert_eq!(strftime_tz("%Y-%m-%d %H:%M:%S", 1621530000, true), "2021-05-20 17:00:00");
+        assert_eq!(strftime_tz("%Ey/%Od", 1621530000, true), "21/20");
     }
 
     #[test]

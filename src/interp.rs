@@ -505,9 +505,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         &self.instrs
     }
 
-    fn format_arg(&self, (reg, ty): (NumTy, Ty)) -> Result<runtime::FormatArg<'a>> {
+    fn format_arg(&self, (reg, ty): (NumTy, Ty), strnum: bool) -> Result<runtime::FormatArg<'a>> {
         Ok(match ty {
-            Ty::Str => self.get(Reg::<Str<'a>>::from(reg)).clone().into(),
+            Ty::Str => {
+                let s = self.get(Reg::<Str<'a>>::from(reg)).clone();
+                if strnum {
+                    runtime::FormatArg::Strnum(s)
+                } else {
+                    s.into()
+                }
+            }
             Ty::Int => (*self.get(Reg::<Int>::from(reg))).into(),
             Ty::Float => (*self.get(Reg::<Float>::from(reg))).into(),
             Ty::Null => runtime::FormatArg::Null,
@@ -2218,10 +2225,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let flds = *flds;
                         *self.get_mut(flds) = res;
                     }
-                    Sprintf { dst, fmt, args } => {
+                    Sprintf { dst, fmt, args, strnum } => {
                         debug_assert_eq!(scratch.len(), 0);
-                        for a in args.iter() {
-                            scratch.push(self.format_arg(*a)?);
+                        for (a, strnum) in args.iter().zip(strnum.iter()) {
+                            scratch.push(self.format_arg(*a, *strnum)?);
                         }
                         let fmt_str = index(&self.strs, fmt);
                         let res = runtime::printf::format(fmt_str, &scratch[..])?;
@@ -2251,10 +2258,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             return Ok(0);
                         }
                     }
-                    Printf { output, fmt, args } => {
+                    Printf { output, fmt, args, strnum } => {
                         debug_assert_eq!(scratch.len(), 0);
-                        for a in args.iter() {
-                            scratch.push(self.format_arg(*a)?);
+                        for (a, strnum) in args.iter().zip(strnum.iter()) {
+                            scratch.push(self.format_arg(*a, *strnum)?);
                         }
                         let fmt_str = index(&self.strs, fmt);
                         // Format errors are fatal; write errors exit silently, as with print.

@@ -1114,6 +1114,7 @@ impl<'a> View<'a> {
     fn bundle_printf_args(
         &mut self,
         args: &[Ref],
+        strnum: &[bool],
     ) -> Result<(
         /* args */ StackSlot,
         /* types */ StackSlot,
@@ -1138,7 +1139,11 @@ impl<'a> View<'a> {
         for (ix, rf) in args.iter().cloned().enumerate() {
             let ix = ix as i32;
             let arg = self.get_val(rf)?;
-            let ty = self.builder.ins().iconst(types::I32, rf.1 as i64);
+            let mut ty_code = rf.1 as i64;
+            if strnum[ix as usize] {
+                ty_code |= intrinsics::STRNUM_ARG as i64;
+            }
+            let ty = self.builder.ins().iconst(types::I32, ty_code);
             self.builder
                 .ins()
                 .stack_store(void_ptr_ty, arg, arg_slot, ix * slot_size);
@@ -1437,8 +1442,9 @@ impl<'a> CodeGenerator for View<'a> {
         output: &Option<(StrReg, FileSpec)>,
         fmt: &StrReg,
         args: &[Ref],
+        strnum: &[bool],
     ) -> Result<()> {
-        let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args)?;
+        let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args, strnum)?;
 
         let rt = self.runtime_val();
         let ty = self.void_ptr_ty();
@@ -1462,8 +1468,14 @@ impl<'a> CodeGenerator for View<'a> {
         Ok(())
     }
 
-    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref]) -> Result<()> {
-        let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args)?;
+    fn sprintf(
+        &mut self,
+        dst: &StrReg,
+        fmt: &StrReg,
+        args: &[Ref],
+        strnum: &[bool],
+    ) -> Result<()> {
+        let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args, strnum)?;
 
         let rt = self.runtime_val();
         let ty = self.void_ptr_ty();

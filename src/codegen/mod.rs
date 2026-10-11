@@ -360,9 +360,11 @@ pub(crate) trait CodeGenerator: Backend {
         output: &Option<(StrReg, FileSpec)>,
         fmt: &StrReg,
         args: &[Ref],
+        strnum: &[bool],
     ) -> Result<()>;
 
-    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref]) -> Result<()>;
+    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref], strnum: &[bool])
+        -> Result<()>;
 
     fn print_all(&mut self, output: &Option<(StrReg, FileSpec)>, args: &[StrReg]) -> Result<()>;
 
@@ -1668,8 +1670,18 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(split_str), &mut [rt, tsv, arrv, patv])?;
                 self.bind_val(flds.reflect(), fldsv)
             }
-            Printf { output, fmt, args } => self.printf(output, fmt, &args[..]),
-            Sprintf { dst, fmt, args } => self.sprintf(dst, fmt, &args[..]),
+            Printf {
+                output,
+                fmt,
+                args,
+                strnum,
+            } => self.printf(output, fmt, &args[..], &strnum[..]),
+            Sprintf {
+                dst,
+                fmt,
+                args,
+                strnum,
+            } => self.sprintf(dst, fmt, &args[..], &strnum[..]),
             PrintAll { output, args } => self.print_all(output, &args[..]),
             Close(dst, file) => {
                 let rt = self.runtime_val();

@@ -170,7 +170,7 @@ impl<R: Read> RegexSplitter<R> {
             // Why this map invocation? Match objects hold a reference to the substring, which
             // makes it harder for us to call mutable methods like advance in the body, so just get
             // the start and end pointers.
-            match crate::runtime::awk_regex::find_at(pat, s, 0) {
+            match find_nonempty(pat, s) {
                 // We need this check in case the regex matches across a chunk boundary.
                 Some((start, end)) if end + self.reader.start < self.reader.end => {
                     // Valid offsets guaranteed by correctness of regex `find`.
@@ -245,6 +245,21 @@ impl<R: Read> RegexSplitter<R> {
     }
 }
 
+/// The leftmost non-empty (leftmost-longest) match of `pat` in `s`. Empty matches are never
+/// separators: otherwise a record separator such as `a*` or `b?` would match the empty string at
+/// the start of the input over and over again, yielding no records at all.
+fn find_nonempty(pat: &Regex, s: &[u8]) -> Option<(usize, usize)> {
+    let mut pos = 0;
+    while pos <= s.len() {
+        let (start, end) = crate::runtime::awk_regex::find_at(pat, s, pos)?;
+        if start < end {
+            return Some((start, end));
+        }
+        pos = start + 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     // need to benchmark batched splitting vs. regular splitting to get a feel for things.
@@ -296,6 +311,24 @@ mod tests {
             }
             panic!("lines do not match");
         }
+    }
+
+    #[test]
+    fn test_empty_matching_separator() {
+        let split = |re: &str, input: &str| {
+            let re = Regex::new(re).unwrap();
+            let c = Cursor::new(String::from(input));
+            let mut rdr = RegexSplitter::new(c, /*chunk_size=*/ 4, "", /*check_utf8=*/ false);
+            let mut lines = Vec::new();
+            while !rdr.reader.is_eof() {
+                lines.push(rdr.read_line_regex(&re).upcast().to_string());
+            }
+            lines
+        };
+        assert_eq!(split("a*", "xaaybz\n"), vec!["x", "ybz\n"]);
+        assert_eq!(split("b?", "xaaybz\n"), vec!["xaay", "z\n"]);
+        assert_eq!(split("x*", "xaaybz\n"), vec!["", "aaybz\n"]);
+        assert_eq!(split("q*", "xaaybz\n"), vec!["xaaybz\n"]);
     }
 
     #[test]

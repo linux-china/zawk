@@ -3190,6 +3190,9 @@ pub(crate) unsafe extern "C" fn drop_iter_str(iter: *mut U128, len: usize) {
     })
 }
 
+/// Set in a printf argument's type code when the (string) argument may be a strnum.
+pub(crate) const STRNUM_ARG: u32 = 1 << 16;
+
 unsafe fn wrap_args<'a>(
     _rt: &mut Runtime<'a>,
     args: *mut usize,
@@ -3199,6 +3202,8 @@ unsafe fn wrap_args<'a>(
     let mut format_args = SmallVec::with_capacity(num_args as usize);
     for i in 0..num_args {
         let ty_code = *tys.offset(i as isize);
+        let strnum = ty_code & STRNUM_ARG != 0;
+        let ty_code = ty_code & !STRNUM_ARG;
         let arg = *(args.offset(i as isize));
         let ty = if let Ok(ty) = Ty::try_from(ty_code) {
             ty
@@ -3212,7 +3217,14 @@ unsafe fn wrap_args<'a>(
         let typed_arg: FormatArg = match ty {
             Ty::Int => (arg as Int).into(),
             Ty::Float => Float::from_bits(arg as u64).into(),
-            Ty::Str => (*std::ptr::with_exposed_provenance::<Str>(arg)).clone().into(),
+            Ty::Str => {
+                let s = (*std::ptr::with_exposed_provenance::<Str>(arg)).clone();
+                if strnum {
+                    FormatArg::Strnum(s)
+                } else {
+                    s.into()
+                }
+            }
             Ty::Null => FormatArg::Null,
             _ => fail!(
                 _rt,

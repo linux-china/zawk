@@ -834,7 +834,7 @@ pub(crate) mod boilerplate {
                 f(arr.into(), Some(s.into()));
                 f(arr.into(), Some(pat.into()));
             }
-            Sprintf { dst, fmt, args } => {
+            Sprintf { dst, fmt, args, .. } => {
                 f(dst.into(), Some(fmt.into()));
                 for (reg, ty) in args.iter() {
                     f(dst.into(), Some(Key::Reg(*reg, *ty)));

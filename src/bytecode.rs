@@ -432,15 +432,19 @@ pub(crate) enum Instr<'a> {
         Reg<Str<'a>>,
         Reg<runtime::StrMap<'a, Str<'a>>>,
     ),
+    // `strnum[i]` is set when the string argument `args[i]` may be a strnum (see
+    // strnum_analysis), so that e.g. `%c` formats it as a number when it looks like one.
     Sprintf {
         dst: Reg<Str<'a>>,
         fmt: Reg<Str<'a>>,
         args: Vec<(NumTy, Ty)>,
+        strnum: Vec<bool>,
     },
     Printf {
         output: Option<(Reg<Str<'a>>, FileSpec)>,
         fmt: Reg<Str<'a>>,
         args: Vec<(NumTy, Ty)>,
+        strnum: Vec<bool>,
     },
     PrintAll {
         output: Option<(Reg<Str<'a>>, FileSpec)>,
@@ -1709,14 +1713,16 @@ impl<'a> Instr<'a> {
                 pat.accum(&mut f);
                 arr.accum(&mut f);
             }
-            Sprintf { dst, fmt, args } => {
+            Sprintf { dst, fmt, args, .. } => {
                 dst.accum(&mut f);
                 fmt.accum(&mut f);
                 for (reg, ty) in args.iter().cloned() {
                     f(reg, ty);
                 }
             }
-            Printf { output, fmt, args } => {
+            Printf {
+                output, fmt, args, ..
+            } => {
                 if let Some((path_reg, _)) = output {
                     path_reg.accum(&mut f);
                 }
