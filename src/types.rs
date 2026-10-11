@@ -276,7 +276,7 @@
 //! [Hindley-Milner]: https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 //! [`State`]: [crate::types::State]
 use crate::builtins;
-use crate::cfg::{self, Function, Ident, ProgramContext};
+use crate::cfg::{self, is_unused, Function, Ident, ProgramContext};
 use crate::common::{self, FileSpec, NodeIx, NumTy, Result};
 use crate::compile;
 use hashbrown::{HashMap, HashSet};
@@ -724,6 +724,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
 
         tc.solve()?;
         tc.check_builtin_args()?;
+        tc.check_ssa_kinds()?;
         let mut var_tys = HashMap::new();
         let mut func_tys = HashMap::new();
         for (Args { id, args, .. }, ix) in tc.funcs.iter() {
@@ -923,6 +924,35 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
                     return Err(self.kind_error(*arg, !ty.is_array()));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check that no variable is both an array and a scalar. Assigning to a scalar variable
+    /// introduces a new SSA version of it with its own type node, so `x[1] = 1; x = 2` does not
+    /// produce a conflict during solving: the two versions of `x` must be compared here.
+    fn check_ssa_kinds(&self) -> Result<()> {
+        let mut kinds: HashMap<(Ident, Option<NumTy>, &[State]), (Option<NodeIx>, bool)> =
+            HashMap::new();
+        for (Args { id, func_id, args }, ix) in self.env.iter() {
+            // The placeholder variable receives discarded values of every kind.
+            if is_unused(*id) {
+                continue;
+            }
+            let entry = kinds
+                .entry((id._base(), *func_id, &args[..]))
+                .or_insert((None, false));
+            match self.nw.read(*ix) {
+                Some(TVar::Map { .. }) => entry.0 = Some(*ix),
+                // Versions that are never assigned a value (e.g. the initial one) stay null.
+                Some(TVar::Scalar(Some(b))) if *b != BaseTy::Null => entry.1 = true,
+                _ => {}
+            }
+        }
+        for (map_ix, has_scalar) in kinds.values() {
+            if let (Some(ix), true) = (map_ix, has_scalar) {
+                return Err(self.kind_error(*ix, false));
             }
         }
         Ok(())

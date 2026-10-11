@@ -1602,6 +1602,16 @@ fn array_scalar_errors_name_the_variable() {
     );
     assert_fatal("BEGIN { x[1] = 1; print x }", "attempt to use array `x` in a scalar context");
     assert_fatal("BEGIN { x = 1; x[1] = 2 }", "attempt to use scalar `x` as an array");
+    // Assigning a scalar to an array variable.
+    assert_fatal("BEGIN { x[1] = 1; x = 2; print x }", "attempt to use array `x` in a scalar context");
+    assert_fatal(
+        r#"BEGIN { split("a", x); y = "s"; x = y }"#,
+        "attempt to use array `x` in a scalar context",
+    );
+    assert_fatal(
+        "function f(a) { a[1] = 1; a = 3 } BEGIN { f(z) }",
+        "attempt to use array `a` (parameter of function `f`) in a scalar context",
+    );
     assert_fatal(
         "BEGIN { print seq(1, 10) }",
         "attempt to use array returned by `seq()` in a scalar context",

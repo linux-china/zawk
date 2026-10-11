@@ -140,20 +140,20 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
 // comparison (gawk reads `getline x < f ".txt"` as `(getline x < f) ".txt"`; zawk reads the file
 // `f ".txt"`).
 GetlineFile: &'a Expr<'a, 'a, &'a str> = {
-    "getline" <into:BaseTerm?> "<" <from:PrecCat> =>
+    "getline" <into:PrecFieldRef?> "<" <from:PrecCat> =>
       arena.alloc(Expr::Getline{into, from: Some(from), is_file: true}),
 }
 
 // `getline [var]` reads the main input. It is not the left operand of `<` or `<=`, where `<` is an
 // input redirection.
 GetlinePlain: &'a Expr<'a, 'a, &'a str> = {
-    "getline" <into:BaseTerm?> =>
+    "getline" <into:PrecFieldRef?> =>
       arena.alloc(Expr::Getline{into, from: None, is_file: true}),
 }
 
 // `cmd | getline [var]`.
 GetlineCmd: &'a Expr<'a, 'a, &'a str> = {
-    <from:PrecCat> "|" "getline" <into:BaseTerm?> =>
+    <from:PrecCat> "|" "getline" <into:PrecFieldRef?> =>
       arena.alloc(Expr::Getline{into, from: Some(from), is_file: false}),
 }
 
