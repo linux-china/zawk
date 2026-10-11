@@ -25,6 +25,11 @@ pub(crate) struct Uninit<I> {
     pub vars: HashMap<I, I>,
     /// Tracked global arrays: their missing elements read as "" where a string is expected.
     pub maps: HashSet<I>,
+    /// Variables read as a value somewhere (other than by `typeof`, `isarray` or as an argument
+    /// of a user-defined function), keyed by the function they are a parameter of (`None` for
+    /// globals). gawk's `typeof` reports a variable that was never read as "untyped" rather
+    /// than "unassigned"; zawk approximates "before the call" with "anywhere in the program".
+    pub scalar_refs: HashSet<(Option<I>, I)>,
 }
 
 impl<I> Default for Uninit<I> {
@@ -32,6 +37,7 @@ impl<I> Default for Uninit<I> {
         Uninit {
             vars: Default::default(),
             maps: Default::default(),
+            scalar_refs: Default::default(),
         }
     }
 }
@@ -96,6 +102,9 @@ struct Analysis<'a, 'b, I> {
     str_maps: HashSet<I>,
     // Assignments of possibly non-numeric values, with the parameters in scope.
     assigns: Vec<(Target<I>, &'a Expr<'a, 'b, I>, &'a [I])>,
+    // The function being analyzed (`None` for the main program), and the variables read so far.
+    cur_fn: Option<I>,
+    scalar_refs: HashSet<(Option<I>, I)>,
 }
 
 impl<'a, 'b, I> Analysis<'a, 'b, I>
@@ -181,6 +190,11 @@ where
         }
     }
 
+    fn scalar_ref(&mut self, i: &I, params: &[I]) {
+        let func = if params.contains(i) { self.cur_fn.clone() } else { None };
+        self.scalar_refs.insert((func, i.clone()));
+    }
+
     fn expr(&mut self, e: &'a Expr<'a, 'b, I>, params: &'a [I]) {
         use Expr::*;
         let (l, r) = string_operands(e);
@@ -188,7 +202,8 @@ where
             self.string_read(operand, params);
         }
         match e {
-            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Var(_) | Cond(_) | ReadStdin => {}
+            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Cond(_) | ReadStdin => {}
+            Var(i) => self.scalar_ref(i, params),
             Unop(_, e) => self.expr(e, params),
             Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) => {
                 self.expr(l, params);
@@ -235,13 +250,23 @@ where
                     bi,
                     Some(Function::Length | Function::Contains | Function::Delete | Function::Clear)
                 );
+                // typeof, isarray and user-defined functions do not read a variable passed to them
+                // (in gawk it stays "untyped").
+                let inspects = match f {
+                    Either::Left(name) => self.udfs.contains(name),
+                    Either::Right(_) => false,
+                } || matches!(bi, Some(Function::TypeOfVariable | Function::IsArray));
                 for a in args.iter() {
                     if !keeps_arrays {
                         if let Some(m) = self.global_var(a, params) {
                             self.bad_maps.insert(m);
                         }
                     }
-                    self.expr(a, params);
+                    match a {
+                        Var(_) if inspects => {}
+                        Index(Var(_), ix) if inspects => self.expr(ix, params),
+                        _ => self.expr(a, params),
+                    }
                 }
             }
         }
@@ -363,10 +388,14 @@ where
         bad_maps: Default::default(),
         str_maps: Default::default(),
         assigns: Default::default(),
+        cur_fn: None,
+        scalar_refs: Default::default(),
     };
     for dec in decs.iter() {
+        a.cur_fn = Some(dec.name.clone());
         a.stmt(dec.body, &dec.args[..]);
     }
+    a.cur_fn = None;
     for s in main.iter() {
         a.stmt(s, &[]);
     }
@@ -386,5 +415,9 @@ where
         .filter(|m| a.str_maps.contains(*m) && !a.bad_maps.contains(*m))
         .cloned()
         .collect();
-    Uninit { vars, maps }
+    Uninit {
+        vars,
+        maps,
+        scalar_refs: a.scalar_refs,
+    }
 }

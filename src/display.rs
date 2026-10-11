@@ -297,7 +297,7 @@ impl Display for Function {
             JevProb => write!(f, "jev_prob"),
             JevChoice => write!(f, "jev_choice"),
             JevScore => write!(f, "jev_score"),
-            TypeOfVariable => write!(f, "typeof"),
+            TypeOfVariable | TypeOfUntyped => write!(f, "typeof"),
             IsArray => write!(f, "isarray"),
             IsInt => write!(f, "isint"),
             IsNum => write!(f, "isnum"),

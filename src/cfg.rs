@@ -1657,6 +1657,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
     }
 
+    /// Whether the variable `x` is read as a value somewhere (see the `uninit` module).
+    fn scalar_referenced(&self, x: &I) -> bool {
+        let func = match &self.f.name {
+            FunctionName::Named(name) if self.f.args_map.contains_key(x) => Some(name.clone()),
+            _ => None,
+        };
+        self.ctx.uninit.scalar_refs.contains(&(func, x.clone()))
+    }
+
     /// Whether `e` reads an element of a tracked array.
     fn uninit_map_elem<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
         match e {
@@ -2182,6 +2191,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 &[&Expr::Unop(Unop::Column, &Expr::ILit(0))],
             );
         }
+        // typeof(x) of a variable that is never read anywhere: "untyped", as in gawk.
+        let bi = match (bi, args) {
+            (Either::Right(builtins::Function::TypeOfVariable), [Expr::Var(x) | Expr::Index(Expr::Var(x), _)])
+            if !self.scalar_referenced(x) =>
+                {
+                    Either::Right(builtins::Function::TypeOfUntyped)
+                }
+            (bi, _) => bi,
+        };
         let mut prim_args = SmallVec::with_capacity(args.len());
         let mut open = current_open;
         // The second argument of these is an array subscript.

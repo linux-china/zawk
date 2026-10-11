@@ -195,6 +195,9 @@ pub enum Function {
     IntMapJoin,
     Uniq,
     TypeOfVariable,
+    // typeof() of a variable that is never read: "untyped" rather than "unassigned" when it is
+    // also never assigned (see the `uninit` module).
+    TypeOfUntyped,
     IsArray,
     IsInt,
     IsNum,
@@ -930,7 +933,7 @@ impl Function {
             JevProb => (smallvec![Str, Str], Float),
             JevChoice => (smallvec![Str, Str, Str], Str),
             JevScore => (smallvec![Str, Str, Str], Float),
-            TypeOfVariable => (smallvec![incoming[0]], Str),
+            TypeOfVariable | TypeOfUntyped => (smallvec![incoming[0]], Str),
             IsArray => (smallvec![incoming[0]], Int),
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
@@ -993,7 +996,7 @@ impl Function {
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | System2 | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             MatchArr => 3,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -1107,7 +1110,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | TypeOfUntyped | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Chars => Ok(Map {

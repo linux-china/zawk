@@ -2818,7 +2818,7 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Fake(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
-            TypeOfVariable => {
+            TypeOfVariable | TypeOfUntyped => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
                         MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
@@ -2835,6 +2835,9 @@ impl<'a, 'b> View<'a, 'b> {
                             self.pushl(LL::TypeOfString(
                                 res_reg.into(),
                             ))
+                        }
+                        _ if *bf == TypeOfUntyped => {
+                            self.pushl(LL::StoreConstStr(res_reg.into(), Str::from("untyped").into()))
                         }
                         _ => {
                             self.pushl(LL::TypeOfUnassigned(
