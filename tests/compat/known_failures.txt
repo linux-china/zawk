@@ -3,7 +3,6 @@
 
 # records and fields
 01-assign-argument                    # `var=value` operands are treated as file names
-04-gsub-field                         # gsub() on a field without any match still rebuilds $0 with OFS
 
 # grammar and expressions
 03-string-to-number                   # hexadecimal input such as "0x1A" converts to 26 instead of 0

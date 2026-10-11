@@ -2439,8 +2439,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // We allocate fresh variables for the initial value of the assignee
                     // and the result of the call to (g)sub.
                     //
-                    // We do the computation, then we assign the substituted string to the
-                    // assignee expression, yielding the saved result.
+                    // We do the computation, then assign the substituted string back to the
+                    // assignee expression only if a substitution happened, yielding the saved
+                    // result. Writing back unconditionally would rebuild $0 (with OFS) even
+                    // when nothing matched.
                     let to_set = self.fresh_local();
                     let res = self.fresh_local();
                     let last_arg = mem::replace(&mut prim_args[2], PrimVal::Var(to_set));
@@ -2451,19 +2453,24 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         PrimStmt::AsgnVar(res, PrimExpr::CallBuiltin(bi, prim_args)),
                     )?;
                     let to_set_var = PrimExpr::Val(PrimVal::Var(to_set));
-                    let (next, _) = match assignee {
-                        Expr::Unop(_, _) => self.do_assign(assignee, |_| to_set_var, open),
+                    let set = self.f.cfg.add_node(Default::default());
+                    let next = self.f.cfg.add_node(Default::default());
+                    self.f.cfg.add_edge(open, set, Transition::new(PrimVal::Var(res)));
+                    self.f.cfg.add_edge(open, next, Transition::null());
+                    let (set_end, _) = match assignee {
+                        Expr::Unop(_, _) => self.do_assign(assignee, |_| to_set_var, set),
                         Expr::Index(arr, ix) => self.do_assign_index(
                             arr,
                             ix,
                             |_, _, _, open| Ok((open, to_set_var.clone())),
-                            open,
+                            set,
                         ),
                         _ => err!(
                             "invalid operand for substitution {:?} (must be assignable)",
                             assignee
                         ),
                     }?;
+                    self.f.cfg.add_edge(set_end, next, Transition::null());
                     return Ok((next, PrimExpr::Val(PrimVal::Var(res))));
                 }
 
