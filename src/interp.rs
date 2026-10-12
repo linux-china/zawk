@@ -2439,7 +2439,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         self.core.vars.store_strstrmap(*var, s)?;
                     }
 
-                    IterBegin { map_ty, map, dst } => self.iter_begin(*map_ty, *map, *dst),
+                    IterBegin { map_ty, map, dst } => self.iter_begin(*map_ty, *map, *dst)?,
                     IterHasNext { iter_ty, dst, iter } => self.iter_has_next(*iter_ty, *dst, *iter),
                     IterGetNext { iter_ty, dst, iter } => self.iter_get_next(*iter_ty, *dst, *iter),
 
@@ -2681,13 +2681,15 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         let len = map_regs!(map_ty, map, self.get(map).len() as Int);
         *index_mut(&mut self.ints, &dst.into()) = len;
     }
-    fn iter_begin(&mut self, map_ty: Ty, map: NumTy, dst: NumTy) {
+    fn iter_begin(&mut self, map_ty: Ty, map: NumTy, dst: NumTy) -> Result<()> {
+        let order = runtime::sorted_in::SortedIn::from_procinfo(&self.core.vars.procinfo)?;
         let _k = 0u32;
         let _v = 0u32;
         map_regs!(map_ty, map, _k, _v, dst, {
-            let iter = self.get(map).to_iter();
+            let iter = runtime::sorted_in::sorted_keys(self.get(map), order).into_iter().collect();
             *self.get_mut(dst) = iter;
-        })
+        });
+        Ok(())
     }
     fn iter_has_next(&mut self, iter_ty: Ty, dst: NumTy, iter: NumTy) {
         match iter_ty {

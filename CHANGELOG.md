@@ -6,6 +6,7 @@
 * Fix `-H` with several input files: the header line of every file is skipped (it was read as data for all files but the first) and `FI` is rebuilt from it, so files with different column orders map correctly. Applies to `-i markdown` as well. With `-p`, `-H` and several files now run serially
 * A UTF-8 byte order mark at the start of an input (Excel's CSV export) is dropped, so the first column name of `-H` and the first JSON Lines record are read correctly
 * Fix stdlib functions printing non-UTF-8 text (GBK, Latin-1, binary) as a byte array like `[97, 98, 255]`: `trim()` and `truncate()` now keep invalid bytes as is, and other functions replace them with U+FFFD
+* Add `PROCINFO["sorted_in"]` support for `for (k in arr)`: all of gawk's predefined orders (`@ind_str_asc`, `@ind_num_desc`, `@val_num_asc`, `@val_type_desc`, ...). A user-defined comparison function is a fatal error instead of being silently ignored
 
 * Add f-string interpolation: `f"Hello, {name}"`, `f"{$1} at line {NR}"`. Only variable names and field references (`{$1}`, `{$NF}`) are substituted; `{{`/`}}` are literal braces
 * Add JSON Lines input format `-i jsonl` (alias `ndjson`): keys of the first record populate `FI`, e.g. `zawk -i jsonl '{ print $FI["name"] }' demo.jsonl`

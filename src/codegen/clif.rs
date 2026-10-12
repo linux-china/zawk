@@ -1552,7 +1552,8 @@ impl<'a> CodeGenerator for View<'a> {
         let key_ty = self.get_ty(dst.1.iter()?);
         let map = self.get_val(map)?;
         let IterState { bytes, cur, base } = self.get_iter(dst)?;
-        let ptr = self.call_external(begin_fn, &[map]);
+        let rt = self.runtime_val();
+        let ptr = self.call_external(begin_fn, &[rt, map]);
         let map_len = self.call_external(len_fn, &[map]);
         let total_bytes = self.mul_by_type_size(key_ty, map_len)?;
         let zero = self.const_int(0);

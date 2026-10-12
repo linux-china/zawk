@@ -30,6 +30,7 @@ pub mod encoding;
 pub mod crypto;
 pub mod str_escape;
 pub mod math_util;
+pub(crate) mod sorted_in;
 
 pub mod json;
 pub mod network;
@@ -1149,9 +1150,6 @@ impl<'a> StrMap<'a, Str<'a>> {
 }
 
 impl<K: Hash + Eq + Clone, V> SharedMap<K, V> {
-    pub(crate) fn to_iter(&self) -> Iter<K> {
-        self.0.borrow().keys().cloned().collect()
-    }
     pub(crate) fn to_vec(&self) -> Vec<K> {
         self.0.borrow().keys().cloned().collect()
     }

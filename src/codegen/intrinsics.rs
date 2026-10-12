@@ -397,7 +397,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         drop_iter_str(iter_str_ty, int_ty);
 
         alloc_intint() -> map_ty;
-        iter_intint(map_ty) -> iter_int_ty;
+        iter_intint(rt_ty, map_ty) -> iter_int_ty;
         [ReadOnly] len_intint(map_ty) -> int_ty;
         [ReadOnly] lookup_intint(map_ty, int_ty) -> int_ty;
         [ReadOnly] contains_intint(map_ty, int_ty) -> int_ty;
@@ -409,7 +409,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         inc_float_intint(map_ty, int_ty, float_ty) -> int_ty;
 
         alloc_intfloat() -> map_ty;
-        iter_intfloat(map_ty) -> iter_int_ty;
+        iter_intfloat(rt_ty, map_ty) -> iter_int_ty;
         [ReadOnly] len_intfloat(map_ty) -> int_ty;
         [ReadOnly] lookup_intfloat(map_ty, int_ty) -> float_ty;
         [ReadOnly] contains_intfloat(map_ty, int_ty) -> int_ty;
@@ -421,7 +421,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         inc_float_intfloat(map_ty, int_ty, float_ty) -> float_ty;
 
         alloc_intstr() -> map_ty;
-        iter_intstr(map_ty) -> iter_int_ty;
+        iter_intstr(rt_ty, map_ty) -> iter_int_ty;
         [ReadOnly] len_intstr(map_ty) -> int_ty;
         [ReadOnly] lookup_intstr(map_ty, int_ty) -> str_ty;
         [ReadOnly] contains_intstr(map_ty, int_ty) -> int_ty;
@@ -433,7 +433,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         inc_float_intstr(map_ty, int_ty, float_ty) -> str_ty;
 
         alloc_strint() -> map_ty;
-        iter_strint(map_ty) -> iter_str_ty;
+        iter_strint(rt_ty, map_ty) -> iter_str_ty;
         [ReadOnly] len_strint(map_ty) -> int_ty;
         [ReadOnly] lookup_strint(map_ty, str_ref_ty) -> int_ty;
         [ReadOnly] contains_strint(map_ty, str_ref_ty) -> int_ty;
@@ -445,7 +445,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         inc_float_strint(map_ty, str_ref_ty, float_ty) -> int_ty;
 
         alloc_strfloat() -> map_ty;
-        iter_strfloat(map_ty) -> iter_str_ty;
+        iter_strfloat(rt_ty, map_ty) -> iter_str_ty;
         [ReadOnly] len_strfloat(map_ty) -> int_ty;
         [ReadOnly] lookup_strfloat(map_ty, str_ref_ty) -> float_ty;
         [ReadOnly] contains_strfloat(map_ty, str_ref_ty) -> int_ty;
@@ -457,7 +457,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         inc_float_strfloat(map_ty, str_ref_ty, float_ty) -> float_ty;
 
         alloc_strstr() -> map_ty;
-        iter_strstr(map_ty) -> iter_str_ty;
+        iter_strstr(rt_ty, map_ty) -> iter_str_ty;
         [ReadOnly] len_strstr(map_ty) -> int_ty;
         [ReadOnly] lookup_strstr(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] contains_strstr(map_ty, str_ref_ty) -> int_ty;
@@ -3618,11 +3618,15 @@ macro_rules! map_impl {
                 })
             }
 
-            pub(crate) unsafe extern "C" fn [< iter_ $ty >](map: *mut c_void) -> iter_ty!($k) {
+            pub(crate) unsafe extern "C" fn [< iter_ $ty >](rt: *mut c_void, map: *mut c_void) -> iter_ty!($k) {
                 guard_panic(stringify!([< iter_ $ty >]), || {
                     debug_assert!(!map.is_null());
+                    let order = try_abort!(
+                        rt,
+                        runtime::sorted_in::SortedIn::from_procinfo(&(*(rt as *mut Runtime)).core.vars.procinfo)
+                    );
                     let map = mem::transmute::<*mut c_void, runtime::SharedMap<$k, $v>>(map);
-                    let iter: Vec<_> = map.to_vec();
+                    let iter: Vec<_> = runtime::sorted_in::sorted_keys(&map, order);
                     mem::forget(map);
                     let b = iter.into_boxed_slice();
                     Box::into_raw(b) as _

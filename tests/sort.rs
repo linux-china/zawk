@@ -66,3 +66,50 @@ fn sort_command_multi_threaded() {
             .stdout(expected.clone());
     }
 }
+
+#[test]
+fn procinfo_sorted_in() {
+    let input = "b 2\na 5\nc 1\n10 4\n9 3\n";
+    let cases: &[(&str, &str)] = &[
+        ("@ind_str_asc", "10 4\n9 3\na 5\nb 2\nc 1\n"),
+        ("@ind_str_desc", "c 1\nb 2\na 5\n9 3\n10 4\n"),
+        ("@ind_num_asc", "a 5\nb 2\nc 1\n9 3\n10 4\n"),
+        ("@ind_num_desc", "10 4\n9 3\nc 1\nb 2\na 5\n"),
+        ("@val_num_asc", "c 1\nb 2\n9 3\n10 4\na 5\n"),
+        ("@val_num_desc", "a 5\n10 4\n9 3\nb 2\nc 1\n"),
+        ("@val_str_asc", "c 1\nb 2\n9 3\n10 4\na 5\n"),
+        ("@val_type_desc", "a 5\n10 4\n9 3\nb 2\nc 1\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (order, expected) in cases {
+            let prog = format!(
+                r#"{{ c[$1] += $2 }} END {{ PROCINFO["sorted_in"] = "{}"; for (k in c) print k, c[k] }}"#,
+                order
+            );
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .arg(prog)
+                .write_stdin(input)
+                .assert()
+                .stdout(expected.to_string());
+        }
+        // Integer keys, and switching back to the default order.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"BEGIN { a[10]; a[9]; a[100]; PROCINFO["sorted_in"] = "@ind_str_asc"; for (k in a) printf "%s ", k; PROCINFO["sorted_in"] = "@ind_num_asc"; for (k in a) printf "%s ", k; delete PROCINFO["sorted_in"]; n = 0; for (k in a) n++; print n }"#)
+            .assert()
+            .stdout("10 100 9 9 10 100 3\n");
+        // User-defined comparison functions are not supported: fail instead of ignoring them.
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"BEGIN { a[1]; PROCINFO["sorted_in"] = "my_cmp"; for (k in a) print k }"#)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("user-defined comparison functions"));
+    }
+}
