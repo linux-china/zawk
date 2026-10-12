@@ -218,6 +218,14 @@ impl<'a> From<Literal<'a>> for StrRep<'a> {
 }
 
 impl<'a> StrRep<'a> {
+    /// The heap buffer behind a boxed or shared string.
+    fn buf(&mut self) -> Option<Buf> {
+        match self.get_tag() {
+            StrTag::Boxed => Some(unsafe { self.view_as(|b: &Boxed| b.buf.clone()) }),
+            StrTag::Shared => Some(unsafe { self.view_as(|s: &Shared| s.buf.clone()) }),
+            _ => None,
+        }
+    }
     fn len(&mut self) -> usize {
         match self.get_tag() {
             StrTag::Boxed | StrTag::Literal | StrTag::Concat => self.low as usize,
@@ -691,43 +699,53 @@ impl<'a> Str<'a> {
         Str::from(result)
     }
 
-    /// index start from 0
-    pub fn sub_str<'b>(&self, l: usize, r: usize) -> Str<'b> {
-        if characters_as_bytes() {
-            let len = self.bytes_len();
-            if l >= len {
-                return Str::default();
-            }
-            let end = l.saturating_add(r).min(len);
-            return self.with_bytes(|bs| {
-                let sub = &bs[l..end];
-                Str::from_rep(Boxed { len: sub.len() as u64, buf: Buf::read_from_bytes(sub) }.into())
-            });
-        }
-        let text = self.as_str();
-        let len = text.chars().count();
-        if l >= len {
-            Str::default()
+    /// Substring of up to `r` chars starting at char `l` (0-based). The result shares the
+    /// underlying buffer. Each invalid UTF-8 sequence counts as one char (as in [`Str::len`]) and
+    /// is preserved as-is. Non-ASCII scans stop at char `l + r` and resume from the last position
+    /// found in the same buffer, so `for (i...) substr(s, i, 1)` stays linear.
+    pub fn sub_str(&self, l: usize, r: usize) -> Str<'a> {
+        let bs = unsafe { &*self.get_bytes() };
+        let end = l.saturating_add(r);
+        let range = if characters_as_bytes() || bs[..end.min(bs.len())].is_ascii() {
+            (l < bs.len()).then(|| (l, end.min(bs.len())))
         } else {
-            let end = l.saturating_add(r);
-            if end > len {
-                let sub: String = text.chars().skip(l).take(len - l).collect();
-                Str::from(sub)
-            } else {
-                let sub: String = text.chars().skip(l).take(r).collect();
-                Str::from(sub)
-            }
+            let buf = unsafe { self.rep_mut() }.buf();
+            SUBSTR_CURSOR.with(|cursor| {
+                let mut cursor = cursor.borrow_mut();
+                let (ci, bo) = match &*cursor {
+                    Some(c) if c.ptr == bs.as_ptr() && c.len == bs.len() => {
+                        if c.char_ix <= l {
+                            (c.char_ix, c.byte_off)
+                        } else if c.char_ix - l <= l {
+                            char_back(bs, c.char_ix, c.byte_off, l).map_or((0, 0), |bo| (l, bo))
+                        } else {
+                            (0, 0)
+                        }
+                    }
+                    _ => (0, 0),
+                };
+                let range = char_byte_range(bs, ci, bo, l, r);
+                if let (Some(buf), Some((from, _))) = (buf, range) {
+                    *cursor = Some(SubstrCursor {
+                        _buf: buf,
+                        ptr: bs.as_ptr(),
+                        len: bs.len(),
+                        char_ix: l,
+                        byte_off: from,
+                    });
+                }
+                range
+            })
+        };
+        match range {
+            Some((from, to)) if from < to => self.slice(from, to),
+            _ => Str::default(),
         }
     }
 
     /// index start from 0
-    pub fn char_at<'b>(&self, index: usize) -> Str<'b> {
-        let text = self.as_str();
-        if let Some(c) = text.chars().nth(index) {
-            Str::from(c.to_string())
-        } else {
-            Str::default()
-        }
+    pub fn char_at(&self, index: usize) -> Str<'a> {
+        self.sub_str(index, 1)
     }
 
     pub(crate) fn words<'b>(&self) -> IntMap<Str<'b>> {
@@ -1835,6 +1853,36 @@ mod tests {
     }
 
     #[test]
+    fn sub_str_counts_chars_and_keeps_bytes() {
+        // 'a', 0xFF, 0xFE, 'b', 中, 文, and a truncated 中 (0xE4 0xB8): 7 chars
+        let bytes: &[u8] = b"a\xff\xfeb\xe4\xb8\xad\xe6\x96\x87\xe4\xb8";
+        let s: Str = Buf::read_from_bytes(bytes).into_str();
+        assert_eq!(s.len(), 7);
+        let chars: Vec<&[u8]> = vec![b"a", b"\xff", b"\xfe", b"b", "中".as_bytes(), "文".as_bytes(), b"\xe4\xb8"];
+        let check = |l: usize, r: usize| {
+            let want: Vec<u8> = chars.iter().skip(l).take(r).flat_map(|c| c.iter().copied()).collect();
+            s.sub_str(l, r).with_bytes(|bs| assert_eq!(bs, &want[..], "sub_str({l}, {r})"));
+        };
+        // forward, backward and random access exercise the cached cursor
+        for l in 0..9 {
+            check(l, 1);
+            check(l, 3);
+        }
+        for l in (0..9).rev() {
+            check(l, 2);
+            check(l, usize::MAX);
+        }
+        for &(l, r) in &[(5, 1), (2, 2), (6, 0), (0, 7), (4, 1), (1, 5)] {
+            check(l, r);
+        }
+        let long: Str = "中文".repeat(20).into();
+        assert_eq!(long.sub_str(30, 3).as_str(), "中文中");
+        assert_eq!(long.sub_str(3, 2).as_str(), "文中");
+        assert_eq!(long.char_at(39).as_str(), "文");
+        assert_eq!(long.char_at(40).as_str(), "");
+    }
+
+    #[test]
     fn inline_basics() {
         let test_str = "hello there";
         unsafe {
@@ -2184,6 +2232,77 @@ pub fn set_characters_as_bytes(on: bool) {
 #[inline]
 pub(crate) fn characters_as_bytes() -> bool {
     CHARACTERS_AS_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Where the last non-ASCII `substr` of a buffer started. Holding `_buf` keeps the buffer alive
+/// and shared (so immutable), which makes `ptr`/`len` a sound identity for it.
+struct SubstrCursor {
+    _buf: Buf,
+    ptr: *const u8,
+    len: usize,
+    char_ix: usize,
+    byte_off: usize,
+}
+
+thread_local! {
+    static SUBSTR_CURSOR: std::cell::RefCell<Option<SubstrCursor>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Byte range of chars `[l, l + r)` of `bs`, clamped to its end; `None` if `l` is past the end.
+/// The scan starts at char `ci`, which begins at byte `bo` (`ci <= l`). Each invalid UTF-8
+/// sequence counts as one char, consistent with [`char_count`].
+fn char_byte_range(bs: &[u8], ci: usize, bo: usize, l: usize, r: usize) -> Option<(usize, usize)> {
+    let end = l.saturating_add(r);
+    let mut idx = ci;
+    let mut pos = bo;
+    let mut from = None;
+    loop {
+        if idx == l {
+            from = Some(pos);
+        }
+        if idx == end || pos >= bs.len() {
+            return from.map(|f| (f, pos));
+        }
+        pos += char_width(&bs[pos..]);
+        idx += 1;
+    }
+}
+
+/// Byte offset of char `l`, stepping back from char `ci` at byte `bo` (`l <= ci`); `None` if that
+/// crosses invalid UTF-8. Every non-continuation byte starts a char, so a valid char ending at a
+/// char boundary starts at one too.
+fn char_back(bs: &[u8], ci: usize, bo: usize, l: usize) -> Option<usize> {
+    let mut pos = bo;
+    for _ in l..ci {
+        let mut start = pos.checked_sub(1)?;
+        while start > 0 && pos - start < 4 && bs[start] & 0xC0 == 0x80 {
+            start -= 1;
+        }
+        let ch = str::from_utf8(&bs[start..pos]).ok()?;
+        if ch.chars().count() != 1 {
+            return None;
+        }
+        pos = start;
+    }
+    Some(pos)
+}
+
+/// Byte width of the char (or invalid UTF-8 sequence, grouped as `String::from_utf8_lossy` does)
+/// at the start of non-empty `bs`. Unlike `utf8_chunks`, this doesn't validate past it.
+fn char_width(bs: &[u8]) -> usize {
+    if bs[0] < 0x80 {
+        return 1;
+    }
+    let window = &bs[..bs.len().min(4)];
+    match str::from_utf8(window) {
+        Err(e) if e.valid_up_to() == 0 => e.error_len().unwrap_or(window.len()),
+        // A valid char: its width follows from the lead byte.
+        _ => match bs[0] {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            _ => 4,
+        },
+    }
 }
 
 /// The number of chars in `bs`, counting each invalid UTF-8 sequence as one char, as `length()`
