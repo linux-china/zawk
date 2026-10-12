@@ -52,6 +52,9 @@ pub enum Tok<'a> {
     ExitLP,
     While,
     Do,
+    Switch,
+    Case,
+    Default,
 
     // { }
     LBrace,
@@ -155,6 +158,9 @@ keyword_map!(
     [b"exit", Tok::Exit],
     [b"while", Tok::While],
     [b"do", Tok::Do],
+    [b"switch", Tok::Switch],
+    [b"case", Tok::Case],
+    [b"default", Tok::Default],
     [b"{", Tok::LBrace],
     [b"}", Tok::RBrace],
     [b"[", Tok::LBrack],
@@ -1076,6 +1082,14 @@ and the third"#;
         assert_eq!(toks("return}"), vec![Return, Semi, RBrace]);
         assert_eq!(toks("print\"x\""), vec![Print, StrLit("x")]);
         assert_eq!(toks("k in a"), vec![Ident("k"), In, Ident("a")]);
+        assert_eq!(
+            toks("switch(x){case /a/:default:}"),
+            vec![Switch, LParen, Ident("x"), RParen, LBrace, Case, PatLit("a"), COLON, Default, COLON, Semi, RBrace]
+        );
+        assert_eq!(
+            toks("switches cases defaults"),
+            vec![Ident("switches"), Ident("cases"), Ident("defaults")]
+        );
         assert_eq!(
             toks("nextval exit_code elsewhere done index"),
             vec![

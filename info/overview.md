@@ -273,6 +273,33 @@ surprised to discover there were bugs in zawk's parser.
   `lshift`, `rshift`, and  `xor` builtins. `zawk` also supports `rshiftl` for
   logical right shift. Unlike `gawk`, the `and`, `or` and `xor` functions are
   not variadic.
+* Following `gawk`, zawk supports the
+  [switch statement](https://www.gnu.org/software/gawk/manual/html_node/Switch-Statement.html):
+
+  ```awk
+  switch ($1) {
+  case 1:
+  case "one":
+      print "one"
+      break
+  case /^[0-9]+$/:
+      print "a number"
+      break
+  default:
+      print "something else"
+  }
+  ```
+
+  The value is evaluated once and compared with each `case` label in order;
+  a label is a numeric constant (`1`, `-2.5`, `0x10`), a string constant or a
+  regex constant. Numeric and string labels are compared with `==` (so input
+  that looks numeric matches a numeric label, and a string label is compared as
+  a string), and regex labels with `~`. Control jumps to the first matching
+  case, or to `default` when none matches (wherever `default` is placed), and
+  then falls through the following bodies until a `break`, which leaves the
+  switch. `continue` inside a switch continues the enclosing loop. As in gawk,
+  labels with the same string value (`1`, `1.0` and `"1"`) and a second
+  `default` are syntax errors.
 * zawk functions can return arrays, function calls can appear in the array
   position for a for-each loop.
 * With the `-H` flag, zawk parses the first line of input (without updating

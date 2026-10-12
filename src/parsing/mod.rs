@@ -2,8 +2,59 @@ use lalrpop_util::lalrpop_mod;
 
 lalrpop_mod!(pub syntax);
 
+use crate::ast::{Expr, Stmt};
 use crate::lexer::{self, Loc, Tok};
 use lalrpop_util::ParseError;
+
+/// A case of a switch statement: the location of its label, the label (`None` for `default`) and
+/// its body.
+pub(crate) type SwitchCase<'a> = (
+    Loc,
+    Option<&'a Expr<'a, 'a, &'a str>>,
+    &'a Stmt<'a, 'a, &'a str>,
+);
+
+/// Rejects a switch body with more than one `default`, or with two labels with the same string
+/// value (`1`, `1.0` and `"1"` are duplicates; regex labels are not checked), as gawk does.
+pub(crate) fn check_switch_cases<'a>(
+    cases: &[SwitchCase<'a>],
+) -> Result<(), ParseError<Loc, Tok<'a>, lexer::Error>> {
+    let error = |location: Loc, desc: String| {
+        Err(ParseError::User {
+            error: lexer::Error {
+                location,
+                desc: desc.into(),
+            },
+        })
+    };
+    let mut seen = hashbrown::HashSet::<Vec<u8>>::default();
+    let mut has_default = false;
+    for (loc, label, _) in cases {
+        let key = match label {
+            None if has_default => {
+                return error(*loc, "duplicate `default' detected in switch body".into());
+            }
+            None => {
+                has_default = true;
+                continue;
+            }
+            Some(Expr::ILit(n)) => n.to_string().into_bytes(),
+            Some(Expr::FLit(f)) => crate::runtime::numfmt::with_number_bytes(*f, false, |b| b.to_vec()),
+            Some(Expr::StrLit(s)) => s.to_vec(),
+            Some(_) => continue,
+        };
+        if !seen.insert(key.clone()) {
+            return error(
+                *loc,
+                format!(
+                    "duplicate case values in switch body: {}",
+                    String::from_utf8_lossy(&key)
+                ),
+            );
+        }
+    }
+    Ok(())
+}
 
 /// Formats a parse error in the gawk style: the location, what went wrong, then the line of the
 /// program with a `^` under the error.

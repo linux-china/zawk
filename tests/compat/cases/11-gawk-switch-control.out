@@ -1,0 +1,16 @@
+first record skipped: line one
+record 2 line two
+0 [0] 2 [2] 3 [3] [4] 5 [5] 
+fizz 0
+one more
+plain 2
+fizz 3
+loop 1
+loop 2
+loop 3
+inner x
+outer 1
+sum without y: 4
+do 3
+do two
+do 1

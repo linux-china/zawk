@@ -1,0 +1,19 @@
+1: [10] -> ten
+2: [3.5] -> string 3.5
+3: [-2] -> minus two
+4: [1e3] -> thousand
+5: [0x1A] -> default
+6: [ 42 ] -> forty-two
+7: [abc] -> has abc
+8: [12abc] -> has abc
+9: [] -> empty
+10: [007] -> seven
+s: string
+n: number
+n: string 1
+unset1: zero
+unset2: empty
+missing element: empty
+count: string 5
+count*2: 10
+true is 1

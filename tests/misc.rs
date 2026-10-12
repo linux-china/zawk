@@ -1606,6 +1606,42 @@ fn error_messages_are_gawk_style() {
             1,
             &["zawk: syntax error at line 1, column 6: invalid regex /a(b/: unclosed group"],
         ),
+        // Invalid switch statements, as in gawk.
+        (
+            "BEGIN { switch (x) { case 1: break; case \"1\": break } }",
+            1,
+            &["zawk: syntax error at line 1, column 37: duplicate case values in switch body: 1"],
+        ),
+        (
+            "BEGIN { switch (x) { case 1:\ncase 1.0: break } }",
+            1,
+            &["zawk: syntax error at line 2, column 1: duplicate case values in switch body: 1"],
+        ),
+        (
+            "BEGIN { switch (x) { default: break; default: break } }",
+            1,
+            &["zawk: syntax error at line 1, column 38: duplicate `default' detected in switch body"],
+        ),
+        (
+            "BEGIN { switch (x) { case y: break } }",
+            1,
+            &["zawk: syntax error at line 1, column 27: unexpected `y`"],
+        ),
+        (
+            "BEGIN { switch (x) { case 1: continue } }",
+            2,
+            &["zawk: fatal: `continue' is not allowed outside a loop"],
+        ),
+        (
+            "{ switch ($1) { default: continue } }",
+            2,
+            &["zawk: fatal: `continue' is not allowed outside a loop"],
+        ),
+        (
+            "BEGIN { switch (x) { } break }",
+            2,
+            &["zawk: fatal: `break' is not allowed outside a loop or switch"],
+        ),
         // Dynamic regexes fail when they are used.
         (
             r#"BEGIN { r = "("; print ("x" ~ r) }"#,

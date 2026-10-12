@@ -672,9 +672,10 @@ pub(crate) struct Function<'a, I> {
     // We enforce that a single basic block has a return statement. This is to ensure that type
     // inference infers the same type for each return site.
     pub exit: NodeIx,
-    // Stack of the entry and exit nodes for the loops within which the current statement is
-    // nested.
-    loop_ctx: SmallVec<(NodeIx, NodeIx, Option<NodeIx>)>,
+    // Stack of the entry and exit nodes for the loops (and switch statements, marked by the last
+    // field) within which the current statement is nested. `break` leaves the innermost entry,
+    // `continue` restarts the innermost loop.
+    loop_ctx: SmallVec<(NodeIx, NodeIx, Option<NodeIx>, /*is_switch*/ bool)>,
     // Header node for the toplevel "pattern matching" loop of the AWK program. This is used to
     // implement the nonlocal continue of the `next` and `nextfile` statements.
     //
@@ -1025,7 +1026,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let footer = self.f.cfg.add_node(Default::default());
                 self.add_stmt(footer, PrimStmt::IterDrop(array_iter.clone()))?;
 
-                self.f.loop_ctx.push((cond_block, footer, None));
+                self.f.loop_ctx.push((cond_block, footer, None, false));
 
                 // Create the body, but start by getting the next element from the iterator and
                 // assigning it to `v`
@@ -1046,6 +1047,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
 
                 footer
             }
+            Switch(e, cases) => self.do_switch(e, cases, current_open)?,
             Break => self.do_break_continue(current_open, /*is_break*/ true)?,
             Continue => self.do_break_continue(current_open, /*is_break*/ false)?,
             Next => self.do_next(current_open, /*is_next_file*/ false)?,
@@ -2086,12 +2088,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     }
 
     fn do_break_continue(&mut self, current_open: NodeIx, is_break: bool) -> Result<NodeIx> {
-        let name = if is_break { "break" } else { "continue" };
-        if self.f.loop_ctx.len() == 1 && self.f.toplevel_header.is_some() {
-            return err!("{} statement must be inside a loop", name);
-        }
-        match self.f.loop_ctx.last().cloned() {
-            Some((header, footer, update)) => {
+        // `break` leaves the innermost loop or switch, `continue` restarts the innermost loop.
+        let ix = if is_break {
+            self.f.loop_ctx.len().checked_sub(1)
+        } else {
+            self.f.loop_ctx.iter().rposition(|c| !c.3)
+        };
+        // The toplevel loop over the input records is not a loop of the program.
+        let ix = ix.filter(|ix| Some(self.f.loop_ctx[*ix].0) != self.f.toplevel_header);
+        match ix.map(|ix| self.f.loop_ctx[ix]) {
+            Some((header, footer, update, _)) => {
                 // Continue statements jump to the update node or beginning.
                 let target = match (is_break, update) {
                     (true, _) => footer,
@@ -2100,10 +2106,74 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 };
                 self.jump_to(current_open, target)
             }
-            None => {
-                err!("{} statement must be inside a loop", name)
-            }
+            None if is_break => err!("`break' is not allowed outside a loop or switch"),
+            None => err!("`continue' is not allowed outside a loop"),
         }
+    }
+
+    /// `switch (e) { ... }`: `e` is evaluated once and compared with the case labels in order
+    /// (with `==` for numbers and strings, with `~` for regexes). Control jumps to the body of the
+    /// first matching case, or of `default`, and falls through the following bodies until a
+    /// `break`.
+    fn do_switch<'c>(
+        &mut self,
+        e: &'c Expr<'c, 'b, I>,
+        cases: &'c [(Option<&'c Expr<'c, 'b, I>>, &'c Stmt<'c, 'b, I>)],
+        current_open: NodeIx,
+    ) -> Result<NodeIx> {
+        // Duplicate labels are rejected by the parser.
+        let default = cases.iter().position(|(l, _)| l.is_none());
+        let (mut current_open, num_v) = self.convert_val(e, current_open)?;
+        // An uninitialized variable is "" when compared with a string or a regex, and 0 otherwise
+        // (see the `uninit` module).
+        let str_case = cases
+            .iter()
+            .any(|(l, _)| matches!(l, Some(Expr::StrLit(_) | Expr::PatLit(_))));
+        let str_v = match self.uninit_flag(e) {
+            Some(flag) if str_case => {
+                let flag = PrimVal::Var(self.get_identifier(&flag));
+                let (next, v) = self.str_or_empty(flag, num_v.clone(), /*ofmt=*/ false, current_open)?;
+                current_open = next;
+                v
+            }
+            _ => num_v.clone(),
+        };
+
+        let footer = self.f.cfg.add_node(Default::default());
+        self.f.loop_ctx.push((footer, footer, None, true));
+        let mut bodies = Vec::with_capacity(cases.len());
+        for (_, body) in cases.iter() {
+            bodies.push(self.standalone_block(body)?);
+        }
+        self.f.loop_ctx.pop().unwrap();
+
+        // Test the labels in order.
+        for ((label, _), (b_start, _)) in cases.iter().zip(bodies.iter()) {
+            let (op, v, lit) = match label {
+                None => continue,
+                Some(Expr::ILit(n)) => (ast::Binop::EQ, &num_v, PrimVal::ILit(*n)),
+                Some(Expr::FLit(f)) => (ast::Binop::EQ, &num_v, PrimVal::FLit(*f)),
+                Some(Expr::StrLit(s)) => (ast::Binop::EQ, &str_v, PrimVal::StrLit(s)),
+                Some(Expr::PatLit(s)) => (ast::Binop::IsMatch, &str_v, PrimVal::StrLit(regex_literal(s))),
+                Some(_) => return err!("invalid case label in switch body"),
+            };
+            let cond = PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![v.clone(), lit]);
+            let cond = self.to_val(cond, current_open)?;
+            let next = self.f.cfg.add_node(Default::default());
+            self.f.cfg.add_edge(current_open, *b_start, Transition::new(cond));
+            self.f.cfg.add_edge(current_open, next, Transition::null());
+            current_open = next;
+        }
+        // No label matched.
+        let fallback = default.map_or(footer, |i| bodies[i].0);
+        self.f.cfg.add_edge(current_open, fallback, Transition::null());
+
+        // Each body falls through to the next one.
+        for (i, (_, b_end)) in bodies.iter().enumerate() {
+            let next = bodies.get(i + 1).map_or(footer, |b| b.0);
+            self.guarded_else(*b_end, next);
+        }
+        Ok(footer)
     }
 
     fn set_cond(&mut self, current_open: NodeIx, cond: usize, cond_val: i64) -> Result<()> {
@@ -2161,7 +2231,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             },
             None => None,
         };
-        self.f.loop_ctx.push((h, f, u));
+        self.f.loop_ctx.push((h, f, u, false));
         if is_toplevel {
             self.f.toplevel_header = Some(h);
         }

@@ -452,6 +452,9 @@ impl<'a> Display for lexer::Tok<'a> {
             PrintfLP => "printf(",
             While => "while",
             Do => "do",
+            Switch => "switch",
+            Case => "case",
+            Default => "default",
 
             // { }
             LBrace => "{",

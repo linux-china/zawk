@@ -1,0 +1,20 @@
+1 one
+two two
+three th-word
+thousand th-word
+-1 minus one
+16 sixteen
+2.5 two and a half
+4 other
+x other
+one minus one sixteen two and a half other
+case 2
+case 3
+case 4
+default
+a
+after no match
+after empty
+first regex
+zero, i = 1
+h-something

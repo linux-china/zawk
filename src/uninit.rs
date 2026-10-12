@@ -356,6 +356,19 @@ where
                 }
             }
             EndBlock(s) => self.stmt(s, params),
+            Switch(e, cases) => {
+                self.expr(e, params);
+                // A variable is compared with string and regex case labels as a string.
+                let str_case = cases
+                    .iter()
+                    .any(|(l, _)| matches!(l, Some(crate::ast::Expr::StrLit(_) | crate::ast::Expr::PatLit(_))));
+                if str_case && matches!(e, crate::ast::Expr::Var(_)) {
+                    self.string_read(e, params);
+                }
+                for (_, body) in cases.iter() {
+                    self.stmt(body, params);
+                }
+            }
         }
     }
 

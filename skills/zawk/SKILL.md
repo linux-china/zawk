@@ -207,7 +207,8 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`, or `(i, j) in a`.
 - No `IGNORECASE`: use `tolower()` or `(?i)` in the regex. No `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or
   `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
-- Not supported: `switch`, `BEGINFILE`/`ENDFILE`, `asorti`, `PROCINFO["sorted_in"]`, `@include`, co-processes `|&`.
+- gawk's `switch` is supported (`case` labels are numeric/string/regex constants, bodies fall through until
+  `break`). Not supported: `BEGINFILE`/`ENDFILE`, `asorti`, `PROCINFO["sorted_in"]`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values) or pipe the output to `sort`.
 - Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time
   with "command potentially containing interpolated user input". Pass `-A` only when the input is trusted.

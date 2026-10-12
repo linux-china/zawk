@@ -523,6 +523,13 @@ pub enum Stmt<'a, 'b, I> {
         &'a Stmt<'a, 'b, I>,
     ),
     ForEach(I, &'a Expr<'a, 'b, I>, &'a Stmt<'a, 'b, I>),
+    // gawk's `switch (e) { case v: ... default: ... }`. Each case has a label (a numeric, string
+    // or regex literal, or `None` for `default`) and a body; bodies fall through to the next case
+    // unless they `break`.
+    Switch(
+        &'a Expr<'a, 'b, I>,
+        &'a [(Option<&'a Expr<'a, 'b, I>>, &'a Stmt<'a, 'b, I>)],
+    ),
     Break,
     Continue,
     Next,

@@ -131,6 +131,43 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
 
 
     Do <body:BaseStmt> "while" "(" <cond:Expr> ")" Sep => arena.alloc(Stmt::DoWhile(cond, body)),
+    "switch" "(" <e:Expr> Rparen Lbrace <cases:SwitchCase*> Rbrace =>? {
+        crate::parsing::check_switch_cases(&cases)?;
+        let cases: Vec<_> = cases.into_iter().map(|(_, label, body)| (label, body)).collect();
+        Ok(arena.alloc(Stmt::Switch(e, arena.alloc_slice(&cases[..]))))
+    },
+}
+
+// A case of a switch statement, whose body runs until the next case label.
+SwitchCase: crate::parsing::SwitchCase<'a> = {
+    <loc:@L> <label:CaseLabel> ":" "\n"* <body:Stmt*> =>
+        (loc, label, arena.alloc(Stmt::Block(arena.new_vec_from_slice(&body[..])))),
+}
+
+// As in gawk, a case label is a numeric constant (optionally signed), a string constant or a regex
+// constant.
+CaseLabel: Option<&'a Expr<'a,'a,&'a str>> = {
+    "default" => None,
+    "case" <CaseValue> => Some(<>),
+}
+
+CaseValue: &'a Expr<'a,'a,&'a str> = {
+    CaseNum,
+    "+" <CaseNum>,
+    "-" <n:CaseNum> => arena.alloc(match n {
+        Expr::ILit(i) if *i != i64::MIN => Expr::ILit(-*i),
+        Expr::ILit(i) => Expr::FLit(-(*i as f64)),
+        Expr::FLit(f) => Expr::FLit(-*f),
+        _ => unreachable!(),
+    }),
+    "STRLIT" => arena.alloc(Expr::StrLit(lexer::parse_string_literal(<>, &arena, buf))),
+    "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
+}
+
+CaseNum: &'a Expr<'a,'a,&'a str> = {
+  "INT" => arena.alloc(exact_int_literal(parse_int_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
 }
 
 // getline is an operand of the comparison operators, so its result can be assigned and compared:
@@ -505,6 +542,9 @@ extern {
       "exit(" => Tok::ExitLP,
       "while" =>  Tok::While,
       "do" =>  Tok::Do,
+      "switch" => Tok::Switch,
+      "case" => Tok::Case,
+      "default" => Tok::Default,
       "{" =>  Tok::LBrace,
       "}" =>  Tok::RBrace,
       "[" =>  Tok::LBrack,
