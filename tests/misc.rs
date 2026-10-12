@@ -1257,7 +1257,32 @@ fn csv_output_of_conditional_print_argument() {
             .write_stdin("a,b\n")
             .assert()
             .success()
-            .stdout("\"x,y\",\"a,b\"\r\n");
+            .stdout("\"x,y\",\"a,b\"\n");
+    }
+}
+
+#[test]
+fn csv_rfc4180_backslash_and_line_breaks() {
+    // Backslashes are plain data in CSV (only "" is an escape), a lone \r is kept, and -o csv
+    // keeps line breaks inside quotes.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-icsv")
+            .arg(r#"{ print "[" $1 "]" "[" $2 "]" }"#)
+            .write_stdin("\"C:\\new\\table\",x\na\rb,\"say \"\"hi\"\"\"\r\n")
+            .assert()
+            .success()
+            .stdout("[C:\\new\\table][x]\n[a\rb][say \"hi\"]\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ocsv")
+            .arg(r#"BEGIN { print "multi\nline", "C:\\new", "q\"q", "t\tt" }"#)
+            .assert()
+            .success()
+            .stdout("\"multi\nline\",C:\\new,\"q\"\"q\",t\tt\n");
     }
 }
 
@@ -1885,4 +1910,41 @@ fn output_write_error_exit_code() {
             .assert()
             .code(2);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn stdout_broken_pipe_is_silent() {
+    // `zawk ... | head -1`: once the reader of stdout goes away, zawk stops quietly and exits
+    // with 141 (128 + SIGPIPE), as the shell reports for gawk killed by SIGPIPE.
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command as StdCommand, Stdio};
+    let prog = "BEGIN { for (i = 0; i < 10000000; i++) print i }";
+    for args in [&["-Binterp"][..], &["-Bcranelift"], &["-Bcranelift", "-pr"]] {
+        let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("zawk"))
+            .args(args)
+            .arg(prog)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(line, "0\n");
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(141), "{:?}: {}", args, stderr);
+        assert_eq!(stderr, "", "{:?}", args);
+    }
+    // Output to a command that exits early is still an error.
+    let output = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(r#"BEGIN { for (i = 0; i < 1000000; i++) print i | "head -1" }"#)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Broken pipe"));
 }

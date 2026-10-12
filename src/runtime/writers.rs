@@ -81,10 +81,25 @@ pub fn set_output_failed() {
     OUTPUT_FAILED.store(true, Ordering::Release);
 }
 
+/// Set when writing to stdout failed because its reader went away (e.g. `zawk ... | head`).
+static STDOUT_BROKEN_PIPE: AtomicBool = AtomicBool::new(false);
+
+/// The exit status of a process killed by SIGPIPE, as seen by the shell (128 + 13).
+const SIGPIPE_EXIT_CODE: i32 = 141;
+
+/// Whether writing to stdout failed because its reader went away. Such an error is not
+/// reported: gawk is quietly killed by SIGPIPE in that case.
+pub fn stdout_broken_pipe() -> bool {
+    STDOUT_BROKEN_PIPE.load(Ordering::Acquire)
+}
+
 /// The exit code to use in place of `code`: as in gawk, a program whose output could not be
-/// written exits with code 2 rather than 0.
+/// written exits with code 2 rather than 0, and one whose stdout was closed by its reader exits
+/// as if killed by SIGPIPE.
 pub fn exit_code(code: i32) -> i32 {
-    if code == 0 && OUTPUT_FAILED.load(Ordering::Acquire) {
+    if stdout_broken_pipe() {
+        SIGPIPE_EXIT_CODE
+    } else if code == 0 && OUTPUT_FAILED.load(Ordering::Acquire) {
         2
     } else {
         code
@@ -444,7 +459,7 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>
     let receiver_open = open.clone();
     let member = pool.map(|pool| PoolMember::new(pool, sender.clone()));
     std::thread::spawn(move || {
-        receive_thread(receiver, receiver_error, &receiver_open, f, member)
+        receive_thread(receiver, receiver_error, &receiver_open, f, member, is_stdout)
     });
     RawHandle {
         error,
@@ -667,7 +682,9 @@ impl Registry {
             // Close (rather than only flush) stdout, so that its writer is dropped before we
             // exit: wrappers such as `ParquetWriter` write their trailer when dropped.
             let res = self.stdout.close();
-            if res.is_err() {
+            // A closed pipe on stdout (e.g. `zawk ... | head`) is not an error worth reporting;
+            // it is reflected in the exit code instead (see `exit_code`).
+            if res.is_err() && !stdout_broken_pipe() {
                 last_error = res;
             }
         }
@@ -1334,9 +1351,13 @@ fn receive_thread<W: io::Write>(
     open: &AtomicBool,
     f: impl Fn(FileSpec) -> io::Result<W>,
     member: Option<PoolMember>,
+    is_stdout: bool,
 ) {
     let mut batch = WriteBatch::default();
     if let Err(e) = receive_loop(&receiver, &mut batch, open, f, member.as_ref()) {
+        if is_stdout && e.kind() == io::ErrorKind::BrokenPipe {
+            STDOUT_BROKEN_PIPE.store(true, Ordering::Release);
+        }
         // The file is closed: no need to evict it.
         drop(member);
         // We got an error! install it in the `error` mutex.

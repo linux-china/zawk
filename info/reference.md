@@ -78,8 +78,9 @@ _Unary Operators:_
 * `join_fields(i, j[, sep])`: Returns columns `i` through `j` (1-indexed,
   inclusive) concatenated together, joined by `sep`, or by `OFS` if `sep` is not
   provided.
-* `escape_csv(s)`: Returns `s` escaped as a CSV column, adding quotes if
-  necessary, replacing quotes with double-quotes, and escaping other whitespace.
+* `escape_csv(s)`: Returns `s` escaped as a CSV column per RFC 4180: adds quotes
+  if `s` contains `"`, `,`, a line break or leading/trailing spaces, and doubles
+  quotes. Line breaks are kept as is inside the quotes.
 * `escape_tsv(s)`: Returns `s` escaped as a TSV column. There is less to do with
   CSV, but tab and newline characters are replaced with `\t` and `\n`.
 * `join_csv(i, j)`: Like `join_fields` but with columns joined by `,` and

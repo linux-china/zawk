@@ -572,15 +572,34 @@ impl<'a> Str<'a> {
         return SharedMap::from(map);
     }
 
+    /// Trim whitespace (`pat == " "`) or any char of `pat` from both ends. Works on bytes, so
+    /// invalid UTF-8 (GBK, Latin-1, binary) is kept as is; it never matches `pat`.
     pub fn trim<'b>(&self, pat: &Str<'b>) -> Str<'b> {
-        let src = self.to_string();
-        let pat = pat.to_string();
-        return if pat == " " {
-            Str::from(src.trim().to_string())
-        } else {
-            let chars: &[_] = &pat.chars().collect::<Vec<char>>();
-            Str::from(src.trim_matches(chars).to_string())
-        };
+        let pat = pat.as_str();
+        let chars: Vec<char> = pat.chars().collect();
+        let matches = |c: char| if pat == " " { c.is_whitespace() } else { chars.contains(&c) };
+        self.with_bytes(|bs| {
+            let mut start = 0;
+            while start < bs.len() {
+                let w = char_width(&bs[start..]);
+                match str::from_utf8(&bs[start..start + w]) {
+                    Ok(ch) if ch.chars().all(&matches) => start += w,
+                    _ => break,
+                }
+            }
+            let mut end = bs.len();
+            while end > start {
+                let mut from = end - 1;
+                while from > start && end - from < 4 && bs[from] & 0xC0 == 0x80 {
+                    from -= 1;
+                }
+                match str::from_utf8(&bs[from..end]) {
+                    Ok(ch) if ch.chars().count() == 1 && ch.chars().all(&matches) => end = from,
+                    _ => break,
+                }
+            }
+            Buf::read_from_bytes(&bs[start..end]).into_str()
+        })
     }
 
     pub fn capitalize<'b>(&self) -> Str<'b> {
@@ -795,27 +814,28 @@ impl<'a> Str<'a> {
     }
 
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
-        let src = self.to_string();
-        let format = format.to_string();
-        Str::from(escape(&format, &src))
+        Str::from(escape(&format.as_str(), &self.as_str()))
     }
 
     /// Truncate the string to at most `len` chars, ending with `place_holder` when truncated.
     /// If `place_holder` does not fit in `len` chars, the string is cut to `len` chars without
     /// it. A negative `len` is treated as 0.
     pub fn truncate<'b>(&self, len: Int, place_holder: &Str<'b>) -> Str<'b> {
-        let src = self.to_string();
         let max_len = len.max(0) as usize;
-        if src.chars().count() <= max_len {
-            return Str::from(src);
-        }
-        let place_holder = place_holder.to_string();
-        let place_holder_len = place_holder.chars().count();
-        if place_holder_len >= max_len {
-            return Str::from(src.chars().take(max_len).collect::<String>());
-        }
-        let text: String = src.chars().take(max_len - place_holder_len).collect();
-        Str::from(format!("{}{}", text, place_holder))
+        let src_len = self.with_bytes(char_count);
+        let place_holder_len = place_holder.with_bytes(char_count);
+        let (keep, suffix) = if src_len <= max_len {
+            (src_len, None)
+        } else if place_holder_len >= max_len {
+            (max_len, None)
+        } else {
+            (max_len - place_holder_len, Some(place_holder))
+        };
+        let text = self.sub_str(0, keep);
+        text.with_bytes(|head| match suffix {
+            None => Buf::read_from_bytes(head).into_str(),
+            Some(ph) => ph.with_bytes(|tail| Buf::read_from_bytes(&[head, tail].concat()).into_str()),
+        })
     }
 
     /// awk's `toupper`. Despite the name, non-ASCII UTF-8 text is converted too (see
@@ -1853,6 +1873,21 @@ mod tests {
     }
 
     #[test]
+    fn non_utf8_stdlib_keeps_bytes() {
+        let s: Str = Buf::read_from_bytes(b" \t\xe3\x80\x80ab\xffcd \n").into_str();
+        s.trim(&" ".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
+        let s: Str = Buf::read_from_bytes(b"xxab\xffxx").into_str();
+        s.trim(&"x".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
+        let s: Str = Buf::read_from_bytes(b"ab\xffcd").into_str();
+        s.truncate(3, &"...".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
+        s.truncate(4, &"..".into()).with_bytes(|bs| assert_eq!(bs, b"ab.."));
+        s.truncate(9, &"..".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
+        let cjk: Str = "你好世界".into();
+        assert_eq!(cjk.truncate(3, &"…".into()).as_str(), "你好…");
+        assert_eq!(s.to_string(), "ab\u{FFFD}cd");
+    }
+
+    #[test]
     fn sub_str_counts_chars_and_keeps_bytes() {
         // 'a', 0xFF, 0xFE, 'b', 中, 文, and a truncated 中 (0xE4 0xB8): 7 chars
         let bytes: &[u8] = b"a\xff\xfeb\xe4\xb8\xad\xe6\x96\x87\xe4\xb8";
@@ -2167,10 +2202,7 @@ mod formatting {
 
     impl<'a> Display for Str<'a> {
         fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-            self.with_bytes(|bs| match std::str::from_utf8(bs) {
-                Ok(s) => write!(f, "{}", s),
-                Err(_) => write!(f, "{:?}", bs),
-            })
+            self.with_bytes(|bs| write!(f, "{}", String::from_utf8_lossy(bs)))
         }
     }
 

@@ -272,8 +272,8 @@ Help you to generate ASCII art text with figlet: `BEGIN { print figlet("Hello za
 # Text Escape
 
 - escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
-- escape_csv(s): Returns s escaped as a CSV column, adding quotes if necessary, replacing quotes with double-quotes, and
-  escaping other whitespace.
+- escape_csv(s): Returns s escaped as a CSV column per RFC 4180: adds quotes if s contains `"`, `,`, a line break or
+  leading/trailing spaces, and doubles quotes. Line breaks are kept as is inside the quotes.
 - escape_tsv(s): Returns s escaped as a TSV column. There is less to do with CSV, but tab and newline characters are
   replaced with \t and \n.
 

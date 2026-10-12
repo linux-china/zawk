@@ -309,7 +309,7 @@ fn run_interp_with_context<'a>(
             Ok(n) => n,
         }
     };
-    std::process::exit(rc);
+    std::process::exit(runtime::writers::exit_code(rc));
 }
 
 fn run_cranelift_with_context<'a>(
@@ -752,7 +752,7 @@ fn real_main() {
         .chain(input_files.iter().cloned())
         .collect();
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
-        Some("csv") => (Escaper::CSV, Some(","), Some("\r\n")),
+        Some("csv") => (Escaper::CSV, Some(","), Some("\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and rendered as table rows by `MarkdownFactory`.
         Some("markdown") | Some("md") => (Escaper::TSV, Some("\t"), Some("\n")),

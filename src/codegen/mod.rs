@@ -258,7 +258,7 @@ unsafe fn run_stage(
         }
         if let Some(rc) = cancel_signal.get_code() {
             mem::drop(rt);
-            std::process::exit(rc);
+            std::process::exit(runtime::writers::exit_code(rc));
         }
         rt.concurrent = false;
         if let Some(end) = end {

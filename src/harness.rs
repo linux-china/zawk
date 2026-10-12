@@ -631,9 +631,8 @@ mod tests {
     test_program!(
         basic_csv_render,
         r#"BEGIN { print "hi", "there"; print "comma,\"in field","and a\ttab"; }"#,
-r#"hi,there
-"comma,""in field","and a\ttab"
-"#,
+        // RFC 4180: a tab does not need quotes, quotes are doubled.
+        "hi,there\n\"comma,\"\"in field\",and a\ttab\n",
         @out_fmt Escaper::CSV
     );
 
@@ -715,7 +714,8 @@ it has one more line"#
     test_program_csv!(
         csv_quote_escape,
         r#"{ print $2; }"#,
-          "1,2\t,3\"4\n",
+          // Backslashes are plain data in CSV; only "" is an escape.
+          "1,2\\t,3\"4\n",
           @input r#"help,"1,2\t,3""4",5"#
     );
     test_program_tsv!(

@@ -251,7 +251,10 @@ surprised to discover there were bugs in zawk's parser.
   inputs (regardless of the value of `FS` and `RS`) according to the CSV and TSV
   formats, assigning `$0` to the raw line and `$N` to the Nth field in the
   current row, fully escaped. There is also equivalent functionality for output
-  CSV-escaped lines (enabled via `-o csv` and `-o tsv`).
+  CSV-escaped lines (enabled via `-o csv` and `-o tsv`). CSV follows RFC 4180:
+  inside quotes the only escape is `""`, so backslashes are plain data, and `-o csv`
+  keeps line breaks inside quoted fields and ends records with `\n` (use
+  `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n` and `\\` escapes.
 * zawk reads JSON Lines (`-i jsonl`) and Apache Parquet files (`-i parquet`).
   `$1..$NF` are the columns, `FI` maps column names to their index (as with
   `-H`), and for Parquet `$0` is the row as a JSON object. See the

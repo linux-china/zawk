@@ -30,7 +30,7 @@ use regex::{bytes, bytes::Regex};
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
 use crate::runtime::{
-    str_impl::{Buf, Str, UniqueBuf},
+    str_impl::{Buf, DynamicBuf, Str, UniqueBuf},
     Int, RegexCache,
 };
 
@@ -449,13 +449,6 @@ impl<'a> Stepper<'a> {
         let line_start = self.prev_ix;
         let bs = &self.buf.as_bytes()[0..self.buf_len];
         let mut cur = self.off.rel.start;
-        let bs_transition = match self.ifmt {
-            // Escape sequences only occur within quotes for CSV-formatted data.
-            InputFormat::CSV => State::Quote,
-            // There are no "quoted fields" in TSV, and escape sequences simply occur at any point
-            // in a field.
-            InputFormat::TSV => State::Init,
-        };
         macro_rules! get_next {
             () => {
                 if cur == self.off.rel.fields.len() {
@@ -502,7 +495,10 @@ impl<'a> Stepper<'a> {
                     let ix = get_next!();
                     match *bs.get_unchecked(ix) {
                         b'\r' => {
-                            self.push_past(ix);
+                            // Drop the \r of a \r\n line ending; a lone \r is field data.
+                            if ix + 1 >= bs.len() || *bs.get_unchecked(ix + 1) == b'\n' {
+                                self.push_past(ix);
+                            }
                             continue;
                         }
                         b'\n' => {
@@ -543,12 +539,6 @@ impl<'a> Stepper<'a> {
                             // technically more than is supported by the standard IIUC.
                             self.push_past(ix);
                             self.st = State::QuoteInQuote;
-                            continue;
-                        }
-                        b'\\' => {
-                            // A similar lookahead case: handling escaped sequences.
-                            self.push_past(ix);
-                            self.st = State::BS;
                             continue;
                         }
                         _ => unreachable!(),
@@ -597,7 +587,8 @@ impl<'a> Stepper<'a> {
                         }
                     }
                     self.prev_ix += 1;
-                    self.st = bs_transition;
+                    // Backslash escapes only exist in TSV, which has no quoted fields.
+                    self.st = State::Init;
                 }
                 State::Done => panic!("cannot start in Done state"),
             }
@@ -784,35 +775,40 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
 
 // TODO: consider putting these into the runtime struct to avoid the extra indirection.
 lazy_static! {
-    static ref QUOTE: Regex = Regex::new(r#"""#).unwrap();
     static ref TAB: Regex = Regex::new(r#"\t"#).unwrap();
     static ref NEWLINE: Regex = Regex::new(r#"\n"#).unwrap();
     static ref NEEDS_ESCAPE_TSV: bytes::RegexSet =
         bytes::RegexSet::new([r#"\t"#, r#"\n"#]).unwrap();
-    static ref NEEDS_ESCAPE_CSV: bytes::RegexSet =
-        bytes::RegexSet::new([r#"""#, r#"\t"#, r#"\n"#, ","]).unwrap();
 }
 
+/// Whether an RFC 4180 CSV field must be quoted: it contains a quote, comma or line break, or has
+/// leading or trailing spaces that other tools could trim.
+pub fn csv_needs_quotes(bs: &[u8]) -> bool {
+    matches!(bs.first(), Some(b' ' | b'\t'))
+        || matches!(bs.last(), Some(b' ' | b'\t'))
+        || bs.iter().any(|b| matches!(b, b'"' | b',' | b'\n' | b'\r'))
+}
+
+/// Escape a field per RFC 4180: quote it if needed and double any quotes. Line breaks and tabs
+/// are kept as is inside the quotes.
 pub fn escape_csv<'a>(s: &Str<'a>) -> Str<'a> {
-    let bs = unsafe { &*s.get_bytes() };
-    let matches = NEEDS_ESCAPE_CSV.matches(bs);
-    if !matches.matched_any() {
-        return s.clone();
-    }
-    let mut cur = s.clone();
-    for m in matches.into_iter() {
-        let (pat, subst_for) = match m {
-            0 => (&*QUOTE, r#""""#),
-            1 => (&*TAB, r#"\t"#),
-            2 => (&*NEWLINE, r#"\n"#),
-            // This just necessitates the ""s
-            3 => continue,
-            _ => unreachable!(),
-        };
-        cur = cur.subst_all(pat, &Str::from(subst_for).upcast()).0;
-    }
-    let quote = Str::from("\"");
-    Str::concat(Str::concat(quote.clone(), cur), quote)
+    use std::io::Write;
+    s.with_bytes(|bs| {
+        if !csv_needs_quotes(bs) {
+            return s.clone();
+        }
+        let quotes = bs.iter().filter(|b| **b == b'"').count();
+        let mut buf = DynamicBuf::new(bs.len() + quotes + 2);
+        buf.write_all(b"\"").unwrap();
+        for (i, part) in bs.split(|b| *b == b'"').enumerate() {
+            if i > 0 {
+                buf.write_all(b"\"\"").unwrap();
+            }
+            buf.write_all(part).unwrap();
+        }
+        buf.write_all(b"\"").unwrap();
+        buf.into_str()
+    })
 }
 
 pub fn escape_tsv<'a>(s: &Str<'a>) -> Str<'a> {
@@ -839,13 +835,20 @@ mod escape_tests {
 
     #[test]
     fn csv_escaping() {
-        let s1 = Str::from("no escaping");
-        let s2 = Str::from("This ought to be escaped, for two\treasons");
-        assert_eq!(escape_csv(&s1), s1);
-        assert_eq!(
-            escape_csv(&s2),
-            Str::from(r#""This ought to be escaped, for two\treasons""#)
-        );
+        let cases = [
+            ("no escaping", "no escaping"),
+            ("tab\tonly", "tab\tonly"),
+            ("a, b", r#""a, b""#),
+            (r#"say "hi""#, r#""say ""hi""""#),
+            ("multi\nline", "\"multi\nline\""),
+            ("cr\rhere", "\"cr\rhere\""),
+            (" padded", "\" padded\""),
+            (r"C:\new\table", r"C:\new\table"),
+            ("", ""),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(escape_csv(&Str::from(input)), Str::from(expected), "input: {:?}", input);
+        }
     }
 
     #[test]
@@ -1207,7 +1210,6 @@ mod generic {
             let inp = V::fill_input(buf);
             let (quote_mask, quote_locs) = inp.find_quote_mask(&mut prev_iter_inside_quote);
             let sep = inp.cmp_mask_against_input(b',');
-            let esc = inp.cmp_mask_against_input(b'\\');
 
             let cr = inp.cmp_mask_against_input(0x0d);
             let cr_adjusted = cr.wrapping_shl(1) | prev_iter_cr_end;
@@ -1218,7 +1220,9 @@ mod generic {
             // NB: for now, NL is going to be unused for csv
             // Don't use NL here for now
             // let nl = end & !quote_mask;
-            let mask = ((sep | cr | end) & !quote_mask) | (esc & quote_mask) | quote_locs;
+            // RFC 4180: the only escape inside a quoted field is "", so backslashes are plain
+            // data in CSV and are not reported (unlike TSV).
+            let mask = ((sep | cr | end) & !quote_mask) | quote_locs;
             ((prev_iter_inside_quote, prev_iter_cr_end), mask, 0)
         };
         find_indexes::<V, _, _>(buf, offsets, (prev_iter_inside_quote, prev_iter_cr_end), f)

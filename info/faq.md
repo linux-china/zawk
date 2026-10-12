@@ -39,9 +39,17 @@ Now I'm not sure about the roadmap, but I will try my best to make zawk more pow
 
 # What are limits with gawk?
 
-zawk limits:
+zawk is a new AWK implementation and doesn't follow every gawk extension. These differences are intentional:
 
-- No `BEGINFILE` and `ENDFILE` blocks
+- No `BEGINFILE` and `ENDFILE` blocks; `next`/`nextfile` are not allowed inside functions
+- No `IGNORECASE`: use `tolower()` or `(?i)` in the regex, e.g. `/(?i)error/`
+- No `FIELDWIDTHS` / `FPAT`: use `-i csv`, `substr()` or `match()`
+- No `RT`
+- No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`
+- No positional arguments in `printf` (`%2$s`)
+- `ARGV`/`ARGC` are read-only: changing them doesn't change the input files
+- No `var=value` operands between files: assign variables with `-v var=value`
+- Hexadecimal numbers are recognized, in source and input data: `0x10` is 16; a leading zero is decimal: `010` is 10
 - With the default `FS` and `RS`, `\r` separates fields when reading input, so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?

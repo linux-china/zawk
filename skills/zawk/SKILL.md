@@ -203,7 +203,10 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
 
 - `-i` is the input format, not gawk's `-i library`.
 - `var=value` operands between files are not supported (they are read as file names): use `-v var=value`.
+- `ARGV`/`ARGC` are read-only: assigning `ARGV[1]` doesn't change the input files.
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`, or `(i, j) in a`.
+- No `IGNORECASE`: use `tolower()` or `(?i)` in the regex. No `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or
+  `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
 - Not supported: `switch`, `BEGINFILE`/`ENDFILE`, `asorti`, `PROCINFO["sorted_in"]`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values) or pipe the output to `sort`.
 - Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time

@@ -13,15 +13,12 @@ pub fn escape(format: &str, text: &str) -> String {
     }
 }
 
+/// RFC 4180: quote the field if needed and double any quotes; line breaks stay as is.
 pub fn escape_csv(text: &str) -> String {
-    if text.contains(",") || text.contains("\n") || text.contains("\"") {
-        let new_text = text
-            .replace("\"", "\"\"")
-            .replace("\t", "\\t")
-            .replace("\n", "\\n");
-        return format!("\"{}\"", new_text);
+    if crate::runtime::splitter::batch::csv_needs_quotes(text.as_bytes()) {
+        return format!("\"{}\"", text.replace('"', "\"\""));
     }
-    return text.to_string();
+    text.to_string()
 }
 
 pub fn escape_tsv(text: &str) -> String {
