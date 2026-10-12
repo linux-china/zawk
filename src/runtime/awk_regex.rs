@@ -26,18 +26,28 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 thread_local! {
-    // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`).
+    // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`). Worker
+    // threads copy it from the main thread when they start (see `Core::shuttle`).
     static IGNORE_CASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Set whether regexes compiled on this thread ignore case (gawk's IGNORECASE).
+// Whether IGNORECASE was ever set on any thread. String comparisons and index() check this first,
+// so programs that do not use IGNORECASE do not pay for the thread-local lookup.
+static IGNORE_CASE_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set whether regexes compiled, string comparisons and index() on this thread ignore case
+/// (gawk's IGNORECASE).
 pub(crate) fn set_ignore_case(on: bool) {
+    if on {
+        IGNORE_CASE_USED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     IGNORE_CASE.with(|c| c.set(on));
 }
 
-/// Whether regexes compiled on this thread ignore case.
+/// Whether IGNORECASE is set on this thread.
+#[inline]
 pub(crate) fn ignore_case() -> bool {
-    IGNORE_CASE.with(|c| c.get())
+    IGNORE_CASE_USED.load(std::sync::atomic::Ordering::Relaxed) && IGNORE_CASE.with(|c| c.get())
 }
 
 /// Prefix `pat` (in the syntax of `regex`) with `(?i)` when IGNORECASE is set. The flag is part of

@@ -16,4 +16,3 @@
 # input and output
 
 # gawk extensions
-11-gawk-ignorecase                    # IGNORECASE is not supported

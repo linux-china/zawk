@@ -1192,10 +1192,16 @@ this as well"#
         s = "FooBARfoo"; n = gsub(/foo/, "x", s); print n, s
         # A single-character separator is literal and keeps its case, as in gawk.
         print split("aXbxc", a, "x"), split("aXbxc", a, "[x]")
+        # A single-character regex literal is a regex, and ignores case.
+        print split("aXbxc", a, /x/), split("a.b", a, /./), split("a/b", a, /\//)
+        # String comparisons and index() ignore case too.
+        print ("ABC" == "abc"), ("ABC" != "abc"), ("abc" < "ABD"), ("B" > "a"), ("ÉTÉ" == "été")
+        print index("ABC", "b"), index("xxÉTÉ", "été"), index("ABC", "z")
+        switch ("ABC") { case "abc": print "case"; break; default: print "default" }
         IGNORECASE = 0
-        print ("ABC" ~ /abc/)
+        print ("ABC" ~ /abc/), ("ABC" == "abc"), index("ABC", "b"), split("aXbxc", a, /x/)
         }"#,
-        "0\n1 4 4 2\n2 xBARx\n2 3\n0\n"
+        "0\n1 4 4 2\n2 xBARx\n2 3\n3 4 2\n1 0 1 1 1\n2 3 0\ncase\n0 0 0 2\n"
     );
 
     test_program!(degenerate_map, r#"BEGIN { print m[1]; }"#, "\n");

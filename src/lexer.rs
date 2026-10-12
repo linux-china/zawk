@@ -554,8 +554,27 @@ pub(crate) fn parse_fstring_literal<'a>(
     res
 }
 
+/// The pattern of a regex literal.
+///
+/// Regex literals and strings are both lowered to strings, but a single-character string used as a
+/// separator (in FS and split()) is a literal character (and " " means runs of blanks), which
+/// ignores IGNORECASE. A single-character regex literal whose meaning differs, such as `/./`, `/ /`
+/// or `/x/` (which IGNORECASE applies to), must remain a regular expression, so it is wrapped in a
+/// group, which does not change what it matches. Other characters (`/\//`) keep the fast literal
+/// path.
 pub(crate) fn parse_regex_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec<u8>) -> &'a [u8] {
     unescape_regex_literal(lit, buf);
+    let mut chars = std::str::from_utf8(buf).map(|s| s.chars()).ok();
+    let single_char = match chars.as_mut().map(|cs| (cs.next(), cs.next())) {
+        Some((Some(c), None)) => {
+            matches!(c, '.' | '^' | '$' | '|' | ' ') || c.to_lowercase().ne(c.to_uppercase())
+        }
+        _ => false,
+    };
+    if single_char {
+        buf.splice(0..0, b"(?:".iter().copied());
+        buf.push(b')');
+    }
     arena.alloc_bytes(&buf[..])
 }
 

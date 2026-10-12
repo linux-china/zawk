@@ -2016,3 +2016,24 @@ fn stdout_broken_pipe_is_silent() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Broken pipe"));
 }
+
+#[test]
+fn ignorecase_parallel() {
+    // IGNORECASE (set with -v or in BEGIN) applies on the worker threads of -p, to regexes,
+    // string comparisons and index().
+    let input: String = "ABC x\nabc y\nAbC z\nabd w\n".repeat(500);
+    let prog = r#"/^abc/ { re++ } $1 == "abc" { eq++ } index($1, "B") { ix++ } END { print re, eq, ix }"#;
+    for backend_arg in BACKEND_ARGS {
+        for begin in [false, true] {
+            let mut cmd = Command::cargo_bin("zawk").unwrap();
+            cmd.arg(backend_arg).args(["-pr", "-j4"]);
+            let prog = if begin {
+                format!("BEGIN {{ IGNORECASE = 1 }} {}", prog)
+            } else {
+                cmd.args(["-v", "IGNORECASE=1"]);
+                prog.to_string()
+            };
+            cmd.arg(prog).write_stdin(input.clone()).assert().success().stdout("1500 1500 2000\n");
+        }
+    }
+}

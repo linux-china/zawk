@@ -3198,24 +3198,23 @@ pub(crate) unsafe extern "C" fn store_var_strstrmap(rt: *mut c_void, var: usize,
 }
 
 macro_rules! str_compare_inner {
-    ($name:ident, $op:tt) => {
+    ($name:ident, $op:ident) => {
         pub(crate) unsafe extern "C" fn $name(s1: *mut c_void, s2: *mut c_void) -> Int {
             guard_panic(stringify!($name), || {
                 let s1 = &*(s1 as *mut Str);
                 let s2 = &*(s2 as *mut Str);
-                let res = s1.with_bytes(|bs1| s2.with_bytes(|bs2| bs1 $op bs2)) as Int;
-                res
-        
+                use runtime::compare::{cmp_bytes, CmpOp};
+                s1.with_bytes(|bs1| s2.with_bytes(|bs2| cmp_bytes(CmpOp::$op, bs1, bs2))) as Int
             })
         }
     }
 }
 macro_rules! str_compare {
-    ($($name:ident ($op:tt);)*) => { $( str_compare_inner!($name, $op); )* };
+    ($($name:ident ($op:ident);)*) => { $( str_compare_inner!($name, $op); )* };
 }
 
 str_compare! {
-    str_lt(<); str_gt(>); str_lte(<=); str_gte(>=); str_eq(==);
+    str_lt(Lt); str_gt(Gt); str_lte(Lte); str_gte(Gte); str_eq(Eq);
 }
 
 /// Compare two strings following awk's strnum rules; see runtime::compare.

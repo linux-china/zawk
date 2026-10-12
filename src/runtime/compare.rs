@@ -8,7 +8,13 @@
 //!
 //! Whether a string operand may be a strnum is decided statically (see `strnum_analysis`), and
 //! passed to the functions here as a `StrKind`.
-use crate::runtime::{convert, Float, Int, Str};
+//!
+//! When gawk's IGNORECASE is set, string comparisons (and `index()`) ignore case: see
+//! `cmp_bytes` and `find_bytes`.
+use std::cmp::Ordering;
+
+use crate::runtime::str_impl::{char_count, characters_as_bytes};
+use crate::runtime::{awk_regex, convert, Float, Int, Str};
 
 /// How a string operand of a comparison behaves.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -40,7 +46,7 @@ impl CmpOp {
             _ => CmpOp::Eq,
         }
     }
-    fn apply<T: PartialOrd + ?Sized>(self, l: &T, r: &T) -> bool {
+    pub(crate) fn apply<T: PartialOrd + ?Sized>(self, l: &T, r: &T) -> bool {
         match self {
             CmpOp::Lt => l < r,
             CmpOp::Lte => l <= r,
@@ -132,6 +138,85 @@ pub(crate) fn looks_numeric(bs: &[u8]) -> Option<Float> {
     std::str::from_utf8(s).ok()?.parse().ok()
 }
 
+/// A character with case folded for IGNORECASE: its lowercase form when that is a single
+/// character (as gawk's `towlower`), otherwise the character itself.
+fn fold_char(c: char) -> char {
+    let mut lower = c.to_lowercase();
+    match (lower.next(), lower.next()) {
+        (Some(l), None) => l,
+        _ => c,
+    }
+}
+
+/// The units compared when IGNORECASE is set, with the byte offset where each starts: case
+/// folded characters, and bytes that are not valid UTF-8 (after every character).
+fn folded_units(bs: &[u8]) -> Vec<(u32, usize)> {
+    let mut res = Vec::with_capacity(bs.len());
+    let mut off = 0;
+    for chunk in bs.utf8_chunks() {
+        for (ix, c) in chunk.valid().char_indices() {
+            res.push((fold_char(c) as u32, off + ix));
+        }
+        off += chunk.valid().len();
+        for (ix, b) in chunk.invalid().iter().enumerate() {
+            res.push((0x11_0000 + *b as u32, off + ix));
+        }
+        off += chunk.invalid().len();
+    }
+    res
+}
+
+/// Whether bytes and ASCII letters are compared, rather than Unicode characters.
+fn ascii_fold(l: &[u8], r: &[u8]) -> bool {
+    characters_as_bytes() || (l.is_ascii() && r.is_ascii())
+}
+
+/// Compare `l` with `r` ignoring case.
+fn cmp_folded(l: &[u8], r: &[u8]) -> Ordering {
+    if ascii_fold(l, r) {
+        let fold = |bs: &[u8]| bs.iter().map(u8::to_ascii_lowercase).collect::<Vec<_>>();
+        return fold(l).cmp(&fold(r));
+    }
+    let units = |bs: &[u8]| folded_units(bs).into_iter().map(|(u, _)| u).collect::<Vec<_>>();
+    units(l).cmp(&units(r))
+}
+
+/// Compare two strings as strings, ignoring case when IGNORECASE is set.
+#[inline]
+pub(crate) fn cmp_bytes(op: CmpOp, l: &[u8], r: &[u8]) -> bool {
+    if awk_regex::ignore_case() {
+        op.apply(&cmp_folded(l, r), &Ordering::Equal)
+    } else {
+        op.apply(l, r)
+    }
+}
+
+/// The byte offset of the first occurrence of a nonempty `needle` in `haystack` when IGNORECASE
+/// is set, or `None` if IGNORECASE is not set.
+fn find_folded(needle: &[u8], haystack: &[u8]) -> Option<Option<usize>> {
+    if !awk_regex::ignore_case() || needle.is_empty() {
+        return None;
+    }
+    if ascii_fold(needle, haystack) {
+        let n = needle.to_ascii_lowercase();
+        let h = haystack.to_ascii_lowercase();
+        return Some(memchr::memmem::find(&h, &n));
+    }
+    let n: Vec<u32> = folded_units(needle).into_iter().map(|(u, _)| u).collect();
+    let h = folded_units(haystack);
+    Some(
+        h.windows(n.len())
+            .find(|w| w.iter().map(|(u, _)| *u).eq(n.iter().copied()))
+            .map(|w| w[0].1),
+    )
+}
+
+/// The 1-based character position of `needle` in `haystack` as `index()` returns it, ignoring
+/// case when IGNORECASE is set; `None` when IGNORECASE does not apply.
+pub(crate) fn index_folded(needle: &[u8], haystack: &[u8]) -> Option<Int> {
+    find_folded(needle, haystack).map(|off| off.map_or(0, |x| char_count(&haystack[..x]) as Int + 1))
+}
+
 /// Compare two strings; `code` is `encode(op, kind of l, kind of r)`.
 pub(crate) fn cmp_str_str(l: &Str, r: &Str, code: Int) -> Int {
     let (op, lk, rk) = decode(code);
@@ -143,7 +228,7 @@ pub(crate) fn cmp_str_str(l: &Str, r: &Str, code: Int) -> Int {
                     return op.apply(&lf, &rf);
                 }
             }
-            op.apply(lb, rb)
+            cmp_bytes(op, lb, rb)
         })
     }) as Int
 }
@@ -163,9 +248,9 @@ pub(crate) fn cmp_str_num(s: &Str, n: Float, code: Int) -> Int {
         let ns: Str = convert::<Float, Str>(n);
         ns.with_bytes(|nb| {
             if str_on_right {
-                op.apply(nb, sb)
+                cmp_bytes(op, nb, sb)
             } else {
-                op.apply(sb, nb)
+                cmp_bytes(op, sb, nb)
             }
         })
     }) as Int

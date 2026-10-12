@@ -42,7 +42,6 @@ Now I'm not sure about the roadmap, but I will try my best to make zawk more pow
 zawk is a new AWK implementation and doesn't follow every gawk extension. These differences are intentional:
 
 - No `BEGINFILE` and `ENDFILE` blocks; `next`/`nextfile` are not allowed inside functions
-- No `IGNORECASE`: use `tolower()` or `(?i)` in the regex, e.g. `/(?i)error/`
 - No `FIELDWIDTHS` / `FPAT`: use `-i csv`, `substr()` or `match()`
 - No `RT`
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`

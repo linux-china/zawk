@@ -205,8 +205,9 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
 - `var=value` operands between files are not supported (they are read as file names): use `-v var=value`.
 - `ARGV`/`ARGC` are read-only: assigning `ARGV[1]` doesn't change the input files.
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`, or `(i, j) in a`.
-- No `IGNORECASE`: use `tolower()` or `(?i)` in the regex. No `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or
-  `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
+- `IGNORECASE = 1` works as in gawk: regex matching, `FS`/`RS`, string comparisons and `index()` ignore case (a
+  single-character string separator such as `FS = "x"` stays literal); `(?i)` in a regex also works. No
+  `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
 - gawk's `switch` is supported (`case` labels are numeric/string/regex constants, bodies fall through until
   `break`). Not supported: `BEGINFILE`/`ENDFILE`, `asorti`, `PROCINFO["sorted_in"]`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values) or pipe the output to `sort`.

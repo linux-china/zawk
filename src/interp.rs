@@ -2078,7 +2078,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = self.get(*l);
                         let r = self.get(*r);
-                        *self.get_mut(res) = l.with_bytes(|l| r.with_bytes(|r| l < r)) as Int;
+                        let op = runtime::compare::CmpOp::Lt;
+                        *self.get_mut(res) =
+                            l.with_bytes(|l| r.with_bytes(|r| runtime::compare::cmp_bytes(op, l, r))) as Int;
                     }
                     GTFloat(res, l, r) => {
                         let res = *res;
@@ -2096,7 +2098,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = self.get(*l);
                         let r = self.get(*r);
-                        *self.get_mut(res) = l.with_bytes(|l| r.with_bytes(|r| l > r)) as Int;
+                        let op = runtime::compare::CmpOp::Gt;
+                        *self.get_mut(res) =
+                            l.with_bytes(|l| r.with_bytes(|r| runtime::compare::cmp_bytes(op, l, r))) as Int;
                     }
                     LTEFloat(res, l, r) => {
                         let res = *res;
@@ -2114,7 +2118,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = self.get(*l);
                         let r = self.get(*r);
-                        *self.get_mut(res) = l.with_bytes(|l| r.with_bytes(|r| l <= r)) as Int;
+                        let op = runtime::compare::CmpOp::Lte;
+                        *self.get_mut(res) =
+                            l.with_bytes(|l| r.with_bytes(|r| runtime::compare::cmp_bytes(op, l, r))) as Int;
                     }
                     GTEFloat(res, l, r) => {
                         let res = *res;
@@ -2132,7 +2138,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = self.get(*l);
                         let r = self.get(*r);
-                        *self.get_mut(res) = l.with_bytes(|l| r.with_bytes(|r| l >= r)) as Int;
+                        let op = runtime::compare::CmpOp::Gte;
+                        *self.get_mut(res) =
+                            l.with_bytes(|l| r.with_bytes(|r| runtime::compare::cmp_bytes(op, l, r))) as Int;
                     }
                     EQFloat(res, l, r) => {
                         let res = *res;
@@ -2150,7 +2158,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = *res;
                         let l = self.get(*l);
                         let r = self.get(*r);
-                        *self.get_mut(res) = (l == r) as Int;
+                        let eq = if runtime::awk_regex::ignore_case() {
+                            let op = runtime::compare::CmpOp::Eq;
+                            l.with_bytes(|l| r.with_bytes(|r| runtime::compare::cmp_bytes(op, l, r)))
+                        } else {
+                            l == r
+                        };
+                        *self.get_mut(res) = eq as Int;
                     }
                     SetColumn(dst, src) => {
                         let col = *self.get(*dst);

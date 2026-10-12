@@ -1918,7 +1918,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         current_open: NodeIx,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         match expr {
-            Expr::PatLit(s) => Ok((current_open, PrimVal::StrLit(regex_literal(s)))),
+            Expr::PatLit(s) => Ok((current_open, PrimVal::StrLit(s))),
             _ => self.convert_val(expr, current_open),
         }
     }
@@ -2154,7 +2154,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 Some(Expr::ILit(n)) => (ast::Binop::EQ, &num_v, PrimVal::ILit(*n)),
                 Some(Expr::FLit(f)) => (ast::Binop::EQ, &num_v, PrimVal::FLit(*f)),
                 Some(Expr::StrLit(s)) => (ast::Binop::EQ, &str_v, PrimVal::StrLit(s)),
-                Some(Expr::PatLit(s)) => (ast::Binop::IsMatch, &str_v, PrimVal::StrLit(regex_literal(s))),
+                Some(Expr::PatLit(s)) => (ast::Binop::IsMatch, &str_v, PrimVal::StrLit(s)),
                 Some(_) => return err!("invalid case label in switch body"),
             };
             let cond = PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![v.clone(), lit]);
@@ -2996,22 +2996,5 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
         }
         rename_recursive(self.f, cur, &mut state);
-    }
-}
-
-/// Single-character strings used as field separators (in FS and split()) are literal characters,
-/// and " " means runs of blanks, but a regex literal such as `/./` or `/ /` must remain a regular
-/// expression. Regex literals and strings
-/// are both lowered to strings, so wrap the single-character regexes whose meaning differs from
-/// the literal character in a group, which does not change what they match.
-fn regex_literal(s: &[u8]) -> &[u8] {
-    match s {
-        b"." => b"(?:.)",
-        b"^" => b"(?:^)",
-        b"$" => b"(?:$)",
-        b"|" => b"(?:|)",
-        // A single space is not the default field separator (runs of blanks) when it is a regex.
-        b" " => b"(?: )",
-        _ => s,
     }
 }
