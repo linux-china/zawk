@@ -2,10 +2,11 @@
 # opts: -v vv=7
 # typeof reports the state at runtime: input strings that look numeric are "strnum", missing
 # array elements are "untyped", fields beyond NF are "unassigned", and a variable is "untyped"
-# until it is assigned.
+# until it is assigned. $0 is "unassigned" until a record is read or it is set.
 function late() { return typeof(g) }
 BEGIN {
     print late(), typeof(vv)
+    print typeof($0), typeof($1); $0 = "x"; print typeof($0)
     g = 1
     print late()
     split("1 a", parts)

@@ -1,4 +1,6 @@
 untyped strnum
+unassigned unassigned
+string
 number
 strnum string untyped 3
 number untyped 2

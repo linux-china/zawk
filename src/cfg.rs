@@ -1779,6 +1779,30 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     smallvec![n_v.clone(), nf],
                 );
                 let in_range = self.to_val(in_range, next)?;
+                // $0 is "unassigned" until a record is read or it is set; approximate that with
+                // `NR == 0 && $0 == ""`, i.e. require `n + NR + length($0) > 0` as well.
+                let nr = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NR), next)?;
+                let n_nr = self.to_val(
+                    PrimExpr::CallBuiltin(Bin(ast::Binop::Plus), smallvec![n_v.clone(), nr]),
+                    next,
+                )?;
+                let line = self.to_val(
+                    PrimExpr::CallBuiltin(
+                        Function::Unop(Unop::Column),
+                        smallvec![PrimVal::ILit(0)],
+                    ),
+                    next,
+                )?;
+                let len =
+                    self.to_val(PrimExpr::CallBuiltin(Function::Length, smallvec![line]), next)?;
+                let assigned = self.to_val(
+                    PrimExpr::CallBuiltin(Bin(ast::Binop::Plus), smallvec![n_nr, len]),
+                    next,
+                )?;
+                let in_range = self.to_val(
+                    PrimExpr::CallBuiltin(Bin(ast::Binop::Mult), smallvec![in_range, assigned]),
+                    next,
+                )?;
                 let v = self.to_val(
                     PrimExpr::CallBuiltin(Function::Unop(Unop::Column), smallvec![n_v]),
                     next,
