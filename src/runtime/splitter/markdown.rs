@@ -70,7 +70,8 @@ impl MarkdownCsv {
                 io::stdin().read_to_end(&mut data).map_err(|e| self.error(e))?;
             }
         }
-        let text = String::from_utf8_lossy(&data);
+        let data = data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&data);
+        let text = String::from_utf8_lossy(data);
         let csv = first_table_csv(&text);
         if csv.is_none() {
             crate::runtime::stdlib_warning("markdown", format!("no table found in `{}'", self.name()));

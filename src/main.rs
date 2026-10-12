@@ -88,6 +88,7 @@ struct PreludeScalars {
     arbitrary_shell: bool,
     fold_regexes: bool,
     parse_header: bool,
+    header_per_file: bool,
     escaper: Escaper,
     stage: Stage<()>,
 }
@@ -272,6 +273,7 @@ fn get_context<'a>(
             prog.output_sep = prelude.output_sep;
             prog.output_record_sep = prelude.output_record_sep;
             prog.parse_header = prelude.scalars.parse_header;
+            prog.header_per_file = prelude.scalars.header_per_file;
             a.alloc(prog)
         }
         Err(e) => {
@@ -646,7 +648,7 @@ fn real_main() {
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
-    let exec_strategy = match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
+    let mut exec_strategy = match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
         Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord,
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
         None => ExecutionStrategy::Serial,
@@ -665,7 +667,7 @@ fn real_main() {
     } else {
         CHUNK_SIZE
     };
-    let num_workers = match matches.get_one::<String>("jobs") {
+    let mut num_workers = match matches.get_one::<String>("jobs") {
         Some(s) => match s.parse::<usize>() {
             Ok(u) => u,
             Err(e) => fail!("value of 'jobs' flag must be numeric: {}", e),
@@ -781,6 +783,15 @@ fn real_main() {
     // JSON Lines records, Parquet files and Markdown tables are self-describing, so FI is always
     // populated from the first record (the column names for Parquet and Markdown tables).
     let parse_header = matches.get_flag("parse-header") || jsonl || parquet || markdown;
+    // Every input file starts with a header line (JSON Lines and Parquet map each record by key).
+    let header_per_file = parse_header && !jsonl && !parquet;
+    let multi_file_headers = header_per_file && input_files.len() > 1;
+    if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
+        // The workers cannot tell which record is the header of a file.
+        eprintln!("zawk: warning: -H with several input files: running serially");
+        exec_strategy = ExecutionStrategy::Serial;
+        num_workers = 1;
+    }
 
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
@@ -804,6 +815,7 @@ fn real_main() {
             fold_regexes: opt_level >= 3,
             stage: exec_strategy.stage(),
             parse_header,
+            header_per_file,
         },
         output_record_sep,
         argv,
@@ -834,6 +846,7 @@ fn real_main() {
             fatal!("{}", e);
         }
     }
+    runtime::set_multi_file_headers(multi_file_headers);
     let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();
 

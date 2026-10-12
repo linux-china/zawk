@@ -79,22 +79,22 @@ pub struct Prog<'a, 'b, I> {
     pub stage: Stage<()>,
     pub argv: Vec<&'b str>,
     pub parse_header: bool,
+    // Each input file starts with its own header line (-H, but not for JSON Lines or Parquet,
+    // whose FI comes from the record keys).
+    pub header_per_file: bool,
 }
 
-fn parse_header<'a, 'b, I: From<&'b str> + Clone>(
-    arena: &'a Arena,
-    begin: &mut arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
-) {
-    use {self::Expr::*, Stmt::*};
-    // Pick an illegal frawk identifier.
-    const LOOP_VAR: &str = "--";
-    // Append the following to begin:
-    // if (getline > 0) {
-    //  for (LOOP_VAR=1; LOOP_VAR <= NF; ++LOOP_VAR)
-    //      FI[$LOOP_VAR] = LOOP_VAR;
-    //  update_used_fields()
-    // }
+// Pick an illegal frawk identifier.
+const LOOP_VAR: &str = "--";
 
+// Statements that fill FI from the column names in the current record:
+//  for (LOOP_VAR=1; LOOP_VAR <= NF; ++LOOP_VAR)
+//      FI[$LOOP_VAR] = LOOP_VAR;
+//  update_used_fields()
+fn set_fi_from_record<'a, 'b, I: From<&'b str> + Clone>(
+    arena: &'a Arena,
+) -> arena::Vec<'a, &'a Stmt<'a, 'b, I>> {
+    use {self::Expr::*, Stmt::*};
     let loop_var = arena.alloc(Var(LOOP_VAR.into()));
     let init = arena.alloc(Expr(arena.alloc(Assign(loop_var, arena.alloc(ILit(1))))));
     let cond = arena.alloc(Binop(
@@ -112,21 +112,71 @@ fn parse_header<'a, 'b, I: From<&'b str> + Clone>(
         arena.alloc_slice(&[loop_var, loop_var]),
     ))));
 
-    let block = arena.new_vec_from_slice(&[
+    arena.new_vec_from_slice(&[
         arena.alloc(For(Some(init), Some(cond), Some(update), body)),
         arena.alloc(Expr(
             arena.alloc(Call(Either::Right(Function::UpdateUsedFields), &[])),
         )),
-    ]);
+    ])
+}
+
+fn parse_header<'a, 'b, I: From<&'b str> + Clone>(
+    arena: &'a Arena,
+    begin: &mut arena::Vec<'a, &'a Stmt<'a, 'b, I>>,
+) {
+    use {self::Expr::*, Stmt::*};
+    // Append the following to begin:
+    // if (getline > 0) {
+    //  <set_fi_from_record>
+    // }
     begin.push(arena.alloc(If(
         arena.alloc(Binop(
             self::Binop::GT,
             arena.alloc(ReadStdin),
             arena.alloc(ILit(0)),
         )),
-        arena.alloc(Block(block)),
+        arena.alloc(Block(set_fi_from_record(arena))),
         /*else*/ None,
     )));
+}
+
+// With -H, every input file starts with a header line, not just the first one. The header of
+// the first file is read in BEGIN (see `parse_header`); the main loop consumes the header of each
+// following file and rebuilds FI from it, as the columns may be in a different order.
+//
+// FNR is 0 for the first record of a file. To tell the header of a new file apart from the first
+// record after a header, FNR is set to -1 once a header has been read:
+//  if (FNR <= 0) {
+//      if (FNR == 0) {
+//          delete FI
+//          <set_fi_from_record>
+//          FNR = -1
+//          next
+//      }
+//      FNR = 0
+//  }
+fn header_per_file<'a, 'b, I: From<&'b str> + Clone>(arena: &'a Arena) -> &'a Stmt<'a, 'b, I> {
+    use {self::Binop::*, self::Expr::*, Stmt::*};
+    let fnr = arena.alloc(Var("FNR".into()));
+    let set_fnr = |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
+    let mut header = arena.vec_with_capacity(5);
+    header.push(&*arena.alloc(Expr(arena.alloc(Call(
+        Either::Right(Function::Clear),
+        arena.alloc_slice(&[&*arena.alloc(Var("FI".into()))]),
+    )))));
+    header.extend(set_fi_from_record(arena).iter().cloned());
+    header.push(set_fnr(-1));
+    header.push(arena.alloc(Next));
+    let new_file = arena.alloc(If(
+        arena.alloc(Binop(EQ, fnr, arena.alloc(ILit(0)))),
+        arena.alloc(Block(header)),
+        None,
+    ));
+    arena.alloc(If(
+        arena.alloc(Binop(LTE, fnr, arena.alloc(ILit(0)))),
+        arena.alloc(Block(arena.new_vec_from_slice(&[&*new_file, set_fnr(0)]))),
+        None,
+    ))
 }
 
 impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
@@ -145,6 +195,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             pats: arena.new_vec(),
             argv: Vec::new(),
             parse_header: false,
+            header_per_file: false,
             stage,
         }
     }
@@ -214,6 +265,12 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
 
         // Desugar patterns into if statements, with the usual desugaring for an empty action.
         let mut inner = arena.vec_with_capacity(10);
+        let per_file_header = self.parse_header
+            && self.header_per_file
+            && matches!(self.stage, Stage::Main(_));
+        if per_file_header {
+            inner.push(header_per_file(arena));
+        }
         inner.push(arena.alloc(Expr(arena.alloc(Inc {
             is_inc: true,
             is_post: false,
@@ -309,6 +366,23 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 arena.alloc(Binop(GT, arena.alloc(ReadStdin), arena.alloc(ILit(0)))),
                 arena.alloc(Block(inner)),
             ));
+            let main_portion = if per_file_header {
+                // FNR = -1: the header of the first file was read in BEGIN. After the loop, a
+                // trailing header (a file without records) must not leave FNR at -1 for END.
+                let fnr = arena.alloc(Var("FNR".into()));
+                let set_fnr = |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
+                arena.alloc(Block(arena.new_vec_from_slice(&[
+                    set_fnr(-1),
+                    main_portion,
+                    arena.alloc(If(
+                        arena.alloc(Binop(LT, fnr, arena.alloc(ILit(0)))),
+                        set_fnr(0),
+                        None,
+                    )),
+                ])))
+            } else {
+                main_portion
+            };
             main_loop = Some(if self.prepare.is_empty() {
                 main_portion
             } else {

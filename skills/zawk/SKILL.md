@@ -57,7 +57,7 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
 | `-i csv\|tsv\|jsonl\|parquet\|markdown` | Input format (NOT gawk's `-i include`). jsonl, parquet and markdown imply `-H` |
-| `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record |
+| `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|markdown\|parquet` | Output format of `print` to stdout (`md` = markdown) |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet` unless redirected) |
 | `-A` | Allow input data in `system()` and pipe commands (see Pitfalls) |

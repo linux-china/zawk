@@ -93,6 +93,38 @@ fn simple_fi() {
 }
 
 #[test]
+fn fi_header_per_file() {
+    let tmpdir = tempdir().unwrap();
+    let h1 = tmpdir.path().join("h1.csv");
+    let h2 = tmpdir.path().join("h2.csv");
+    let h0 = tmpdir.path().join("h0.csv");
+    let bom = tmpdir.path().join("bom.csv");
+    std::fs::write(&h1, "id,name,x\n1,a,p\n").unwrap();
+    // The columns of a later file may be in a different order.
+    std::fs::write(&h2, "x,name,id\nq,c,3\nr,d,4\n").unwrap();
+    // A file with only a header line.
+    std::fs::write(&h0, "id,name\n").unwrap();
+    // Excel writes a UTF-8 byte order mark.
+    std::fs::write(&bom, "\u{feff}id,name\n5,e\n").unwrap();
+    let prog = r#"{print FILENAME ~ /h2/, NR, FNR, $FI["id"], $FI["name"], $FI["x"]} END {print NR, FNR}"#;
+    let expected = "0 1 1 1 a p\n1 2 1 3 c q\n1 3 2 4 d r\n3 0\n";
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", "-H", prog])
+            .args([&h0, &h1, &h2, &h0])
+            .assert()
+            .stdout(expected);
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", "-H", r#"{print $FI["id"] $FI["name"]}"#])
+            .args([&bom, &h1, &bom])
+            .assert()
+            .stdout("5e\n1a\n5e\n");
+    }
+}
+
+#[test]
 fn file_and_data_arg() {
     let input = r#"Hi"#;
     let prog = r#"{ print; }"#;

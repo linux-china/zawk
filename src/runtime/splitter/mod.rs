@@ -369,7 +369,11 @@ struct Reader<R> {
 
     // Validate input as UTF-8
     check_utf8: bool,
+    // No bytes have been read yet; a UTF-8 byte order mark at the start of the input is dropped.
+    at_start: bool,
 }
+
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
 fn read_to_slice(r: &mut impl Read, mut buf: &mut [u8]) -> Result<usize> {
     let mut read = 0;
@@ -416,6 +420,7 @@ impl<R: Read> Reader<R> {
             state: ReaderState::OK,
             last_len: 0,
             check_utf8,
+            at_start: true,
         }
     }
 
@@ -487,10 +492,22 @@ impl<R: Read> Reader<R> {
             std::ptr::copy_nonoverlapping(self.buf.as_ptr().add(consume), data.as_mut_ptr(), plen);
         }
         let mut bytes = &mut data.as_mut_bytes()[..self.chunk_size];
-        let bytes_read = plen + read_to_slice(&mut self.inner, &mut bytes[plen..])?;
+        let mut bytes_read = plen + read_to_slice(&mut self.inner, &mut bytes[plen..])?;
         if bytes_read != self.chunk_size {
             done = true;
             bytes = &mut bytes[..bytes_read];
+        }
+        if self.at_start {
+            self.at_start = false;
+            // Excel and many Windows tools start UTF-8 files with a byte order mark; drop it so
+            // that it does not end up in the first field (e.g. the first column name for -H).
+            if bytes.starts_with(UTF8_BOM) {
+                let len = bytes.len() - UTF8_BOM.len();
+                bytes.copy_within(UTF8_BOM.len().., 0);
+                bytes[len..].fill(0);
+                bytes = &mut bytes[..len];
+                bytes_read -= UTF8_BOM.len();
+            }
         }
         let mut ulen = bytes.len();
         if self.check_utf8 {

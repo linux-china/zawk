@@ -11,6 +11,7 @@ use std::mem;
 use std::rc::Rc;
 use std::str;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) mod command;
 pub(crate) mod awk_regex;
@@ -532,6 +533,14 @@ pub(crate) struct FileRead<LR: LineReader = RegexSplitter<Box<dyn io::Read + Sen
     named_columns: Option<Vec<Str<'static>>>,
     used_fields: FieldSet,
     backup_used_fields: FieldSet,
+    named_columns_applied: bool,
+}
+
+// Set when -H applies to more than one input file, see `FileRead::update_named_columns`.
+static MULTI_FILE_HEADERS: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_multi_file_headers(multi: bool) {
+    MULTI_FILE_HEADERS.store(multi, Ordering::Relaxed);
 }
 
 impl<LR: LineReader> FileRead<LR> {
@@ -550,6 +559,7 @@ impl<LR: LineReader> FileRead<LR> {
                             named_columns: None,
                             used_fields: fields.clone(),
                             backup_used_fields: fields,
+                            named_columns_applied: true,
                             stdin,
                         })
                     } else {
@@ -588,6 +598,7 @@ impl<LR: LineReader> FileRead<LR> {
             stdin,
             used_fields,
             backup_used_fields,
+            named_columns_applied: false,
             named_columns: named_columns
                 .map(|cs| cs.into_iter().map(|s| Str::from(s).unmoor()).collect()),
         };
@@ -604,6 +615,16 @@ impl<LR: LineReader> FileRead<LR> {
         if referenced_fi && !have_columns {
             return;
         }
+        // With several input files, the header of each file is read with the used-field set in
+        // effect, and may name the columns in a different order: keep parsing all columns.
+        if referenced_fi && MULTI_FILE_HEADERS.load(Ordering::Relaxed) {
+            return;
+        }
+        // The header of a later input file: the used-field set is already in place.
+        if self.named_columns_applied {
+            return;
+        }
+        self.named_columns_applied = true;
 
         // Switch back to the original used-field set.
         mem::swap(&mut self.used_fields, &mut self.backup_used_fields);

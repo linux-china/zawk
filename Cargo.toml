@@ -53,7 +53,7 @@ cranelift-jit = "0.136.2"
 fast-float = "0.2"
 bumpalo = { version = "3.20", features = ["collections"] }
 target-lexicon = "0.13"
-uuid = { version = "1.27", features = ["v4", "v7", "fast-rng"] }
+uuid = { version = "1.28", features = ["v4", "v7", "fast-rng"] }
 ulid = "3.0"
 tsid = "0.3"
 rs-snowflake = "0.6"
