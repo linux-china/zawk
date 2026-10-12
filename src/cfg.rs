@@ -844,8 +844,18 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             Expr(e) => {
                 // We need to assign to unused here, otherwise we could generate the expression but
                 // then drop it on the floor.
-                let (next, e) = self.convert_expr(e, current_open)?;
-                self.add_stmt(next, PrimStmt::AsgnVar(Ident::unused(), e))?;
+                let (next, pe) = self.convert_expr(e, current_open)?;
+                // The value of an array assignment statement (`a[k] = v`) is a re-read of the
+                // element that was just stored. Dropping it avoids an extra Lookup plus a
+                // conversion to Int, which would also flatten a Concat rope on every append.
+                let is_index_assign = matches!(
+                    e,
+                    ast::Expr::Assign(ast::Expr::Index(..), _)
+                        | ast::Expr::AssignOp(ast::Expr::Index(..), _, _)
+                ) && matches!(pe, PrimExpr::Index(..));
+                if !is_index_assign {
+                    self.add_stmt(next, PrimStmt::AsgnVar(Ident::unused(), pe))?;
+                }
                 next
             }
             Block(stmts) => {
