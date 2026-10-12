@@ -151,8 +151,8 @@ tokio-postgres-rustls = "0.14.0"
 [target.'cfg(target_family = "unix")'.dependencies]
 tikv-jemallocator = { version = "0.7" }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
+#[target.'cfg(target_os = "linux")'.dependencies]
+#openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
