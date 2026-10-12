@@ -54,11 +54,12 @@ impl SortedIn {
 
     /// Reads the order from the PROCINFO array.
     pub(crate) fn from_procinfo(procinfo: &StrMap<Str>) -> Result<SortedIn> {
+        // A single lookup, which (unlike `get`) does not insert the key.
         let key = Str::from("sorted_in");
-        if !procinfo.contains(&key) {
-            return Ok(SortedIn::UNSORTED);
+        match procinfo.0.borrow().get(&key) {
+            Some(v) => v.with_bytes(SortedIn::parse),
+            None => Ok(SortedIn::UNSORTED),
         }
-        procinfo.get(&key).with_bytes(SortedIn::parse)
     }
 }
 

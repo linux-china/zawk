@@ -145,6 +145,7 @@ pub(crate) unsafe fn run_main<R, FF, J>(
     ff: FF,
     used_fields: &FieldSet,
     named_columns: Option<Vec<&[u8]>>,
+    uses_procinfo: bool,
     num_workers: usize,
     cancel_signal: CancelSignal,
 ) -> Result<()>
@@ -153,7 +154,8 @@ where
     FF: runtime::writers::FileFactory,
     J: Jit,
 {
-    let rt = stdin.into_runtime(ff, used_fields, named_columns, cancel_signal.clone());
+    let mut rt = stdin.into_runtime(ff, used_fields, named_columns, cancel_signal.clone());
+    rt.core.vars.uses_procinfo = uses_procinfo;
     run_stage(rt, jit.main_functions()?, num_workers, cancel_signal)
 }
 

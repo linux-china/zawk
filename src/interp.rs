@@ -172,6 +172,7 @@ impl<'a> Core<'a> {
         let convfmt: UniqueStr<'a> = self.vars.convfmt.clone().into();
         let ofmt: UniqueStr<'a> = self.vars.ofmt.clone().into();
         let ignorecase = self.vars.ignorecase;
+        let uses_procinfo = self.vars.uses_procinfo;
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
@@ -198,6 +199,7 @@ impl<'a> Core<'a> {
                 fi: fi.into(),
                 environ: environ.into(),
                 procinfo: procinfo.into(),
+                uses_procinfo,
                 ignorecase,
             };
             vars.update_split_fs();
@@ -476,6 +478,10 @@ fn default_of<T: Default>(n: usize) -> Storage<T> {
 }
 
 impl<'a, LR: LineReader> Interp<'a, LR> {
+    pub(crate) fn set_uses_procinfo(&mut self, uses_procinfo: bool) {
+        self.core.vars.uses_procinfo = uses_procinfo;
+    }
+
     pub(crate) fn new(
         instrs: Vec<Vec<Instr<'a>>>,
         main_func: Stage<usize>,
@@ -2681,7 +2687,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         *index_mut(&mut self.ints, &dst.into()) = len;
     }
     fn iter_begin(&mut self, map_ty: Ty, map: NumTy, dst: NumTy) -> Result<()> {
-        let order = runtime::sorted_in::SortedIn::from_procinfo(&self.core.vars.procinfo)?;
+        let order = self.core.vars.sorted_in()?;
         let _k = 0u32;
         let _v = 0u32;
         map_regs!(map_ty, map, _k, _v, dst, {

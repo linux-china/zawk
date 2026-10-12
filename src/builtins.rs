@@ -1361,6 +1361,9 @@ pub(crate) struct Variables<'a> {
     pub fi: StrMap<'a, Int>,
     pub environ: StrMap<'a, Str<'a>>,
     pub procinfo: StrMap<'a, Str<'a>>,
+    // Whether the program references PROCINFO (set by the compiler). When it does not,
+    // `PROCINFO["sorted_in"]` is never set, so `for (k in a)` does not look it up.
+    pub uses_procinfo: bool,
     pub convfmt: Str<'a>,
     pub ofmt: Str<'a>,
     // gawk's IGNORECASE: regex matching ignores case when it is nonzero.
@@ -1389,6 +1392,7 @@ impl<'a> Default for Variables<'a> {
             fi: Default::default(),
             environ: load_env_variables(),
             procinfo: load_procinfo_variables(),
+            uses_procinfo: true,
             ignorecase: 0,
         }
     }
@@ -1440,6 +1444,14 @@ fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
 }
 
 impl<'a> Variables<'a> {
+    /// The order of `for (k in a)`, from `PROCINFO["sorted_in"]`.
+    pub(crate) fn sorted_in(&self) -> Result<crate::runtime::sorted_in::SortedIn> {
+        if !self.uses_procinfo {
+            return Ok(crate::runtime::sorted_in::SortedIn::UNSORTED);
+        }
+        crate::runtime::sorted_in::SortedIn::from_procinfo(&self.procinfo)
+    }
+
     pub fn load_int(&self, var: Variable) -> Result<Int> {
         use Variable::*;
         Ok(match var {

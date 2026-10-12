@@ -3622,7 +3622,7 @@ macro_rules! map_impl {
                     debug_assert!(!map.is_null());
                     let order = try_abort!(
                         rt,
-                        runtime::sorted_in::SortedIn::from_procinfo(&(*(rt as *mut Runtime)).core.vars.procinfo)
+                        (*(rt as *mut Runtime)).core.vars.sorted_in()
                     );
                     let map = mem::transmute::<*mut c_void, runtime::SharedMap<$k, $v>>(map);
                     let iter: Vec<_> = runtime::sorted_in::sorted_keys(&map, order);

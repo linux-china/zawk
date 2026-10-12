@@ -101,6 +101,15 @@ fn procinfo_sorted_in() {
             .arg(r#"BEGIN { a[10]; a[9]; a[100]; PROCINFO["sorted_in"] = "@ind_str_asc"; for (k in a) printf "%s ", k; PROCINFO["sorted_in"] = "@ind_num_asc"; for (k in a) printf "%s ", k; delete PROCINFO["sorted_in"]; n = 0; for (k in a) n++; print n }"#)
             .assert()
             .stdout("10 100 9 9 10 100 3\n");
+        // PROCINFO set through a function parameter, with the loop in END (and in a
+        // function that never mentions PROCINFO).
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"function set(p) { p["sorted_in"] = "@ind_str_desc" } function show(arr, k) { for (k in arr) printf "%s", k; print "" } BEGIN { set(PROCINFO) } { a[$1] } END { show(a) }"#)
+            .write_stdin("b\nc\na\n")
+            .assert()
+            .stdout("cba\n");
         // User-defined comparison functions are not supported: fail instead of ignoring them.
         let output = Command::cargo_bin("zawk")
             .unwrap()

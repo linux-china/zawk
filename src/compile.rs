@@ -181,6 +181,7 @@ pub(crate) fn run_cranelift<'a>(
     let mut typer = Typer::init_from_ctx(ctx)?;
     let used_fields = typer.used_fields.clone();
     let named_cols = typer.named_columns.take();
+    let uses_procinfo = typer.uses_procinfo;
     unsafe {
         let generator = Generator::init(&mut typer, cfg)?;
         codegen::run_main(
@@ -189,6 +190,7 @@ pub(crate) fn run_cranelift<'a>(
             ff,
             &used_fields,
             named_cols,
+            uses_procinfo,
             cfg.num_workers,
             cancel_signal,
         )
@@ -299,6 +301,9 @@ pub(crate) struct Typer<'a> {
     used_fields: FieldSet,
     // The fields referenced by name via the FI builtin variable
     named_columns: Option<Vec<&'a [u8]>>,
+    // Whether the program loads PROCINFO; if not, `PROCINFO["sorted_in"]` cannot be set and
+    // `for (k in a)` skips looking it up.
+    uses_procinfo: bool,
     // For rejecting suspcicious programs with commands.
     taint_analysis: Option<TaintedStringAnalysis>,
     // For analysis passes that introspect into the set of constant string values that will
@@ -480,7 +485,7 @@ impl<'a> Typer<'a> {
     ) -> Result<bytecode::Interp<'a, LR>> {
         let instrs = self.to_bytecode()?;
         let cols = self.named_columns.take();
-        Ok(bytecode::Interp::new(
+        let mut interp = bytecode::Interp::new(
             instrs,
             self.stage(),
             num_workers,
@@ -489,7 +494,9 @@ impl<'a> Typer<'a> {
             ff,
             &self.used_fields,
             cols,
-        ))
+        );
+        interp.set_uses_procinfo(self.uses_procinfo);
+        Ok(interp)
     }
 
     // At initialization time, we generate Either<LL, HL>, this function lowers the HL into LL.
@@ -783,6 +790,13 @@ impl<'a> Typer<'a> {
             frame.cfg.raw_nodes().iter().any(|bb| {
                 bb.weight.insts.iter().any(|stmt| {
                     matches!(stmt, Either::Left(LL::StoreVarInt(builtins::Variable::IGNORECASE, _)))
+                })
+            })
+        });
+        self.uses_procinfo = self.frames.iter().any(|frame| {
+            frame.cfg.raw_nodes().iter().any(|bb| {
+                bb.weight.insts.iter().any(|stmt| {
+                    matches!(stmt, Either::Left(LL::LoadVarStrStrMap(_, builtins::Variable::PROCINFO)))
                 })
             })
         });
