@@ -225,6 +225,47 @@ pub struct Tokenizer<'a> {
     lines: Vec<usize>,
 }
 
+/// Scans the body of a regex literal (just after its opening '/'), and returns the index of the
+/// closing '/', or of the first newline outside a bracket expression, whichever comes first. A '/'
+/// inside a bracket expression does not end the regex (`/[/]/`, as in gawk). A ']' right after
+/// '[' or '[^' is a literal ']', and '[:class:]' (also '[.x.]' and '[=x=]') may appear inside a
+/// bracket expression.
+fn regex_lit_end(bs: &[u8]) -> Option<usize> {
+    let mut i = 0;
+    let mut in_bracket = false;
+    while i < bs.len() {
+        match bs[i] {
+            b'\\' => i += 1,
+            b'/' | b'\n' if !in_bracket => return Some(i),
+            b'[' if !in_bracket => {
+                in_bracket = true;
+                if bs.get(i + 1) == Some(&b'^') {
+                    i += 1;
+                }
+                if bs.get(i + 1) == Some(&b']') {
+                    i += 1;
+                }
+            }
+            b'[' if matches!(bs.get(i + 1), Some(b':' | b'.' | b'=')) => {
+                // Skip the class only when it is properly closed, e.g. '[:alpha:]'.
+                let delim = bs[i + 1];
+                if let Some(ix) = bs[i + 2..].iter().position(|&c| c == b']' || c == b'\n') {
+                    let end = i + 2 + ix;
+                    if bs[end] == b']' && ix > 0 && bs[end - 1] == delim {
+                        i = end;
+                    }
+                }
+            }
+            b']' if in_bracket => in_bracket = false,
+            // An unterminated bracket expression does not swallow the rest of the program.
+            b'\n' => return Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// After `print` or `printf`: if `rest` is blanks followed by a parenthesized list with a
 /// top-level comma, which is not followed by `in`, returns the length up to and including the
 /// `(`. Such a list is the argument list (as in `print (a, b) > "file"`), rather than a grouping
@@ -259,8 +300,9 @@ fn paren_arg_list(rest: &str) -> Option<usize> {
             ) =>
             {
                 i += 1;
-                while i < bs.len() && bs[i] != b'/' && bs[i] != b'\n' {
-                    i += if bs[i] == b'\\' { 2 } else { 1 };
+                match regex_lit_end(&bs[i..]) {
+                    Some(end) if bs[i + end] == b'/' => i += end,
+                    _ => return None,
                 }
             }
             b'(' => parens += 1,
@@ -550,9 +592,6 @@ fn unescape_regex_literal(lit: &str, buf: &mut Vec<u8>) {
                     is_escape = true;
                     continue;
                 }
-                '/' => {
-                    break;
-                }
                 c => {
                     push_char(buf, c);
                 }
@@ -662,7 +701,15 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn regex_lit(&mut self) -> Result<(&'a str, usize /* new start */), Error> {
-        self.literal('/', "incomplete regex literal")
+        // assumes we just saw a '/'.
+        let text = &self.text[self.cur..];
+        match regex_lit_end(text.as_bytes()) {
+            Some(end) if text.as_bytes()[end] == b'/' => Ok((&text[..end], self.cur + end + 1)),
+            _ => Err(Error {
+                location: self.index_to_loc(self.cur),
+                desc: "incomplete regex literal".into(),
+            }),
+        }
     }
 
     fn string_lit(&mut self) -> Result<(&'a str, usize /* new start */), Error> {
@@ -1133,5 +1180,27 @@ and the third"#;
             let toks: Vec<_> = lex_str(text).into_iter().map(|x| x.1).collect();
             assert_eq!(&toks[..3], &[Ident("x"), Assign, ILit("1")], "{:?}", text);
         }
+    }
+
+    #[test]
+    fn slash_in_regex_bracket() {
+        use Tok::*;
+        for (text, re) in [
+            ("/[/]/", "[/]"),
+            ("/[a/]b/", "[a/]b"),
+            ("/[]/]x/", "[]/]x"),
+            ("/[^]/]+/", "[^]/]+"),
+            ("/[[:alpha:]/]+/", "[[:alpha:]/]+"),
+            ("/[\\/]/", "[\\/]"),
+            ("/a\\/b/", "a\\/b"),
+            ("/[:/]/", "[:/]"),
+        ] {
+            let toks: Vec<_> = lex_str(text).into_iter().map(|x| x.1).collect();
+            assert_eq!(&toks[..1], &[PatLit(re)], "{:?}", text);
+        }
+        let mut buf = Vec::new();
+        unescape_regex_literal("[/]a\\/b", &mut buf);
+        assert_eq!(&buf[..], b"[/]a/b");
+        assert!(Tokenizer::new("/[a/\n").any(|t| t.is_err()));
     }
 }
