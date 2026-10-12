@@ -1,7 +1,7 @@
 zawk: AWK + stdlib + Rust
 =====================================================
 
-zawk is a small programming language for writing short programs processing textual data.
+zawk is a modern AWK+ language for writing short programs processing textual data.
 To a first approximation, it is an implementation of the [AWK](https://en.wikipedia.org/wiki/AWK) language;
 many common Awk programs produce equivalent output when passed to zawk.
 
@@ -13,7 +13,7 @@ or if you want a standard AWK library to make life easy.
 
 Features:
 
-* CSV/TSV support by frawk
+* CSV/TSV support
 * JSON Lines (`-i jsonl`), Apache Parquet (`-i parquet`) and Markdown table (`-i markdown`) input
 * Read input files from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`
 * High performance
@@ -30,14 +30,14 @@ Features:
 
 The info subdirectory has more in-depth information on zawk:
 
-* [Overview](https://github.com/linux-china/zawk/blob/master/info/overview.md): what frawk is all about, how it differs
+* [Overview](https://github.com/linux-china/zawk/blob/master/info/overview.md): what zawk is all about, how it differs
   from Awk.
-* [Types](https://github.com/linux-china/zawk/blob/master/info/types.md): A quick gloss on frawk's approach to types and
+* [Types](https://github.com/linux-china/zawk/blob/master/info/types.md): A quick gloss on zawk's approach to types and
   type inference.
-* [Parallelism](https://github.com/linux-china/zawk/blob/master/info/parallelism.md): An overview of frawk's parallelism
+* [Parallelism](https://github.com/linux-china/zawk/blob/master/info/parallelism.md): An overview of zawk's parallelism
   support.
 * [Benchmarks](https://github.com/linux-china/zawk/blob/master/info/performance.md): A sense of the relative performance
-  of frawk and other tools when processing large CSV or TSV files.
+  of zawk and other tools when processing large CSV or TSV files.
 * [Standard Library](https://github.com/linux-china/zawk/blob/master/info/stdlib.md): A standard library by zawk,
   including exciting functions that are new when compared with Awk.
 * [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md): FAQ about zawk.
@@ -62,21 +62,15 @@ $ cargo binstall zawk
 You will need to [install Rust](https://rustup.rs/). If you have not updated rust in a while,
 run `rustup update nightly` (or `rustup update` if building using stable).
 
-### Building Using Stable
-
-frawk currently requires a nightly compiler by default. To compile frawk using stable,
-compile without the `unstable` feature. Using `rustup default nightly`, or some other
-method to run a nightly compiler release is otherwise required to build frawk.
-
 ### Building a Binary
 
 With those prerequisites, cloning this repository and a `cargo build --release`
-or `cargo [+nightly] install --path <zawk repo path>` will produce a binary that you can
+or `cargo install --path <zawk repo path>` will produce a binary that you can
 add to your `PATH` if you so choose:
 
 ```
 $ cd <zawk repo path>
-$ cargo +nightly install --path .
+$ cargo install --path .
 ```
 
 zawk is now on [crates.io](https://crates.io/crates/zawk), so running
@@ -93,9 +87,9 @@ The resulting binary may crash with `SIGILL` on other machines, so do not distri
 
 # Bugs and Feature Requests
 
-frawk has bugs, and many rough edges. If you notice a bug in frawk, filing an issue
+zawk has bugs, and many rough edges. If you notice a bug in zawk, filing an issue
 with an explanation of how to reproduce the error would be very helpful. There are
-no guarantees on response time or latency for a fix. No one works on frawk full-time.
+no guarantees on response time or latency for a fix. No one works on zawk full-time.
 The same policy holds for feature requests.
 
 # Credits
