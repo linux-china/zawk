@@ -194,7 +194,8 @@ Functions returning `map[...]` return an array: index the call directly (`url($1
 (`u = url($1)`). Use `var_dump(x)` to see an array's structure on stderr.
 
 Text is UTF-8: `length`, `substr`, `index` and `match` count characters (`length("你好Hello")` is 7), `strlen` counts
-bytes.
+bytes. Input that is not valid UTF-8 (GBK, Latin-1, binary) is kept byte for byte: hashes and encodings
+(`digest`, `hmac`, `encode`) work on the raw bytes, and text functions never replace invalid bytes with U+FFFD.
 
 Functions using external services (network, KV, databases, crypto keys) don't stop the program on failure: they print
 one warning to stderr and return an empty value (`0` for an HTTP status).

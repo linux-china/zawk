@@ -1175,6 +1175,36 @@ impl<K: Hash + Eq, V> FromIterator<(K, V)> for SharedMap<K, V> {
 pub(crate) type Int = i64;
 pub(crate) type Float = f64;
 pub(crate) type IntMap<V> = SharedMap<Int, V>;
+
+impl<'a> IntMap<Str<'a>> {
+    /// Undo [`Str::as_text`] on the values of a map built from `as_text` input.
+    pub(crate) fn from_text(self) -> Self {
+        for v in self.borrow_mut().values_mut() {
+            *v = v.unescape_text();
+        }
+        self
+    }
+}
+
+impl<'a, V> StrMap<'a, V> {
+    /// Undo [`Str::as_text`] on the keys of a map built from `as_text` input, and on the values
+    /// with `value`.
+    pub(crate) fn from_text(self, value: impl Fn(V) -> V) -> Self {
+        let entries: Vec<_> = self.borrow_mut().drain().collect();
+        let mut map = self.borrow_mut();
+        for (k, v) in entries {
+            map.insert(k.unescape_text(), value(v));
+        }
+        drop(map);
+        self
+    }
+}
+
+impl<'a> StrMap<'a, Str<'a>> {
+    pub(crate) fn from_text_all(self) -> Self {
+        self.from_text(|v| v.unescape_text())
+    }
+}
 pub(crate) type StrMap<'a, V> = SharedMap<Str<'a>, V>;
 
 pub(crate) struct Iter<S> {

@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hashbrown::HashMap;
-use urlencoding::{encode as url_encode, decode as url_decode};
+use urlencoding::decode_binary as url_decode_binary;
 use base58;
 use base58::{FromBase58, ToBase58};
 use flate2::Compression;
@@ -14,22 +14,22 @@ use crate::runtime;
 use crate::runtime::{stdlib_warning, SharedMap, Str};
 
 
-pub fn encode(format: &str, text: &str) -> String {
+pub fn encode(format: &str, text: &[u8]) -> String {
     match format {
-        "base32" => data_encoding::BASE32_NOPAD.encode(text.as_bytes()),
-        "base32hex" => data_encoding::BASE32HEX_NOPAD.encode(text.as_bytes()),
-        "base58" => text.as_bytes().to_base58(),
-        "base62" => base62_encode(text.as_bytes()),
+        "base32" => data_encoding::BASE32_NOPAD.encode(text),
+        "base32hex" => data_encoding::BASE32HEX_NOPAD.encode(text),
+        "base58" => text.to_base58(),
+        "base62" => base62_encode(text),
         "base64" => STANDARD.encode(text),
-        "base85" => base85::encode(text.as_bytes()),
+        "base85" => base85::encode(text),
         "base64url" => URL_SAFE_NO_PAD.encode(text),
         "zlib2base64url" => {
             let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-            e.write_all(text.as_bytes()).unwrap();
+            e.write_all(text).unwrap();
             let compressed_bytes = e.finish().unwrap();
             URL_SAFE_NO_PAD.encode(compressed_bytes)
         }
-        "url" => url_encode(text).to_string(),
+        "url" => urlencoding::encode_binary(text).to_string(),
         "hex" => hex::encode(text),
         "hex-base64" => {
             match hex::decode(text) {
@@ -67,19 +67,19 @@ fn encode_failed(format: &str, err: impl std::fmt::Display) -> String {
     String::new()
 }
 
-/// Decode `text` from `format`. Returns an empty string (with a warning) if the format is unknown,
-/// `text` is malformed, or the decoded bytes are not valid UTF-8.
-pub fn decode(format: &str, text: &str) -> String {
+/// Decode `text` from `format` into raw bytes, which need not be valid UTF-8. Returns no bytes
+/// (with a warning) if the format is unknown or `text` is malformed.
+pub fn decode(format: &str, text: &str) -> Vec<u8> {
     match try_decode(format, text) {
         Ok(text) => text,
         Err(msg) => {
             stdlib_warning("decode", msg);
-            String::new()
+            Vec::new()
         }
     }
 }
 
-fn try_decode(format: &str, text: &str) -> Result<String, String> {
+fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
     let bytes = match format {
         "base32" => data_encoding::BASE32_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
         "base32hex" => data_encoding::BASE32HEX_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
@@ -93,12 +93,11 @@ fn try_decode(format: &str, text: &str) -> Result<String, String> {
             let mut out = Vec::new();
             d.read_to_end(&mut out).map(|_| out).map_err(|e| e.to_string())
         }),
-        "url" => return url_decode(text).map(|t| t.to_string()).map_err(|e| format!("{}: {}", format, e)),
+        "url" => Ok(url_decode_binary(text.as_bytes()).into_owned()),
         "hex" => hex::decode(text).map_err(|e| e.to_string()),
         _ => return Err(format!("unsupported format {:?}", format)),
     };
-    let bytes = bytes.map_err(|e| format!("{}: {}", format, e))?;
-    String::from_utf8(bytes).map_err(|_| format!("{}: decoded bytes are not valid UTF-8", format))
+    bytes.map_err(|e| format!("{}: {}", format, e))
 }
 
 pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
@@ -127,13 +126,13 @@ lazy_static! {
     static ref BLOOM_FILTERS: Arc<Mutex<HashMap<String, GrowableBloom>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
-pub fn bf_insert(item: &str, group: &str) {
+pub fn bf_insert(item: &[u8], group: &str) {
     let mut filters = BLOOM_FILTERS.lock().unwrap();
     let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
     filter.insert(item);
 }
 
-pub fn bf_contains(item: &str, group: &str) -> i64 {
+pub fn bf_contains(item: &[u8], group: &str) -> i64 {
     let filters = BLOOM_FILTERS.lock().unwrap();
     if let Some(filter) = filters.get(group) {
         return filter.contains(item) as i64;
@@ -141,7 +140,7 @@ pub fn bf_contains(item: &str, group: &str) -> i64 {
     return 0;
 }
 
-pub fn bf_icontains(item: &str, group: &str) -> i64 {
+pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
     let mut filters = BLOOM_FILTERS.lock().unwrap();
     let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
     return if filter.contains(item) {
@@ -245,25 +244,35 @@ mod tests {
     }
 
     #[test]
+    fn test_non_utf8() {
+        let text = b"caf\xe9x";
+        assert_eq!(encode("hex", text), "636166e978");
+        assert_eq!(encode("base64", text), "Y2Fm6Xg=");
+        assert_eq!(encode("url", text), "caf%E9x");
+        assert_eq!(decode("hex", "636166e978"), text);
+        assert_eq!(decode("url", "caf%E9x"), text);
+    }
+
+    #[test]
     fn test_base32() {
         let text = "Hello";
-        let encode_text = encode("base32", text);
+        let encode_text = encode("base32", text.as_bytes());
         let plain = decode("base32", &encode_text);
-        assert_eq!(&plain, text);
+        assert_eq!(plain, text.as_bytes());
     }
 
     #[test]
     fn test_base62() {
         let text = "Hello";
-        let encoded_text = encode("base62", text);
+        let encoded_text = encode("base62", text.as_bytes());
         assert_eq!(encoded_text, "Rs8MZpO");
         let text2 = decode("base62", &encoded_text);
-        assert_eq!(text2, text);
+        assert_eq!(text2, text.as_bytes());
     }
 
     #[test]
     fn test_base64() {
-        let encode_text = encode("base64", "Hello");
+        let encode_text = encode("base64", "Hello".as_bytes());
         println!("{}", encode_text);
         assert_eq!(encode_text, "SGVsbG8=")
     }
@@ -272,13 +281,12 @@ mod tests {
     fn test_un_base64() {
         let encoded_text = "SGVsbG8=";
         let plain_text = decode("base64", encoded_text);
-        println!("{}", plain_text);
-        assert_eq!(plain_text, "Hello")
+        assert_eq!(plain_text, b"Hello")
     }
 
     #[test]
     fn test_url_encode() {
-        let encode_text = encode("url", "Hello World");
+        let encode_text = encode("url", "Hello World".as_bytes());
         println!("{}", encode_text);
         assert_eq!(encode_text, "Hello%20World")
     }
@@ -287,13 +295,12 @@ mod tests {
     fn test_url_decode() {
         let encoded_text = "Hello%20World";
         let plain_text = decode("url", encoded_text);
-        println!("{}", plain_text);
-        assert_eq!(plain_text, "Hello World")
+        assert_eq!(plain_text, b"Hello World")
     }
 
     #[test]
     fn test_hex2base64() {
-        let base64_text = encode("hex-base64", "91e1fa4f7c75cfb9a684a2f54f7afdb10740c7177307ab227a618caffe993b05");
+        let base64_text = encode("hex-base64", "91e1fa4f7c75cfb9a684a2f54f7afdb10740c7177307ab227a618caffe993b05".as_bytes());
         println!("{}", base64_text);
     }
 
@@ -313,24 +320,23 @@ mod tests {
 Bob -> Alice : hello
 @enduml
         "#.trim();
-        let encoded_text = encode("zlib2base64url", text);
+        let encoded_text = encode("zlib2base64url", text.as_bytes());
         println!("encode: {}", encoded_text);
         let plain_text = decode("zlib2base64url", &encoded_text);
-        println!("plain: {}", plain_text);
-        assert_eq!(text, plain_text);
+        assert_eq!(text.as_bytes(), plain_text);
     }
 
     #[test]
     fn test_bf_insert() {
-        bf_insert("first", "_");
-        assert_eq!(bf_contains("first", "_"), 1);
+        bf_insert(b"first", "_");
+        assert_eq!(bf_contains(b"first", "_"), 1);
     }
 
     #[test]
     fn test_icontains() {
-        println!("first: {}", bf_icontains("first", "_"));
-        println!("second: {}", bf_icontains("second", "_"));
-        println!("first: {}", bf_icontains("first", "_"));
+        println!("first: {}", bf_icontains(b"first", "_"));
+        println!("second: {}", bf_icontains(b"second", "_"));
+        println!("first: {}", bf_icontains(b"first", "_"));
     }
 
     #[test]
@@ -345,9 +351,9 @@ Bob -> Alice : hello
     #[test]
     fn test_base32hex() {
         let text = "Hello";
-        let encoded_text = encode("base32hex", text);
+        let encoded_text = encode("base32hex", text.as_bytes());
         let plain_text = decode("base32hex", &encoded_text);
-        assert_eq!(&plain_text, text);
+        assert_eq!(plain_text, text.as_bytes());
     }
 
     #[test]

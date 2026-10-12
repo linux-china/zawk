@@ -786,19 +786,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Encode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::encoding::encode(&*format.as_str(), &*text.as_str());
+                        let dt_text = text.with_bytes(|bs| runtime::encoding::encode(&*format.as_str(), bs));
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Decode(dst, format, text) => {
                         let format = index(&self.strs, format);
                         let text = index(&self.strs, text);
                         let dt_text = runtime::encoding::decode(&*format.as_str(), &*text.as_str());
-                        *index_mut(&mut self.strs, dst) = dt_text.into();
+                        *index_mut(&mut self.strs, dst) = Str::from_bytes(&dt_text);
                     }
                     Digest(dst, algorithm, text) => {
                         let algorithm = index(&self.strs, algorithm);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::crypto::digest(&*algorithm.as_str(), &*text.as_str());
+                        let dt_text = text.with_bytes(|bs| runtime::crypto::digest(&*algorithm.as_str(), bs));
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Escape(dst, format, text) => {
@@ -811,7 +811,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let algorithm = index(&self.strs, algorithm);
                         let key = index(&self.strs, key);
                         let text = index(&self.strs, text);
-                        let dt_text = runtime::crypto::hmac(&*algorithm.as_str(), &*key.as_str(), &*text.as_str());
+                        let dt_text = key.with_bytes(|key| text.with_bytes(|bs| runtime::crypto::hmac(&*algorithm.as_str(), key, bs)));
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
                     Jwt(dst, algorithm, key, payload) => {
@@ -832,7 +832,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let mode = index(&self.strs, mode);
                         let plain_text = index(&self.strs, plain_text);
                         let key = index(&self.strs, key);
-                        let encrypted_text = runtime::crypto::encrypt(&*mode.as_str(), &*plain_text.as_str(), &*key.as_str());
+                        let encrypted_text = plain_text.with_bytes(|bs| runtime::crypto::encrypt(&*mode.as_str(), bs, &*key.as_str()));
                         *index_mut(&mut self.strs, dst) = encrypted_text.into();
                     }
                     Decrypt(dst, mode, encrypted_text, key) => {
@@ -840,7 +840,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let encrypted_text = index(&self.strs, encrypted_text);
                         let key = index(&self.strs, key);
                         let plain_text = runtime::crypto::decrypt(&*mode.as_str(), &*encrypted_text.as_str(), &*key.as_str());
-                        *index_mut(&mut self.strs, dst) = plain_text.into();
+                        *index_mut(&mut self.strs, dst) = Str::from_bytes(&plain_text);
                     }
                     Strftime(dst, format, timestamp, flags) => {
                         let format = index(&self.strs, format);
@@ -917,33 +917,33 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let src = index(&self.strs, src);
                         let pair_sep = index(&self.strs, pair_sep);
                         let kv_sep = index(&self.strs, kv_sep);
-                        let res = runtime::string_util::pairs(&*src.as_str(), &*pair_sep.as_str(), &*kv_sep.as_str());
+                        let res = runtime::string_util::pairs(&*src.as_text(), &*pair_sep.as_text(), &*kv_sep.as_text()).from_text_all();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Parse(dst, text, template) => {
                         let text = index(&self.strs, text);
                         let template = index(&self.strs, template);
-                        let res = runtime::string_util::parse(&*text.as_str(), &*template.as_str());
+                        let res = runtime::string_util::parse(&*text.as_text(), &*template.as_text()).from_text_all();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     RegexParse(dst, text, template) => {
                         let text = index(&self.strs, text);
                         let template = index(&self.strs, template);
-                        let res = runtime::string_util::rparse(&*text.as_str(), &*template.as_str());
+                        let res = runtime::string_util::rparse(&*text.as_text(), &*template.as_text()).from_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Record(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::record(&*src.as_str());
+                        let res = runtime::string_util::record(&*src.as_text()).from_text_all();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Message(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::message(&*src.as_str());
+                        let res = runtime::string_util::message(&*src.as_text()).from_text_all();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -973,25 +973,25 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Shlex(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::shlex(&*text.as_str());
+                        let res = runtime::math_util::shlex(&*text.as_text()).from_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Tuple(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::tuple(&*text.as_str());
+                        let res = runtime::math_util::tuple(&*text.as_text()).from_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Flags(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::flags(&*text.as_str());
+                        let res = runtime::math_util::flags(&*text.as_text()).from_text(|v| v);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     ParseArray(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::parse_array(&*text.as_str());
+                        let res = runtime::math_util::parse_array(&*text.as_text()).from_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1011,13 +1011,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Variant(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::math_util::variant(&*src.as_str());
+                        let res = runtime::math_util::variant(&*src.as_text()).from_text_all();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Func(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::string_util::func(&*text.as_str());
+                        let res = runtime::string_util::func(&*text.as_text()).from_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1411,19 +1411,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     BloomFilterInsert(item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        runtime::encoding::bf_insert(&*item.as_str(), &*group.as_str());
+                        item.with_bytes(|item| runtime::encoding::bf_insert(item, &*group.as_str()));
                     }
                     BloomFilterContains(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_contains(&*item.as_str(), &*group.as_str());
+                        let res = item.with_bytes(|item| runtime::encoding::bf_contains(item, &*group.as_str()));
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     BloomFilterContainsWithInsert(dst, item, group) => {
                         let item = index(&self.strs, item);
                         let group = index(&self.strs, group);
-                        let res = runtime::encoding::bf_icontains(&*item.as_str(), &*group.as_str());
+                        let res = item.with_bytes(|item| runtime::encoding::bf_icontains(item, &*group.as_str()));
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1531,36 +1531,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     StartsWith(dst, text, prefix) => {
                         let text = index(&self.strs, text);
                         let prefix = index(&self.strs, prefix);
-                        let res = if !text.is_empty() && !prefix.is_empty()
-                            && text.as_str().starts_with(&*prefix.as_str()) {
-                            1
-                        } else {
-                            0
-                        };
+                        let res = text.has_prefix(prefix) as Int;
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     EndsWith(dst, text, suffix) => {
                         let text = index(&self.strs, text);
                         let suffix = index(&self.strs, suffix);
-                        let res = if !text.is_empty() && !suffix.is_empty()
-                            && text.as_str().ends_with(&*suffix.as_str()) {
-                            1
-                        } else {
-                            0
-                        };
+                        let res = text.has_suffix(suffix) as Int;
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     TextContains(dst, text, child) => {
                         let text = index(&self.strs, text);
                         let child = index(&self.strs, child);
-                        let res = if !text.is_empty() && !child.is_empty()
-                            && text.as_str().contains(&*child.as_str()) {
-                            1
-                        } else {
-                            0
-                        };
+                        let res = text.has_substr(child) as Int;
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1597,27 +1582,27 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_left(&*text.as_str(), len, &*pad.as_str())?;
-                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                        let dt_text = runtime::string_util::pad_left(&*text.as_text(), len, &*pad.as_text())?;
+                        *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     PadRight(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_right(&*text.as_str(), len, &*pad.as_str())?;
-                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                        let dt_text = runtime::string_util::pad_right(&*text.as_text(), len, &*pad.as_text())?;
+                        *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     PadBoth(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_both(&*text.as_str(), len, &*pad.as_str())?;
-                        *index_mut(&mut self.strs, dst) = Str::from(dt_text);
+                        let dt_text = runtime::string_util::pad_both(&*text.as_text(), len, &*pad.as_text())?;
+                        *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     StrCmp(dst, text1, text2) => {
                         let text1 = index(&self.strs, text1);
                         let text2 = index(&self.strs, text2);
-                        let res = runtime::string_util::strcmp(&*text1.as_str(), &*text2.as_str());
+                        let res = text1.with_bytes(|a| text2.with_bytes(|b| runtime::string_util::strcmp(a, b)));
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -2033,8 +2018,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     LastPart(res, s, sep) => {
                         let s = self.get(*s);
                         let sep = self.get(*sep);
-                        let last_part = runtime::string_util::last_part(&*s.as_str(), &*sep.as_str());
-                        *index_mut(&mut self.strs, res) = Str::from(last_part);
+                        let last_part = runtime::string_util::last_part(&*s.as_text(), &*sep.as_text());
+                        *index_mut(&mut self.strs, res) = Str::from_text(last_part);
                     }
                     LTFloat(res, l, r) => {
                         let res = *res;

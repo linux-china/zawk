@@ -51,7 +51,7 @@ pub fn pad_both(text: &str, len: Int, pad: &str) -> Result<String> {
     pad_text("pad", text, len, pad, Alignment::MiddleRight)
 }
 
-pub fn strcmp(text1: &str, text2: &str) -> i64 {
+pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
     return if text1 == text2 {
         0
     } else if text1 < text2 {
@@ -603,9 +603,8 @@ mod tests {
 
     #[test]
     fn test_strcmp() {
-        let text1 = "hello";
-        let text2 = "Hello";
-        println!("{}", strcmp(text1, text2));
+        assert_eq!(strcmp(b"hello", b"Hello"), 1);
+        assert_eq!(strcmp(b"caf\xe9", b"caf"), 1);
     }
 
     #[test]

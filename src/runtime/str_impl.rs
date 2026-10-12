@@ -527,12 +527,15 @@ impl<'a> Str<'a> {
 
     pub(crate) fn chars<'b>(&self) -> runtime::IntMap<Str<'b>> {
         let map: IntMap<Str> = IntMap::default();
-        let src = self.as_str();
-        let mut i: i64 = 1;
-        for character in src.chars() {
-           map.insert(i, Str::from(character.to_string()));
-           i = i + 1;
-        }
+        self.with_bytes(|bs| {
+            let (mut i, mut start) = (1, 0);
+            while start < bs.len() {
+                let w = if characters_as_bytes() { 1 } else { char_width(&bs[start..]) };
+                map.insert(i, Str::from_bytes(&bs[start..start + w]));
+                i += 1;
+                start += w;
+            }
+        });
         map
     }
     pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
@@ -603,22 +606,22 @@ impl<'a> Str<'a> {
     }
 
     pub fn capitalize<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let mut chars = src.chars();
         let result = match chars.next() {
             None => String::new(),
             Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
         };
-        Str::from(result)
+        Str::from_text(result)
     }
 
     pub(crate) fn lines(&self) -> IntMap<Str<'a>> {
         let map: IntMap<Str> = IntMap::default();
-        let src = self.as_str();
+        let src = self.as_text();
         let mut i: i64 = 1;
         for line in src.lines() {
             if !line.trim().is_empty() {
-              map.insert(i, Str::from(line.to_string()));
+              map.insert(i, Str::from_text(line));
               i = i + 1;
             }
         }
@@ -626,96 +629,107 @@ impl<'a> Str<'a> {
     }
 
     pub fn uncapitalize<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let mut chars = src.chars();
         let result = match chars.next() {
             None => String::new(),
             Some(f) => f.to_lowercase().collect::<String>() + chars.as_str(),
         };
-        Str::from(result)
+        Str::from_text(result)
     }
 
     pub fn default_if_empty(&self, default: &Str<'a>) -> Str<'a> {
-        if self.as_str().trim().is_empty() {
+        if self.as_text().trim().is_empty() {
             return default.clone();
         }
         self.clone()
     }
 
+    /// Byte-wise `starts_with`; false when either string is empty.
+    pub fn has_prefix(&self, prefix: &Str) -> bool {
+        self.with_bytes(|t| prefix.with_bytes(|p| !t.is_empty() && !p.is_empty() && t.starts_with(p)))
+    }
+
+    /// Byte-wise `ends_with`; false when either string is empty.
+    pub fn has_suffix(&self, suffix: &Str) -> bool {
+        self.with_bytes(|t| suffix.with_bytes(|p| !t.is_empty() && !p.is_empty() && t.ends_with(p)))
+    }
+
+    /// Byte-wise substring test; false when either string is empty.
+    pub fn has_substr(&self, child: &Str) -> bool {
+        self.with_bytes(|t| child.with_bytes(|c| !t.is_empty() && !c.is_empty() && memchr::memmem::find(t, c).is_some()))
+    }
+
     pub fn append_if_missing(&self, suffix: &Str<'a>) -> Str<'a> {
-        let text = self.as_str();
-        let suffix = suffix.as_str();
-        if !text.ends_with(&*suffix) {
-            return Str::from(format!("{}{}", text, suffix));
+        if !self.with_bytes(|text| suffix.with_bytes(|suffix| text.ends_with(suffix))) {
+            return Str::concat(self.clone(), suffix.clone());
         }
         self.clone()
     }
 
     pub fn prepend_if_missing(&self, prefix: &Str<'a>) -> Str<'a> {
-        let text = self.as_str();
-        let prefix = prefix.as_str();
-        if !text.starts_with(&*prefix) {
-            return Str::from(format!("{}{}", prefix, text));
+        if !self.with_bytes(|text| prefix.with_bytes(|prefix| text.starts_with(prefix))) {
+            return Str::concat(prefix.clone(), self.clone());
         }
         self.clone()
     }
 
     pub fn remove_if_begin(&self, prefix: &Str<'a>) -> Str<'a> {
-        let text = self.as_str();
-        let prefix = prefix.as_str();
-        if text.starts_with(&*prefix) {
-            return Str::from(text[prefix.len() + 1..].to_string());
+        let (len, prefix_len) = (self.bytes_len(), prefix.bytes_len());
+        if self.with_bytes(|text| prefix.with_bytes(|prefix| text.starts_with(prefix))) {
+            return self.slice(prefix_len, len);
         }
         self.clone()
     }
 
     pub fn remove_if_end(&self, suffix: &Str<'a>) -> Str<'a> {
-        let text = self.as_str();
-        let suffix = suffix.as_str();
-        if text.ends_with(&*suffix) {
-            return Str::from(text[0..(text.len() - suffix.len())].to_string());
+        let (len, suffix_len) = (self.bytes_len(), suffix.bytes_len());
+        if self.with_bytes(|text| suffix.with_bytes(|suffix| text.ends_with(suffix))) {
+            return self.slice(0, len - suffix_len);
         }
         self.clone()
     }
 
     pub fn quote(&self) -> Str<'a> {
-        let src = self.as_str();
-        if src.starts_with('\'') && src.ends_with('\'') {
-            return self.clone();
-        }
-        return Str::from(format!("'{}'", src));
+        self.wrap(b'\'')
     }
 
     pub fn double_quote(&self) -> Str<'a> {
-        let src = self.as_str();
-        if src.starts_with('"') && src.ends_with('"') {
-            return self.clone();
-        }
-        return Str::from(format!("\"{}\"", src));
+        self.wrap(b'"')
+    }
+
+    /// `q` + self + `q`, unless self is already wrapped in `q`.
+    fn wrap(&self, q: u8) -> Str<'a> {
+        self.with_bytes(|bs| {
+            if bs.len() >= 2 && bs[0] == q && bs[bs.len() - 1] == q {
+                return self.clone();
+            }
+            Buf::read_from_bytes(&[&[q], bs, &[q]].concat()).into_str()
+        })
     }
 
     pub fn camel_case<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let result = inflector::cases::camelcase::to_camel_case(&src);
-        Str::from(result)
+        Str::from_text(result)
     }
 
     pub fn kebab_case<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let result = inflector::cases::kebabcase::to_kebab_case(&src);
-        Str::from(result)
+        Str::from_text(result)
     }
 
     pub fn snake_case<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let result = inflector::cases::snakecase::to_snake_case(&src);
-        Str::from(result)
+        Str::from_text(result)
     }
 
     pub fn title_case<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let result = inflector::cases::titlecase::to_title_case(&src);
-        Str::from(result)
+        Str::from_text(result)
     }
 
     /// Substring of up to `r` chars starting at char `l` (0-based). The result shares the
@@ -770,8 +784,8 @@ impl<'a> Str<'a> {
     pub(crate) fn words<'b>(&self) -> IntMap<Str<'b>> {
         let result: IntMap<Str> = IntMap::default();
         let mut index: i64 = 1;
-        for word in self.as_str().unicode_words() {
-            result.insert(index, Str::from(word.to_string()));
+        for word in self.as_text().unicode_words() {
+            result.insert(index, Str::from_text(word));
             index = index + 1;
         }
         result
@@ -779,7 +793,7 @@ impl<'a> Str<'a> {
 
     /// Mask the middle of the string with `*`. Lengths are counted in chars, not bytes.
     pub fn mask<'b>(&self) -> Str<'b> {
-        let src = self.as_str();
+        let src = self.as_text();
         let src_len = src.chars().count();
         if src_len == 0 {
             return Str::from("".to_string());
@@ -788,7 +802,7 @@ impl<'a> Str<'a> {
         } else if src_len <= 3 {
             let first = src.chars().next().unwrap();
             let result = format!("{}{}", first, "*".repeat(src_len - 1));
-            return Str::from(result);
+            return Str::from_text(result);
         }
         let mask_len = src_len / 3;
         let prefix_len = if mask_len > 2 { 2 } else { 0 };
@@ -801,20 +815,19 @@ impl<'a> Str<'a> {
                 result.push('*');
             }
         }
-        Str::from(result)
+        Str::from_text(result)
     }
 
     /// Repeat the string `n` times; a negative `n` yields an empty string. A result longer than
     /// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) bytes is an error.
     pub fn repeat<'b>(&self, n: Int) -> crate::common::Result<Str<'b>> {
         let n = n.max(0);
-        let src = self.as_str();
-        crate::runtime::check_result_len("repeat", "result length", src.len() as Float * n as Float)?;
-        Ok(Str::from(src.repeat(n as usize)))
+        crate::runtime::check_result_len("repeat", "result length", self.bytes_len() as Float * n as Float)?;
+        Ok(self.with_bytes(|bs| Buf::read_from_bytes(&bs.repeat(n as usize)).into_str()))
     }
 
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
-        Str::from(escape(&format.as_str(), &self.as_str()))
+        Str::from_text(escape(&format.as_str(), &self.as_text()))
     }
 
     /// Truncate the string to at most `len` chars, ending with `place_holder` when truncated.
@@ -1286,6 +1299,78 @@ impl<'a> Str<'a> {
         let bs: &'a [u8] = unsafe { &*self.get_bytes() };
         String::from_utf8_lossy(bs)
     }
+
+    /// Lossless text view of the bytes, for stdlib functions that need a `&str`. Valid UTF-8 is
+    /// borrowed; otherwise each byte that is not valid UTF-8 becomes a placeholder char (see
+    /// [`escape_byte`]) that [`Str::from_text`] turns back into the original byte. Use
+    /// [`Str::as_str`] only where the text leaves zawk (paths, URLs, SQL, JSON).
+    pub fn as_text(&self) -> Cow<'a, str> {
+        let bs: &'a [u8] = unsafe { &*self.get_bytes() };
+        match str::from_utf8(bs) {
+            Ok(s) if !bs.contains(&ESCAPE_LEAD) => Cow::Borrowed(s),
+            _ => Cow::Owned(escape_invalid_utf8(bs)),
+        }
+    }
+
+    /// An owned copy of `bs`.
+    pub fn from_bytes<'b>(bs: &[u8]) -> Str<'b> {
+        Buf::read_from_bytes(bs).into_str()
+    }
+
+    /// [`Str::from_text`] on a string already holding the text.
+    pub fn unescape_text(&self) -> Str<'a> {
+        if !self.with_bytes(|bs| bs.contains(&ESCAPE_LEAD)) {
+            return self.clone();
+        }
+        Str::from_text(self.as_str().into_owned())
+    }
+
+    /// The inverse of [`Str::as_text`]: placeholder chars become the bytes they stand for.
+    pub fn from_text<'b>(s: impl Into<String>) -> Str<'b> {
+        let s = s.into();
+        if !s.as_bytes().contains(&ESCAPE_LEAD) {
+            return Str::from(s);
+        }
+        let mut out = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            match unescape_byte(c) {
+                Some(b) => out.push(b),
+                None => out.extend_from_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes()),
+            }
+        }
+        Buf::read_from_bytes(&out).into_str()
+    }
+}
+
+/// [`Str::as_text`] maps byte `b` (always >= 0x80: ASCII is valid UTF-8) to `ESCAPE_BASE + b`,
+/// i.e. U+10FF80..=U+10FFFF in the last private use plane, whose UTF-8 encoding starts with
+/// [`ESCAPE_LEAD`]. Real chars in that range are escaped byte by byte too, so the round trip is
+/// lossless.
+const ESCAPE_BASE: u32 = 0x10FF00;
+const ESCAPE_LEAD: u8 = 0xF4;
+
+fn escape_byte(b: u8) -> char {
+    char::from_u32(ESCAPE_BASE + b as u32).unwrap()
+}
+
+fn unescape_byte(c: char) -> Option<u8> {
+    let c = c as u32;
+    (c >= ESCAPE_BASE + 0x80 && c <= ESCAPE_BASE + 0xFF).then(|| (c - ESCAPE_BASE) as u8)
+}
+
+fn escape_invalid_utf8(bs: &[u8]) -> String {
+    let mut out = String::with_capacity(bs.len() + 8);
+    for chunk in bs.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            if unescape_byte(c).is_some() {
+                out.extend(c.encode_utf8(&mut [0u8; 4]).bytes().map(escape_byte));
+            } else {
+                out.push(c);
+            }
+        }
+        out.extend(chunk.invalid().iter().copied().map(escape_byte));
+    }
+    out
 }
 
 impl<'a> Clone for Str<'a> {
@@ -1859,6 +1944,27 @@ fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn as_text_round_trip() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"plain",
+            "caf\u{e9} \u{4f60}\u{597d}".as_bytes(),
+            b"caf\xe9x",
+            b"\xff\xfe\x80",
+            // real chars in the placeholder range, and invalid bytes around them
+            "a\u{10FF80}b\u{10FFFF}".as_bytes(),
+            b"\xf4\x8f\xbe\x80\xf4\x8f\xbe",
+        ];
+        for &bs in cases {
+            let s = Str::from(bs);
+            let text = s.as_text();
+            assert_eq!(text.chars().filter(|&c| c == '\u{FFFD}').count(), 0);
+            assert_eq!(Str::from_text(text.into_owned()).with_bytes(|out| out.to_vec()), bs);
+        }
+        assert!(matches!(Str::from("café").as_text(), Cow::Borrowed(_)));
+    }
 
     #[test]
     fn non_utf8_len_and_as_str() {

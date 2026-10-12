@@ -21,22 +21,22 @@ type Aes128CbcDec = cbc::Decryptor<aes::Aes128Dec>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256Dec>;
 
 /// Message Digest with md5, sha256, sha512
-pub fn digest(algorithm: &str, text: &str) -> String {
+pub fn digest(algorithm: &str, text: &[u8]) -> String {
     if algorithm == "md5" || algorithm == "md-5" {
         return format!("{:x}", md5::compute(text));
     } else if algorithm == "adler32" {
-        return adler::adler32(BufReader::new(text.as_bytes())).unwrap().to_string();
+        return adler::adler32(BufReader::new(text)).unwrap().to_string();
     } else if algorithm == "crc32" {
-        return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text.as_bytes()).to_string();
+        return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text).to_string();
     } else if algorithm == "blake3" {
-        return blake3::hash(text.as_bytes()).to_string();
+        return blake3::hash(text).to_string();
     } else if algorithm == "sha256" || algorithm == "sha-256" {
         let mut hasher = Sha256::default();
-        hasher.update(text.as_bytes());
+        hasher.update(text);
         return hex::encode(hasher.finalize());
     } else if algorithm == "sha512" || algorithm == "sha-512" {
         let mut hasher = Sha512::default();
-        hasher.update(text.as_bytes());
+        hasher.update(text);
         return hex::encode(hasher.finalize());
     } else if algorithm == "bcrypt" {
         return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default();
@@ -44,23 +44,23 @@ pub fn digest(algorithm: &str, text: &str) -> String {
         let hashcode = murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap();
         return hashcode.to_string();
     } else if algorithm == "xxh32" {
-        return xxhash_rust::xxh32::xxh32(text.as_bytes(), 0).to_string();
+        return xxhash_rust::xxh32::xxh32(text, 0).to_string();
     } else if algorithm == "xxh64" {
-        return xxhash_rust::xxh64::xxh64(text.as_bytes(), 0).to_string();
+        return xxhash_rust::xxh64::xxh64(text, 0).to_string();
     }
     crate::runtime::stdlib_warning("digest", format!("unsupported algorithm {:?}", algorithm));
     String::new()
 }
 
 /// HMAC(Hash-based message authentication code) with HmacSHA256 and HmacSHA512
-pub fn hmac(algorithm: &str, key: &str, text: &str) -> String {
+pub fn hmac(algorithm: &str, key: &[u8], text: &[u8]) -> String {
     if algorithm == "HmacSHA512" {
-        let mut mac = HmacSha512::new_from_slice(key.as_bytes()).unwrap();
-        mac.update(text.as_bytes());
+        let mut mac = HmacSha512::new_from_slice(key).unwrap();
+        mac.update(text);
         hex::encode(mac.finalize().into_bytes())
     } else {
-        let mut mac = HmacSha256::new_from_slice(key.as_bytes()).unwrap();
-        mac.update(text.as_bytes());
+        let mut mac = HmacSha256::new_from_slice(key).unwrap();
+        mac.update(text);
         hex::encode(mac.finalize().into_bytes())
     }
 }
@@ -383,20 +383,20 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
 
 /// Encrypt text with a random IV/nonce, output is `v2:` + base64(IV/nonce + ciphertext).
 /// Key is derived from key_pass by PBKDF2-HMAC-SHA256. Returns empty string on failure.
-pub fn encrypt(mode: &str, plaintext: &str, key_pass: &str) -> String {
+pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
     // Initialization Vector for Encryption: https://www.baeldung.com/java-encryption-iv
     let (key_len, gcm) = parse_cipher_mode(mode);
     let key = derive_key(key_pass, key_len);
-    match encrypt_bytes(&key, gcm, plaintext.as_bytes()) {
+    match encrypt_bytes(&key, gcm, plaintext) {
         Some(bytes) => format!("{}{}", ENCRYPT_V2_PREFIX, STANDARD.encode(bytes)),
         None => String::new(),
     }
 }
 
 /// Decrypt text produced by `encrypt`, both `v2:` and legacy formats are supported.
-/// Returns empty string if the text is malformed, the key is wrong or plaintext is not UTF-8.
-pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
+/// Returns the plaintext bytes, or none if the text is malformed or the key is wrong.
+pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
     let (key_len, gcm) = parse_cipher_mode(mode);
     let (key, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX) {
         Some(encoded) => (derive_key(key_pass, key_len), encoded),
@@ -404,7 +404,6 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> String {
     };
     STANDARD.decode(encoded.trim()).ok()
         .and_then(|data| decrypt_bytes(&key, gcm, &data))
-        .and_then(|pt| String::from_utf8(pt).ok())
         .unwrap_or_default()
 }
 
@@ -431,32 +430,32 @@ mod tests {
 
     #[test]
     fn test_md5() {
-        let digest_message = digest("md5", "hello");
+        let digest_message = digest("md5", b"hello");
         println!("{}", digest_message);
     }
 
     #[test]
     fn test_sha_256() {
-        let digest_message = digest("sha256", "hello");
+        let digest_message = digest("sha256", b"hello");
         println!("{}", digest_message);
     }
 
     #[test]
     fn test_sha_512() {
-        let digest_message = digest("sha512", "hello");
+        let digest_message = digest("sha512", b"hello");
         println!("{}", digest_message);
     }
 
     #[test]
     fn test_hmac_sha_256() {
-        let signature = hmac("HmacSha256", "7f4ebc75-7476-453e-b8d2-bebe17352b0a", "hello");
+        let signature = hmac("HmacSha256", b"7f4ebc75-7476-453e-b8d2-bebe17352b0a", b"hello");
         println!("{}", signature);
     }
 
     #[test]
     fn test_jwt_hs256() {
         let header_payload = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ";
-        let jwt_token = encode("hex-base64url", &hmac("HmacSha256", "123456", header_payload));
+        let jwt_token = encode("hex-base64url", hmac("HmacSha256", b"123456", header_payload.as_bytes()).as_bytes());
         println!("{}", jwt_token);
     }
 
@@ -487,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_blake3() {
-        println!("{}", digest("blake3", "demo"));
+        println!("{}", digest("blake3", b"demo"));
     }
 
     #[test]
@@ -572,31 +571,31 @@ mod tests {
     #[test]
     fn test_aes_cbc() {
         let key_pass = "0123456789abcdef";
-        let plaintext = "Hello World";
+        let plaintext = b"Hello World";
         let encrypted_text = encrypt("aes-256-cbc", plaintext, key_pass);
         println!("{}", encrypted_text);
         let plaintext2 = decrypt("aes-256-cbc", &encrypted_text, key_pass);
-        assert_eq!(plaintext, plaintext2);
+        assert_eq!(plaintext2, plaintext);
     }
 
     #[test]
     fn test_aes() {
         let key_pass = "0123456789abcdef";
-        let plaintext = "Hello World";
+        let plaintext = b"Hello World";
         let encrypted_text = encrypt("aes-128-gcm", plaintext, key_pass);
         println!("{}", encrypted_text);
         let plaintext2 = decrypt("aes-128-gcm", &encrypted_text, key_pass);
-        assert_eq!(plaintext, plaintext2);
+        assert_eq!(plaintext2, plaintext);
     }
 
     #[test]
     fn test_aes_256_gcm() {
         let key_pass = "0123456789abcdef";
-        let plaintext = "Hello World";
+        let plaintext = b"Hello World";
         let encrypted_text = encrypt("aes-256-gcm", plaintext, key_pass);
         println!("{}", encrypted_text);
         let plaintext2 = decrypt("aes-256-gcm", &encrypted_text, key_pass);
-        assert_eq!(plaintext, plaintext2);
+        assert_eq!(plaintext2, plaintext);
     }
 
     #[test]
@@ -604,13 +603,13 @@ mod tests {
         let long_text = "x".repeat(5000);
         let key_pass = "密码密码密码密码密码密码密码密码"; // multi-byte chars across byte 16/32
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
-            let encrypted_text = encrypt(mode, &long_text, key_pass);
+            let encrypted_text = encrypt(mode, long_text.as_bytes(), key_pass);
             assert!(encrypted_text.starts_with("v2:"));
-            assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text);
-            assert_eq!(decrypt(mode, &encrypted_text, "wrong"), "");
-            assert_eq!(decrypt(mode, "", key_pass), "");
-            assert_eq!(decrypt(mode, "v2:AAAA", key_pass), "");
-            assert_eq!(decrypt(mode, "not base64!", key_pass), "");
+            assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text.as_bytes());
+            assert!(decrypt(mode, &encrypted_text, "wrong").is_empty());
+            assert!(decrypt(mode, "", key_pass).is_empty());
+            assert!(decrypt(mode, "v2:AAAA", key_pass).is_empty());
+            assert!(decrypt(mode, "not base64!", key_pass).is_empty());
         }
     }
 
@@ -620,7 +619,7 @@ mod tests {
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let (key_len, gcm) = parse_cipher_mode(mode);
             let bytes = encrypt_bytes(&legacy_key(key_pass, key_len), gcm, b"Hello World").unwrap();
-            assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), "Hello World");
+            assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), b"Hello World");
         }
     }
 
