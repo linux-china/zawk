@@ -153,119 +153,123 @@ where
     FF: runtime::writers::FileFactory,
     J: Jit,
 {
-    let mut rt = stdin.into_runtime(ff, used_fields, named_columns, cancel_signal.clone());
-    let main = jit.main_functions()?;
-    match main {
+    let rt = stdin.into_runtime(ff, used_fields, named_columns, cancel_signal.clone());
+    run_stage(rt, jit.main_functions()?, num_workers, cancel_signal)
+}
+
+/// The non-generic part of [`run_main`]. Keeping it out of `run_main` means it is compiled once,
+/// rather than once per (reader, file factory) combination.
+#[inline(never)]
+unsafe fn run_stage(
+    mut rt: Runtime,
+    main: Stage<MainFunction>,
+    num_workers: usize,
+    cancel_signal: CancelSignal,
+) -> Result<()> {
+    let (begin, main_loop, end) = match main {
         Stage::Main(m) => {
             m.invoke(&mut rt);
-            Ok(())
+            return Ok(());
         }
         Stage::Par {
             begin,
             main_loop,
             end,
-        } => {
-            // This triply-nested macro is here to allow mutable access to a "runtime" struct
-            // as well as mutable access to the same "read_files" value. The generated code is
-            // pretty awful; It may be worth a RefCell just to clean up.
-            with_input!(&mut rt.input_data, |(_, read_files)| {
-                let reads = read_files.try_resize(num_workers.saturating_sub(1));
-                if num_workers <= 1 || reads.is_empty() || main_loop.is_none() {
-                    // execute serially.
-                    for main in begin.into_iter().chain(main_loop).chain(end) {
-                        main.invoke(&mut rt);
-                    }
-                    return Ok(());
-                }
-                #[cfg(not(debug_assertions))]
-                {
-                    std::panic::set_hook(Box::new(|pi| {
-                        if let Some(s) = pi.payload().downcast_ref::<&str>() {
-                            if s.len() > 0 {
-                                eprintln_ignore!("{}", s);
-                            }
-                        }
-                    }));
-                }
-                if let Some(begin) = begin {
-                    begin.invoke(&mut rt);
-                }
-                if rt.core.write_files.flush_stdout().is_err() {
-                    return Ok(());
-                }
-
-                rt.concurrent = true;
-
-                let (sender, receiver) = crossbeam_channel::bounded(reads.len());
-                let launch_data: Vec<_> = reads
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, reader)| {
-                        (
-                            reader,
-                            sender.clone(),
-                            rt.core.shuttle(i as runtime::Int + 2),
-                        )
-                    })
-                    .collect();
-                with_input!(&mut rt.input_data, |(_, read_files)| {
-                    let old_read_files = mem::take(&mut read_files.inputs);
-                    let main_loop_fn = main_loop.unwrap();
-                    let scope_res = crossbeam::scope(|s| {
-                        for (reader, sender, shuttle) in launch_data.into_iter() {
-                            let cancel_signal = cancel_signal.clone();
-                            let builder = s.builder().stack_size(crate::common::PROGRAM_STACK_SIZE);
-                            let spawned = builder.spawn(move |_| {
-                                crate::common::init_stack_limit();
-                                if let Some(reader) = reader() {
-                                    let mut runtime = Runtime {
-                                        concurrent: true,
-                                        core: shuttle(),
-                                        input_data: reader.into(),
-                                        cleanup: Cleanup::<Runtime>::new(move |rt| {
-                                            sender.send(rt.core.extract_result(0)).unwrap();
-                                        }),
-                                        cancel_signal,
-                                    };
-                                    main_loop_fn.invoke(&mut runtime);
-                                }
-                            });
-                            spawned.expect("failed to spawn worker thread");
-                        }
-                        mem::drop(sender);
-                        {
-                            rt.core.vars.pid = 1;
-                            let r = receiver.clone();
-                            rt.cleanup =
-                                Cleanup::<Runtime>::new(move |_| while r.recv().is_ok() {});
-                            main_loop_fn.invoke(&mut rt);
-                            rt.cleanup.cancel();
-                        }
-                        rt.core.vars.pid = 0;
-
-                        with_input!(&mut rt.input_data, |(_, read_files)| {
-                            while let Ok(res) = receiver.recv() {
-                                rt.core.combine(res);
-                            }
-                            if let Some(rc) = cancel_signal.get_code() {
-                                mem::drop(rt);
-                                std::process::exit(rc);
-                            }
-                            rt.concurrent = false;
-                            if let Some(end) = end {
-                                read_files.inputs = old_read_files;
-                                end.invoke(&mut rt);
-                            }
-                        });
-                    });
-                    if scope_res.is_err() {
-                        return err!("failed to execute parallel script");
-                    }
-                });
-            });
-            Ok(())
+        } => (begin, main_loop, end),
+    };
+    let reads = rt.input_data.worker_inputs(num_workers.saturating_sub(1));
+    let main_loop_fn = match main_loop {
+        Some(m) if num_workers > 1 && !reads.is_empty() => m,
+        _ => {
+            // execute serially.
+            for main in begin.into_iter().chain(main_loop).chain(end) {
+                main.invoke(&mut rt);
+            }
+            return Ok(());
         }
+    };
+    #[cfg(not(debug_assertions))]
+    {
+        std::panic::set_hook(Box::new(|pi| {
+            if let Some(s) = pi.payload().downcast_ref::<&str>() {
+                if s.len() > 0 {
+                    eprintln_ignore!("{}", s);
+                }
+            }
+        }));
     }
+    if let Some(begin) = begin {
+        begin.invoke(&mut rt);
+    }
+    if rt.core.write_files.flush_stdout().is_err() {
+        return Ok(());
+    }
+
+    rt.concurrent = true;
+
+    let (sender, receiver) = crossbeam_channel::bounded(reads.len());
+    let launch_data: Vec<_> = reads
+        .into_iter()
+        .enumerate()
+        .map(|(i, reader)| {
+            (
+                reader,
+                sender.clone(),
+                rt.core.shuttle(i as runtime::Int + 2),
+            )
+        })
+        .collect();
+    // Withhold progress on files other than the main input from the workers; it is restored
+    // before running the `end` block.
+    let old_read_files = mem::take(rt.input_data.inputs_mut());
+    let scope_res = crossbeam::scope(|s| {
+        for (reader, sender, shuttle) in launch_data.into_iter() {
+            let cancel_signal = cancel_signal.clone();
+            let builder = s.builder().stack_size(crate::common::PROGRAM_STACK_SIZE);
+            let spawned = builder.spawn(move |_| {
+                crate::common::init_stack_limit();
+                if let Some(input_data) = reader() {
+                    let mut runtime = Runtime {
+                        concurrent: true,
+                        core: shuttle(),
+                        input_data,
+                        cleanup: Cleanup::<Runtime>::new(move |rt| {
+                            sender.send(rt.core.extract_result(0)).unwrap();
+                        }),
+                        cancel_signal,
+                    };
+                    main_loop_fn.invoke(&mut runtime);
+                }
+            });
+            spawned.expect("failed to spawn worker thread");
+        }
+        mem::drop(sender);
+        {
+            rt.core.vars.pid = 1;
+            let r = receiver.clone();
+            rt.cleanup = Cleanup::<Runtime>::new(move |_| while r.recv().is_ok() {});
+            main_loop_fn.invoke(&mut rt);
+            rt.cleanup.cancel();
+        }
+        rt.core.vars.pid = 0;
+
+        while let Ok(res) = receiver.recv() {
+            rt.core.combine(res);
+        }
+        if let Some(rc) = cancel_signal.get_code() {
+            mem::drop(rt);
+            std::process::exit(rc);
+        }
+        rt.concurrent = false;
+        if let Some(end) = end {
+            *rt.input_data.inputs_mut() = old_read_files;
+            end.invoke(&mut rt);
+        }
+    });
+    if scope_res.is_err() {
+        return err!("failed to execute parallel script");
+    }
+    Ok(())
 }
 
 /// Handles to ensure the liveness of rust objects passed by pointer into generated code.

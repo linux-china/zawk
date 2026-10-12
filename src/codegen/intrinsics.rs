@@ -672,6 +672,25 @@ pub(crate) enum InputData {
     V5(InputTuple<JsonlReader>),
 }
 
+/// A deferred constructor for a worker thread's input, see [`InputData::worker_inputs`].
+pub(crate) type WorkerInput = Box<dyn FnOnce() -> Option<InputData> + Send>;
+
+impl InputData {
+    /// Request up to `n` handles to the main input for worker threads. The concrete reader type
+    /// is erased here so that callers need not be instantiated once per `InputData` variant.
+    pub(crate) fn worker_inputs(&self, n: usize) -> Vec<WorkerInput> {
+        with_input!(self, |(_, read_files)| read_files
+            .try_resize(n)
+            .into_iter()
+            .map(|r| Box::new(move || r().map(InputData::from)) as WorkerInput)
+            .collect())
+    }
+
+    pub(crate) fn inputs_mut(&mut self) -> &mut crate::runtime::Inputs {
+        with_input!(self, |(_, read_files)| &mut read_files.inputs)
+    }
+}
+
 pub(crate) trait IntoRuntime {
     fn into_runtime<'a>(
         self,

@@ -75,8 +75,8 @@ pub use splitter::{
 pub use str_impl::{Str, UniqueStr};
 
 /// Maximum number of compiled regexes kept per cache. Dynamic regexes can come from input data
-/// (`$0 ~ $1`, `split($0, a, $2)`), so the cache is cleared once it reaches this size to keep
-/// memory bounded.
+/// (`$0 ~ $1`, `split($0, a, $2)`), so once the cache reaches this size the least recently used
+/// half of it is evicted to keep memory bounded.
 const MAX_CACHED_REGEXES: usize = 1024;
 
 pub struct RegexCache(
@@ -119,7 +119,7 @@ impl RegexCache {
     fn sync_case(&mut self) {
         let ignore_case = awk_regex::ignore_case();
         if self.2 != ignore_case {
-            self.0.cached.clear();
+            self.0.clear();
             self.2 = ignore_case;
         }
     }
@@ -736,15 +736,19 @@ pub(crate) struct Registry<T> {
     // We could be fine having duplicates for Regex. We could also also intern strings
     // as we go by swapping out one Rc for another as we encounter them. That would keep the
     // fast path fast, but we would have to make sure we weren't keeping any Refs alive.
-    cached: HashMap<Str<'static>, T>,
-    // When set, the registry is cleared before inserting a new entry once it holds this many.
+    // Each value is paired with the `clock` value of its last use.
+    cached: HashMap<Str<'static>, (T, u64)>,
+    // When set, the least recently used half of the registry is evicted before inserting a new
+    // entry once it holds this many.
     limit: Option<usize>,
+    clock: u64,
 }
 impl<T> Default for Registry<T> {
     fn default() -> Self {
         Registry {
             cached: Default::default(),
             limit: None,
+            clock: 0,
         }
     }
 }
@@ -754,13 +758,29 @@ impl<T> Registry<T> {
         Registry {
             cached: Default::default(),
             limit: Some(limit),
+            clock: 0,
         }
     }
     fn remove(&mut self, s: &Str) -> bool {
         self.take(s).is_some()
     }
     fn take(&mut self, s: &Str) -> Option<T> {
-        self.cached.remove(&s.clone().unmoor())
+        self.cached.remove(&s.clone().unmoor()).map(|(t, _)| t)
+    }
+    fn clear(&mut self) {
+        self.cached.clear();
+    }
+    /// Evicts the least recently used half of the entries. Evicting in batches keeps cache hits
+    /// down to a counter update while making eviction amortized O(1) per insertion.
+    fn evict_lru(&mut self) {
+        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
+        if ticks.is_empty() {
+            return;
+        }
+        let mid = ticks.len() / 2;
+        let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
+        // Ticks are unique, so this keeps exactly the entries more recent than the median.
+        self.cached.retain(|_, (_, tick)| *tick > threshold);
     }
     fn get<R>(
         &mut self,
@@ -778,9 +798,15 @@ impl<T> Registry<T> {
     ) -> Result<R> {
         use hashbrown::hash_map::Entry;
         let k_str = s.clone().unmoor();
+        self.clock += 1;
+        let clock = self.clock;
         let full = self.limit.is_some_and(|limit| self.cached.len() >= limit);
         match self.cached.entry(k_str) {
-            Entry::Occupied(mut o) => getter(o.get_mut()),
+            Entry::Occupied(mut o) => {
+                let (val, tick) = o.get_mut();
+                *tick = clock;
+                getter(val)
+            }
             Entry::Vacant(v) => {
                 let (val, res) = v.key().with_bytes(|raw_str| {
                     let s = match str::from_utf8(raw_str) {
@@ -793,10 +819,10 @@ impl<T> Registry<T> {
                 })?;
                 if full {
                     let key = v.into_key();
-                    self.cached.clear();
-                    self.cached.insert(key, val);
+                    self.evict_lru();
+                    self.cached.insert(key, (val, clock));
                 } else {
-                    v.insert(val);
+                    v.insert((val, clock));
                 }
                 res
             }
@@ -1183,5 +1209,18 @@ mod tests {
         // Entries still hit after the cache has been cleared.
         let pat = Str::from("x0".to_string());
         assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).unwrap());
+    }
+
+    #[test]
+    fn regex_cache_keeps_recently_used() {
+        let mut rc = RegexCache::default();
+        let hot = Str::from("hot".to_string());
+        for i in 0..(MAX_CACHED_REGEXES * 3) {
+            assert!(rc.with_regex(&hot, |re| re.is_match(b"hot")).unwrap());
+            let pat = Str::from(format!("x{}", i));
+            assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
+            // A frequently used regex survives evictions.
+            assert!(rc.0.cached.contains_key(&hot.clone().unmoor()));
+        }
     }
 }
