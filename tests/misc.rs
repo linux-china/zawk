@@ -1844,3 +1844,45 @@ fn single_byte_fs_unterminated_last_record() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn output_files_beyond_fd_limit() {
+    // With more output files than file descriptors, the least recently used files are closed and
+    // later reopened for appending, so no output is lost (as in gawk).
+    let zawk = assert_cmd::cargo::cargo_bin("zawk");
+    for backend_arg in BACKEND_ARGS {
+        let tmpdir = tempdir().unwrap();
+        let prog = "BEGIN{for(i=0;i<300;i++) print \"a\" i > (\"f\" i)
+                         for(i=0;i<300;i++) print \"b\" i > (\"f\" i)
+                         close(\"f0\"); print \"c\" > \"f0\"}";
+        let out = std::process::Command::new("sh")
+            .current_dir(tmpdir.path())
+            .arg("-c")
+            .arg("ulimit -n 64 && exec \"$0\" \"$@\"")
+            .arg(&zawk)
+            .args([backend_arg, prog])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(read_to_string(tmpdir.path().join("f0")).unwrap(), "c\n");
+        for i in 1..300 {
+            let data = read_to_string(tmpdir.path().join(format!("f{i}"))).unwrap();
+            assert_eq!(data, format!("a{i}\nb{i}\n"), "file f{i} ({backend_arg})");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn output_write_error_exit_code() {
+    // /dev/full opens fine, but writes to it fail (asynchronously, in the writer thread): the
+    // program must not exit successfully.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "BEGIN{print 1 > \"/dev/full\"}"])
+            .assert()
+            .code(2);
+    }
+}

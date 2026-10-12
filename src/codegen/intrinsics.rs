@@ -576,7 +576,7 @@ macro_rules! exit {
             if pid == 1 {
                 // We are the main thread. Drop on `rt` should have waited for other threads to exit.
                 // All that's left is for us to abort.
-                std::process::exit(code)
+                std::process::exit(runtime::writers::exit_code(code))
             } else {
                 // Block forever. Let the main thread exit.
                 let n = Notification::default();
@@ -585,7 +585,7 @@ macro_rules! exit {
             }
         } else {
             std::ptr::drop_in_place(rt_raw);
-            std::process::exit(code)
+            std::process::exit(runtime::writers::exit_code(code))
         }
     }};
 }

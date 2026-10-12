@@ -20,6 +20,10 @@
 //! of open output files. In that case, we could replace each of these background threads with a
 //! "task" a la futures/async.)
 //!
+//! Output files that are open are tracked in an `FdPool`. When opening a file fails because the
+//! process ran out of file descriptors, the least recently used open file is closed (and reopened
+//! for appending on its next write), as gawk does in `close_one`.
+//!
 //! Within a client, we batch writes similar to how a BufWriter would: copy incoming writes to a
 //! local vector until we have buffered up to a given threshold. Once that threshold is reached, we
 //! then send a reference to buffer on the channel to the receiving thread. While this write is
@@ -40,7 +44,7 @@ use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::process::{Child, ChildStdin};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 
@@ -68,6 +72,131 @@ const IO_CHAN_SIZE: usize = 8;
 
 /// The size of client-side batches.
 const BUFFER_SIZE: usize = 64 << 10;
+
+/// Set when an error writing output was reported at shutdown; see `exit_code`.
+static OUTPUT_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Record that writing some output failed, so that the program does not exit successfully.
+pub fn set_output_failed() {
+    OUTPUT_FAILED.store(true, Ordering::Release);
+}
+
+/// The exit code to use in place of `code`: as in gawk, a program whose output could not be
+/// written exits with code 2 rather than 0.
+pub fn exit_code(code: i32) -> i32 {
+    if code == 0 && OUTPUT_FAILED.load(Ordering::Acquire) {
+        2
+    } else {
+        code
+    }
+}
+
+/// Whether `e` means that the process (or system) ran out of file descriptors.
+fn is_fd_exhausted(e: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        matches!(e.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE))
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_TOO_MANY_OPEN_FILES
+        e.raw_os_error() == Some(4)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = e;
+        false
+    }
+}
+
+/// The output files that are currently open, so that a writer can close the least recently used
+/// one when it runs out of file descriptors (like gawk's `close_one`).
+#[derive(Default)]
+struct FdPool {
+    clock: AtomicU64,
+    next_id: AtomicUsize,
+    /// Open files by id: their last use (a tick of `clock`) and the channel to their writer.
+    open: Mutex<HashMap<usize, (Arc<AtomicU64>, Sender<Request>)>>,
+}
+
+impl FdPool {
+    /// Call `f` to open a file or command, closing other open files while it fails for lack of
+    /// file descriptors.
+    fn open<W>(&self, mut f: impl FnMut() -> io::Result<W>) -> io::Result<W> {
+        loop {
+            match f() {
+                Err(e) if is_fd_exhausted(&e) => {
+                    if !self.evict_one() {
+                        return Err(e);
+                    }
+                }
+                res => return res,
+            }
+        }
+    }
+
+    /// Close the least recently used open file. Returns false if no file is open.
+    ///
+    /// This waits for the file's writer to close it. That cannot deadlock: the caller is not
+    /// in the pool while it opens a file, and a writer only waits here while opening.
+    fn evict_one(&self) -> bool {
+        let victim = {
+            let mut open = self.open.lock().unwrap();
+            let id = open
+                .iter()
+                .min_by_key(|(_, (last_used, _))| last_used.load(Ordering::Relaxed))
+                .map(|(id, _)| *id);
+            match id {
+                Some(id) => open.remove(&id).unwrap().1,
+                None => return false,
+            }
+        };
+        let (n, req) = Request::evict();
+        // If the writer has already shut down, its file is closed anyway.
+        if victim.send(req).is_ok() {
+            n.1.wait();
+        }
+        true
+    }
+}
+
+/// A file writer's entry in an `FdPool`.
+struct PoolMember {
+    pool: Arc<FdPool>,
+    id: usize,
+    last_used: Arc<AtomicU64>,
+    sender: Sender<Request>,
+}
+
+impl PoolMember {
+    fn new(pool: Arc<FdPool>, sender: Sender<Request>) -> PoolMember {
+        let id = pool.next_id.fetch_add(1, Ordering::Relaxed);
+        PoolMember {
+            pool,
+            id,
+            last_used: Default::default(),
+            sender,
+        }
+    }
+    fn touch(&self) {
+        let now = self.pool.clock.fetch_add(1, Ordering::Relaxed);
+        self.last_used.store(now, Ordering::Relaxed);
+    }
+    fn register(&self) {
+        self.touch();
+        let entry = (self.last_used.clone(), self.sender.clone());
+        self.pool.open.lock().unwrap().insert(self.id, entry);
+    }
+    fn unregister(&self) {
+        self.pool.open.lock().unwrap().remove(&self.id);
+    }
+}
+
+impl Drop for PoolMember {
+    fn drop(&mut self) {
+        self.unregister();
+    }
+}
 
 /// FileFactory abstracts over the portions of the file system used for the output of a frawk
 /// program. It includes "file objects" as well as "stdout", which both implement the io::Write
@@ -300,17 +429,23 @@ impl Drop for CmdWriter {
     }
 }
 
+/// Start a writer thread opening its output with `f`. Files pass the `FdPool` that they join
+/// while open.
 fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + 'static>(
     f: F,
     is_stdout: bool,
     status: StatusSlot,
+    pool: Option<Arc<FdPool>>,
 ) -> RawHandle {
     let (sender, receiver) = bounded(IO_CHAN_SIZE);
     let error = Arc::new(Mutex::new(None));
     let receiver_error = error.clone();
     let open = Arc::new(AtomicBool::new(false));
     let receiver_open = open.clone();
-    std::thread::spawn(move || receive_thread(receiver, receiver_error, &receiver_open, f));
+    let member = pool.map(|pool| PoolMember::new(pool, sender.clone()));
+    std::thread::spawn(move || {
+        receive_thread(receiver, receiver_error, &receiver_open, f, member)
+    });
     RawHandle {
         error,
         sender,
@@ -578,6 +713,7 @@ struct RootImpl<F> {
     stdout_raw: RawHandle,
     stderr_raw: RawHandle,
     file_factory: F,
+    pool: Arc<FdPool>,
 }
 
 impl<F: FileFactory> RootImpl<F> {
@@ -587,6 +723,7 @@ impl<F: FileFactory> RootImpl<F> {
             move |_append| Ok(local_factory.stdout()),
             /*is_stdout*/ true,
             Default::default(),
+            None,
         );
         // Writes to stderr bypass this handle's writer thread (see FileHandle::direct), it only
         // gives the stderr FileHandle a RawHandle.
@@ -594,6 +731,7 @@ impl<F: FileFactory> RootImpl<F> {
             |_append| Ok(io::stderr()),
             /*is_stdout*/ false,
             Default::default(),
+            None,
         );
         RootImpl {
             handles: Default::default(),
@@ -601,6 +739,7 @@ impl<F: FileFactory> RootImpl<F> {
             stdout_raw,
             stderr_raw,
             file_factory,
+            pool: Default::default(),
         }
     }
 }
@@ -682,14 +821,15 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let writer_status = status.clone();
         // The command is spawned on the writer thread; take its environment from this one.
         let env = command_env();
+        let pool = self.pool.clone();
         let handle = build_handle(
             move |_| {
-                local_factory
-                    .cmd(&local_name, env.as_ref())
+                pool.open(|| local_factory.cmd(&local_name, env.as_ref()))
                     .map(|child| CmdWriter::new(child, writer_status.clone()))
             },
             /*is_stdout=*/ false,
             status,
+            None,
         );
         let _old = cmds.insert(global_name, handle.clone());
         debug_assert!(
@@ -707,10 +847,12 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let local_factory = self.file_factory.clone();
         let local_name = String::from(fname);
         let global_name = local_name.clone();
+        let pool = self.pool.clone();
         let handle = build_handle(
-            move |append| local_factory.build(local_name.as_str(), append),
+            move |spec| pool.open(|| local_factory.build(local_name.as_str(), spec)),
             /*is_stdout=*/ false,
             Default::default(),
+            Some(self.pool.clone()),
         );
         handles.insert(global_name, handle.clone());
         handle
@@ -722,7 +864,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
         self.stderr_raw.clone()
     }
     fn check_open(&self, fname: &str) -> io::Result<()> {
-        self.file_factory.build(fname, FileSpec::Append).map(drop)
+        self.pool
+            .open(|| self.file_factory.build(fname, FileSpec::Append))
+            .map(drop)
     }
 }
 
@@ -935,6 +1079,9 @@ enum Request {
     },
     Flush(Arc<(ErrorCode, Notification)>),
     Close,
+    /// Close the file to free its descriptor (see `FdPool`). Unlike `Close`, the file remains
+    /// open as far as the program is concerned: the next write reopens it for appending.
+    Evict(Arc<(ErrorCode, Notification)>),
 }
 
 // This isn't implemented automatically because of the raw pointers in Write. Those pointers are
@@ -948,19 +1095,24 @@ impl Request {
         let req = Request::Flush(notify.clone());
         (notify, req)
     }
+    fn evict() -> (Arc<(ErrorCode, Notification)>, Request) {
+        let notify = Arc::new((ErrorCode::default(), Notification::default()));
+        let req = Request::Evict(notify.clone());
+        (notify, req)
+    }
     fn size(&self) -> usize {
         match self {
             // NB, aside from the invariants we maintain about the validity of `data`, grabbing the
             // length here should _always_ be safe. This is tracked by the {const_}slice_ptr_len
             // feature.
             Request::Write { data, .. } => unsafe { &**data }.len(),
-            Request::Flush(_) | Request::Close => 0,
+            Request::Flush(_) | Request::Close | Request::Evict(_) => 0,
         }
     }
     fn set_code(&self, mut f: impl FnMut(&ErrorCode)) {
         match self {
             Request::Write { status, .. } => f(unsafe { &**status }),
-            Request::Flush(n) => {
+            Request::Flush(n) | Request::Evict(n) => {
                 f(&n.0);
                 n.1.notify();
             }
@@ -977,7 +1129,7 @@ impl Drop for Request {
                 let status = unsafe { &**status }.read();
                 assert!(!matches!(status, RequestStatus::Ongoing));
             }
-            Request::Flush(n) => {
+            Request::Flush(n) | Request::Evict(n) => {
                 assert!(n.1.has_been_notified());
             }
             Request::Close => {}
@@ -1090,6 +1242,8 @@ struct WriteBatch {
     write_bytes: usize,
     flush: bool,
     close: bool,
+    /// Whether `close` comes from an `Evict` request.
+    evict: bool,
 }
 
 #[cfg(feature = "unstable")]
@@ -1147,6 +1301,10 @@ impl WriteBatch {
             }
             Request::Flush(_) => self.flush = true,
             Request::Close => self.close = true,
+            Request::Evict(_) => {
+                self.close = true;
+                self.evict = true;
+            }
         };
         self.requests.push(req);
         self.flush || self.close
@@ -1157,6 +1315,7 @@ impl WriteBatch {
             req.set_code(&mut f)
         }
         self.close = false;
+        self.evict = false;
         self.flush = false;
         self.n_writes = 0;
         self.write_bytes = 0;
@@ -1174,9 +1333,12 @@ fn receive_thread<W: io::Write>(
     error: Arc<Mutex<Option<CompileError>>>,
     open: &AtomicBool,
     f: impl Fn(FileSpec) -> io::Result<W>,
+    member: Option<PoolMember>,
 ) {
     let mut batch = WriteBatch::default();
-    if let Err(e) = receive_loop(&receiver, &mut batch, open, f) {
+    if let Err(e) = receive_loop(&receiver, &mut batch, open, f, member.as_ref()) {
+        // The file is closed: no need to evict it.
+        drop(member);
         // We got an error! install it in the `error` mutex.
         {
             let mut err = error.lock().unwrap();
@@ -1196,12 +1358,15 @@ fn receive_loop<W: io::Write>(
     batch: &mut WriteBatch,
     open: &AtomicBool,
     f: impl Fn(FileSpec) -> io::Result<W>,
+    member: Option<&PoolMember>,
 ) -> io::Result<()> {
     const MAX_BATCH_BYTES: usize = 1 << 20;
     const MAX_BATCH_SIZE: usize = 1 << 10;
 
     // Writer starts off closed. We use `f` to open it if a write appears.
     let mut writer = None;
+    // Whether the writer was closed by an `Evict` request: it then reopens for appending.
+    let mut evicted = false;
 
     while let Ok(req) = receiver.recv() {
         // We build up a reasonably-sized batch of writes in the channel if it contains pending
@@ -1229,17 +1394,41 @@ fn receive_loop<W: io::Write>(
             if batch.n_writes() == 0 {
                 // check for a "flush/close-only batch", which we treat as a noop if the file is
                 // closed.
+                if batch.close && !batch.evict {
+                    // An explicit close of an evicted file: it is truncated if reopened by `>`.
+                    evicted = false;
+                    open.store(false, Ordering::Release);
+                }
                 batch.clear();
                 continue;
             }
             // We need to (re)open the file, the first write request will tell us whether or not
             // this is an append request.
-            writer = Some(f(batch.get_spec())?);
+            let spec = if evicted {
+                FileSpec::Append
+            } else {
+                batch.get_spec()
+            };
+            writer = Some(f(spec)?);
+            evicted = false;
             open.store(true, Ordering::Release);
+            if let Some(m) = member {
+                m.register();
+            }
+        } else if let Some(m) = member {
+            m.touch();
         }
+        let evict = batch.evict;
         if batch.issue(writer.as_mut().unwrap())? {
             writer = None;
-            open.store(false, Ordering::Release);
+            if let Some(m) = member {
+                m.unregister();
+            }
+            if evict {
+                evicted = true;
+            } else {
+                open.store(false, Ordering::Release);
+            }
         }
     }
     Ok(())

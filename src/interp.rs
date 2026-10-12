@@ -38,6 +38,7 @@ pub(crate) struct Core<'a> {
 impl<'a> Drop for Core<'a> {
     fn drop(&mut self) {
         if let Err(e) = self.write_files.shutdown() {
+            runtime::writers::set_output_failed();
             eprintln_ignore!("{}", e);
         }
     }

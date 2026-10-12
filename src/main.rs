@@ -1130,6 +1130,11 @@ fn real_main() {
             fail!("invalid backend: {:?}", b);
         }
     }
+    // Output that could not be written (reported when files were flushed at exit) is an error.
+    let rc = runtime::writers::exit_code(0);
+    if rc != 0 {
+        std::process::exit(rc);
+    }
 }
 
 #[cfg(unix)]
