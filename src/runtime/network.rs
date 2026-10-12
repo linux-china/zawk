@@ -394,7 +394,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_send_email() {
-        dotenv::dotenv().ok();
+        dotenvy::dotenv().ok();
         let from = "support@trial-3zxk54v3ykzgjy6v.mlsender.net";
         let to = "linux_china@hotmail.com";
         let subject = "demo.csv processed successfully by zawk";
@@ -405,7 +405,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_send_smtp() {
-        dotenv::dotenv().ok();
+        dotenvy::dotenv().ok();
         let smtp_url = env::var("SMTP_URL").unwrap();
         let from = "libing.chen@example";
         let to = "linux_china@example.com";

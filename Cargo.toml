@@ -103,11 +103,11 @@ nats = "0.26.0"
 redis = "1.7"
 minio = { version = "0.4.0", default-features = false, features = ["ring", "rustls-tls", "default-crypto", "http2"] }
 futures-util = "0.3"
-tokio = { version = "1.53", features = ["full"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "macros", "net", "time"] }
 mime_guess = "2"
 dirs = "7"
 notify-rust = "4"
-dotenv = "0.15"
+dotenvy = "0.15.7"
 tempfile = "3.27"
 whoami = "2.1"
 shlex = "2.0"

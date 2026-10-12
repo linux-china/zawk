@@ -1032,7 +1032,7 @@ fn response_text(response: Response) -> String {
 
 #[test]
 fn test_filter() {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     let client = TypeSafeClient::from_env().unwrap();
     let state = State::text("The door creaks open.");
     let chance: f64 = client.yes_no(&state, "Is the door open?").unwrap();
