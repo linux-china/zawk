@@ -697,6 +697,60 @@ pub fn get_find_indexes(
     }
 }
 
+/// Byte-by-byte CSV scan for buffers with quotes that the SIMD pass cannot handle by parity.
+///
+/// Follows gawk: only a `"` at the start of a field opens a quoted field, and inside one a `"`
+/// followed by anything other than `"`, `,`, `\n` or `\r\n` is a literal quote. Literal quotes
+/// are not reported, so the [Stepper] copies them as field data; the offsets are otherwise the
+/// same as the SIMD pass would produce.
+fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
+    offsets.clear();
+    let fields = &mut offsets.rel.fields;
+    let len = buf.len();
+    let mut field_start = true;
+    let mut i = 0;
+    while i < len {
+        match buf[i] {
+            b',' | b'\n' => {
+                fields.push(i as u64);
+                field_start = true;
+            }
+            b'\r' => {
+                fields.push(i as u64);
+                field_start = false;
+            }
+            b'"' if field_start => {
+                fields.push(i as u64);
+                i += 1;
+                loop {
+                    let Some(j) = memchr::memchr(b'"', &buf[i..]) else {
+                        // Unterminated: the rest of the buffer is inside the quotes.
+                        return;
+                    };
+                    let q = i + j;
+                    i = q + 1;
+                    match buf.get(q + 1) {
+                        Some(b'"') => {
+                            fields.extend_from_slice(&[q as u64, q as u64 + 1]);
+                            i = q + 2;
+                        }
+                        None | Some(b',' | b'\n') => break,
+                        Some(b'\r') if matches!(buf.get(q + 2), None | Some(b'\n')) => break,
+                        // A literal quote inside the quoted field.
+                        Some(_) => {}
+                    }
+                }
+                // The closing quote; the separator or line end after it is handled next.
+                fields.push(i as u64 - 1);
+                field_start = false;
+                continue;
+            }
+            _ => field_start = false,
+        }
+        i += 1;
+    }
+}
+
 pub type BytesIndexKernel = unsafe fn(&[u8], &mut Offsets, u8, u8);
 
 #[cfg(target_arch = "x86_64")]
@@ -1127,8 +1181,9 @@ mod generic {
         offsets.clear();
         let field_offsets = &mut offsets.rel;
         let newline_offsets = &mut offsets.nl;
-        field_offsets.fields.reserve(buf.len());
-        newline_offsets.fields.reserve(buf.len());
+        // flatten_bits may write up to 16 entries past the last offset; leave room for that.
+        field_offsets.fields.reserve(buf.len() + MAX_INPUT_SIZE);
+        newline_offsets.fields.reserve(buf.len() + MAX_INPUT_SIZE);
 
         // This may cause us to overuse memory, but it's a safe upper bound and the plan is to
         // reuse this across different chunks.
@@ -1206,7 +1261,27 @@ mod generic {
         prev_iter_inside_quote: u64, /*start at 0*/
         prev_iter_cr_end: u64,       /*start at 0*/
     ) -> (u64, u64) {
-        let f = |(mut prev_iter_inside_quote, mut prev_iter_cr_end), buf| {
+        // Quote state is tracked by parity, which is only right when every opening quote starts a
+        // field and every closing quote ends one. Alongside the offsets we check exactly that:
+        // an opening quote must follow the start of the buffer, a separator, a newline or a
+        // closing quote (the `""` escape); a closing quote must be followed by a quote, a
+        // separator, `\n` or `\r\n`. Any other quote ("irregular") makes us redo the buffer with
+        // `find_indexes_csv_lenient`.
+        let valid = if V::INPUT_SIZE == 64 {
+            !0u64
+        } else {
+            (1u64 << V::INPUT_SIZE) - 1
+        };
+        let last = V::INPUT_SIZE as u32 - 1;
+        let f = |(
+            mut prev_iter_inside_quote,
+            mut prev_iter_cr_end,
+            mut prev_field_end,
+            mut prev_close,
+            mut prev_close_cr,
+            mut irregular,
+        ): (u64, u64, u64, u64, u64, u64),
+                 buf| {
             let inp = V::fill_input(buf);
             let (quote_mask, quote_locs) = inp.find_quote_mask(&mut prev_iter_inside_quote);
             let sep = inp.cmp_mask_against_input(b',');
@@ -1216,16 +1291,50 @@ mod generic {
             let lf = inp.cmp_mask_against_input(0x0a);
             // Allow for either \r\n or \n.
             let end = (lf & cr_adjusted) | lf;
-            prev_iter_cr_end = cr.wrapping_shr(V::INPUT_SIZE as u32 - 1);
+            prev_iter_cr_end = cr.wrapping_shr(last);
             // NB: for now, NL is going to be unused for csv
             // Don't use NL here for now
             // let nl = end & !quote_mask;
             // RFC 4180: the only escape inside a quoted field is "", so backslashes are plain
             // data in CSV and are not reported (unlike TSV).
             let mask = ((sep | cr | end) & !quote_mask) | quote_locs;
-            ((prev_iter_inside_quote, prev_iter_cr_end), mask, 0)
+
+            let opening = quote_locs & quote_mask;
+            let closing = quote_locs & !quote_mask;
+            let field_end = sep | lf | quote_locs;
+            let field_start = field_end.wrapping_shl(1) | prev_field_end;
+            let after_close = (closing.wrapping_shl(1) | prev_close) & valid;
+            let close_cr = after_close & cr;
+            let after_close_cr = (close_cr.wrapping_shl(1) | prev_close_cr) & valid;
+            irregular |= (opening & !field_start)
+                | (after_close & !(field_end | cr))
+                | (after_close_cr & !lf);
+            prev_field_end = field_end.wrapping_shr(last) & 1;
+            prev_close = closing.wrapping_shr(last) & 1;
+            prev_close_cr = close_cr.wrapping_shr(last) & 1;
+            (
+                (
+                    prev_iter_inside_quote,
+                    prev_iter_cr_end,
+                    prev_field_end,
+                    prev_close,
+                    prev_close_cr,
+                    irregular,
+                ),
+                mask,
+                0,
+            )
         };
-        find_indexes::<V, _, _>(buf, offsets, (prev_iter_inside_quote, prev_iter_cr_end), f)
+        let (inside_quote, cr_end, _, _, _, irregular) = find_indexes::<V, _, _>(
+            buf,
+            offsets,
+            (prev_iter_inside_quote, prev_iter_cr_end, 1, 0, 0, 0),
+            f,
+        );
+        if irregular != 0 {
+            super::find_indexes_csv_lenient(buf, offsets);
+        }
+        (inside_quote, cr_end)
     }
 
     pub unsafe fn find_indexes_tsv<V: Vector>(
@@ -2005,9 +2114,10 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             unsafe { generic::find_indexes_csv::<V>(&mem[..], &mut offsets, 0, 0) };
         assert_ne!(in_quote, 0);
         assert_eq!(in_cr, 0);
+        // The final `"` follows `it.`, so it is a literal quote and not an offset.
         assert_eq!(
             &offsets.rel.fields[..],
-            &[4, 7, 8, 36, 37, 41, 50, 57, 58, 92, 93, 116],
+            &[4, 7, 8, 36, 37, 41, 50, 57, 58, 92, 93],
             "offset_fields={:?}",
             offsets
                 .rel
@@ -2031,6 +2141,61 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             }
         }
         smoke_test::<generic::Impl>();
+    }
+
+    fn csv_read_all(corpus: &str, chunk_size: usize) -> Vec<Vec<String>> {
+        let mut _cache = RegexCache::default();
+        let _pat = Str::default();
+        let mut reader = CSVReader::new(
+            iter::once((std::io::Cursor::new(corpus.to_string()), String::from("fake-stdin"))),
+            InputFormat::CSV,
+            chunk_size,
+            /*check_utf8=*/ true,
+            ExecutionStrategy::Serial,
+            Default::default(),
+        );
+        let mut got = Vec::new();
+        loop {
+            let (_, line) = reader
+                .read_line(&_pat, &mut _cache)
+                .expect("failed to read line");
+            if reader.read_state() != 1 {
+                break;
+            }
+            got.push(line.fields.iter().map(|s| s.to_string()).collect());
+        }
+        got
+    }
+
+    #[test]
+    fn csv_quotes_inside_fields() {
+        // Like gawk: only a quote at the start of a field opens a quoted field, and a quote inside
+        // one that is not followed by a quote, a separator or a line end is literal.
+        let cases: &[(&str, &[&[&str]])] = &[
+            ("ab\"c,d\n", &[&["ab\"c", "d"]]),
+            ("ab\"c,d\nx,y\n", &[&["ab\"c", "d"], &["x", "y"]]),
+            ("a\"\"b,c\n", &[&["a\"\"b", "c"]]),
+            ("\"ab\"cd\",e\n", &[&["ab\"cd", "e"]]),
+            ("\"{\\\"a\\\":1}\",x\n", &[&["{\\\"a\\\":1}", "x"]]),
+            ("\"a\"\"b\",\"\"\r\nx\"y,\"z\"\n", &[&["a\"b", ""], &["x\"y", "z"]]),
+            ("\"a\nb\",c\"\nd,\"e\"", &[&["a\nb", "c\""], &["d", "e"]]),
+        ];
+        for (input, expected) in cases {
+            let expected: Vec<Vec<String>> = expected
+                .iter()
+                .map(|l| l.iter().map(|s| s.to_string()).collect())
+                .collect();
+            assert_eq!(csv_read_all(input, 512), expected, "input: {:?}", input);
+        }
+
+        // Literal quotes spread over many chunks, mixed with regular quoted fields.
+        let line = "id\"1,\"a, \"\"b\"\"\",\"x\"y\",z\"\n";
+        let corpus = line.repeat(500);
+        let got = csv_read_all(&corpus, 1024);
+        assert_eq!(got.len(), 500);
+        for fields in got {
+            assert_eq!(fields, ["id\"1", "a, \"b\"", "x\"y", "z\""]);
+        }
     }
 
     fn disp_vec(v: &[Str]) -> String {

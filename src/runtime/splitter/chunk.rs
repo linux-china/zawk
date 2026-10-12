@@ -280,7 +280,8 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
                     chunk.name = self.name.clone();
                     let buf = self.inner.buf.clone();
                     let bs = buf.as_bytes();
-                    (self.find_indexes)(bs, &mut chunk.off);
+                    // Only scan the bytes read: the CSV kernel needs to know where the input ends.
+                    (self.find_indexes)(&bs[..self.inner.end], &mut chunk.off);
                     let mut target = None;
                     let mut new_len = chunk.off.rel.fields.len();
                     let mut always_truncate = new_len;

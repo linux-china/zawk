@@ -1,6 +1,7 @@
 # Unreleased
 
 * **Behavior change**: CSV now follows RFC 4180. `-i csv` no longer interprets `\n`, `\t` and `\\` inside quoted fields (`"C:\new"` stays `C:\new`), and keeps a lone `\r` inside a field (only the `\r` of a CRLF line ending is dropped). `-o csv` and `escape_csv()`/`escape("csv", s)` keep line breaks inside quotes instead of writing `\n`/`\t`, also quote fields with `\r` or leading/trailing spaces, and `-o csv` ends records with `\n` instead of `\r\n` (use `-v 'ORS=\r\n'` for CRLF)
+* Fix CSV quotes in the middle of a field: like gawk, only a `"` at the start of a field opens a quoted field, and a `"` inside a quoted field that is not followed by `"`, `,` or a line end is literal. `ab"c,d` is now `ab"c` and `d` instead of one field `abc,d`. Well-formed CSV still uses the SIMD fast path
 * Fix `zawk ... | head` printing `Broken pipe (os error 32)` and exiting with 2: a closed stdout now ends the program quietly with exit code 141 (128 + SIGPIPE), as the shell reports for gawk
 * Fix stdlib functions printing non-UTF-8 text (GBK, Latin-1, binary) as a byte array like `[97, 98, 255]`: `trim()` and `truncate()` now keep invalid bytes as is, and other functions replace them with U+FFFD
 
