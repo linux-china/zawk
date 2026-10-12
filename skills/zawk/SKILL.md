@@ -99,6 +99,23 @@ zawk -i csv -H -o parquet --out-file users.parquet \
 
 With `-o csv/tsv`, `print a, b` quotes and escapes fields correctly; never build CSV lines by concatenating `","`.
 
+## String interpolation: f-strings
+
+`f"..."` substitutes variables and fields, clearer than `sprintf` or concatenation when building SQL, JSON, URLs or
+prompts:
+
+```shell
+zawk '{ print f"user {$1} logged in at line {NR}" }' login.txt
+zawk -v table=users '{ print f"SELECT * FROM {table} WHERE id = {$1};" }' ids.txt
+zawk '{ print f"{{\"id\": {$1}}}" }' ids.txt            # {{ and }} are literal braces
+```
+
+- A placeholder is a variable name (`{name}`, `{NR}`, `{FILENAME}`) or a field reference (`{$1}`, `{$NF}`).
+  Expressions are not evaluated: `{x+1}` stays as the text `{x+1}`; compute into a variable first, or use `sprintf`.
+- A misspelled name (`{nmae}`) silently becomes an empty string.
+- Escapes (`\t`, `\n`, `\"`) work as in normal strings. Values are not escaped: use `escape("sql", v)`,
+  `escape("json", v)` first when the value comes from input.
+
 ## Recipes
 
 ```shell
@@ -210,8 +227,10 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
   single-character string separator such as `FS = "x"` stays literal); `(?i)` in a regex also works. No
   `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
 - gawk's `switch` is supported (`case` labels are numeric/string/regex constants, bodies fall through until
-  `break`). Not supported: `BEGINFILE`/`ENDFILE`, `asorti`, `PROCINFO["sorted_in"]`, `@include`, co-processes `|&`.
+  `break`). Not supported: `BEGINFILE`/`ENDFILE`, `asorti`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values) or pipe the output to `sort`.
+- `f"..."` is always an f-string, never the variable `f` concatenated with a string: write `f "-"` (with a space)
+  or `(f) "-"` to concatenate a variable named `f`.
 - Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time
   with "command potentially containing interpolated user input". Pass `-A` only when the input is trusted.
 - Missing elements of numeric arrays print `0`, not an empty string, and referencing them creates them: test with

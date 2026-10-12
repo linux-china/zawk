@@ -7,6 +7,7 @@ Things to remember to write awk script with zawk:
 - standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
 - csv/tsv/jsonl/parquet built-in support with `zawk -i csv/tsv/jsonl/parquet`
 - JSON Lines support with `zawk -i jsonl '{ print $FI["name"] }'`: keys of the first record populate `FI`, nested values keep raw JSON text
+- f-strings for string interpolation: `f"SELECT * FROM {table} WHERE id = {$1}"`; placeholders are variable names or fields (`{name}`, `{NR}`, `{$1}`, `{$NF}`), not expressions; `{{`/`}}` are literal braces; `f"..."` is never the variable `f` concatenated with a string, write `f "..."` for that
 - zawk is the successor of frawk, and all frawk scripts can run in zawk
 
 ## Docs
