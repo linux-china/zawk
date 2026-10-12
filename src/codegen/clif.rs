@@ -18,6 +18,7 @@
 //! Strings are passed "by reference" to functions, so we explicitly allocate string variables on
 //! the stack and then pass pointers to them.
 use cranelift::prelude::*;
+use cranelift_codegen::entity::SecondaryMap;
 use cranelift_codegen::ir::StackSlot;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
@@ -109,6 +110,11 @@ struct Frame {
     vars: HashMap<Ref, VarRef>,
     iters: HashMap<Ref, IterState>,
     header_actions: Vec<EntryDeclaration>,
+    // Stack slots backing local string variables. The address of such a slot never changes, so
+    // we materialize it with `stack_addr` at each use instead of threading it through an SSA
+    // variable: that keeps the number of SSA variables and long-lived values down, both of which
+    // otherwise make compile time superlinear in the size of the program.
+    str_slots: SecondaryMap<Variable, Option<StackSlot>>,
     runtime: Variable,
     // The entry block is the entry to the function. It is filled in first and contains argument
     // initialization code. It jumps unconditionally to the header block.
@@ -400,6 +406,7 @@ impl Generator {
                 vars: Default::default(),
                 iters: Default::default(),
                 header_actions: Default::default(),
+                str_slots: Default::default(),
             },
             builder,
             shared: &mut self.shared,
@@ -501,6 +508,29 @@ impl<'a> View<'a> {
         let bbs: Vec<_> = (0..nodes.len())
             .map(|_| self.builder.create_block())
             .collect();
+        // Seal blocks as soon as all of their predecessors have been generated: lookups of
+        // variables in sealed blocks are cheap, while lookups in unsealed blocks add block
+        // parameters that are only resolved (and mostly removed) at seal time. Leaving every block
+        // unsealed until the end makes compile time superlinear in the size of the program.
+        //
+        // Local variable initializations live in the header block, which is only filled in at the
+        // end (we discover locals during code generation). To be able to seal the body blocks
+        // early anyway, we route header -> bbs[0] through an empty `pre` block that stays unsealed
+        // until the header is filled in: variable lookups from the body stop at `pre`, and are
+        // resolved against the header's definitions when `pre` is sealed.
+        let pre_block = self.builder.create_block();
+        let mut pending_preds = vec![0usize; nodes.len()];
+        for e in insts.cfg.raw_edges() {
+            pending_preds[e.target().index()] += 1;
+        }
+        self.builder.switch_to_block(pre_block);
+        self.builder.ins().jump(bbs[0], &[]);
+        for (i, n) in pending_preds.iter().enumerate() {
+            if *n == 0 {
+                self.builder.seal_block(bbs[i]);
+            }
+        }
+
         let mut to_visit: Vec<_> = (0..nodes.len()).collect();
         let mut to_visit_next = Vec::with_capacity(1);
 
@@ -563,6 +593,16 @@ impl<'a> View<'a> {
                 if let Some(ecase) = ecase {
                     self.branch(tcase, ecase)?;
                 }
+
+                let mut walker = insts.cfg.neighbors(NodeIx::new(i)).detach();
+                while let Some(e) = walker.next_edge(&insts.cfg) {
+                    let (_, next) = insts.cfg.edge_endpoints(e).unwrap();
+                    let n = &mut pending_preds[next.index()];
+                    *n -= 1;
+                    if *n == 0 {
+                        self.builder.seal_block(bbs[next.index()]);
+                    }
+                }
             }
             mem::swap(&mut to_visit, &mut to_visit_next);
         }
@@ -572,7 +612,9 @@ impl<'a> View<'a> {
         self.builder.switch_to_block(self.f.header_block);
         self.builder.seal_block(self.f.header_block);
         self.execute_actions()?;
-        self.builder.ins().jump(bbs[0], &[]);
+        self.builder.ins().jump(pre_block, &[]);
+        self.builder.seal_block(pre_block);
+        // Normally a no-op; covers any block whose predecessors we did not account for.
         self.builder.seal_all_blocks();
         if DUMP_IR {
             eprintln!("{}", self.builder.func);
@@ -660,11 +702,11 @@ impl<'a> View<'a> {
                     Str => external!(drop_str),
                     _ => continue,
                 };
-                let val = self.builder.use_var(*var);
-                drops.push((drop_fn, val));
+                drops.push((drop_fn, *var));
             }
         }
-        for (drop_fn, val) in drops {
+        for (drop_fn, var) in drops {
+            let val = self.var_val(var);
             // NB: We could probably refactor call_external_void to only borrow non-f.vars fields
             // and then avoid the auxiliary vector, but life is short, and we will only call this
             // function once per live UDF.
@@ -805,23 +847,29 @@ impl<'a> View<'a> {
         self.builder.ins().store(MemFlagsData::trusted(), v, addr, 0);
     }
 
+    /// Read the current value of a variable. For local strings this is the (constant) address of
+    /// the string's stack slot.
+    fn var_val(&mut self, var: Variable) -> Value {
+        if let Some(slot) = self.f.str_slots[var] {
+            let ptr_ty = self.void_ptr_ty();
+            self.builder.ins().stack_addr(ptr_ty, slot, 0)
+        } else {
+            self.builder.use_var(var)
+        }
+    }
+
     fn execute_actions(&mut self) -> Result<()> {
         let header_actions = mem::take(&mut self.f.header_actions);
         for EntryDeclaration { var, ty } in header_actions {
             use compile::Ty::*;
-            let cl_ty = self.get_ty(ty);
             let default_v = self.default_value(ty)?;
             match ty {
                 Null | Int | Float => {
                     self.builder.def_var(var, default_v);
                 }
                 Str => {
-                    // allocate a stack slot for the string, then assign var to point to that
-                    // slot.
-                    let ptr_ty = self.ptr_to(cl_ty);
-                    let slot = self.stack_slot_bytes(mem::size_of::<runtime::Str>() as u32);
-                    let addr = self.builder.ins().stack_addr(ptr_ty, slot, 0);
-                    self.builder.def_var(var, addr);
+                    // The stack slot was allocated in `declare_local`; initialize it.
+                    let slot = self.f.str_slots[var].expect("local string without a stack slot");
                     self.store_string(slot, default_v);
                 }
                 MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
@@ -841,7 +889,10 @@ impl<'a> View<'a> {
             Null | Int | Float => self.builder.declare_var(cl_ty),
             Str => {
                 let ptr_ty = self.ptr_to(cl_ty);
-                self.builder.declare_var(ptr_ty)
+                let var = self.builder.declare_var(ptr_ty);
+                let slot = self.stack_slot_bytes(mem::size_of::<runtime::Str>() as u32);
+                self.f.str_slots[var] = Some(slot);
+                var
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 self.builder.declare_var(cl_ty)
@@ -1005,11 +1056,13 @@ impl<'a> View<'a> {
         let cont_block = self.builder.create_block();
         self.builder.set_cold_block(fail_block);
         self.builder.ins().brif(cond, fail_block, &[], cont_block, &[]);
+        self.builder.seal_block(fail_block);
         self.builder.switch_to_block(fail_block);
         let rt = self.runtime_val();
         self.call_external_void(fail, &[rt]);
         // `fail` does not return; the jump only gives the block a terminator.
         self.builder.ins().jump(cont_block, &[]);
+        self.builder.seal_block(cont_block);
         self.builder.switch_to_block(cont_block);
     }
 
@@ -1190,7 +1243,7 @@ impl<'a> View<'a> {
                 // NB: we assume that `v` is a string, not a pointer to a string.
 
                 // first, drop the value currently in the pointer
-                let p = self.builder.use_var(var);
+                let p = self.var_val(var);
                 self.drop_val(Str, p);
                 self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
             }
@@ -1363,7 +1416,7 @@ impl<'a> CodeGenerator for View<'a> {
 
         let VarRef { var, kind, .. } = self.get_var_default_local(r, /*skip_drop=*/ false)?;
         let is_global = matches!(kind, VarKind::Global);
-        let val = self.builder.use_var(var);
+        let val = self.var_val(var);
 
         match r.1 {
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr | Int
