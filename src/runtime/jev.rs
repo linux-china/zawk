@@ -630,7 +630,12 @@ impl TypeSafeClient {
     /// When the variable is missing or holds a blank key.
     #[must_use = "a client does nothing until it evaluates"]
     pub fn from_env() -> Result<Self, TypeSafeError> {
-        Self::with_key(&key_from_env()?)
+        let api_key = key_from_env()?;
+        let api_mode = env::var("JEV_API_MODEL").unwrap_or(MODEL.to_string());
+        let api_url = env::var("JEV_API_URL").unwrap_or(ENDPOINT.to_string());
+        Ok(Self::build(Some(api_key))?
+            .with_endpoint(api_url)
+            .with_model(api_mode))
     }
 
     /// Reads the key as the first line of the file at `path`.
@@ -917,9 +922,11 @@ impl TypeSafeClient {
 }
 
 fn key_from_env() -> Result<String, TypeSafeError> {
-    env::var("TYPESAFE_API_KEY").map_err(|_| {
-        TypeSafeError::MissingKey("environment variable TYPESAFE_API_KEY is missing".to_owned())
-    })
+    env::var("TYPESAFE_API_KEY")
+        .or_else(|_| env::var("JEV_API_KEY"))
+        .map_err(|_| {
+            TypeSafeError::MissingKey("environment variable TYPESAFE_API_KEY is missing".to_owned())
+        })
 }
 
 fn key_from_path(path: impl AsRef<Path>) -> Result<String, TypeSafeError> {
