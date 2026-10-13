@@ -52,7 +52,6 @@ cranelift-native = "0.136.2"
 cranelift-jit = "0.136.2"
 fast-float = "0.2"
 bumpalo = { version = "3.20", features = ["collections"] }
-target-lexicon = "0.13"
 uuid = { version = "1.28", features = ["v4", "v7", "fast-rng"] }
 ulid = "3.0"
 tsid = "0.3"
@@ -111,7 +110,7 @@ dotenvy = "0.15.7"
 tempfile = "3.27"
 whoami = "2.1"
 shlex = "2.0"
-shell-escape = "0.1"
+shell-escape = "0.1.5"
 pad = "0.1.6"
 rusqlite = { version = "0.40", features = ["bundled"] }
 libsql = { version = "0.9.30", default-features = false, features = [
@@ -155,7 +154,7 @@ tikv-jemallocator = { version = "0.7" }
 #openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
-assert_cmd = "2.0"
+assert_cmd = "2.2"
 testresult = "0.4"
 rstest = "0.27"
 

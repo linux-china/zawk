@@ -6560,7 +6560,6 @@ dependencies = [
  "smallvec",
  "sxd-document",
  "sxd-xpath",
- "target-lexicon",
  "tempfile",
  "termcolor",
  "testresult",
