@@ -54,6 +54,7 @@ zawk lint -f demo.awk                  # program files (-f and -e can be repeate
 echo 'BEGIN { print 1 }' | zawk lint   # program from stdin
 zawk lint -v n=10 -f top.awk           # n is set on the command line: not reported as never set
 zawk lint -pr -f sum.awk               # also report code that changes meaning with -pr / -pf
+zawk lint -H -f report.awk             # the run uses -H (or -i jsonl/parquet/markdown): $FI[...] is filled
 ```
 
 ```json
@@ -96,6 +97,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W103 | `f` used as a variable or function name (clashes with f-strings `f"..."`)        |
+| W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
 | W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
 | W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |

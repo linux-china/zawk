@@ -64,6 +64,8 @@ pub struct Options {
     pub parallel: Option<Parallel>,
     /// Variables set on the command line with `-v`.
     pub assigned: Vec<String>,
+    /// `-H` (or an input format that implies it): `FI` maps the column names of the header.
+    pub header: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -408,6 +410,8 @@ struct Facts<'a, 'p> {
     formats: Vec<(&'a [u8], usize, Option<Loc>)>,
     /// Assignments to read-only variables and fields: the message and the location.
     read_only: Vec<(String, Option<Loc>)>,
+    /// Reads of `FI[...]` (e.g. `$FI["name"]`): the location.
+    header_columns: Vec<Option<Loc>>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -586,6 +590,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(r);
             }
             Index(arr, ix) => {
+                if matches!(arr, Var("FI")) {
+                    self.header_columns.push(self.loc(e));
+                }
                 self.array(arr);
                 self.expr(arr);
                 self.expr(ix);
@@ -732,6 +739,7 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         calls: Vec::new(),
         formats: Vec::new(),
         read_only: Vec::new(),
+        header_columns: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -768,6 +776,16 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
             loc: *loc,
         })
         .collect();
+
+    // Without a header `FI` is empty, so every `$FI["col"]` is `""`. Reported once, at the first use.
+    if !opts.header && !facts.header_columns.is_empty() {
+        let first = facts.header_columns.iter().flatten().min_by_key(|l| (l.line, l.col)).copied();
+        diags.push(warning(
+            "W105",
+            "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
+            first,
+        ));
+    }
 
     // Variables that are read but never set anywhere: almost always a typo.
     let mut reported: Vec<&str> = Vec::new();
@@ -1064,11 +1082,12 @@ mod tests {
         assert_eq!(codes(&v), ["E305", "E305", "E305", "E305"]);
         assert_eq!(v["diagnostics"][1]["line"], 2);
         assert_eq!(v["diagnostics"][1]["column"], 21);
-        let v = run("{ $FI[\"name\"] = \"x\"; FI[\"name\"] = 1 }");
+        let header = Options { header: true, ..Options::default() };
+        let v = run_with("{ $FI[\"name\"] = \"x\"; FI[\"name\"] = 1 }", &header);
         assert_eq!(codes(&v), ["E305", "E305"]);
         assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("$FI[...]"));
         // Reading them is fine.
-        assert!(codes(&run("{ print ARGV[1], ARGC, FILENAME, NR, NF, $0, $1, $FI[\"name\"] }")).is_empty());
+        assert!(codes(&run_with("{ print ARGV[1], ARGC, FILENAME, NR, NF, $0, $1, $FI[\"name\"] }", &header)).is_empty());
     }
 
     #[test]
@@ -1120,6 +1139,17 @@ mod tests {
         assert_eq!(codes(&run("BEGIN { x = sprintf(\"%d\", 1, 2) }")), ["W203"]);
         assert_eq!(codes(&run("BEGIN { printf(\"%s\") }")), ["W202"]);
         assert!(codes(&run("BEGIN { printf \"%s=%d\\n\", \"a\", 1; x = \"%s\"; printf x }")).is_empty());
+    }
+
+    #[test]
+    fn header_columns() {
+        let prog = "BEGIN { n = 1 }\n{ print $FI[\"name\"], FI[\"age\"] }";
+        let v = run(prog);
+        assert_eq!(codes(&v), ["W105"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 10);
+        let header = Options { header: true, ..Options::default() };
+        assert!(codes(&run_with(prog, &header)).is_empty());
     }
 
     #[test]

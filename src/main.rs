@@ -456,9 +456,16 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
     }
 }
 
-/// The lint options given by the `-A`, `-p` and `-v` arguments of `zawk lint` or of a run.
+/// The lint options given by the `-A`, `-p`, `-v`, `-H` and `-i` arguments of `zawk lint` or of a run.
 fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
+    // As for a run, JSON Lines, Parquet and Markdown input imply -H.
+    let header = matches.get_flag("parse-header")
+        || matches!(
+            matches.get_one::<String>("input-format").map(|s| s.as_str()),
+            Some("jsonl" | "ndjson" | "parquet" | "markdown" | "md")
+        );
     lint::Options {
+        header,
         allow_arbitrary_commands: matches.get_flag("arbitrary-shell"),
         parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
@@ -576,6 +583,16 @@ fn real_main() {
             .short('p')
             .value_parser(["r", "record", "f", "file"])
             .help("Also report code whose meaning changes when it runs in parallel with `-pr` or `-pf`"))
+        .arg(Arg::new("parse-header")
+            .short('H')
+            .long("parse-header")
+            .num_args(0)
+            .help("The run uses -H: `FI` maps the column names of the header (`$FI[...]` is not reported)"))
+        .arg(Arg::new("input-format")
+            .short('i')
+            .long("input-format")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"])
+            .help("The input format of the run; jsonl, parquet and markdown imply -H"))
         .arg(Arg::new("program")
             .help("The program text to lint; read from stdin when no program is given"));
     let app = Command::new("zawk")
