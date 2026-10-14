@@ -2354,8 +2354,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     } => self.contains(*map_ty, *dst, *map, *key),
                     Delete { map_ty, map, key } => self.delete(*map_ty, *map, *key),
                     Clear { map_ty, map } => self.clear(*map_ty, *map),
-                    Asort { res, src_ty, src, dst_ty, dst } => {
-                        self.asort(*res, *src_ty, *src, *dst_ty, *dst)
+                    Asort { res, src_ty, src, dst_ty, dst, strnum } => {
+                        self.asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum)
                     }
                     Len { map_ty, map, dst } => self.len(*map_ty, *map, *dst),
                     Store {
@@ -2623,7 +2623,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         map_regs!(map_ty, map, self.get(map).clear());
     }
 
-    fn asort(&mut self, res: Reg<Int>, src_ty: Ty, src: NumTy, dst_ty: Ty, dst: NumTy) {
+    fn asort(&mut self, res: Reg<Int>, src_ty: Ty, src: NumTy, dst_ty: Ty, dst: NumTy, strnum: bool) {
         use runtime::{IntMap, StrMap};
         // The maps have the same value type: one case per pair of key types and value type.
         macro_rules! asort_maps {
@@ -2632,7 +2632,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     $((Ty::$src_ty, Ty::$dst_ty) => {
                         let src: Reg<$src_map> = src.into();
                         let dst: Reg<$dst_map> = dst.into();
-                        runtime::math_util::asort(self.get(src), self.get(dst))
+                        runtime::math_util::asort(self.get(src), self.get(dst), strnum)
                     })*
                     _ => panic!("invalid map types for asort: {:?}, {:?}", src_ty, dst_ty),
                 }

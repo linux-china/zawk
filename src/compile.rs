@@ -907,12 +907,12 @@ impl<'a> Typer<'a> {
     /// Compare string operands that cannot be strnums as plain strings, test the truth of strings
     /// that cannot be strnums by their emptiness alone, parse the arguments of strtonum() that
     /// cannot be strnums by their octal and hexadecimal prefixes, format (s)printf arguments
-    /// that cannot be strnums as strings, and report the typeof() of strings that cannot be
-    /// strnums as "string".
+    /// that cannot be strnums as strings, report the typeof() of strings that cannot be
+    /// strnums as "string", and asort() arrays whose values cannot be strnums as strings.
     fn refine_string_comparisons(&mut self, sna: &mut StrnumAnalysis) {
         use crate::bytecode::Accum;
         use runtime::compare::StrKind;
-        let mut refine = |kind: &mut StrKind, reg: NumTy| {
+        let refine = |sna: &mut StrnumAnalysis, kind: &mut StrKind, reg: NumTy| {
             if *kind == StrKind::Strnum && !sna.may_be_strnum(reg) {
                 *kind = StrKind::Str;
             }
@@ -928,31 +928,36 @@ impl<'a> Typer<'a> {
                             r_kind,
                             ..
                         }) => {
-                            refine(l_kind, l.reflect().0);
-                            refine(r_kind, r.reflect().0);
+                            refine(sna, l_kind, l.reflect().0);
+                            refine(sna, r_kind, r.reflect().0);
                         }
                         Either::Left(LL::CmpStrNum { s, s_kind, .. }) => {
-                            refine(s_kind, s.reflect().0)
+                            refine(sna, s_kind, s.reflect().0)
                         }
                         Either::Left(LL::NotStr(_, text, strnum)) => {
                             let mut kind =
                                 if *strnum { StrKind::Strnum } else { StrKind::Str };
-                            refine(&mut kind, text.reflect().0);
+                            refine(sna, &mut kind, text.reflect().0);
                             *strnum = kind == StrKind::Strnum;
                         }
                         Either::Left(LL::AwkStrtonum(_, text, strnum))
                         | Either::Left(LL::TypeOfString(_, text, strnum)) => {
                             let mut kind =
                                 if *strnum { StrKind::Strnum } else { StrKind::Str };
-                            refine(&mut kind, text.reflect().0);
+                            refine(sna, &mut kind, text.reflect().0);
                             *strnum = kind == StrKind::Strnum;
+                        }
+                        Either::Left(LL::Asort { src, src_ty, strnum, .. }) => {
+                            if *strnum && src_ty.val().ok() == Some(Ty::Str) {
+                                *strnum = sna.map_may_have_strnums(*src, *src_ty);
+                            }
                         }
                         Either::Left(LL::Printf { args, strnum, .. })
                         | Either::Left(LL::Sprintf { args, strnum, .. }) => {
                             for ((reg, _), strnum) in args.iter().zip(strnum.iter_mut()) {
                                 let mut kind =
                                     if *strnum { StrKind::Strnum } else { StrKind::Str };
-                                refine(&mut kind, *reg);
+                                refine(sna, &mut kind, *reg);
                                 *strnum = kind == StrKind::Strnum;
                             }
                         }
@@ -2852,6 +2857,7 @@ impl<'a, 'b> View<'a, 'b> {
                     src: conv_regs[0],
                     dst_ty: conv_tys[1],
                     dst: conv_regs[1],
+                    strnum: true,
                 })
             }
             BloomFilterInsert => {

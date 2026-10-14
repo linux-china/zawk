@@ -117,6 +117,12 @@ impl StrnumAnalysis {
                 self.dfa.add_query(r);
             }
             CmpStrNum { s, .. } => self.dfa.add_query(s),
+            // The values of `src` flow into `dst`.
+            Asort { src_ty, src, dst_ty, dst, .. } if src_ty.val().ok() == Some(Ty::Str) => {
+                self.dfa.add_query(Key::MapVal(*src, *src_ty));
+                self.dfa
+                    .add_dep(Key::MapVal(*dst, *dst_ty), Key::MapVal(*src, *src_ty), ());
+            }
             AwkStrtonum(_, s, _) | NotStr(_, s, _) | TypeOfString(_, s, _) => {
                 self.dfa.add_query(s)
             }
@@ -163,5 +169,11 @@ impl StrnumAnalysis {
     /// argument of a `Printf` or `Sprintf` instruction, visited by `visit_ll`.
     pub(crate) fn may_be_strnum(&mut self, reg: NumTy) -> bool {
         *self.dfa.query(Key::Reg(reg, Ty::Str)) == Strnum::Maybe
+    }
+
+    /// Whether the string-valued array `map` may hold strnums. `map` must be the source of an
+    /// `Asort` instruction visited by `visit_ll`.
+    pub(crate) fn map_may_have_strnums(&mut self, map: NumTy, ty: Ty) -> bool {
+        *self.dfa.query(Key::MapVal(map, ty)) == Strnum::Maybe
     }
 }

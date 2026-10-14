@@ -50,27 +50,30 @@ fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
 }
 
 /// A value that `asort()` can sort, in gawk's order: numbers before strings, numbers in numeric
-/// order and strings in string order.
+/// order and strings in string order. `strnum` is whether string values may be strnums.
 pub(crate) trait AsortValue: Clone {
-    fn asort_cmp(&self, other: &Self) -> Ordering;
+    fn asort_cmp(&self, other: &Self, strnum: bool) -> Ordering;
 }
 
 impl AsortValue for Int {
-    fn asort_cmp(&self, other: &Self) -> Ordering {
+    fn asort_cmp(&self, other: &Self, _strnum: bool) -> Ordering {
         self.cmp(other)
     }
 }
 
 impl AsortValue for Float {
-    fn asort_cmp(&self, other: &Self) -> Ordering {
+    fn asort_cmp(&self, other: &Self, _strnum: bool) -> Ordering {
         self.total_cmp(other)
     }
 }
 
 impl<'a> AsortValue for Str<'a> {
-    fn asort_cmp(&self, other: &Self) -> Ordering {
-        // Strings are untyped at runtime, so strings that look numeric (such as the elements
-        // created by split()) sort as numbers.
+    fn asort_cmp(&self, other: &Self, strnum: bool) -> Ordering {
+        if !strnum {
+            return self.with_bytes(|x| other.with_bytes(|y| x.cmp(y)));
+        }
+        // Strings are untyped at runtime, so strings that may be strnums (such as the elements
+        // created by split()) sort as numbers when they look numeric.
         let num = |s: &Str| s.with_bytes(looks_numeric);
         match (num(self), num(other)) {
             (Some(x), Some(y)) => x.total_cmp(&y),
@@ -82,15 +85,16 @@ impl<'a> AsortValue for Str<'a> {
 }
 
 /// `asort(src, dst)`: replaces the contents of `dst` with the values of `src` sorted, indexed from
-/// 1, and returns their number. `src` and `dst` may be the same array (`asort(arr)`).
-pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>) -> Int
+/// 1, and returns their number. `src` and `dst` may be the same array (`asort(arr)`). `strnum` is
+/// whether the string values of `src` may be strnums; if not, they sort as strings.
+pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, strnum: bool) -> Int
 where
     K1: Hash + Eq,
     K2: Hash + Eq + From<Int>,
     V: AsortValue,
 {
     let mut items: Vec<V> = src.iter(|it| it.map(|(_, v)| v.clone()).collect());
-    items.sort_by(|x, y| x.asort_cmp(y));
+    items.sort_by(|x, y| x.asort_cmp(y, strnum));
     dst.clear();
     let len = items.len() as Int;
     for (i, item) in items.into_iter().enumerate() {
