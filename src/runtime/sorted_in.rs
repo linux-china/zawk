@@ -29,6 +29,11 @@ impl SortedIn {
     pub(crate) const UNSORTED: SortedIn = SortedIn(None);
 
     pub(crate) fn parse(s: &[u8]) -> Result<SortedIn> {
+        SortedIn::parse_for(s, "PROCINFO[\"sorted_in\"]")
+    }
+
+    /// Parses an order given to `what` (named in error messages).
+    fn parse_for(s: &[u8], what: &str) -> Result<SortedIn> {
         let key = match s {
             b"" | b"@unsorted" => return Ok(SortedIn::UNSORTED),
             b"@ind_str_asc" | b"@ind_str_desc" => Key::IndStr,
@@ -38,13 +43,15 @@ impl SortedIn {
             b"@val_num_asc" | b"@val_num_desc" => Key::ValNum,
             _ if s.first() == Some(&b'@') => {
                 return err!(
-                    "PROCINFO[\"sorted_in\"]: `{}' is not a valid sort order",
+                    "{}: `{}' is not a valid sort order",
+                    what,
                     String::from_utf8_lossy(s)
                 )
             }
             _ => {
                 return err!(
-                    "PROCINFO[\"sorted_in\"]: user-defined comparison functions (`{}') are not supported, use one of the predefined orders such as \"@ind_str_asc\"",
+                    "{}: user-defined comparison functions (`{}') are not supported, use one of the predefined orders such as \"@ind_str_asc\"",
+                    what,
                     String::from_utf8_lossy(s)
                 )
             }
@@ -158,6 +165,29 @@ where
     res
 }
 
+/// `asorti(src, dst, how)`: replaces the contents of `dst` with the indices of `src` in the order
+/// `how` (gawk's default is "@ind_str_asc"), indexed from 1, and returns their number. `src` and
+/// `dst` may be the same array (`asorti(arr)`).
+pub(crate) fn asorti<'a, K1, V, K2>(
+    src: &SharedMap<K1, V>,
+    dst: &SharedMap<K2, Str<'a>>,
+    how: &Str,
+) -> Result<Int>
+where
+    K1: Hash + Eq + SortItem + Into<Str<'a>>,
+    V: SortItem,
+    K2: Hash + Eq + From<Int>,
+{
+    let order = how.with_bytes(|bs| SortedIn::parse_for(bs, "asorti"))?;
+    let keys = sorted_keys(src, order);
+    dst.clear();
+    let len = keys.len() as Int;
+    for (i, k) in keys.into_iter().enumerate() {
+        dst.insert(K2::from(i as Int + 1), k.into());
+    }
+    Ok(len)
+}
+
 /// A value's sort key. Numbers come before strings (for `@val_type_*`); numbers with the same
 /// value are ordered by their string value (for `@val_num_*`).
 enum ValKey {
@@ -211,6 +241,23 @@ mod tests {
         assert_eq!(sorted_keys(&m, order("@ind_num_desc")), vec![100, 10, 9]);
         assert_eq!(sorted_keys(&m, order("@val_num_asc")), vec![10, 100, 9]);
         assert_eq!(sorted_keys(&m, order("@val_num_desc")), vec![9, 100, 10]);
+    }
+
+    #[test]
+    fn asorti_orders() {
+        let m: IntMap<Int> = IntMap::default();
+        for (k, v) in [(10, 1), (9, 3), (100, 2)] {
+            m.insert(k, v);
+        }
+        let dst: IntMap<Str> = IntMap::default();
+        let vals = |o: &str| -> Vec<String> {
+            assert_eq!(asorti(&m, &dst, &Str::from(o)).unwrap(), 3);
+            (1..=3).map(|i| dst.get(&i).to_string()).collect()
+        };
+        assert_eq!(vals("@ind_str_asc"), ["10", "100", "9"]);
+        assert_eq!(vals("@ind_num_desc"), ["100", "10", "9"]);
+        assert_eq!(vals("@val_num_asc"), ["10", "100", "9"]);
+        assert!(asorti(&m, &dst, &Str::from("cmp")).is_err());
     }
 
     #[test]

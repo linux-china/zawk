@@ -334,6 +334,81 @@ impl RegexCache {
         })
     }
 
+    /// `split(s, arr, pat, seps)`: the fields of `s` and the separators, as gawk fills `seps`:
+    /// `seps[i]` is the separator between field i and field i+1. With the default `" "`, leading
+    /// and trailing blanks are kept as `seps[0]` and `seps[n]`; an empty `pat` splits into
+    /// characters separated by empty strings.
+    pub(crate) fn split_seps<'a>(
+        &mut self,
+        pat: &Str,
+        s: &Str<'a>,
+    ) -> Result<(Vec<Str<'a>>, Vec<(Int, Str<'a>)>)> {
+        let mut flds = Vec::new();
+        let mut seps = Vec::new();
+        if s.is_empty() {
+            return Ok((flds, seps));
+        }
+        if pat.is_empty() {
+            self.split_internal(pat, s, &FieldSet::all(), |f| flds.push(f))?;
+            seps.extend((1..flds.len()).map(|i| (i as Int, Str::default())));
+            return Ok((flds, seps));
+        }
+        let blanks = pat == &Str::from(" ");
+        let mut walk = |re: &Regex| {
+            s.with_bytes(|bs| {
+                let mut prev = 0;
+                for (start, end) in awk_regex::find_iter(re, bs) {
+                    // As in split(), empty matches do not separate fields.
+                    if start == end {
+                        continue;
+                    }
+                    if !(blanks && start == 0) {
+                        flds.push(s.slice(prev, start));
+                    }
+                    seps.push((flds.len() as Int, s.slice(start, end)));
+                    prev = end;
+                }
+                if !(blanks && prev == bs.len()) {
+                    flds.push(s.slice(prev, bs.len()));
+                }
+            })
+        };
+        if blanks {
+            self.with_regex(&Str::from(r#"[ \t\n]+"#), walk)?;
+        } else if is_literal_separator(pat) {
+            self.1.get(pat, literal_regex, |re| walk(re))?;
+        } else {
+            self.with_regex(pat, walk)?;
+        }
+        Ok((flds, seps))
+    }
+
+    /// `split(s, arr, pat, seps)`: replaces the contents of `arr` with the fields of `s` (indexed
+    /// from 1) and of `seps` with the separators; returns the number of fields.
+    pub(crate) fn split_seps_maps<'a, K1, K2>(
+        &mut self,
+        pat: &Str,
+        s: &Str<'a>,
+        arr: &SharedMap<K1, Str<'a>>,
+        seps: &SharedMap<K2, Str<'a>>,
+    ) -> Result<Int>
+    where
+        K1: Hash + Eq + From<Int>,
+        K2: Hash + Eq + From<Int>,
+    {
+        let (flds, sep_list) = self.split_seps(pat, s)?;
+        let n = flds.len() as Int;
+        arr.clear();
+        for (i, f) in flds.into_iter().enumerate() {
+            arr.insert(K1::from(i as Int + 1), f);
+        }
+        seps.clear();
+        for (i, sep) in sep_list {
+            seps.insert(K2::from(i), sep);
+        }
+        Ok(n)
+    }
+
     pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
         use crate::builtins::Variable;
         // RSTART and RLENGTH count chars, as `length()` and `substr()` do.

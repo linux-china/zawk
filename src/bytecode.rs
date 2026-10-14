@@ -421,6 +421,16 @@ pub(crate) enum Instr<'a> {
         Reg<runtime::StrMap<'a, Str<'a>>>,
         Reg<Str<'a>>,
     ),
+    // split(s, arr, pat, seps): `arr` and `seps` are maps from ints or strings to strings.
+    SplitSeps {
+        res: Reg<Int>,
+        to_split: Reg<Str<'a>>,
+        arr_ty: Ty,
+        arr: NumTy,
+        pat: Reg<Str<'a>>,
+        seps_ty: Ty,
+        seps: NumTy,
+    },
     // match(s, re, arr)
     MatchArrInt(
         Reg<Int>,
@@ -492,6 +502,15 @@ pub(crate) enum Instr<'a> {
         dst_ty: Ty,
         dst: NumTy,
         strnum: bool,
+    },
+    // asorti(src, dst, how): `dst` maps ints or strings to strings, `src` is any map.
+    Asorti {
+        res: Reg<Int>,
+        src_ty: Ty,
+        src: NumTy,
+        dst_ty: Ty,
+        dst: NumTy,
+        how: Reg<Str<'a>>,
     },
     Len {
         map_ty: Ty,
@@ -1708,6 +1727,13 @@ impl<'a> Instr<'a> {
                 arr.accum(&mut f);
                 pat.accum(&mut f);
             }
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+                res.accum(&mut f);
+                to_split.accum(&mut f);
+                f(*arr, *arr_ty);
+                pat.accum(&mut f);
+                f(*seps, *seps_ty);
+            }
             MatchArrInt(res, s, pat, arr) => {
                 res.accum(&mut f);
                 s.accum(&mut f);
@@ -1791,6 +1817,12 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 f(*src, *src_ty);
                 f(*dst, *dst_ty);
+            }
+            Asorti { res, src_ty, src, dst_ty, dst, how } => {
+                res.accum(&mut f);
+                f(*src, *src_ty);
+                f(*dst, *dst_ty);
+                how.accum(&mut f);
             }
             Len { map_ty, map, dst } => {
                 f(*dst, Ty::Int);

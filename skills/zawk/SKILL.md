@@ -249,7 +249,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Escape | `escape` (json, csv, tsv, xml, html, sql, shell), `escape_csv`, `escape_tsv` |
 | Parser | `url`, `data_url`, `shlex`, `path`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags` |
 | ID | `uuid` (v4/v7), `ulid`, `tsid`, `snowflake` |
-| Array | `seq`, `uniq`, `asort`, `_max`, `_min`, `_sum`, `_mean`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |
+| Array | `seq`, `uniq`, `asort`, `asorti`, `_max`, `_min`, `_sum`, `_mean`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |
 | Math | `rand`, `srand`, `int`, `float`, `strtonum`, `abs`, `ceil`, `floor`, `round`, `exp`, `log`, `log2`, `log10`, `sqrt`, `sin`, `cos`, `atan`, `atan2`, `min`, `max`, `eval`, `fend`, `mkbool` |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` |
 | Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration` |
@@ -289,8 +289,8 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
   single-character string separator such as `FS = "x"` stays literal); `(?i)` in a regex also works. No
   `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
 - gawk's `switch` is supported (`case` labels are numeric/string/regex constants, bodies fall through until
-  `break`). Not supported: `BEGINFILE`/`ENDFILE`, `asorti`, `@include`, co-processes `|&`.
-  Sort with `asort(arr)` (values) or pipe the output to `sort`.
+  `break`). Not supported: `BEGINFILE`/`ENDFILE`, `@include`, co-processes `|&`.
+  Sort with `asort(arr)` (values), `asorti(arr, keys)` (indices) or pipe the output to `sort`.
 - `f"..."` is always an f-string, never the variable `f` concatenated with a string: write `f "-"` (with a space)
   or `(f) "-"` to concatenate a variable named `f`.
 - Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time

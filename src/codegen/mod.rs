@@ -527,6 +527,32 @@ pub(crate) trait CodeGenerator: Backend {
         self.bind_val(res, resv)
     }
 
+    /// Sorts the indices of `src` into `dst` in the order `how` and stores their number in `res`.
+    fn asorti(&mut self, src: Ref, dst: Ref, how: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match (src.1, dst.1) {
+            (MapIntInt, MapIntStr) => intrinsic!(asorti_intint_intstr),
+            (MapIntInt, MapStrStr) => intrinsic!(asorti_intint_strstr),
+            (MapIntFloat, MapIntStr) => intrinsic!(asorti_intfloat_intstr),
+            (MapIntFloat, MapStrStr) => intrinsic!(asorti_intfloat_strstr),
+            (MapIntStr, MapIntStr) => intrinsic!(asorti_intstr_intstr),
+            (MapIntStr, MapStrStr) => intrinsic!(asorti_intstr_strstr),
+            (MapStrInt, MapIntStr) => intrinsic!(asorti_strint_intstr),
+            (MapStrInt, MapStrStr) => intrinsic!(asorti_strint_strstr),
+            (MapStrFloat, MapIntStr) => intrinsic!(asorti_strfloat_intstr),
+            (MapStrFloat, MapStrStr) => intrinsic!(asorti_strfloat_strstr),
+            (MapStrStr, MapIntStr) => intrinsic!(asorti_strstr_intstr),
+            (MapStrStr, MapStrStr) => intrinsic!(asorti_strstr_strstr),
+            (s, d) => return err!("invalid map types for asorti: {:?}, {:?}", s, d),
+        };
+        let rt = self.runtime_val();
+        let srcv = self.get_val(src)?;
+        let dstv = self.get_val(dst)?;
+        let howv = self.get_val(how)?;
+        let resv = self.call_intrinsic(func, &mut [rt, srcv, dstv, howv])?;
+        self.bind_val(res, resv)
+    }
+
     /// Determines if `map` contains `key` and stores the result (0 or 1) in `dst`.
     ///
     /// Assumes that map and key types match up.
@@ -1654,6 +1680,22 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(split_int), &mut [rt, tsv, arrv, patv])?;
                 self.bind_val(flds.reflect(), fldsv)
             }
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+                let func = match (arr_ty, seps_ty) {
+                    (compile::Ty::MapIntStr, compile::Ty::MapIntStr) => intrinsic!(split_seps_int_int),
+                    (compile::Ty::MapIntStr, compile::Ty::MapStrStr) => intrinsic!(split_seps_int_str),
+                    (compile::Ty::MapStrStr, compile::Ty::MapIntStr) => intrinsic!(split_seps_str_int),
+                    (compile::Ty::MapStrStr, compile::Ty::MapStrStr) => intrinsic!(split_seps_str_str),
+                    (a, s) => return err!("invalid map types for split: {:?}, {:?}", a, s),
+                };
+                let rt = self.runtime_val();
+                let tsv = self.get_val(to_split.reflect())?;
+                let arrv = self.get_val((*arr, *arr_ty))?;
+                let patv = self.get_val(pat.reflect())?;
+                let sepsv = self.get_val((*seps, *seps_ty))?;
+                let resv = self.call_intrinsic(func, &mut [rt, tsv, arrv, patv, sepsv])?;
+                self.bind_val(res.reflect(), resv)
+            }
             MatchArrInt(res, s, pat, arr) => {
                 let rt = self.runtime_val();
                 let sv = self.get_val(s.reflect())?;
@@ -1793,6 +1835,9 @@ pub(crate) trait CodeGenerator: Backend {
             Clear { map_ty, map } => self.clear_map((*map, *map_ty)),
             Asort { res, src_ty, src, dst_ty, dst, strnum } => {
                 self.asort((*src, *src_ty), (*dst, *dst_ty), res.reflect(), *strnum)
+            }
+            Asorti { res, src_ty, src, dst_ty, dst, how } => {
+                self.asorti((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect())
             }
             Len { map_ty, map, dst } => self.len_map((*map, *map_ty), (*dst, compile::Ty::Int)),
             Store {

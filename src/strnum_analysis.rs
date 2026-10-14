@@ -110,6 +110,10 @@ impl StrnumAnalysis {
             | FloatToStr(dst, _) => self.dfa.add_src(dst, Strnum::Maybe),
             SplitInt(_, _, map, _) => self.add_map_vals(map),
             SplitStr(_, _, map, _) => self.add_map_vals(map),
+            SplitSeps { arr_ty, arr, seps_ty, seps, .. } => {
+                self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::Maybe);
+                self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::Maybe);
+            }
             MatchArrInt(_, _, _, map) => self.add_map_vals(map),
             MatchArrStr(_, _, _, map) => self.add_map_vals(map),
             CmpStr { l, r, .. } => {

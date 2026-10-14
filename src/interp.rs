@@ -2221,6 +2221,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let flds = *flds;
                         *self.get_mut(flds) = res;
                     }
+                    SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+                        let n = self.split_seps(*to_split, *arr_ty, *arr, *pat, *seps_ty, *seps)?;
+                        *self.get_mut(*res) = n;
+                    }
                     MatchArrInt(res, s, pat, arr) => {
                         let s = index(&self.strs, s);
                         let pat = index(&self.strs, pat);
@@ -2356,6 +2360,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Clear { map_ty, map } => self.clear(*map_ty, *map),
                     Asort { res, src_ty, src, dst_ty, dst, strnum } => {
                         self.asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum)
+                    }
+                    Asorti { res, src_ty, src, dst_ty, dst, how } => {
+                        self.asorti(*res, *src_ty, *src, *dst_ty, *dst, *how)?
                     }
                     Len { map_ty, map, dst } => self.len(*map_ty, *map, *dst),
                     Store {
@@ -2653,6 +2660,81 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             [MapStrStr, StrMap<'a, Str<'a>>, MapStrStr, StrMap<'a, Str<'a>>]
         );
         *self.get_mut(res) = n;
+    }
+
+    fn split_seps(
+        &mut self,
+        to_split: Reg<Str<'a>>,
+        arr_ty: Ty,
+        arr: NumTy,
+        pat: Reg<Str<'a>>,
+        seps_ty: Ty,
+        seps: NumTy,
+    ) -> Result<Int> {
+        // Index the storages directly (rather than with `get`) to borrow them alongside the
+        // regex cache.
+        let to_split = index(&self.strs, &to_split);
+        let pat = index(&self.strs, &pat);
+        macro_rules! split_maps {
+            ($([$arr_ty:ident, $arr_regs:ident, $seps_ty:ident, $seps_regs:ident]),*) => {
+                match (arr_ty, seps_ty) {
+                    $((Ty::$arr_ty, Ty::$seps_ty) => {
+                        let arr = index(&self.$arr_regs, &arr.into());
+                        let seps = index(&self.$seps_regs, &seps.into());
+                        self.core.regexes.split_seps_maps(pat, to_split, arr, seps)
+                    })*
+                    _ => panic!("invalid map types for split: {:?}, {:?}", arr_ty, seps_ty),
+                }
+            };
+        }
+        split_maps!(
+            [MapIntStr, maps_int_str, MapIntStr, maps_int_str],
+            [MapIntStr, maps_int_str, MapStrStr, maps_str_str],
+            [MapStrStr, maps_str_str, MapIntStr, maps_int_str],
+            [MapStrStr, maps_str_str, MapStrStr, maps_str_str]
+        )
+    }
+
+    fn asorti(
+        &mut self,
+        res: Reg<Int>,
+        src_ty: Ty,
+        src: NumTy,
+        dst_ty: Ty,
+        dst: NumTy,
+        how: Reg<Str<'a>>,
+    ) -> Result<()> {
+        use runtime::{IntMap, StrMap};
+        let how = index(&self.strs, &how);
+        macro_rules! asorti_maps {
+            ($([$src_ty:ident, $src_map:ty]),*) => {
+                match (src_ty, dst_ty) {
+                    $(
+                    (Ty::$src_ty, Ty::MapIntStr) => {
+                        let src: Reg<$src_map> = src.into();
+                        let dst: Reg<IntMap<Str<'a>>> = dst.into();
+                        runtime::sorted_in::asorti(self.get(src), self.get(dst), how)
+                    }
+                    (Ty::$src_ty, Ty::MapStrStr) => {
+                        let src: Reg<$src_map> = src.into();
+                        let dst: Reg<StrMap<'a, Str<'a>>> = dst.into();
+                        runtime::sorted_in::asorti(self.get(src), self.get(dst), how)
+                    }
+                    )*
+                    _ => panic!("invalid map types for asorti: {:?}, {:?}", src_ty, dst_ty),
+                }
+            };
+        }
+        let n = asorti_maps!(
+            [MapIntInt, IntMap<Int>],
+            [MapIntFloat, IntMap<Float>],
+            [MapIntStr, IntMap<Str<'a>>],
+            [MapStrInt, StrMap<'a, Int>],
+            [MapStrFloat, StrMap<'a, Float>],
+            [MapStrStr, StrMap<'a, Str<'a>>]
+        )?;
+        *self.get_mut(res) = n;
+        Ok(())
     }
 
     // Allowing this because it allows for easier use of the map_regs macro.

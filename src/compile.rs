@@ -1808,6 +1808,20 @@ impl<'a, 'b> View<'a, 'b> {
                     return err!("invalid input types to split: {:?}", &conv_tys[..]);
                 })
             }
+            SplitSeps => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::SplitSeps {
+                    res: res_reg.into(),
+                    to_split: conv_regs[0].into(),
+                    arr_ty: conv_tys[1],
+                    arr: conv_regs[1],
+                    pat: conv_regs[2].into(),
+                    seps_ty: conv_tys[3],
+                    seps: conv_regs[3],
+                })
+            }
             Strlen => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Strlen(res_reg.into(), conv_regs[0].into()))
@@ -2858,6 +2872,22 @@ impl<'a, 'b> View<'a, 'b> {
                     dst_ty: conv_tys[1],
                     dst: conv_regs[1],
                     strnum: true,
+                })
+            }
+            Asorti => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                if !(conv_tys[0].is_array() && matches!(conv_tys[1], Ty::MapIntStr | Ty::MapStrStr)) {
+                    return err!("invalid input types to asorti: {:?}", &conv_tys[..]);
+                }
+                self.pushl(LL::Asorti {
+                    res: res_reg.into(),
+                    src_ty: conv_tys[0],
+                    src: conv_regs[0],
+                    dst_ty: conv_tys[1],
+                    dst: conv_regs[1],
+                    how: conv_regs[2].into(),
                 })
             }
             BloomFilterInsert => {

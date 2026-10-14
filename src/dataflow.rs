@@ -819,6 +819,15 @@ pub(crate) mod boilerplate {
                 f(dst2.into(), Some(src1.into()));
                 f(dst2.into(), Some(src2.into()));
             }
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+                f(res.into(), Some(to_split.into()));
+                f(res.into(), Some(pat.into()));
+                for (map, map_ty) in [(*arr, *arr_ty), (*seps, *seps_ty)] {
+                    f(Key::MapKey(map, map_ty), None);
+                    f(Key::MapVal(map, map_ty), Some(to_split.into()));
+                    f(Key::MapVal(map, map_ty), Some(pat.into()));
+                }
+            }
             MatchArrInt(res, s, pat, arr) => {
                 f(res.into(), Some(s.into()));
                 f(res.into(), Some(pat.into()));
@@ -863,6 +872,11 @@ pub(crate) mod boilerplate {
                 f(res.into(), None);
                 f(Key::MapKey(*dst, *dst_ty), None);
                 f(Key::MapVal(*dst, *dst_ty), Some(Key::MapVal(*src, *src_ty)));
+            }
+            Asorti { res, src_ty, src, dst_ty, dst, how } => {
+                f(res.into(), Some(how.into()));
+                f(Key::MapKey(*dst, *dst_ty), None);
+                f(Key::MapVal(*dst, *dst_ty), Some(Key::MapKey(*src, *src_ty)));
             }
             Store { map_ty, map, key, val } => {
                 f(Key::MapKey(*map, *map_ty), Some(Key::Reg(*key, map_ty.key().unwrap())));

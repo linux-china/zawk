@@ -136,6 +136,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_col(rt_ty, int_ty, str_ref_ty);
         split_int(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
         split_str(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
+        split_seps_int_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        split_seps_int_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        split_seps_str_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        split_seps_str_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         match_arr_int(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         match_arr_str(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         rand_float(rt_ty) -> float_ty;
@@ -320,6 +324,18 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         asort_intstr_strstr(map_ty, map_ty, int_ty) -> int_ty;
         asort_strstr_intstr(map_ty, map_ty, int_ty) -> int_ty;
         asort_strstr_strstr(map_ty, map_ty, int_ty) -> int_ty;
+        asorti_intint_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_intint_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_intfloat_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_intfloat_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_intstr_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_intstr_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strint_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strint_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strfloat_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strfloat_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strstr_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
+        asorti_strstr_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
         [ReadOnly] map_int_int_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_float_join(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] map_int_str_join(map_ty, str_ref_ty) -> str_ty;
@@ -2496,6 +2512,85 @@ asort_intrinsics!(
     [asort_intstr_strstr, IntMap<Str>, StrMap<Str>],
     [asort_strstr_intstr, StrMap<Str>, IntMap<Str>],
     [asort_strstr_strstr, StrMap<Str>, StrMap<Str>]
+);
+
+// asorti(src, dst, how): one intrinsic per pair of a map type and a map type with string values.
+macro_rules! asorti_intrinsics {
+    ($([$name:ident, $src_map:ty, $dst_map:ty]),*) => {
+        $(
+            pub(crate) unsafe extern "C" fn $name(
+                runtime: *mut c_void,
+                src: *mut c_void,
+                dst: *mut c_void,
+                how: *mut c_void,
+            ) -> Int {
+                guard_panic(stringify!($name), || {
+                    let runtime = &mut *(runtime as *mut Runtime);
+                    let src = mem::transmute::<*mut c_void, $src_map>(src);
+                    let dst = mem::transmute::<*mut c_void, $dst_map>(dst);
+                    let how = &*(how as *mut Str);
+                    let res = match runtime::sorted_in::asorti(&src, &dst, how) {
+                        Ok(n) => n,
+                        Err(e) => fail!(runtime, "{}", e),
+                    };
+                    mem::forget(src);
+                    mem::forget(dst);
+                    res
+                })
+            }
+        )*
+    };
+}
+
+asorti_intrinsics!(
+    [asorti_intint_intstr, IntMap<Int>, IntMap<Str>],
+    [asorti_intint_strstr, IntMap<Int>, StrMap<Str>],
+    [asorti_intfloat_intstr, IntMap<Float>, IntMap<Str>],
+    [asorti_intfloat_strstr, IntMap<Float>, StrMap<Str>],
+    [asorti_intstr_intstr, IntMap<Str>, IntMap<Str>],
+    [asorti_intstr_strstr, IntMap<Str>, StrMap<Str>],
+    [asorti_strint_intstr, StrMap<Int>, IntMap<Str>],
+    [asorti_strint_strstr, StrMap<Int>, StrMap<Str>],
+    [asorti_strfloat_intstr, StrMap<Float>, IntMap<Str>],
+    [asorti_strfloat_strstr, StrMap<Float>, StrMap<Str>],
+    [asorti_strstr_intstr, StrMap<Str>, IntMap<Str>],
+    [asorti_strstr_strstr, StrMap<Str>, StrMap<Str>]
+);
+
+// split(s, arr, pat, seps): one intrinsic per pair of key types of `arr` and `seps`.
+macro_rules! split_seps_intrinsics {
+    ($([$name:ident, $arr_map:ty, $seps_map:ty]),*) => {
+        $(
+            pub(crate) unsafe extern "C" fn $name(
+                runtime: *mut c_void,
+                to_split: *mut c_void,
+                arr: *mut c_void,
+                pat: *mut c_void,
+                seps: *mut c_void,
+            ) -> Int {
+                guard_panic(stringify!($name), || {
+                    let runtime = &mut *(runtime as *mut Runtime);
+                    let arr = mem::transmute::<*mut c_void, $arr_map>(arr);
+                    let seps = mem::transmute::<*mut c_void, $seps_map>(seps);
+                    let to_split = &*(to_split as *mut Str);
+                    let pat = &*(pat as *mut Str);
+                    let res = match runtime.core.regexes.split_seps_maps(pat, to_split, &arr, &seps) {
+                        Ok(n) => n,
+                        Err(e) => fail!(runtime, "failed to split string: {}", e),
+                    };
+                    mem::forget((arr, seps));
+                    res
+                })
+            }
+        )*
+    };
+}
+
+split_seps_intrinsics!(
+    [split_seps_int_int, IntMap<Str>, IntMap<Str>],
+    [split_seps_int_str, IntMap<Str>, StrMap<Str>],
+    [split_seps_str_int, StrMap<Str>, IntMap<Str>],
+    [split_seps_str_str, StrMap<Str>, StrMap<Str>]
 );
 
 pub(crate) unsafe extern "C" fn map_int_int_join(arr: *mut c_void, sep: *mut U128) -> U128 {

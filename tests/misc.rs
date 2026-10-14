@@ -1700,7 +1700,7 @@ fn static_errors_have_locations() {
             vec!["-f", &split],
             2,
             format!(
-                "zawk: fatal: {}:2:7: function `split` expects 2 or 3 arguments, got 5\n      n = split(s, arr, \" \", x, y)\n          ^\n",
+                "zawk: fatal: {}:2:7: function `split` expects 2 to 4 arguments, got 5\n      n = split(s, arr, \" \", x, y)\n          ^\n",
                 split
             ),
         ),

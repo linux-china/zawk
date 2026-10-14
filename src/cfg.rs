@@ -2616,6 +2616,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     )?;
                     prim_args.push(PrimVal::Var(fs));
                 }
+                // split(s, arr, fs, seps) => gawk's form that also returns the separators
+                if bi == builtins::Function::Split && args.len() == 4 {
+                    bi = builtins::Function::SplitSeps;
+                }
                 // match(s, re, arr) => gawk's capturing form
                 if bi == builtins::Function::Match && args.len() == 3 {
                     bi = builtins::Function::MatchArr;
@@ -2826,6 +2830,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // asort(arr) => asort(arr, arr): sort in place.
                     builtins::Function::Asort if args_len == 1 => {
                         prim_args.push(prim_args[0].clone());
+                    }
+                    // asorti(arr) => asorti(arr, arr, "@ind_str_asc"): sort in place.
+                    // asorti(src, dst) => asorti(src, dst, "@ind_str_asc");
+                    builtins::Function::Asorti if args_len == 1 || args_len == 2 => {
+                        if args_len == 1 {
+                            prim_args.push(prim_args[0].clone());
+                        }
+                        prim_args.push(PrimVal::StrLit(b"@ind_str_asc"));
                     }
                     // http_get(url) => http_get(url, headers), with empty headers: a fresh local
                     // that `Function::feedback` types as a map.

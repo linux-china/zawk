@@ -39,6 +39,8 @@ pub enum Function {
     NextFile,
     Setcol,
     Split,
+    // split(s, arr, fs, seps)
+    SplitSeps,
     Length,
     Strlen,
     Uuid,
@@ -166,6 +168,7 @@ pub enum Function {
     ArrayMean,
     ArraySum,
     Asort,
+    Asorti,
     BloomFilterInsert,
     BloomFilterContains,
     BloomFilterContainsWithInsert,
@@ -479,6 +482,7 @@ static_map!(
     ["seq", Function::Seq],
     ["uniq", Function::Uniq],
     ["asort", Function::Asort],
+    ["asorti", Function::Asorti],
     ["bf_insert", Function::BloomFilterInsert],
     ["bf_contains", Function::BloomFilterContains],
     ["bf_icontains", Function::BloomFilterContainsWithInsert],
@@ -615,7 +619,7 @@ pub(crate) fn is_awk_builtin(name: &str) -> bool {
             | "sin" | "cos" | "atan2" | "exp" | "log" | "sqrt" | "int" | "rand" | "srand"
             | "tolower" | "toupper" | "system" | "close" | "fflush"
             // gawk
-            | "gensub" | "strtonum" | "asort" | "typeof" | "isarray" | "systime" | "strftime"
+            | "gensub" | "strtonum" | "asort" | "asorti" | "typeof" | "isarray" | "systime" | "strftime"
             | "mktime" | "and" | "or" | "xor" | "compl" | "lshift" | "rshift"
     )
 }
@@ -659,6 +663,18 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
+            Function::SplitSeps => {
+                for arg in [args[1], args[3]] {
+                    let map = ctx.constant(
+                        Map {
+                            key: BaseTy::Int,
+                            val: BaseTy::Str,
+                        }
+                            .abs(),
+                    );
+                    ctx.nw.add_dep(map, arg, Constraint::Flows(()));
+                }
+            }
             // headers of http_get/http_post and the payload of jwt are string maps
             Function::HttpGet | Function::HttpPost | Function::Jwt => {
                 let map = ctx.constant(
@@ -691,6 +707,15 @@ impl Function {
                     ctx.nw.add_dep(map, val, Constraint::Val(()));
                     ctx.nw.add_dep(val, map, Constraint::ValIn(()));
                 }
+            }
+            // asorti(src, dst, how): the indices of `src` become the (string) values of `dst`.
+            Function::Asorti => {
+                ctx.constrain_as_map(args[0]);
+                let dst = ctx.constant(Some(Map {
+                    key: None,
+                    val: Some(BaseTy::Str),
+                }));
+                ctx.nw.add_dep(dst, args[1], Constraint::Flows(()));
             }
             Function::Clear => {
                 let is_map = ctx.constant(Some(Map {
@@ -946,6 +971,13 @@ impl Function {
             Encrypt => (smallvec![Str, Str, Str], Str),
             Decrypt => (smallvec![Str, Str, Str], Str),
             Asort => (smallvec![incoming[0], incoming[1]], Int),
+            Asorti => {
+                if incoming[0].is_array() && matches!(incoming[1], MapIntStr | MapStrStr) {
+                    (smallvec![incoming[0], incoming[1], Str], Int)
+                } else {
+                    return err!("invalid input spec for asorti: {:?}", incoming);
+                }
+            }
             BloomFilterInsert => (smallvec![Str, Str], Null),
             BloomFilterContains | BloomFilterContainsWithInsert => (smallvec![Str, Str], Int),
             Fake => (smallvec![Str, Str], Str),
@@ -996,6 +1028,13 @@ impl Function {
             Split => {
                 if let MapIntStr | MapStrStr = incoming[1] {
                     (smallvec![Str, incoming[1], Str], Int)
+                } else {
+                    return err!("invalid input spec for split: {:?}", incoming);
+                }
+            }
+            SplitSeps => {
+                if let (MapIntStr | MapStrStr, MapIntStr | MapStrStr) = (incoming[1], incoming[3]) {
+                    (smallvec![Str, incoming[1], Str, incoming[3]], Int)
                 } else {
                     return err!("invalid input spec for split: {:?}", incoming);
                 }
@@ -1060,6 +1099,8 @@ impl Function {
             Uniq => 2,
             Strnum | ToFloat | OfmtStr => 1,
             Asort => 2,
+            Asorti => 3,
+            SplitSeps => 4,
             HttpGet => 2,
             HttpPost => 3,
             SendMail => 4,
@@ -1120,9 +1161,9 @@ impl Function {
             Rand | Binop(Div) | Binop(Pow) | Binop(Mult) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
-            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | ReadErr
+            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
-            | System | HexToInt | Asort | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
             System2 => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,

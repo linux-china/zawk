@@ -64,11 +64,15 @@ Like sub, but with all occurrences substituted, not just the first.
 Positions count characters, as `length()` and `substr()` do: `index("中文abc", "a")` is `3`, so
 `substr(s, index(s, x))` works on multibyte text. `match()`, `RSTART` and `RLENGTH` count characters too.
 
-### split(text, arr[, fs])
+### split(text, arr[, fs[, seps]])
 
 Splits the string s according to fs, placing the results in the array `arr`. If fs is not specified then the FS variable
 is
 used to split s.
+
+As in gawk, the optional array `seps` receives the separators: `seps[i]` is the separator between `arr[i]` and
+`arr[i+1]`. When fs is `" "`, leading and trailing blanks are kept in `seps[0]` and `seps[n]`, so the original text can be
+rebuilt from the parts: `n = split("a=1; b=2", parts, /[=;]/, seps)`.
 
 ### last_part(s [, sep])
 
@@ -432,6 +436,17 @@ ID specs:
 ### asort
 
 `n = asort(arr)`: sort array, and return sorted array length
+
+### asorti
+
+`n = asorti(src[, dest[, how]])`: sort the indices of `src` into `dest` (default: in place, replacing `src`), indexed from 1,
+and return their number. `how` is one of gawk's predefined orders (`"@ind_str_asc"` by default, `"@ind_num_desc"`,
+`"@val_num_asc"`, ...); user-defined comparison functions are not supported.
+
+```awk
+{ count[$1]++ }
+END { n = asorti(count, keys); for (i = 1; i <= n; i++) print keys[i], count[keys[i]] }
+```
 
 ### _max/_min/_sum/_mean
 
