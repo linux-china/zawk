@@ -416,6 +416,10 @@ struct Facts<'a, 'p> {
     begin_record_reads: Vec<(String, Option<Loc>)>,
     /// Whether BEGIN or a function reads a record with `getline`.
     getline: bool,
+    /// The keys of the enclosing `for (k in a)` loops.
+    keys: Vec<&'a str>,
+    /// Comparisons of a `for (k in a)` key with a number: the key, the number and the location.
+    key_comparisons: Vec<(&'a str, String, Option<Loc>)>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -515,7 +519,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.set(key, SetKind::Indirect, None);
                 self.array(arr);
                 self.expr(arr);
+                self.keys.push(key);
                 self.stmt(body);
+                self.keys.pop();
             }
             Switch(e, cases) => {
                 self.expr(e);
@@ -564,6 +570,29 @@ impl<'a, 'p> Facts<'a, 'p> {
         }
     }
 
+    /// Records `k > 9` (either way round) where `k` is the key of an enclosing `for (k in a)`:
+    /// array keys are strings, so gawk compares them as strings ("10" < "9").
+    fn check_key_comparison(&mut self, l: &'a AstExpr<'a>, r: &'a AstExpr<'a>) {
+        fn number(e: &AstExpr) -> Option<String> {
+            match e {
+                ast::Expr::ILit(n) => Some(n.to_string()),
+                ast::Expr::FLit(f) => Some(f.to_string()),
+                ast::Expr::Unop(ast::Unop::Neg, x) => number(x).map(|n| format!("-{}", n)),
+                ast::Expr::Unop(ast::Unop::Pos, x) => number(x),
+                _ => None,
+            }
+        }
+        let (var, x) = match (l, r) {
+            (v @ ast::Expr::Var(_), x) | (x, v @ ast::Expr::Var(_)) => (v, x),
+            _ => return,
+        };
+        if let (ast::Expr::Var(k), Some(n)) = (var, number(x)) {
+            if self.keys.contains(k) {
+                self.key_comparisons.push((k, n, self.loc(var)));
+            }
+        }
+    }
+
     /// Walks an assignment target.
     fn lvalue(&mut self, e: &'a AstExpr<'a>, kind: SetKind) {
         self.check_read_only(e);
@@ -602,6 +631,11 @@ impl<'a, 'p> Facts<'a, 'p> {
                     self.begin_record_reads.push((what, self.loc(e)));
                 }
                 self.expr(x)
+            }
+            Binop(ast::Binop::LT | ast::Binop::GT | ast::Binop::LTE | ast::Binop::GTE, l, r) => {
+                self.check_key_comparison(l, r);
+                self.expr(l);
+                self.expr(r);
             }
             Binop(_, l, r) | And(l, r) | Or(l, r) => {
                 self.expr(l);
@@ -763,6 +797,8 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         header_columns: Vec::new(),
         begin_record_reads: Vec::new(),
         getline: false,
+        keys: Vec::new(),
+        key_comparisons: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -832,6 +868,18 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
                 *loc,
             ));
         }
+    }
+
+    // Array keys are strings: gawk compares `k > 9` as strings, zawk as numbers.
+    for (key, n, loc) in &facts.key_comparisons {
+        diags.push(warning(
+            "W108",
+            format!(
+                "`{}` is an array key, which is a string: gawk compares it with {} as strings (\"10\" < \"9\"), zawk as numbers; write `{}+0` to compare as numbers in every awk",
+                key, n, key
+            ),
+            *loc,
+        ));
     }
 
     // Variables that are read but never set anywhere: almost always a typo.
@@ -1102,6 +1150,17 @@ mod tests {
         let v = run("BEGIN { FIELDWIDTHS = \"2 3\" }");
         assert_eq!(v["valid"], true);
         assert_eq!(codes(&v), ["W101"]);
+    }
+
+    #[test]
+    fn array_key_comparisons() {
+        let v = run("BEGIN { a[10] = 1; for (k in a) if (k > 9) print k }");
+        assert_eq!(codes(&v), ["W108"]);
+        assert_eq!(v["diagnostics"][0]["column"], 37);
+        assert_eq!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (-1 <= k) print k }")), ["W108"]);
+        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k+0 > 9) print k }")).is_empty());
+        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k == 1) print k }")).is_empty());
+        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k }")).is_empty());
     }
 
     #[test]
