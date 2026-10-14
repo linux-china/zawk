@@ -278,6 +278,11 @@ fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
         ("E302", true)
     } else if msg.contains("as an array") || msg.contains("scalar context") {
         ("E303", false)
+    } else if msg.contains("duplicates parameter")
+        || msg.contains("function name as a parameter")
+        || msg.contains("is used as a variable or an array")
+    {
+        ("E305", false)
     } else if msg.contains("user input") || msg.contains("arbitrary") {
         ("E304", false)
     } else {
@@ -1020,6 +1025,19 @@ mod tests {
     }
 
     #[test]
+    fn function_name_conflicts() {
+        let v = run("function g(a, a) { return a }\nBEGIN { print g(1, 2) }");
+        assert_eq!(codes(&v), ["E305"]);
+        assert_eq!(codes(&run("function h(h) { return 1 }")), ["E305"]);
+        assert_eq!(codes(&run("function h(x) { return x }\nfunction g(h) { return h }")), ["E305"]);
+        let v = run("function foo(x) { return x }\nBEGIN {\n  foo = 1; print foo(2) }");
+        assert_eq!(codes(&v), ["E305"]);
+        assert_eq!(v["diagnostics"][0]["line"], 3);
+        assert_eq!(codes(&run("function foo(x) { return x }\nBEGIN { foo[1] = 1 }")), ["E305"]);
+        assert!(codes(&run("function foo(x) { return x }\nBEGIN { print foo(1) }")).is_empty());
+    }
+
+    #[test]
     fn read_only() {
         let v = run("BEGIN { ARGV[1] = \"x\"; ARGC++; delete ARGV }");
         assert_eq!(v["valid"], false);
@@ -1040,10 +1058,10 @@ mod tests {
 
     #[test]
     fn f_name() {
-        let v = run("function f(x) { return x }\nBEGIN { f = 1; print f(f), f }");
-        assert_eq!(codes(&v), ["W103", "W103"]);
+        let v = run("function f(x) { return x }\nfunction g(y) { return f(y) }\nBEGIN { f = 1; print g(f) }");
+        assert_eq!(codes(&v), ["W103", "W103", "E305"]);
         assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("function"));
-        assert_eq!(v["diagnostics"][1]["line"], 2);
+        assert_eq!(v["diagnostics"][1]["line"], 3);
         assert_eq!(v["diagnostics"][1]["column"], 9);
         assert!(codes(&run("BEGIN { x = fx = xf = 1; print f\"{x}\", fx, xf }")).is_empty());
     }

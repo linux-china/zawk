@@ -508,6 +508,17 @@ impl<'a, I> ProgramContext<'a, I>
                     arg
                 );
             }
+            for (i, arg) in fundec.args.iter().enumerate() {
+                if let Some(j) = fundec.args[..i].iter().position(|a| a == arg) {
+                    return err!(
+                        "function `{}': parameter #{}, `{}', duplicates parameter #{}",
+                        fundec.name,
+                        i + 1,
+                        arg,
+                        j + 1
+                    );
+                }
+            }
             // All exit blocks simply return the designated return node. Return statements in the
             // AST will becode assignments to this variable followed by an unconditional jump to
             // this block.
@@ -536,6 +547,20 @@ impl<'a, I> ProgramContext<'a, I>
                 .collect();
             f.ret = ret;
             funcs.push(f);
+        }
+        // A parameter named after a function shadows it in the body; gawk rejects that.
+        for fundec in p.decs.iter() {
+            if let Some(arg) = fundec
+                .args
+                .iter()
+                .find(|a| func_table.contains_key(&FunctionName::Named((*a).clone())))
+            {
+                return err!(
+                    "function `{}': parameter `{}': cannot use a function name as a parameter name",
+                    fundec.name,
+                    arg
+                );
+            }
         }
         // Now that we have all the functions in place, it's time to fill them up and convert them
         // to SSA.
@@ -606,6 +631,21 @@ impl<'a, I> ProgramContext<'a, I>
                 }
             }
         };
+
+        // A global variable (or array) named after a function: `foo = 1` next to `function foo`,
+        // or a call with a space before `(`, which is a concatenation with the variable `foo`.
+        for fundec in p.decs.iter() {
+            if let Some(id) = shared.hm.get(&fundec.name) {
+                let e = err_raw!(
+                    "function `{}' is used as a variable or an array (a call must not have a space before `(')",
+                    fundec.name
+                );
+                return Err(match shared.uses.any.get(&id.low) {
+                    Some(loc) => e.with_loc(*loc),
+                    None => e,
+                });
+            }
+        }
 
         Ok(ProgramContext {
             shared,
