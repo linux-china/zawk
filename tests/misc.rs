@@ -2017,6 +2017,64 @@ fn stdout_broken_pipe_is_silent() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("Broken pipe"));
 }
 
+#[cfg(unix)]
+#[test]
+fn stdout_broken_pipe_under_load() {
+    // Regression test: when the reader of stdout went away while writes were still pending on the
+    // writer thread, tearing down the runtime could panic and drop it a second time (SIGSEGV,
+    // SIGBUS or abort instead of 141). The race shows up mostly on a busy machine, so keep the
+    // CPUs busy while running `zawk '{print}' file | head -1` repeatedly.
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command as StdCommand, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("big.csv");
+    {
+        let mut f = std::io::BufWriter::new(File::create(&path).unwrap());
+        for i in 0..1_000_000 {
+            writeln!(f, "{},{},abc,def", i, i * 2).unwrap();
+        }
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let n_busy = 2 * std::thread::available_parallelism().map_or(4, |n| n.get());
+    let busy: Vec<_> = (0..n_busy)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            })
+        })
+        .collect();
+    let mut failures = Vec::new();
+    for _ in 0..20 {
+        let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("zawk"))
+            .arg("{print}")
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if output.status.code() != Some(141) || !stderr.is_empty() {
+            failures.push((output.status, stderr));
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    for t in busy {
+        t.join().unwrap();
+    }
+    assert!(failures.is_empty(), "{:?}", failures);
+}
+
 #[test]
 fn ignorecase_parallel() {
     // IGNORECASE (set with -v or in BEGIN) applies on the worker threads of -p, to regexes,

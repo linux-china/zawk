@@ -1018,11 +1018,15 @@ impl FileHandle {
         if self.direct {
             return Ok(());
         }
-        self.clear_batch(None)?;
+        // Even if an earlier write failed, wait for the writer thread to get through every
+        // pending request before releasing the guards: those requests point into them. After an
+        // error the writer thread answers all requests with an error, so the wait terminates.
+        let res = self.clear_batch(None);
         let (n, req) = Request::flush();
         self.raw.sender.send(req).unwrap();
         n.1.wait();
         self.guards.clear();
+        res?;
         if let RequestStatus::Error = n.0.read() {
             Err(self.read_error())
         } else {

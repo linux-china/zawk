@@ -569,6 +569,9 @@ macro_rules! exit {
         let rt_raw = $runtime as *mut Runtime;
         let rt = &mut *rt_raw;
         let code = $code;
+        // Tearing down the runtime may panic (e.g. while flushing output). That panic must not
+        // reach this runtime again through `fail_current_runtime`: it is being dropped.
+        $crate::codegen::intrinsics::set_current_runtime(std::ptr::null_mut());
         if rt.concurrent {
             let pid = rt.core.vars.pid;
             rt.cancel_signal.cancel(code);
