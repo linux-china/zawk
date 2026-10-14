@@ -124,6 +124,27 @@ fn fi_header_per_file() {
     }
 }
 
+// A column name missing from the header (a typo, or no -H) reads as "", not as $0, and is
+// not added to FI.
+#[test]
+fn fi_missing_column_is_empty() {
+    let prog = r#"{ k = "nmae"; print "[" $FI["nmae"] "]", "[" $FI[k] "]", $FI["age"] + 1, $FI["nmae"] + 1, ($FI["nmae"] < 5); n = 0; for (c in FI) n++; print n }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", "-H", prog])
+            .write_stdin("name,age\nx,1\n")
+            .assert()
+            .stdout("[] [] 2 1 1\n2\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, r#"{ print "[" $FI["a"] "]" }"#])
+            .write_stdin("a,b\n")
+            .assert()
+            .stdout("[]\n");
+    }
+}
+
 #[test]
 fn file_and_data_arg() {
     let input = r#"Hi"#;

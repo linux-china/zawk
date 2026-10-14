@@ -1351,6 +1351,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let id = self.get_cond(*cond);
                 PrimExpr::Val(PrimVal::Var(id))
             }
+            Unop(ast::Unop::Column, Index(fi @ Var(id), ix))
+                if matches!(builtins::Variable::try_from(id.clone()), Ok(builtins::Variable::FI)) =>
+            {
+                return self.column_by_name(fi, ix, current_open);
+            }
             Unop(op, e) => {
                 let next_cond = in_cond && matches!(op, ast::Unop::Not);
                 let (next, v) = self.convert_val_inner(e, current_open, next_cond)?;
@@ -2054,6 +2059,39 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.f.cfg.add_edge(t_node, next, Transition::null());
         self.f.cfg.add_edge(f_node, next, Transition::null());
         Ok((next, PrimVal::Var(res)))
+    }
+
+    /// `$FI[k]`: `(k in FI) ? $(FI[k]) : ""`. A missing column name (a typo, or a missing `-H`)
+    /// would otherwise read FI[k] as 0 and silently yield the whole record. The empty string
+    /// converts to 0 in numeric contexts, like any missing field. The lookup only happens when
+    /// the key is present, so FI is not polluted with misspelled names.
+    fn column_by_name<'c>(
+        &mut self,
+        fi: &'c Expr<'c, 'b, I>,
+        ix: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
+        use builtins::Function;
+        let (next, arr_v) = self.convert_val(fi, current_open)?;
+        let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+        let present = PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+        let present = self.to_val(present, next)?;
+        let res = self.fresh_local();
+        self.ctx.may_rename.push(res);
+        let found = self.f.cfg.add_node(Default::default());
+        let missing = self.f.cfg.add_node(Default::default());
+        let join = self.f.cfg.add_node(Default::default());
+        let col = self.to_val(PrimExpr::Index(arr_v, ix_v), found)?;
+        self.add_stmt(
+            found,
+            PrimStmt::AsgnVar(res, PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Column), smallvec![col])),
+        )?;
+        self.add_stmt(missing, PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))))?;
+        self.f.cfg.add_edge(next, found, Transition::new(present));
+        self.f.cfg.add_edge(next, missing, Transition::null());
+        self.f.cfg.add_edge(found, join, Transition::null());
+        self.f.cfg.add_edge(missing, join, Transition::null());
+        Ok((join, PrimExpr::Val(PrimVal::Var(res))))
     }
 
     /// `cond ? v : ""`, as a string.

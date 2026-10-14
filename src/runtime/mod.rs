@@ -717,10 +717,14 @@ impl<LR: LineReader> FileRead<LR> {
         // We failed the initial check, and referenced_fi is true, so we must have columns.
         let cols = self.named_columns.as_ref().unwrap();
 
-        // Merge in the named column indexes into our used-field list.
+        // Merge in the named column indexes into our used-field list. Names missing from the
+        // header are skipped rather than looked up: `get` would insert them into FI, and
+        // `$FI["typo"]` would then read the whole record instead of "".
         for c in cols.iter() {
             let c_borrow: &Str<'a> = c.upcast_ref();
-            self.used_fields.set(fi.get(c_borrow) as usize)
+            if fi.contains(c_borrow) {
+                self.used_fields.set(fi.get(c_borrow) as usize)
+            }
         }
         self.stdin.set_used_fields(&self.used_fields)
     }
