@@ -163,17 +163,22 @@ With `-o csv/tsv`, `print a, b` quotes and escapes fields correctly; never build
 
 ## String interpolation: f-strings
 
-`f"..."` substitutes variables and fields, clearer than `sprintf` or concatenation when building SQL, JSON, URLs or
+`f"..."` substitutes expressions, clearer than `sprintf` or concatenation when building SQL, JSON, URLs or
 prompts:
 
 ```shell
 zawk '{ print f"user {$1} logged in at line {NR}" }' login.txt
 zawk -v table=users '{ print f"SELECT * FROM {table} WHERE id = {$1};" }' ids.txt
 zawk '{ print f"{{\"id\": {$1}}}" }' ids.txt            # {{ and }} are literal braces
+zawk '{ print f"{NR+1}: {toupper($2)} {$3 * 1.1:.2f} {$1:>10}" }' data.txt
 ```
 
-- A placeholder is a variable name (`{name}`, `{NR}`, `{FILENAME}`) or a field reference (`{$1}`, `{$NF}`).
-  Expressions are not evaluated: `{x+1}` stays as the text `{x+1}`; compute into a variable first, or use `sprintf`.
+- A placeholder is any expression: `{name}`, `{$1}`, `{NR+1}`, `{x > 0 ? \"pos\" : \"neg\"}`. Write `\"` for a quote
+  inside a placeholder (the f-string ends at a bare `"`). An invalid expression is a syntax error; `{}` stays as text.
+- A format spec follows a `:` (Python style): `[[fill]align][sign][#][0][width][.precision][type]`.
+  `{p:.2f}` → `3.14`, `{n:5d}` → `   42`, `{n:<5}` → `42   `, `{n:05}` → `00042`, `{s:*^6}` → `**ab**`,
+  `{n:x}` → `2a`, `{r:.1%}` → `25.6%`, `{s:.2}` → `he` (truncate). Without a type the value is formatted as a string;
+  values are right-aligned by default. Thousands separators (`,`) and `=` alignment are not supported.
 - A misspelled name (`{nmae}`) silently becomes an empty string.
 - Escapes (`\t`, `\n`, `\"`) work as in normal strings. Values are not escaped: use `escape("sql", v)`,
   `escape("json", v)` first when the value comes from input.

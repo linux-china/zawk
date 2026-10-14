@@ -1390,7 +1390,26 @@ this as well"#
     test_program!(
         fstring_vars,
         r#"BEGIN { name = "world"; n = 3; print f"Hello, {name}! n={ n } {{x}} {x+1} {}" }"#,
-        "Hello, world! n=3 {x} {x+1} {}\n"
+        "Hello, world! n=3 {x} 1 {}\n"
+    );
+
+    test_program!(
+        fstring_exprs,
+        r#"BEGIN { a["k"] = 7; x = 2; print f"{x * 3 + 1}|{toupper(\"ab\")}|{a[\"k\"]}|{x > 1 ? \"big\" : \"small\"}|{length(\"}{\")}" }"#,
+        "7|AB|7|big|2\n"
+    );
+
+    test_program!(
+        fstring_format_spec,
+        r#"BEGIN { p = 3.14159; n = 42; s = "ab"; print f"[{p:.2f}][{n:5d}][{n:<5}][{s:>4}][{n:05}][{s:*^6}][{n:x}][{n:+d}][{0.256:.1%}][{s:-<4}][{p:8.3e}][{\"hello\":.2}]" }"#,
+        "[3.14][   42][42   ][  ab][00042][**ab**][2a][+42][25.6%][ab--][3.142e+00][he]\n"
+    );
+
+    test_program!(
+        fstring_record_exprs,
+        r#"{ print f"{NR+1}: {$1 * 2:6.1f} {$NF:>3}" }"#,
+        "2:    3.0   c\n",
+        @input "1.5 b c\n"
     );
 
     test_program!(

@@ -474,7 +474,7 @@ Ident: &'a Expr<'a,'a,&'a str> = {
 
 StrLit: &'a Expr<'a,'a,&'a str> = {
   "STRLIT" => arena.alloc(Expr::StrLit(lexer::parse_string_literal(<>, &arena, buf))),
-  "FSTRLIT" => lexer::parse_fstring_literal(<>, &arena, buf),
+  <l:@L> <s:"FSTRLIT"> =>? crate::parsing::parse_fstring_literal(s, l, arena, buf, prog),
 }
 
 Index: &'a Expr<'a,'a,&'a str> = {
