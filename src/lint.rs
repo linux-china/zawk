@@ -76,7 +76,8 @@ pub enum Parallel {
 
 /// Lints `sources` as one program (they are concatenated, as for a run) and returns the JSON
 /// report with whether the program is free of errors.
-pub fn lint(sources: &[Source], opts: &Options) -> (bool, String) {
+/// Returns the number of errors, the number of warnings and the JSON report.
+pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
     // Each source is followed by a newline, as `main` does when it concatenates them.
     let mut prog = String::new();
     let mut starts = Vec::with_capacity(sources.len());
@@ -99,7 +100,8 @@ pub fn lint(sources: &[Source], opts: &Options) -> (bool, String) {
         .iter()
         .map(|d| to_json(d, &lines, sources, &starts))
         .collect();
-    (errors == 0, report(errors, diags.len() - errors, &items))
+    let warnings = diags.len() - errors;
+    (errors, warnings, report(errors, warnings, &items))
 }
 
 /// The report for a program file that cannot be read.
@@ -968,7 +970,7 @@ mod tests {
             name: None,
             text: prog.to_string(),
         };
-        serde_json::from_str(&lint(&[src], &Options::default()).1).unwrap()
+        serde_json::from_str(&lint(&[src], &Options::default()).2).unwrap()
     }
 
     fn codes(v: &Value) -> Vec<&str> {
@@ -1084,7 +1086,7 @@ mod tests {
             name: None,
             text: prog.to_string(),
         };
-        serde_json::from_str(&lint(&[src], opts).1).unwrap()
+        serde_json::from_str(&lint(&[src], opts).2).unwrap()
     }
 
     #[test]
@@ -1158,7 +1160,7 @@ mod tests {
                 text: "BEGIN {\n  print g(1\n}".into(),
             },
         ];
-        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).1).unwrap();
+        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).2).unwrap();
         let d = &v["diagnostics"][0];
         assert_eq!(d["file"], "b.awk");
         assert_eq!(d["line"], 2);
@@ -1177,7 +1179,7 @@ mod tests {
                 text: "BEGIN {\n  print 1 +\n}".into(),
             },
         ];
-        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).1).unwrap();
+        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).2).unwrap();
         let d = &v["diagnostics"][0];
         assert_eq!(d["file"], "-e#1");
         assert_eq!(d["line"], 2);

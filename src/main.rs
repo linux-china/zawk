@@ -439,7 +439,26 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         };
         sources.push(lint::Source { name: None, text });
     }
-    let opts = lint::Options {
+    let (errors, _, report) = lint::lint(&sources, &lint_options(matches));
+    println!("{}", report);
+    std::process::exit(if errors == 0 { 0 } else { 1 })
+}
+
+/// `zawk --lint`: prints the JSON report to stderr when the program has diagnostics, and exits
+/// with 1 without running the program when it has errors.
+fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
+    let (errors, warnings, report) = lint::lint(sources, &lint_options(matches));
+    if errors + warnings > 0 {
+        eprintln!("{}", report);
+    }
+    if errors > 0 {
+        std::process::exit(1)
+    }
+}
+
+/// The lint options given by the `-A`, `-p` and `-v` arguments of `zawk lint` or of a run.
+fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
+    lint::Options {
         allow_arbitrary_commands: matches.get_flag("arbitrary-shell"),
         parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
@@ -452,10 +471,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
             .flatten()
             .map(|v| v.split_once('=').map_or(v.as_str(), |(n, _)| n).trim().to_string())
             .collect(),
-    };
-    let (valid, report) = lint::lint(&sources, &opts);
-    println!("{}", report);
-    std::process::exit(if valid { 0 } else { 1 })
+    }
 }
 
 const DEFAULT_OPT_LEVEL: i32 = 3;
@@ -598,6 +614,10 @@ fn real_main() {
             .long("posix")
             .num_args(0)
             .help("POSIX compatibility: disable zawk's command-line sugar syntax (e.g. `zawk '$1,$2'`, `zawk '/re/'`). zawk extension functions remain available"))
+        .arg(Arg::new("lint")
+            .long("lint")
+            .num_args(0)
+            .help("Lint the program before running it, as `zawk lint` does: the JSON report is printed to stderr when there are diagnostics, and the program does not run when there are errors"))
         .arg(Arg::new("opt-level")
             .long("opt-level")
             .short('O')
@@ -802,6 +822,8 @@ fn real_main() {
     sources.sort_by_key(|(i, _, _)| *i);
     // Where each source starts in the program, to report errors as `file:line:column`.
     let mut source_map = parsing::SourceMap::default();
+    // The same sources, for `--lint`.
+    let mut lint_sources: Vec<lint::Source> = Vec::new();
     let program_code = {
         if !sources.is_empty() {
             // We specified the program with options, so the "program" will be
@@ -821,8 +843,9 @@ fn real_main() {
                     inline_count += 1;
                     named.then(|| parsing::inline_source_name(inline_count))
                 };
-                source_map.push(name, prog.matches('\n').count());
+                source_map.push(name.clone(), prog.matches('\n').count());
                 if !is_file {
+                    lint_sources.push(lint::Source { name, text: prog_file.clone() });
                     prog.push_str(prog_file);
                     prog.push('\n');
                     continue;
@@ -836,6 +859,7 @@ fn real_main() {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');
+                            lint_sources.push(lint::Source { name, text: p });
                         }
                         Err(e) => fatal!("can't open source file `{}' for reading: {}", prog_file, e),
                     }
@@ -844,6 +868,7 @@ fn real_main() {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');
+                            lint_sources.push(lint::Source { name, text: p });
                         }
                         Err(e) => fatal!(
                             "can't open source file `{}' for reading: {}",
@@ -865,6 +890,12 @@ fn real_main() {
             fail!("must specify program at command line, with -e, or in a file via -f");
         }
     };
+    if matches.get_flag("lint") {
+        if lint_sources.is_empty() {
+            lint_sources.push(lint::Source { name: None, text: program_code.clone() });
+        }
+        lint_before_run(&lint_sources, &matches);
+    }
     parsing::set_program(&program_code, source_map);
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
     // as `program` and only gets added to `input_files` above.

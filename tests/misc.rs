@@ -2232,3 +2232,36 @@ fn ignorecase_parallel() {
         }
     }
 }
+
+#[test]
+fn lint_before_run() {
+    // Errors: the report goes to stderr and the program does not run.
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--lint", "BEGIN { print \"ran\"; print substring(\"abc\", 1) }"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    let report = String::from_utf8(out.stderr).unwrap();
+    assert!(report.contains("\"E301\""), "{}", report);
+
+    // Warnings only: the report goes to stderr and the program runs.
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--lint", "BEGIN { print NRR \"ran\" }"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "ran\n");
+    assert!(String::from_utf8(out.stderr).unwrap().contains("\"W201\""));
+
+    // No diagnostics: nothing is printed to stderr; `-v` variables count as set.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--lint", "-v", "x=1", "-e", "BEGIN { print x }"])
+        .assert()
+        .success()
+        .stdout("1\n")
+        .stderr("");
+}
