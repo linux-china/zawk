@@ -2377,7 +2377,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         } else {
             err!(
                 "Cannot use `{}` from outside of the toplevel loop! \
-                 Note that frawk does not support `next` or `nextfile` from inside functions.",
+                 Note that zawk does not support `next` or `nextfile` from inside functions.",
                 if is_next_file { "nextfile" } else { "next" }
             )
         }
