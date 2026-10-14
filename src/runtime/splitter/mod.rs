@@ -393,7 +393,7 @@ fn read_to_slice(r: &mut impl Read, mut buf: &mut [u8]) -> Result<usize> {
                 }
                 _ => {
                     if let Some(msg) = crate::common::InputOpenError::message(&e) {
-                        return Err(crate::common::CompileError(format!(
+                        return Err(crate::common::CompileError::new(format!(
                             "{}{}",
                             crate::common::FATAL_PREFIX,
                             msg

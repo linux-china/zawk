@@ -3,6 +3,7 @@ use crate::ast::{self, Expr, Stmt, Unop};
 use crate::builtins::{self, FromStatic, IsSprintf};
 use crate::common::{Either, FileSpec, Graph, NodeIx, NumTy, Result, Stage};
 use crate::dom;
+use crate::lexer::Loc;
 use crate::uninit;
 
 use hashbrown::{HashMap, HashSet};
@@ -271,6 +272,14 @@ impl<'a> PrimStmt<'a> {
     }
 }
 
+/// The name of a called function, as written in the program.
+fn call_name<I: fmt::Display>(f: &Either<I, builtins::Function>) -> String {
+    match f {
+        Either::Left(name) => name.to_string(),
+        Either::Right(bi) => bi.awk_name().map_or_else(|| bi.to_string(), String::from),
+    }
+}
+
 fn valid_lhs<I>(e: &ast::Expr<I>) -> bool {
     use ast::Expr::*;
     matches!(e, Index(..) | Var(..) | Unop(ast::Unop::Column, _))
@@ -352,6 +361,11 @@ impl<'a, I> ProgramContext<'a, I>
 
     /// Names of the global variables, keyed by the `low` field of their identifiers; used in error
     /// messages.
+    /// Where variables and builtin calls are used in the program text, for error messages.
+    pub(crate) fn use_locs(&self) -> &UseLocs {
+        &self.shared.uses
+    }
+
     pub(crate) fn global_names(&self) -> HashMap<NumTy, I> {
         self.shared
             .hm
@@ -460,6 +474,7 @@ impl<'a, I> ProgramContext<'a, I>
             esc,
             exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
             uninit: Default::default(),
+            uses: Default::default(),
         };
         let stage = p.desugar_stage(arena);
         shared.uninit = uninit::analyze(arena, &p.decs[..], &stage);
@@ -534,6 +549,8 @@ impl<'a, I> ProgramContext<'a, I>
                         f: &mut func,
                         func_table: &func_table,
                         parse_header: p.parse_header,
+                        locs: &p.locs,
+                        typed_vars: Default::default(),
                     }
                     .fill(s)?;
                     func_table.insert($name, offset as NumTy);
@@ -554,6 +571,8 @@ impl<'a, I> ProgramContext<'a, I>
                 f: funcs.get_mut(f as usize).unwrap(),
                 func_table: &func_table,
                 parse_header: p.parse_header,
+                locs: &p.locs,
+                typed_vars: Default::default(),
             }
                 .fill(fundec.body)?;
         }
@@ -604,6 +623,26 @@ struct View<'a, 'b, I> {
     f: &'a mut Function<'b, I>,
     func_table: &'a HashMap<FunctionName<I>, NumTy>,
     parse_header: bool,
+    // Where calls and variable references start in the program text.
+    locs: &'a ast::ExprLocs,
+    // Variable references (keyed by `ast::expr_key`) that are not used as scalars: arrays that
+    // are indexed or iterated over, and arguments of calls (which may be arrays).
+    typed_vars: HashSet<usize>,
+}
+
+/// The first location where each variable (keyed by the `low` field of its identifier) is used,
+/// and where each builtin function is called: type errors only know which variable or builtin
+/// call they are about, these give them a location.
+#[derive(Debug, Default)]
+pub(crate) struct UseLocs {
+    /// Any use of the variable.
+    pub any: HashMap<NumTy, Loc>,
+    /// A use as a scalar: read as a value, or assigned to.
+    pub scalar: HashMap<NumTy, Loc>,
+    /// A use as an array: indexed, or iterated over.
+    pub array: HashMap<NumTy, Loc>,
+    /// A call of a builtin, keyed by its name (`builtins::Function::awk_name`).
+    pub builtin_calls: HashMap<&'static str, Loc>,
 }
 
 #[derive(Debug)]
@@ -629,6 +668,7 @@ struct GlobalContext<I> {
     exit_to_end: bool,
     // Numeric variables and arrays whose uninitialized value may be read as a string.
     uninit: uninit::Uninit<I>,
+    uses: UseLocs,
 }
 
 impl<I> GlobalContext<I> {
@@ -1007,6 +1047,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             ForEach(v, array, body) => {
                 let v_id = self.get_identifier(v);
+                self.record_array_use(array);
                 let (next, array_val) = self.convert_val(array, current_open)?;
                 current_open = next;
                 let array_iter =
@@ -1092,7 +1133,93 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
         self.convert_expr_inner(expr, current_open, /*in_cond=*/ false)
     }
+    /// Converts `expr`; errors raised while converting it are located at `expr` when it has a
+    /// location in the program text (and no subexpression with one raised them).
     fn convert_expr_inner<'c>(
+        &mut self,
+        expr: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+        in_cond: bool,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
+        self.record_uses(expr);
+        let res = self.convert_expr_unlocated(expr, current_open, in_cond);
+        match self.locs.get(&ast::expr_key(expr)) {
+            Some(loc) => res.map_err(|e| e.with_loc(*loc)),
+            None => res,
+        }
+    }
+
+    fn loc_of<'c>(&self, e: &'c Expr<'c, 'b, I>) -> Option<Loc> {
+        self.locs.get(&ast::expr_key(e)).copied()
+    }
+
+    /// Records where the variables that `expr` uses directly are used as scalars or arrays, and
+    /// where builtins are called (see `UseLocs`).
+    fn record_uses<'c>(&mut self, expr: &'c Expr<'c, 'b, I>) {
+        use Expr::*;
+        match expr {
+            Index(arr, _)
+            | Assign(Index(arr, _), _)
+            | AssignOp(Index(arr, _), _, _)
+            | Inc { x: Index(arr, _), .. } => self.record_array_use(arr),
+            Assign(x @ Var(_), _) | AssignOp(x @ Var(_), _, _) | Inc { x: x @ Var(_), .. } => {
+                self.record_var_use(x, /*scalar=*/ true)
+            }
+            Var(_) => {
+                let scalar = !self.typed_vars.contains(&ast::expr_key(expr));
+                self.record_var_use(expr, scalar)
+            }
+            Call(f, args) => {
+                if let Some(loc) = self.loc_of(expr) {
+                    let bi = match f {
+                        Either::Left(name) => builtins::Function::try_from(name.clone()).ok(),
+                        Either::Right(bi) => Some(*bi),
+                    };
+                    if let Some(name) = bi.and_then(|bi| bi.awk_name()) {
+                        self.ctx.uses.builtin_calls.entry(name).or_insert(loc);
+                    }
+                }
+                for a in args.iter() {
+                    if let Var(_) = a {
+                        self.typed_vars.insert(ast::expr_key(*a));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Records a use of `arr` as an array, if it is a variable.
+    fn record_array_use<'c>(&mut self, arr: &'c Expr<'c, 'b, I>) {
+        if let Expr::Var(_) = arr {
+            self.typed_vars.insert(ast::expr_key(arr));
+            if let (Some(loc), Some(id)) = (self.loc_of(arr), self.var_ident(arr)) {
+                self.ctx.uses.array.entry(id.low).or_insert(loc);
+            }
+        }
+    }
+
+    /// Records a use of the variable `x`, as a scalar if `scalar`.
+    fn record_var_use<'c>(&mut self, x: &'c Expr<'c, 'b, I>, scalar: bool) {
+        if let (Some(loc), Some(id)) = (self.loc_of(x), self.var_ident(x)) {
+            self.ctx.uses.any.entry(id.low).or_insert(loc);
+            if scalar {
+                self.ctx.uses.scalar.entry(id.low).or_insert(loc);
+            }
+        }
+    }
+
+    /// The identifier of the variable `x`, unless it is a builtin variable.
+    fn var_ident<'c>(&mut self, x: &'c Expr<'c, 'b, I>) -> Option<Ident> {
+        match x {
+            Expr::Var(name) if builtins::Variable::try_from(name.clone()).is_err() => {
+                Some(self.get_identifier(name))
+            }
+            _ => None,
+        }
+    }
+
+    fn convert_expr_unlocated<'c>(
         &mut self,
         expr: &'c Expr<'c, 'b, I>,
         mut current_open: NodeIx,
@@ -2689,9 +2816,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                             prim_args.push(v);
                             e
                         }
-                        n => {
-                            return err!("{} takes either 2 or 3 arguments, we got {}", bi, n);
-                        }
+                        n => return Err(builtins::arity_error(&call_name(fname), n, 3)),
                     };
                     // Easy case! How delighful
                     if let Expr::Var(_) = assignee {
@@ -2743,6 +2868,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     let (next, v) = self.convert_val(e, open)?;
                     open = next;
                     prim_args.push(v);
+                }
+                // Defaults are filled in above: a call with the wrong number of arguments still
+                // has it here. Checking it here (rather than when typing the call) locates the
+                // error at the call.
+                if let Some(arity) = bi.arity() {
+                    if prim_args.len() != arity {
+                        return Err(builtins::arity_error(&call_name(fname), args.len(), arity));
+                    }
                 }
                 return Ok((open, PrimExpr::CallBuiltin(bi, prim_args)));
             }

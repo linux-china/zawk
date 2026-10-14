@@ -485,6 +485,18 @@ impl FunctionDoc {
     }
 }
 
+/// The minimum and maximum number of arguments of the builtin `name`, from its documented
+/// signature; `None` for an undocumented or variadic function.
+pub(crate) fn arg_range(name: &str) -> Option<(usize, usize)> {
+    let doc = FUNCTION_DOCS.iter().find(|f| f.name == name)?;
+    let params = doc.params();
+    if params.iter().any(|p| p.ty.ends_with("...")) {
+        return None;
+    }
+    let required = params.iter().filter(|p| !p.optional).count();
+    Some((required, params.len()))
+}
+
 /// The docs whose name contains `filter`, or whose category is `filter` (case-insensitive).
 pub(crate) fn find(filter: Option<&str>) -> Vec<&'static FunctionDoc> {
     FUNCTION_DOCS

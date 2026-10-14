@@ -2,7 +2,7 @@
 use crate::ast;
 #[allow(unused_imports)]
 use crate::common::Either;
-use crate::common::{NodeIx, Result};
+use crate::common::{CompileError, NodeIx, Result};
 use crate::compile;
 use crate::runtime::{Int, IntMap, Str, StrMap};
 use crate::types::{self, SmallVec};
@@ -591,6 +591,19 @@ impl Function {
     }
 }
 
+/// The error for a call of the builtin `name` with `got` arguments. The accepted counts come from
+/// its documented signature (optional parameters are filled in with defaults), or are `arity`.
+pub(crate) fn arity_error(name: &str, got: usize, arity: usize) -> CompileError {
+    let (min, max) = crate::function_docs::arg_range(name).unwrap_or((arity, arity));
+    let expected = match max - min {
+        0 => min.to_string(),
+        1 => format!("{} or {}", min, max),
+        _ => format!("{} to {}", min, max),
+    };
+    let noun = if max == 1 { "argument" } else { "arguments" };
+    err_raw!("function `{}` expects {} {}, got {}", name, expected, noun, got)
+}
+
 /// The builtin functions of POSIX awk and gawk that zawk implements. A user-defined function may
 /// not have one of these names, as in gawk. The other builtins are zawk's stdlib extensions
 /// (`trim`, `max`, `abs`, ...): a user-defined function with the same name takes precedence, so
@@ -725,12 +738,8 @@ impl Function {
         };
         if let Some(a) = self.arity() {
             if incoming.len() != a {
-                return err!(
-                    "function {} expected {} inputs but got {}",
-                    self,
-                    a,
-                    incoming.len()
-                );
+                let name = self.awk_name().map_or_else(|| self.to_string(), String::from);
+                return Err(arity_error(&name, incoming.len(), a));
             }
         }
         fn arith_sig(x: compile::Ty, y: compile::Ty) -> (SmallVec<compile::Ty>, compile::Ty) {

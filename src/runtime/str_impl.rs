@@ -325,11 +325,10 @@ impl<'a> UniqueStr<'a> {
         self.0.is_empty()
     }
 
-    // TODO: is this safe for INLINE values?
-    // Seems like we aren't guaranteed that inlines are valid for all of <'a>
-    // We probably just want to use Strs
-    pub fn literal_bytes(&self) -> &'a [u8] {
-        self.0.drop_is_trivial();
+    /// The bytes of this string. The returned slice borrows `self`: Inline strings store their
+    /// bytes inside the `Str` itself, so the slice must not outlive (or survive a move of) `self`.
+    /// Callers that need the bytes for longer should copy them.
+    pub fn bytes(&self) -> &[u8] {
         unsafe { &*self.0.get_bytes() }
     }
     pub fn clone_str(&self) -> Str<'a> {

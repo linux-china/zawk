@@ -22,6 +22,7 @@
 use crate::arena::{self, Arena};
 use crate::builtins::Function;
 use crate::common::{Either, FileSpec, Stage};
+use crate::lexer::Loc;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Unop {
@@ -82,6 +83,18 @@ pub struct Prog<'a, 'b, I> {
     // Each input file starts with its own header line (-H, but not for JSON Lines or Parquet,
     // whose FI comes from the record keys).
     pub header_per_file: bool,
+    // Where calls and variable references start in the program text, for error messages: see
+    // `expr_key`.
+    pub locs: ExprLocs,
+}
+
+/// Locations of expressions in the program text, keyed by `expr_key`.
+pub type ExprLocs = hashbrown::HashMap<usize, Loc>;
+
+/// The key of an expression in `ExprLocs`: its address. AST nodes are allocated in an arena, so
+/// the address of a node is stable and unique while the program is compiled.
+pub fn expr_key<T>(e: &T) -> usize {
+    e as *const T as usize
 }
 
 // Pick an illegal frawk identifier.
@@ -197,6 +210,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             parse_header: false,
             header_per_file: false,
             stage,
+            locs: Default::default(),
         }
     }
     pub(crate) fn desugar_stage(&self, arena: &'a Arena) -> Stage<&'a Stmt<'a, 'b, I>> {

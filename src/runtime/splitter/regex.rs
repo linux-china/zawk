@@ -99,7 +99,7 @@ impl<R: Read> RegexSplitter<R> {
         match self.error.take() {
             // The error already names the file.
             Some(e) if e.is_fatal() => Err(e),
-            Some(e) => Err(CompileError(format!("cannot read `{}': {}", self.name, e))),
+            Some(e) => Err(CompileError::new(format!("cannot read `{}': {}", self.name, e))),
             None => Ok(()),
         }
     }

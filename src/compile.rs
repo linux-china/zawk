@@ -18,6 +18,7 @@ use smallvec::smallvec;
 
 use std::collections::VecDeque;
 use std::mem;
+use std::rc::Rc;
 use std::sync::Arc;
 use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
@@ -142,7 +143,7 @@ fn visit_taint_analysis(stmt: &Instr, func_id: NumTy, tsa: &mut TaintedStringAna
 fn visit_string_constant_analysis<'a>(
     stmt: &Instr<'a>,
     func_id: NumTy,
-    sca: &mut StringConstantAnalysis<'a>,
+    sca: &mut StringConstantAnalysis,
 ) {
     match stmt {
         Either::Left(ll) => sca.visit_ll(ll),
@@ -180,6 +181,9 @@ pub(crate) fn run_cranelift<'a>(
     let mut typer = Typer::init_from_ctx(ctx)?;
     let used_fields = typer.used_fields.clone();
     let named_cols = typer.named_columns.take();
+    let named_cols = named_cols
+        .as_ref()
+        .map(|cols| cols.iter().map(|c| &c[..]).collect());
     let uses_procinfo = typer.uses_procinfo;
     unsafe {
         let generator = Generator::init(&mut typer, cfg)?;
@@ -299,7 +303,7 @@ pub(crate) struct Typer<'a> {
     // For projection pushdown
     used_fields: FieldSet,
     // The fields referenced by name via the FI builtin variable
-    named_columns: Option<Vec<&'a [u8]>>,
+    named_columns: Option<Vec<Rc<[u8]>>>,
     // Whether the program loads PROCINFO; if not, `PROCINFO["sorted_in"]` cannot be set and
     // `for (k in a)` skips looking it up.
     uses_procinfo: bool,
@@ -307,7 +311,7 @@ pub(crate) struct Typer<'a> {
     taint_analysis: Option<TaintedStringAnalysis>,
     // For analysis passes that introspect into the set of constant string values that will
     // dynamically be assigned to a register
-    string_constants: Option<StringConstantAnalysis<'a>>,
+    string_constants: Option<StringConstantAnalysis>,
     // Not used for bytecode generation.
     callgraph: Graph<HashSet<(NumTy, Ty)>, ()>,
 
@@ -484,6 +488,9 @@ impl<'a> Typer<'a> {
     ) -> Result<bytecode::Interp<'a, LR>> {
         let instrs = self.to_bytecode()?;
         let cols = self.named_columns.take();
+        let cols = cols
+            .as_ref()
+            .map(|cols| cols.iter().map(|c| &c[..]).collect());
         let mut interp = bytecode::Interp::new(
             instrs,
             self.stage(),
@@ -849,11 +856,11 @@ impl<'a> Typer<'a> {
                     if strs.len() != 1 {
                         continue;
                     }
-                    let text = std::str::from_utf8(strs[0]).map_err(|e| {
-                        CompileError(format!("regex patterns must be valid UTF-8: {}", e))
+                    let text = std::str::from_utf8(&strs[0]).map_err(|e| {
+                        CompileError::new(format!("regex patterns must be valid UTF-8: {}", e))
                     })?;
                     let re = Arc::new(runtime::awk_regex::compile(text).map_err(|err| {
-                        CompileError(runtime::awk_regex::compile_error(text, &err))
+                        CompileError::new(runtime::awk_regex::compile_error(text, &err))
                     })?);
                     // extract_anchored_literal parses the pattern in the syntax of `regex`.
                     let text = runtime::awk_regex::translate(text);

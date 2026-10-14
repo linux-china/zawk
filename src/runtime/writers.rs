@@ -577,7 +577,7 @@ impl Registry {
         }
         let path = name.as_str();
         if let Err(e) = global.check_open(&path) {
-            return Err(CompileError(format!("cannot redirect to `{}': {}", path, e)));
+            return Err(CompileError::new(format!("cannot redirect to `{}': {}", path, e)));
         }
         fh.checked = true;
         Ok(())
@@ -953,10 +953,10 @@ impl FileHandle {
         if let Ok(lock) = self.raw.error.lock() {
             match &*lock {
                 Some(err) => err.clone(),
-                None => CompileError(BAD_SHUTDOWN_MSG.into()),
+                None => CompileError::new(BAD_SHUTDOWN_MSG.into()),
             }
         } else {
-            CompileError(BAD_SHUTDOWN_MSG.into())
+            CompileError::new(BAD_SHUTDOWN_MSG.into())
         }
     }
 
@@ -985,10 +985,10 @@ impl FileHandle {
             for s in ss.iter() {
                 let bs = unsafe { &*s.get_bytes() };
                 if let Err(e) = err.write_all(bs) {
-                    return Err(CompileError(format!("{}", e)));
+                    return Err(CompileError::new(format!("{}", e)));
                 }
             }
-            return err.flush().map_err(|e| CompileError(format!("{}", e)));
+            return err.flush().map_err(|e| CompileError::new(format!("{}", e)));
         }
         self.dirty = true;
         let cur_len = self.cur_batch.data.len();
@@ -1367,7 +1367,7 @@ fn receive_thread<W: io::Write>(
         // We got an error! install it in the `error` mutex.
         {
             let mut err = error.lock().unwrap();
-            *err = Some(CompileError(format!("{}", e)));
+            *err = Some(CompileError::new(format!("{}", e)));
         }
         // Now signal an error on any pending requests.
         batch.clear_error();

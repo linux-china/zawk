@@ -276,7 +276,7 @@ impl Generator {
             .shared
             .module
             .finalize_definitions()
-            .map_err(|err| CompileError(format!("{}", err)))?;
+            .map_err(|err| CompileError::new(format!("{}", err)))?;
         Ok(global)
     }
 
@@ -293,7 +293,7 @@ impl Generator {
             .shared
             .module
             .declare_function(name, Linkage::Export, &sig)
-            .map_err(|e| CompileError(format!("failed to declare main function: {}", e)))?;
+            .map_err(|e| CompileError::new(format!("failed to declare main function: {}", e)))?;
         let prelude = Prelude {
             sig,
             refs: smallvec![PLACEHOLDER],
@@ -359,7 +359,7 @@ impl Generator {
         self.shared
             .module
             .define_function(id, &mut self.cctx)
-            .map_err(|e| CompileError(e.to_string()))?;
+            .map_err(|e| CompileError::new(e.to_string()))?;
         self.shared.module.clear_context(&mut self.cctx);
         Ok(())
     }
@@ -475,7 +475,7 @@ impl Generator {
                 .shared
                 .module
                 .declare_function(name.as_str(), Linkage::Local, &sig)
-                .map_err(|e| CompileError(format!("cranelift module error: {}", e)))?;
+                .map_err(|e| CompileError::new(format!("cranelift module error: {}", e)))?;
 
             self.funcs.push(Some(Prelude {
                 sig,
@@ -1394,7 +1394,7 @@ impl<'a> Backend for View<'a> {
             .shared
             .module
             .declare_function(name, Linkage::Import, cl_sig)
-            .map_err(|e| CompileError(format!("error declaring {} in module: {}", name, e,)))?;
+            .map_err(|e| CompileError::new(format!("error declaring {} in module: {}", name, e,)))?;
         self.shared.external_funcs.insert(addr, id);
         Ok(())
     }

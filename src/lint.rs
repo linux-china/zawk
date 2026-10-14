@@ -175,7 +175,7 @@ fn check_program(prog: &str, allow_arbitrary_commands: bool) -> Option<Diagnosti
     std::panic::set_hook(hook);
     match res {
         Ok(Ok(())) => None,
-        Ok(Err(e)) => Some(compile_diagnostic(text, &e.0)),
+        Ok(Err(e)) => Some(compile_diagnostic(text, &e.0, e.1)),
         Err(panic) => {
             let msg = panic
                 .downcast_ref::<String>()
@@ -202,12 +202,7 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
         ParseError::User { error } => ("E102", error.location),
     };
     // Reuse the message of a run, without its location and source excerpt.
-    let msg = parsing::syntax_error(prog, err);
-    let msg = msg.lines().next().unwrap_or("");
-    let message = match msg.split_once(&format!("{}: ", loc)) {
-        Some((_, desc)) => desc.to_string(),
-        None => msg.trim_start_matches("zawk: ").to_string(),
-    };
+    let (_, message) = parsing::describe_parse_error(prog, err);
     Diagnostic {
         code,
         severity: Severity::Error,
@@ -224,8 +219,13 @@ const GAWK_FUNCTIONS: &[&str] = &[
     "mktime", "strftime", "gensub", "typeof", "fflush", "close",
 ];
 
-fn compile_diagnostic(prog: &str, msg: &str) -> Diagnostic {
+fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
     let msg = msg.trim_start_matches("zawk: ").trim_start_matches("fatal: ");
+    // Debug builds prefix messages with where zawk raised them: `[src/cfg.rs:1:2] `.
+    let msg = match msg.strip_prefix("[src/").and_then(|m| m.split_once("] ")) {
+        Some((_, m)) => m,
+        None => msg,
+    };
     let name = quoted_name(msg);
     let (code, call) = if msg.starts_with("Call to unknown function") {
         match name {
@@ -234,7 +234,7 @@ fn compile_diagnostic(prog: &str, msg: &str) -> Diagnostic {
         }
     } else if msg.contains("arrays of arrays") {
         ("E202", false)
-    } else if msg.contains(" inputs but got ") {
+    } else if msg.contains(" arguments, got ") || msg.contains(" argument, got ") {
         ("E302", true)
     } else if msg.contains("as an array") || msg.contains("scalar context") {
         ("E303", false)
@@ -248,13 +248,8 @@ fn compile_diagnostic(prog: &str, msg: &str) -> Diagnostic {
     } else {
         msg.to_string()
     };
-    // Compile errors carry no location: point at the first use of the name they mention.
-    let name = if code == "E302" {
-        msg.strip_prefix("function ").and_then(|s| s.split(' ').next())
-    } else {
-        name
-    };
-    let loc = name.and_then(|n| find_name(prog, n, call));
+    // Without a location, point at the first use of the name the error mentions.
+    let loc = loc.or_else(|| name.and_then(|n| find_name(prog, n, call)));
     let loc = loc.or_else(|| {
         if code == "E202" {
             find_array_of_arrays(prog)
@@ -445,6 +440,13 @@ mod tests {
         assert_eq!(codes(&run("BEGIN { a[1][2] = 3 }")), ["E202"]);
         assert_eq!(codes(&run("BEGIN { print length(1, 2) }")), ["E302"]);
         assert_eq!(codes(&run("BEGIN { x = 1; x[1] = 2 }")), ["E303"]);
+        // Compile errors are located where they occur, not at the first use of the name.
+        let v = run("BEGIN {\n  a[1] = 1\n  print a\n}");
+        assert_eq!(codes(&v), ["E303"]);
+        assert_eq!(v["diagnostics"][0]["line"], 3);
+        assert_eq!(v["diagnostics"][0]["column"], 9);
+        let v = run("BEGIN { substr(1) }");
+        assert_eq!(v["diagnostics"][0]["message"], "function `substr` expects 2 or 3 arguments, got 1");
     }
 
     #[test]

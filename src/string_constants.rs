@@ -9,6 +9,7 @@ use crate::common::NumTy;
 use crate::compile::HighLevel;
 use crate::dataflow::{self, JoinSemiLattice, Key};
 use hashbrown::{HashMap, HashSet};
+use std::rc::Rc;
 
 // TODO: replace with a bitset? The keys will be very dense, though we won't know them ahead of
 // time.
@@ -54,9 +55,12 @@ impl JoinSemiLattice for ApproximateSet {
     }
 }
 
-pub(crate) struct StringConstantAnalysis<'a> {
-    intern_l: HashMap<&'a [u8], usize>,
-    intern_r: HashMap<usize, &'a [u8]>,
+/// String constants are copied into the interner rather than borrowed from the `StoreConstStr`
+/// instructions: an inline `Str` keeps its bytes inside the instruction itself, so a borrowed slice
+/// would dangle as soon as the instruction moved.
+pub(crate) struct StringConstantAnalysis {
+    intern_l: HashMap<Rc<[u8]>, usize>,
+    intern_r: HashMap<usize, Rc<[u8]>>,
     dfa: dataflow::Analysis<ApproximateSet>,
     cfg: Config,
 }
@@ -68,7 +72,7 @@ pub(crate) struct Config {
     pub fi_refs: bool,
 }
 
-impl<'a> StringConstantAnalysis<'a> {
+impl StringConstantAnalysis {
     pub(crate) fn cfg(&self) -> &Config {
         &self.cfg
     }
@@ -86,7 +90,7 @@ impl<'a> StringConstantAnalysis<'a> {
         }
         res
     }
-    pub(crate) fn visit_ll(&mut self, inst: &Instr<'a>) {
+    pub(crate) fn visit_ll(&mut self, inst: &Instr) {
         use Instr::*;
         if self.cfg.query_regex {
             // TODO: Do the same for Sub, GSub, Split*
@@ -96,7 +100,7 @@ impl<'a> StringConstantAnalysis<'a> {
         }
         match inst {
             StoreConstStr(dst, s) => {
-                let id = self.get_id(s.literal_bytes());
+                let id = self.get_id(s.bytes());
                 self.dfa.add_src(dst, ApproximateSet::singleton(id));
             }
             // Note that variables can be set "out of band", so by default we aren't treating them
@@ -126,33 +130,37 @@ impl<'a> StringConstantAnalysis<'a> {
             self.dfa.add_dep(dst, src.unwrap(), ())
         })
     }
-    fn get_id(&mut self, s: &'a [u8]) -> usize {
+    fn get_id(&mut self, s: &[u8]) -> usize {
+        if let Some(id) = self.intern_l.get(s) {
+            return *id;
+        }
         // 0 is a sentinel value
         let next_id = self.intern_l.len() + 1;
-        let l = &mut self.intern_l;
-        let r = &mut self.intern_r;
-        *l.entry(s).or_insert_with(|| {
-            r.insert(next_id, s);
-            next_id
-        })
+        let s: Rc<[u8]> = s.into();
+        self.intern_r.insert(next_id, s.clone());
+        self.intern_l.insert(s, next_id);
+        next_id
     }
 
-    fn possible_strings_inner(&mut self, k: impl Into<Key>, res: &mut Vec<&'a [u8]>) -> bool /* known */
+    fn possible_strings_inner(&mut self, k: impl Into<Key>, res: &mut Vec<Rc<[u8]>>) -> bool /* known */
     {
         let intern_r = &self.intern_r;
         let q = self.dfa.query(k);
         if q.0.is_none() {
             return false;
         }
-        res.extend(q.iter().map(|x| intern_r.get(x).cloned().unwrap_or(&[])));
+        res.extend(
+            q.iter()
+                .map(|x| intern_r.get(x).cloned().unwrap_or_else(|| Rc::from(&[][..]))),
+        );
         true
     }
 
-    pub fn possible_strings(&mut self, k: impl Into<Key>, res: &mut Vec<&'a [u8]>) {
+    pub fn possible_strings(&mut self, k: impl Into<Key>, res: &mut Vec<Rc<[u8]>>) {
         self.possible_strings_inner(k, res);
     }
 
-    pub fn fi_info(&mut self, cols: &mut Vec<&'a [u8]>) -> bool /* known */ {
+    pub fn fi_info(&mut self, cols: &mut Vec<Rc<[u8]>>) -> bool /* known */ {
         match &self.dfa.query(Key::VarVal(Variable::FI)).0 {
             Some(ids) => {
                 if ids.is_empty() || (ids.len() == 1 && ids.contains(&0 /*sentinel*/)) {

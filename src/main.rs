@@ -287,7 +287,7 @@ fn get_context<'a>(
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
-        Err(e) => fatal!("{}", e),
+        Err(e) => fatal!("{}", parsing::render_error(&e)),
     }
 }
 
@@ -300,14 +300,14 @@ fn run_interp_with_context<'a>(
     let rc = {
         let mut interp = match compile::bytecode(&mut ctx, stdin, ff, num_workers) {
             Ok(ctx) => ctx,
-            Err(e) => fatal!("{}", e),
+            Err(e) => fatal!("{}", parsing::render_error(&e)),
         };
         let res = interp.run();
         // Dropping the interpreter flushes pending output, which `fail!` (exiting the process)
         // would otherwise lose.
         drop(interp);
         match res {
-            Err(e) => fatal!("{}", e),
+            Err(e) => fatal!("{}", parsing::render_error(&e)),
             Ok(0) => return,
             Ok(n) => n,
         }
@@ -323,7 +323,7 @@ fn run_cranelift_with_context<'a>(
     signal: CancelSignal,
 ) {
     if let Err(e) = compile::run_cranelift(&mut ctx, stdin, ff, cfg, signal) {
-        fatal!("{}", e)
+        fatal!("{}", parsing::render_error(&e))
     }
 }
 
@@ -457,7 +457,7 @@ fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
         /*num_workers=*/ 1,
     ) {
         Ok(ctx) => ctx,
-        Err(e) => fatal!("{}", e),
+        Err(e) => fatal!("{}", parsing::render_error(&e)),
     };
     let mut v = Vec::<u8>::new();
     for (i, func) in interp.instrs().iter().enumerate() {
@@ -769,6 +769,8 @@ fn real_main() {
         }
     }
     sources.sort_by_key(|(i, _, _)| *i);
+    // Where each source starts in the program, to report errors as `file:line:column`.
+    let mut source_map = parsing::SourceMap::default();
     let program_code = {
         if !sources.is_empty() {
             // We specified the program with options, so the "program" will be
@@ -778,6 +780,8 @@ fn real_main() {
             }
             let mut prog = String::new();
             for (_, is_file, prog_file) in sources {
+                let name = if is_file { Some(prog_file.clone()) } else { None };
+                source_map.push(name, prog.matches('\n').count());
                 if !is_file {
                     prog.push_str(prog_file);
                     prog.push('\n');
@@ -821,6 +825,7 @@ fn real_main() {
             fail!("must specify program at command line, with -e, or in a file via -f");
         }
     };
+    parsing::set_program(&program_code, source_map);
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
     // as `program` and only gets added to `input_files` above.
     let argv: Vec<String> = std::iter::once(program_name)

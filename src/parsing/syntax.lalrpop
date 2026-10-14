@@ -3,7 +3,7 @@
 /// maintainable than if I had written the parser by hand.
 use crate::{
   arena::Arena,
-  ast::{Pattern, Expr, Stmt, Binop, Unop, Prog, FunDec},
+  ast::{expr_key, Pattern, Expr, Stmt, Binop, Unop, Prog, FunDec},
   builtins::Function,
   common::{FileSpec, Either},
   runtime::{strtod,exact_int_literal,parse_int_literal,parse_hex_literal},
@@ -455,10 +455,14 @@ Col: &'a Expr<'a,'a,&'a str> = {
 
 Ident: &'a Expr<'a,'a,&'a str> = {
   // `length` without parentheses is `length($0)`; it is a builtin, not a variable.
-  <i:"IDENT"> => if i == "length" {
-      arena.alloc(Expr::Call(Either::Right(Function::Length), &[]))
-  } else {
-      arena.alloc(Expr::Var(arena.alloc_str(i)))
+  <l:@L> <i:"IDENT"> => {
+      let e: &'a Expr<'a,'a,&'a str> = if i == "length" {
+          arena.alloc(Expr::Call(Either::Right(Function::Length), &[]))
+      } else {
+          arena.alloc(Expr::Var(arena.alloc_str(i)))
+      };
+      prog.locs.insert(expr_key(e), l);
+      e
   },
 }
 
@@ -468,7 +472,11 @@ StrLit: &'a Expr<'a,'a,&'a str> = {
 }
 
 Index: &'a Expr<'a,'a,&'a str> = {
-    <i:IndexBase> => arena.alloc(Expr::Index(i.0, i.1)),
+    <l:@L> <i:IndexBase> => {
+        let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::Index(i.0, i.1));
+        prog.locs.insert(expr_key(e), l);
+        e
+    },
 }
 
 IndexBase: (&'a Expr<'a,'a,&'a str>, &'a Expr<'a,'a,&'a str>) = {
@@ -491,8 +499,12 @@ LeafTerm: &'a Expr<'a,'a, &'a str> = {
   "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
   // TODO: not Rparen for these next two?
-  <i:CallStart> <args:Args?> ")" =>
-        arena.alloc(Expr::Call(Either::Left(i), arena.alloc_slice(args.unwrap_or_else(Vec::new).as_slice()))),
+  <l:@L> <i:CallStart> <args:Args?> ")" => {
+        let e: &'a Expr<'a,'a,&'a str> =
+            arena.alloc(Expr::Call(Either::Left(i), arena.alloc_slice(args.unwrap_or_else(Vec::new).as_slice())));
+        prog.locs.insert(expr_key(e), l);
+        e
+  },
 }
 
 And: () = { "&&" "\n"* }

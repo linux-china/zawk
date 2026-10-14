@@ -655,6 +655,7 @@ pub(crate) struct TypeContext<'a, 'b> {
     udf_nodes: Vec<NodeIx>,
     // Names of global variables, for error messages.
     global_names: HashMap<NumTy, &'b str>,
+    use_locs: &'a crate::cfg::UseLocs,
 }
 
 struct View<'a, 'b, 'c> {
@@ -706,6 +707,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             local_globals: pc.local_globals_ref(),
             udf_nodes: Default::default(),
             global_names: pc.global_names(),
+            use_locs: pc.use_locs(),
         };
         tc.udf_nodes = (0..pc.funcs.len())
             .map(|_| tc.nw.add_rule(Rule::AlwaysNotify))
@@ -969,7 +971,42 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             (false, Some(d)) => format!("attempt to use array {} in a scalar context", d),
             (false, None) => "attempt to use an array in a scalar context".to_string(),
         };
-        common::CompileError(msg)
+        let err = common::CompileError::new(msg);
+        match self.kind_error_loc(ix, scalar_as_array) {
+            Some(loc) => err.with_loc(loc),
+            None => err,
+        }
+    }
+
+    /// Where the value at `ix` is used the wrong way: for a variable, its first use as an array
+    /// if `scalar_as_array`, otherwise its first use as a scalar (or else its first use); for the
+    /// result of a builtin, the first call of the builtin.
+    fn kind_error_loc(&self, ix: NodeIx, scalar_as_array: bool) -> Option<crate::lexer::Loc> {
+        use petgraph::Direction::Incoming;
+        let uses = self.use_locs;
+        let var_loc = |ix: NodeIx| {
+            let (key, _) = self.env.iter().find(|(_, v)| **v == ix)?;
+            let low = key.id.low;
+            let kind = if scalar_as_array { &uses.array } else { &uses.scalar };
+            kind.get(&low).or_else(|| uses.any.get(&low)).copied()
+        };
+        if let Some(loc) = var_loc(ix) {
+            return Some(loc);
+        }
+        // As in `describe`: the value may flow in from a variable or a builtin call.
+        for n in self.nw.graph.neighbors_directed(ix, Incoming) {
+            if let Some(loc) = var_loc(n) {
+                return Some(loc);
+            }
+            for e in self.nw.graph.edges_directed(n, Incoming) {
+                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint {
+                    if let Some(loc) = f.awk_name().and_then(|name| uses.builtin_calls.get(name)) {
+                        return Some(*loc);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Describe the value at `ix` for an error message: the variable it belongs to, or the

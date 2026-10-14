@@ -1574,7 +1574,10 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { undefined_fn() }"#,
             2,
-            &[r#"zawk: fatal: Call to unknown function "undefined_fn""#],
+            &[
+                r#"zawk: fatal: line 1, column 9: Call to unknown function "undefined_fn""#,
+                "    BEGIN { undefined_fn() }\n            ^\n",
+            ],
         ),
         (
             r#"BEGIN { x = -1; print $x }"#,
@@ -1670,6 +1673,102 @@ fn error_messages_are_gawk_style() {
             for part in *parts {
                 assert!(stderr.contains(part), "{} {}: {}", backend_arg, prog, stderr);
             }
+        }
+    }
+}
+
+#[test]
+fn static_errors_have_locations() {
+    // Errors found after parsing (unknown functions, argument counts, arrays used as scalars) are
+    // reported like syntax errors: `file:line:column` for `-f` files, then the line and a caret.
+    let tmpdir = tempdir().unwrap();
+    let write = |name: &str, text: &str| {
+        let path = tmpdir.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        path.into_os_string().into_string().unwrap()
+    };
+    let ok = write("ok.awk", "BEGIN { x = 1 }\n");
+    let split = write("split.awk", "BEGIN {\n  n = split(s, arr, \" \", x, y)\n}\n");
+    let substr = write("substr.awk", "BEGIN {\n\tx = substr(\"abc\")\n}\n");
+    let array = write("array.awk", "BEGIN {\n  a[1] = 1\n  print a\n}\n");
+    let scalar = write("scalar.awk", "BEGIN {\n  x = 1\n  x[1] = 2\n}\n");
+    let param = write("param.awk", "function f(a) {\n  return a + 1\n}\nBEGIN { z[1]; f(z) }\n");
+    let unknown = write("unknown.awk", "BEGIN {\n  print 1\n  undefined_fn(1)\n}\n");
+    let syntax = write("syntax.awk", "BEGIN {\n  print 1 +\n}\n");
+    let cases: Vec<(Vec<&str>, i32, String)> = vec![
+        (
+            vec!["-f", &split],
+            2,
+            format!(
+                "zawk: fatal: {}:2:7: function `split` expects 2 or 3 arguments, got 5\n      n = split(s, arr, \" \", x, y)\n          ^\n",
+                split
+            ),
+        ),
+        (
+            vec!["-f", &substr],
+            2,
+            format!(
+                "zawk: fatal: {}:2:6: function `substr` expects 2 or 3 arguments, got 1\n    \tx = substr(\"abc\")\n    \t    ^\n",
+                substr
+            ),
+        ),
+        (
+            vec!["-f", &array],
+            2,
+            format!("zawk: fatal: {}:3:9: attempt to use array `a` in a scalar context\n      print a\n            ^\n", array),
+        ),
+        (
+            vec!["-f", &scalar],
+            2,
+            format!("zawk: fatal: {}:3:3: attempt to use scalar `x` as an array\n", scalar),
+        ),
+        (
+            vec!["-f", &param],
+            2,
+            format!(
+                "zawk: fatal: {}:2:10: attempt to use array `a` (parameter of function `f`) in a scalar context\n",
+                param
+            ),
+        ),
+        // Lines count from the start of the file the error is in.
+        (
+            vec!["-f", &ok, "-f", &unknown],
+            2,
+            format!("zawk: fatal: {}:3:3: Call to unknown function \"undefined_fn\"\n", unknown),
+        ),
+        (
+            vec!["-f", &ok, "-f", &syntax],
+            1,
+            format!("zawk: syntax error at {}:2:12: unexpected newline\n", syntax),
+        ),
+        (
+            vec!["BEGIN { print length(1, 2) }"],
+            2,
+            "zawk: fatal: line 1, column 15: function `length` expects 0 or 1 argument, got 2\n".into(),
+        ),
+        (
+            vec!["BEGIN { sub(/a/) }"],
+            2,
+            "zawk: fatal: line 1, column 9: function `sub` expects 2 or 3 arguments, got 1\n".into(),
+        ),
+        (
+            vec!["BEGIN { print seq(3) + 1 }"],
+            2,
+            "zawk: fatal: line 1, column 15: attempt to use array returned by `seq()` in a scalar context\n".into(),
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, code, expected) in &cases {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .env_remove("ZAWK_DEBUG")
+                .arg(String::from(*backend_arg))
+                .args(args)
+                .output()
+                .unwrap();
+            let stderr = strip_source_locations(&String::from_utf8_lossy(&output.stderr));
+            assert_eq!(output.status.code(), Some(*code), "{} {:?}: {}", backend_arg, args, stderr);
+            assert!(stderr.starts_with(expected.as_str()), "{} {:?}: {}", backend_arg, args, stderr);
         }
     }
 }

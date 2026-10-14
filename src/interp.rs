@@ -1806,7 +1806,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0 {
-                            return Err(CompileError("division by zero attempted in `%'".into()));
+                            return Err(CompileError::new("division by zero attempted in `%'".into()));
                         }
                         // wrapping_rem: i64::MIN % -1 overflows (the result is 0).
                         *self.get_mut(res) = l.wrapping_rem(r);
@@ -1816,7 +1816,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0.0 {
-                            return Err(CompileError("division by zero attempted in `%'".into()));
+                            return Err(CompileError::new("division by zero attempted in `%'".into()));
                         }
                         *self.get_mut(res) = runtime::math_util::fmod(l, r);
                     }
@@ -1825,7 +1825,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0.0 {
-                            return Err(CompileError("division by zero attempted".into()));
+                            return Err(CompileError::new("division by zero attempted".into()));
                         }
                         *self.get_mut(res) = l / r;
                     }

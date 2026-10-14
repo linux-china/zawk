@@ -1,4 +1,5 @@
 //! This file contains common type definitions and utilities used in other parts of the project.
+use crate::lexer::Loc;
 use hashbrown::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
@@ -175,8 +176,10 @@ where
     }
 }
 
+/// An error found while compiling or running a program: the message, and the location in the
+/// program text it refers to, if known (see `parsing::render_error`).
 #[derive(Debug, Clone)]
-pub struct CompileError(pub String);
+pub struct CompileError(pub String, pub Option<Loc>);
 
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -200,6 +203,16 @@ pub fn fatal_message(msg: &str) -> String {
 }
 
 impl CompileError {
+    pub fn new(msg: String) -> CompileError {
+        CompileError(msg, None)
+    }
+
+    /// The error located at `loc`, unless it already has a (more precise) location.
+    pub fn with_loc(mut self, loc: Loc) -> CompileError {
+        self.1.get_or_insert(loc);
+        self
+    }
+
     pub fn is_fatal(&self) -> bool {
         self.0.starts_with(FATAL_PREFIX)
     }
@@ -253,9 +266,9 @@ impl CompileError {
     /// An error raised at `loc` in the zawk sources; see `debug_errors`.
     pub fn located(loc: &str, msg: String) -> CompileError {
         if debug_errors() {
-            CompileError(format!("[{}] {}", loc, msg))
+            CompileError::new(format!("[{}] {}", loc, msg))
         } else {
-            CompileError(msg)
+            CompileError::new(msg)
         }
     }
 }
