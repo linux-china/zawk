@@ -43,6 +43,59 @@ zawk functions --json trim     # machine readable, one function per line:
 Signatures: parameters after `[` are optional; types are `str`, `int`, `float`, `num`, `bool` (0/1), `any`, `array`,
 `map[K]V` (an array returned or expected by the function) and `void`.
 
+## Check a program before running it: `zawk lint`
+
+`zawk lint` parses and type checks a program without reading any input, and prints a JSON report. Run it on
+non-trivial programs, fix every `error`, then run the program.
+
+```shell
+zawk lint '{ print $1 }'               # program text (sugar syntax like '$1,$2' is expanded, as for a run)
+zawk lint -f demo.awk                  # program files (-f and -e can be repeated, as for a run)
+echo 'BEGIN { print 1 }' | zawk lint   # program from stdin
+```
+
+```json
+{
+  "valid": false,
+  "errors": 1,
+  "warnings": 0,
+  "diagnostics": [
+    {
+      "code": "E301",
+      "severity": "error",
+      "message": "Call to unknown function \"foo\"",
+      "file": "demo.awk",
+      "line": 3,
+      "column": 9,
+      "source": "  print foo(1)",
+      "caret": "        ^"
+    }
+  ]
+}
+```
+
+The exit status is 0 when `valid` is true (warnings allowed), 1 otherwise. `line` and `column` are 1-based (columns
+count characters); `file` is null for program text, and all location fields are absent when an error has no location.
+
+| Code | Meaning                                                                          |
+|------|----------------------------------------------------------------------------------|
+| E001 | a program file cannot be read                                                    |
+| E101 | syntax error: unexpected token or end of program                                 |
+| E102 | invalid token: unterminated string, bad regex literal, unexpected character, ... |
+| E201 | unsupported syntax: `@include`, `@load`, `@namespace`, indirect calls            |
+| E202 | unsupported feature: arrays of arrays `a[i][j]` (use `a[i,j]`)                   |
+| E203 | gawk function not available in zawk (e.g. `patsplit`)                           |
+| E300 | other compile error                                                              |
+| E301 | call to an unknown function                                                      |
+| E302 | wrong number of arguments to a builtin function                                  |
+| E303 | a variable is used both as an array and as a scalar                              |
+| E304 | user input passed to a shell command (allowed with `-A`)                         |
+| E900 | internal compiler error                                                          |
+| W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
+| W102 | assignment to the read-only `ARGV` or `ARGC`                                     |
+
+Only the first error is reported: fix it and lint again.
+
 ## Command line
 
 ```shell

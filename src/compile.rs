@@ -159,7 +159,6 @@ pub(crate) fn bytecode<'a, LR: runtime::LineReader>(
     Typer::init_from_ctx(ctx)?.to_interp(reader, ff, num_workers)
 }
 
-#[cfg(test)]
 pub(crate) fn context_compiles<'a>(ctx: &mut cfg::ProgramContext<'a, &'a str>) -> Result<()> {
     Typer::init_from_ctx(ctx)?;
     Ok(())

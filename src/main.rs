@@ -23,6 +23,7 @@ mod input_taint;
 mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
+mod lint;
 #[allow(unused_parens)] // Warnings appear in generated code
 #[allow(clippy::all)]
 pub mod parsing;
@@ -393,6 +394,48 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+/// `zawk lint`: prints the JSON report and exits with 1 if the program has errors (warnings do
+/// not count) or a program file cannot be read.
+fn run_lint(matches: &clap::ArgMatches) -> ! {
+    let mut sources: Vec<(usize, lint::Source)> = Vec::new();
+    if let (Some(idx), Some(vals)) = (matches.indices_of("program-file"), matches.get_many::<String>("program-file")) {
+        for (i, file) in idx.zip(vals) {
+            let text = if file == "-" {
+                io::read_to_string(io::stdin())
+            } else {
+                std::fs::read_to_string(file)
+            };
+            match text {
+                Ok(text) => sources.push((i, lint::Source { name: Some(file.clone()), text })),
+                Err(e) => {
+                    println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
+                    std::process::exit(1)
+                }
+            }
+        }
+    }
+    if let (Some(idx), Some(vals)) = (matches.indices_of("source"), matches.get_many::<String>("source")) {
+        sources.extend(idx.zip(vals).map(|(i, text)| (i, lint::Source { name: None, text: text.clone() })));
+    }
+    sources.sort_by_key(|(i, _)| *i);
+    let mut sources: Vec<lint::Source> = sources.into_iter().map(|(_, s)| s).collect();
+    if sources.is_empty() {
+        let text = match matches.get_one::<String>("program") {
+            // As for a run, sugar syntax only applies to a program operand.
+            Some(p) if matches.get_flag("posix") => p.clone(),
+            Some(p) => awk_util::sugar_syntax_convert(p.trim().to_string()),
+            None => match io::read_to_string(io::stdin()) {
+                Ok(text) => text,
+                Err(e) => fatal!("can't read program from stdin: {}", e),
+            },
+        };
+        sources.push(lint::Source { name: None, text });
+    }
+    let (valid, report) = lint::lint(&sources, matches.get_flag("arbitrary-shell"));
+    println!("{}", report);
+    std::process::exit(if valid { 0 } else { 1 })
+}
+
 const DEFAULT_OPT_LEVEL: i32 = 3;
 
 fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
@@ -463,6 +506,31 @@ fn real_main() {
             .index(1)
             .help("Only list functions whose name contains FILTER, or whose category is FILTER")
         );
+    let lint_cmd = Command::new("lint")
+        .about("Check an AWK program for errors without running it, and report them as JSON")
+        .arg(Arg::new("program-file")
+            .short('f')
+            .long("program-file")
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .help("Lint the program in this file (can be repeated)"))
+        .arg(Arg::new("source")
+            .short('e')
+            .long("source")
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .help("Lint this program text (can be repeated, combined with -f in order)"))
+        .arg(Arg::new("arbitrary-shell")
+            .short('A')
+            .long("arbitrary-shell")
+            .num_args(0)
+            .help("Allow user input in commands run by pipes and system(), as with `zawk -A`"))
+        .arg(Arg::new("posix")
+            .long("posix")
+            .num_args(0)
+            .help("Do not expand the sugar syntax of a program operand (`$1,$2` or `/re/`)"))
+        .arg(Arg::new("program")
+            .help("The program text to lint; read from stdin when no program is given"));
     let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
@@ -470,6 +538,7 @@ fn real_main() {
         .subcommand(dump_cmd)
         .subcommand(init_cmd)
         .subcommand(functions_cmd)
+        .subcommand(lint_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -625,6 +694,10 @@ fn real_main() {
             print!("{}", function_docs::render_text(&docs));
         }
         return;
+    }
+    // lint sub command
+    if let Some(matches) = matches.subcommand_matches("lint") {
+        run_lint(matches);
     }
     // init sub command
     if let Some(matches) = matches.subcommand_matches("init") {
