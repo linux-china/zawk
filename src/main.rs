@@ -419,6 +419,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     }
     sources.sort_by_key(|(i, _)| *i);
     let mut sources: Vec<lint::Source> = sources.into_iter().map(|(_, s)| s).collect();
+    // As for a run, `-e` sources are named `-e#N` when the program has more than one source.
+    if sources.len() > 1 {
+        let mut inline_count = 0;
+        for src in sources.iter_mut().filter(|s| s.name.is_none()) {
+            inline_count += 1;
+            src.name = Some(parsing::inline_source_name(inline_count));
+        }
+    }
     if sources.is_empty() {
         let text = match matches.get_one::<String>("program") {
             // As for a run, sugar syntax only applies to a program operand.
@@ -802,8 +810,17 @@ fn real_main() {
                 input_files.insert(0, p.into());
             }
             let mut prog = String::new();
+            // A lone `-e` is reported as `line 1, column 7`; with other sources, each `-e` is
+            // named `-e#N` so that its lines are not taken for lines of another source.
+            let named = sources.len() > 1;
+            let mut inline_count = 0;
             for (_, is_file, prog_file) in sources {
-                let name = if is_file { Some(prog_file.clone()) } else { None };
+                let name = if is_file {
+                    Some(prog_file.clone())
+                } else {
+                    inline_count += 1;
+                    named.then(|| parsing::inline_source_name(inline_count))
+                };
                 source_map.push(name, prog.matches('\n').count());
                 if !is_file {
                     prog.push_str(prog_file);

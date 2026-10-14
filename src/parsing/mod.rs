@@ -57,6 +57,12 @@ pub(crate) fn check_switch_cases<'a>(
     Ok(())
 }
 
+/// The name of the `n`th (1-based) `-e` source in messages, when the program has other sources:
+/// `-e#2`, so that `-e#2:1:7` is not taken for line 1 of another source.
+pub fn inline_source_name(n: usize) -> String {
+    format!("-e#{}", n)
+}
+
 /// The parts of the program text: `-f` files, `-e` strings or the program operand, concatenated
 /// with a newline after each, as `main` does. Used to report locations as `file:line:column`.
 #[derive(Debug, Default, Clone)]

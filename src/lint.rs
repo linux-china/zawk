@@ -1102,4 +1102,23 @@ mod tests {
         assert_eq!(d["file"], "b.awk");
         assert_eq!(d["line"], 2);
     }
+
+    #[test]
+    fn named_inline_sources() {
+        // `zawk lint` names `-e` sources `-e#N` when there are several sources, as a run does.
+        let srcs = [
+            Source {
+                name: Some("a.awk".into()),
+                text: "BEGIN { x = 1 }".into(),
+            },
+            Source {
+                name: Some(parsing::inline_source_name(1)),
+                text: "BEGIN {\n  print 1 +\n}".into(),
+            },
+        ];
+        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).1).unwrap();
+        let d = &v["diagnostics"][0];
+        assert_eq!(d["file"], "-e#1");
+        assert_eq!(d["line"], 2);
+    }
 }

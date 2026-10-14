@@ -1741,6 +1741,22 @@ fn static_errors_have_locations() {
             1,
             format!("zawk: syntax error at {}:2:12: unexpected newline\n", syntax),
         ),
+        // With other sources, `-e` sources are named `-e#N`, counting `-e` options only.
+        (
+            vec!["-e", "BEGIN { x = 1 }", "-e", "BEGIN { x[1] = 2 }"],
+            2,
+            "zawk: fatal: -e#2:1:9: attempt to use scalar `x` as an array\n".into(),
+        ),
+        (
+            vec!["-f", &ok, "-e", "BEGIN { print 1 +\n}"],
+            1,
+            "zawk: syntax error at -e#1:1:18: unexpected newline\n".into(),
+        ),
+        (
+            vec!["-e", "BEGIN { undefined_fn() }"],
+            2,
+            "zawk: fatal: line 1, column 9: Call to unknown function \"undefined_fn\"\n".into(),
+        ),
         (
             vec!["BEGIN { print length(1, 2) }"],
             2,
