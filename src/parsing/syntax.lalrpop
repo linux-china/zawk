@@ -233,10 +233,16 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "print(" "\n"* <pa:(<Args?>)> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
-    "printf" <spec:PrintExpr> <pa: ("," "\n"* <PrintArgs>)?> <re:Redirect?> =>
-        arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
-    "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> =>
-        arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
+    // The location of `printf` is kept under its format (unless the format has its own), for
+    // `zawk lint`.
+    <l:@L> "printf" <spec:PrintExpr> <pa: ("," "\n"* <PrintArgs>)?> <re:Redirect?> => {
+        prog.locs.entry(expr_key(spec)).or_insert(l);
+        arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re))
+    },
+    <l:@L> "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> => {
+        prog.locs.entry(expr_key(spec)).or_insert(l);
+        arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re))
+    },
     // `exit` without a code has no argument: in END it keeps the code of an earlier `exit`.
     "exit" <PrecCat?> =>
        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit),

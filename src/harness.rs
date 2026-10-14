@@ -604,6 +604,15 @@ mod tests {
     );
 
     test_program!(
+        print_concat_pieces,
+        r#"BEGIN { OFMT="%.2f"; CONVFMT="%.3f"; x = 3.14159; print x, x "", "a" x "b" 1e3 u, x;
+                   s = "0123456789abcdef"; print s ":" s ":" 7 }
+           { print $1 ":" ($1 = "z") ":" $1, $0 }"#,
+        "3.14 3.142 a3.142b1000 3.14\n0123456789abcdef:0123456789abcdef:7\nx:z:z z y\n",
+        @input "x y"
+    );
+
+    test_program!(
         map_join_points_1,
         r#"BEGIN { if (1) { m1[1]=3; y=m1; } else { m2[2]=5; y=m2}; print y[1], y[2]; }"#,
         "3 0\n"

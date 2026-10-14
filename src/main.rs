@@ -431,7 +431,21 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         };
         sources.push(lint::Source { name: None, text });
     }
-    let (valid, report) = lint::lint(&sources, matches.get_flag("arbitrary-shell"));
+    let opts = lint::Options {
+        allow_arbitrary_commands: matches.get_flag("arbitrary-shell"),
+        parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
+            Some("r") | Some("record") => Some(lint::Parallel::Record),
+            Some("f") | Some("file") => Some(lint::Parallel::File),
+            _ => None,
+        },
+        assigned: matches
+            .get_many::<String>("var")
+            .into_iter()
+            .flatten()
+            .map(|v| v.split_once('=').map_or(v.as_str(), |(n, _)| n).trim().to_string())
+            .collect(),
+    };
+    let (valid, report) = lint::lint(&sources, &opts);
     println!("{}", report);
     std::process::exit(if valid { 0 } else { 1 })
 }
@@ -529,6 +543,15 @@ fn real_main() {
             .long("posix")
             .num_args(0)
             .help("Do not expand the sugar syntax of a program operand (`$1,$2` or `/re/`)"))
+        .arg(Arg::new("var")
+            .short('v')
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .help("A variable the run sets with `-v var=value` (it is not reported as never set)"))
+        .arg(Arg::new("parallel-strategy")
+            .short('p')
+            .value_parser(["r", "record", "f", "file"])
+            .help("Also report code whose meaning changes when it runs in parallel with `-pr` or `-pf`"))
         .arg(Arg::new("program")
             .help("The program text to lint; read from stdin when no program is given"));
     let app = Command::new("zawk")

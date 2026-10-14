@@ -765,6 +765,21 @@ pub(crate) fn is_unused(i: Ident) -> bool {
     i.low == 0
 }
 
+/// Push the operands of a chain of concatenations `e` (or `e` itself, if it is not one) onto
+/// `out`, left to right.
+fn flatten_concat<'a, 'c, 'b, I>(
+    e: &'a Expr<'c, 'b, I>,
+    out: &mut SmallVec<&'a Expr<'c, 'b, I>>,
+) {
+    match e {
+        Expr::Binop(ast::Binop::Concat, l, r) => {
+            flatten_concat(l, out);
+            flatten_concat(r, out);
+        }
+        _ => out.push(e),
+    }
+}
+
 fn record_ident(
     defsites: &mut HashMap<Ident, HashSet<NodeIx>>,
     orig: &mut HashMap<NodeIx, HashSet<Ident>>,
@@ -973,14 +988,49 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 } else {
                     PrimVal::Var(Ident::unused())
                 };
-                let mut print_args = SmallVec::with_capacity(vs.len() * 2);
-                for (i, v) in vs.iter().enumerate() {
-                    let (next, mut to_print) =
-                        self.convert_str_operand(*v, current_open, /*ofmt=*/ true)?;
-                    to_print = self.snapshot_before(to_print, &vs[i + 1..], next)?;
-                    to_print = self.escape(to_print, next)?;
-                    current_open = next;
-                    print_args.push(to_print);
+                // A concatenation is printed piece by piece (`print $1 ":" $2` writes three
+                // strings) rather than building the concatenated string first. Each piece is
+                // still converted with CONVFMT, as in the concatenation. Escaped output (CSV/TSV)
+                // escapes whole arguments, so it keeps them intact.
+                let mut leaves: SmallVec<&ast::Expr<'_, 'b, I>> = SmallVec::new();
+                // (index of the arg's first leaf in `leaves`, whether it was split)
+                let mut arg_leaves = SmallVec::<(usize, bool)>::new();
+                for v in vs.iter() {
+                    let start = leaves.len();
+                    if matches!(self.ctx.esc, Escaper::Identity) && self.uninit_flag(v).is_none()
+                    {
+                        flatten_concat(v, &mut leaves);
+                    } else {
+                        leaves.push(*v);
+                    }
+                    arg_leaves.push((start, leaves.len() - start > 1));
+                }
+                let mut print_args = SmallVec::with_capacity(leaves.len() + vs.len());
+                for (i, &(start, split)) in arg_leaves.iter().enumerate() {
+                    let end = arg_leaves.get(i + 1).map_or(leaves.len(), |(s, _)| *s);
+                    for j in start..end {
+                        let leaf = leaves[j];
+                        let (next, mut to_print) = if split {
+                            let (next, v) =
+                                self.convert_str_operand(leaf, current_open, /*ofmt=*/ false)?;
+                            if matches!(leaf, ast::Expr::StrLit(_) | ast::Expr::Unop(Unop::Column, _)) {
+                                (next, v)
+                            } else {
+                                // Convert numbers with CONVFMT (`v ""` is `v` as a string).
+                                let s = PrimExpr::CallBuiltin(
+                                    builtins::Function::Binop(ast::Binop::Concat),
+                                    smallvec![v, PrimVal::StrLit(b"")],
+                                );
+                                (next, self.to_val(s, next)?)
+                            }
+                        } else {
+                            self.convert_str_operand(leaf, current_open, /*ofmt=*/ true)?
+                        };
+                        to_print = self.snapshot_before(to_print, &leaves[j + 1..], next)?;
+                        to_print = self.escape(to_print, next)?;
+                        current_open = next;
+                        print_args.push(to_print);
+                    }
                     if i == vs.len() - 1 {
                         print_args.push(ors.clone());
                     } else {

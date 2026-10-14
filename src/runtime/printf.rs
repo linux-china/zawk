@@ -176,6 +176,91 @@ impl Spec {
     }
 }
 
+impl Spec {
+    /// C's "%f" conversion (without the `#` flag) of a finite `f`. Rust's fixed-precision
+    /// formatting is exact and rounds ties to even, as C does, and is much faster than
+    /// `snprintf`.
+    fn write_fixed(&self, mut w: impl Write, f: Float) -> Result<()> {
+        let precision = self.precision.unwrap_or(6);
+        let mut buf = [0u8; 64];
+        let n = match fixed_small(f.abs(), precision, &mut buf) {
+            Some(n) => n,
+            None => {
+                let mut cur = std::io::Cursor::new(&mut buf[..]);
+                if write!(cur, "{:.*}", precision, f.abs()).is_err() {
+                    // Too long for the buffer (huge values or precisions).
+                    return snprintf_with(w, &self.c_format(b"", b'f'), CArg::Double(f));
+                }
+                cur.position() as usize
+            }
+        };
+        let digits = &buf[..n];
+        let sign: &[u8] = if f.is_sign_negative() {
+            b"-"
+        } else if self.plus {
+            b"+"
+        } else if self.space {
+            b" "
+        } else {
+            b""
+        };
+        let fill = self.width.unwrap_or(0).saturating_sub(sign.len() + digits.len());
+        if self.minus {
+            write_bytes(&mut w, sign)?;
+            write_bytes(&mut w, digits)?;
+            write_repeated(&mut w, b' ', fill)
+        } else if self.zero {
+            write_bytes(&mut w, sign)?;
+            write_repeated(&mut w, b'0', fill)?;
+            write_bytes(&mut w, digits)
+        } else {
+            write_repeated(&mut w, b' ', fill)?;
+            write_bytes(&mut w, sign)?;
+            write_bytes(&mut w, digits)
+        }
+    }
+}
+
+/// Powers of ten that are exact in an f64.
+const POW10: [f64; 10] = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9];
+
+/// Write `f` (non-negative) with `precision` decimal places into `buf` using integer
+/// arithmetic, for the common case of small values and precisions. Returns `None` when the
+/// result could differ from exact rounding (values near a tie, or too large), so that the caller
+/// falls back to exact formatting.
+fn fixed_small(f: f64, precision: usize, buf: &mut [u8; 64]) -> Option<usize> {
+    let scale = *POW10.get(precision)?;
+    let scaled = f * scale;
+    // Below 2^40 the product is within 2^-13 of the exact value (the power of ten is exact),
+    // so if the fraction is not within 2^-10 of one half, rounding it gives the exact result.
+    if !(scaled < (1u64 << 40) as f64) {
+        return None;
+    }
+    let floor = scaled.floor();
+    let frac = scaled - floor;
+    if (frac - 0.5).abs() < 1.0 / 1024.0 {
+        return None;
+    }
+    let r = floor as u64 + (frac > 0.5) as u64;
+    let pow = scale as u64;
+    let mut ib = itoa::Buffer::new();
+    let int_digits = ib.format(r / pow).as_bytes();
+    let mut n = int_digits.len();
+    buf[..n].copy_from_slice(int_digits);
+    if precision > 0 {
+        buf[n] = b'.';
+        n += 1;
+        let mut fb = itoa::Buffer::new();
+        let frac_digits = fb.format(r % pow).as_bytes();
+        let zeros = precision - frac_digits.len();
+        buf[n..n + zeros].fill(b'0');
+        n += zeros;
+        buf[n..n + frac_digits.len()].copy_from_slice(frac_digits);
+        n += frac_digits.len();
+    }
+    Some(n)
+}
+
 /// A NUL-terminated C format string built by `Spec::c_format`.
 struct CFormat {
     buf: [u8; 64],
@@ -317,6 +402,7 @@ fn process_spec(w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
             let f = arg.to_float();
             match special_float(f) {
                 Some(s) => spec.pad(w, s, s.len()),
+                None if matches!(spec.conv, b'f' | b'F') && !spec.alt => spec.write_fixed(w, f),
                 None => snprintf_with(w, &spec.c_format(b"", spec.conv), CArg::Double(f)),
             }
         }
@@ -626,6 +712,55 @@ mod tests {
                             "{} with {}",
                             i,
                             String::from_utf8_lossy(&fmt.buf[..fmt.len])
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_fixed_matches_snprintf() {
+        let mut values = vec![
+            0.0, -0.0, 0.5, 1.5, 2.5, -2.5, 0.125, 0.375, 2.375, -0.001, 1e-7, 0.1, 0.7, 1.005,
+            123456.789, -98765.4321, 1e15, 1.7976931348623157e308, 5e-324, 9.999999, 0.05, 0.45,
+        ];
+        let mut x: u64 = 0x9e3779b97f4a7c15;
+        for _ in 0..2000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let mant = (x >> 11) as f64 / (1u64 << 53) as f64;
+            let exp = (x % 24) as i32 - 8;
+            let v = mant * 10f64.powi(exp);
+            values.push(if x & 1 == 0 { v } else { -v });
+            // Ties at a few decimal places.
+            values.push(((x % 100000) as f64 + 0.5) / 100.0);
+        }
+        for flags in [0u32, 1, 2, 4, 16, 17, 18, 20] {
+            for width in [None, Some(0), Some(5), Some(12)] {
+                for precision in [None, Some(0), Some(1), Some(2), Some(3), Some(10), Some(30)] {
+                    let spec = Spec {
+                        minus: flags & 1 != 0,
+                        plus: flags & 2 != 0,
+                        space: flags & 4 != 0,
+                        alt: false,
+                        zero: flags & 16 != 0,
+                        width,
+                        precision,
+                        conv: b'f',
+                    };
+                    for &f in &values {
+                        let mut native = Vec::new();
+                        spec.write_fixed(&mut native, f).unwrap();
+                        let mut c = Vec::new();
+                        snprintf_with(&mut c, &spec.c_format(b"", b'f'), CArg::Double(f)).unwrap();
+                        assert_eq!(
+                            String::from_utf8_lossy(&native),
+                            String::from_utf8_lossy(&c),
+                            "{:e} with {}",
+                            f,
+                            String::from_utf8_lossy(&spec.c_format(b"", b'f').buf)
                         );
                     }
                 }

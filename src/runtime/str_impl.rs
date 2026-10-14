@@ -1036,11 +1036,12 @@ impl<'a> Str<'a> {
         let rlen = right.bytes_len();
         let new_len = llen + rlen;
         if new_len <= MAX_INLINE_SIZE {
-            let mut b = DynamicBuf::new(0);
+            // Both sides are short, so neither is a Concat (which would be forced here).
+            let mut buf = [0u8; MAX_INLINE_SIZE];
             unsafe {
-                b.write_all(&*left.get_bytes()).unwrap();
-                b.write_all(&*right.get_bytes()).unwrap();
-                b.into_str()
+                buf[..llen].copy_from_slice(&*left.get_bytes());
+                buf[llen..new_len].copy_from_slice(&*right.get_bytes());
+                Str::from_rep(Inline::from_raw(buf.as_ptr(), new_len).into())
             }
         } else {
             // TODO: we can add another case here. If `left` is boxed and has a refcount of 1, we
@@ -1268,6 +1269,40 @@ impl<'a> Str<'a> {
                     self.force();
                     self.get_bytes()
                 }
+            }
+        }
+    }
+
+    /// Call `f` on the bytes of each piece of the string, in order. A short concatenation (such
+    /// as `print $1 ":" $2`) is written piece by piece without flattening it into a new buffer;
+    /// longer ones are flattened (and cached) as in `with_bytes`.
+    pub fn for_each_chunk(&self, mut f: impl FnMut(&[u8])) {
+        const MAX_CHUNKS: usize = 16;
+        unsafe {
+            if self.rep().get_tag() != StrTag::Concat {
+                return f(&*self.get_bytes());
+            }
+            let mut chunks = SmallVec::<[*const [u8]; MAX_CHUNKS]>::new();
+            let mut todo = SmallVec::<[*const Str<'a>; MAX_CHUNKS]>::new();
+            todo.push(self as *const _);
+            while let Some(s) = todo.pop() {
+                // The pieces are owned by `self`'s Concat nodes, which outlive this loop.
+                let s = &*s;
+                let rep = s.rep_mut();
+                if rep.get_tag() == StrTag::Concat {
+                    let (l, r) = rep.view_as(|c: &Concat<'a>| {
+                        (&c.inner.left as *const Str<'a>, &c.inner.right as *const Str<'a>)
+                    });
+                    todo.push(r);
+                    todo.push(l);
+                } else if chunks.len() == MAX_CHUNKS {
+                    return f(&*self.get_bytes());
+                } else {
+                    chunks.push(s.get_bytes());
+                }
+            }
+            for c in chunks {
+                f(&*c);
             }
         }
     }
@@ -1653,7 +1688,7 @@ impl Write for DynamicBuf {
                     heap.write_all(buf).unwrap();
                     *self = DynamicBuf::Heap(heap);
                 } else {
-                    sv.extend(buf.iter().cloned());
+                    sv.extend_from_slice(buf);
                 }
                 Ok(buf.len())
             }

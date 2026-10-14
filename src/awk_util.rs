@@ -139,6 +139,16 @@ pub fn fi_constant_keys(awk_code: &str) -> Vec<String> {
         .collect()
 }
 
+/// The variables a program declares with `# @var name description`, which the run gets with
+/// `-v` (an optional one is declared as `name?`).
+pub fn declared_vars(awk_code: &str) -> Vec<String> {
+    parse_comment_tags(awk_code)
+        .into_iter()
+        .filter(|tag| tag.type_name == "var")
+        .map(|tag| tag.value1.trim_end_matches('?').to_string())
+        .collect()
+}
+
 pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
     let mut satisfied = true;
     // check metadata requirements

@@ -995,15 +995,16 @@ impl FileHandle {
         let mut added_bytes = 0;
         let mut last_line = None;
         for s in ss.iter() {
-            let bs = unsafe { &*s.get_bytes() };
-            self.cur_batch.extend(bs, spec);
-            if self.raw.line_buffer {
-                if let Some(ix) = memchr::memchr(b'\n', bs) {
-                    // +1 to include the newline
-                    last_line = Some(cur_len + added_bytes + ix + 1);
+            s.for_each_chunk(|bs| {
+                self.cur_batch.extend(bs, spec);
+                if self.raw.line_buffer {
+                    if let Some(ix) = memchr::memchr(b'\n', bs) {
+                        // +1 to include the newline
+                        last_line = Some(cur_len + added_bytes + ix + 1);
+                    }
                 }
-            }
-            added_bytes += bs.len();
+                added_bytes += bs.len();
+            });
         }
         if (self.raw.line_buffer && last_line.is_some()) || (added_bytes + cur_len > BUFFER_SIZE) {
             self.clear_batch(last_line)?;

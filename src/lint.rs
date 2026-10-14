@@ -3,7 +3,11 @@
 //! The program goes through the same stages as a real run (lexing, parsing, building the CFG and
 //! type checking), but every error becomes a diagnostic with a code, a location and the line of
 //! source it points at, instead of a message on stderr. A token scan also reports gawk features
-//! that zawk accepts but ignores (e.g. `FIELDWIDTHS`), which a run would silently get wrong.
+//! that zawk accepts but ignores (e.g. `FIELDWIDTHS`), which a run would silently get wrong, and
+//! a walk over the syntax tree reports likely mistakes that a run accepts silently: variables
+//! that are read but never set, `printf` formats with too few arguments, calls with more
+//! arguments than the function has parameters and, for `-p`, code whose meaning changes when it
+//! runs in parallel.
 //!
 //! ```json
 //! {
@@ -21,6 +25,8 @@ use crate::arena::Arena;
 use crate::ast;
 use crate::cfg::{self, Escaper};
 use crate::common::Stage;
+use crate::builtins::Function;
+use crate::common::Either;
 use crate::compile;
 use crate::lexer::{self, Loc, Tok};
 use crate::parsing;
@@ -49,9 +55,28 @@ struct Diagnostic {
     loc: Option<Loc>,
 }
 
+/// How the program will be run.
+#[derive(Default, Clone)]
+pub struct Options {
+    /// `-A`: allow user input in commands.
+    pub allow_arbitrary_commands: bool,
+    /// `-p`: the program runs in parallel.
+    pub parallel: Option<Parallel>,
+    /// Variables set on the command line with `-v`.
+    pub assigned: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Parallel {
+    /// `-pr`: workers share the records of each file.
+    Record,
+    /// `-pf`: each worker reads whole files.
+    File,
+}
+
 /// Lints `sources` as one program (they are concatenated, as for a run) and returns the JSON
 /// report with whether the program is free of errors.
-pub fn lint(sources: &[Source], allow_arbitrary_commands: bool) -> (bool, String) {
+pub fn lint(sources: &[Source], opts: &Options) -> (bool, String) {
     // Each source is followed by a newline, as `main` does when it concatenates them.
     let mut prog = String::new();
     let mut starts = Vec::with_capacity(sources.len());
@@ -61,9 +86,11 @@ pub fn lint(sources: &[Source], allow_arbitrary_commands: bool) -> (bool, String
         prog.push('\n');
     }
     let mut diags = scan_tokens(&prog);
-    if let Some(d) = check_program(&prog, allow_arbitrary_commands) {
-        diags.push(d);
-    }
+    // Variables declared with `# @var` come from `-v`, as given variables do.
+    let mut assigned = opts.assigned.clone();
+    assigned.extend(sources.iter().flat_map(|s| crate::awk_util::declared_vars(&s.text)));
+    let opts = Options { assigned, ..*opts };
+    diags.extend(check_program(&prog, &opts));
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
 
     let errors = diags.iter().filter(|d| d.severity == Severity::Error).count();
@@ -152,23 +179,36 @@ fn to_json(d: &Diagnostic, lines: &[&str], sources: &[Source], starts: &[usize])
     v
 }
 
-/// Parses, builds and type checks the program, returning the first error found.
-fn check_program(prog: &str, allow_arbitrary_commands: bool) -> Option<Diagnostic> {
+/// Parses, builds and type checks the program, returning the warnings of the syntax tree checks
+/// and the first error found.
+fn check_program(prog: &str, opts: &Options) -> Vec<Diagnostic> {
     let a = Arena::default();
     let text: &str = a.alloc_str(prog);
     let mut buf = Vec::new();
     let mut program = ast::Prog::from_stage(&a, Stage::Main(()));
     let parser = parsing::syntax::ProgParser::new();
     if let Err(e) = parser.parse(&a, &mut buf, &mut program, lexer::Tokenizer::new(text)) {
-        return Some(parse_diagnostic(text, &e));
+        return vec![parse_diagnostic(text, &e)];
     }
+    let mut diags = check_ast(&program, opts);
+    diags.extend(compile_program(&a, text, program, opts.allow_arbitrary_commands));
+    diags
+}
+
+/// Builds and type checks a parsed program, returning the first error found.
+fn compile_program<'a>(
+    a: &'a Arena,
+    text: &str,
+    program: ast::Prog<'a, 'a, &'a str>,
+    allow_arbitrary_commands: bool,
+) -> Option<Diagnostic> {
     let program = a.alloc(program);
     // The type checker reports some unsupported programs with a panic: report it as an error
     // instead of crashing (and keep the panic message off stderr).
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut ctx = cfg::ProgramContext::from_prog(&a, program, Escaper::Identity)?;
+        let mut ctx = cfg::ProgramContext::from_prog(a, program, Escaper::Identity)?;
         ctx.allow_arbitrary_commands = allow_arbitrary_commands;
         compile::context_compiles(&mut ctx)
     }));
@@ -299,6 +339,494 @@ fn find_array_of_arrays(prog: &str) -> Option<Loc> {
         .map(|w| w[1].0)
 }
 
+type AstExpr<'a> = ast::Expr<'a, 'a, &'a str>;
+type AstStmt<'a> = ast::Stmt<'a, 'a, &'a str>;
+
+/// The part of the program a statement belongs to; in parallel mode, the main loop (with
+/// `BEGINFILE`, `ENDFILE` and `PREPARE`) runs in the workers.
+#[derive(Clone, Copy, PartialEq)]
+enum Region {
+    Begin,
+    Main,
+    End,
+    Function,
+}
+
+/// How a variable is set.
+#[derive(Clone, Copy, PartialEq)]
+enum SetKind {
+    /// `x += e`, `x -= e`, `x = x + e`, `x++`: workers' values add up to the serial result.
+    Sum,
+    /// Any other assignment, e.g. `x = $1`.
+    Other,
+    /// Passed to a function that may fill it, deleted, or a `for (x in a)` key.
+    Indirect,
+}
+
+struct Use<'a> {
+    name: &'a str,
+    region: Region,
+    loc: Option<Loc>,
+}
+
+struct Set<'a> {
+    name: &'a str,
+    region: Region,
+    kind: SetKind,
+    loc: Option<Loc>,
+}
+
+/// What the syntax tree checks need to know about the program, collected in one walk.
+struct Facts<'a, 'p> {
+    locs: &'p ast::ExprLocs,
+    region: Region,
+    /// The parameters of the function being walked, which are local variables.
+    locals: &'p [&'a str],
+    uses: Vec<Use<'a>>,
+    sets: Vec<Set<'a>>,
+    /// Variables used as arrays.
+    arrays: Vec<&'a str>,
+    /// Calls of functions by name: the name, the number of arguments and the location.
+    calls: Vec<(&'a str, usize, Option<Loc>)>,
+    /// `printf` and `sprintf` with a literal format: the format, the number of arguments to
+    /// format and the location.
+    formats: Vec<(&'a [u8], usize, Option<Loc>)>,
+}
+
+/// Builtins that only read their arguments; a variable passed to any other function may be
+/// filled by it (e.g. `split(s, parts)`, or an array passed to a user function).
+const READ_ONLY_FUNCTIONS: &[&str] = &[
+    "length", "substr", "index", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int",
+    "srand", "tolower", "toupper", "system", "close", "fflush", "strtonum", "gensub", "and",
+    "or", "xor", "compl", "lshift", "rshift", "strftime", "mktime", "trim", "ltrim", "rtrim",
+    "max", "min", "abs", "uuid",
+];
+
+impl<'a, 'p> Facts<'a, 'p> {
+    fn loc(&self, e: &AstExpr<'a>) -> Option<Loc> {
+        self.locs.get(&ast::expr_key(e)).copied()
+    }
+
+    fn is_local(&self, name: &str) -> bool {
+        self.locals.contains(&name)
+    }
+
+    fn used(&mut self, name: &'a str, loc: Option<Loc>) {
+        if !self.is_local(name) {
+            self.uses.push(Use { name, region: self.region, loc });
+        }
+    }
+
+    fn set(&mut self, name: &'a str, kind: SetKind, loc: Option<Loc>) {
+        if !self.is_local(name) {
+            self.sets.push(Set { name, region: self.region, kind, loc });
+        }
+    }
+
+    fn array(&mut self, e: &AstExpr<'a>) {
+        if let ast::Expr::Var(name) = e {
+            if !self.is_local(name) && !self.arrays.contains(name) {
+                self.arrays.push(name);
+            }
+        }
+    }
+
+    fn stmt(&mut self, s: &'a AstStmt<'a>) {
+        use ast::Stmt::*;
+        match s {
+            StartCond(_) | EndCond(_) | LastCond(_) | Break | Continue | Next | NextFile => {}
+            Expr(e) => self.expr(e),
+            Block(ss) => ss.iter().for_each(|s| self.stmt(s)),
+            Print(args, out) => {
+                args.iter().for_each(|e| self.expr(e));
+                if let Some((e, _)) = out {
+                    self.expr(e);
+                }
+            }
+            Printf(fmt, args, out) => {
+                if let ast::Expr::StrLit(f) = fmt {
+                    self.formats.push((f, args.len(), self.loc(fmt)));
+                }
+                self.expr(fmt);
+                args.iter().for_each(|e| self.expr(e));
+                if let Some((e, _)) = out {
+                    self.expr(e);
+                }
+            }
+            If(c, t, f) => {
+                self.expr(c);
+                self.stmt(t);
+                if let Some(f) = f {
+                    self.stmt(f);
+                }
+            }
+            For(init, cond, update, body) => {
+                if let Some(s) = init {
+                    self.stmt(s);
+                }
+                if let Some(e) = cond {
+                    self.expr(e);
+                }
+                if let Some(s) = update {
+                    self.stmt(s);
+                }
+                self.stmt(body);
+            }
+            DoWhile(c, body) | While(_, c, body) => {
+                self.expr(c);
+                self.stmt(body);
+            }
+            ForEach(key, arr, body) => {
+                self.set(key, SetKind::Indirect, None);
+                self.array(arr);
+                self.expr(arr);
+                self.stmt(body);
+            }
+            Switch(e, cases) => {
+                self.expr(e);
+                for (label, body) in cases.iter() {
+                    if let Some(l) = label {
+                        self.expr(l);
+                    }
+                    self.stmt(body);
+                }
+            }
+            Return(e) => {
+                if let Some(e) = e {
+                    self.expr(e);
+                }
+            }
+            EndBlock(s) => self.stmt(s),
+        }
+    }
+
+    /// Walks an assignment target.
+    fn lvalue(&mut self, e: &'a AstExpr<'a>, kind: SetKind) {
+        match e {
+            ast::Expr::Var(name) => self.set(name, kind, self.loc(e)),
+            ast::Expr::Index(arr, ix) => {
+                self.array(arr);
+                match arr {
+                    ast::Expr::Var(name) => self.set(name, SetKind::Indirect, self.loc(arr)),
+                    // `a[i][j] = v` (an error reported by the type checker) sets `a`.
+                    ast::Expr::Index(..) => self.lvalue(arr, SetKind::Indirect),
+                    _ => self.expr(arr),
+                }
+                self.expr(ix);
+            }
+            _ => self.expr(e),
+        }
+    }
+
+    fn expr(&mut self, e: &'a AstExpr<'a>) {
+        use ast::Expr::*;
+        match e {
+            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => {}
+            Var(name) => self.used(name, self.loc(e)),
+            Unop(_, x) => self.expr(x),
+            Binop(_, l, r) | And(l, r) | Or(l, r) => {
+                self.expr(l);
+                self.expr(r);
+            }
+            Index(arr, ix) => {
+                self.array(arr);
+                self.expr(arr);
+                self.expr(ix);
+            }
+            Assign(lhs, rhs) => {
+                // `x = x + e` adds up like `x += e`.
+                let sum = match (lhs, rhs) {
+                    (Var(x), Binop(ast::Binop::Plus | ast::Binop::Minus, l, r)) => {
+                        matches!(l, Var(y) if y == x) || matches!(r, Var(y) if y == x)
+                    }
+                    _ => false,
+                };
+                self.lvalue(lhs, if sum { SetKind::Sum } else { SetKind::Other });
+                self.expr(rhs);
+            }
+            AssignOp(lhs, op, rhs) => {
+                let kind = match op {
+                    ast::Binop::Plus | ast::Binop::Minus => SetKind::Sum,
+                    _ => SetKind::Other,
+                };
+                self.lvalue(lhs, kind);
+                self.expr(rhs);
+            }
+            Inc { x, .. } => self.lvalue(x, SetKind::Sum),
+            ITE(c, t, f) => {
+                self.expr(c);
+                self.expr(t);
+                self.expr(f);
+            }
+            Getline { into, from, .. } => {
+                if let Some(into) = into {
+                    self.lvalue(into, SetKind::Other);
+                }
+                if let Some(from) = from {
+                    self.expr(from);
+                }
+            }
+            Call(f, args) => {
+                let read_only = match f {
+                    Either::Left(name) => {
+                        self.calls.push((name, args.len(), self.loc(e)));
+                        if *name == "sprintf" {
+                            if let Some(StrLit(fmt)) = args.first() {
+                                self.formats.push((fmt, args.len() - 1, self.loc(e)));
+                            }
+                        }
+                        READ_ONLY_FUNCTIONS.contains(name)
+                    }
+                    Either::Right(Function::Delete | Function::Clear) => false,
+                    Either::Right(Function::Contains) => {
+                        if let Some(arr) = args.first() {
+                            self.array(arr);
+                        }
+                        true
+                    }
+                    Either::Right(_) => true,
+                };
+                for arg in args.iter() {
+                    match arg {
+                        Var(name) if !read_only => self.set(name, SetKind::Indirect, self.loc(arg)),
+                        _ => self.expr(arg),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The number of arguments a `printf` format uses, or `None` if it uses positional arguments
+/// (`%1$s`), which are not checked.
+fn format_arguments(fmt: &[u8]) -> Option<usize> {
+    let mut n = 0;
+    let mut i = 0;
+    while i < fmt.len() {
+        if fmt[i] != b'%' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if fmt.get(i) == Some(&b'%') {
+            i += 1;
+            continue;
+        }
+        while i < fmt.len() && b"-+ #0'".contains(&fmt[i]) {
+            i += 1;
+        }
+        for part in 0..2 {
+            if part == 1 {
+                if fmt.get(i) != Some(&b'.') {
+                    break;
+                }
+                i += 1;
+            }
+            if fmt.get(i) == Some(&b'*') {
+                n += 1;
+                i += 1;
+            } else {
+                while i < fmt.len() && fmt[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if fmt.get(i) == Some(&b'$') {
+                    return None;
+                }
+            }
+        }
+        while i < fmt.len() && b"hlLqjzt".contains(&fmt[i]) {
+            i += 1;
+        }
+        if i < fmt.len() {
+            n += 1;
+            i += 1;
+        }
+    }
+    Some(n)
+}
+
+fn plural(n: usize, noun: &str) -> String {
+    format!("{} {}{}", n, noun, if n == 1 { "" } else { "s" })
+}
+
+fn warning(code: &'static str, message: String, loc: Option<Loc>) -> Diagnostic {
+    Diagnostic {
+        code,
+        severity: Severity::Warning,
+        message,
+        loc,
+    }
+}
+
+/// Checks the syntax tree for mistakes that a run accepts silently.
+fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagnostic> {
+    let mut facts = Facts {
+        locs: &prog.locs,
+        region: Region::Begin,
+        locals: &[],
+        uses: Vec::new(),
+        sets: Vec::new(),
+        arrays: Vec::new(),
+        calls: Vec::new(),
+        formats: Vec::new(),
+    };
+    prog.begin.iter().for_each(|s| facts.stmt(s));
+    facts.region = Region::Main;
+    for (pat, body) in prog.pats.iter() {
+        match pat {
+            ast::Pattern::Null => {}
+            ast::Pattern::Bool(e) => facts.expr(e),
+            ast::Pattern::Comma(l, r) => {
+                facts.expr(l);
+                facts.expr(r);
+            }
+        }
+        if let Some(body) = body {
+            facts.stmt(body);
+        }
+    }
+    let worker_blocks = prog.beginfile.iter().chain(prog.endfile.iter()).chain(prog.prepare.iter());
+    worker_blocks.for_each(|s| facts.stmt(s));
+    facts.region = Region::End;
+    prog.end.iter().for_each(|s| facts.stmt(s));
+    facts.region = Region::Function;
+    for dec in prog.decs.iter() {
+        facts.locals = &dec.args;
+        facts.stmt(dec.body);
+    }
+
+    let mut diags = Vec::new();
+
+    // Variables that are read but never set anywhere: almost always a typo.
+    let mut reported: Vec<&str> = Vec::new();
+    for u in &facts.uses {
+        let special = crate::builtins::VARIABLES.contains_key(u.name)
+            || u.name == "SUBSEP"
+            || IGNORED_GAWK_VARIABLES.iter().any(|(n, _)| *n == u.name);
+        if special
+            || reported.contains(&u.name)
+            || facts.sets.iter().any(|s| s.name == u.name)
+            || opts.assigned.iter().any(|v| v == u.name)
+        {
+            continue;
+        }
+        reported.push(u.name);
+        let first = facts
+            .uses
+            .iter()
+            .filter(|v| v.name == u.name)
+            .filter_map(|v| v.loc)
+            .min_by_key(|l| (l.line, l.col));
+        diags.push(warning(
+            "W201",
+            format!(
+                "variable `{}` is used but never set: it is always empty (if it comes from the command line, pass `-v {}=...` to lint or declare it with `# @var {}`)",
+                u.name, u.name, u.name
+            ),
+            first.or(u.loc),
+        ));
+    }
+
+    // printf formats that use more arguments than given: the missing ones print as empty.
+    for (fmt, given, loc) in &facts.formats {
+        if let Some(wanted) = format_arguments(fmt) {
+            if wanted > *given {
+                diags.push(warning(
+                    "W202",
+                    format!(
+                        "format \"{}\" uses {}, got {}: the missing ones are empty",
+                        String::from_utf8_lossy(fmt).escape_debug(),
+                        plural(wanted, "argument"),
+                        given
+                    ),
+                    *loc,
+                ));
+            } else if wanted < *given {
+                diags.push(warning(
+                    "W203",
+                    format!(
+                        "format \"{}\" uses {}, got {}: the extra ones are ignored",
+                        String::from_utf8_lossy(fmt).escape_debug(),
+                        plural(wanted, "argument"),
+                        given
+                    ),
+                    *loc,
+                ));
+            }
+        }
+    }
+
+    // Calls of user functions with more arguments than parameters.
+    for (name, given, loc) in &facts.calls {
+        if let Some(dec) = prog.decs.iter().find(|d| d.name == *name) {
+            if *given > dec.args.len() {
+                diags.push(warning(
+                    "W204",
+                    format!(
+                        "function `{}` is called with {} but declares {}: the extra arguments are ignored",
+                        name,
+                        plural(*given, "argument"),
+                        plural(dec.args.len(), "parameter")
+                    ),
+                    *loc,
+                ));
+            }
+        }
+    }
+
+    if let Some(mode) = opts.parallel {
+        diags.extend(check_parallel(&facts, mode));
+    }
+    diags
+}
+
+/// Code whose meaning changes when the main loop runs in several workers (see
+/// `info/parallelism.md`).
+fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    // Record counters count the records of one worker.
+    let counters: &[&str] = match mode {
+        Parallel::Record => &["NR", "FNR"],
+        Parallel::File => &["NR"],
+    };
+    for counter in counters {
+        if let Some(u) = facts.uses.iter().find(|u| u.region == Region::Main && u.name == *counter) {
+            diags.push(warning(
+                "W301",
+                format!(
+                    "in parallel mode each worker counts its own records: `{}` is not the record number of the input (e.g. `{} == 1` matches once per worker)",
+                    counter, counter
+                ),
+                u.loc,
+            ));
+        }
+    }
+    // Scalars set in the main loop and read in END are summed (numbers) or taken from one worker
+    // (strings): only sums aggregate to the serial result.
+    let mut reported: Vec<&str> = Vec::new();
+    for s in &facts.sets {
+        if s.region != Region::Main
+            || s.kind != SetKind::Other
+            || reported.contains(&s.name)
+            || facts.arrays.contains(&s.name)
+            || crate::builtins::VARIABLES.contains_key(s.name)
+            || !facts.uses.iter().any(|u| u.region == Region::End && u.name == s.name)
+        {
+            continue;
+        }
+        reported.push(s.name);
+        diags.push(warning(
+            "W302",
+            format!(
+                "in parallel mode END sees `{}` aggregated over the workers (numbers summed, strings from one worker), not its last value; collect per-worker values in PREPARE, e.g. `PREPARE {{ v[PID] = {} }}`",
+                s.name, s.name
+            ),
+            s.loc,
+        ));
+    }
+    diags
+}
+
 /// gawk special variables that zawk treats as ordinary variables.
 const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
     ("FIELDWIDTHS", "fixed-width field splitting is not supported; use substr() or FS"),
@@ -392,7 +920,7 @@ mod tests {
             name: None,
             text: prog.to_string(),
         };
-        serde_json::from_str(&lint(&[src], false).1).unwrap()
+        serde_json::from_str(&lint(&[src], &Options::default()).1).unwrap()
     }
 
     fn codes(v: &Value) -> Vec<&str> {
@@ -457,6 +985,73 @@ mod tests {
         assert!(codes(&run("BEGIN { print ARGV[1], ARGC }")).is_empty());
     }
 
+    fn run_with(prog: &str, opts: &Options) -> Value {
+        let src = Source {
+            name: None,
+            text: prog.to_string(),
+        };
+        serde_json::from_str(&lint(&[src], opts).1).unwrap()
+    }
+
+    #[test]
+    fn unset_variables() {
+        let v = run("BEGIN { x = 1 }\n{ print x, y }");
+        assert_eq!(v["valid"], true);
+        assert_eq!(codes(&v), ["W201"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 12);
+        // Set by a function, a loop, getline, -v, or a function parameter: not reported.
+        assert!(codes(&run("{ n = split($0, parts); print parts[1], n }")).is_empty());
+        assert!(codes(&run("{ for (k in a) print k; a[$1]++ }")).is_empty());
+        assert!(codes(&run("{ getline line; print line, NR, FILENAME }")).is_empty());
+        assert!(codes(&run("function f(a, b) { return a + b } { print f($1) }")).is_empty());
+        let opts = Options { assigned: vec!["n".into()], ..Options::default() };
+        assert!(codes(&run_with("{ print n }", &opts)).is_empty());
+        assert!(codes(&run("# @var n count\n# @var m? other\n{ print n, m }")).is_empty());
+        // An array that is only read is empty too.
+        assert_eq!(codes(&run("{ if ($1 in seen) print }")), ["W201"]);
+    }
+
+    #[test]
+    fn format_arguments() {
+        assert_eq!(super::format_arguments(b"%s %d%%\n"), Some(2));
+        assert_eq!(super::format_arguments(b"%-*.*f|%5.2e %lld"), Some(5));
+        assert_eq!(super::format_arguments(b"%2$s %1$s"), None);
+        let v = run("BEGIN {\n  printf \"%s %s\\n\", \"a\"\n}");
+        assert_eq!(codes(&v), ["W202"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 3);
+        assert_eq!(codes(&run("BEGIN { x = sprintf(\"%d\", 1, 2) }")), ["W203"]);
+        assert_eq!(codes(&run("BEGIN { printf(\"%s\") }")), ["W202"]);
+        assert!(codes(&run("BEGIN { printf \"%s=%d\\n\", \"a\", 1; x = \"%s\"; printf x }")).is_empty());
+    }
+
+    #[test]
+    fn extra_arguments() {
+        let v = run("function f(a) { return a }\nBEGIN { print f(1, 2, 3) }");
+        assert_eq!(codes(&v), ["W204"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 15);
+        assert!(codes(&run("function f(a, b) { return a } BEGIN { print f(1) }")).is_empty());
+    }
+
+    #[test]
+    fn parallel() {
+        let prog = "NR == 1 { print }\n{ last = $1; sum += $1; n++; avg = avg + $2; seen[$1] = $2 }\nEND { print last, sum, n, avg, length(seen) }";
+        assert!(codes(&run(prog)).is_empty());
+        let pr = Options { parallel: Some(Parallel::Record), ..Options::default() };
+        let v = run_with(prog, &pr);
+        assert_eq!(codes(&v), ["W301", "W302"]);
+        assert_eq!(v["diagnostics"][1]["line"], 2);
+        assert_eq!(v["diagnostics"][1]["column"], 3);
+        // Values collected per worker in PREPARE are the documented fix.
+        let fixed = "{ max = max > $1 ? max : $1 } PREPARE { m[PID] = max } END { for (p in m) print m[p] }";
+        assert!(codes(&run_with(fixed, &pr)).is_empty());
+        let pf = Options { parallel: Some(Parallel::File), ..Options::default() };
+        assert!(codes(&run_with("FNR == 1 { print FILENAME }", &pf)).is_empty());
+        assert_eq!(codes(&run_with("FNR == 1 { print FILENAME }", &pr)), ["W301"]);
+    }
+
     #[test]
     fn multiple_sources() {
         let srcs = [
@@ -469,7 +1064,7 @@ mod tests {
                 text: "BEGIN {\n  print f(1\n}".into(),
             },
         ];
-        let v: Value = serde_json::from_str(&lint(&srcs, false).1).unwrap();
+        let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).1).unwrap();
         let d = &v["diagnostics"][0];
         assert_eq!(d["file"], "b.awk");
         assert_eq!(d["line"], 2);

@@ -52,6 +52,8 @@ non-trivial programs, fix every `error`, then run the program.
 zawk lint '{ print $1 }'               # program text (sugar syntax like '$1,$2' is expanded, as for a run)
 zawk lint -f demo.awk                  # program files (-f and -e can be repeated, as for a run)
 echo 'BEGIN { print 1 }' | zawk lint   # program from stdin
+zawk lint -v n=10 -f top.awk           # n is set on the command line: not reported as never set
+zawk lint -pr -f sum.awk               # also report code that changes meaning with -pr / -pf
 ```
 
 ```json
@@ -93,6 +95,12 @@ count characters); `file` is null for program text, and all location fields are 
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W102 | assignment to the read-only `ARGV` or `ARGC`                                     |
+| W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
+| W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
+| W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |
+| W204 | user function called with more arguments than it declares                        |
+| W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
+| W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 
 Only the first error is reported: fix it and lint again.
 
