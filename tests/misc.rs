@@ -825,16 +825,17 @@ fn close_output_command() {
             .success()
             .stdout(String::from("a\nb\n"));
         // close() returns the exit status of an output or input command, 0 for files, and -1
-        // for names that were never opened.
+        // for names that were never opened or are already closed.
         let tmp = tempdir().unwrap();
         let out = tmp.path().join("out.txt");
         let prog = format!(
             r#"BEGIN {{
                 print "x" | "cat >/dev/null; exit 3"; print close("cat >/dev/null; exit 3")
                 print close("never opened")
-                print "y" > "{0}"; print close("{0}")
-                "echo hi" | getline v; print close("echo hi")
+                print "y" > "{0}"; print close("{0}"); print close("{0}")
+                "echo hi" | getline v; print close("echo hi"); print close("echo hi")
                 "echo hi; exit 4" | getline v; print close("echo hi; exit 4")
+                print close("cat >/dev/null; exit 3")
             }}"#,
             out.to_str().unwrap()
         );
@@ -844,7 +845,7 @@ fn close_output_command() {
             .arg(prog)
             .assert()
             .success()
-            .stdout(String::from("3\n-1\n0\n0\n4\n"));
+            .stdout(String::from("3\n-1\n0\n-1\n0\n-1\n4\n-1\n"));
         // A command killed by a signal gives 256 plus the signal number, as in gawk.
         #[cfg(unix)]
         Command::cargo_bin("zawk")

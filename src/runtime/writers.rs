@@ -544,8 +544,12 @@ impl Registry {
         // Borrow<Str<'static>> (conflicts with the blanket impl for Borrow).
         if let Some(fh) = self.files.get_mut(&path_or_cmd.clone().unmoor()) {
             fh.checked = false;
-            fh.close()?;
-            return Ok(Some(0));
+            // The handle outlives a close: closing it again returns -1 (`None`), as in gawk.
+            fh.flush()?;
+            if fh.raw.is_open() {
+                fh.close()?;
+                return Ok(Some(0));
+            }
         }
         if let Some(mut ch) = self.cmds.remove(&path_or_cmd.clone().unmoor()) {
             // Output already printed should appear before anything the command prints on exit.
@@ -804,8 +808,11 @@ impl<F: FileFactory> Root for RootImpl<F> {
         }
         if let Some(h) = handle.take() {
             let mut fh = h.into_handle();
-            fh.close()?;
-            return Ok(Some(fh.raw.take_status()));
+            fh.flush()?;
+            if fh.raw.is_open() {
+                fh.close()?;
+                return Ok(Some(fh.raw.take_status()));
+            }
         }
         {
             let fname = if let Ok(s) = std::str::from_utf8(fname) {
@@ -821,8 +828,12 @@ impl<F: FileFactory> Root for RootImpl<F> {
             }
         }
         if let Some(h) = handle.take() {
-            h.into_handle().close()?;
-            return Ok(Some(0));
+            let mut fh = h.into_handle();
+            fh.flush()?;
+            if fh.raw.is_open() {
+                fh.close()?;
+                return Ok(Some(0));
+            }
         }
         Ok(None)
     }
