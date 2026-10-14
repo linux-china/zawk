@@ -452,6 +452,30 @@ END { n = asorti(count, keys); for (i = 1; i <= n; i++) print keys[i], count[key
 
 `_max(arr)`: IntIntMap -> Int, IntFloatMap -> Float
 
+### _median/_quantile/_var/_stddev/_mode
+
+Exact statistics over the values of any array (string values are converted to numbers, keys may be strings); 0 for an empty array.
+
+* `_median(arr)`: median
+* `_quantile(arr, q)`: q-quantile, `0 <= q <= 1`, interpolated linearly between ranks (as R's type 7 and numpy)
+* `_var(arr)`, `_stddev(arr)`: sample variance and standard deviation (divided by `n - 1`)
+* `_mode(arr)`: most frequent value, the smallest one on a tie
+
+```awk
+{ latency[NR] = $3 }
+END { print _median(latency), _quantile(latency, 0.99), _stddev(latency) }
+```
+
+### _count_distinct/_top
+
+* `_count_distinct(arr)`: number of distinct values of an array
+* `_top(arr, k)`: the `k` keys with the largest numeric values, from the largest down, as an array indexed from 1; keys with equal values are ordered by key
+
+```awk
+{ count[$1]++ }
+END { t = _top(count, 10); for (i = 1; i <= length(t); i++) print t[i], count[t[i]] }
+```
+
 ### _join
 
 `_join(arr, ",")` IntMap -> Str

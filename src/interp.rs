@@ -2370,6 +2370,25 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         self.asorti(*res, *src_ty, *src, *dst_ty, *dst, *how)?
                     }
                     Len { map_ty, map, dst } => self.len(*map_ty, *map, *dst),
+                    ArrayStat { res, map_ty, map, kind, q } => {
+                        let (kind, q, map) = (*self.get(*kind), *self.get(*q), *map);
+                        let v = map_regs!(*map_ty, map, {
+                            runtime::array_stats::array_stat(self.get(map), kind, q)
+                        });
+                        *self.get_mut(*res) = v;
+                    }
+                    ArrayCountDistinct { res, map_ty, map } => {
+                        let map = *map;
+                        let v = map_regs!(*map_ty, map, {
+                            runtime::array_stats::count_distinct(self.get(map))
+                        });
+                        *self.get_mut(*res) = v;
+                    }
+                    ArrayTop { res, map_ty, map, k } => {
+                        let (k, map) = (*self.get(*k), *map);
+                        let v = map_regs!(*map_ty, map, runtime::array_stats::top(self.get(map), k));
+                        *self.get_mut(*res) = v;
+                    }
                     Store {
                         map_ty,
                         map,

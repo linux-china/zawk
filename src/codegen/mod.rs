@@ -553,6 +553,60 @@ pub(crate) trait CodeGenerator: Backend {
         self.bind_val(res, resv)
     }
 
+    /// `_median`, `_quantile`, `_var`, `_stddev` and `_mode` (see `array_stats::array_stat`).
+    fn array_stat(&mut self, map: Ref, kind: Ref, q: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match map.1 {
+            MapIntInt => intrinsic!(array_stat_int_int),
+            MapIntFloat => intrinsic!(array_stat_int_float),
+            MapIntStr => intrinsic!(array_stat_int_str),
+            MapStrInt => intrinsic!(array_stat_str_int),
+            MapStrFloat => intrinsic!(array_stat_str_float),
+            MapStrStr => intrinsic!(array_stat_str_str),
+            ty => return err!("invalid map type for array statistics: {:?}", ty),
+        };
+        let mapv = self.get_val(map)?;
+        let kindv = self.get_val(kind)?;
+        let qv = self.get_val(q)?;
+        let resv = self.call_intrinsic(func, &mut [mapv, kindv, qv])?;
+        self.bind_val(res, resv)
+    }
+
+    /// `_count_distinct(map)`.
+    fn array_count_distinct(&mut self, map: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match map.1 {
+            MapIntInt => intrinsic!(count_distinct_int_int),
+            MapIntFloat => intrinsic!(count_distinct_int_float),
+            MapIntStr => intrinsic!(count_distinct_int_str),
+            MapStrInt => intrinsic!(count_distinct_str_int),
+            MapStrFloat => intrinsic!(count_distinct_str_float),
+            MapStrStr => intrinsic!(count_distinct_str_str),
+            ty => return err!("invalid map type for _count_distinct: {:?}", ty),
+        };
+        let mapv = self.get_val(map)?;
+        let resv = self.call_intrinsic(func, &mut [mapv])?;
+        self.bind_val(res, resv)
+    }
+
+    /// `_top(map, k)`.
+    fn array_top(&mut self, map: Ref, k: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match map.1 {
+            MapIntInt => intrinsic!(top_int_int),
+            MapIntFloat => intrinsic!(top_int_float),
+            MapIntStr => intrinsic!(top_int_str),
+            MapStrInt => intrinsic!(top_str_int),
+            MapStrFloat => intrinsic!(top_str_float),
+            MapStrStr => intrinsic!(top_str_str),
+            ty => return err!("invalid map type for _top: {:?}", ty),
+        };
+        let mapv = self.get_val(map)?;
+        let kv = self.get_val(k)?;
+        let resv = self.call_intrinsic(func, &mut [mapv, kv])?;
+        self.bind_val(res, resv)
+    }
+
     /// Determines if `map` contains `key` and stores the result (0 or 1) in `dst`.
     ///
     /// Assumes that map and key types match up.
@@ -1841,6 +1895,15 @@ pub(crate) trait CodeGenerator: Backend {
                 self.asorti((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect())
             }
             Len { map_ty, map, dst } => self.len_map((*map, *map_ty), (*dst, compile::Ty::Int)),
+            ArrayStat { res, map_ty, map, kind, q } => {
+                self.array_stat((*map, *map_ty), kind.reflect(), q.reflect(), res.reflect())
+            }
+            ArrayCountDistinct { res, map_ty, map } => {
+                self.array_count_distinct((*map, *map_ty), res.reflect())
+            }
+            ArrayTop { res, map_ty, map, k } => {
+                self.array_top((*map, *map_ty), k.reflect(), res.reflect())
+            }
             Store {
                 map_ty,
                 map,

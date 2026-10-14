@@ -868,6 +868,19 @@ pub(crate) mod boilerplate {
                 f(Key::Reg(*dst, map_ty.val().unwrap()), Some(Key::MapVal(*map, *map_ty)))
             }
             Len { map_ty, dst, map } => f(Key::Reg(*dst, Ty::Int), Some(Key::Reg(*map, *map_ty))),
+            ArrayStat { res, map_ty, map, kind, q } => {
+                f(res.into(), Some(Key::MapVal(*map, *map_ty)));
+                f(res.into(), Some(kind.into()));
+                f(res.into(), Some(q.into()));
+            }
+            ArrayCountDistinct { res, map_ty, map } => {
+                f(res.into(), Some(Key::MapVal(*map, *map_ty)))
+            }
+            ArrayTop { res, map_ty, map, k } => {
+                f(res.into(), Some(k.into()));
+                f(Key::MapKey(res.reflect().0, Ty::MapIntStr), None);
+                f(Key::MapVal(res.reflect().0, Ty::MapIntStr), Some(Key::MapKey(*map, *map_ty)));
+            }
             Asort { res, src_ty, src, dst_ty, dst, .. } => {
                 f(res.into(), None);
                 f(Key::MapKey(*dst, *dst_ty), None);

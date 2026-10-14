@@ -347,6 +347,24 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_int_sum(map_ty) -> int_ty;
         [ReadOnly] map_int_float_sum(map_ty) -> float_ty;
         [ReadOnly] map_int_int_mean(map_ty) -> int_ty;
+        [ReadOnly] array_stat_int_int(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_int_int(map_ty) -> int_ty;
+        [ReadOnly] top_int_int(map_ty, int_ty) -> map_ty;
+        [ReadOnly] array_stat_int_float(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_int_float(map_ty) -> int_ty;
+        [ReadOnly] top_int_float(map_ty, int_ty) -> map_ty;
+        [ReadOnly] array_stat_int_str(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_int_str(map_ty) -> int_ty;
+        [ReadOnly] top_int_str(map_ty, int_ty) -> map_ty;
+        [ReadOnly] array_stat_str_int(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_str_int(map_ty) -> int_ty;
+        [ReadOnly] top_str_int(map_ty, int_ty) -> map_ty;
+        [ReadOnly] array_stat_str_float(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_str_float(map_ty) -> int_ty;
+        [ReadOnly] top_str_float(map_ty, int_ty) -> map_ty;
+        [ReadOnly] array_stat_str_str(map_ty, int_ty, float_ty) -> float_ty;
+        [ReadOnly] count_distinct_str_str(map_ty) -> int_ty;
+        [ReadOnly] top_str_str(map_ty, int_ty) -> map_ty;
         [ReadOnly] map_int_float_mean(map_ty) -> float_ty;
         [ReadOnly] from_csv(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_csv(map_ty) -> str_ty;
@@ -2680,6 +2698,49 @@ pub(crate) unsafe extern "C" fn map_int_float_sum(arr: *mut c_void) -> Float {
         result
     })
 }
+
+// _median/_quantile/_var/_stddev/_mode, _count_distinct and _top: one intrinsic per map type.
+macro_rules! array_stats_intrinsics {
+    ($([$stat:ident, $distinct:ident, $top:ident, $map:ty]),*) => {
+        $(
+            pub(crate) unsafe extern "C" fn $stat(map: *mut c_void, kind: Int, q: Float) -> Float {
+                guard_panic(stringify!($stat), || {
+                    let map = mem::transmute::<*mut c_void, $map>(map);
+                    let res = runtime::array_stats::array_stat(&map, kind, q);
+                    mem::forget(map);
+                    res
+                })
+            }
+
+            pub(crate) unsafe extern "C" fn $distinct(map: *mut c_void) -> Int {
+                guard_panic(stringify!($distinct), || {
+                    let map = mem::transmute::<*mut c_void, $map>(map);
+                    let res = runtime::array_stats::count_distinct(&map);
+                    mem::forget(map);
+                    res
+                })
+            }
+
+            pub(crate) unsafe extern "C" fn $top(map: *mut c_void, k: Int) -> *mut c_void {
+                guard_panic(stringify!($top), || {
+                    let map = mem::transmute::<*mut c_void, $map>(map);
+                    let res = runtime::array_stats::top(&map, k);
+                    mem::forget(map);
+                    mem::transmute::<IntMap<Str>, *mut c_void>(res)
+                })
+            }
+        )*
+    };
+}
+
+array_stats_intrinsics!(
+    [array_stat_int_int, count_distinct_int_int, top_int_int, IntMap<Int>],
+    [array_stat_int_float, count_distinct_int_float, top_int_float, IntMap<Float>],
+    [array_stat_int_str, count_distinct_int_str, top_int_str, IntMap<Str>],
+    [array_stat_str_int, count_distinct_str_int, top_str_int, StrMap<Int>],
+    [array_stat_str_float, count_distinct_str_float, top_str_float, StrMap<Float>],
+    [array_stat_str_str, count_distinct_str_str, top_str_str, StrMap<Str>]
+);
 
 pub(crate) unsafe extern "C" fn map_int_int_mean(arr: *mut c_void) -> Int {
     guard_panic(stringify!(map_int_int_mean), || {

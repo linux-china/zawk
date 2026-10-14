@@ -167,6 +167,16 @@ pub enum Function {
     ArrayMin,
     ArrayMean,
     ArraySum,
+    // _median(a), _quantile(a, q), _var(a), _stddev(a), _mode(a): rewritten to
+    // ArrayStat(a, kind, q) when lowering to the CFG (see runtime::array_stats).
+    ArrayMedian,
+    ArrayQuantile,
+    ArrayVar,
+    ArrayStddev,
+    ArrayMode,
+    ArrayStat,
+    ArrayCountDistinct,
+    ArrayTop,
     Asort,
     Asorti,
     BloomFilterInsert,
@@ -484,6 +494,13 @@ static_map!(
     ["_min", Function::ArrayMin],
     ["_sum", Function::ArraySum],
     ["_mean", Function::ArrayMean],
+    ["_median", Function::ArrayMedian],
+    ["_quantile", Function::ArrayQuantile],
+    ["_var", Function::ArrayVar],
+    ["_stddev", Function::ArrayStddev],
+    ["_mode", Function::ArrayMode],
+    ["_count_distinct", Function::ArrayCountDistinct],
+    ["_top", Function::ArrayTop],
     ["_join", Function::IntMapJoin],
     ["seq", Function::Seq],
     ["uniq", Function::Uniq],
@@ -722,6 +739,9 @@ impl Function {
                     val: Some(BaseTy::Str),
                 }));
                 ctx.nw.add_dep(dst, args[1], Constraint::Flows(()));
+            }
+            Function::ArrayStat | Function::ArrayCountDistinct | Function::ArrayTop => {
+                ctx.constrain_as_map(args[0]);
             }
             Function::Clear => {
                 let is_map = ctx.constant(Some(Map {
@@ -977,6 +997,15 @@ impl Function {
             Encrypt => (smallvec![Str, Str, Str], Str),
             Decrypt => (smallvec![Str, Str, Str], Str),
             Asort => (smallvec![incoming[0], incoming[1]], Int),
+            ArrayStat | ArrayCountDistinct | ArrayTop if !incoming[0].is_array() => {
+                return err!("{} expects an array, got {:?}", self, incoming[0]);
+            }
+            ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode => {
+                return err!("{} should have been lowered to ArrayStat", self);
+            }
+            ArrayStat => (smallvec![incoming[0], Int, Float], Float),
+            ArrayCountDistinct => (smallvec![incoming[0]], Int),
+            ArrayTop => (smallvec![incoming[0], Int], MapIntStr),
             Asorti => {
                 if incoming[0].is_array() && matches!(incoming[1], MapIntStr | MapStrStr) {
                     (smallvec![incoming[0], incoming[1], Str], Int)
@@ -1106,6 +1135,9 @@ impl Function {
             Strnum | ToFloat | OfmtStr => 1,
             Asort => 2,
             Asorti => 3,
+            ArrayMedian | ArrayVar | ArrayStddev | ArrayMode | ArrayCountDistinct => 1,
+            ArrayQuantile | ArrayTop => 2,
+            ArrayStat => 3,
             SplitSeps => 4,
             HttpGet => 2,
             HttpPost => 3,
@@ -1169,7 +1201,12 @@ impl Function {
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
-            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct => Ok(Scalar(BaseTy::Int).abs()),
+            ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),
+            ArrayTop => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
+            }.abs()),
             System2 => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,

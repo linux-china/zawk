@@ -2723,6 +2723,31 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Uuid if args_len == 0 => {
                         prim_args.push(PrimVal::StrLit(b"v4"));
                     }
+                    // _median(a) => stat(a, QUANTILE, 0.5); _quantile(a, q) => stat(a, QUANTILE, q);
+                    // _var(a) => stat(a, VAR, 0); _stddev(a) => stat(a, STDDEV, 0);
+                    // _mode(a) => stat(a, MODE, 0).
+                    builtins::Function::ArrayMedian
+                    | builtins::Function::ArrayQuantile
+                    | builtins::Function::ArrayVar
+                    | builtins::Function::ArrayStddev
+                    | builtins::Function::ArrayMode => {
+                        use crate::runtime::array_stats::*;
+                        use builtins::Function::*;
+                        let expected = if bi == ArrayQuantile { 2 } else { 1 };
+                        if args_len != expected {
+                            return Err(builtins::arity_error(&call_name(fname), args_len, expected));
+                        }
+                        let q = if bi == ArrayQuantile { prim_args.pop().unwrap() } else { PrimVal::FLit(0.5) };
+                        let kind = match bi {
+                            ArrayVar => STAT_VAR,
+                            ArrayStddev => STAT_STDDEV,
+                            ArrayMode => STAT_MODE,
+                            _ => STAT_QUANTILE,
+                        };
+                        prim_args.push(PrimVal::ILit(kind));
+                        prim_args.push(q);
+                        bi = ArrayStat;
+                    }
                     // _join(arr) => join(arr, " ");
                     builtins::Function::IntMapJoin if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b" "));

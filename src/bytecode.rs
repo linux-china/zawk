@@ -514,6 +514,25 @@ pub(crate) enum Instr<'a> {
         dst: NumTy,
         how: Reg<Str<'a>>,
     },
+    // _median/_quantile/_var/_stddev/_mode(map): see runtime::array_stats::array_stat.
+    ArrayStat {
+        res: Reg<Float>,
+        map_ty: Ty,
+        map: NumTy,
+        kind: Reg<Int>,
+        q: Reg<Float>,
+    },
+    ArrayCountDistinct {
+        res: Reg<Int>,
+        map_ty: Ty,
+        map: NumTy,
+    },
+    ArrayTop {
+        res: Reg<runtime::IntMap<Str<'a>>>,
+        map_ty: Ty,
+        map: NumTy,
+        k: Reg<Int>,
+    },
     Len {
         map_ty: Ty,
         dst: NumTy,
@@ -1825,6 +1844,21 @@ impl<'a> Instr<'a> {
                 f(*src, *src_ty);
                 f(*dst, *dst_ty);
                 how.accum(&mut f);
+            }
+            ArrayStat { res, map_ty, map, kind, q } => {
+                res.accum(&mut f);
+                f(*map, *map_ty);
+                kind.accum(&mut f);
+                q.accum(&mut f);
+            }
+            ArrayCountDistinct { res, map_ty, map } => {
+                res.accum(&mut f);
+                f(*map, *map_ty);
+            }
+            ArrayTop { res, map_ty, map, k } => {
+                res.accum(&mut f);
+                f(*map, *map_ty);
+                k.accum(&mut f);
             }
             Len { map_ty, map, dst } => {
                 f(*dst, Ty::Int);

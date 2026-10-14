@@ -122,3 +122,38 @@ fn procinfo_sorted_in() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("user-defined comparison functions"));
     }
 }
+
+#[test]
+fn array_statistics() {
+    let cases: &[(&str, &str, &str)] = &[
+        // String values (fields) are converted to numbers.
+        (
+            "3\n1\n4\n1\n5\n9\n2\n6\n",
+            r#"{ a[NR] = $1 } END { print _median(a), _quantile(a, 0.9), _var(a), _stddev(a), _mode(a), _count_distinct(a) }"#,
+            "3.5 6.9 7.55357 2.74838 1 7\n",
+        ),
+        (
+            "3\n1\n4\n1\n5\n9\n2\n6\n",
+            r#"{ a[NR] = $1 + 0 } END { print _median(a), _quantile(a, 0.25), _quantile(a, 2) }"#,
+            "3.5 1.75 9\n",
+        ),
+        // String keys; ties in _top are ordered by key.
+        (
+            "a\nb\na\nc\nb\na\nd\n",
+            r#"{ c[$1]++ } END { t = _top(c, 3); for (i = 1; i <= length(t); i++) print t[i], c[t[i]]; print _count_distinct(c), length(_top(c, 0)), length(_top(c, 99)) }"#,
+            "a 3\nb 2\nc 1\n3 0 4\n",
+        ),
+        ("", r#"BEGIN { print _median(e), _stddev(e), _mode(e), _count_distinct(e), length(_top(e, 3)) }"#, "0 0 0 0 0\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (input, prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .arg(*prog)
+                .write_stdin(*input)
+                .assert()
+                .stdout(expected.to_string());
+        }
+    }
+}

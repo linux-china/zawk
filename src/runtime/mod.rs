@@ -31,6 +31,7 @@ pub mod crypto;
 pub mod str_escape;
 pub mod math_util;
 pub(crate) mod sorted_in;
+pub(crate) mod array_stats;
 
 pub mod json;
 pub mod network;

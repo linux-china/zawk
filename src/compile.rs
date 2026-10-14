@@ -2903,6 +2903,39 @@ impl<'a, 'b> View<'a, 'b> {
                     how: conv_regs[2].into(),
                 })
             }
+            ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode => {
+                return err!("{} should have been lowered to ArrayStat", bf);
+            }
+            ArrayStat => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ArrayStat {
+                        res: res_reg.into(),
+                        map_ty: conv_tys[0],
+                        map: conv_regs[0],
+                        kind: conv_regs[1].into(),
+                        q: conv_regs[2].into(),
+                    })
+                }
+            }
+            ArrayCountDistinct => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ArrayCountDistinct {
+                        res: res_reg.into(),
+                        map_ty: conv_tys[0],
+                        map: conv_regs[0],
+                    })
+                }
+            }
+            ArrayTop => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ArrayTop {
+                        res: res_reg.into(),
+                        map_ty: conv_tys[0],
+                        map: conv_regs[0],
+                        k: conv_regs[1].into(),
+                    })
+                }
+            }
             BloomFilterInsert => {
                 self.pushl(LL::BloomFilterInsert(conv_regs[0].into(), conv_regs[1].into()))
             }
