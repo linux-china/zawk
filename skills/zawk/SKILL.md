@@ -92,9 +92,9 @@ count characters); `file` is null for program text, and all location fields are 
 | E302 | wrong number of arguments to a builtin function                                  |
 | E303 | a variable is used both as an array and as a scalar                              |
 | E304 | user input passed to a shell command (allowed with `-A`)                         |
+| E305 | assignment to a read-only variable (`ARGC`, `ARGV`, `FILENAME`, `NR`, `NF`, `FI`) or a field (`$0`, `$1`, `$FI["col"]`) |
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
-| W102 | assignment to the read-only `ARGV` or `ARGC`                                     |
 | W103 | `f` used as a variable or function name (clashes with f-strings `f"..."`)        |
 | W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|

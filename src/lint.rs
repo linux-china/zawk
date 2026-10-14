@@ -391,7 +391,19 @@ struct Facts<'a, 'p> {
     /// `printf` and `sprintf` with a literal format: the format, the number of arguments to
     /// format and the location.
     formats: Vec<(&'a [u8], usize, Option<Loc>)>,
+    /// Assignments to read-only variables and fields: the message and the location.
+    read_only: Vec<(String, Option<Loc>)>,
 }
+
+/// Special variables a program may read but not assign, with why.
+const READ_ONLY_VARIABLES: &[(&str, &str)] = &[
+    ("ARGC", "changing it does not change the input files"),
+    ("ARGV", "changing it does not change the input files"),
+    ("FILENAME", "it is the name of the input file being read"),
+    ("NR", "it counts the records read"),
+    ("NF", "it is the number of fields of the current record"),
+    ("FI", "it maps the column names of the header to field indexes"),
+];
 
 /// Builtins that only read their arguments; a variable passed to any other function may be
 /// filled by it (e.g. `split(s, parts)`, or an array passed to a user function).
@@ -500,8 +512,38 @@ impl<'a, 'p> Facts<'a, 'p> {
         }
     }
 
+    /// Records an assignment to `e` if it is a read-only variable, an element of one, or a field.
+    fn check_read_only(&mut self, e: &'a AstExpr<'a>) {
+        let target = match e {
+            ast::Expr::Index(arr @ ast::Expr::Var(_), _) => arr,
+            _ => e,
+        };
+        match target {
+            ast::Expr::Var(name) if !self.is_local(name) => {
+                if let Some((_, why)) = READ_ONLY_VARIABLES.iter().find(|(n, _)| n == name) {
+                    let msg = format!("`{}` is read-only and cannot be assigned: {}", name, why);
+                    self.read_only.push((msg, self.loc(target)));
+                }
+            }
+            ast::Expr::Unop(ast::Unop::Column, ix) => {
+                let what = match ix {
+                    ast::Expr::Index(ast::Expr::Var("FI"), _) => "`$FI[...]`",
+                    ast::Expr::ILit(0) => "`$0`",
+                    _ => "a field",
+                };
+                let msg = format!(
+                    "fields are read-only: {} cannot be assigned; build the output in a variable instead, e.g. `line = $1 OFS $2`",
+                    what
+                );
+                self.read_only.push((msg, self.loc(e)));
+            }
+            _ => {}
+        }
+    }
+
     /// Walks an assignment target.
     fn lvalue(&mut self, e: &'a AstExpr<'a>, kind: SetKind) {
+        self.check_read_only(e);
         match e {
             ast::Expr::Var(name) => self.set(name, kind, self.loc(e)),
             ast::Expr::Index(arr, ix) => {
@@ -577,7 +619,12 @@ impl<'a, 'p> Facts<'a, 'p> {
                         }
                         READ_ONLY_FUNCTIONS.contains(name)
                     }
-                    Either::Right(Function::Delete | Function::Clear) => false,
+                    Either::Right(Function::Delete | Function::Clear) => {
+                        if let Some(arr) = args.first() {
+                            self.check_read_only(arr);
+                        }
+                        false
+                    }
                     Either::Right(Function::Contains) => {
                         if let Some(arr) = args.first() {
                             self.array(arr);
@@ -669,6 +716,7 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         arrays: Vec::new(),
         calls: Vec::new(),
         formats: Vec::new(),
+        read_only: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -695,7 +743,16 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         facts.stmt(dec.body);
     }
 
-    let mut diags = Vec::new();
+    let mut diags: Vec<Diagnostic> = facts
+        .read_only
+        .iter()
+        .map(|(msg, loc)| Diagnostic {
+            code: "E305",
+            severity: Severity::Error,
+            message: msg.clone(),
+            loc: *loc,
+        })
+        .collect();
 
     // Variables that are read but never set anywhere: almost always a typo.
     let mut reported: Vec<&str> = Vec::new();
@@ -840,8 +897,8 @@ const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
     ("FUNCTAB", "indirect function calls are not supported"),
 ];
 
-/// Reports what the token stream shows on its own: gawk variables zawk ignores, assignments to
-/// the read-only `ARGV` and `ARGC`, and `f` used as a name. Lexer errors are left to the parser.
+/// Reports what the token stream shows on its own: gawk variables zawk ignores and `f` used as a
+/// name. Lexer errors are left to the parser.
 fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
     let toks: Vec<_> = lexer::Tokenizer::new(prog).map_while(Result::ok).collect();
     let mut diags = Vec::new();
@@ -869,7 +926,7 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
             Some(*loc),
         ));
     }
-    for (i, (loc, tok, _)) in toks.iter().enumerate() {
+    for (loc, tok, _) in &toks {
         let Tok::Ident(name) = tok else { continue };
         if let Some((_, why)) = IGNORED_GAWK_VARIABLES.iter().find(|(n, _)| n == name) {
             if !reported.contains(name) {
@@ -880,51 +937,6 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
                     message: format!(
                         "gawk variable `{}` has no special meaning in zawk: {}",
                         name, why
-                    ),
-                    loc: Some(*loc),
-                });
-            }
-        } else if matches!(*name, "ARGV" | "ARGC") {
-            // Skip `[...]` after ARGV to find the token following the lvalue.
-            let mut j = i + 1;
-            if toks.get(j).map(|t| &t.1) == Some(&Tok::LBrack) {
-                let mut depth = 0;
-                while let Some((_, t, _)) = toks.get(j) {
-                    match t {
-                        Tok::LBrack => depth += 1,
-                        Tok::RBrack => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                j += 1;
-            }
-            let assigned = matches!(
-                toks.get(j).map(|t| &t.1),
-                Some(
-                    Tok::Assign
-                        | Tok::AddAssign
-                        | Tok::SubAssign
-                        | Tok::MulAssign
-                        | Tok::DivAssign
-                        | Tok::PowAssign
-                        | Tok::ModAssign
-                        | Tok::Incr
-                        | Tok::Decr
-                )
-            ) || matches!(toks.get(i.wrapping_sub(1)).map(|t| &t.1), Some(Tok::Delete));
-            if assigned {
-                diags.push(Diagnostic {
-                    code: "W102",
-                    severity: Severity::Warning,
-                    message: format!(
-                        "`{}` is read-only in zawk: changing it does not change the input files",
-                        name
                     ),
                     loc: Some(*loc),
                 });
@@ -1002,10 +1014,28 @@ mod tests {
 
     #[test]
     fn warnings() {
-        let v = run("BEGIN { FIELDWIDTHS = \"2 3\"; ARGV[1] = \"x\"; ARGC++ }");
+        let v = run("BEGIN { FIELDWIDTHS = \"2 3\" }");
         assert_eq!(v["valid"], true);
-        assert_eq!(codes(&v), ["W101", "W102", "W102"]);
-        assert!(codes(&run("BEGIN { print ARGV[1], ARGC }")).is_empty());
+        assert_eq!(codes(&v), ["W101"]);
+    }
+
+    #[test]
+    fn read_only() {
+        let v = run("BEGIN { ARGV[1] = \"x\"; ARGC++; delete ARGV }");
+        assert_eq!(v["valid"], false);
+        assert_eq!(codes(&v), ["E305", "E305", "E305"]);
+        let v = run("{ FILENAME = \"a\"; NR = 1; NF -= 1 }");
+        assert_eq!(codes(&v), ["E305", "E305", "E305"]);
+        assert_eq!(v["diagnostics"][1]["column"], 19);
+        let v = run("{\n  $0 = tolower($0); $1 = \"\"; $NF++; getline $2 }");
+        assert_eq!(codes(&v), ["E305", "E305", "E305", "E305"]);
+        assert_eq!(v["diagnostics"][1]["line"], 2);
+        assert_eq!(v["diagnostics"][1]["column"], 21);
+        let v = run("{ $FI[\"name\"] = \"x\"; FI[\"name\"] = 1 }");
+        assert_eq!(codes(&v), ["E305", "E305"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("$FI[...]"));
+        // Reading them is fine.
+        assert!(codes(&run("{ print ARGV[1], ARGC, FILENAME, NR, NF, $0, $1, $FI[\"name\"] }")).is_empty());
     }
 
     #[test]

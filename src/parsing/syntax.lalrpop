@@ -456,7 +456,11 @@ PrecFieldRef: &'a Expr<'a,'a,&'a str> = {
 }
 
 Col: &'a Expr<'a,'a,&'a str> = {
-    "$" <e:BaseTerm> => arena.alloc(Expr::Unop(Unop::Column, e)),
+    <l:@L> "$" <e:BaseTerm> => {
+        let c: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::Unop(Unop::Column, e));
+        prog.locs.insert(expr_key(c), l);
+        c
+    },
 }
 
 Ident: &'a Expr<'a,'a,&'a str> = {
