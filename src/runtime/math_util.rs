@@ -51,35 +51,59 @@ fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
 
 /// A value that `asort()` can sort, in gawk's order: numbers before strings, numbers in numeric
 /// order and strings in string order. `strnum` is whether string values may be strnums.
-pub(crate) trait AsortValue: Clone {
-    fn asort_cmp(&self, other: &Self, strnum: bool) -> Ordering;
+pub(crate) trait AsortValue: Sized {
+    fn asort_sort(items: &mut Vec<Self>, strnum: bool);
 }
 
 impl AsortValue for Int {
-    fn asort_cmp(&self, other: &Self, _strnum: bool) -> Ordering {
-        self.cmp(other)
+    fn asort_sort(items: &mut Vec<Self>, _strnum: bool) {
+        items.sort_unstable();
     }
 }
 
 impl AsortValue for Float {
-    fn asort_cmp(&self, other: &Self, _strnum: bool) -> Ordering {
-        self.total_cmp(other)
+    fn asort_sort(items: &mut Vec<Self>, _strnum: bool) {
+        // Equal under total_cmp means bitwise equal, so an unstable sort is fine.
+        items.sort_unstable_by(|x, y| x.total_cmp(y));
     }
 }
 
 impl<'a> AsortValue for Str<'a> {
-    fn asort_cmp(&self, other: &Self, strnum: bool) -> Ordering {
-        if !strnum {
-            return self.with_bytes(|x| other.with_bytes(|y| x.cmp(y)));
+    fn asort_sort(items: &mut Vec<Self>, strnum: bool) {
+        // Decorate-sort-undecorate: get the bytes (and, for strnums, the numeric value) of each
+        // item once, rather than in every comparison, and sort indices into `items`.
+        // The pointers stay valid while `items` is neither moved nor modified; `get_bytes` forces
+        // Concat strings, so all of them are computed before any is dereferenced.
+        let bytes: Vec<*const [u8]> = items.iter().map(|s| s.get_bytes()).collect();
+        let bytes = |i: usize| unsafe { &*bytes[i] };
+        let mut nums: Vec<(Float, usize)> = Vec::new();
+        let mut strs: Vec<usize> = Vec::with_capacity(items.len());
+        for i in 0..items.len() {
+            // Strings are untyped at runtime, so strings that may be strnums (such as the
+            // elements created by split()) sort as numbers when they look numeric.
+            match if strnum { looks_numeric(bytes(i)) } else { None } {
+                Some(n) => nums.push((n, i)),
+                None => strs.push(i),
+            }
         }
-        // Strings are untyped at runtime, so strings that may be strnums (such as the elements
-        // created by split()) sort as numbers when they look numeric.
-        let num = |s: &Str| s.with_bytes(looks_numeric);
-        match (num(self), num(other)) {
-            (Some(x), Some(y)) => x.total_cmp(&y),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => self.with_bytes(|x| other.with_bytes(|y| x.cmp(y))),
+        // Equal numbers keep their original order (as with a stable sort); equal strings are
+        // indistinguishable, so their order does not matter.
+        nums.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
+        strs.sort_unstable_by(|&x, &y| bytes(x).cmp(bytes(y)));
+        let mut order: Vec<usize> = nums.iter().map(|&(_, i)| i).collect();
+        drop(nums);
+        order.extend(strs);
+        // Permute in place so that `items[k]` becomes the old `items[order[k]]`, following each
+        // cycle and marking the positions it fills as done (`order[j] == j`).
+        for i in 0..order.len() {
+            let mut j = i;
+            while order[j] != i {
+                let k = order[j];
+                items.swap(j, k);
+                order[j] = j;
+                j = k;
+            }
+            order[j] = j;
         }
     }
 }
@@ -91,10 +115,10 @@ pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, s
 where
     K1: Hash + Eq,
     K2: Hash + Eq + From<Int>,
-    V: AsortValue,
+    V: AsortValue + Clone,
 {
     let mut items: Vec<V> = src.iter(|it| it.map(|(_, v)| v.clone()).collect());
-    items.sort_by(|x, y| x.asort_cmp(y, strnum));
+    V::asort_sort(&mut items, strnum);
     dst.clear();
     let len = items.len() as Int;
     for (i, item) in items.into_iter().enumerate() {
