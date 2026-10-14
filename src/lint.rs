@@ -840,12 +840,35 @@ const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
     ("FUNCTAB", "indirect function calls are not supported"),
 ];
 
-/// Reports what the token stream shows on its own: gawk variables zawk ignores and assignments
-/// to the read-only `ARGV` and `ARGC`. Lexer errors are left to the parser.
+/// Reports what the token stream shows on its own: gawk variables zawk ignores, assignments to
+/// the read-only `ARGV` and `ARGC`, and `f` used as a name. Lexer errors are left to the parser.
 fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
     let toks: Vec<_> = lexer::Tokenizer::new(prog).map_while(Result::ok).collect();
     let mut diags = Vec::new();
     let mut reported: Vec<&str> = Vec::new();
+    // `f` as a name clashes with f-strings: `f"x"` is an f-string, not `f` followed by "x".
+    let (mut f_var, mut f_fun) = (false, false);
+    for (loc, tok, _) in &toks {
+        let kind = match tok {
+            Tok::Ident("f") if !f_var => {
+                f_var = true;
+                "variable"
+            }
+            Tok::FunDec("f") | Tok::CallStart("f") if !f_fun => {
+                f_fun = true;
+                "function"
+            }
+            _ => continue,
+        };
+        diags.push(warning(
+            "W103",
+            format!(
+                "`f` should not be used as a {} name: it clashes with f-strings (`f\"...\"` is an f-string, not `f` followed by a string); rename it",
+                kind
+            ),
+            Some(*loc),
+        ));
+    }
     for (i, (loc, tok, _)) in toks.iter().enumerate() {
         let Tok::Ident(name) = tok else { continue };
         if let Some((_, why)) = IGNORED_GAWK_VARIABLES.iter().find(|(n, _)| n == name) {
@@ -985,6 +1008,16 @@ mod tests {
         assert!(codes(&run("BEGIN { print ARGV[1], ARGC }")).is_empty());
     }
 
+    #[test]
+    fn f_name() {
+        let v = run("function f(x) { return x }\nBEGIN { f = 1; print f(f), f }");
+        assert_eq!(codes(&v), ["W103", "W103"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("function"));
+        assert_eq!(v["diagnostics"][1]["line"], 2);
+        assert_eq!(v["diagnostics"][1]["column"], 9);
+        assert!(codes(&run("BEGIN { x = fx = xf = 1; print f\"{x}\", fx, xf }")).is_empty());
+    }
+
     fn run_with(prog: &str, opts: &Options) -> Value {
         let src = Source {
             name: None,
@@ -1004,7 +1037,7 @@ mod tests {
         assert!(codes(&run("{ n = split($0, parts); print parts[1], n }")).is_empty());
         assert!(codes(&run("{ for (k in a) print k; a[$1]++ }")).is_empty());
         assert!(codes(&run("{ getline line; print line, NR, FILENAME }")).is_empty());
-        assert!(codes(&run("function f(a, b) { return a + b } { print f($1) }")).is_empty());
+        assert!(codes(&run("function g(a, b) { return a + b } { print g($1) }")).is_empty());
         let opts = Options { assigned: vec!["n".into()], ..Options::default() };
         assert!(codes(&run_with("{ print n }", &opts)).is_empty());
         assert!(codes(&run("# @var n count\n# @var m? other\n{ print n, m }")).is_empty());
@@ -1028,11 +1061,11 @@ mod tests {
 
     #[test]
     fn extra_arguments() {
-        let v = run("function f(a) { return a }\nBEGIN { print f(1, 2, 3) }");
+        let v = run("function g(a) { return a }\nBEGIN { print g(1, 2, 3) }");
         assert_eq!(codes(&v), ["W204"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 15);
-        assert!(codes(&run("function f(a, b) { return a } BEGIN { print f(1) }")).is_empty());
+        assert!(codes(&run("function g(a, b) { return a } BEGIN { print g(1) }")).is_empty());
     }
 
     #[test]
@@ -1057,11 +1090,11 @@ mod tests {
         let srcs = [
             Source {
                 name: Some("a.awk".into()),
-                text: "function f(x) { return x }".into(),
+                text: "function g(x) { return x }".into(),
             },
             Source {
                 name: Some("b.awk".into()),
-                text: "BEGIN {\n  print f(1\n}".into(),
+                text: "BEGIN {\n  print g(1\n}".into(),
             },
         ];
         let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).1).unwrap();
