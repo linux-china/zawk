@@ -93,8 +93,48 @@ struct Longest {
     exact: OnceCell<Option<Regex>>,
 }
 
+/// Maximum number of patterns kept in `LONGEST`. Like `RegexCache` (see `MAX_CACHED_REGEXES`),
+/// patterns can come from input data, so once the cache reaches this size the least recently used
+/// half of it is evicted to keep memory bounded.
+const MAX_CACHED_LONGEST: usize = 1024;
+
+/// The longest-match machinery per pattern, each paired with the `clock` value of its last use.
+#[derive(Default)]
+struct LongestCache {
+    cached: HashMap<String, (Option<Rc<Longest>>, u64)>,
+    clock: u64,
+}
+
+impl LongestCache {
+    fn get(&mut self, pat: &str) -> Option<Option<Rc<Longest>>> {
+        self.clock += 1;
+        let clock = self.clock;
+        self.cached.get_mut(pat).map(|(l, tick)| {
+            *tick = clock;
+            l.clone()
+        })
+    }
+    fn insert(&mut self, pat: &str, l: Option<Rc<Longest>>) {
+        if self.cached.len() >= MAX_CACHED_LONGEST {
+            self.evict_lru();
+        }
+        self.clock += 1;
+        self.cached.insert(pat.to_string(), (l, self.clock));
+    }
+    /// Evicts the least recently used half of the entries (see `Registry::evict_lru`).
+    fn evict_lru(&mut self) {
+        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
+        if ticks.is_empty() {
+            return;
+        }
+        let mid = ticks.len() / 2;
+        let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
+        self.cached.retain(|_, (_, tick)| *tick > threshold);
+    }
+}
+
 thread_local! {
-    static LONGEST: RefCell<HashMap<String, Option<Rc<Longest>>>> = RefCell::new(HashMap::new());
+    static LONGEST: RefCell<LongestCache> = RefCell::new(LongestCache::default());
 }
 
 /// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
@@ -105,8 +145,8 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
         return None;
     }
     LONGEST.with(|cell| {
-        if let Some(l) = cell.borrow().get(pat) {
-            return l.clone();
+        if let Some(l) = cell.borrow_mut().get(pat) {
+            return l;
         }
         let dfa = DFA::builder()
             .configure(DFA::config().match_kind(MatchKind::All))
@@ -126,7 +166,7 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
                 exact: OnceCell::new(),
             })
         });
-        cell.borrow_mut().insert(pat.to_string(), l.clone());
+        cell.borrow_mut().insert(pat, l.clone());
         l
     })
 }
@@ -528,5 +568,24 @@ mod tests {
         assert!(!is_match("[[:print:]]", "\n"));
         assert!(is_match("^[^[:alpha:]]+$", "123"));
         assert!(!is_match("[^[:alpha:]]", "中文"));
+    }
+
+    #[test]
+    fn longest_cache_is_bounded() {
+        let hot = compile("hot|hotter").unwrap();
+        for i in 0..(MAX_CACHED_LONGEST * 3) {
+            assert_eq!(find_at(&hot, b"hotter", 0), Some((0, 6)));
+            let re = compile(&format!("zz|x{}", i)).unwrap();
+            assert_eq!(find_at(&re, format!("x{}", i).as_bytes(), 0).map(|(f, _)| f), Some(0));
+            LONGEST.with(|cell| {
+                let cache = cell.borrow();
+                assert!(cache.cached.len() <= MAX_CACHED_LONGEST);
+                // A frequently used pattern survives evictions.
+                assert!(cache.cached.contains_key(hot.as_str()));
+            });
+        }
+        // Evicted patterns are rebuilt and still match leftmost-longest.
+        let re = compile("x|x0").unwrap();
+        assert_eq!(find_at(&re, b"x0", 0), Some((0, 2)));
     }
 }
