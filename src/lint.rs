@@ -412,6 +412,10 @@ struct Facts<'a, 'p> {
     read_only: Vec<(String, Option<Loc>)>,
     /// Reads of `FI[...]` (e.g. `$FI["name"]`): the location.
     header_columns: Vec<Option<Loc>>,
+    /// Reads of fields, `NF` and `FILENAME` in BEGIN: what is read and the location.
+    begin_record_reads: Vec<(String, Option<Loc>)>,
+    /// Whether BEGIN or a function reads a record with `getline`.
+    getline: bool,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -583,8 +587,22 @@ impl<'a, 'p> Facts<'a, 'p> {
         use ast::Expr::*;
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => {}
-            Var(name) => self.used(name, self.loc(e)),
-            Unop(_, x) => self.expr(x),
+            Var(name) => {
+                if self.region == Region::Begin && matches!(*name, "NF" | "FILENAME") {
+                    self.begin_record_reads.push((format!("`{}`", name), self.loc(e)));
+                }
+                self.used(name, self.loc(e))
+            }
+            Unop(op, x) => {
+                if self.region == Region::Begin && matches!(op, ast::Unop::Column) {
+                    let what = match x {
+                        ILit(n) => format!("`${}`", n),
+                        _ => "fields".to_string(),
+                    };
+                    self.begin_record_reads.push((what, self.loc(e)));
+                }
+                self.expr(x)
+            }
             Binop(_, l, r) | And(l, r) | Or(l, r) => {
                 self.expr(l);
                 self.expr(r);
@@ -623,6 +641,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(f);
             }
             Getline { into, from, .. } => {
+                if matches!(self.region, Region::Begin | Region::Function) {
+                    self.getline = true;
+                }
                 if let Some(into) = into {
                     self.lvalue(into, SetKind::Other);
                 }
@@ -740,6 +761,8 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         formats: Vec::new(),
         read_only: Vec::new(),
         header_columns: Vec::new(),
+        begin_record_reads: Vec::new(),
+        getline: false,
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -785,6 +808,30 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
             "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
             first,
         ));
+    }
+
+    // BEGIN runs before any input is read: fields are empty, `NF` is 0 and `FILENAME` is "".
+    // Each kind of read is reported once; a `getline` in BEGIN (or a function) may read a record.
+    if !facts.getline {
+        let mut reported: Vec<&str> = Vec::new();
+        for (what, loc) in &facts.begin_record_reads {
+            if reported.contains(&what.as_str()) {
+                continue;
+            }
+            reported.push(what);
+            let value = match what.as_str() {
+                "`NF`" => "it is always 0",
+                _ => "it is always empty",
+            };
+            diags.push(warning(
+                "W218",
+                format!(
+                    "{} is read in BEGIN, before any input is read: {}; move it to a main rule (e.g. `NR == 1 {{ ... }}`) or read a record with `getline` first",
+                    what, value
+                ),
+                *loc,
+            ));
+        }
     }
 
     // Variables that are read but never set anywhere: almost always a typo.
@@ -1150,6 +1197,21 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 10);
         let header = Options { header: true, ..Options::default() };
         assert!(codes(&run_with(prog, &header)).is_empty());
+    }
+
+    #[test]
+    fn begin_record_reads() {
+        let v = run("BEGIN {\n  print $1, $1, NF, FILENAME, $(i)\n  i = 2\n}");
+        assert_eq!(codes(&v), ["W218", "W218", "W218", "W218"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 9);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().starts_with("`$1`"));
+        assert!(v["diagnostics"][1]["message"].as_str().unwrap().contains("always 0"));
+        // After `getline`, or outside BEGIN, there is a record.
+        assert!(codes(&run("BEGIN { getline; print $1, NF }")).is_empty());
+        assert!(codes(&run("BEGIN { while ((getline < \"f\") > 0) print $0 }")).is_empty());
+        assert!(codes(&run("function r() { return getline } BEGIN { r(); print $0 }")).is_empty());
+        assert!(codes(&run("{ print $1, NF, FILENAME } END { print $0, NF }")).is_empty());
     }
 
     #[test]
