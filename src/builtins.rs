@@ -235,6 +235,11 @@ pub enum Bitwise {
     Xor,
 }
 
+/// Maps a shift count to `u32`, sending negative counts out of range (≥ 64).
+fn shift_count(n: i64) -> u32 {
+    u32::try_from(n as u64).unwrap_or(u32::MAX)
+}
+
 impl Bitwise {
     pub fn func_name(&self) -> &'static str {
         use Bitwise::*;
@@ -262,9 +267,10 @@ impl Bitwise {
         match self {
             And => lhs & rhs,
             Or => lhs | rhs,
-            LogicalRightShift => (lhs as usize).wrapping_shr(rhs as u32) as i64,
-            ArithmeticRightShift => lhs.wrapping_shr(rhs as u32),
-            LeftShift => lhs.wrapping_shl(rhs as u32),
+            // Shift counts outside 0..64 (including negative ones) shift every bit out.
+            LogicalRightShift => (lhs as u64).checked_shr(shift_count(rhs)).unwrap_or(0) as i64,
+            ArithmeticRightShift => lhs >> shift_count(rhs).min(63),
+            LeftShift => lhs.checked_shl(shift_count(rhs)).unwrap_or(0),
             Xor => lhs ^ rhs,
             Complement => panic!("bitwise: mismatched arity!"),
         }

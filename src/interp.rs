@@ -1751,6 +1751,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *ir;
                         *self.get_mut(ir) = i;
                     }
+                    FloatToBits(ir, fr) => {
+                        let i = runtime::math_util::float_to_bits(*self.get(*fr));
+                        let ir = *ir;
+                        *self.get_mut(ir) = i;
+                    }
                     IntToFloat(fr, ir) => {
                         let f = runtime::convert::<_, Float>(*self.get(*ir));
                         let fr = *fr;

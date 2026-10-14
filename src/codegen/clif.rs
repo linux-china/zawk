@@ -1120,9 +1120,24 @@ impl<'a> View<'a> {
             Complement => self.builder.ins().bnot(args[0]),
             And => self.builder.ins().band(args[0], args[1]),
             Or => self.builder.ins().bor(args[0], args[1]),
-            LogicalRightShift => self.builder.ins().ushr(args[0], args[1]),
-            ArithmeticRightShift => self.builder.ins().sshr(args[0], args[1]),
-            LeftShift => self.builder.ins().ishl(args[0], args[1]),
+            // Cranelift masks shift counts mod 64; counts outside 0..64 (negative ones compare as
+            // huge unsigned values) instead shift every bit out, matching `Bitwise::eval2`.
+            LogicalRightShift | LeftShift => {
+                let shifted = if op == LeftShift {
+                    self.builder.ins().ishl(args[0], args[1])
+                } else {
+                    self.builder.ins().ushr(args[0], args[1])
+                };
+                let in_range = self.builder.ins().icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
+                let zero = self.builder.ins().iconst(types::I64, 0);
+                self.builder.ins().select(in_range, shifted, zero)
+            }
+            ArithmeticRightShift => {
+                let in_range = self.builder.ins().icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
+                let max = self.builder.ins().iconst(types::I64, 63);
+                let count = self.builder.ins().select(in_range, args[1], max);
+                self.builder.ins().sshr(args[0], count)
+            }
             Xor => self.builder.ins().bxor(args[0], args[1]),
         }
     }

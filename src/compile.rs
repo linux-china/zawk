@@ -1417,6 +1417,19 @@ impl<'a, 'b> View<'a, 'b> {
         ) {
             if aty == cty {
                 *creg = areg;
+            } else if matches!(bf, IntFunc(_)) && matches!(aty, Ty::Float | Ty::Str) {
+                // Bitwise builtins take the 64-bit pattern of their arguments, not the
+                // saturated integer value (so `and(2^63, 1)` is 0, not `i64::MAX & 1`).
+                let freg = if aty == Ty::Float {
+                    areg
+                } else {
+                    let freg = self.regs.stats.reg_of_ty(Ty::Float);
+                    self.convert(freg, Ty::Float, areg, aty)?;
+                    freg
+                };
+                let reg = self.regs.stats.reg_of_ty(cty);
+                self.pushl(LL::FloatToBits(reg.into(), freg.into()));
+                *creg = reg;
             } else {
                 let reg = self.regs.stats.reg_of_ty(cty);
 

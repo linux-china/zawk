@@ -672,7 +672,7 @@ pub(crate) mod boilerplate {
             }
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) | FloatToStrOfmt(dst, src) => f(dst.into(), Some(src.into())),
-            FloatToInt(dst, src) => f(dst.into(), Some(src.into())),
+            FloatToInt(dst, src) | FloatToBits(dst, src) => f(dst.into(), Some(src.into())),
             StrToFloat(dst, src) => f(dst.into(), Some(src.into())),
             Strlen(dst, s) => f(dst.into(), Some(s.into())),
             LenStr(dst, src) | StrToInt(dst, src) | HexStrToInt(dst, src) => f(dst.into(), Some(src.into())),

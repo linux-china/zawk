@@ -394,6 +394,19 @@ pub(crate) fn strtoint(text: &str) -> Int {
     strtonum(text) as Int
 }
 
+/// Converts a number to the 64-bit two's complement pattern used by the bitwise functions:
+/// the value is truncated toward zero and reduced modulo 2^64, so `2^63` becomes the bit pattern
+/// `0x8000000000000000` instead of saturating to `i64::MAX`. NaN and infinities become 0.
+pub(crate) fn float_to_bits(f: Float) -> Int {
+    const TWO_63: Float = 9223372036854775808.0;
+    const TWO_64: Float = 18446744073709551616.0;
+    if f.abs() < TWO_63 {
+        f as Int
+    } else {
+        f.trunc().rem_euclid(TWO_64) as u64 as Int
+    }
+}
+
 pub(crate) fn is_str_int(text: &str) -> bool {
     let text = text.trim().to_lowercase();
     if text.starts_with("0x") {

@@ -679,6 +679,7 @@ pub(crate) trait CodeGenerator: Backend {
             HexStrToInt(ir, sr) => self.unop(intrinsic!(hex_str_to_int), ir, sr),
             StrToFloat(fr, sr) => self.unop(intrinsic!(str_to_float), fr, sr),
             FloatToInt(ir, fr) => self.unop(Op::FloatToInt, ir, fr),
+            FloatToBits(ir, fr) => self.unop(intrinsic!(float_to_bits), ir, fr),
             IntToFloat(fr, ir) => self.unop(Op::IntToFloat, fr, ir),
             ToLowerAscii(dst, src) => self.unop(intrinsic!(to_lower_ascii), dst, src),
             ToUpperAscii(dst, src) => self.unop(intrinsic!(to_upper_ascii), dst, src),

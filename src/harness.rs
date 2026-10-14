@@ -1265,6 +1265,18 @@ this as well"#
     );
 
     test_program!(
+        bitwise_64bit_semantics,
+        r#"BEGIN {
+        print and(2^63, 1), and(2^63, 2^63) == lshift(1, 63);
+        print lshift(1, 64), rshiftl(-1, 64), rshift(-8, 64), rshift(8, 64), lshift(1, -1);
+        n = 64; x = 1;
+        print lshift(x, n), rshift(-x, n), rshiftl(-x, n);
+        print compl(0), and(-1, 255), rshift(-8, 1);
+        }"#,
+        "0 1\n0 0 -1 0 0\n0 -1 0\n-1 255 -4\n"
+    );
+
+    test_program!(
         column_substitutions,
         r#"{
         yr=gsub(/l/,"na")
