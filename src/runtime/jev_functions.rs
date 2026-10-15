@@ -11,19 +11,31 @@
 //! The options (levels) array maps a name to its description; an entry whose key and value are
 //! the same, or whose key is an index (`split` arrays), is a plain option without description.
 //! A plain text options argument is a comma separated list.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex, OnceLock};
 
 use serde_json::Value;
 
+use crate::runtime::{CostModel, StrLru};
 use crate::runtime::jev::{Question, Questions, State, TypeSafeClient, TypeSafeError, JEV_THRESHOLD};
 
 const QUESTION_ID: &str = "q";
 
 static CLIENT: OnceLock<Result<TypeSafeClient, String>> = OnceLock::new();
 
+/// Memory budget, in bytes, for the cached answers. The key is the whole request body, record
+/// included, so once the estimated size of the cache reaches this budget the least recently used
+/// half is evicted.
+const CACHE_BUDGET: usize = 64 << 20;
+
+/// Estimated memory of an answer cached by a request body of the given length in bytes.
+const ANSWER_COST: CostModel = CostModel {
+    base: 128,
+    per_byte: 1,
+};
+
 /// Answers by request: the same record asked the same question is evaluated once.
-static CACHE: LazyLock<Mutex<HashMap<String, Answer>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static CACHE: LazyLock<Mutex<StrLru<Answer>>> = LazyLock::new(|| Mutex::new(StrLru::new(CACHE_BUDGET, ANSWER_COST)));
 
 #[derive(Clone)]
 enum Answer {
@@ -87,8 +99,8 @@ fn ask(record: &str, question: Question) -> Result<Answer, String> {
     let mut questions = Questions::new();
     questions.insert(QUESTION_ID.to_owned(), question);
     let cache_key = crate::runtime::jev::request_body(&state, &questions);
-    if let Some(answer) = CACHE.lock().unwrap().get(&cache_key) {
-        return Ok(answer.clone());
+    if let Some(answer) = CACHE.lock().unwrap().get(&cache_key).cloned() {
+        return Ok(answer);
     }
     let kind = questions[QUESTION_ID].clone();
     let evaluation = client()?

@@ -22,7 +22,6 @@ use regex::bytes::{Captures, Regex, RegexBuilder};
 use regex_automata::hybrid::dfa::{Cache, DFA};
 use regex_automata::{Anchored, Input, MatchKind};
 use std::cell::{OnceCell, RefCell};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 thread_local! {
@@ -162,59 +161,10 @@ const LONGEST_COST: super::CostModel = super::CostModel {
     per_byte: 512,
 };
 
-/// The longest-match machinery per pattern, each paired with the `clock` value of its last use.
-struct LongestCache {
-    cached: HashMap<String, (Option<Rc<Longest>>, u64)>,
-    budget: usize,
-    // The estimated memory of the entries.
-    used: usize,
-    clock: u64,
-}
-
-impl Default for LongestCache {
-    fn default() -> Self {
-        LongestCache {
-            cached: HashMap::new(),
-            budget: LONGEST_BUDGET,
-            used: 0,
-            clock: 0,
-        }
-    }
-}
-
-impl LongestCache {
-    fn get(&mut self, pat: &str) -> Option<Option<Rc<Longest>>> {
-        self.clock += 1;
-        let clock = self.clock;
-        self.cached.get_mut(pat).map(|(l, tick)| {
-            *tick = clock;
-            l.clone()
-        })
-    }
-    fn insert(&mut self, pat: &str, l: Option<Rc<Longest>>) {
-        let cost = LONGEST_COST.cost(pat.len());
-        if self.used + cost > self.budget {
-            self.evict_lru();
-        }
-        self.clock += 1;
-        self.used += cost;
-        self.cached.insert(pat.to_string(), (l, self.clock));
-    }
-    /// Evicts the least recently used half of the entries (see `Registry::evict_lru`).
-    fn evict_lru(&mut self) {
-        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
-        if ticks.is_empty() {
-            return;
-        }
-        let mid = ticks.len() / 2;
-        let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
-        self.cached.retain(|_, (_, tick)| *tick > threshold);
-        self.used = self.cached.keys().map(|k| LONGEST_COST.cost(k.len())).sum();
-    }
-}
-
 thread_local! {
-    static LONGEST: RefCell<LongestCache> = RefCell::new(LongestCache::default());
+    /// The longest-match machinery per pattern.
+    static LONGEST: RefCell<super::StrLru<Option<Rc<Longest>>>> =
+        RefCell::new(super::StrLru::new(LONGEST_BUDGET, LONGEST_COST));
 }
 
 /// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
@@ -226,7 +176,7 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
     }
     LONGEST.with(|cell| {
         if let Some(l) = cell.borrow_mut().get(pat) {
-            return l;
+            return l.clone();
         }
         let dfa = DFA::builder()
             .configure(DFA::config().match_kind(MatchKind::All))
@@ -246,7 +196,7 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
                 exact: OnceCell::new(),
             })
         });
-        cell.borrow_mut().insert(pat, l.clone());
+        cell.borrow_mut().insert(pat.to_owned(), l.clone());
         l
     })
 }

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use lazy_static::lazy_static;
 use miniserde::json;
 use miniserde::json::{Value};
 use serde_json_path::JsonPath;
-use crate::runtime::{stdlib_warning, Int, Str, StrMap, IntMap, Float};
+use crate::runtime::{stdlib_warning, CostModel, Int, Str, StrLru, StrMap, IntMap, Float};
 use crate::runtime::str_escape::escape_json;
 
 
@@ -153,27 +153,24 @@ fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     StrMap::from(map)
 }
 
+/// Memory budget, in bytes, for the compiled JSON paths. Paths can come from input data, so once
+/// the estimated size of the cache reaches this budget the least recently used half is evicted.
+const JSON_PATHS_BUDGET: usize = 16 << 20;
+
+/// Estimated memory of a compiled JSON path of the given length in bytes.
+const JSON_PATH_COST: CostModel = CostModel {
+    base: 512,
+    per_byte: 32,
+};
+
 lazy_static! {
-    static ref JSON_PATHS: Arc<Mutex<HashMap<String, JsonPath>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref JSON_PATHS: Mutex<StrLru<JsonPath>> = Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST));
 }
 
-fn compiled_json_path<'p>(
-    pool: &'p mut HashMap<String, JsonPath>,
-    func: &str,
-    json_path: &str,
-) -> Option<&'p JsonPath> {
-    if !pool.contains_key(json_path) {
-        match JsonPath::parse(json_path) {
-            Ok(path) => {
-                pool.insert(json_path.to_string(), path);
-            }
-            Err(e) => {
-                stdlib_warning(func, format!("{:?}: {}", json_path, e));
-                return None;
-            }
-        }
-    }
-    pool.get(json_path)
+fn compiled_json_path<'p>(pool: &'p mut StrLru<JsonPath>, func: &str, json_path: &str) -> Option<&'p JsonPath> {
+    pool.get_or_try_insert(json_path, || JsonPath::parse(json_path))
+        .map_err(|e| stdlib_warning(func, format!("{:?}: {}", json_path, e)))
+        .ok()
 }
 
 pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {

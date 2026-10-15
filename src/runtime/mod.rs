@@ -910,6 +910,76 @@ impl CostModel {
     }
 }
 
+/// A cache keyed by strings with a memory budget, for caches whose keys can come from input data
+/// and that `Registry` cannot serve (`Send` values behind a global lock, or keys built from
+/// several arguments). Once inserting an entry would take the estimated memory of the entries
+/// past the budget, the least recently used half is evicted (see `Registry::evict_lru`).
+pub(crate) struct StrLru<V> {
+    // Each value is paired with the `clock` value of its last use.
+    cached: HashMap<String, (V, u64)>,
+    budget: usize,
+    cost: CostModel,
+    // The estimated memory of the entries.
+    used: usize,
+    clock: u64,
+}
+
+impl<V> StrLru<V> {
+    pub(crate) fn new(budget: usize, cost: CostModel) -> Self {
+        StrLru {
+            cached: HashMap::new(),
+            budget,
+            cost,
+            used: 0,
+            clock: 0,
+        }
+    }
+    pub(crate) fn get(&mut self, key: &str) -> Option<&V> {
+        self.clock += 1;
+        let clock = self.clock;
+        self.cached.get_mut(key).map(|(v, tick)| {
+            *tick = clock;
+            &*v
+        })
+    }
+    pub(crate) fn insert(&mut self, key: String, v: V) -> &V {
+        let cost = self.cost.cost(key.len());
+        if let Some(old) = self.cached.remove(&key) {
+            drop(old);
+            self.used -= cost;
+        }
+        if self.used + cost > self.budget {
+            self.evict_lru();
+        }
+        self.clock += 1;
+        self.used += cost;
+        &self.cached.entry(key).insert((v, self.clock)).into_mut().0
+    }
+    /// The value for `key`, created by `new` when it is not cached.
+    pub(crate) fn get_or_try_insert<E>(
+        &mut self,
+        key: &str,
+        new: impl FnOnce() -> std::result::Result<V, E>,
+    ) -> std::result::Result<&V, E> {
+        if self.cached.contains_key(key) {
+            return Ok(self.get(key).unwrap());
+        }
+        let v = new()?;
+        Ok(self.insert(key.to_owned(), v))
+    }
+    fn evict_lru(&mut self) {
+        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
+        if ticks.is_empty() {
+            return;
+        }
+        let mid = ticks.len() / 2;
+        let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
+        self.cached.retain(|_, (_, tick)| *tick > threshold);
+        let cost = self.cost;
+        self.used = self.cached.keys().map(|k| cost.cost(k.len())).sum();
+    }
+}
+
 pub(crate) struct Registry<T> {
     // TODO(ezr): use the raw bucket interface so we can avoid calls to `unmoor` here.
     // TODO(ezr): we could potentially increase speed here if we did pointer equality (and
@@ -1421,6 +1491,28 @@ impl<S> Iter<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn str_lru_is_bounded() {
+        const COST: CostModel = CostModel { base: 100, per_byte: 1 };
+        let budget = 100 * COST.cost(8);
+        let mut lru = StrLru::new(budget, COST);
+        lru.insert("hot".to_owned(), 0);
+        for i in 0..10_000 {
+            assert_eq!(lru.get("hot"), Some(&0));
+            let key = format!("k{:07}", i);
+            assert_eq!(lru.get_or_try_insert(&key, || Ok::<_, ()>(i)), Ok(&i));
+            assert!(lru.used <= budget);
+            assert!(lru.cached.len() <= 100);
+        }
+        // A frequently used key survives evictions; reinserting a key does not count it twice.
+        assert_eq!(lru.get("hot"), Some(&0));
+        let used = lru.used;
+        lru.insert("hot".to_owned(), 1);
+        assert_eq!((lru.used, lru.get("hot")), (used, Some(&1)));
+        assert_eq!(lru.get_or_try_insert("bad", || Err("parse")), Err("parse"));
+        assert_eq!(lru.get("bad"), None);
+    }
 
     // Room for a few hundred short patterns.
     const TEST_BUDGET: usize = 2 << 20;
