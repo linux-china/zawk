@@ -460,6 +460,9 @@ struct Facts<'a, 'p> {
     /// Assignments used as a condition (`if (x = 1)`): the assigned variable (if it is one) and
     /// the location.
     cond_assigns: Vec<(Option<&'a str>, Option<Loc>)>,
+    /// Calls of `index` with a regex literal argument (`index(s, /re/)`, where `/re/` means
+    /// `$0 ~ /re/`): the location.
+    index_regexes: Vec<Option<Loc>>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -839,6 +842,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
                             }
                         }
+                        if *name == "index" && args.iter().any(|a| matches!(a, PatLit(_))) {
+                            self.index_regexes.push(self.loc(e));
+                        }
                         READ_ONLY_FUNCTIONS.contains(name)
                     }
                     Either::Right(Function::Delete | Function::Clear) => {
@@ -962,6 +968,7 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         key_comparisons: Vec::new(),
         numeric_redirects: Vec::new(),
         cond_assigns: Vec::new(),
+        index_regexes: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1152,6 +1159,15 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
                 ));
             }
         }
+    }
+
+    // `index(s, /re/)`: a regex literal as a value is `$0 ~ /re/`, so this searches for "0" or "1".
+    for loc in &facts.index_regexes {
+        diags.push(warning(
+            "W205",
+            "`index` takes a string, not a regex: `/re/` here means `$0 ~ /re/` (0 or 1); use `index(s, \"text\")`, or `match(s, /re/)` to find the position of a regex match".to_string(),
+            *loc,
+        ));
     }
 
     if let Some(mode) = opts.parallel {
@@ -1579,6 +1595,15 @@ mod tests {
         let v = run("BEGIN { FIELDWIDTHS = \"2 3\" }");
         assert_eq!(v["valid"], true);
         assert_eq!(codes(&v), ["W101"]);
+    }
+
+    #[test]
+    fn index_regex() {
+        let v = run("BEGIN { print index(\"abc\", /b/) }");
+        assert_eq!(codes(&v), ["W205"]);
+        assert_eq!(v["diagnostics"][0]["column"], 15);
+        assert_eq!(codes(&run("{ print index(/a/, $1) }")), ["W205"]);
+        assert!(codes(&run("BEGIN { print index(\"abc\", \"b\"), match(\"abc\", /b/) }")).is_empty());
     }
 
     #[test]
