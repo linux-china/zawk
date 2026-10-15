@@ -637,7 +637,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(l);
                 self.expr(r);
             }
-            Binop(_, l, r) | And(l, r) | Or(l, r) => {
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
                 self.expr(l);
                 self.expr(r);
             }

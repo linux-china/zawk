@@ -109,6 +109,7 @@ pub enum Tok<'a> {
     AND,
     OR,
     QUESTION,
+    Nullish,
     COLON,
     Pipe,
 
@@ -218,6 +219,7 @@ keyword_map!(
     [b"&&", Tok::AND],
     [b"||", Tok::OR],
     [b"?", Tok::QUESTION],
+    [b"??", Tok::Nullish],
     [b":", Tok::COLON],
     [b"delete", Tok::Delete],
     [b"return", Tok::Return],

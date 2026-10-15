@@ -156,6 +156,7 @@ where
             Binop(op, _, _) => !matches!(op, crate::ast::Binop::Concat),
             Assign(_, e) => self.is_num(e, params),
             ITE(_, t, f) => self.is_num(t, params) && self.is_num(f, params),
+            Nullish(l, r) => self.is_num(l, params) && self.is_num(r, params),
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
             Call(f, _) => self.builtin(f).is_some_and(numeric_builtin),
             StrLit(_) | Index(..) => false,
@@ -210,7 +211,7 @@ where
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Cond(_) | ReadStdin => {}
             Var(i) => self.scalar_ref(i, params),
             Unop(_, e) => self.expr(e, params),
-            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) => {
+            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
                 self.expr(l, params);
                 self.expr(r, params);
             }

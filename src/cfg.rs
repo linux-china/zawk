@@ -1416,6 +1416,31 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     in_cond,
                 );
             }
+            Nullish(l, r) => {
+                // res = l; if (!strnum(l)) res = r. The test treats `l` as a strnum, so any
+                // string that looks like a zero ("0", "0.0", "+0") is false, as is "".
+                let (next, lv) = self.convert_val_inner(l, current_open, in_cond)?;
+                let cond = self.fresh_local();
+                self.add_stmt(
+                    next,
+                    PrimStmt::AsgnVar(
+                        cond,
+                        PrimExpr::CallBuiltin(builtins::Function::Strnum, smallvec![lv.clone()]),
+                    ),
+                )?;
+                let res = self.fresh_local();
+                self.ctx.may_rename.push(res);
+                let t_node = self.f.cfg.add_node(Default::default());
+                let join = self.f.cfg.add_node(Default::default());
+                self.add_stmt(t_node, PrimStmt::AsgnVar(res, PrimExpr::Val(lv.clone())))?;
+                let (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
+                self.add_stmt(fend, PrimStmt::AsgnVar(res, fe))?;
+                self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(cond)));
+                self.f.cfg.add_edge(next, fstart, Transition::null());
+                self.f.cfg.add_edge(t_node, join, Transition::null());
+                self.f.cfg.add_edge(fend, join, Transition::null());
+                return Ok((join, PrimExpr::Val(PrimVal::Var(res))));
+            }
             Var(id) => {
                 if let Ok(bi) = builtins::Variable::try_from(id.clone()) {
                     // To maximize compatibility with other scripts, we don't have FI in scope as a
@@ -2559,7 +2584,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Var(_) | Cond(_) => false,
             Unop(_, e) => self.may_assign(e),
-            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) => {
+            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
                 self.may_assign(l) || self.may_assign(r)
             }
             ITE(c, t, f) => self.may_assign(c) || self.may_assign(t) || self.may_assign(f),

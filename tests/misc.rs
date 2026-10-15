@@ -2330,3 +2330,30 @@ fn inspect_files() {
     assert!(report.contains("| $8 | amount | DECIMAL(10,2) |"), "{}", report);
     assert!(report.contains("| active | BOOLEAN | 0 | 1 | 2 |"), "{}", report);
 }
+
+#[test]
+fn nullish_coalescing() {
+    // `??` takes the right side when the left one is uninitialized, empty or zero, and binds
+    // tighter than concatenation; the left side is evaluated once.
+    let prog = r#"function f() { calls++; return "v" }
+BEGIN {
+    print name ?? "Guest"
+    name = ""; print "Hello " name ?? "Guest"
+    name = 0; print name ?? "Guest"
+    name = "Bob"; print "Hello " name ?? "Guest"
+    print x ?? y ?? "z"
+    print 1 + n ?? 41
+    print f() ?? "w", calls
+    print "0" ?? "a", "0.0" ?? "b", "+0" ?? "c", " -0 " ?? "d", "0x0" ?? "e", 0.5 ?? "f"
+}
+{ print $1 ?? "none", $2 ?? "none", $3 ?? "none" }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .write_stdin("0 abc\n")
+            .assert()
+            .stdout("Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d 0x0 0.5\nnone abc none\n");
+    }
+}

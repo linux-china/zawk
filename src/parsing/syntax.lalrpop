@@ -447,6 +447,14 @@ PrecInc<U>: &'a Expr<'a,'a,&'a str> = {
     <e:PrecFieldRef> "--" => arena.alloc(Expr::Inc { is_inc: false, is_post: true, x: e }),
     "++" <e:PrecFieldRef> if U == "U" => arena.alloc(Expr::Inc { is_inc: true, is_post: false, x: e }),
     "--" <e:PrecFieldRef> if U == "U" => arena.alloc(Expr::Inc { is_inc: false, is_post: false, x: e }),
+    PrecNullish,
+}
+
+// `l ?? r` is `r` when `l` is uninitialized, empty or zero (including strings like "0.0"), and `l` otherwise; `l` is evaluated
+// once. It binds tighter than any other operator: `"Hello " name ?? "Guest"` is
+// `"Hello " (name ?? "Guest")`. It is left associative.
+PrecNullish: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecNullish> "??" <r: PrecFieldRef> => arena.alloc(Expr::Nullish(l, r)),
     PrecFieldRef,
 }
 
@@ -607,6 +615,7 @@ extern {
       "||" => Tok::OR,
       "&&" => Tok::AND,
       "?" => Tok::QUESTION,
+      "??" => Tok::Nullish,
       ":" => Tok::COLON,
       "delete" => Tok::Delete,
       "in" => Tok::In,

@@ -506,6 +506,7 @@ impl<'a> Display for lexer::Tok<'a> {
             AND => "&&",
             OR => "||",
             QUESTION => "?",
+            Nullish => "??",
             COLON => ":",
 
             Append => ">>",

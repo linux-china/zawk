@@ -480,6 +480,9 @@ pub enum Expr<'a, 'b, I> {
     AssignOp(&'a Expr<'a, 'b, I>, Binop, &'a Expr<'a, 'b, I>),
     And(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
     Or(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
+    /// `l ?? r`: `l` if it is true as a strnum (not uninitialized, empty, or a zero such as `"0.0"`),
+    /// `r` otherwise.
+    Nullish(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
     ITE(
         &'a Expr<'a, 'b, I>,
         &'a Expr<'a, 'b, I>,
