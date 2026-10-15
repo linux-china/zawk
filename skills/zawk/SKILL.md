@@ -185,6 +185,18 @@ zawk '{ print f"{NR+1}: {toupper($2)} {$3 * 1.1:.2f} {$1:>10}" }' data.txt
 - Escapes (`\t`, `\n`, `\"`) work as in normal strings. Values are not escaped: use `escape("sql", v)`,
   `escape("json", v)` first when the value comes from input.
 
+## Default values: `??`
+
+`l ?? r` is `r` when `l` is uninitialized, `""` or zero (also strings that look like zero: `"0"`, `"0.0"`), else `l`:
+
+```shell
+zawk '{ print "Hello " $2 ?? "Guest" }'   # binds tightest: "Hello " ($2 ?? "Guest")
+zawk '{ n = cnt[$1] ?? -1 }'              # an array element is not created by ??
+```
+
+- `-u ?? 5` is `-(u ?? 5)`; `1 + u ?? 5` is `1 + (u ?? 5)`. Parenthesize a compound right side: `u ?? (a + 1)`.
+- A field holding `0` counts as empty and is replaced: for numeric columns use `($3 == "" ? 0 : $3)`.
+
 ## Recipes
 
 ```shell

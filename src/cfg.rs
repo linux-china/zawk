@@ -1419,7 +1419,26 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             Nullish(l, r) => {
                 // res = l; if (!strnum(l)) res = r. The test treats `l` as a strnum, so any
                 // string that looks like a zero ("0", "0.0", "+0") is false, as is "".
-                let (next, lv) = self.convert_val_inner(l, current_open, in_cond)?;
+                //
+                // An array element on the left is only read when it is present (as with `k in a`),
+                // so `a[k] ?? d` does not create `a[k]`.
+                let (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
+                let (next, lv) = if let Index(arr, ix) = l {
+                    let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
+                    let (next, ix_v) = self.convert_index(ix, next, in_cond)?;
+                    let present = PrimExpr::CallBuiltin(
+                        builtins::Function::Contains,
+                        smallvec![arr_v.clone(), ix_v.clone()],
+                    );
+                    let present = self.to_val(present, next)?;
+                    let lookup = self.f.cfg.add_node(Default::default());
+                    let lv = self.to_val(PrimExpr::Index(arr_v, ix_v), lookup)?;
+                    self.f.cfg.add_edge(next, lookup, Transition::new(present));
+                    self.f.cfg.add_edge(next, fstart, Transition::null());
+                    (lookup, lv)
+                } else {
+                    self.convert_val_inner(l, current_open, in_cond)?
+                };
                 let cond = self.fresh_local();
                 self.add_stmt(
                     next,
@@ -1433,7 +1452,6 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let t_node = self.f.cfg.add_node(Default::default());
                 let join = self.f.cfg.add_node(Default::default());
                 self.add_stmt(t_node, PrimStmt::AsgnVar(res, PrimExpr::Val(lv.clone())))?;
-                let (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
                 self.add_stmt(fend, PrimStmt::AsgnVar(res, fe))?;
                 self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(cond)));
                 self.f.cfg.add_edge(next, fstart, Transition::null());

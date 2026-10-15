@@ -823,6 +823,30 @@ fn many_closed_output_files() {
 }
 
 #[test]
+fn many_unclosed_output_files() {
+    // `print > ($1 ".txt")` without `close`: the number of writer threads is capped by closing
+    // the least recently used files (reopened for appending), instead of aborting after ~16k
+    // threads.
+    const N: usize = 20000;
+    let input: String = (0..2 * N).map(|i| format!("{}\n", i)).collect();
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-v", &format!("d={}", dir), "-v", &format!("n={}", N)])
+        .arg(r#"{ print > (d "/o" ($1 % n)) } END { print NR }"#)
+        .write_stdin(input)
+        .assert()
+        .success()
+        .stdout(format!("{}\n", 2 * N));
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), N);
+    for i in [0, 1, N / 2, N - 1] {
+        let data = read_to_string(tmp.path().join(format!("o{}", i))).unwrap();
+        assert_eq!(data, format!("{}\n{}\n", i, i + N), "file o{}", i);
+    }
+}
+
+#[test]
 fn next_in_end_is_error() {
     // `next`/`nextfile` in END used to jump back to the main loop and rerun END forever.
     for prog in [r#"END { print "a"; next }"#, "END { nextfile }"] {
@@ -2355,5 +2379,31 @@ BEGIN {
             .write_stdin("0 abc\n")
             .assert()
             .stdout("Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d 0x0 0.5\nnone abc none\n");
+    }
+}
+
+#[test]
+fn nullish_coalescing_operands() {
+    // The right operand may have a sign, `!` or `++`; the left one may be a postfix increment;
+    // `??` binds tighter than unary minus and `^`; an array element on the left is not created.
+    let prog = r#"function f(arr) { return arr["k"] ?? "def" }
+BEGIN {
+    print i++ ?? "z", i
+    print u ?? x++, x
+    print u ?? -1, u ?? !y, u ?? ++k, k
+    a[1]; print a[2] ?? "missing", length(a)
+    a[3] = 0; print a[3] ?? "zero", length(a)
+    a[4] = "v"; print a[4] ?? "d"
+    print -u ?? 5, 1 + u ?? 5, u ?? 2 ^ 2
+    print f(m), length(m); m["k"] = "hi"; print f(m)
+    print m["a", "b"] ?? "multi", length(m)
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("z 1\n0 1\n-1 1 1 1\nmissing 1\nzero 2\nv\n-5 6 4\ndef 0\nhi\nmulti 1\n");
     }
 }

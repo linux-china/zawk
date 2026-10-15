@@ -16,6 +16,19 @@ no spaces allowed.
 _Binary operators:_
 * Arithmetic: `+`, `-`, `/`, `*`, `*`, `^` (which is exponentiation), and `%`
 * Comparison (which also work on strings): `<`, `>`, `<=`, `>=`, `==`, `!=`.
+* Default value: `l ?? r` is `r` when `l` is "empty", and `l` otherwise. `l` is evaluated once.
+  * Empty means uninitialized, `""`, or a number that is zero. A string counts as a number when it
+    looks like one (as a strnum does), so `"0"`, `"0.0"`, `"+0"` and `" -0 "` are empty too, even as
+    string constants (unlike `if ("0.0")`, which is true). A field holding `0` is therefore replaced:
+    for a numeric column where `0` is valid data, write `($3 == "" ? 0 : $3)` instead.
+  * An array element on the left is only read when it exists, as with `k in a`: `a[k] ?? "none"`
+    does not create `a[k]`.
+  * `??` binds tighter than any other operator except `++`/`--`, and is left associative:
+    `"Hello " name ?? "Guest"` is `"Hello " (name ?? "Guest")`, `-u ?? 5` is `-(u ?? 5)`,
+    `1 + u ?? 5` is `1 + (u ?? 5)`, `i++ ?? 0` is `(i++) ?? 0` and `x ?? y ?? "z"` is `(x ?? y) ?? "z"`.
+  * The right operand is a term, optionally with `++`/`--` or preceded by unary `-`, `+` or `!`
+    (`u ?? -1`, `u ?? x++`, `u ?? !v`). Anything else needs parentheses: `u ?? (a + 1)`. A following
+    `^` applies to the whole `??`: `u ?? 2 ^ 2` is `(u ?? 2) ^ 2`.
 
 _Unary Operators:_
 

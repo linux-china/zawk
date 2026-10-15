@@ -21,8 +21,9 @@
 //! them do not accumulate threads.
 //!
 //! Output files that are open are tracked in an `FdPool`. When opening a file fails because the
-//! process ran out of file descriptors, the least recently used open file is closed (and reopened
-//! for appending on its next write), as gawk does in `close_one`.
+//! process ran out of file descriptors, or when too many writer threads run already (see
+//! `max_open_files`), the least recently used open file is closed and its writer thread exits; the
+//! file is reopened for appending on its next write, as gawk does in `close_one`.
 //!
 //! Within a client, we batch writes similar to how a BufWriter would: copy incoming writes to a
 //! local vector until we have buffered up to a given threshold. Once that threshold is reached, we
@@ -45,7 +46,7 @@ use std::io::{self, Write};
 use std::process::{Child, ChildStdin};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    Arc, Mutex, Weak,
+    Arc, Mutex, Once, OnceLock, Weak,
 };
 
 #[cfg(not(feature = "unstable"))]
@@ -124,12 +125,54 @@ fn is_fd_exhausted(e: &io::Error) -> bool {
     }
 }
 
+/// The maximum number of output files whose writer threads run at once. Each running writer
+/// holds a thread and a file descriptor, so programs writing to many files without closing them
+/// (`print > ($1 ".txt")`) would otherwise run out of threads (and abort). Starting another writer
+/// past this limit first closes the least recently used file (see `FdPool::make_room`).
+fn max_open_files() -> usize {
+    const MAX: usize = 1024;
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            let mut rl = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) } == 0 {
+                // Leave descriptors for input files, commands, getline and the like.
+                let cur = usize::try_from(rl.rlim_cur).unwrap_or(usize::MAX);
+                return cur.saturating_sub(64).clamp(16, MAX);
+            }
+        }
+        MAX
+    })
+}
+
+/// Report that a writer thread could not be started. Write errors otherwise end the program
+/// silently, but this one is worth a message (printed once).
+fn report_spawn_error(e: &io::Error) -> CompileError {
+    static REPORTED: Once = Once::new();
+    let err = CompileError::new(format!(
+        "too many open outputs: cannot start a writer thread: {}",
+        e
+    ));
+    REPORTED.call_once(|| {
+        set_output_failed();
+        eprintln!("zawk: fatal: {}", err);
+    });
+    err
+}
+
 /// The output files that are currently open, so that a writer can close the least recently used
-/// one when it runs out of file descriptors (like gawk's `close_one`).
+/// one when it runs out of file descriptors (like gawk's `close_one`), and the number of writer
+/// threads of output files, which is kept near `max_open_files` the same way.
 #[derive(Default)]
 struct FdPool {
     clock: AtomicU64,
     next_id: AtomicUsize,
+    /// The number of running writer threads of output files.
+    threads: AtomicUsize,
     /// Open files by id: their last use (a tick of `clock`) and their writer.
     open: Mutex<HashMap<usize, (Arc<AtomicU64>, Weak<WriterSlot>)>>,
 }
@@ -172,9 +215,17 @@ impl FdPool {
         }
         true
     }
+
+    /// Called before starting a writer thread: close the least recently used open file if too
+    /// many writer threads run already. Its writer thread then exits.
+    fn make_room(&self) {
+        if self.threads.load(Ordering::Relaxed) >= max_open_files() {
+            self.evict_one();
+        }
+    }
 }
 
-/// A file writer's entry in an `FdPool`.
+/// A file writer's entry in an `FdPool`, owned by its writer thread.
 struct PoolMember {
     pool: Arc<FdPool>,
     id: usize,
@@ -185,6 +236,7 @@ struct PoolMember {
 impl PoolMember {
     fn new(pool: Arc<FdPool>, slot: Weak<WriterSlot>) -> PoolMember {
         let id = pool.next_id.fetch_add(1, Ordering::Relaxed);
+        pool.threads.fetch_add(1, Ordering::Relaxed);
         PoolMember {
             pool,
             id,
@@ -209,6 +261,7 @@ impl PoolMember {
 impl Drop for PoolMember {
     fn drop(&mut self) {
         self.unregister();
+        self.pool.threads.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -456,22 +509,40 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
 ) -> RawHandle {
     let error = Arc::new(Mutex::new(None));
     let open = Arc::new(AtomicBool::new(false));
+    let evicted = Arc::new(AtomicBool::new(false));
     let f = Arc::new(f);
-    let (thread_error, thread_open) = (error.clone(), open.clone());
+    let (thread_error, thread_open, thread_evicted) = (error.clone(), open.clone(), evicted.clone());
+    let thread_pool = pool.clone();
     let spawn = move |slot: Weak<WriterSlot>| {
         let (sender, receiver) = bounded(IO_CHAN_SIZE);
-        let member = pool.clone().map(|pool| PoolMember::new(pool, slot.clone()));
-        let (error, open, f) = (thread_error.clone(), thread_open.clone(), f.clone());
-        std::thread::spawn(move || {
-            receive_thread(receiver, error, &open, &*f, member, is_stdout, slot)
-        });
-        sender
+        let member = thread_pool
+            .clone()
+            .map(|pool| PoolMember::new(pool, slot.clone()));
+        let (error, open, evicted, f) = (
+            thread_error.clone(),
+            thread_open.clone(),
+            thread_evicted.clone(),
+            f.clone(),
+        );
+        std::thread::Builder::new().spawn(move || {
+            let state = WriterState {
+                open: &open,
+                evicted: &evicted,
+                member: member.as_ref(),
+                slot: &slot,
+            };
+            receive_thread(receiver, error, state, &*f, is_stdout)
+        })?;
+        Ok(sender)
     };
     RawHandle {
         error,
         writer: Arc::new(WriterSlot {
             sender: Mutex::new(None),
             spawn: Box::new(spawn),
+            pool,
+            open: open.clone(),
+            evicted,
         }),
         line_buffer: is_stdout && io::stdout().is_terminal(),
         status,
@@ -487,23 +558,52 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
 /// without handling it.
 struct WriterSlot {
     sender: Mutex<Option<Sender<Request>>>,
-    spawn: Box<dyn Fn(Weak<WriterSlot>) -> Sender<Request> + Send + Sync>,
+    spawn: Box<dyn Fn(Weak<WriterSlot>) -> io::Result<Sender<Request>> + Send + Sync>,
+    /// The pool of output files, which limits the number of writer threads (unset for commands
+    /// and stdout).
+    pool: Option<Arc<FdPool>>,
+    /// See `RawHandle::open`.
+    open: Arc<AtomicBool>,
+    /// Whether the file was closed to free its descriptor and thread (see `FdPool`): it is still
+    /// open as far as the program is concerned, and the next write reopens it for appending.
+    evicted: Arc<AtomicBool>,
 }
 
 impl WriterSlot {
-    /// Send `req` to the writer thread, starting it for a write if it is not running.
-    fn send(self: &Arc<Self>, req: Request) {
+    /// Send `req` to the writer thread, starting it for a write if it is not running. Fails if
+    /// the thread cannot be started; `req` is then answered with an error.
+    fn send(self: &Arc<Self>, req: Request) -> io::Result<()> {
         let mut sender = self.sender.lock().unwrap();
         if sender.is_none() {
             if !matches!(req, Request::Write { .. }) {
                 // The output is closed and no request is pending: flushing or closing it is a
-                // no-op, not worth starting a thread for.
+                // no-op, not worth starting a thread for. Closing an evicted file closes it for
+                // good: it is truncated if reopened by `>`.
+                if matches!(req, Request::Close) && self.evicted.swap(false, Ordering::AcqRel) {
+                    self.open.store(false, Ordering::Release);
+                }
                 req.set_code(ErrorCode::set_ok);
-                return;
+                return Ok(());
             }
-            *sender = Some((self.spawn)(Arc::downgrade(self)));
+            if let Some(pool) = &self.pool {
+                // Making room waits for another writer to close its file. Do not hold our lock
+                // meanwhile: a client making room by evicting this file would wait for it.
+                drop(sender);
+                pool.make_room();
+                sender = self.sender.lock().unwrap();
+            }
+            if sender.is_none() {
+                match (self.spawn)(Arc::downgrade(self)) {
+                    Ok(s) => *sender = Some(s),
+                    Err(e) => {
+                        req.set_code(ErrorCode::set_error);
+                        return Err(e);
+                    }
+                }
+            }
         }
         sender.as_ref().unwrap().send(req).unwrap();
+        Ok(())
     }
 
     /// Ask a running writer thread to close its file to free the descriptor (see `FdPool`).
@@ -530,14 +630,25 @@ impl WriterSlot {
             // No handle is left to send requests.
             return true;
         };
-        let Ok(mut sender) = slot.sender.try_lock() else {
-            return false;
-        };
-        if !receiver.is_empty() {
-            return false;
+        loop {
+            if !receiver.is_empty() {
+                return false;
+            }
+            // A client holds the lock only while sending a request (which may block while the
+            // channel is full, but then the channel is not empty), so wait for it rather than
+            // keep running idle: idle writers would count against `max_open_files`.
+            match slot.sender.try_lock() {
+                Ok(mut sender) => {
+                    if !receiver.is_empty() {
+                        return false;
+                    }
+                    *sender = None;
+                    return true;
+                }
+                Err(std::sync::TryLockError::WouldBlock) => std::thread::yield_now(),
+                Err(std::sync::TryLockError::Poisoned(_)) => return false,
+            }
         }
-        *sender = None;
-        true
     }
 }
 
@@ -1055,10 +1166,10 @@ impl FileHandle {
         let mut next_batch = self.guard();
         self.cur_batch.peel(upto, &mut next_batch);
         let req = self.cur_batch.request(flush);
-        self.raw.writer.send(req);
+        let sent = self.raw.writer.send(req);
         std::mem::swap(&mut next_batch, &mut self.cur_batch);
         self.guards.push_back(next_batch);
-        Ok(())
+        sent.map_err(|e| report_spawn_error(&e))
     }
 
     pub fn write_all(&mut self, ss: &[&Str], spec: FileSpec) -> Result<()> {
@@ -1106,7 +1217,8 @@ impl FileHandle {
         // error the writer thread answers all requests with an error, so the wait terminates.
         let res = self.clear_batch(None);
         let (n, req) = Request::flush();
-        self.raw.writer.send(req);
+        // Only writes start a writer thread, so this cannot fail.
+        let _ = self.raw.writer.send(req);
         n.1.wait();
         self.guards.clear();
         res?;
@@ -1120,7 +1232,7 @@ impl FileHandle {
 
     pub fn close(&mut self) -> Result<()> {
         self.clear_batch(None)?;
-        self.raw.writer.send(Request::Close);
+        let _ = self.raw.writer.send(Request::Close);
         let res = self.flush();
         // Release the batch buffers: a program may close many files it never writes again.
         self.old_guards.clear();
@@ -1232,6 +1344,8 @@ impl Request {
 impl Drop for Request {
     fn drop(&mut self) {
         match self {
+            // Do not turn a panic into an abort.
+            _ if std::thread::panicking() => {}
             Request::Write { status, .. } => {
                 // We have to have set this as either ok, or an error.
                 let status = unsafe { &**status }.read();
@@ -1436,22 +1550,31 @@ impl WriteBatch {
     }
 }
 
+/// The state a writer thread shares with the handles of its output.
+struct WriterState<'a> {
+    open: &'a AtomicBool,
+    /// See `WriterSlot::evicted`.
+    evicted: &'a AtomicBool,
+    member: Option<&'a PoolMember>,
+    slot: &'a Weak<WriterSlot>,
+}
+
 fn receive_thread<W: io::Write>(
     receiver: Receiver<Request>,
     error: Arc<Mutex<Option<CompileError>>>,
-    open: &AtomicBool,
+    state: WriterState,
     f: impl Fn(FileSpec) -> io::Result<W>,
-    member: Option<PoolMember>,
     is_stdout: bool,
-    slot: Weak<WriterSlot>,
 ) {
     let mut batch = WriteBatch::default();
-    if let Err(e) = receive_loop(&receiver, &mut batch, open, f, member.as_ref(), &slot) {
+    if let Err(e) = receive_loop(&receiver, &mut batch, &state, f) {
         if is_stdout && e.kind() == io::ErrorKind::BrokenPipe {
             STDOUT_BROKEN_PIPE.store(true, Ordering::Release);
         }
         // The file is closed: no need to evict it.
-        drop(member);
+        if let Some(m) = state.member {
+            m.unregister();
+        }
         // We got an error! install it in the `error` mutex.
         {
             let mut err = error.lock().unwrap();
@@ -1469,18 +1592,21 @@ fn receive_thread<W: io::Write>(
 fn receive_loop<W: io::Write>(
     receiver: &Receiver<Request>,
     batch: &mut WriteBatch,
-    open: &AtomicBool,
+    state: &WriterState,
     f: impl Fn(FileSpec) -> io::Result<W>,
-    member: Option<&PoolMember>,
-    slot: &Weak<WriterSlot>,
 ) -> io::Result<()> {
+    let WriterState {
+        open,
+        evicted,
+        member,
+        slot,
+    } = *state;
     const MAX_BATCH_BYTES: usize = 1 << 20;
     const MAX_BATCH_SIZE: usize = 1 << 10;
 
-    // Writer starts off closed. We use `f` to open it if a write appears.
+    // Writer starts off closed. We use `f` to open it if a write appears; if it was closed by
+    // an `Evict` request (see `evicted`), it reopens for appending.
     let mut writer = None;
-    // Whether the writer was closed by an `Evict` request: it then reopens for appending.
-    let mut evicted = false;
 
     while let Ok(req) = receiver.recv() {
         // We build up a reasonably-sized batch of writes in the channel if it contains pending
@@ -1510,24 +1636,24 @@ fn receive_loop<W: io::Write>(
                 // closed.
                 if batch.close && !batch.evict {
                     // An explicit close of an evicted file: it is truncated if reopened by `>`.
-                    evicted = false;
+                    evicted.store(false, Ordering::Release);
                     open.store(false, Ordering::Release);
                 }
                 batch.clear();
-                if !evicted && WriterSlot::retire(slot, receiver) {
+                if WriterSlot::retire(slot, receiver) {
                     return Ok(());
                 }
                 continue;
             }
             // We need to (re)open the file, the first write request will tell us whether or not
             // this is an append request.
-            let spec = if evicted {
+            let spec = if evicted.load(Ordering::Acquire) {
                 FileSpec::Append
             } else {
                 batch.get_spec()
             };
             writer = Some(f(spec)?);
-            evicted = false;
+            evicted.store(false, Ordering::Release);
             open.store(true, Ordering::Release);
             if let Some(m) = member {
                 m.register();
@@ -1542,13 +1668,13 @@ fn receive_loop<W: io::Write>(
                 m.unregister();
             }
             if evict {
-                evicted = true;
+                evicted.store(true, Ordering::Release);
             } else {
                 open.store(false, Ordering::Release);
-                // The output is closed: stop this thread until it is written to again.
-                if WriterSlot::retire(slot, receiver) {
-                    return Ok(());
-                }
+            }
+            // The output is closed: stop this thread until it is written to again.
+            if WriterSlot::retire(slot, receiver) {
+                return Ok(());
             }
         }
     }
