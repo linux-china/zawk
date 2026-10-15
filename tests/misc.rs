@@ -803,6 +803,47 @@ fn large_integer_literals() {
 }
 
 #[test]
+fn many_closed_output_files() {
+    // Writing to many files, closing each one, must not keep a writer thread per file: this used
+    // to fail to spawn a thread after ~16k files.
+    const N: usize = 20000;
+    let input: String = (1..=N).map(|i| format!("{}\n", i)).collect();
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-v", &format!("d={}", dir)])
+        .arg(r#"{ f = d "/o" $1; print > f; close(f) } END { print NR }"#)
+        .write_stdin(input)
+        .assert()
+        .success()
+        .stdout(format!("{}\n", N));
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), N);
+    assert_eq!(read_to_string(tmp.path().join(format!("o{}", N))).unwrap(), format!("{}\n", N));
+}
+
+#[test]
+fn next_in_end_is_error() {
+    // `next`/`nextfile` in END used to jump back to the main loop and rerun END forever.
+    for prog in [r#"END { print "a"; next }"#, "END { nextfile }"] {
+        for backend_arg in BACKEND_ARGS {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg(prog)
+                .write_stdin("x\n")
+                .timeout(std::time::Duration::from_secs(10))
+                .assert()
+                .failure()
+                .stdout("")
+                .get_output()
+                .clone();
+            assert!(String::from_utf8_lossy(&out.stderr).contains("used in END action"));
+        }
+    }
+}
+
+#[test]
 fn close_output_command() {
     for backend_arg in BACKEND_ARGS {
         // close() waits for the command, so its output comes before later output, and earlier

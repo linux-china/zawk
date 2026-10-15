@@ -2441,6 +2441,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
 
     // Handles "next", "nextfile" statements.
     fn do_next(&mut self, current_open: NodeIx, is_next_file: bool) -> Result<NodeIx> {
+        // The END block runs after the main loop, so jumping back to its header would rerun END
+        // forever.
+        if self.f.in_end {
+            return err!(
+                "`{}` used in END action",
+                if is_next_file { "nextfile" } else { "next" }
+            );
+        }
         if let Some(header) = self.f.toplevel_header {
             if is_next_file {
                 self.add_stmt(
