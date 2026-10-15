@@ -1013,17 +1013,64 @@ impl<'a> Str<'a> {
     }
 
     /// Length in chars; each invalid UTF-8 sequence counts as one char. The count of a long
-    /// string is cached with its buffer's char cursor, so `length(s)` in a loop doesn't rescan `s`.
+    /// string is cached with its buffer's char cursor, so `length(s)` in a loop doesn't rescan `s`,
+    /// and the count of a concatenation is summed from its pieces, so neither does `s = s "é";
+    /// length(s)`.
     pub fn len(&self) -> usize {
+        if characters_as_bytes() {
+            return self.bytes_len();
+        }
+        let known = self.concat_chars();
         self.with_bytes(|bs| {
-            if bs.len() < CHAR_CURSOR_MIN_LEN || characters_as_bytes() {
-                return char_count(bs);
+            let count = || known.unwrap_or_else(|| char_count(bs));
+            if bs.len() < CHAR_CURSOR_MIN_LEN {
+                return count();
             }
             self.with_char_cursor(bs, |cur| match cur {
-                Some(cur) => *cur.chars.get_or_insert_with(|| char_count(bs)),
-                None => char_count(bs),
+                Some(cur) => *cur.chars.get_or_insert_with(count),
+                None => count(),
             })
         })
+    }
+
+    /// The char count of a concatenation, as the sum of its pieces' counts; a long piece that is
+    /// the string the char cursor caches the count of isn't rescanned. `None` if `self` isn't a
+    /// concatenation, or a piece starts with a UTF-8 continuation byte (which could complete a
+    /// char that the previous piece ends with, so the counts wouldn't add up).
+    fn concat_chars(&self) -> Option<usize> {
+        unsafe {
+            if self.rep().get_tag() != StrTag::Concat {
+                return None;
+            }
+            let cached = CHAR_CURSOR.with(|cursor| {
+                cursor.borrow().as_ref().and_then(|c| c.chars.map(|n| (c.ptr, c.len, n)))
+            });
+            let mut total = 0;
+            let mut todo = SmallVec::<[*const Str<'a>; 16]>::new();
+            todo.push(self as *const _);
+            while let Some(s) = todo.pop() {
+                // The pieces are owned by `self`'s Concat nodes, which outlive this loop.
+                let s = &*s;
+                let rep = s.rep_mut();
+                if rep.get_tag() == StrTag::Concat {
+                    let (l, r) = rep.view_as(|c: &Concat<'a>| {
+                        (&c.inner.left as *const Str<'a>, &c.inner.right as *const Str<'a>)
+                    });
+                    todo.push(r);
+                    todo.push(l);
+                    continue;
+                }
+                let bs = &*s.get_bytes();
+                if total > 0 && bs.first().is_some_and(|b| b & 0xC0 == 0x80) {
+                    return None;
+                }
+                total += match cached {
+                    Some((ptr, len, n)) if ptr == bs.as_ptr() && len == bs.len() => n,
+                    _ => char_count(bs),
+                };
+            }
+            Some(total)
+        }
     }
 
     /// `char_count(&bs[..x])`, where `bs` are the bytes of `self`: the 0-based char position of
@@ -2063,6 +2110,26 @@ mod tests {
         assert_eq!(ascii.len(), 5);
         let cjk: Str = "你好Hello".into();
         assert_eq!(cjk.len(), 7);
+    }
+
+    #[test]
+    fn concat_len_sums_pieces() {
+        let bytes = |bs: &[u8]| -> Str { Buf::read_from_bytes(bs).into_str() };
+        // Growing a long non-ASCII string, as `s = s "é"; length(s)` does.
+        let mut s: Str = "é".repeat(600).into();
+        for i in 1..=300 {
+            s = Str::concat(s, "é".into());
+            assert_eq!(s.len(), 600 + i);
+        }
+        let s = Str::concat(Str::concat("ab".into(), "é".repeat(700).into()), "你好".into());
+        assert_eq!(s.len(), 704);
+        // A truncated char completed by the next piece is one char, not two invalid sequences.
+        let s = Str::concat(bytes(&[b'x'; 20]), bytes(b"\xc3"));
+        let s = Str::concat(s, bytes(b"\xa9yyyyyyyyyyyyyyyy"));
+        assert_eq!(s.len(), 20 + 1 + 16);
+        let s = Str::concat(bytes(&[b'x'; 20]), bytes(b"\xe2\x82"));
+        let s = Str::concat(s, bytes(b"ayyyyyyyyyyyyyyyy"));
+        assert_eq!(s.len(), 20 + 1 + 17);
     }
 
     #[test]
