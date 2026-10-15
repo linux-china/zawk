@@ -362,17 +362,43 @@ pub(crate) fn tsid() -> String {
     tsid::create_tsid().to_string()
 }
 
-pub(crate) fn strtonum(text: &str) -> Float {
-    let text = text.trim().to_lowercase();
-    return if text.starts_with("0x") {
-        i64::from_str_radix(&text[2..], 16).unwrap_or(0) as f64
-    } else if text.starts_with("0o") {
-        i64::from_str_radix(&text[2..], 8).unwrap_or(0) as f64
-    } else if text.starts_with("0b") {
-        i64::from_str_radix(&text[2..], 2).unwrap_or(0) as f64
-    } else {
-        crate::runtime::float_parse::strtod(text.as_bytes())
+/// The numeric value of a string: leading blanks and an optional sign, then a `0x`, `0o` or `0b`
+/// prefixed integer (the longest run of digits of that base; overflow falls back to the nearest
+/// float), or else a decimal number as parsed by [`strtod`](crate::runtime::float_parse::strtod).
+/// Works on the bytes directly and never allocates.
+pub(crate) fn strtonum(bs: &[u8]) -> Float {
+    let start = bs.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bs.len());
+    let body = &bs[start..];
+    let (neg, digits) = match body {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        _ => (false, body),
     };
+    let radix = match digits {
+        [b'0', b'x' | b'X', ..] => 16,
+        [b'0', b'o' | b'O', ..] => 8,
+        [b'0', b'b' | b'B', ..] => 2,
+        _ => return crate::runtime::float_parse::strtod(body),
+    };
+    let mut exact = 0u64;
+    let mut approx = 0.0;
+    let mut overflow = false;
+    for d in digits[2..].iter().map_while(|b| (*b as char).to_digit(radix)) {
+        if !overflow {
+            match exact.checked_mul(radix as u64).and_then(|n| n.checked_add(d as u64)) {
+                Some(n) => exact = n,
+                None => {
+                    overflow = true;
+                    approx = exact as Float;
+                }
+            }
+        }
+        if overflow {
+            approx = approx * radix as Float + d as Float;
+        }
+    }
+    let n = if overflow { approx } else { exact as Float };
+    if neg { -n } else { n }
 }
 
 /// gawk's `strtonum`. `strnum` is whether the argument may be a strnum (input such as a field):
@@ -410,12 +436,6 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         }
         _ => decimal(bs),
     }
-}
-
-/// Converts a string to an integer: the string's numeric value (see [`strtonum`]) truncated
-/// toward zero, saturating at the bounds of `Int` (NaN is 0).
-pub(crate) fn strtoint(text: &str) -> Int {
-    strtonum(text) as Int
 }
 
 /// Converts a number to the 64-bit two's complement pattern used by the bitwise functions:
@@ -833,10 +853,19 @@ mod tests {
 
     #[test]
     fn test_strtonum() {
-        assert_eq!(17f64, strtonum("0x11"));
-        assert_eq!(3f64, strtonum("0b11"));
-        assert_eq!(17f64, strtonum("17"));
-        assert_eq!(17.2f64, strtonum("17.2"));
+        assert_eq!(17f64, strtonum(b"0x11"));
+        assert_eq!(3f64, strtonum(b"0b11"));
+        assert_eq!(17f64, strtonum(b"17"));
+        assert_eq!(17.2f64, strtonum(b"17.2"));
+        assert_eq!(-16f64, strtonum(b"-0x10"));
+        assert_eq!(16f64, strtonum(b" +0X10 "));
+        assert_eq!(0f64, strtonum(b"0x-5"));
+        assert_eq!(0f64, strtonum(b"0x+5"));
+        assert_eq!(31f64, strtonum(b"0x1fz"));
+        assert_eq!(9223372036854775808f64, strtonum(b"0x8000000000000000"));
+        assert_eq!(18446744073709551616f64, strtonum(b"0x10000000000000000"));
+        assert_eq!(-1.5f64, strtonum(b"  -1.5abc"));
+        assert_eq!(0f64, strtonum(b""));
     }
 
     #[test]

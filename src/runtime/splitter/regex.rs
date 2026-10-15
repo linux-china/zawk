@@ -116,6 +116,16 @@ impl<R: Read> RegexSplitter<R> {
         if rs.is_empty() {
             return self.read_paragraph(rc);
         }
+        // A single ASCII byte is matched literally (see `RegexCache::with_record_separator`):
+        // find it with memchr rather than through the regex cache.
+        if let Some(sep) = rs.with_bytes(|bs| match bs {
+            [b] if b.is_ascii() => Some(*b),
+            _ => None,
+        }) {
+            let (res, consumed) = self.read_line_byte(sep);
+            self.reader.last_len = consumed;
+            return Ok(res);
+        }
         rc.with_record_separator(rs, |re| self.read_line_regex(re))
     }
 
@@ -159,6 +169,46 @@ impl<R: Read> RegexSplitter<R> {
         let (res, consumed) = self.read_line_inner(pat);
         self.reader.last_len = consumed;
         res
+    }
+
+    /// Like [`read_line_inner`](Self::read_line_inner) with a single-byte separator. A byte cannot
+    /// match across a chunk boundary, so bytes already searched are not searched again after the
+    /// buffer is refilled.
+    fn read_line_byte(&mut self, sep: u8) -> (Str<'static>, usize) {
+        if self.reader.is_eof() {
+            return (Str::default(), 0);
+        }
+        let mut searched = 0;
+        loop {
+            let s = &self.reader.buf.as_bytes()[self.reader.start..self.reader.end];
+            if let Some(i) = memchr::memchr(sep, &s[searched..]) {
+                let start = searched + i;
+                let res = self
+                    .reader
+                    .buf
+                    .slice_to_str(self.reader.start, self.reader.start + start);
+                self.reader.start += start + 1;
+                return (res, start + 1);
+            }
+            let consumed = s.len();
+            match self.reader.reset() {
+                Ok(true) => {
+                    // EOF: yield the rest of the buffer
+                    let line = self
+                        .reader
+                        .buf
+                        .slice_to_str(self.reader.start, self.reader.end);
+                    self.reader.start = self.reader.end;
+                    return (line, consumed);
+                }
+                // The unread bytes are now at the start of the (new) buffer.
+                Ok(false) => searched = consumed,
+                Err(e) => {
+                    self.set_error(e);
+                    return (Str::default(), 0);
+                }
+            }
+        }
     }
 
     fn read_line_inner(&mut self, pat: &Regex) -> (Str<'static>, usize) {
@@ -390,6 +440,37 @@ mod tests {
             }
             panic!("number of lines does not match");
         }
+    }
+
+    #[test]
+    fn test_single_byte_separator_matches_regex() {
+        // Records longer than a chunk, a multi-byte char at a chunk boundary and no final newline.
+        let mut bs = bytes(1 << 16, 0.0005, 0.05);
+        let chunk_size = 1 << 9;
+        bs.splice(chunk_size - 1..chunk_size + 2, "學".bytes());
+        let s = String::from_utf8(bs).unwrap();
+        let read_all = |by_byte: bool| {
+            let c = Cursor::new(s.clone());
+            let mut rdr = RegexSplitter::new(c, chunk_size, "", /*check_utf8=*/ true);
+            let mut res = Vec::new();
+            loop {
+                let line: Str = if by_byte {
+                    let (line, consumed) = rdr.read_line_byte(b'\n');
+                    rdr.reader.last_len = consumed;
+                    line
+                } else {
+                    rdr.read_line_regex(&LINE)
+                };
+                if rdr.read_state() == 0 {
+                    break;
+                }
+                res.push(line.upcast());
+            }
+            res
+        };
+        let by_regex: Vec<Str> = read_all(false);
+        assert!(by_regex.len() > 10);
+        assert_eq!(read_all(true), by_regex);
     }
 
     #[test]

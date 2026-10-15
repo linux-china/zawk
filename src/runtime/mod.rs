@@ -205,10 +205,8 @@ impl RegexCache {
         pat: &Str<'a>,
         reg: &mut FileRead<LR>,
     ) -> Result<(/* file changed */ bool, Str<'a>)> {
-        let (changed, mut line) = reg.stdin.read_line(pat, self)?;
-        // NB both of these `pat`s are "wrong" but we are fine because they are only used
-        // when the column is nonzero, or someone has overwritten a nonzero column.
-        Ok((changed, line.get_col(0, pat, pat, self)?.clone().upcast()))
+        let (changed, line) = reg.stdin.read_record(pat, self)?;
+        Ok((changed, line.upcast()))
     }
     pub(crate) fn get_line_stdin_reuse<LR: LineReader>(
         &mut self,

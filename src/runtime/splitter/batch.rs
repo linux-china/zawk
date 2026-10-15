@@ -1534,6 +1534,8 @@ pub struct ByteReader<P: ChunkProducer> {
 
     last_len: usize,
     check_utf8: bool,
+    // The (unused) fields of records read by `read_record`, kept to reuse the allocation.
+    scratch: Vec<Str<'static>>,
 }
 
 impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
@@ -1629,6 +1631,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             used_fields: FieldSet::all(),
             last_len: usize::MAX,
             check_utf8,
+            scratch: Vec::new(),
         }
     }
 }
@@ -1721,6 +1724,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
             used_fields: FieldSet::all(),
             last_len: usize::MAX,
             check_utf8,
+            scratch: Vec::new(),
         }
     }
 }
@@ -1756,6 +1760,7 @@ where
                 last_len: usize::MAX,
                 used_fields,
                 check_utf8,
+                scratch: Vec::new(),
             }) as _)
         }
         res
@@ -1782,6 +1787,17 @@ where
         old.fields.clear();
         let changed = self.read_line_inner(&mut old.line, &mut old.fields)?;
         Ok(changed)
+    }
+    fn read_record(&mut self, _pat: &Str, _rc: &mut RegexCache) -> Result<(bool, Str<'static>)> {
+        // Only $0 is wanted: don't slice out the fields.
+        let used_fields = mem::replace(&mut self.used_fields, FieldSet::singleton(0));
+        let mut fields = mem::take(&mut self.scratch);
+        let mut line = Str::default();
+        let res = self.read_line_inner(&mut line, &mut fields);
+        fields.clear();
+        self.scratch = fields;
+        self.used_fields = used_fields;
+        Ok((res?, line))
     }
     fn read_state(&self) -> i64 {
         if self.cur_chunk_version() != 0 && self.last_len == 0 {

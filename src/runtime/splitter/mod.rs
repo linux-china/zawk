@@ -72,6 +72,16 @@ pub trait LineReader: Sized {
         std::mem::swap(old, &mut new);
         Ok(changed)
     }
+    /// Read the next record as a whole, without its fields (`getline var`).
+    fn read_record(
+        &mut self,
+        pat: &Str,
+        rc: &mut RegexCache,
+    ) -> Result<(/*file changed*/ bool, Str<'static>)> {
+        let (changed, mut line) = self.read_line(pat, rc)?;
+        // NB `pat` is "wrong" as the separator here, but it is only used for nonzero columns.
+        Ok((changed, line.get_col(0, pat, pat, rc)?))
+    }
     fn read_state(&self) -> i64;
     fn next_file(&mut self) -> Result<bool>;
     fn set_used_fields(&mut self, used_fields: &FieldSet);
@@ -307,6 +317,19 @@ where
             Ok(true)
         } else {
             Ok(changed)
+        }
+    }
+    fn read_record(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<(bool, Str<'static>)> {
+        let cur = match self.0.last_mut() {
+            Some(cur) => cur,
+            None => return Ok((false, Str::default())),
+        };
+        let (changed, line) = cur.read_record(pat, rc)?;
+        if cur.read_state() == 0 /* EOF */ && self.next_file()? {
+            let (_, line) = self.read_record(pat, rc)?;
+            Ok((true, line))
+        } else {
+            Ok((changed, line))
         }
     }
     fn read_state(&self) -> i64 {
