@@ -2464,3 +2464,35 @@ fn hex_strings_are_numbers_everywhere() {
             .stdout("16 -16 16 -16 1 1 1 1\n16 1a -16.0 A\nf 9223372036854775808 0 0 0 0\n9 0x10 0x1A\n");
     }
 }
+
+#[test]
+fn default_fs_blanks_are_the_same_everywhere() {
+    // With the default FS, `\r` separates fields (so a CRLF line ending is not part of the last
+    // field) whether the record is main input, read by getline, assigned to $0 or split().
+    let dir = tempdir().unwrap();
+    let crlf = dir.path().join("crlf.txt");
+    std::fs::write(&crlf, "a b\r\n").unwrap();
+    let f = crlf.to_str().unwrap().replace('\\', "\\\\");
+    let prog = format!(
+        r#"BEGIN {{
+    getline < "{f}"; print NF, length($2)
+    "cat {f}" | getline; print NF, length($2)
+}}
+{{
+    print NF, length($2)
+    n = split($0, p); print n, length(p[2])
+    $0 = $0; print NF, length($2)
+    n = split(" \tx\r\ny  ", q, " ", s); print n, q[1] q[2], length(s[0]), length(s[1]), length(s[2])
+    n = split("a::b:", r, ":"); print n, r[1] r[3], length(r[4]), split("", r, ":")
+}}"#
+    );
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(&prog)
+            .arg(&crlf)
+            .assert()
+            .stdout("2 1\n2 1\n2 1\n2 1\n2 1\n2 xy 2 2 2\n4 ab 0 0\n");
+    }
+}

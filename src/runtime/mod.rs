@@ -125,6 +125,81 @@ fn is_literal_separator(pat: &Str) -> bool {
     })
 }
 
+/// The blanks that separate fields under the default FS (`" "`). This is the same set the
+/// main-input splitter uses (see `splitter::batch`), so a record splits the same way whether it
+/// is read as main input, by `getline`, assigned to `$0` or passed to `split()`.
+#[inline]
+fn is_blank(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\n' | b'\r')
+}
+
+/// The `(start, end)` byte ranges of the fields of `bs` under the default FS: the maximal runs
+/// of non-blanks.
+fn blank_fields(bs: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        while i < bs.len() && is_blank(bs[i]) {
+            i += 1;
+        }
+        if i == bs.len() {
+            return None;
+        }
+        let start = i;
+        while i < bs.len() && !is_blank(bs[i]) {
+            i += 1;
+        }
+        Some((start, i))
+    })
+}
+
+/// Splits `s` by the default FS, pushing an empty string for fields projected away by
+/// `used_fields`.
+fn split_blanks<'a>(s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
+    s.with_bytes(|bs| {
+        for (i, (start, end)) in blank_fields(bs).enumerate() {
+            push(if used_fields.get(i + 1) {
+                s.slice(start, end)
+            } else {
+                Str::default()
+            });
+        }
+    })
+}
+
+/// The separator byte, when `pat` is a single ASCII character other than `" "` (one that awk
+/// treats literally).
+fn single_byte_separator(pat: &Str) -> Option<u8> {
+    pat.with_bytes(|bs| match bs {
+        [b] if *b != b' ' && b.is_ascii() => Some(*b),
+        _ => None,
+    })
+}
+
+/// Splits `s` at every occurrence of the byte `sep`, pushing an empty string for fields
+/// projected away by `used_fields`. An empty `s` has no fields.
+fn split_byte<'a>(s: &Str<'a>, sep: u8, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
+    s.with_bytes(|bs| {
+        if bs.is_empty() {
+            return;
+        }
+        let mut field = |i: usize, start: usize, end: usize| {
+            push(if used_fields.get(i) {
+                s.slice(start, end)
+            } else {
+                Str::default()
+            });
+        };
+        let mut prev = 0;
+        let mut i = 1;
+        for pos in memchr::memchr_iter(sep, bs) {
+            field(i, prev, pos);
+            prev = pos + 1;
+            i += 1;
+        }
+        field(i, prev, bs.len());
+    })
+}
+
 impl RegexCache {
     fn with_budget(budget: usize) -> Self {
         RegexCache(
@@ -265,21 +340,12 @@ impl RegexCache {
             return Ok(());
         }
         if pat == &Str::from(" ") {
-            // The default FS: fields are separated by runs of blanks and newlines.
-            self.with_regex(&Str::from(r#"[ \t\n]+"#), |re| {
-                s.split(
-                    re,
-                    |s, is_empty| {
-                        if !is_empty {
-                            push(s);
-                            1
-                        } else {
-                            0
-                        }
-                    },
-                    used_fields,
-                )
-            })
+            // The default FS: fields are separated by runs of blanks (see `is_blank`).
+            split_blanks(s, used_fields, push);
+            Ok(())
+        } else if let Some(sep) = single_byte_separator(pat) {
+            split_byte(s, sep, used_fields, push);
+            Ok(())
         } else if is_literal_separator(pat) {
             self.1.get(
                 pat,
@@ -367,7 +433,22 @@ impl RegexCache {
             seps.extend((1..flds.len()).map(|i| (i as Int, Str::default())));
             return Ok((flds, seps));
         }
-        let blanks = pat == &Str::from(" ");
+        if pat == &Str::from(" ") {
+            s.with_bytes(|bs| {
+                let mut prev = 0;
+                for (start, end) in blank_fields(bs) {
+                    if start > prev {
+                        seps.push((flds.len() as Int, s.slice(prev, start)));
+                    }
+                    flds.push(s.slice(start, end));
+                    prev = end;
+                }
+                if prev < bs.len() {
+                    seps.push((flds.len() as Int, s.slice(prev, bs.len())));
+                }
+            });
+            return Ok((flds, seps));
+        }
         let mut walk = |re: &Regex| {
             s.with_bytes(|bs| {
                 let mut prev = 0;
@@ -376,20 +457,14 @@ impl RegexCache {
                     if start == end {
                         continue;
                     }
-                    if !(blanks && start == 0) {
-                        flds.push(s.slice(prev, start));
-                    }
+                    flds.push(s.slice(prev, start));
                     seps.push((flds.len() as Int, s.slice(start, end)));
                     prev = end;
                 }
-                if !(blanks && prev == bs.len()) {
-                    flds.push(s.slice(prev, bs.len()));
-                }
+                flds.push(s.slice(prev, bs.len()));
             })
         };
-        if blanks {
-            self.with_regex(&Str::from(r#"[ \t\n]+"#), walk)?;
-        } else if is_literal_separator(pat) {
+        if is_literal_separator(pat) {
             self.1.get(pat, literal_regex, |re| walk(re))?;
         } else {
             self.with_regex(pat, walk)?;

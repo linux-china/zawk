@@ -356,17 +356,21 @@ if you find that the following are a serious hindrance:
 * *UTF-8* zawk can accept arbitrary bytes, but regular expressions and printf
   are UTF-8 aware. zawk does not validate input by default, but the `--utf8`
   flag enables zawk's efficient UTF-8 validation on all input.
-* *Carriage returns (CRLF input)* When records are read from the input with the
-  default `FS` (a single space) and the default `RS` (newline), zawk treats `\r`
-  as a blank that separates fields, like space, tab and newline. This lets
-  files with Windows (CRLF) line endings split cleanly: for the line `a b\r\n`,
-  `$2` is `b` in zawk but `b\r` in gawk, and `a\rb c` has 3 fields in zawk but
-  2 in gawk. `$0` keeps the `\r` in both. This only applies to the fast input
-  splitter: splitting a string with the default `FS` in other ways, such as
-  assigning `$0` (even `$0 = $0`) or calling `split(s, arr)`, or reading records
-  with a non-default `RS`, does not treat `\r` as a blank, as in gawk. To remove
-  carriage returns explicitly in any case, use `sub(/\r$/, "")` at the start of
-  the main rule.
+* *Carriage returns (CRLF input)* With the default `FS` (a single space), zawk
+  treats `\r` as a blank that separates fields, like space, tab and newline.
+  This lets files with Windows (CRLF) line endings split cleanly: for the line
+  `a b\r\n`, `$2` is `b` in zawk but `b\r` in gawk, and `a\rb c` has 3 fields
+  in zawk but 2 in gawk. `$0` keeps the `\r` in both. The rule is the same
+  wherever a string is split with the default `FS`: records of the main input
+  (with any `RS`), records read by `getline < file` or `cmd | getline`,
+  assigning `$0` (even `$0 = $0`) and `split(s, arr)`. To remove carriage
+  returns explicitly, use `sub(/\r$/, "")` at the start of the main rule.
+* *`getline` with `-i csv`/`-i tsv`* The input format only applies to the main
+  input. `getline var < file` and `cmd | getline var` read raw lines (split by
+  `RS`, so a quoted field containing a newline is not kept together), and
+  assigning a record to `$0` (`getline < file`, `cmd | getline` or `$0 = ...`)
+  currently has no effect in these modes. Use `getline var < file` and parse
+  the line yourself, e.g. with `from_csv(var)`.
 * *`getline < file`* The file name after `<` may be a concatenation:
   `getline line < dir "/" name` reads the file `dir "/" name` in zawk, while
   gawk reads it as `(getline line < dir) "/" name` and reads the file `dir`.
