@@ -2265,3 +2265,27 @@ fn lint_before_run() {
         .stdout("1\n")
         .stderr("");
 }
+
+#[test]
+fn inspect_files() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let inspect = |args: &[&str]| {
+        let out = Command::cargo_bin("zawk").unwrap().arg("inspect").args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let csv = dir.join("demo.csv");
+    let report = inspect(&[csv.to_str().unwrap()]);
+    assert!(report.contains("Format:  csv (read with: zawk -i csv -H"), "{}", report);
+    assert!(report.contains("│ $3    │ age  │ INT64  │"), "{}", report);
+    assert!(report.contains("│ age         │ INT64       │ 8      │ 49    │             5 │ 27.8 │ 19.8796 │  10 │  24 │  48 │     5 │           0.00% │"), "{}", report);
+
+    let jsonl = dir.join("demo.jsonl");
+    let report = inspect(&["-o", "md", "-n", "2", jsonl.to_str().unwrap()]);
+    assert!(report.contains("## Sample (first 2 rows)\n\n| id | name | age |\n| ---: | --- | ---: |\n| 1 | Jackie | 48 |\n"), "{}", report);
+
+    let parquet = dir.join("types.parquet");
+    let report = inspect(&["-o", "markdown", parquet.to_str().unwrap()]);
+    assert!(report.contains("| $8 | amount | DECIMAL(10,2) |"), "{}", report);
+    assert!(report.contains("| active | BOOLEAN | 0 | 1 | 2 |"), "{}", report);
+}

@@ -501,6 +501,33 @@ fn parse_object<'a>(bs: &'a [u8], mut f: impl FnMut(Key<'a>, Val)) {
     }
 }
 
+/// The top-level keys and values of a JSON object, with values as awk sees them (for
+/// `zawk inspect`). None if `bs` is not an object.
+pub fn object_cells(bs: &[u8]) -> Option<Vec<(String, crate::inspect::Cell)>> {
+    use crate::inspect::Cell;
+    if bs.get(skip_ws(bs, 0)) != Some(&b'{') {
+        return None;
+    }
+    let mut out = Vec::new();
+    parse_object(bs, |key, val| {
+        let cell = match val {
+            Val::Str { start, end, escaped } => {
+                let unescaped = if escaped { serde_json::from_slice::<String>(&bs[start..end]).ok() } else { None };
+                Cell::Str(unescaped.unwrap_or_else(|| String::from_utf8_lossy(&bs[start + 1..end - 1]).into_owned()))
+            }
+            Val::Raw { start, end } => {
+                let text = String::from_utf8_lossy(&bs[start..end]).into_owned();
+                if matches!(bs[start], b'{' | b'[') { Cell::Nested(text) } else { Cell::Num(text) }
+            }
+            Val::Null => Cell::Null,
+            Val::True => Cell::Bool(true),
+            Val::False => Cell::Bool(false),
+        };
+        out.push((key.into_owned(), cell));
+    });
+    Some(out)
+}
+
 /// Calls `f` for each element of the array in `bs`. Stops at the first syntax error.
 fn parse_array(bs: &[u8], mut f: impl FnMut(Val)) {
     let mut i = skip_ws(bs, 0);

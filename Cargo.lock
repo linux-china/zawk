@@ -6572,6 +6572,7 @@ dependencies = [
  "tsid",
  "ulid",
  "unicode-segmentation",
+ "unicode-width",
  "unicode-xid",
  "url",
  "urlencoding",

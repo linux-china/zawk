@@ -130,6 +130,7 @@ bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
 unicode-segmentation = "1.13"
+unicode-width = "0.1"
 fake = "5.1"
 identitycard = "0.1"
 passwords = "3"

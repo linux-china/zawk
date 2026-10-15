@@ -1042,6 +1042,11 @@ Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
 - `version()`: return zawk version
 - `exit([code])`: exit with code (`0` by default), END actions are still executed, as in POSIX awk.
 - `zawk functions [--json] [FILTER]`: list builtin functions with signatures, descriptions and examples.
+- `zawk inspect [-i FORMAT] [-o table|markdown] [-n ROWS] [--max-rows N] FILE...`: look at a CSV, TSV, JSON Lines or Parquet file
+  before writing a program for it: the schema (field number, name and type of each column; a CSV header of `name:TYPE` declares the type),
+  the first rows (10 by default) and a summary of each column like DuckDB's `SUMMARIZE` (min, max, approx_unique, avg, std, q25, q50, q75,
+  count, null_percentage). The format comes from `-i`, the file extension or the content; compressed files, URLs and S3 objects are supported.
+  `-o markdown` prints Markdown tables, handy for AI agents.
 
 # Credits
 

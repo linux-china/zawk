@@ -20,6 +20,7 @@ mod function_docs;
 #[cfg(test)]
 pub mod harness;
 mod input_taint;
+mod inspect;
 mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
@@ -595,6 +596,33 @@ fn real_main() {
             .help("The input format of the run; jsonl, parquet and markdown imply -H"))
         .arg(Arg::new("program")
             .help("The program text to lint; read from stdin when no program is given"));
+    let inspect_cmd = Command::new("inspect")
+        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file")
+        .arg(Arg::new("input-format")
+            .short('i')
+            .long("input-format")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet"])
+            .help("The format of the files; by default it is guessed from the file extension, then from the content"))
+        .arg(Arg::new("output-format")
+            .short('o')
+            .long("output-format")
+            .value_parser(["table", "markdown", "md"])
+            .default_value("table")
+            .help("Print the report as monospaced tables (table) or as Markdown with Markdown tables (markdown)"))
+        .arg(Arg::new("rows")
+            .short('n')
+            .long("rows")
+            .value_parser(clap::value_parser!(usize))
+            .default_value("10")
+            .help("The number of sample rows"))
+        .arg(Arg::new("max-rows")
+            .long("max-rows")
+            .value_parser(clap::value_parser!(u64))
+            .help("Only read the first MAX-ROWS rows (the statistics are computed on them)"))
+        .arg(Arg::new("files")
+            .num_args(1..)
+            .required(true)
+            .help("Files, URLs or S3 objects to inspect (`-` for standard input)"));
     let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
@@ -603,6 +631,7 @@ fn real_main() {
         .subcommand(init_cmd)
         .subcommand(functions_cmd)
         .subcommand(lint_cmd)
+        .subcommand(inspect_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -766,6 +795,33 @@ fn real_main() {
     // lint sub command
     if let Some(matches) = matches.subcommand_matches("lint") {
         run_lint(matches);
+    }
+    // inspect sub command
+    if let Some(matches) = matches.subcommand_matches("inspect") {
+        let opts = inspect::Options {
+            format: matches.get_one::<String>("input-format").and_then(|f| inspect::Format::parse(f)),
+            style: match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
+                Some("markdown") | Some("md") => inspect::Style::Markdown,
+                _ => inspect::Style::Table,
+            },
+            sample_rows: *matches.get_one::<usize>("rows").unwrap(),
+            max_rows: matches.get_one::<u64>("max-rows").copied(),
+        };
+        for (i, file) in matches.get_many::<String>("files").unwrap().enumerate() {
+            match inspect::inspect(file, &opts) {
+                Ok(report) => {
+                    if i > 0 {
+                        println!();
+                    }
+                    print!("{}", report);
+                }
+                Err(e) => {
+                    eprintln!("zawk: {}", e);
+                    std::process::exit(2);
+                }
+            }
+        }
+        return;
     }
     // init sub command
     if let Some(matches) = matches.subcommand_matches("init") {

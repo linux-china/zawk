@@ -25,6 +25,8 @@ use ::parquet::record::reader::RowIter;
 use ::parquet::record::Field;
 use ::parquet::schema::types::{Type, TypePtr};
 
+use crate::inspect::Cell;
+
 /// How a value is written in JSON.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
@@ -225,6 +227,119 @@ impl ParquetJson {
         }
         Ok(())
     }
+}
+
+/// The columns and rows of a Parquet file as cells, for `zawk inspect`.
+pub struct ParquetTable {
+    rows: Rows,
+    name: String,
+}
+
+impl ParquetJson {
+    pub fn table(self) -> io::Result<ParquetTable> {
+        let rows = self.open()?;
+        Ok(ParquetTable { rows, name: self.name().to_string() })
+    }
+}
+
+impl ParquetTable {
+    /// The top-level column names and their types (`INT64`, `STRING`, `DECIMAL(10,2)`, ...).
+    pub fn columns(&self) -> Vec<(String, String)> {
+        self.rows.columns.iter().map(|c| (c.name().to_string(), type_name(c))).collect()
+    }
+
+    pub fn next_row(&mut self) -> Option<io::Result<Vec<Cell>>> {
+        let rows = &mut self.rows;
+        let row = match rows.iter.next()? {
+            Ok(row) => row,
+            Err(e) => {
+                let msg = format!("cannot read parquet file `{}': {}", self.name, e);
+                return Some(Err(io::Error::other(msg)));
+            }
+        };
+        let mut values = row.get_column_iter();
+        let mut cells = Vec::with_capacity(rows.columns.len());
+        for i in 0..rows.columns.len() {
+            if rows.unsupported[i] {
+                cells.push(Cell::Null);
+                continue;
+            }
+            cells.push(match values.next() {
+                Some((_, field)) => field_cell(field, rows.formats[i]),
+                None => Cell::Null,
+            });
+        }
+        Some(Ok(cells))
+    }
+}
+
+fn field_cell(field: &Field, format: Format) -> Cell {
+    match field {
+        Field::Null => return Cell::Null,
+        Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_) => {
+            return Cell::Nested(field_text(field, format).0);
+        }
+        _ => {}
+    }
+    let (text, kind) = field_text(field, format);
+    match kind {
+        _ if format == Format::Json => Cell::Nested(text),
+        Kind::Bool => Cell::Bool(text == "1"),
+        // NaN and infinities: null in JSON, but numbers to awk
+        Kind::Null | Kind::Raw => Cell::Num(text),
+        Kind::Str => Cell::Str(text),
+    }
+}
+
+/// The type of a top-level column, named as in `-o parquet` headers where possible.
+fn type_name(t: &Type) -> String {
+    use ConvertedType as C;
+    let info = t.get_basic_info();
+    let converted = info.converted_type();
+    if t.is_group() {
+        let name = match (converted, info.logical_type_ref()) {
+            (C::LIST, _) | (_, Some(LogicalType::List)) => "LIST",
+            (C::MAP | C::MAP_KEY_VALUE, _) | (_, Some(LogicalType::Map)) => "MAP",
+            _ => "STRUCT",
+        };
+        return name.to_string();
+    }
+    let name = match info.logical_type_ref() {
+        Some(LogicalType::Uuid) => "UUID",
+        Some(LogicalType::Float16) => "FLOAT16",
+        Some(LogicalType::Timestamp(_)) => "TIMESTAMP",
+        Some(LogicalType::Time(_)) => "TIME",
+        Some(LogicalType::Json) => "JSON",
+        Some(LogicalType::String | LogicalType::Enum) => "STRING",
+        _ => match converted {
+            C::UTF8 | C::ENUM => "STRING",
+            C::JSON => "JSON",
+            C::BSON => "BSON",
+            C::DECIMAL => return format!("DECIMAL({},{})", t.get_precision(), t.get_scale()),
+            C::DATE => "DATE",
+            C::TIME_MILLIS | C::TIME_MICROS => "TIME",
+            C::TIMESTAMP_MILLIS | C::TIMESTAMP_MICROS => "TIMESTAMP",
+            C::INT_8 => "INT8",
+            C::INT_16 => "INT16",
+            C::INT_32 => "INT32",
+            C::INT_64 => "INT64",
+            C::UINT_8 => "UINT8",
+            C::UINT_16 => "UINT16",
+            C::UINT_32 => "UINT32",
+            C::UINT_64 => "UINT64",
+            C::INTERVAL => "INTERVAL",
+            _ => match t.get_physical_type() {
+                PhysicalType::BOOLEAN => "BOOLEAN",
+                PhysicalType::INT32 => "INT32",
+                PhysicalType::INT64 => "INT64",
+                PhysicalType::INT96 => "INT96",
+                PhysicalType::FLOAT => "FLOAT",
+                PhysicalType::DOUBLE => "DOUBLE",
+                PhysicalType::BYTE_ARRAY | PhysicalType::FIXED_LEN_BYTE_ARRAY => "BINARY",
+            },
+        },
+    };
+    name.to_string()
 }
 
 impl Read for ParquetJson {
