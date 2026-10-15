@@ -467,7 +467,7 @@ impl RegexCache {
         // RSTART and RLENGTH count chars, as `length()` and `substr()` do.
         let (start, len) = s.with_bytes(|bs| match find(bs) {
             Some((from, to)) => {
-                let start = str_impl::char_count(&bs[..from]) as Int;
+                let start = s.chars_before(bs, from) as Int;
                 let len = str_impl::char_count(&bs[from..to]) as Int;
                 (start + 1, len)
             }
@@ -520,13 +520,13 @@ impl RegexCache {
             });
             let (start, len) = s.with_bytes(|bs| {
                 for &(i, from, to) in groups.iter() {
-                    let start = str_impl::char_count(&bs[..from]) as Int + 1;
+                    let start = s.chars_before(bs, from) as Int + 1;
                     let len = str_impl::char_count(&bs[from..to]) as Int;
                     f(i, s.slice(from, to), start, len);
                 }
                 match groups.first() {
                     Some(&(_, from, to)) => (
-                        str_impl::char_count(&bs[..from]) as Int + 1,
+                        s.chars_before(bs, from) as Int + 1,
                         str_impl::char_count(&bs[from..to]) as Int,
                     ),
                     None => (0, -1),

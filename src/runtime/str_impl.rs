@@ -741,30 +741,24 @@ impl<'a> Str<'a> {
         let range = if characters_as_bytes() || bs[..end.min(bs.len())].is_ascii() {
             (l < bs.len()).then(|| (l, end.min(bs.len())))
         } else {
-            let buf = unsafe { self.rep_mut() }.buf();
-            SUBSTR_CURSOR.with(|cursor| {
-                let mut cursor = cursor.borrow_mut();
-                let (ci, bo) = match &*cursor {
-                    Some(c) if c.ptr == bs.as_ptr() && c.len == bs.len() => {
-                        if c.char_ix <= l {
-                            (c.char_ix, c.byte_off)
-                        } else if c.char_ix - l <= l {
-                            char_back(bs, c.char_ix, c.byte_off, l).map_or((0, 0), |bo| (l, bo))
-                        } else {
-                            (0, 0)
-                        }
-                    }
-                    _ => (0, 0),
+            self.with_char_cursor(bs, |cur| {
+                let Some(cur) = cur else {
+                    return char_byte_range(bs, 0, 0, l, r);
+                };
+                if cur.chars.is_some_and(|n| l >= n) {
+                    return None;
+                }
+                let (ci, bo) = if cur.char_ix <= l {
+                    (cur.char_ix, cur.byte_off)
+                } else if cur.char_ix - l <= l {
+                    char_back(bs, cur.char_ix, cur.byte_off, l).map_or((0, 0), |bo| (l, bo))
+                } else {
+                    (0, 0)
                 };
                 let range = char_byte_range(bs, ci, bo, l, r);
-                if let (Some(buf), Some((from, _))) = (buf, range) {
-                    *cursor = Some(SubstrCursor {
-                        _buf: buf,
-                        ptr: bs.as_ptr(),
-                        len: bs.len(),
-                        char_ix: l,
-                        byte_off: from,
-                    });
+                if let Some((from, _)) = range {
+                    cur.char_ix = l;
+                    cur.byte_off = from;
                 }
                 range
             })
@@ -1018,9 +1012,68 @@ impl<'a> Str<'a> {
         unsafe { self.rep_mut() }.len()
     }
 
-    /// Length in chars; each invalid UTF-8 sequence counts as one char.
+    /// Length in chars; each invalid UTF-8 sequence counts as one char. The count of a long
+    /// string is cached with its buffer's char cursor, so `length(s)` in a loop doesn't rescan `s`.
     pub fn len(&self) -> usize {
-        self.with_bytes(char_count)
+        self.with_bytes(|bs| {
+            if bs.len() < CHAR_CURSOR_MIN_LEN || characters_as_bytes() {
+                return char_count(bs);
+            }
+            self.with_char_cursor(bs, |cur| match cur {
+                Some(cur) => *cur.chars.get_or_insert_with(|| char_count(bs)),
+                None => char_count(bs),
+            })
+        })
+    }
+
+    /// `char_count(&bs[..x])`, where `bs` are the bytes of `self`: the 0-based char position of
+    /// byte offset `x`, as `index()` and `match()` report it. Counting resumes from the buffer's
+    /// char cursor when that lies at or before `x`, and the cursor then moves to `x` (if a char
+    /// starts there), so repeated searches of one long string don't rescan its prefix.
+    pub(crate) fn chars_before(&self, bs: &[u8], x: usize) -> usize {
+        if x < CHAR_CURSOR_MIN_LEN || characters_as_bytes() {
+            return char_count(&bs[..x]);
+        }
+        self.with_char_cursor(bs, |cur| {
+            let Some(cur) = cur else {
+                return char_count(&bs[..x]);
+            };
+            let n = if cur.byte_off <= x {
+                cur.char_ix + char_count(&bs[cur.byte_off..x])
+            } else {
+                char_count(&bs[..x])
+            };
+            // A non-continuation byte always starts a char (or an invalid sequence).
+            if bs.get(x).is_some_and(|b| b & 0xC0 != 0x80) {
+                cur.char_ix = n;
+                cur.byte_off = x;
+            }
+            n
+        })
+    }
+
+    /// Calls `f` with the char cursor of `bs`, the bytes of `self`, replacing the cached cursor
+    /// (of another string) if needed; `f` gets `None` if `self` has no heap buffer to key it on.
+    fn with_char_cursor<R>(&self, bs: &[u8], f: impl FnOnce(Option<&mut CharCursor>) -> R) -> R {
+        CHAR_CURSOR.with(|cursor| {
+            let mut cursor = cursor.borrow_mut();
+            if !matches!(&*cursor, Some(c) if c.ptr == bs.as_ptr() && c.len == bs.len()) {
+                match unsafe { self.rep_mut() }.buf() {
+                    Some(buf) => {
+                        *cursor = Some(CharCursor {
+                            _buf: buf,
+                            ptr: bs.as_ptr(),
+                            len: bs.len(),
+                            char_ix: 0,
+                            byte_off: 0,
+                            chars: None,
+                        })
+                    }
+                    None => return f(None),
+                }
+            }
+            f(cursor.as_mut())
+        })
     }
 
     pub fn concat(left: Str<'a>, right: Str<'a>) -> Str<'a> {
@@ -2058,6 +2111,36 @@ mod tests {
     }
 
     #[test]
+    fn char_cursor_matches_direct_count() {
+        // Long enough for the cache, with invalid bytes, truncated chars and stray continuation
+        // bytes mixed in.
+        let unit: &[u8] = b"ab\xe4\xb8\xad\xff\xe6\x96\x87\xe4\xb8x\x80\xf0\x9f\x98\x80";
+        let bytes = unit.repeat(300);
+        let s: Str = Buf::read_from_bytes(&bytes).into_str();
+        let total = char_count(&bytes);
+        // Twice: the second `len` is served from the cache.
+        assert_eq!(s.len(), total);
+        assert_eq!(s.len(), total);
+        // Every byte offset, forward then backward, interleaved with `substr` moving the same
+        // cursor; mid-char offsets must not move it.
+        let offsets: Vec<usize> = (0..=bytes.len()).chain((0..=bytes.len()).rev()).collect();
+        for (i, &x) in offsets.iter().enumerate() {
+            let n = s.with_bytes(|bs| s.chars_before(bs, x));
+            assert_eq!(n, char_count(&bytes[..x]), "offset {x}");
+            if i % 97 == 0 {
+                let l = (i * 7) % (total + 2);
+                let want = String::from_utf8_lossy(&bytes).chars().skip(l).take(3).count();
+                assert_eq!(s.sub_str(l, 3).len(), want, "sub_str({l}, 3)");
+            }
+        }
+        assert_eq!(s.len(), total);
+        // A slice of the same buffer has its own entry.
+        let tail = s.slice(unit.len() * 10, bytes.len());
+        assert_eq!(tail.len(), char_count(&bytes[unit.len() * 10..]));
+        assert_eq!(s.len(), total);
+    }
+
+    #[test]
     fn inline_basics() {
         let test_str = "hello there";
         unsafe {
@@ -2406,18 +2489,26 @@ pub(crate) fn characters_as_bytes() -> bool {
     CHARACTERS_AS_BYTES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Where the last non-ASCII `substr` of a buffer started. Holding `_buf` keeps the buffer alive
-/// and shared (so immutable), which makes `ptr`/`len` a sound identity for it.
-struct SubstrCursor {
+/// Char positions cached for the bytes of the last long string that `substr`, `length`,
+/// `index` or `match` looked at: char `char_ix` starts at byte `byte_off` (where the last
+/// `substr` started or the last search matched), and `chars` is the string's length once known.
+/// Holding `_buf` keeps the buffer alive and shared (so immutable), which makes `ptr`/`len` a
+/// sound identity for it.
+struct CharCursor {
     _buf: Buf,
     ptr: *const u8,
     len: usize,
     char_ix: usize,
     byte_off: usize,
+    chars: Option<usize>,
 }
 
+/// `length`/`index`/`match` count shorter strings (or prefixes) directly: rescanning them is
+/// cheap, and replacing the cursor for every record (a new buffer each) would cost more.
+const CHAR_CURSOR_MIN_LEN: usize = 1024;
+
 thread_local! {
-    static SUBSTR_CURSOR: std::cell::RefCell<Option<SubstrCursor>> = const { std::cell::RefCell::new(None) };
+    static CHAR_CURSOR: std::cell::RefCell<Option<CharCursor>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Byte range of chars `[l, l + r)` of `bs`, clamped to its end; `None` if `l` is past the end.
