@@ -77,10 +77,20 @@ pub use splitter::{
 };
 pub use str_impl::{Str, UniqueStr};
 
-/// Maximum number of compiled regexes kept per cache. Dynamic regexes can come from input data
-/// (`$0 ~ $1`, `split($0, a, $2)`), so once the cache reaches this size the least recently used
-/// half of it is evicted to keep memory bounded.
-const MAX_CACHED_REGEXES: usize = 1024;
+/// Memory budget, in bytes, for the compiled regexes kept per cache. Dynamic regexes can come
+/// from input data (`$0 ~ $1`, `split($0, a, $2)`), so once the estimated size of the cache
+/// (see `REGEX_COST`) reaches this budget the least recently used half of it is evicted. The
+/// budget is by memory rather than by count so that programs matching against a few thousand
+/// distinct patterns (e.g. from a lookup table) do not recompile on every record.
+const REGEX_CACHE_BUDGET: usize = 64 << 20;
+
+/// Estimated memory of a compiled regex (including its match caches) for a pattern of the given
+/// length in bytes. A short pattern like `^us.r123$` measures about 16KB, so the budget holds
+/// around 3500 of them.
+const REGEX_COST: CostModel = CostModel {
+    base: 12 << 10,
+    per_byte: 512,
+};
 
 pub struct RegexCache(
     Registry<Regex>,
@@ -92,11 +102,7 @@ pub struct RegexCache(
 
 impl Default for RegexCache {
     fn default() -> Self {
-        RegexCache(
-            Registry::with_capacity_limit(MAX_CACHED_REGEXES),
-            Registry::with_capacity_limit(MAX_CACHED_REGEXES),
-            false,
-        )
+        RegexCache::with_budget(REGEX_CACHE_BUDGET)
     }
 }
 
@@ -118,6 +124,13 @@ fn is_literal_separator(pat: &Str) -> bool {
 }
 
 impl RegexCache {
+    fn with_budget(budget: usize) -> Self {
+        RegexCache(
+            Registry::with_memory_limit(budget, REGEX_COST),
+            Registry::with_memory_limit(budget, REGEX_COST),
+            false,
+        )
+    }
     /// Drop the cached regexes if IGNORECASE changed since they were compiled.
     fn sync_case(&mut self) {
         let ignore_case = awk_regex::ignore_case();
@@ -411,9 +424,17 @@ impl RegexCache {
     }
 
     pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
+        Self::store_match_loc(vars, s, |bs| awk_regex::find_at(re, bs, 0))
+    }
+    /// Sets RSTART and RLENGTH to the match `find` reports in `s` and returns RSTART.
+    fn store_match_loc(
+        vars: &mut Variables,
+        s: &Str,
+        find: impl FnOnce(&[u8]) -> Option<(usize, usize)>,
+    ) -> Result<Int> {
         use crate::builtins::Variable;
         // RSTART and RLENGTH count chars, as `length()` and `substr()` do.
-        let (start, len) = s.with_bytes(|bs| match awk_regex::find_at(re, bs, 0) {
+        let (start, len) = s.with_bytes(|bs| match find(bs) {
             Some((from, to)) => {
                 let start = str_impl::char_count(&bs[..from]) as Int;
                 let len = str_impl::char_count(&bs[from..to]) as Int;
@@ -425,12 +446,23 @@ impl RegexCache {
         vars.store_int(Variable::RLENGTH, len)?;
         Ok(start)
     }
+    /// The leftmost match of `pat` in `s` when `pat` is literal text (see `awk_regex::as_literal`),
+    /// found without compiling a regex; `None` when `pat` is not literal.
+    fn find_literal(pat: &Str, s: &Str) -> Option<Option<(usize, usize)>> {
+        pat.with_bytes(|p| {
+            let (kind, lit) = awk_regex::as_literal(p)?;
+            Some(s.with_bytes(|bs| awk_regex::find_literal(kind, lit, bs)))
+        })
+    }
     pub(crate) fn regex_match_loc(
         &mut self,
         vars: &mut Variables,
         pat: &Str,
         s: &Str,
     ) -> Result<Int> {
+        if let Some(found) = Self::find_literal(pat, s) {
+            return Self::store_match_loc(vars, s, |_| found);
+        }
         self.with_regex_fallible(pat, |re| Self::regex_const_match_loc(vars, re, s))
     }
 
@@ -510,6 +542,9 @@ impl RegexCache {
     }
 
     pub(crate) fn is_regex_match(&mut self, pat: &Str, s: &Str) -> Result<bool> {
+        if let Some(found) = Self::find_literal(pat, s) {
+            return Ok(found.is_some());
+        }
         self.with_regex(pat, |re| Self::regex_const_match(re, s))
     }
 }
@@ -831,6 +866,19 @@ impl io::Read for InputFile {
     }
 }
 
+/// Estimated memory of a cached value, from the length of its key.
+#[derive(Clone, Copy)]
+pub(crate) struct CostModel {
+    pub(crate) base: usize,
+    pub(crate) per_byte: usize,
+}
+
+impl CostModel {
+    pub(crate) fn cost(&self, key_len: usize) -> usize {
+        self.base + self.per_byte * key_len
+    }
+}
+
 pub(crate) struct Registry<T> {
     // TODO(ezr): use the raw bucket interface so we can avoid calls to `unmoor` here.
     // TODO(ezr): we could potentially increase speed here if we did pointer equality (and
@@ -841,8 +889,10 @@ pub(crate) struct Registry<T> {
     // Each value is paired with the `clock` value of its last use.
     cached: HashMap<Str<'static>, (T, u64)>,
     // When set, the least recently used half of the registry is evicted before inserting a new
-    // entry once it holds this many.
-    limit: Option<usize>,
+    // entry that would take the estimated memory of the entries past the budget.
+    limit: Option<(usize, CostModel)>,
+    // The estimated memory of the entries, when `limit` is set.
+    used: usize,
     clock: u64,
 }
 impl<T> Default for Registry<T> {
@@ -850,27 +900,37 @@ impl<T> Default for Registry<T> {
         Registry {
             cached: Default::default(),
             limit: None,
+            used: 0,
             clock: 0,
         }
     }
 }
 
 impl<T> Registry<T> {
-    fn with_capacity_limit(limit: usize) -> Self {
+    fn with_memory_limit(budget: usize, cost: CostModel) -> Self {
         Registry {
             cached: Default::default(),
-            limit: Some(limit),
+            limit: Some((budget, cost)),
+            used: 0,
             clock: 0,
         }
+    }
+    fn cost(&self, key_len: usize) -> usize {
+        self.limit.map_or(0, |(_, model)| model.cost(key_len))
     }
     fn remove(&mut self, s: &Str) -> bool {
         self.take(s).is_some()
     }
     fn take(&mut self, s: &Str) -> Option<T> {
-        self.cached.remove(&s.clone().unmoor()).map(|(t, _)| t)
+        let t = self.cached.remove(&s.clone().unmoor()).map(|(t, _)| t);
+        if t.is_some() {
+            self.used -= self.cost(s.len());
+        }
+        t
     }
     fn clear(&mut self) {
         self.cached.clear();
+        self.used = 0;
     }
     /// Evicts the least recently used half of the entries. Evicting in batches keeps cache hits
     /// down to a counter update while making eviction amortized O(1) per insertion.
@@ -883,6 +943,8 @@ impl<T> Registry<T> {
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
         // Ticks are unique, so this keeps exactly the entries more recent than the median.
         self.cached.retain(|_, (_, tick)| *tick > threshold);
+        let model = self.limit.map(|(_, model)| model);
+        self.used = model.map_or(0, |m| self.cached.keys().map(|k| m.cost(k.len())).sum());
     }
     fn get<R>(
         &mut self,
@@ -902,7 +964,8 @@ impl<T> Registry<T> {
         let k_str = s.clone().unmoor();
         self.clock += 1;
         let clock = self.clock;
-        let full = self.limit.is_some_and(|limit| self.cached.len() >= limit);
+        let cost = self.cost(k_str.len());
+        let full = self.limit.is_some_and(|(budget, _)| self.used + cost > budget);
         match self.cached.entry(k_str) {
             Entry::Occupied(mut o) => {
                 let (val, tick) = o.get_mut();
@@ -926,6 +989,7 @@ impl<T> Registry<T> {
                 } else {
                     v.insert((val, clock));
                 }
+                self.used += cost;
                 res
             }
         }
@@ -1327,13 +1391,16 @@ impl<S> Iter<S> {
 mod tests {
     use super::*;
 
+    // Room for a few hundred short patterns.
+    const TEST_BUDGET: usize = 2 << 20;
+
     #[test]
     fn regex_cache_is_bounded() {
-        let mut rc = RegexCache::default();
-        for i in 0..(MAX_CACHED_REGEXES * 3) {
+        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        for i in 0..(TEST_BUDGET / REGEX_COST.cost(4) * 3) {
             let pat = Str::from(format!("x{}", i));
             assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
-            assert!(rc.0.cached.len() <= MAX_CACHED_REGEXES);
+            assert!(rc.0.used <= TEST_BUDGET);
         }
         // Entries still hit after the cache has been cleared.
         let pat = Str::from("x0".to_string());
@@ -1342,14 +1409,41 @@ mod tests {
 
     #[test]
     fn regex_cache_keeps_recently_used() {
-        let mut rc = RegexCache::default();
+        let mut rc = RegexCache::with_budget(TEST_BUDGET);
         let hot = Str::from("hot".to_string());
-        for i in 0..(MAX_CACHED_REGEXES * 3) {
+        for i in 0..(TEST_BUDGET / REGEX_COST.cost(4) * 3) {
             assert!(rc.with_regex(&hot, |re| re.is_match(b"hot")).unwrap());
             let pat = Str::from(format!("x{}", i));
             assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
             // A frequently used regex survives evictions.
             assert!(rc.0.cached.contains_key(&hot.clone().unmoor()));
         }
+    }
+
+    #[test]
+    fn literal_patterns_skip_the_cache() {
+        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        let cases: &[(&str, &str, bool)] = &[
+            ("user1", "a user12", true),
+            ("^user1", "user12", true),
+            ("^user1", "a user1", false),
+            ("user1$", "a user1", true),
+            ("user1$", "user12", false),
+            ("^user1$", "user1", true),
+            ("^user1$", "user12", false),
+            ("", "x", true),
+            ("^$", "", true),
+            ("^$", "x", false),
+            ("^", "x", true),
+            ("$", "x", true),
+        ];
+        for &(pat, s, want) in cases {
+            let got = rc.is_regex_match(&Str::from(pat), &Str::from(s)).unwrap();
+            assert_eq!(got, want, "{:?} ~ {:?}", s, pat);
+        }
+        assert!(rc.0.cached.is_empty());
+        // Patterns with operators still go through the regex engine.
+        assert!(rc.is_regex_match(&Str::from("^u.er$"), &Str::from("user")).unwrap());
+        assert_eq!(rc.0.cached.len(), 1);
     }
 }

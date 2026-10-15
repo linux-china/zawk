@@ -67,6 +67,64 @@ pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
         .build()
 }
 
+/// Where a pattern without regex operators (see `as_literal`) has to match its text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Literal {
+    /// `lit`: anywhere.
+    Contains,
+    /// `^lit`
+    Prefix,
+    /// `lit$`
+    Suffix,
+    /// `^lit$`
+    Exact,
+}
+
+/// When `pat` is literal text, optionally anchored with `^` and `$` (and IGNORECASE is off),
+/// where it has to match and the text. Such patterns, which programs often build from their
+/// input (`$2 ~ ("^" $1 "$")`), are matched without compiling (or caching) a regex.
+pub(crate) fn as_literal(pat: &[u8]) -> Option<(Literal, &[u8])> {
+    if ignore_case() || std::str::from_utf8(pat).is_err() {
+        return None;
+    }
+    let (start, rest) = match pat.strip_prefix(b"^") {
+        Some(rest) => (true, rest),
+        None => (false, pat),
+    };
+    let (end, lit) = match rest.strip_suffix(b"$") {
+        Some(lit) => (true, lit),
+        None => (false, rest),
+    };
+    let is_meta = |b: &u8| {
+        matches!(
+            b,
+            b'\\' | b'.' | b'[' | b']' | b'(' | b')' | b'*' | b'+' | b'?' | b'{' | b'}' | b'|' | b'^' | b'$'
+        )
+    };
+    if lit.iter().any(is_meta) {
+        return None;
+    }
+    let kind = match (start, end) {
+        (false, false) => Literal::Contains,
+        (true, false) => Literal::Prefix,
+        (false, true) => Literal::Suffix,
+        (true, true) => Literal::Exact,
+    };
+    Some((kind, lit))
+}
+
+/// The leftmost match of the literal pattern `(kind, lit)` (see `as_literal`) in `hay`, as
+/// (start, end).
+pub(crate) fn find_literal(kind: Literal, lit: &[u8], hay: &[u8]) -> Option<(usize, usize)> {
+    let n = lit.len();
+    match kind {
+        Literal::Contains => memchr::memmem::find(hay, lit).map(|i| (i, i + n)),
+        Literal::Prefix => hay.starts_with(lit).then_some((0, n)),
+        Literal::Suffix => hay.ends_with(lit).then(|| (hay.len() - n, hay.len())),
+        Literal::Exact => (hay == lit).then_some((0, n)),
+    }
+}
+
 /// The syntax error in `pat`, if any, e.g. "unclosed group".
 pub(crate) fn syntax_error(pat: &str) -> Option<String> {
     regex_syntax::ast::parse::Parser::new()
@@ -93,16 +151,35 @@ struct Longest {
     exact: OnceCell<Option<Regex>>,
 }
 
-/// Maximum number of patterns kept in `LONGEST`. Like `RegexCache` (see `MAX_CACHED_REGEXES`),
-/// patterns can come from input data, so once the cache reaches this size the least recently used
-/// half of it is evicted to keep memory bounded.
-const MAX_CACHED_LONGEST: usize = 1024;
+/// Memory budget, in bytes, for the patterns kept in `LONGEST`. Like `RegexCache` (see
+/// `REGEX_CACHE_BUDGET`), patterns can come from input data, so once the estimated size of the
+/// cache reaches this budget the least recently used half of it is evicted.
+const LONGEST_BUDGET: usize = 64 << 20;
+
+/// Estimated memory of the longest-match machinery for a pattern of the given length in bytes.
+const LONGEST_COST: super::CostModel = super::CostModel {
+    base: 8 << 10,
+    per_byte: 512,
+};
 
 /// The longest-match machinery per pattern, each paired with the `clock` value of its last use.
-#[derive(Default)]
 struct LongestCache {
     cached: HashMap<String, (Option<Rc<Longest>>, u64)>,
+    budget: usize,
+    // The estimated memory of the entries.
+    used: usize,
     clock: u64,
+}
+
+impl Default for LongestCache {
+    fn default() -> Self {
+        LongestCache {
+            cached: HashMap::new(),
+            budget: LONGEST_BUDGET,
+            used: 0,
+            clock: 0,
+        }
+    }
 }
 
 impl LongestCache {
@@ -115,10 +192,12 @@ impl LongestCache {
         })
     }
     fn insert(&mut self, pat: &str, l: Option<Rc<Longest>>) {
-        if self.cached.len() >= MAX_CACHED_LONGEST {
+        let cost = LONGEST_COST.cost(pat.len());
+        if self.used + cost > self.budget {
             self.evict_lru();
         }
         self.clock += 1;
+        self.used += cost;
         self.cached.insert(pat.to_string(), (l, self.clock));
     }
     /// Evicts the least recently used half of the entries (see `Registry::evict_lru`).
@@ -130,6 +209,7 @@ impl LongestCache {
         let mid = ticks.len() / 2;
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
         self.cached.retain(|_, (_, tick)| *tick > threshold);
+        self.used = self.cached.keys().map(|k| LONGEST_COST.cost(k.len())).sum();
     }
 }
 
@@ -572,14 +652,16 @@ mod tests {
 
     #[test]
     fn longest_cache_is_bounded() {
+        const BUDGET: usize = 2 << 20;
+        LONGEST.with(|cell| cell.borrow_mut().budget = BUDGET);
         let hot = compile("hot|hotter").unwrap();
-        for i in 0..(MAX_CACHED_LONGEST * 3) {
+        for i in 0..(BUDGET / LONGEST_COST.cost(8) * 3) {
             assert_eq!(find_at(&hot, b"hotter", 0), Some((0, 6)));
             let re = compile(&format!("zz|x{}", i)).unwrap();
             assert_eq!(find_at(&re, format!("x{}", i).as_bytes(), 0).map(|(f, _)| f), Some(0));
             LONGEST.with(|cell| {
                 let cache = cell.borrow();
-                assert!(cache.cached.len() <= MAX_CACHED_LONGEST);
+                assert!(cache.used <= BUDGET);
                 // A frequently used pattern survives evictions.
                 assert!(cache.cached.contains_key(hot.as_str()));
             });
