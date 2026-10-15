@@ -1855,6 +1855,16 @@ fn static_errors_have_locations() {
             "zawk: fatal: line 1, column 9: function `sub` expects 2 or 3 arguments, got 1\n".into(),
         ),
         (
+            vec!["BEGIN { print mktime() }"],
+            2,
+            "zawk: fatal: line 1, column 15: function `mktime` expects 1 to 3 arguments, got 0\n".into(),
+        ),
+        (
+            vec!["BEGIN { print mktime(1, 2, 3, 4) }"],
+            2,
+            "zawk: fatal: line 1, column 15: function `mktime` expects 1 to 3 arguments, got 4\n".into(),
+        ),
+        (
             vec!["BEGIN { print seq(3) + 1 }"],
             2,
             "zawk: fatal: line 1, column 15: attempt to use array returned by `seq()` in a scalar context\n".into(),

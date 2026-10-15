@@ -2941,7 +2941,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // mktime(date_text [, utc [, timezone]]): the utc flag defaults to 0 and is true
                     // when it is nonzero or a nonempty string (`!!utc`), as in gawk; the timezone
                     // defaults to MKTIME_LOCAL_TIMEZONE.
-                    builtins::Function::Mktime => {
+                    builtins::Function::Mktime if (1..=3).contains(&args_len) => {
                         use builtins::Function::Unop;
                         let timezone = if args_len == 3 { prim_args.pop() } else { None };
                         if args_len == 1 {
