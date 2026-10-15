@@ -182,35 +182,62 @@ mod sqlite_kv {
     }
 
     pub(crate) fn kv_get(namespace: &str, key: &str) -> KvResult<String> {
-        let real_key = format!("{}.{}", namespace, key);
         with_conn(|conn| {
-            let mut stmt = conn.prepare_cached("SELECT value FROM kv WHERE key = ?")?;
-            let value: Option<String> = stmt.query_row(rusqlite::params![real_key], |row| row.get(0)).optional()?;
+            let mut stmt = conn.prepare_cached("SELECT value FROM kv_store WHERE ns = ? AND key = ?")?;
+            let value: Option<String> = stmt.query_row(rusqlite::params![namespace, key], |row| row.get(0)).optional()?;
             Ok(value.unwrap_or_default())
         })
     }
 
     pub(crate) fn kv_delete(namespace: &str, key: &str) -> KvResult<()> {
-        let real_key = format!("{}.{}", namespace, key);
         with_conn(|conn| {
-            conn.prepare_cached("DELETE FROM kv WHERE key = ?")?.execute(rusqlite::params![real_key]).map(drop)
+            conn.prepare_cached("DELETE FROM kv_store WHERE ns = ? AND key = ?")?
+                .execute(rusqlite::params![namespace, key])
+                .map(drop)
         })
     }
 
     pub(crate) fn kv_clear(namespace: &str) -> KvResult<()> {
-        let key_name_pattern = format!("{}.%", namespace);
         with_conn(|conn| {
-            conn.prepare_cached("DELETE FROM kv WHERE key like ?")?.execute(rusqlite::params![key_name_pattern]).map(drop)
+            conn.prepare_cached("DELETE FROM kv_store WHERE ns = ?")?.execute(rusqlite::params![namespace]).map(drop)
         })
     }
 
     pub(crate) fn kv_put(namespace: &str, key: &str, value: &str) -> KvResult<()> {
-        let real_key = format!("{}.{}", namespace, key);
         with_conn(|conn| {
-            conn.prepare_cached("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)")?
-                .execute(rusqlite::params![real_key, value])
+            conn.prepare_cached("INSERT OR REPLACE INTO kv_store (ns, key, value) VALUES (?, ?, ?)")?
+                .execute(rusqlite::params![namespace, key, value])
                 .map(drop)
         })
+    }
+
+    /// Namespace and key are separate columns, so `kv_clear` matches the namespace exactly.
+    /// Rows of the legacy `kv (key = "<ns>.<key>")` table are copied once, split at the first '.';
+    /// the legacy table itself is left untouched.
+    fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
+        let exists = |table: &str| -> rusqlite::Result<bool> {
+            conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", [table], |row| {
+                row.get::<_, i64>(0)
+            }).map(|n| n > 0)
+        };
+        if exists("kv_store")? {
+            return Ok(());
+        }
+        let legacy = exists("kv")?;
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "CREATE TABLE kv_store (ns TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (ns, key))",
+            [],
+        )?;
+        if legacy {
+            tx.execute(
+                "INSERT OR IGNORE INTO kv_store (ns, key, value) \
+                 SELECT substr(key, 1, instr(key, '.') - 1), substr(key, instr(key, '.') + 1), value \
+                 FROM kv WHERE instr(key, '.') > 0",
+                [],
+            )?;
+        }
+        tx.commit()
     }
 
     fn create_sqlite_kv_conn() -> KvResult<Connection> {
@@ -221,7 +248,7 @@ mod sqlite_kv {
         let open = || -> rusqlite::Result<Connection> {
             let conn = Connection::open(sqlite_kv_db.as_path())?;
             conn.set_prepared_statement_cache_capacity(128);
-            conn.execute("CREATE TABLE IF NOT EXISTS kv (key VARCHAR UNIQUE, value VARCHAR)", [])?;
+            init_schema(&conn)?;
             Ok(conn)
         };
         open().map_err(|e| format!("cannot open {}: {}", sqlite_kv_db.display(), e))
@@ -283,6 +310,24 @@ mod tests {
         nats_kv::kv_put(url, "nick", value).unwrap();
         let value = nats_kv::kv_get(url, "nick").unwrap();
         println!("{}", value);
+    }
+
+    #[test]
+    fn test_sqlite_clear_is_exact() {
+        sqlite_kv::kv_put("zawk_t.demo", "k", "1").unwrap();
+        sqlite_kv::kv_put("zawk_t_dxmo", "k", "2").unwrap();
+        sqlite_kv::kv_put("zawk_t", "demo.k", "3").unwrap();
+        sqlite_kv::kv_clear("zawk_t_d_mo").unwrap();
+        sqlite_kv::kv_clear("ZAWK_T.DEMO").unwrap();
+        assert_eq!(sqlite_kv::kv_get("zawk_t.demo", "k").unwrap(), "1");
+        assert_eq!(sqlite_kv::kv_get("zawk_t_dxmo", "k").unwrap(), "2");
+        assert_eq!(sqlite_kv::kv_get("zawk_t", "demo.k").unwrap(), "3");
+        sqlite_kv::kv_clear("zawk_t.demo").unwrap();
+        assert_eq!(sqlite_kv::kv_get("zawk_t.demo", "k").unwrap(), "");
+        assert_eq!(sqlite_kv::kv_get("zawk_t", "demo.k").unwrap(), "3");
+        for ns in ["zawk_t_dxmo", "zawk_t"] {
+            sqlite_kv::kv_clear(ns).unwrap();
+        }
     }
 
     #[test]
