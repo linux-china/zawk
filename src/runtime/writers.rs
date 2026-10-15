@@ -1154,7 +1154,7 @@ impl FileHandle {
     }
 
     fn clear_batch(&mut self, upto: Option<usize>) -> Result<()> {
-        if self.cur_batch.data.is_empty() {
+        if !self.cur_batch.pending {
             return Ok(());
         }
         let (flush, upto) = if let Some(ix) = upto {
@@ -1187,6 +1187,9 @@ impl FileHandle {
         let cur_len = self.cur_batch.data.len();
         let mut added_bytes = 0;
         let mut last_line = None;
+        // Record the write even if every string is empty: `printf "" > f` must still open (and
+        // truncate) f.
+        self.cur_batch.extend(&[], spec);
         for s in ss.iter() {
             s.for_each_chunk(|bs| {
                 self.cur_batch.extend(bs, spec);
@@ -1365,14 +1368,17 @@ struct WriteGuard {
     data: Vec<u8>,
     status: ErrorCode,
     spec: FileSpec,
+    /// Whether this guard holds a write, possibly of zero bytes, that is yet to be sent.
+    pending: bool,
 }
 
 impl WriteGuard {
     fn extend(&mut self, bs: &[u8], spec: FileSpec) {
         // The spec only matters when the batch (re)opens the file, so it is the spec of the
         // batch's first write: in `print "a" > f; print "b" >> f`, the file is still truncated.
-        if self.data.is_empty() {
+        if !self.pending {
             self.spec = spec;
+            self.pending = true;
         }
         self.data.extend(bs);
     }
@@ -1380,6 +1386,7 @@ impl WriteGuard {
     fn peel(&mut self, bytes: usize, next: &mut WriteGuard) {
         if bytes < self.data.len() {
             next.data.extend(self.data[bytes..].iter().cloned());
+            next.pending = true;
             self.data.truncate(bytes);
         }
     }
@@ -1401,6 +1408,7 @@ impl WriteGuard {
         self.status = ErrorCode::default();
         self.spec = FileSpec::Trunc;
         self.data.clear();
+        self.pending = false;
     }
 }
 
