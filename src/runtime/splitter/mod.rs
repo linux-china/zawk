@@ -19,6 +19,28 @@ use crate::common::Result;
 use crate::pushdown::FieldSet;
 
 use std::io::{ErrorKind, Read};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Most warnings of one kind about malformed input (see [input_warning]) printed in a run.
+const MAX_INPUT_WARNINGS: usize = 5;
+
+/// Report malformed input that is still read as a record (e.g. a JSONL line that is not JSON) on
+/// stderr: `zawk: warning: <loc>: <msg>`, where `loc` is `<file>:<line>` or `<file>: record <n>`.
+/// `count` tracks one kind of warning; after [MAX_INPUT_WARNINGS] of a kind, the rest are
+/// suppressed with a single notice.
+pub(crate) fn input_warning(count: &AtomicUsize, loc: impl FnOnce() -> String, msg: &str) {
+    let n = count.fetch_add(1, Ordering::Relaxed);
+    if n < MAX_INPUT_WARNINGS {
+        eprintln_ignore!("zawk: warning: {}: {}", loc(), msg);
+    } else if n == MAX_INPUT_WARNINGS {
+        eprintln_ignore!("zawk: warning: further `{}' warnings suppressed", msg);
+    }
+}
+
+/// The file name to show in a warning: stdin is `-`.
+fn display_name(name: &str) -> &str {
+    if name.is_empty() { "-" } else { name }
+}
 
 // We have several implementations of "read and split a line"; they are governed by the LineReader
 // and Line traits.

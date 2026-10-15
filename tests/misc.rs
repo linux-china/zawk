@@ -1406,6 +1406,50 @@ fn csv_rfc4180_backslash_and_line_breaks() {
 }
 
 #[test]
+fn malformed_input_warnings() {
+    // Bad JSONL lines and a CSV quote that is never closed are still read, but reported on stderr
+    // (blank JSONL lines are not). A kind of warning is reported at most 5 times.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijsonl")
+            .arg("{ print NR, NF }")
+            .write_stdin("{\"a\":1}\nbad\n\n{\"a\":2\n{}\n[1,2]\n\"x\"\n")
+            .assert()
+            .success()
+            .stdout("1 1\n2 0\n3 0\n4 1\n5 1\n6 2\n7 1\n")
+            .stderr("zawk: warning: -:2: invalid JSON\nzawk: warning: -:4: invalid JSON\n");
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijsonl")
+            .arg("END { print NR }")
+            .write_stdin("bad\n".repeat(8))
+            .assert()
+            .success()
+            .stdout("8\n")
+            .get_output()
+            .clone();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(stderr.lines().count(), 6, "{}", stderr);
+        assert!(stderr.ends_with("-:5: invalid JSON\nzawk: warning: further `invalid JSON' warnings suppressed\n"));
+        // With and without the quoted field used by the program.
+        for prog in [r#"{ print NR, "[" $2 "]" }"#, "{ print NR }"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg("-icsv")
+                .arg(prog)
+                .write_stdin("x,\"y\"\"z\"\na,\"b\nc\n")
+                .assert()
+                .success()
+                .stderr("zawk: warning: -: record 2: unterminated quoted field runs to the end of the file\n");
+        }
+    }
+}
+
+#[test]
 fn markdown_output() {
     // -o markdown renders print records as a Markdown table: the first record is the header,
     // followed by the delimiter row; `|` in fields is escaped and tabs/newlines are kept on one line.

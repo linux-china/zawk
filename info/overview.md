@@ -254,12 +254,19 @@ surprised to discover there were bugs in zawk's parser.
   CSV-escaped lines (enabled via `-o csv` and `-o tsv`). CSV follows RFC 4180:
   inside quotes the only escape is `""`, so backslashes are plain data, and `-o csv`
   keeps line breaks inside quoted fields and ends records with `\n` (use
-  `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n` and `\\` escapes.
+  `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n` and `\\` escapes. A quoted
+  field that is never closed runs to the end of the file; zawk reads it as one
+  field and warns on stderr (`zawk: warning: <file>: record <n>: unterminated
+  quoted field runs to the end of the file`).
 * zawk reads JSON Lines (`-i jsonl`) and Apache Parquet files (`-i parquet`).
   `$1..$NF` are the columns, `FI` maps column names to their index (as with
   `-H`), and for Parquet `$0` is the row as a JSON object. See the
   [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md) for the
-  Parquet value mapping.
+  Parquet value mapping. A JSONL line that is not valid JSON is still read
+  (`$0` keeps the raw text, the fields are what parsed before the error, so
+  `bad` has `NF == 0`) and is reported on stderr as
+  `zawk: warning: <file>:<line>: invalid JSON`; blank lines are skipped silently.
+  Each kind of input warning is printed at most 5 times per run.
 * zawk has a builtin `join_fields` function that produces a string of a
   particular range of input columns.
 * zawk provides an `int` function for converting a scalar value to an integer,

@@ -22,6 +22,7 @@
 /// NB the changes to fix this issue will now be in the chunk module.
 use std::io::Read;
 use std::mem;
+use std::sync::atomic::AtomicUsize;
 use std::str;
 
 use lazy_static::lazy_static;
@@ -39,7 +40,7 @@ use super::{
         self, CancellableChunkProducer, Chunk, ChunkProducer, OffsetChunk, ParallelChunkProducer,
         ShardedChunkProducer,
     },
-    normalize_join_indexes, DefaultLine, LineReader, ReaderState,
+    display_name, input_warning, normalize_join_indexes, DefaultLine, LineReader, ReaderState,
 };
 
 pub struct CSVReader<P> {
@@ -55,6 +56,9 @@ pub struct CSVReader<P> {
 
     empty_buf: Buf,
     check_utf8: bool,
+    // Number of records read from the current file, for warnings. None for the workers of a
+    // parallel run, which do not see whole files.
+    record_no: Option<usize>,
 }
 
 impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
@@ -89,6 +93,7 @@ impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
                     ifmt,
                     field_set,
                     check_utf8,
+                    record_no: None,
                 }
             }) as _)
         }
@@ -188,6 +193,7 @@ impl CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             ifmt,
             empty_buf,
             check_utf8,
+            record_no: Some(0),
         }
     }
 }
@@ -252,6 +258,18 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> CSVReader<P> {
         let consumed = prev_ix - self.prev_ix;
         self.prev_ix = prev_ix;
         self.last_len = consumed;
+        self.record_no = self.record_no.map(|n| if changed { 1 } else { n + 1 });
+        if st == State::Quote {
+            // Chunks only end inside a quoted field at the end of the file: the quote is never
+            // closed and the field has swallowed the rest of the input.
+            static UNTERMINATED: AtomicUsize = AtomicUsize::new(0);
+            let name = self.cur_chunk.get_name();
+            let loc = || match self.record_no {
+                Some(n) => format!("{}: record {}", display_name(name), n),
+                None => display_name(name).to_string(),
+            };
+            input_warning(&UNTERMINATED, loc, "unterminated quoted field runs to the end of the file");
+        }
         if st != State::Done {
             line.promote();
         }
@@ -467,15 +485,22 @@ impl<'a> Stepper<'a> {
                     // First, skip over any unused fields.
                     let cur_field = self.line.fields.len() + 1;
                     if !self.field_set.get(cur_field) {
+                        // Parity of the quotes seen in this field: odd at the end of the input
+                        // means a quoted field that is never closed.
+                        let mut open_quote = false;
                         loop {
                             if cur == self.off.rel.fields.len() {
                                 self.prev_ix = bs.len() + 1;
+                                if open_quote {
+                                    self.st = State::Quote;
+                                }
                                 return self.get(line_start, bs.len(), cur);
                             }
                             let ix = *self.off.rel.fields.get_unchecked(cur) as usize;
                             cur += 1;
                             match *bs.get_unchecked(ix) {
-                                b'\r' | b'"' | b'\\' => {}
+                                b'"' => open_quote = !open_quote,
+                                b'\r' | b'\\' => {}
                                 b'\n' => {
                                     self.prev_ix = ix + 1;
                                     self.promote_null();

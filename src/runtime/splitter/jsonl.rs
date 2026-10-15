@@ -12,10 +12,12 @@
 //!
 //! Value mapping: strings are unescaped, numbers keep their source text, `true`/`false` become
 //! `1`/`0`, `null` and missing keys are empty, and nested objects/arrays keep their raw JSON text.
-//! A top-level array is split positionally into `$1..$n`; a line that is not valid JSON has NF=0
-//! while `$0` still holds the raw text.
+//! A top-level array is split positionally into `$1..$n`. A line that is not valid JSON keeps the
+//! fields parsed before the error (NF=0 if none) while `$0` still holds the raw text, and is
+//! reported on stderr (blank lines are not).
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, OnceLock};
 
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
@@ -28,7 +30,7 @@ use crate::runtime::{
 use super::{
     batch::ByteReader,
     chunk::{ChunkProducer, OffsetChunk},
-    normalize_join_indexes, DefaultLine, Line, LineReader, ReaderState,
+    display_name, input_warning, normalize_join_indexes, DefaultLine, Line, LineReader, ReaderState,
 };
 
 // NUL never appears in valid JSON text, so the inner reader never splits a record into fields.
@@ -149,6 +151,9 @@ pub struct JsonlReader {
     extra_names: Vec<String>,
     header: Header,
     used_fields: FieldSet,
+    // Line number of the last line read in the current file, for warnings. None for the workers
+    // of a parallel run, which do not see whole files.
+    line_no: Option<usize>,
 }
 
 impl JsonlReader {
@@ -180,6 +185,7 @@ impl JsonlReader {
             extra_names,
             header: Header::Start,
             used_fields: FieldSet::all(),
+            line_no: Some(0),
         }
     }
 
@@ -210,12 +216,13 @@ impl JsonlReader {
         out.diverged = false;
     }
 
-    fn fill(&self, line: Str<'static>, out: &mut JsonlLine) {
+    /// Split `line` into `out`. Returns false if the line is neither blank nor valid JSON.
+    fn fill(&self, line: Str<'static>, out: &mut JsonlLine) -> bool {
         out.diverged = false;
         out.fields.clear();
         let schema = self.schema();
         let used = &self.used_fields;
-        line.with_bytes(|bs| {
+        let valid = line.with_bytes(|bs| {
             let start = skip_ws(bs, 0);
             match bs.get(start) {
                 Some(b'{') => {
@@ -227,11 +234,11 @@ impl JsonlReader {
                         {
                             fields[ix] = val.to_str(&line, bs);
                         }
-                    });
+                    })
                 }
                 Some(b'[') => {
                     let fields = &mut out.fields;
-                    parse_array(bs, |val| fields.push(val.to_str(&line, bs)));
+                    parse_array(bs, |val| fields.push(val.to_str(&line, bs)))
                 }
                 Some(_) => {
                     // A bare scalar: accept only a complete JSON string, number or literal.
@@ -244,13 +251,28 @@ impl JsonlReader {
                             };
                         if valid {
                             out.fields.push(val.to_str(&line, bs));
+                            return true;
                         }
                     }
+                    false
                 }
-                None => {}
+                None => true,
             }
         });
         out.line = line;
+        valid
+    }
+
+    fn fill_checked(&mut self, line: Str<'static>, out: &mut JsonlLine) {
+        if !self.fill(line, out) {
+            static INVALID: AtomicUsize = AtomicUsize::new(0);
+            let name = self.filename();
+            let loc = || match self.line_no {
+                Some(n) => format!("{}:{}", display_name(&name.to_string()), n),
+                None => display_name(&name.to_string()).to_string(),
+            };
+            input_warning(&INVALID, loc, "invalid JSON");
+        }
     }
 }
 
@@ -279,6 +301,7 @@ impl LineReader for JsonlReader {
                     extra_names: Vec::new(),
                     header: Header::Done,
                     used_fields,
+                    line_no: None,
                 }) as _
             })
             .collect()
@@ -297,6 +320,7 @@ impl LineReader for JsonlReader {
         match std::mem::replace(&mut self.header, Header::Done) {
             Header::Start => {
                 let changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
+                self.line_no = self.line_no.map(|_| 1);
                 let first = trim_cr(self.scratch.line.clone());
                 self.build_schema(&first);
                 self.header_line(old);
@@ -309,13 +333,14 @@ impl LineReader for JsonlReader {
                 Ok(changed)
             }
             Header::Emitted(Some(first)) => {
-                self.fill(first, old);
+                self.fill_checked(first, old);
                 Ok(false)
             }
             Header::Emitted(None) | Header::Done => {
                 let changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
+                self.line_no = self.line_no.map(|n| if changed { 1 } else { n + 1 });
                 let line = trim_cr(self.scratch.line.clone());
-                self.fill(line, old);
+                self.fill_checked(line, old);
                 Ok(changed)
             }
         }
@@ -466,37 +491,42 @@ impl<'a> Key<'a> {
 }
 
 /// Calls `f` for each top-level key/value of the object in `bs`. Stops at the first syntax error.
-fn parse_object<'a>(bs: &'a [u8], mut f: impl FnMut(Key<'a>, Val)) {
+/// Returns whether `bs` is one complete object (nested values are only checked for balance).
+fn parse_object<'a>(bs: &'a [u8], mut f: impl FnMut(Key<'a>, Val)) -> bool {
     let mut i = skip_ws(bs, 0);
     if bs.get(i) != Some(&b'{') {
-        return;
+        return false;
     }
-    i += 1;
+    i = skip_ws(bs, i + 1);
+    if bs.get(i) == Some(&b'}') {
+        return skip_ws(bs, i + 1) == bs.len();
+    }
     loop {
         i = skip_ws(bs, i);
         if bs.get(i) != Some(&b'"') {
-            return;
+            return false;
         }
-        let Some((key_end, escaped)) = scan_string(bs, i) else { return };
+        let Some((key_end, escaped)) = scan_string(bs, i) else { return false };
         let key = if escaped {
             match serde_json::from_slice::<String>(&bs[i..key_end]) {
                 Ok(s) => Key::Unescaped(s),
-                Err(_) => return,
+                Err(_) => return false,
             }
         } else {
             Key::Plain(&bs[i + 1..key_end - 1])
         };
         i = skip_ws(bs, key_end);
         if bs.get(i) != Some(&b':') {
-            return;
+            return false;
         }
         i = skip_ws(bs, i + 1);
-        let Some((val, next)) = scan_value(bs, i) else { return };
+        let Some((val, next)) = scan_value(bs, i) else { return false };
         f(key, val);
         i = skip_ws(bs, next);
         match bs.get(i) {
             Some(b',') => i += 1,
-            _ => return,
+            Some(b'}') => return skip_ws(bs, i + 1) == bs.len(),
+            _ => return false,
         }
     }
 }
@@ -528,21 +558,26 @@ pub fn object_cells(bs: &[u8]) -> Option<Vec<(String, crate::inspect::Cell)>> {
     Some(out)
 }
 
-/// Calls `f` for each element of the array in `bs`. Stops at the first syntax error.
-fn parse_array(bs: &[u8], mut f: impl FnMut(Val)) {
+/// Calls `f` for each element of the array in `bs`. Stops at the first syntax error. Returns
+/// whether `bs` is one complete array.
+fn parse_array(bs: &[u8], mut f: impl FnMut(Val)) -> bool {
     let mut i = skip_ws(bs, 0);
     if bs.get(i) != Some(&b'[') {
-        return;
+        return false;
     }
-    i += 1;
+    i = skip_ws(bs, i + 1);
+    if bs.get(i) == Some(&b']') {
+        return skip_ws(bs, i + 1) == bs.len();
+    }
     loop {
         i = skip_ws(bs, i);
-        let Some((val, next)) = scan_value(bs, i) else { return };
+        let Some((val, next)) = scan_value(bs, i) else { return false };
         f(val);
         i = skip_ws(bs, next);
         match bs.get(i) {
             Some(b',') => i += 1,
-            _ => return,
+            Some(b']') => return skip_ws(bs, i + 1) == bs.len(),
+            _ => return false,
         }
     }
 }
@@ -567,6 +602,7 @@ mod tests {
             extra_names: extra.iter().map(|s| s.to_string()).collect(),
             header: Header::Start,
             used_fields: FieldSet::all(),
+            line_no: Some(0),
         };
         let first = Str::from(json.lines().next().unwrap()).unmoor();
         r.build_schema(&first);
