@@ -819,7 +819,7 @@ pub(crate) mod boilerplate {
                 f(dst2.into(), Some(src1.into()));
                 f(dst2.into(), Some(src2.into()));
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
                 f(res.into(), Some(to_split.into()));
                 f(res.into(), Some(pat.into()));
                 for (map, map_ty) in [(*arr, *arr_ty), (*seps, *seps_ty)] {

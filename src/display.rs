@@ -162,6 +162,7 @@ impl Display for Function {
             NextFile => write!(f, "nextfile"),
             Setcol => write!(f, "$="),
             Split | SplitSeps => write!(f, "split"),
+            PatSplit => write!(f, "patsplit"),
             Length => write!(f, "length"),
             Strlen => write!(f, "strlen"),
             Uuid => write!(f, "uuid"),

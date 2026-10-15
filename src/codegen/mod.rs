@@ -1735,13 +1735,18 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(split_int), &mut [rt, tsv, arrv, patv])?;
                 self.bind_val(flds.reflect(), fldsv)
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
-                let func = match (arr_ty, seps_ty) {
-                    (compile::Ty::MapIntStr, compile::Ty::MapIntStr) => intrinsic!(split_seps_int_int),
-                    (compile::Ty::MapIntStr, compile::Ty::MapStrStr) => intrinsic!(split_seps_int_str),
-                    (compile::Ty::MapStrStr, compile::Ty::MapIntStr) => intrinsic!(split_seps_str_int),
-                    (compile::Ty::MapStrStr, compile::Ty::MapStrStr) => intrinsic!(split_seps_str_str),
-                    (a, s) => return err!("invalid map types for split: {:?}, {:?}", a, s),
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit } => {
+                use compile::Ty::{MapIntStr, MapStrStr};
+                let func = match (arr_ty, seps_ty, patsplit) {
+                    (MapIntStr, MapIntStr, false) => intrinsic!(split_seps_int_int),
+                    (MapIntStr, MapStrStr, false) => intrinsic!(split_seps_int_str),
+                    (MapStrStr, MapIntStr, false) => intrinsic!(split_seps_str_int),
+                    (MapStrStr, MapStrStr, false) => intrinsic!(split_seps_str_str),
+                    (MapIntStr, MapIntStr, true) => intrinsic!(patsplit_int_int),
+                    (MapIntStr, MapStrStr, true) => intrinsic!(patsplit_int_str),
+                    (MapStrStr, MapIntStr, true) => intrinsic!(patsplit_str_int),
+                    (MapStrStr, MapStrStr, true) => intrinsic!(patsplit_str_str),
+                    (a, s, _) => return err!("invalid map types for split: {:?}, {:?}", a, s),
                 };
                 let rt = self.runtime_val();
                 let tsv = self.get_val(to_split.reflect())?;

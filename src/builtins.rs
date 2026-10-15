@@ -41,6 +41,8 @@ pub enum Function {
     Split,
     // split(s, arr, fs, seps)
     SplitSeps,
+    // patsplit(s, arr, re, seps)
+    PatSplit,
     Length,
     Strlen,
     Uuid,
@@ -400,6 +402,7 @@ static_map!(
     ["close", Function::Close],
     ["fflush", Function::Fflush],
     ["split", Function::Split],
+    ["patsplit", Function::PatSplit],
     ["strlen", Function::Strlen],
     ["length", Function::Length],
     ["uuid", Function::Uuid],
@@ -638,7 +641,7 @@ pub(crate) fn arity_error(name: &str, got: usize, arity: usize) -> CompileError 
 pub(crate) fn is_awk_builtin(name: &str) -> bool {
     matches!(
         name,
-        "length" | "substr" | "index" | "split" | "sub" | "gsub" | "match" | "sprintf"
+        "length" | "substr" | "index" | "split" | "patsplit" | "sub" | "gsub" | "match" | "sprintf"
             | "sin" | "cos" | "atan2" | "exp" | "log" | "sqrt" | "int" | "rand" | "srand"
             | "tolower" | "toupper" | "system" | "close" | "fflush"
             // gawk
@@ -686,7 +689,7 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
-            Function::SplitSeps => {
+            Function::SplitSeps | Function::PatSplit => {
                 for arg in [args[1], args[3]] {
                     let map = ctx.constant(
                         Map {
@@ -1067,7 +1070,7 @@ impl Function {
                     return err!("invalid input spec for split: {:?}", incoming);
                 }
             }
-            SplitSeps => {
+            SplitSeps | PatSplit => {
                 if let (MapIntStr | MapStrStr, MapIntStr | MapStrStr) = (incoming[1], incoming[3]) {
                     (smallvec![Str, incoming[1], Str, incoming[3]], Int)
                 } else {
@@ -1138,7 +1141,7 @@ impl Function {
             ArrayMedian | ArrayVar | ArrayStddev | ArrayMode | ArrayCountDistinct => 1,
             ArrayQuantile | ArrayTop => 2,
             ArrayStat => 3,
-            SplitSeps => 4,
+            SplitSeps | PatSplit => 4,
             HttpGet => 2,
             HttpPost => 3,
             SendMail => 4,
@@ -1199,7 +1202,7 @@ impl Function {
             Rand | Binop(Div) | Binop(Pow) | Binop(Mult) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
-            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | ReadErr
+            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
             | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct => Ok(Scalar(BaseTy::Int).abs()),
             ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),

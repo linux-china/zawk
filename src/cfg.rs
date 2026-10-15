@@ -2771,6 +2771,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if bi == builtins::Function::Split && args.len() == 4 {
                     bi = builtins::Function::SplitSeps;
                 }
+                // patsplit(s, arr, re) => patsplit(s, arr, re, <unused seps>)
+                if bi == builtins::Function::PatSplit && args.len() == 3 {
+                    prim_args.push(PrimVal::Var(self.fresh_local()));
+                }
                 // match(s, re, arr) => gawk's capturing form
                 if bi == builtins::Function::Match && args.len() == 3 {
                     bi = builtins::Function::MatchArr;

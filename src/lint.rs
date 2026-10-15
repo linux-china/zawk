@@ -282,10 +282,6 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
 /// gawk builtin functions that zawk lacks, with what to use instead; calling one is an unsupported
 /// feature rather than a typo.
 const UNSUPPORTED_GAWK_FUNCTIONS: &[(&str, &str)] = &[
-    (
-        "patsplit",
-        "loop with match(): `while (match(s, re)) { a[++n] = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH) }`",
-    ),
     ("bindtextdomain", "internationalization is not supported; drop the call"),
     ("dcgettext", "internationalization is not supported; use the string itself"),
     ("dcngettext", "internationalization is not supported; pick the singular or plural string with `n == 1 ? s1 : s2`"),
@@ -1559,9 +1555,10 @@ mod tests {
         assert_eq!(codes(&v), ["E301"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 9);
-        let v = run("BEGIN { patsplit(\"a\", b) }");
+        let v = run("BEGIN { dcgettext(\"a\") }");
         assert_eq!(codes(&v), ["E203"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("match()"));
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("internationalization"));
+        assert_eq!(codes(&run("BEGIN { patsplit(\"a\", b) }")), ["E302"]);
         // gawk functions zawk implements are checked like any other builtin.
         assert_eq!(codes(&run("BEGIN { print and(1) }")), ["E302"]);
         assert!(codes(&run("BEGIN { print isarray(x), compl(1), mkbool(1) }")).is_empty());

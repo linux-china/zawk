@@ -74,6 +74,18 @@ As in gawk, the optional array `seps` receives the separators: `seps[i]` is the 
 `arr[i+1]`. When fs is `" "`, leading and trailing blanks are kept in `seps[0]` and `seps[n]`, so the original text can be
 rebuilt from the parts: `n = split("a=1; b=2", parts, /[=;]/, seps)`.
 
+### patsplit(text, arr, re[, seps])
+
+The counterpart of `split()` (and of gawk's `FPAT`, which zawk does not support): the matches of the regex `re` in the
+string become the elements of `arr`, and the text around them goes to the optional array `seps`, as in gawk:
+`seps[0]` is the text before `arr[1]` and `seps[i]` the text after `arr[i]` (both kept even when empty). An empty
+match is a field unless it directly follows another match. Returns the number of matches.
+
+```awk
+n = patsplit("a1b22c333", nums, /[0-9]+/)               # 3: nums[1]="1", nums[2]="22", nums[3]="333"
+n = patsplit("x,\"y,z\",,w", f, /([^,]*)|("[^"]+")/)    # CSV-like fields: x, "y,z", "", w
+```
+
 ### last_part(s [, sep])
 
 Get last part with sep: `last_part("a/b/c", "/")` to `c`.

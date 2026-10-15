@@ -1821,7 +1821,7 @@ impl<'a, 'b> View<'a, 'b> {
                     return err!("invalid input types to split: {:?}", &conv_tys[..]);
                 })
             }
-            SplitSeps => {
+            SplitSeps | PatSplit => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
@@ -1833,6 +1833,7 @@ impl<'a, 'b> View<'a, 'b> {
                     pat: conv_regs[2].into(),
                     seps_ty: conv_tys[3],
                     seps: conv_regs[3],
+                    patsplit: *bf == PatSplit,
                 })
             }
             Strlen => {

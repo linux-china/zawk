@@ -82,6 +82,7 @@ fn numeric_builtin(f: Function) -> bool {
             | Fflush
             | Match
             | Split
+            | PatSplit
             | Sub
             | GSub
             | Contains

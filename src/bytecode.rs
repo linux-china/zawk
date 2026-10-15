@@ -423,7 +423,8 @@ pub(crate) enum Instr<'a> {
         Reg<runtime::StrMap<'a, Str<'a>>>,
         Reg<Str<'a>>,
     ),
-    // split(s, arr, pat, seps): `arr` and `seps` are maps from ints or strings to strings.
+    // split(s, arr, pat, seps), or patsplit(s, arr, re, seps) when `patsplit` is set: `arr` and
+    // `seps` are maps from ints or strings to strings.
     SplitSeps {
         res: Reg<Int>,
         to_split: Reg<Str<'a>>,
@@ -432,6 +433,7 @@ pub(crate) enum Instr<'a> {
         pat: Reg<Str<'a>>,
         seps_ty: Ty,
         seps: NumTy,
+        patsplit: bool,
     },
     // match(s, re, arr)
     MatchArrInt(
@@ -1748,7 +1750,7 @@ impl<'a> Instr<'a> {
                 arr.accum(&mut f);
                 pat.accum(&mut f);
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
                 res.accum(&mut f);
                 to_split.accum(&mut f);
                 f(*arr, *arr_ty);

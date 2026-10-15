@@ -397,20 +397,51 @@ impl RegexCache {
         Ok((flds, seps))
     }
 
-    /// `split(s, arr, pat, seps)`: replaces the contents of `arr` with the fields of `s` (indexed
-    /// from 1) and of `seps` with the separators; returns the number of fields.
+    /// `patsplit(s, arr, re, seps)`: the matches of `re` in `s` are the fields, and the text
+    /// around them the separators, as gawk fills `seps`: `seps[0]` is the text before the first
+    /// field and `seps[i]` the text after field i (both kept even when empty). An empty match is
+    /// a field unless it directly follows another match.
+    pub(crate) fn patsplit_seps<'a>(
+        &mut self,
+        pat: &Str,
+        s: &Str<'a>,
+    ) -> Result<(Vec<Str<'a>>, Vec<(Int, Str<'a>)>)> {
+        let mut flds = Vec::new();
+        let mut seps = Vec::new();
+        if s.is_empty() {
+            return Ok((flds, seps));
+        }
+        self.with_regex(pat, |re| {
+            s.with_bytes(|bs| {
+                let mut prev = 0;
+                for (start, end) in awk_regex::find_iter(re, bs) {
+                    seps.push((flds.len() as Int, s.slice(prev, start)));
+                    flds.push(s.slice(start, end));
+                    prev = end;
+                }
+                seps.push((flds.len() as Int, s.slice(prev, bs.len())));
+            })
+        })?;
+        Ok((flds, seps))
+    }
+
+    /// `split(s, arr, pat, seps)` (or `patsplit` when `patsplit` is set): replaces the contents
+    /// of `arr` with the fields of `s` (indexed from 1) and of `seps` with the separators;
+    /// returns the number of fields.
     pub(crate) fn split_seps_maps<'a, K1, K2>(
         &mut self,
         pat: &Str,
         s: &Str<'a>,
         arr: &SharedMap<K1, Str<'a>>,
         seps: &SharedMap<K2, Str<'a>>,
+        patsplit: bool,
     ) -> Result<Int>
     where
         K1: Hash + Eq + From<Int>,
         K2: Hash + Eq + From<Int>,
     {
-        let (flds, sep_list) = self.split_seps(pat, s)?;
+        let (flds, sep_list) =
+            if patsplit { self.patsplit_seps(pat, s)? } else { self.split_seps(pat, s)? };
         let n = flds.len() as Int;
         arr.clear();
         for (i, f) in flds.into_iter().enumerate() {

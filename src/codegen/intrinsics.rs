@@ -141,6 +141,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         split_seps_int_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         split_seps_str_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         split_seps_str_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        patsplit_int_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        patsplit_int_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        patsplit_str_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        patsplit_str_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         match_arr_int(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         match_arr_str(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         rand_float(rt_ty) -> float_ty;
@@ -2576,9 +2580,10 @@ asorti_intrinsics!(
     [asorti_strstr_strstr, StrMap<Str>, StrMap<Str>]
 );
 
-// split(s, arr, pat, seps): one intrinsic per pair of key types of `arr` and `seps`.
+// split(s, arr, pat, seps) and patsplit(s, arr, re, seps): one intrinsic per pair of key types
+// of `arr` and `seps`.
 macro_rules! split_seps_intrinsics {
-    ($([$name:ident, $arr_map:ty, $seps_map:ty]),*) => {
+    ($([$name:ident, $arr_map:ty, $seps_map:ty, $patsplit:expr]),*) => {
         $(
             pub(crate) unsafe extern "C" fn $name(
                 runtime: *mut c_void,
@@ -2593,7 +2598,7 @@ macro_rules! split_seps_intrinsics {
                     let seps = mem::transmute::<*mut c_void, $seps_map>(seps);
                     let to_split = &*(to_split as *mut Str);
                     let pat = &*(pat as *mut Str);
-                    let res = match runtime.core.regexes.split_seps_maps(pat, to_split, &arr, &seps) {
+                    let res = match runtime.core.regexes.split_seps_maps(pat, to_split, &arr, &seps, $patsplit) {
                         Ok(n) => n,
                         Err(e) => fail!(runtime, "failed to split string: {}", e),
                     };
@@ -2606,10 +2611,14 @@ macro_rules! split_seps_intrinsics {
 }
 
 split_seps_intrinsics!(
-    [split_seps_int_int, IntMap<Str>, IntMap<Str>],
-    [split_seps_int_str, IntMap<Str>, StrMap<Str>],
-    [split_seps_str_int, StrMap<Str>, IntMap<Str>],
-    [split_seps_str_str, StrMap<Str>, StrMap<Str>]
+    [split_seps_int_int, IntMap<Str>, IntMap<Str>, false],
+    [split_seps_int_str, IntMap<Str>, StrMap<Str>, false],
+    [split_seps_str_int, StrMap<Str>, IntMap<Str>, false],
+    [split_seps_str_str, StrMap<Str>, StrMap<Str>, false],
+    [patsplit_int_int, IntMap<Str>, IntMap<Str>, true],
+    [patsplit_int_str, IntMap<Str>, StrMap<Str>, true],
+    [patsplit_str_int, StrMap<Str>, IntMap<Str>, true],
+    [patsplit_str_str, StrMap<Str>, StrMap<Str>, true]
 );
 
 pub(crate) unsafe extern "C" fn map_int_int_join(arr: *mut c_void, sep: *mut U128) -> U128 {

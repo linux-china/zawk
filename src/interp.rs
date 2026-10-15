@@ -2226,8 +2226,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let flds = *flds;
                         *self.get_mut(flds) = res;
                     }
-                    SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps } => {
-                        let n = self.split_seps(*to_split, *arr_ty, *arr, *pat, *seps_ty, *seps)?;
+                    SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit } => {
+                        let n = self.split_seps(*to_split, *arr_ty, *arr, *pat, *seps_ty, *seps, *patsplit)?;
                         *self.get_mut(*res) = n;
                     }
                     MatchArrInt(res, s, pat, arr) => {
@@ -2694,6 +2694,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         pat: Reg<Str<'a>>,
         seps_ty: Ty,
         seps: NumTy,
+        patsplit: bool,
     ) -> Result<Int> {
         // Index the storages directly (rather than with `get`) to borrow them alongside the
         // regex cache.
@@ -2705,7 +2706,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     $((Ty::$arr_ty, Ty::$seps_ty) => {
                         let arr = index(&self.$arr_regs, &arr.into());
                         let seps = index(&self.$seps_regs, &seps.into());
-                        self.core.regexes.split_seps_maps(pat, to_split, arr, seps)
+                        self.core.regexes.split_seps_maps(pat, to_split, arr, seps, patsplit)
                     })*
                     _ => panic!("invalid map types for split: {:?}, {:?}", arr_ty, seps_ty),
                 }
