@@ -428,6 +428,28 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
             src.name = Some(parsing::inline_source_name(inline_count));
         }
     }
+    let mut input_files: Vec<String> = matches
+        .get_many::<String>("input-files")
+        .map(|x| x.cloned().collect())
+        .unwrap_or_default();
+    if !sources.is_empty() {
+        // As for a run, with -f or -e the program operand is the first input file.
+        if let Some(p) = matches.get_one::<String>("program") {
+            input_files.insert(0, p.clone());
+        }
+    } else if let Some(file) = matches
+        .get_one::<String>("program")
+        .filter(|p| p.ends_with(".awk") && std::path::Path::new(p.as_str()).is_file())
+    {
+        // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` file is read as -f.
+        match std::fs::read_to_string(file) {
+            Ok(text) => sources.push(lint::Source { name: Some(file.clone()), text }),
+            Err(e) => {
+                println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
+                std::process::exit(1)
+            }
+        }
+    }
     if sources.is_empty() {
         let text = match matches.get_one::<String>("program") {
             // As for a run, sugar syntax only applies to a program operand.
@@ -440,7 +462,20 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         };
         sources.push(lint::Source { name: None, text });
     }
-    let (errors, warnings, report) = lint::lint(&sources, &lint_options(matches));
+    let mut opts = lint_options(matches);
+    // The data-aware checks read the first records of the first input file.
+    let format = matches.get_one::<String>("input-format").map(|s| s.as_str());
+    if let Some(file) = input_files.first().filter(|_| !matches!(format, Some("markdown" | "md"))) {
+        let rows = *matches.get_one::<usize>("sample-rows").unwrap();
+        match inspect::sample(file, format.and_then(inspect::Format::parse), opts.header, rows) {
+            Ok(sample) => opts.data = Some(lint::Data { file: file.clone(), sample }),
+            Err(e) => {
+                println!("{}", lint::input_error(file, &common::io_error_reason(&e)));
+                std::process::exit(1)
+            }
+        }
+    }
+    let (errors, warnings, report) = lint::lint(&sources, &opts);
     println!("{}", report);
     let failed = errors > 0 || (warnings > 0 && matches.get_flag("deny-warnings"));
     std::process::exit(if failed { 1 } else { 0 })
@@ -466,18 +501,30 @@ fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
             matches.get_one::<String>("input-format").map(|s| s.as_str()),
             Some("jsonl" | "ndjson" | "parquet" | "markdown" | "md")
         );
+    let vars = || matches.get_many::<String>("var").into_iter().flatten();
+    // `-F`, or `-v FS=...`, with escapes processed as for a run.
+    let field_sep = matches
+        .try_get_one::<String>("field-separator")
+        .ok()
+        .flatten()
+        .cloned()
+        .or_else(|| vars().find_map(|v| v.strip_prefix("FS=").map(String::from)))
+        .map(|fs| {
+            let a = Arena::default();
+            let mut buf = Vec::new();
+            String::from_utf8_lossy(lexer::parse_string_literal(&fs, &a, &mut buf)).into_owned()
+        });
     lint::Options {
         header,
+        field_sep,
+        data: None,
         allow_arbitrary_commands: matches.get_flag("arbitrary-shell"),
         parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
             Some("f") | Some("file") => Some(lint::Parallel::File),
             _ => None,
         },
-        assigned: matches
-            .get_many::<String>("var")
-            .into_iter()
-            .flatten()
+        assigned: vars()
             .map(|v| v.split_once('=').map_or(v.as_str(), |(n, _)| n).trim().to_string())
             .collect(),
     }
@@ -595,12 +642,27 @@ fn real_main() {
             .long("input-format")
             .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"])
             .help("The input format of the run; jsonl, parquet and markdown imply -H"))
+        .arg(Arg::new("field-separator")
+            .short('F')
+            .long("field-separator")
+            .num_args(1)
+            .value_name("FS")
+            .conflicts_with("input-format")
+            .help("The field separator of the run, to split the records of the input file"))
+        .arg(Arg::new("sample-rows")
+            .long("sample-rows")
+            .value_parser(clap::value_parser!(usize))
+            .default_value("100")
+            .help("The number of records of the input file the data-aware checks read"))
         .arg(Arg::new("deny-warnings")
             .long("deny-warnings")
             .num_args(0)
             .help("Exit with 1 when there are warnings, as when there are errors"))
         .arg(Arg::new("program")
-            .help("The program text to lint; read from stdin when no program is given"));
+            .help("The program text (or an `.awk` file) to lint; read from stdin when no program is given"))
+        .arg(Arg::new("input-files")
+            .num_args(1..)
+            .help("The input files of the run: the program is also checked against the first records of the first one (unknown `$FI[...]` columns, fields beyond NF, a wrong field separator, number comparisons of fields that are not numbers)"));
     let inspect_cmd = Command::new("inspect")
         .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file")
         .arg(Arg::new("input-format")

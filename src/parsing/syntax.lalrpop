@@ -210,10 +210,20 @@ CmpLhs<G>: &'a Expr<'a, 'a, &'a str> = {
 
 // The target is a concatenation of non-comparison expressions (gawk's `common_exp`), so that
 // e.g. `print 1 > 2 ? "a" : "b"` is a syntax error rather than a write to the file "a".
+// The location of the target is kept (unless it has its own), for `zawk lint`.
 Redirect: (&'a Expr<'a, 'a, &'a str>, FileSpec) = {
-    ">" <PrecCat> => (<>, FileSpec::Trunc),
-    ">>" <PrecCat> => (<>, FileSpec::Append),
-    "|" <PrecCat> => (<>, FileSpec::Cmd),
+    ">" <l:@L> <e:PrecCat> => {
+        prog.locs.entry(expr_key(e)).or_insert(l);
+        (e, FileSpec::Trunc)
+    },
+    ">>" <l:@L> <e:PrecCat> => {
+        prog.locs.entry(expr_key(e)).or_insert(l);
+        (e, FileSpec::Append)
+    },
+    "|" <l:@L> <e:PrecCat> => {
+        prog.locs.entry(expr_key(e)).or_insert(l);
+        (e, FileSpec::Cmd)
+    },
 }
 
 BaseStmt: &'a Stmt<'a, 'a, &'a str> = {

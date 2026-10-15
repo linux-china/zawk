@@ -261,6 +261,104 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
     Ok(false)
 }
 
+/// The first records of an input, for `zawk lint` with an input file.
+#[derive(Clone, Debug)]
+pub enum Sample {
+    /// Lines of text (the header line first, with `-H`), to be split by the program's `FS`.
+    Lines(Vec<String>),
+    /// Records split by an input format: the `FI` keys (a CSV/TSV header line with `-H`, the
+    /// keys of the first JSON object, the Parquet columns) and the fields of each record, as
+    /// awk sees them (a null is "").
+    Fields { header: Option<Vec<String>>, rows: Vec<Vec<String>> },
+}
+
+/// Reads the first `max_records` records of `path` as a run reads them: with `format` (`-i`),
+/// or as lines of text when it is `None`. With `header` (`-H`), the header line is read as well.
+pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usize) -> io::Result<Sample> {
+    let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
+    let lines = |input: Box<dyn Read + Send>, max: usize| -> io::Result<Vec<String>> {
+        let mut reader = BufReader::new(input);
+        let mut out = Vec::new();
+        let mut line = Vec::new();
+        while out.len() < max {
+            line.clear();
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
+            out.push(lossy(trim_eol(&line)));
+        }
+        Ok(out)
+    };
+    let wanted = max_records + usize::from(header);
+    let mut rows: Vec<Vec<String>> = match format {
+        None => return Ok(Sample::Lines(lines(open_input(path)?, wanted)?)),
+        Some(Format::Csv) => {
+            let mut reader = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(open_input(path)?);
+            let mut record = csv::ByteRecord::new();
+            let mut rows = Vec::new();
+            while rows.len() < wanted && reader.read_byte_record(&mut record).map_err(io::Error::other)? {
+                rows.push(record.iter().map(lossy).collect());
+            }
+            rows
+        }
+        Some(Format::Tsv) => lines(open_input(path)?, wanted)?
+            .iter()
+            .map(|l| l.split('\t').map(unescape_tsv).collect())
+            .collect(),
+        Some(Format::Jsonl) => {
+            // As for a run, the keys of the first object are the fields, in order.
+            let mut keys: Option<Vec<String>> = None;
+            let mut rows = Vec::new();
+            for line in lines(open_input(path)?, usize::MAX)? {
+                if rows.len() >= max_records {
+                    break;
+                }
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let pairs = jsonl::object_cells(line.as_bytes()).unwrap_or_default();
+                let keys = keys.get_or_insert_with(|| pairs.iter().map(|(k, _)| k.clone()).collect());
+                let mut row = vec![String::new(); keys.len()];
+                for (k, cell) in &pairs {
+                    if let Some(i) = keys.iter().position(|x| x == k) {
+                        row[i] = awk_text(cell).to_string();
+                    }
+                }
+                rows.push(row);
+            }
+            return Ok(Sample::Fields { header: Some(keys.unwrap_or_default()), rows });
+        }
+        Some(Format::Parquet) => {
+            if path != "-" {
+                ParquetJson::check(path).map_err(io::Error::other)?;
+            }
+            let source = if path == "-" { ParquetJson::stdin() } else { ParquetJson::file(path.to_string()) };
+            let mut table = source.table()?;
+            let header = table.columns().into_iter().map(|(name, _)| name).collect();
+            let mut rows = Vec::new();
+            while rows.len() < max_records {
+                match table.next_row() {
+                    Some(row) => rows.push(row?.iter().map(|c| awk_text(c).to_string()).collect()),
+                    None => break,
+                }
+            }
+            return Ok(Sample::Fields { header: Some(header), rows });
+        }
+    };
+    // CSV and TSV: the header line, with `-H`.
+    let header_row = (header && !rows.is_empty()).then(|| {
+        let mut h = rows.remove(0);
+        if let Some(first) = h.first_mut() {
+            *first = first.trim_start_matches('\u{feff}').to_string();
+        }
+        h
+    });
+    Ok(Sample::Fields { header: header_row, rows })
+}
+
 fn trim_eol(line: &[u8]) -> &[u8] {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     line.strip_suffix(b"\r").unwrap_or(line)

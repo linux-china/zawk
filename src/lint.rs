@@ -26,9 +26,10 @@ use crate::ast;
 use crate::cfg::{self, Escaper};
 use crate::common::Stage;
 use crate::builtins::Function;
-use crate::common::Either;
+use crate::common::{Either, FileSpec};
 use crate::compile;
 use crate::lexer::{self, Loc, Tok};
+use crate::inspect::Sample;
 use crate::parsing;
 use lalrpop_util::ParseError;
 use serde::ser::{Serialize, SerializeMap, Serializer};
@@ -66,6 +67,18 @@ pub struct Options {
     pub assigned: Vec<String>,
     /// `-H` (or an input format that implies it): `FI` maps the column names of the header.
     pub header: bool,
+    /// `-F` (or `-v FS=...`), escapes processed.
+    pub field_sep: Option<String>,
+    /// The first records of an input file, for the data-aware checks.
+    pub data: Option<Data>,
+}
+
+/// A sample of an input file of the run (`zawk lint prog.awk data.csv`).
+#[derive(Clone)]
+pub struct Data {
+    /// The file name, for the messages.
+    pub file: String,
+    pub sample: Sample,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -92,7 +105,7 @@ pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
     // Variables declared with `# @var` come from `-v`, as given variables do.
     let mut assigned = opts.assigned.clone();
     assigned.extend(sources.iter().flat_map(|s| crate::awk_util::declared_vars(&s.text)));
-    let opts = Options { assigned, ..*opts };
+    let opts = Options { assigned, ..opts.clone() };
     diags.extend(check_program(&prog, &opts));
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
 
@@ -112,6 +125,17 @@ pub fn file_error(file: &str, reason: &str) -> String {
         ("code", json!("E001")),
         ("severity", json!("error")),
         ("message", json!(format!("can't open source file for reading: {}", reason))),
+        ("file", json!(file)),
+    ]);
+    report(1, 0, &[d])
+}
+
+/// The report for an input file that cannot be read.
+pub fn input_error(file: &str, reason: &str) -> String {
+    let d = Object(vec![
+        ("code", json!("E002")),
+        ("severity", json!("error")),
+        ("message", json!(format!("can't open input file for reading: {}", reason))),
         ("file", json!(file)),
     ]);
     report(1, 0, &[d])
@@ -412,8 +436,20 @@ struct Facts<'a, 'p> {
     formats: Vec<(&'a [u8], usize, Option<Loc>)>,
     /// Assignments to read-only variables and fields: the message and the location.
     read_only: Vec<(String, Option<Loc>)>,
-    /// Reads of `FI[...]` (e.g. `$FI["name"]`): the location.
-    header_columns: Vec<Option<Loc>>,
+    /// Reads of `FI[...]` (e.g. `$FI["name"]`): the column name, if it is a literal, and the
+    /// location.
+    header_columns: Vec<(Option<&'a [u8]>, Option<Loc>)>,
+    /// Reads of fields with a literal number outside BEGIN (`$3`): the number and the location.
+    fields: Vec<(i64, Option<Loc>)>,
+    /// Comparisons of a field with a number (`$3 > 100`): the field, the number and the location.
+    field_comparisons: Vec<(FieldRef<'a>, String, Option<Loc>)>,
+    /// Whether the program reads a record with a plain `getline` outside BEGIN (which may have
+    /// other fields than the sample).
+    record_changed: bool,
+    /// `FS = "..."` in BEGIN: the separators assigned.
+    fs_literals: Vec<&'a [u8]>,
+    /// The number of assignments to `FS` (of any kind, anywhere).
+    fs_sets: usize,
     /// Reads of fields, `NF` and `FILENAME` in BEGIN: what is read and the location.
     begin_record_reads: Vec<(String, Option<Loc>)>,
     /// Whether BEGIN or a function reads a record with `getline`.
@@ -422,6 +458,12 @@ struct Facts<'a, 'p> {
     keys: Vec<&'a str>,
     /// Comparisons of a `for (k in a)` key with a number: the key, the number and the location.
     key_comparisons: Vec<(&'a str, String, Option<Loc>)>,
+    /// `print > 10`: output redirected to a file named by a number: the redirection, the
+    /// file name (if it is a literal) and the location.
+    numeric_redirects: Vec<(&'static str, Option<String>, Option<Loc>)>,
+    /// Assignments used as a condition (`if (x = 1)`): the assigned variable (if it is one) and
+    /// the location.
+    cond_assigns: Vec<(Option<&'a str>, Option<Loc>)>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -433,6 +475,33 @@ const READ_ONLY_VARIABLES: &[(&str, &str)] = &[
     ("NF", "it is the number of fields of the current record"),
     ("FI", "it maps the column names of the header to field indexes"),
 ];
+
+/// A field read with a literal number or column name.
+#[derive(Clone, Copy, PartialEq)]
+enum FieldRef<'a> {
+    Num(i64),
+    Name(&'a [u8]),
+}
+
+impl FieldRef<'_> {
+    fn of<'a>(e: &AstExpr<'a>) -> Option<FieldRef<'a>> {
+        match e {
+            ast::Expr::Unop(ast::Unop::Column, x) => match x {
+                ast::Expr::ILit(n) => Some(FieldRef::Num(*n)),
+                ast::Expr::Index(ast::Expr::Var("FI"), ast::Expr::StrLit(k)) => Some(FieldRef::Name(k)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            FieldRef::Num(n) => format!("${}", n),
+            FieldRef::Name(k) => format!("$FI[\"{}\"]", String::from_utf8_lossy(k)),
+        }
+    }
+}
 
 /// Builtins that only read their arguments; a variable passed to any other function may be
 /// filled by it (e.g. `split(s, parts)`, or an array passed to a user function).
@@ -460,6 +529,9 @@ impl<'a, 'p> Facts<'a, 'p> {
 
     fn set(&mut self, name: &'a str, kind: SetKind, loc: Option<Loc>) {
         if !self.is_local(name) {
+            if name == "FS" {
+                self.fs_sets += 1;
+            }
             self.sets.push(Set { name, region: self.region, kind, loc });
         }
     }
@@ -480,7 +552,8 @@ impl<'a, 'p> Facts<'a, 'p> {
             Block(ss) => ss.iter().for_each(|s| self.stmt(s)),
             Print(args, out) => {
                 args.iter().for_each(|e| self.expr(e));
-                if let Some((e, _)) = out {
+                if let Some((e, spec)) = out {
+                    self.check_numeric_redirect(e, *spec);
                     self.expr(e);
                 }
             }
@@ -490,12 +563,13 @@ impl<'a, 'p> Facts<'a, 'p> {
                 }
                 self.expr(fmt);
                 args.iter().for_each(|e| self.expr(e));
-                if let Some((e, _)) = out {
+                if let Some((e, spec)) = out {
+                    self.check_numeric_redirect(e, *spec);
                     self.expr(e);
                 }
             }
             If(c, t, f) => {
-                self.expr(c);
+                self.condition(c);
                 self.stmt(t);
                 if let Some(f) = f {
                     self.stmt(f);
@@ -506,7 +580,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                     self.stmt(s);
                 }
                 if let Some(e) = cond {
-                    self.expr(e);
+                    self.condition(e);
                 }
                 if let Some(s) = update {
                     self.stmt(s);
@@ -514,7 +588,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.stmt(body);
             }
             DoWhile(c, body) | While(_, c, body) => {
-                self.expr(c);
+                self.condition(c);
                 self.stmt(body);
             }
             ForEach(key, arr, body) => {
@@ -572,18 +646,65 @@ impl<'a, 'p> Facts<'a, 'p> {
         }
     }
 
+    /// Records `print > 10` (or `>>`): the file is named `10`; the author almost always meant
+    /// to print a comparison.
+    fn check_numeric_redirect(&mut self, e: &'a AstExpr<'a>, spec: FileSpec) {
+        fn numeric(e: &AstExpr) -> bool {
+            use ast::Binop::*;
+            match e {
+                ast::Expr::ILit(_) | ast::Expr::FLit(_) | ast::Expr::Inc { .. } => true,
+                ast::Expr::Unop(ast::Unop::Neg | ast::Unop::Pos, _) => true,
+                ast::Expr::Binop(Plus | Minus | Mult | Div | Mod | Pow, _, _) => true,
+                _ => false,
+            }
+        }
+        let redirect = match spec {
+            FileSpec::Trunc => ">",
+            FileSpec::Append => ">>",
+            FileSpec::Cmd => return,
+        };
+        if numeric(e) {
+            let name = match e {
+                ast::Expr::ILit(n) => Some(n.to_string()),
+                ast::Expr::FLit(f) => Some(f.to_string()),
+                _ => None,
+            };
+            self.numeric_redirects.push((redirect, name, self.loc(e)));
+        }
+    }
+
+    /// Walks a condition, recording assignments used as its value (`if (x = 1)`), also under
+    /// `!`, `&&` and `||`.
+    fn condition(&mut self, e: &'a AstExpr<'a>) {
+        fn find<'a>(e: &'a AstExpr<'a>, found: &mut Vec<&'a AstExpr<'a>>) {
+            match e {
+                ast::Expr::Assign(..) => found.push(e),
+                ast::Expr::Unop(ast::Unop::Not, x) => find(x, found),
+                ast::Expr::And(l, r) | ast::Expr::Or(l, r) => {
+                    find(l, found);
+                    find(r, found);
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        find(e, &mut found);
+        for a in found {
+            // Assignments to fields and to non-lvalues are errors reported elsewhere.
+            let (name, lhs) = match a {
+                ast::Expr::Assign(lhs @ ast::Expr::Var(name), _) => (Some(*name), lhs),
+                ast::Expr::Assign(lhs @ ast::Expr::Index(..), _) => (None, lhs),
+                _ => continue,
+            };
+            let loc = self.loc(a).or_else(|| self.loc(lhs));
+            self.cond_assigns.push((name, loc));
+        }
+        self.expr(e);
+    }
+
     /// Records `k > 9` (either way round) where `k` is the key of an enclosing `for (k in a)`:
     /// array keys are strings, so gawk compares them as strings ("10" < "9").
     fn check_key_comparison(&mut self, l: &'a AstExpr<'a>, r: &'a AstExpr<'a>) {
-        fn number(e: &AstExpr) -> Option<String> {
-            match e {
-                ast::Expr::ILit(n) => Some(n.to_string()),
-                ast::Expr::FLit(f) => Some(f.to_string()),
-                ast::Expr::Unop(ast::Unop::Neg, x) => number(x).map(|n| format!("-{}", n)),
-                ast::Expr::Unop(ast::Unop::Pos, x) => number(x),
-                _ => None,
-            }
-        }
         let (var, x) = match (l, r) {
             (v @ ast::Expr::Var(_), x) | (x, v @ ast::Expr::Var(_)) => (v, x),
             _ => return,
@@ -593,6 +714,16 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.key_comparisons.push((k, n, self.loc(var)));
             }
         }
+    }
+
+    /// Records `$3 > 100` (either way round), checked against the input with a data sample.
+    fn check_field_comparison(&mut self, l: &'a AstExpr<'a>, r: &'a AstExpr<'a>) {
+        let (field, n, at) = match (FieldRef::of(l), number(r), FieldRef::of(r), number(l)) {
+            (Some(f), Some(n), _, _) => (f, n, l),
+            (_, _, Some(f), Some(n)) => (f, n, r),
+            _ => return,
+        };
+        self.field_comparisons.push((field, n, self.loc(at)));
     }
 
     /// Walks an assignment target.
@@ -632,10 +763,16 @@ impl<'a, 'p> Facts<'a, 'p> {
                     };
                     self.begin_record_reads.push((what, self.loc(e)));
                 }
+                if self.region != Region::Begin {
+                    if let (ast::Unop::Column, ILit(n)) = (op, x) {
+                        self.fields.push((*n, self.loc(e)));
+                    }
+                }
                 self.expr(x)
             }
             Binop(ast::Binop::LT | ast::Binop::GT | ast::Binop::LTE | ast::Binop::GTE, l, r) => {
                 self.check_key_comparison(l, r);
+                self.check_field_comparison(l, r);
                 self.expr(l);
                 self.expr(r);
             }
@@ -645,13 +782,20 @@ impl<'a, 'p> Facts<'a, 'p> {
             }
             Index(arr, ix) => {
                 if matches!(arr, Var("FI")) {
-                    self.header_columns.push(self.loc(e));
+                    let name = match ix {
+                        StrLit(k) => Some(*k),
+                        _ => None,
+                    };
+                    self.header_columns.push((name, self.loc(e)));
                 }
                 self.array(arr);
                 self.expr(arr);
                 self.expr(ix);
             }
             Assign(lhs, rhs) => {
+                if let (Var("FS"), StrLit(fs), Region::Begin) = (lhs, rhs, self.region) {
+                    self.fs_literals.push(fs);
+                }
                 // `x = x + e` adds up like `x += e`.
                 let sum = match (lhs, rhs) {
                     (Var(x), Binop(ast::Binop::Plus | ast::Binop::Minus, l, r)) => {
@@ -672,13 +816,16 @@ impl<'a, 'p> Facts<'a, 'p> {
             }
             Inc { x, .. } => self.lvalue(x, SetKind::Sum),
             ITE(c, t, f) => {
-                self.expr(c);
+                self.condition(c);
                 self.expr(t);
                 self.expr(f);
             }
             Getline { into, from, .. } => {
                 if matches!(self.region, Region::Begin | Region::Function) {
                     self.getline = true;
+                }
+                if into.is_none() && self.region != Region::Begin {
+                    self.record_changed = true;
                 }
                 if let Some(into) = into {
                     self.lvalue(into, SetKind::Other);
@@ -720,6 +867,17 @@ impl<'a, 'p> Facts<'a, 'p> {
                 }
             }
         }
+    }
+}
+
+/// The text of a number literal (with its sign).
+fn number(e: &AstExpr) -> Option<String> {
+    match e {
+        ast::Expr::ILit(n) => Some(n.to_string()),
+        ast::Expr::FLit(f) => Some(f.to_string()),
+        ast::Expr::Unop(ast::Unop::Neg, x) => number(x).map(|n| format!("-{}", n)),
+        ast::Expr::Unop(ast::Unop::Pos, x) => number(x),
+        _ => None,
     }
 }
 
@@ -797,20 +955,27 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         formats: Vec::new(),
         read_only: Vec::new(),
         header_columns: Vec::new(),
+        fields: Vec::new(),
+        field_comparisons: Vec::new(),
+        record_changed: false,
+        fs_literals: Vec::new(),
+        fs_sets: 0,
         begin_record_reads: Vec::new(),
         getline: false,
         keys: Vec::new(),
         key_comparisons: Vec::new(),
+        numeric_redirects: Vec::new(),
+        cond_assigns: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
     for (pat, body) in prog.pats.iter() {
         match pat {
             ast::Pattern::Null => {}
-            ast::Pattern::Bool(e) => facts.expr(e),
+            ast::Pattern::Bool(e) => facts.condition(e),
             ast::Pattern::Comma(l, r) => {
-                facts.expr(l);
-                facts.expr(r);
+                facts.condition(l);
+                facts.condition(r);
             }
         }
         if let Some(body) = body {
@@ -840,7 +1005,7 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
 
     // Without a header `FI` is empty, so every `$FI["col"]` is `""`. Reported once, at the first use.
     if !opts.header && !facts.header_columns.is_empty() {
-        let first = facts.header_columns.iter().flatten().min_by_key(|l| (l.line, l.col)).copied();
+        let first = facts.header_columns.iter().filter_map(|(_, l)| *l).min_by_key(|l| (l.line, l.col));
         diags.push(warning(
             "W105",
             "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
@@ -879,6 +1044,38 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
             format!(
                 "`{}` is an array key, which is a string: gawk compares it with {} as strings (\"10\" < \"9\"), zawk as numbers; write `{}+0` to compare as numbers in every awk",
                 key, n, key
+            ),
+            *loc,
+        ));
+    }
+
+    // `print $1 > 10` writes to the file `10`: `>` in print redirects, it does not compare.
+    for (redirect, name, loc) in &facts.numeric_redirects {
+        let file = match name {
+            Some(n) => format!("the file `{}`", n),
+            None => "a file named by a number".to_string(),
+        };
+        diags.push(warning(
+            "W114",
+            format!(
+                "`{}` after print/printf redirects the output to {}, it does not compare; to print a comparison put it in parentheses, e.g. `print ($1 > 10)`",
+                redirect, file
+            ),
+            *loc,
+        ));
+    }
+
+    // `if (x = 1)` assigns and is always true: almost always a typo for `==`.
+    for (name, loc) in &facts.cond_assigns {
+        let what = match name {
+            Some(n) => format!("`{}` is assigned", n),
+            None => "an assignment is".to_string(),
+        };
+        diags.push(warning(
+            "W115",
+            format!(
+                "{} in a condition: the condition is the assigned value, not a comparison; use `==` to compare, or if the assignment is meant, compare its value explicitly, e.g. `if ((x = f()) != \"\")`",
+                what
             ),
             *loc,
         ));
@@ -963,6 +1160,239 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
 
     if let Some(mode) = opts.parallel {
         diags.extend(check_parallel(&facts, mode));
+    }
+    if let Some(data) = &opts.data {
+        diags.extend(check_data(&facts, opts, data));
+    }
+    diags
+}
+
+/// How a run splits lines into fields.
+enum Splitter {
+    /// The default `FS = " "`: runs of blanks and newlines, ignoring leading and trailing ones.
+    Blank,
+    Char(char),
+    Regex(regex::Regex),
+}
+
+impl Splitter {
+    fn new(fs: &str) -> Option<Splitter> {
+        let mut chars = fs.chars();
+        Some(match (chars.next(), chars.next()) {
+            (Some(' '), None) => Splitter::Blank,
+            (Some(c), None) if c != '\\' => Splitter::Char(c),
+            _ => Splitter::Regex(regex::Regex::new(fs).ok()?),
+        })
+    }
+
+    fn split(&self, line: &str) -> Vec<String> {
+        if line.is_empty() {
+            return Vec::new();
+        }
+        match self {
+            Splitter::Blank => line.split([' ', '\t', '\n']).filter(|f| !f.is_empty()).map(String::from).collect(),
+            Splitter::Char(c) => line.split(*c).map(String::from).collect(),
+            Splitter::Regex(re) => re.split(line).map(String::from).collect(),
+        }
+    }
+}
+
+/// Whether awk reads `s`, a field, as a number (a "strnum").
+fn looks_numeric(s: &str) -> bool {
+    let t = s.trim_matches([' ', '\t', '\n']);
+    t.starts_with(|c: char| c.is_ascii_digit() || "+-.".contains(c))
+        && t.chars().all(|c| c.is_ascii_digit() || "+-.eE".contains(c))
+        && t.parse::<f64>().is_ok()
+}
+
+/// The edit distance between two strings.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
+}
+
+/// The column the author probably meant by `name`: the same name in another case, the same name
+/// with a `:TYPE` suffix, or a name at most 2 edits away.
+fn closest_column<'c>(name: &str, columns: &'c [String]) -> Option<&'c str> {
+    let lower = name.to_lowercase();
+    columns
+        .iter()
+        .filter_map(|c| {
+            let base = c.rsplit_once(':').map_or(c.as_str(), |(b, _)| b);
+            let d = if c.to_lowercase() == lower || base == name {
+                0
+            } else {
+                edit_distance(&lower, &c.to_lowercase())
+            };
+            (d <= 2 && d < name.chars().count().max(2)).then_some((d, c.as_str()))
+        })
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| c)
+}
+
+/// Checks the program against the first records of an input file: unknown column names, fields
+/// beyond the fields of the records, a wrong field separator and number comparisons of fields
+/// that are not numbers.
+fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    let file = &data.file;
+    // The separator of the run, for text: `FS = "..."` in BEGIN, else `-F`, else " ".
+    let (header, rows, fs) = match &data.sample {
+        Sample::Fields { header, rows } => (header.clone(), rows.clone(), None),
+        Sample::Lines(lines) => {
+            let fs = match facts.fs_literals.as_slice() {
+                [] if facts.fs_sets == 0 => opts.field_sep.clone().unwrap_or_else(|| " ".to_string()),
+                [fs] if facts.fs_sets == 1 => String::from_utf8_lossy(fs).into_owned(),
+                // FS changes in a way the sample cannot follow.
+                _ => return diags,
+            };
+            let Some(splitter) = Splitter::new(&fs) else { return diags };
+            let mut records = lines.iter();
+            let header = if opts.header {
+                records.next().map(|h| splitter.split(h.trim_start_matches('\u{feff}')))
+            } else {
+                None
+            };
+            (header, records.map(|l| splitter.split(l)).collect::<Vec<_>>(), Some((fs, lines)))
+        }
+    };
+    let max_nf = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let sampled = format!("the first {} of `{}`", plural(rows.len(), "record"), file);
+
+    // Every record has one field, but the program reads `$2` or more: the separator is wrong.
+    if let Some((fs, lines)) = &fs {
+        let first_wide = facts.fields.iter().find(|(n, _)| *n >= 2);
+        let unknown_header = header.as_ref().is_some_and(|h| h.len() == 1)
+            && facts.header_columns.iter().any(|(k, _)| k.is_some_and(|k| !header.as_ref().unwrap().iter().any(|c| c.as_bytes() == k)));
+        let header_one = header.as_ref().is_none_or(|h| h.len() <= 1);
+        if !rows.is_empty() && max_nf <= 1 && header_one && (first_wide.is_some() || unknown_header) {
+            let shown = if fs == " " { "the default FS (blanks)".to_string() } else { format!("FS `{}`", fs.escape_default()) };
+            let candidates = [(',', "`-F,` or `-i csv`"), ('\t', "`-F'\\t'` or `-i tsv`"), (';', "`-F';'`"), ('|', "`-F'|'`")];
+            let suggestion = candidates
+                .iter()
+                .filter(|(c, _)| !fs.contains(*c) && !(fs == " " && *c == '\t'))
+                .filter(|(c, _)| lines.iter().filter(|l| !l.is_empty()).all(|l| l.contains(*c)))
+                .max_by_key(|(c, _)| lines.iter().map(|l| l.matches(*c).count()).sum::<usize>())
+                .map(|(c, opt)| format!("; the lines contain `{}`: did you mean {}?", c.escape_default(), opt))
+                .unwrap_or_default();
+            let what = if first_wide.is_some() { "fields after `$1`" } else { "columns of the header" };
+            let loc = match first_wide {
+                Some((_, l)) => *l,
+                None => facts.header_columns.iter().find_map(|(_, l)| *l),
+            };
+            diags.push(warning(
+                "W128",
+                format!(
+                    "the program reads {}, but with {} each of {} has at most one field{}",
+                    what, shown, sampled, suggestion
+                ),
+                loc,
+            ));
+            return diags;
+        }
+    }
+
+    // `$FI["nmae"]`: a column the header does not have; `FI` has no such key and the field is "".
+    if let Some(header) = &header {
+        let mut reported: Vec<&[u8]> = Vec::new();
+        for (key, loc) in &facts.header_columns {
+            let Some(key) = key else { continue };
+            if header.iter().any(|c| c.as_bytes() == *key) || reported.contains(key) {
+                continue;
+            }
+            reported.push(key);
+            let name = String::from_utf8_lossy(key);
+            let hint = match closest_column(&name, header) {
+                Some(c) => format!("did you mean `{}`?", c),
+                None => {
+                    let mut cols: Vec<String> = header.iter().take(20).map(|c| format!("`{}`", c)).collect();
+                    if header.len() > 20 {
+                        cols.push("...".to_string());
+                    }
+                    format!("the columns are {}", cols.join(", "))
+                }
+            };
+            diags.push(Diagnostic {
+                code: "W126",
+                severity: Severity::Error,
+                message: format!(
+                    "unknown column `{}`: the header of `{}` has no such column, so `$FI[\"{}\"]` is always \"\"; {}",
+                    name, file, name, hint
+                ),
+                loc: *loc,
+            });
+        }
+    }
+
+    // `$7` when no record has 7 fields.
+    if !rows.is_empty() && !facts.record_changed {
+        let mut reported: Vec<i64> = Vec::new();
+        for (n, loc) in &facts.fields {
+            if *n as usize <= max_nf || *n < 1 || reported.contains(n) {
+                continue;
+            }
+            reported.push(*n);
+            diags.push(warning(
+                "W127",
+                format!(
+                    "`${}` is empty in {}: they have at most {}",
+                    n,
+                    sampled,
+                    plural(max_nf, "field")
+                ),
+                *loc,
+            ));
+        }
+    }
+
+    // `$3 > 100` where `$3` is not always a number: those records are compared as strings.
+    for (field, number, loc) in &facts.field_comparisons {
+        let index = match field {
+            FieldRef::Num(n) if *n >= 1 => *n as usize,
+            FieldRef::Name(k) => match header.as_ref().and_then(|h| h.iter().position(|c| c.as_bytes() == *k)) {
+                Some(i) => i + 1,
+                None => continue,
+            },
+            _ => continue,
+        };
+        let bad: Vec<(usize, &str)> = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.get(index - 1).map(|v| (i + 1, v.as_str())))
+            .filter(|(_, v)| !v.trim().is_empty() && !looks_numeric(v))
+            .collect();
+        let Some((record, value)) = bad.first() else { continue };
+        let name = field.describe();
+        let shown: String = value.chars().take(40).collect();
+        let advice = if bad.len() == 1 && *record == 1 && header.is_none() {
+            "; the first record looks like a header line: run with `-H` (and pass `-H` to lint) or skip it with `NR > 1`".to_string()
+        } else {
+            format!("; to compare numbers use `{} + 0` (non-numbers are 0) or skip those records first", name)
+        };
+        diags.push(warning(
+            "W129",
+            format!(
+                "`{}` is compared with the number {}, but it is not a number in {} of {} (e.g. record {}: \"{}\"): those records are compared as strings{}",
+                name,
+                number,
+                plural(bad.len(), "record"),
+                sampled,
+                record,
+                shown,
+                advice
+            ),
+            *loc,
+        ));
     }
     diags
 }
@@ -1272,6 +1702,120 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 10);
         let header = Options { header: true, ..Options::default() };
         assert!(codes(&run_with(prog, &header)).is_empty());
+    }
+
+    fn with_lines(lines: &[&str], header: bool, fs: Option<&str>) -> Options {
+        let sample = Sample::Lines(lines.iter().map(|l| l.to_string()).collect());
+        Options {
+            header,
+            field_sep: fs.map(String::from),
+            data: Some(Data { file: "data.csv".to_string(), sample }),
+            ..Options::default()
+        }
+    }
+
+    fn message(v: &Value, i: usize) -> &str {
+        v["diagnostics"][i]["message"].as_str().unwrap()
+    }
+
+    #[test]
+    fn data_unknown_columns() {
+        let opts = with_lines(&["name,age:INT64,price", "a,1,2"], true, Some(","));
+        let v = run_with("{ print $FI[\"nmae\"], $FI[\"Price\"], $FI[\"age\"], $FI[\"zzz\"], $FI[\"nmae\"] }", &opts);
+        assert_eq!(codes(&v), ["W126", "W126", "W126", "W126"]);
+        assert_eq!(v["valid"], false);
+        assert!(message(&v, 0).contains("did you mean `name`?"));
+        assert!(message(&v, 1).contains("did you mean `price`?"));
+        assert!(message(&v, 2).contains("did you mean `age:INT64`?"));
+        assert!(message(&v, 3).contains("the columns are `name`, `age:INT64`, `price`"));
+        assert_eq!(v["diagnostics"][0]["column"], 10);
+        assert!(codes(&run_with("{ k = \"x\"; print $FI[\"name\"], $FI[k] }", &opts)).is_empty());
+        let jsonl = Options {
+            header: true,
+            data: Some(Data {
+                file: "x.jsonl".to_string(),
+                sample: Sample::Fields { header: Some(vec!["id".into(), "user".into()]), rows: vec![vec!["1".into(), "a".into()]] },
+            }),
+            ..Options::default()
+        };
+        assert_eq!(codes(&run_with("{ print $FI[\"usr\"] }", &jsonl)), ["W126"]);
+    }
+
+    #[test]
+    fn data_fields_beyond_nf() {
+        let opts = with_lines(&["a b c", "d e", ""], false, None);
+        let v = run_with("{ print $3, $4, $4 }", &opts);
+        assert_eq!(codes(&v), ["W127"]);
+        assert!(message(&v, 0).contains("at most 3 fields"));
+        // The record may be read from elsewhere.
+        assert!(codes(&run_with("{ getline; print $4 }", &opts)).is_empty());
+        // In BEGIN, fields are reported by W218.
+        assert_eq!(codes(&run_with("BEGIN { print $4 }", &opts)), ["W218"]);
+    }
+
+    #[test]
+    fn data_wrong_separator() {
+        let opts = with_lines(&["a,b,c", "d,e,f"], false, None);
+        let v = run_with("{ print $1; print $2 }", &opts);
+        assert_eq!(codes(&v), ["W128"]);
+        assert!(message(&v, 0).contains("did you mean `-F,` or `-i csv`?"));
+        assert_eq!(v["diagnostics"][0]["column"], 19);
+        let tabs = with_lines(&["a\tb", "c\td"], false, Some(","));
+        assert!(message(&run_with("{ print $2 }", &tabs), 0).contains("`-F'\\t'` or `-i tsv`"));
+        // The separator of BEGIN is the one the run uses.
+        assert!(codes(&run_with("BEGIN { FS = \",\" } { print $2 }", &opts)).is_empty());
+        assert!(codes(&run_with("{ print $2 }", &with_lines(&["a,b"], false, Some(",")))).is_empty());
+        // An unknown separator: no checks.
+        assert!(codes(&run_with("{ x = \",\"; FS = x; print $2 }", &opts)).is_empty());
+        assert!(codes(&run_with("{ print $1 }", &opts)).is_empty());
+        // A header read with the wrong separator.
+        let header = with_lines(&["name,age", "a,1"], true, None);
+        assert_eq!(codes(&run_with("{ print $FI[\"age\"] }", &header)), ["W128"]);
+    }
+
+    #[test]
+    fn data_string_comparisons() {
+        let opts = with_lines(&["id,price", "1,12.5", "2,N/A", "3,", "4, 7 "], true, Some(","));
+        let v = run_with("$2 > 10 || 5 <= $FI[\"price\"] { n++ } $1 > 0 { m++ }", &opts);
+        assert_eq!(codes(&v), ["W129", "W129"]);
+        assert!(message(&v, 0).contains("1 record of the first 4 records of `data.csv` (e.g. record 2: \"N/A\")"));
+        assert!(message(&v, 1).contains("`$FI[\"price\"]` is compared with the number 5"));
+        assert!(codes(&run_with("$2 + 0 > 10 { n++ } $2 == 10 { m++ }", &opts)).is_empty());
+        // A header line read as a record.
+        let v = run_with("$2 > 10 { n++ }", &with_lines(&["id,price", "1,12.5"], false, Some(",")));
+        assert_eq!(codes(&v), ["W129"]);
+        assert!(message(&v, 0).contains("looks like a header line"));
+    }
+
+    #[test]
+    fn numeric_redirects() {
+        let v = run("{ print $1 > 10 }");
+        assert_eq!(codes(&v), ["W114"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("the file `10`"));
+        assert_eq!(v["diagnostics"][0]["column"], 14);
+        assert_eq!(codes(&run("{ printf \"%s\", $1 >> NR + 1 }")), ["W114"]);
+        assert_eq!(codes(&run("{ print $1 > -1.5 }")), ["W114"]);
+        assert!(codes(&run("{ print ($1 > 10) }")).is_empty());
+        assert!(codes(&run("{ print $1 > \"10\" }")).is_empty());
+        assert!(codes(&run("{ print $1 > ($2 \".txt\") }")).is_empty());
+        assert!(codes(&run("{ print $1 | 10 }")).is_empty());
+    }
+
+    #[test]
+    fn condition_assignments() {
+        let v = run("BEGIN { if (x = 1) print x }");
+        assert_eq!(codes(&v), ["W115"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("`x` is assigned"));
+        assert_eq!(v["diagnostics"][0]["column"], 13);
+        assert_eq!(codes(&run("BEGIN { while (y = 0) {} }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { do {} while (!(y = 0)) }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { for (i = 0; i = 3; i++) break }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { z = 1; x = (z = 2) ? 1 : 2; print x }")), ["W115"]);
+        assert_eq!(codes(&run("{ a = $1 } a = \"x\" && 1 { print a }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { a[1] = 0; if (a[1] = 2) print }")), ["W115"]);
+        assert!(codes(&run("BEGIN { if ((x = 1) != \"\") print x }")).is_empty());
+        assert!(codes(&run("BEGIN { x = 1; if (x == 1) print x }")).is_empty());
+        assert!(codes(&run("BEGIN { while ((getline line) > 0) print line }")).is_empty());
     }
 
     #[test]
