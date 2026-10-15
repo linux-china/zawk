@@ -265,8 +265,58 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result
 }
 
+lazy_static::lazy_static! {
+    static ref DURATION_TOKEN: regex::Regex =
+        regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)").unwrap();
+}
+
+/// Map a time unit (Go-style short form or full word) to a unit fend understands.
+/// `m` always means minutes in a duration context, never meters.
+fn duration_unit(unit: &str) -> Option<&'static str> {
+    match unit.to_ascii_lowercase().as_str() {
+        "ms" | "msec" | "msecs" | "millisecond" | "milliseconds" => Some("ms"),
+        "s" | "sec" | "secs" | "second" | "seconds" => Some("sec"),
+        "m" | "min" | "mins" | "minute" | "minutes" => Some("min"),
+        "h" | "hr" | "hrs" | "hour" | "hours" => Some("hour"),
+        "d" | "day" | "days" => Some("day"),
+        "w" | "week" | "weeks" => Some("week"),
+        _ => None,
+    }
+}
+
+/// Rewrite `1h30m`, `1h 30m`, `2min 12sec` into `(1 hour) + (30 min)` style fend expressions.
+/// Adjacent time tokens (separated only by whitespace) are summed; other text is kept as-is.
+fn normalize_duration(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut last = 0;
+    let mut prev_token = false;
+    for caps in DURATION_TOKEN.captures_iter(text) {
+        let m = caps.get(0).unwrap();
+        // skip tokens glued to a preceding identifier/number, e.g. `x1h`, but allow `1h30m`
+        let glued = !(prev_token && m.start() == last) && text[..m.start()].chars().next_back().map_or(false, |c| c.is_alphanumeric() || c == '.' || c == '_');
+        let unit = match duration_unit(&caps[2]) {
+            Some(unit) if !glued => unit,
+            _ => {
+                prev_token = false;
+                continue;
+            }
+        };
+        let between = &text[last..m.start()];
+        if prev_token && between.trim().is_empty() {
+            out.push_str(" + ");
+        } else {
+            out.push_str(between);
+        }
+        out.push_str(&format!("({} {})", &caps[1], unit));
+        last = m.end();
+        prev_token = true;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
 pub fn duration(text: &str) -> Int {
-    let expr = format!("({}) to ms", text);
+    let expr = format!("({}) to ms", normalize_duration(text));
     let mut context = fend_core::Context::new();
     match fend_core::evaluate(&expr, &mut context) {
         Ok(result) => {
@@ -403,5 +453,19 @@ mod tests {
         println!("{}", duration(text));
         let text = "100ms";
         println!("{}", duration(text));
+    }
+
+    #[test]
+    fn test_duration_short_units() {
+        assert_eq!(duration("1h30m"), 5400);
+        assert_eq!(duration("1h 30m"), 5400);
+        assert_eq!(duration("1d2h3m4s"), 93784);
+        assert_eq!(duration("90s"), 90);
+        assert_eq!(duration("1500ms"), 2);
+        assert_eq!(duration("2min + 12sec"), 132);
+        assert_eq!(duration("2min 12sec"), 132);
+        assert_eq!(duration("1.5h"), 5400);
+        assert_eq!(duration("2 hours"), 7200);
+        assert_eq!(duration("(1h + 30m) * 2"), 10800);
     }
 }
