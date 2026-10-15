@@ -2413,7 +2413,7 @@ BEGIN {
             .arg(prog)
             .write_stdin("0 abc\n")
             .assert()
-            .stdout("Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d 0x0 0.5\nnone abc none\n");
+            .stdout("Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d e 0.5\nnone abc none\n");
     }
 }
 
@@ -2440,5 +2440,27 @@ BEGIN {
             .arg(prog)
             .assert()
             .stdout("z 1\n0 1\n-1 1 1 1\nmissing 1\nzero 2\nv\n-5 6 4\ndef 0\nhi\nmulti 1\n");
+    }
+}
+
+#[test]
+fn hex_strings_are_numbers_everywhere() {
+    // One string-to-number conversion: arithmetic, comparisons, truth values, printf and sorting
+    // all read `0x` prefixed input (with an optional sign) as hexadecimal; there are no `0o`/`0b`
+    // prefixes.
+    let prog = r#"{
+    print $1+0, -$1, int($1), $2+0, ($1==16), ($1>15), ($2<0), ($3==0)
+    printf "%d %x %.1f %c\n", $1, $4, $2, $5
+    print ($6 ? "t" : "f"), "0x8000000000000000"+0, "0x-5"+0, $7+0, float("0b101"), float("0o17")
+    a[1] = $1; a[2] = "9"; a[3] = $4; n = asort(a); print a[1], a[2], a[3]
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .write_stdin("0x10 -0x10 0x0 0x1A 0x41 0X0 0b101\n")
+            .assert()
+            .stdout("16 -16 16 -16 1 1 1 1\n16 1a -16.0 A\nf 9223372036854775808 0 0 0 0\n9 0x10 0x1A\n");
     }
 }

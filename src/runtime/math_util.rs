@@ -362,45 +362,6 @@ pub(crate) fn tsid() -> String {
     tsid::create_tsid().to_string()
 }
 
-/// The numeric value of a string: leading blanks and an optional sign, then a `0x`, `0o` or `0b`
-/// prefixed integer (the longest run of digits of that base; overflow falls back to the nearest
-/// float), or else a decimal number as parsed by [`strtod`](crate::runtime::float_parse::strtod).
-/// Works on the bytes directly and never allocates.
-pub(crate) fn strtonum(bs: &[u8]) -> Float {
-    let start = bs.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bs.len());
-    let body = &bs[start..];
-    let (neg, digits) = match body {
-        [b'-', rest @ ..] => (true, rest),
-        [b'+', rest @ ..] => (false, rest),
-        _ => (false, body),
-    };
-    let radix = match digits {
-        [b'0', b'x' | b'X', ..] => 16,
-        [b'0', b'o' | b'O', ..] => 8,
-        [b'0', b'b' | b'B', ..] => 2,
-        _ => return crate::runtime::float_parse::strtod(body),
-    };
-    let mut exact = 0u64;
-    let mut approx = 0.0;
-    let mut overflow = false;
-    for d in digits[2..].iter().map_while(|b| (*b as char).to_digit(radix)) {
-        if !overflow {
-            match exact.checked_mul(radix as u64).and_then(|n| n.checked_add(d as u64)) {
-                Some(n) => exact = n,
-                None => {
-                    overflow = true;
-                    approx = exact as Float;
-                }
-            }
-        }
-        if overflow {
-            approx = approx * radix as Float + d as Float;
-        }
-    }
-    let n = if overflow { approx } else { exact as Float };
-    if neg { -n } else { n }
-}
-
 /// gawk's `strtonum`. `strnum` is whether the argument may be a strnum (input such as a field):
 /// one that looks like a decimal number is that number (`strtonum($1)` is 17 for the field
 /// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
@@ -419,10 +380,7 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         start.map_or(0.0, |i| strtod(&bs[i..]))
     };
     match bs {
-        [b'0', b'x' | b'X', rest @ ..] => rest
-            .iter()
-            .map_while(|b| (*b as char).to_digit(16))
-            .fold(0.0, |n, d| n * 16.0 + d as Float),
+        [b'0', b'x' | b'X', rest @ ..] => crate::runtime::float_parse::hex_digits(rest).0,
         [b'0', rest @ ..] => {
             let mut n = 0.0;
             for b in rest {
@@ -451,29 +409,25 @@ pub(crate) fn float_to_bits(f: Float) -> Int {
     }
 }
 
+/// The hexadecimal digits of `text` if it is a `0x` number with an optional sign.
+fn hex_digits_of(text: &str) -> Option<&str> {
+    let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
+    unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
+}
+
 pub(crate) fn is_str_int(text: &str) -> bool {
-    let text = text.trim().to_lowercase();
-    if text.starts_with("0x") {
-        i64::from_str_radix(&text[2..], 16).is_ok()
-    } else if text.starts_with("0o") {
-        i64::from_str_radix(&text[2..], 8).is_ok()
-    } else if text.starts_with("0b") {
-        i64::from_str_radix(&text[2..], 2).is_ok()
-    } else {
-        text.parse::<i64>().is_ok()
+    let text = text.trim();
+    match hex_digits_of(text) {
+        Some(h) => h.bytes().all(|b| b.is_ascii_hexdigit()) && i64::from_str_radix(h, 16).is_ok(),
+        None => text.parse::<i64>().is_ok(),
     }
 }
 
 pub(crate) fn is_str_num(text: &str) -> bool {
-    let text = text.trim().to_lowercase();
-    if text.starts_with("0x") {
-        i64::from_str_radix(&text[2..], 16).is_ok()
-    } else if text.starts_with("0o") {
-        i64::from_str_radix(&text[2..], 8).is_ok()
-    } else if text.starts_with("0b") {
-        i64::from_str_radix(&text[2..], 2).is_ok()
-    } else {
-        text.parse::<f64>().is_ok()
+    let text = text.trim();
+    match hex_digits_of(text) {
+        Some(h) => !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit()),
+        None => text.parse::<f64>().is_ok(),
     }
 }
 
@@ -852,23 +806,6 @@ mod tests {
     }
 
     #[test]
-    fn test_strtonum() {
-        assert_eq!(17f64, strtonum(b"0x11"));
-        assert_eq!(3f64, strtonum(b"0b11"));
-        assert_eq!(17f64, strtonum(b"17"));
-        assert_eq!(17.2f64, strtonum(b"17.2"));
-        assert_eq!(-16f64, strtonum(b"-0x10"));
-        assert_eq!(16f64, strtonum(b" +0X10 "));
-        assert_eq!(0f64, strtonum(b"0x-5"));
-        assert_eq!(0f64, strtonum(b"0x+5"));
-        assert_eq!(31f64, strtonum(b"0x1fz"));
-        assert_eq!(9223372036854775808f64, strtonum(b"0x8000000000000000"));
-        assert_eq!(18446744073709551616f64, strtonum(b"0x10000000000000000"));
-        assert_eq!(-1.5f64, strtonum(b"  -1.5abc"));
-        assert_eq!(0f64, strtonum(b""));
-    }
-
-    #[test]
     fn test_awk_strtonum() {
         let n = |s: &str| awk_strtonum(s.as_bytes(), false);
         assert_eq!(n("0x1F"), 31.0);
@@ -892,7 +829,8 @@ mod tests {
         assert_eq!(n(""), 0.0);
         // A strnum that looks like a number is that number; other strnums follow the rules above.
         assert_eq!(awk_strtonum(b"017", true), 17.0);
-        assert_eq!(awk_strtonum(b" 0x11 ", true), 0.0);
+        // Hexadecimal input is a number too (as everywhere in zawk).
+        assert_eq!(awk_strtonum(b" 0x11 ", true), 17.0);
         assert_eq!(awk_strtonum(b"0x11", true), 17.0);
         assert_eq!(awk_strtonum(b"017abc", true), 15.0);
     }
@@ -908,6 +846,9 @@ mod tests {
     fn test_isint() {
         assert!(is_str_int("11"));
         assert!(is_str_int("0x11"));
+        assert!(is_str_int("-0X1f"));
+        assert!(!is_str_int("0x-5"));
+        assert!(!is_str_int("0b11"));
         assert!(!is_str_int("11.1"));
     }
 
@@ -915,6 +856,8 @@ mod tests {
     fn test_isnum() {
         assert!(is_str_num("11.01"));
         assert!(is_str_num("0x11"));
+        assert!(!is_str_num("0x"));
+        assert!(!is_str_num("0o17"));
         assert!(!is_str_num("u11.1"));
     }
 

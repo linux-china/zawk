@@ -252,7 +252,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("srand", MATH, "srand([seed: int]) -> int", "Seed the random generator (default: time); returns the old seed.",
       "srand(42)"),
     d("int", MATH, "int(x: any) -> int", "Truncate x toward zero.", r#"int("11.7")"#),
-    d("float", MATH, "float(s: str) -> float", "Parse a number, with 0x, 0o and 0b prefixes.", r#"float("0b10001")"#),
+    d("float", MATH, "float(s: str) -> float", "Parse a number, decimal or with a 0x prefix.", r#"float("0x11")"#),
     d("strtonum", MATH, "strtonum(s: str) -> float",
       "gawk strtonum: 0x is hexadecimal and a leading 0 octal.", r#"strtonum("0x11")"#),
     d("abs", MATH, "abs(x: num) -> float", "Absolute value.", "abs(-1)"),

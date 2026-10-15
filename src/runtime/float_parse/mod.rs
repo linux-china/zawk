@@ -118,6 +118,55 @@ pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
     }
 }
 
+/// The value of the hexadecimal digits at the start of `bs` (the longest run of them), and how
+/// many there are. Values beyond the range of a u64 are the nearest float.
+pub fn hex_digits(bs: &[u8]) -> (f64, usize) {
+    let mut exact = 0u64;
+    let mut approx: Option<f64> = None;
+    let mut n = 0;
+    for d in bs.iter().map_while(|b| (*b as char).to_digit(16)) {
+        n += 1;
+        approx = match approx {
+            Some(f) => Some(f * 16.0 + d as f64),
+            None => match exact.checked_mul(16).and_then(|i| i.checked_add(d as u64)) {
+                Some(i) => {
+                    exact = i;
+                    None
+                }
+                None => Some(exact as f64 * 16.0 + d as f64),
+            },
+        };
+    }
+    (approx.unwrap_or(exact as f64), n)
+}
+
+/// The numeric value of a string, the one conversion used everywhere a string becomes a number
+/// (arithmetic, `$1 == 16`, printf, sorting): leading blanks and an optional sign, then a `0x`
+/// or `0X` prefixed hexadecimal number, or else a decimal one (see [`strtod`]). Trailing text is
+/// ignored, and a string with no number at its start is 0. It never allocates.
+pub fn str_to_num(bs: &[u8]) -> f64 {
+    let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
+    let start = bs.iter().position(|b| !is_blank(b)).unwrap_or(bs.len());
+    let body = &bs[start..];
+    let (neg, digits) = match body {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        _ => (false, body),
+    };
+    if let [b'0', b'x' | b'X', rest @ ..] = digits {
+        let (n, len) = hex_digits(rest);
+        if len > 0 {
+            return if neg { -n } else { n };
+        }
+    }
+    strtod(body)
+}
+
+/// [`str_to_num`] truncated toward zero, saturating at the bounds of i64 (NaN is 0).
+pub fn str_to_int(bs: &[u8]) -> i64 {
+    str_to_num(bs) as i64
+}
+
 /// Parse a floating-poing number from `bs`, returning 0 if one isn't there.
 ///
 /// Like gawk, words such as "nan", "info" or "Infinity" are not numbers: the special values are
@@ -166,6 +215,38 @@ mod tests {
         let imin = format!("{}", i64::MIN);
         assert_eq!(strtod(imax.as_bytes()), i64::MAX as f64);
         assert_eq!(strtod(imin.as_bytes()), i64::MIN as f64);
+    }
+
+    #[test]
+    fn str_to_num_values() {
+        for (s, v) in [
+            ("0x10", 16.0),
+            ("0X1f", 31.0),
+            ("-0x10", -16.0),
+            (" +0x10 ", 16.0),
+            ("0x1fz", 31.0),
+            ("0x", 0.0),
+            ("0xg", 0.0),
+            ("0x-5", 0.0),
+            ("0x+5", 0.0),
+            ("0x8000000000000000", 9223372036854775808.0),
+            ("0x10000000000000000", 18446744073709551616.0),
+            ("0b101", 0.0),
+            ("0o17", 0.0),
+            ("017", 17.0),
+            ("  -1.5abc", -1.5),
+            ("1e3", 1000.0),
+            ("", 0.0),
+            ("abc", 0.0),
+        ] {
+            assert_eq!(str_to_num(s.as_bytes()), v, "{s:?}");
+        }
+        assert_eq!(str_to_num(b"-inf"), f64::NEG_INFINITY);
+        assert_eq!(str_to_int(b"0x10"), 16);
+        assert_eq!(str_to_int(b" 12abc"), 12);
+        assert_eq!(str_to_int(b"-7.9"), -7);
+        assert_eq!(str_to_int(b"1e3"), 1000);
+        assert_eq!(str_to_int(b"1e30"), i64::MAX);
     }
 
     #[test]

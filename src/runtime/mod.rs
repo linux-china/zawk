@@ -69,7 +69,9 @@ pub(crate) static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::n
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
 pub(crate) use command::run_command2;
-pub(crate) use float_parse::{exact_int_literal, hextoi, parse_hex_literal, parse_int_literal, strtod, strtoi};
+pub(crate) use float_parse::{
+    exact_int_literal, hextoi, parse_hex_literal, parse_int_literal, str_to_int, str_to_num, strtod, strtoi,
+};
 pub(crate) use printf::FormatArg;
 pub use splitter::{
     batch::{escape_csv, escape_tsv},
@@ -1055,22 +1057,22 @@ impl<'a> Convert<Float, Str<'a>> for _Carrier {
 }
 impl<'a> Convert<Str<'a>, Float> for _Carrier {
     fn convert(s: Str<'a>) -> Float {
-        s.with_bytes(strtod)
+        s.with_bytes(str_to_num)
     }
 }
 impl<'a> Convert<Str<'a>, Int> for _Carrier {
     fn convert(s: Str<'a>) -> Int {
-        s.with_bytes(strtoi)
+        s.with_bytes(str_to_int)
     }
 }
 impl<'b, 'a> Convert<&'b Str<'a>, Float> for _Carrier {
     fn convert(s: &'b Str<'a>) -> Float {
-        s.with_bytes(strtod)
+        s.with_bytes(str_to_num)
     }
 }
 impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
     fn convert(s: &'b Str<'a>) -> Int {
-        s.with_bytes(strtoi)
+        s.with_bytes(str_to_int)
     }
 }
 

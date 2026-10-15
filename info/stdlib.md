@@ -584,9 +584,9 @@ examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mk
 `int("11") # 11`,
 `float("11.2") # 11.2`
 
-`float()` reads decimal numbers, and hexadecimal, octal and binary numbers with a `0x`, `0o` or `0b` prefix:
-`float("0x11")`, `float("0o21")` and `float("0b10001")` are all `17`. A leading `0` alone is decimal: `float("017")`
-is `17`.
+`float()` reads decimal numbers and hexadecimal numbers with a `0x` prefix (and an optional sign), the same way
+as every other string-to-number conversion: `float("0x11")` and `"0x11" + 0` are both `17`, `float("-0x11")` is `-17`.
+A leading `0` alone is decimal: `float("017")` is `17`. There are no octal or binary prefixes: `float("0b101")` is `0`.
 
 # Date/Time
 

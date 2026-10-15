@@ -1345,7 +1345,7 @@ pub(crate) unsafe extern "C" fn trim(src: *mut U128, pat: *mut U128) -> U128 {
 pub(crate) unsafe extern "C" fn strtonum(text: *mut U128) -> Float {
     guard_panic(stringify!(strtonum), || {
         let text = &*(text as *mut Str);
-        text.with_bytes(math_util::strtonum)
+        text.with_bytes(runtime::str_to_num)
     })
 }
 
@@ -3198,7 +3198,7 @@ pub(crate) unsafe extern "C" fn float_to_str_ofmt(f: Float) -> U128 {
 pub(crate) unsafe extern "C" fn str_to_int(s: *mut c_void) -> Int {
     guard_panic(stringify!(str_to_int), || {
         let s = &*(s as *mut Str);
-        s.with_bytes(math_util::strtonum) as Int
+        s.with_bytes(runtime::str_to_int)
     })
 }
 
@@ -3216,7 +3216,7 @@ pub(crate) unsafe extern "C" fn hex_str_to_int(s: *mut c_void) -> Int {
 pub(crate) unsafe extern "C" fn str_to_float(s: *mut c_void) -> Float {
     guard_panic(stringify!(str_to_float), || {
         let s = &*(s as *mut Str);
-        s.with_bytes(math_util::strtonum)
+        s.with_bytes(runtime::str_to_num)
     })
 }
 

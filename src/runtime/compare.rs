@@ -90,8 +90,9 @@ fn decode(code: Int) -> (CmpOp, StrKind, StrKind) {
 }
 
 /// Parse `bs` as a number if it looks like one by awk's rules: optional surrounding blanks, an
-/// optional sign, and a decimal number with an optional exponent (or, as in gawk, a signed "inf"
-/// or "nan"). Hexadecimal and other forms do not count.
+/// optional sign, and a decimal number with an optional exponent, or a `0x` prefixed hexadecimal
+/// number (or, as in gawk, a signed "inf" or "nan"). The value is that of
+/// [`str_to_num`](crate::runtime::float_parse::str_to_num).
 /// Whether the string `bs` is false as a condition: it is empty or, if it may be a strnum (input
 /// such as a field), it looks like a number equal to zero (`"0"`, `"0.0"`, `" +0 "`).
 pub(crate) fn str_is_false(bs: &[u8], strnum: bool) -> bool {
@@ -109,6 +110,13 @@ pub(crate) fn looks_numeric(bs: &[u8]) -> Option<Float> {
     };
     if sign && (body.eq_ignore_ascii_case(b"inf") || body.eq_ignore_ascii_case(b"nan")) {
         return std::str::from_utf8(s).ok()?.parse().ok();
+    }
+    if let [b'0', b'x' | b'X', hex @ ..] = body {
+        let (n, len) = crate::runtime::float_parse::hex_digits(hex);
+        if len == 0 || len != hex.len() {
+            return None;
+        }
+        return Some(if s[0] == b'-' { -n } else { n });
     }
     let digits = |bs: &[u8]| bs.iter().take_while(|b| b.is_ascii_digit()).count();
     let int_digits = digits(body);
@@ -278,11 +286,13 @@ mod tests {
             ("5.", 5.0),
             ("1e3", 1000.0),
             ("1E-2\n", 0.01),
+            ("0x1A", 26.0),
+            (" -0X10 ", -16.0),
         ] {
             assert_eq!(looks_numeric(s.as_bytes()), Some(v), "{:?}", s);
         }
         assert!(looks_numeric(b"+inf").unwrap().is_infinite());
-        for s in ["", " ", "abc", "10abc", "0x1A", "1e", ".", "+", "inf", "1 2", "--1"] {
+        for s in ["", " ", "abc", "10abc", "0x", "0x1G", "0b1", "0o7", "1e", ".", "+", "inf", "1 2", "--1"] {
             assert_eq!(looks_numeric(s.as_bytes()), None, "{:?}", s);
         }
     }

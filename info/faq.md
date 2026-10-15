@@ -48,7 +48,7 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - No positional arguments in `printf` (`%2$s`)
 - `ARGV`/`ARGC` are read-only: changing them doesn't change the input files
 - No `var=value` operands between files: assign variables with `-v var=value`
-- Hexadecimal numbers are recognized, in source and input data: `0x10` is 16; a leading zero is decimal: `010` is 10
+- Hexadecimal numbers are recognized, in source and input data, wherever a string becomes a number (arithmetic, comparisons such as `$1 == 16`, printf, sorting): `0x10` is 16 and `-0x10` is -16; a leading zero is decimal: `010` is 10; there are no `0o`/`0b` prefixes
 - With the default `FS` and `RS`, `\r` separates fields when reading input, so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?

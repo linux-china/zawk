@@ -6,12 +6,15 @@
 
 # grammar and expressions
 03-string-to-number                   # hexadecimal input such as "0x1A" converts to 26 instead of 0
+03-strnum-comparison                  # a hexadecimal field ("0x1A") is a strnum and compares as 26
+03-strnum-fields                      # a hexadecimal field ("0x0A") is a strnum and compares as 10
 
 # number output
 
 # string functions
 
 # printf
+05-printf-c-strnum                    # %c of a hexadecimal strnum ("0x41") is the character with that code ("A")
 
 # input and output
 

@@ -9,7 +9,7 @@ use std::hash::Hash;
 
 use crate::common::Result;
 use crate::runtime::compare::looks_numeric;
-use crate::runtime::float_parse::strtod;
+use crate::runtime::float_parse::str_to_num;
 use crate::runtime::{Float, Int, SharedMap, Str, StrMap};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -110,7 +110,7 @@ impl<'a> SortItem for Str<'a> {
         Cow::Owned(self.with_bytes(|bs| bs.to_vec()))
     }
     fn sort_num(&self) -> Float {
-        self.with_bytes(strtod)
+        self.with_bytes(str_to_num)
     }
     fn sort_type_num(&self) -> Option<Float> {
         self.with_bytes(looks_numeric)

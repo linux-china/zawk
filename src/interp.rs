@@ -1513,7 +1513,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Strtonum(dst, text) => {
                         let text = index(&self.strs, text);
-                        let num = text.with_bytes(runtime::math_util::strtonum);
+                        let num = text.with_bytes(runtime::str_to_num);
                         let dst = *dst;
                         *self.get_mut(dst) = num;
                     }
@@ -1731,7 +1731,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     StrToInt(ir, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num = sr.with_bytes(runtime::math_util::strtonum) as Int;
+                        let num = sr.with_bytes(runtime::str_to_int);
                         let ir = *ir;
                         *self.get_mut(ir) = num;
                     }
@@ -1742,7 +1742,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     StrToFloat(fr, sr) => {
                         let sr = index(&self.strs, sr);
-                        let num = sr.with_bytes(runtime::math_util::strtonum);
+                        let num = sr.with_bytes(runtime::str_to_num);
                         let fr = *fr;
                         *self.get_mut(fr) = num;
                     }
