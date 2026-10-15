@@ -94,6 +94,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E303 | a variable is used both as an array and as a scalar                              |
 | E304 | user input passed to a shell command (allowed with `-A`)                         |
 | E305 | assignment to a read-only variable (`ARGC`, `ARGV`, `FILENAME`, `NR`, `NF`, `FI`) or a field (`$0`, `$1`, `$FI["col"]`) |
+| E306 | assigning to something that is not a variable, array element or field: `substr(s, 1) = "a"`, `gsub(re, r, substr(s, 1))`, `x++` on a literal |
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W103 | `f` used as a variable or function name (clashes with f-strings `f"..."`)        |

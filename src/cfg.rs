@@ -280,6 +280,19 @@ fn call_name<I: fmt::Display>(f: &Either<I, builtins::Function>) -> String {
     }
 }
 
+/// A short description of an expression that cannot be assigned to, for error messages.
+fn describe_non_lhs<I: fmt::Display>(e: &ast::Expr<I>) -> String {
+    use ast::Expr::*;
+    match e {
+        Call(f, _) => format!("`{}(...)`", call_name(f)),
+        StrLit(_) => "a string constant".into(),
+        ILit(_) | FLit(_) => "a number".into(),
+        PatLit(_) => "a regex".into(),
+        Getline { .. } | ReadStdin => "a `getline` expression".into(),
+        _ => "an expression".into(),
+    }
+}
+
 fn valid_lhs<I>(e: &ast::Expr<I>) -> bool {
     use ast::Expr::*;
     matches!(e, Index(..) | Var(..) | Unop(ast::Unop::Column, _))
@@ -1849,7 +1862,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 )?;
                 Ok((next, res))
             }
-            _ => err!("unsupported assignment LHS: {:?}", v),
+            _ => {
+                let e = err_raw!(
+                    "cannot assign to {}: the left side of `=` must be a variable, an array element or a field; use `==` to compare, or assign the value to a variable first",
+                    describe_non_lhs(v)
+                );
+                Err(match self.loc_of(v) {
+                    Some(loc) => e.with_loc(loc),
+                    None => e,
+                })
+            }
         }
     }
     fn do_assign_index<'c>(
@@ -3069,10 +3091,28 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                             |_, _, _, open| Ok((open, to_set_var.clone())),
                             set,
                         ),
-                        _ => err!(
-                            "invalid operand for substitution {:?} (must be assignable)",
-                            assignee
-                        ),
+                        _ => {
+                            let name = call_name(fname);
+                            let what = describe_non_lhs(assignee);
+                            let example = match assignee {
+                                Expr::Call(..) => format!(
+                                    ": `s = {}; {}(re, repl, s)`",
+                                    what.trim_matches('`'),
+                                    name
+                                ),
+                                _ => String::new(),
+                            };
+                            let e = err_raw!(
+                                "the 3rd argument of `{}` must be a variable, an array element or a field, not {}; assign it to a variable first{}",
+                                name,
+                                what,
+                                example
+                            );
+                            Err(match self.loc_of(assignee) {
+                                Some(loc) => e.with_loc(loc),
+                                None => e,
+                            })
+                        }
                     }?;
                     self.f.cfg.add_edge(set_end, next, Transition::null());
                     return Ok((next, PrimExpr::Val(PrimVal::Var(res))));

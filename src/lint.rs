@@ -291,6 +291,8 @@ fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
         || msg.contains("is used as a variable or an array")
     {
         ("E305", false)
+    } else if msg.contains("must be a variable, an array element or a field") {
+        ("E306", false)
     } else if msg.contains("user input") || msg.contains("arbitrary") {
         ("E304", false)
     } else {
@@ -1161,6 +1163,20 @@ mod tests {
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k+0 > 9) print k }")).is_empty());
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k == 1) print k }")).is_empty());
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k }")).is_empty());
+    }
+
+    #[test]
+    fn not_assignable() {
+        let v = run(r#"BEGIN { gsub(/a/, "b", substr("x", 1)) }"#);
+        assert_eq!(codes(&v), ["E306"]);
+        assert_eq!(v["diagnostics"][0]["column"], 24);
+        let msg = v["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(msg.contains("`substr(...)`") && !msg.contains("Call("), "{}", msg);
+        let v = run(r#"BEGIN { if (substr("abc", 1, 1) = "a") print }"#);
+        assert_eq!(codes(&v), ["E306"]);
+        assert_eq!(v["diagnostics"][0]["column"], 13);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("`==`"));
+        assert_eq!(codes(&run("BEGIN { print 2--1 }")), ["E306"]);
     }
 
     #[test]
