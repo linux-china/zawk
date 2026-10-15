@@ -934,12 +934,8 @@ impl<'a> Typer<'a> {
                         Either::Left(LL::CmpStrNum { s, s_kind, .. }) => {
                             refine(sna, s_kind, s.reflect().0)
                         }
-                        Either::Left(LL::NotStr(_, text, strnum)) => {
-                            let mut kind =
-                                if *strnum { StrKind::Strnum } else { StrKind::Str };
-                            refine(sna, &mut kind, text.reflect().0);
-                            *strnum = kind == StrKind::Strnum;
-                        }
+                        // `NotStr` is not refined: any string that looks like a zero is false,
+                        // strnum or not, so `if (s)` agrees with `s ?? d`.
                         Either::Left(LL::AwkStrtonum(_, text, strnum))
                         | Either::Left(LL::TypeOfString(_, text, strnum)) => {
                             let mut kind =
@@ -1475,7 +1471,7 @@ impl<'a, 'b> View<'a, 'b> {
             Unop(Column) | Unop(Not) | Unop(Neg) | Unop(Pos) if res_reg == UNUSED => {}
             Unop(Column) => self.pushl(LL::GetColumn(res_reg.into(), conv_regs[0].into())),
             Unop(Not) => match conv_tys[0] {
-                // May be a strnum until refined by the strnum analysis.
+                // Treated as a strnum: any string that looks like a zero is false.
                 Ty::Str => self.pushl(LL::NotStr(res_reg.into(), conv_regs[0].into(), true)),
                 // !x for a float is x == 0: !0.25 is 0, not !int(0.25).
                 Ty::Float => {

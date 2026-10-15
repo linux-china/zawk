@@ -962,7 +962,17 @@ depth 0: k=1 v=99
         z = 3 ? 5 : 0 ? 8 : 7
         print w, x, y, z
         }"#,
-        "1 0 1 5\n"
+        "0 0 1 5\n"
+    );
+
+    test_program!(
+        string_truthiness_matches_nullish,
+        r#" BEGIN {
+        z = "0.0"
+        if ("0.0") print "bad"; else print "F"
+        print !" 0", !"abc", !"", !"0x0", (z ? "T" : "F"), (z ?? "G")
+        }"#,
+        "F\n1 0 1 1 F G\n"
     );
 
     test_program!(

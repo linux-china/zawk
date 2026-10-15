@@ -8,6 +8,9 @@
 03-string-to-number                   # hexadecimal input such as "0x1A" converts to 26 instead of 0
 03-strnum-comparison                  # a hexadecimal field ("0x1A") is a strnum and compares as 26
 03-strnum-fields                      # a hexadecimal field ("0x0A") is a strnum and compares as 10
+03-strnum-params                      # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
+03-strnum-truth                       # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
+03-ternary-and-logic                  # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
 
 # number output
 
