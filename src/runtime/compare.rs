@@ -89,16 +89,16 @@ fn decode(code: Int) -> (CmpOp, StrKind, StrKind) {
     )
 }
 
-/// Parse `bs` as a number if it looks like one by awk's rules: optional surrounding blanks, an
-/// optional sign, and a decimal number with an optional exponent, or a `0x` prefixed hexadecimal
-/// number (or, as in gawk, a signed "inf" or "nan"). The value is that of
-/// [`str_to_num`](crate::runtime::float_parse::str_to_num).
 /// Whether the string `bs` is false as a condition: it is empty or, if it may be a strnum (input
 /// such as a field), it looks like a number equal to zero (`"0"`, `"0.0"`, `" +0 "`).
 pub(crate) fn str_is_false(bs: &[u8], strnum: bool) -> bool {
     bs.is_empty() || (strnum && looks_numeric(bs) == Some(0.0))
 }
 
+/// Parse `bs` as a number if it looks like one by awk's rules: optional surrounding blanks, an
+/// optional sign, and a decimal number with an optional exponent, or a `0x` prefixed hexadecimal
+/// number (or, as in gawk, a signed "inf" or "nan"). The value is that of
+/// [`str_to_num`](crate::runtime::float_parse::str_to_num).
 pub(crate) fn looks_numeric(bs: &[u8]) -> Option<Float> {
     let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r');
     let start = bs.iter().position(|b| !is_blank(b))?;
