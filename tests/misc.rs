@@ -2321,6 +2321,31 @@ fn lint_before_run() {
     assert_eq!(String::from_utf8(out.stdout).unwrap(), "ran\n");
     assert!(String::from_utf8(out.stderr).unwrap().contains("\"W201\""));
 
+    // --deny-warnings (implies --lint): warnings stop the run with exit code 1.
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--deny-warnings", "BEGIN { print NRR \"ran\" }"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8(out.stderr).unwrap().contains("\"W201\""));
+
+    // `zawk lint --deny-warnings`: warnings give exit code 1.
+    Command::cargo_bin("zawk").unwrap().args(["lint", "BEGIN { print NRR }"]).assert().success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["lint", "--deny-warnings", "BEGIN { print NRR }"])
+        .assert()
+        .code(1);
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--deny-warnings", "BEGIN { print 1 }"])
+        .assert()
+        .success()
+        .stdout("1\n")
+        .stderr("");
+
     // No diagnostics: nothing is printed to stderr; `-v` variables count as set.
     Command::cargo_bin("zawk")
         .unwrap()

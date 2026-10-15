@@ -395,8 +395,8 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
-/// `zawk lint`: prints the JSON report and exits with 1 if the program has errors (warnings do
-/// not count) or a program file cannot be read.
+/// `zawk lint`: prints the JSON report and exits with 1 if the program has errors (or warnings,
+/// with `--deny-warnings`) or a program file cannot be read.
 fn run_lint(matches: &clap::ArgMatches) -> ! {
     let mut sources: Vec<(usize, lint::Source)> = Vec::new();
     if let (Some(idx), Some(vals)) = (matches.indices_of("program-file"), matches.get_many::<String>("program-file")) {
@@ -440,19 +440,20 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         };
         sources.push(lint::Source { name: None, text });
     }
-    let (errors, _, report) = lint::lint(&sources, &lint_options(matches));
+    let (errors, warnings, report) = lint::lint(&sources, &lint_options(matches));
     println!("{}", report);
-    std::process::exit(if errors == 0 { 0 } else { 1 })
+    let failed = errors > 0 || (warnings > 0 && matches.get_flag("deny-warnings"));
+    std::process::exit(if failed { 1 } else { 0 })
 }
 
 /// `zawk --lint`: prints the JSON report to stderr when the program has diagnostics, and exits
-/// with 1 without running the program when it has errors.
+/// with 1 without running the program when it has errors (or warnings, with `--deny-warnings`).
 fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
     let (errors, warnings, report) = lint::lint(sources, &lint_options(matches));
     if errors + warnings > 0 {
         eprintln!("{}", report);
     }
-    if errors > 0 {
+    if errors > 0 || (warnings > 0 && matches.get_flag("deny-warnings")) {
         std::process::exit(1)
     }
 }
@@ -594,6 +595,10 @@ fn real_main() {
             .long("input-format")
             .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"])
             .help("The input format of the run; jsonl, parquet and markdown imply -H"))
+        .arg(Arg::new("deny-warnings")
+            .long("deny-warnings")
+            .num_args(0)
+            .help("Exit with 1 when there are warnings, as when there are errors"))
         .arg(Arg::new("program")
             .help("The program text to lint; read from stdin when no program is given"));
     let inspect_cmd = Command::new("inspect")
@@ -664,6 +669,10 @@ fn real_main() {
             .long("lint")
             .num_args(0)
             .help("Lint the program before running it, as `zawk lint` does: the JSON report is printed to stderr when there are diagnostics, and the program does not run when there are errors"))
+        .arg(Arg::new("deny-warnings")
+            .long("deny-warnings")
+            .num_args(0)
+            .help("Implies --lint: the program does not run, and zawk exits with 1, when there are warnings too"))
         .arg(Arg::new("opt-level")
             .long("opt-level")
             .short('O')
@@ -963,7 +972,7 @@ fn real_main() {
             fail!("must specify program at command line, with -e, or in a file via -f");
         }
     };
-    if matches.get_flag("lint") {
+    if matches.get_flag("lint") || matches.get_flag("deny-warnings") {
         if lint_sources.is_empty() {
             lint_sources.push(lint::Source { name: None, text: program_code.clone() });
         }
