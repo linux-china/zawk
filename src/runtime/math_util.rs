@@ -620,22 +620,22 @@ pub fn format_bytes(size: i64) -> String {
     [result, SUFFIX[base.floor() as usize]].join(" ")
 }
 
-/// text: 111 B, 11.2 KB 110KB
+/// text: 111 B, 11.2 KB, 110KB, 1.5GB, 2 MiB, 3k
 pub fn to_bytes(text: &str) -> i64 {
-    let offset = text.find(|c: char| !c.is_numeric()).unwrap_or(0);
-    if offset == 0 {
-        return text.parse::<i64>().unwrap_or(0);
+    let text = text.trim();
+    let offset = text
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .unwrap_or(text.len());
+    let size = text[..offset].parse::<f64>().unwrap_or(0.0);
+    let mut unit = text[offset..].trim().to_uppercase().replace('I', "");
+    if unit.is_empty() {
+        return size as i64;
     }
-    let unit = &text[offset..].trim().replace('i', "").to_uppercase();
-    // get index from SUFFIX
+    if !unit.ends_with('B') {
+        unit.push('B');
+    }
     let index = SUFFIX.iter().position(|&r| r == unit).unwrap_or(0);
-    let num_text = text[0..offset].trim();
-    let size = num_text.parse::<f64>().unwrap_or(0.0);
-    if index == 0 {
-        size as i64
-    } else {
-        (size * (UNIT.powi(index as i32))) as i64
-    }
+    (size * UNIT.powi(index as i32)) as i64
 }
 
 #[allow(unused_assignments)]
@@ -889,8 +889,15 @@ mod tests {
 
     #[test]
     fn test_to_bytes() {
-        let text = "123 kb";
-        println!("{}", to_bytes(text));
+        assert_eq!(to_bytes("123"), 123);
+        assert_eq!(to_bytes("111 B"), 111);
+        assert_eq!(to_bytes("123 kb"), 123 * 1024);
+        assert_eq!(to_bytes("1.5GB"), 1610612736);
+        assert_eq!(to_bytes("1.5 GB"), 1610612736);
+        assert_eq!(to_bytes(" 2 MiB "), 2 * 1024 * 1024);
+        assert_eq!(to_bytes("3k"), 3 * 1024);
+        assert_eq!(to_bytes("0.5KB"), 512);
+        assert_eq!(to_bytes("abc"), 0);
     }
 
     #[test]
