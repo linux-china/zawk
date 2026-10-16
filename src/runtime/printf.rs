@@ -460,15 +460,38 @@ fn write_bytes(mut w: impl Write, bs: &[u8]) -> Result<()> {
     wrap_result(w.write_all(bs))
 }
 
+/// Parse a positional argument reference (`N$`, with N >= 1) at `fmt[*i..]`, advancing `i` past
+/// it. Returns the zero-based argument index.
+fn parse_position(fmt: &[u8], i: &mut usize) -> Option<usize> {
+    let start = *i;
+    let mut j = start;
+    while fmt.get(j).is_some_and(u8::is_ascii_digit) {
+        j += 1;
+    }
+    if j == start || fmt.get(j) != Some(&b'$') {
+        return None;
+    }
+    let n: usize = str::from_utf8(&fmt[start..j]).ok()?.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    *i = j + 1;
+    Some(n - 1)
+}
+
 /// Parse the conversion specification at `fmt[i..]` (just after a `%`), taking `*` widths and
-/// precisions from `next_int`. Returns the spec and the index after it, or `None` if it is not a
-/// valid specification (in which case it is written literally, as in awk).
+/// precisions from `next_int` (with the zero-based index of a positional `*N$`, or `None` for the
+/// next argument). Returns the spec, the positional index of its value (`%N$...`) if any, and the
+/// index after it, or `None` if it is not a valid specification (in which case it is written
+/// literally, as in awk).
 fn parse_spec(
     fmt: &[u8],
     mut i: usize,
-    next_int: &mut impl FnMut() -> Int,
-) -> Option<(Spec, usize)> {
+    next_int: &mut impl FnMut(Option<usize>) -> Int,
+) -> Option<(Spec, Option<usize>, usize)> {
     let mut spec = Spec::default();
+    // `%N$...`: the value is argument N, as in gawk and POSIX.
+    let position = parse_position(fmt, &mut i);
     while let Some(c) = fmt.get(i) {
         match c {
             b'-' => spec.minus = true,
@@ -494,7 +517,8 @@ fn parse_spec(
     };
     if fmt.get(i) == Some(&b'*') {
         i += 1;
-        let w = next_int();
+        let pos = parse_position(fmt, &mut i);
+        let w = next_int(pos);
         if w < 0 {
             spec.minus = true;
         }
@@ -506,7 +530,8 @@ fn parse_spec(
         i += 1;
         if fmt.get(i) == Some(&b'*') {
             i += 1;
-            let p = next_int();
+            let pos = parse_position(fmt, &mut i);
+            let p = next_int(pos);
             // A negative precision is taken as if it were omitted.
             spec.precision = if p < 0 { None } else { Some(p as usize) };
         } else {
@@ -526,7 +551,7 @@ fn parse_spec(
         return None;
     }
     spec.conv = conv;
-    Some((spec, i + 1))
+    Some((spec, position, i + 1))
 }
 
 /// Largest field width or numeric precision accepted by printf. Larger values are fatal errors
@@ -560,21 +585,31 @@ pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Resul
             continue;
         }
         write_bytes(&mut w, &fmt[raw_start..i])?;
-        let mut next_int = || {
-            let res = args.get(arg_ix).map_or(0, FormatArg::to_int);
-            arg_ix += 1;
-            res
+        // Positional references (`%2$s`, `*2$`) take the given argument and leave the sequential
+        // position unchanged.
+        let mut next_int = |pos: Option<usize>| match pos {
+            Some(p) => args.get(p).map_or(0, FormatArg::to_int),
+            None => {
+                let res = args.get(arg_ix).map_or(0, FormatArg::to_int);
+                arg_ix += 1;
+                res
+            }
         };
         match parse_spec(fmt, i + 1, &mut next_int) {
-            Some((spec, end)) => {
+            Some((spec, position, end)) => {
                 if spec.conv == b'%' {
                     // "%%" (with any flags or width) is a literal percent sign.
                     write_bytes(&mut w, b"%")?;
                 } else {
                     spec.check_limits()?;
-                    let arg = args.get(arg_ix).unwrap_or(&default);
-                    arg_ix += 1;
-                    process_spec(&mut w, &spec, arg)?;
+                    let arg = match position {
+                        Some(p) => args.get(p),
+                        None => {
+                            arg_ix += 1;
+                            args.get(arg_ix - 1)
+                        }
+                    };
+                    process_spec(&mut w, &spec, arg.unwrap_or(&default))?;
                 }
                 i = end;
             }
@@ -640,6 +675,17 @@ mod tests {
         assert_eq!(sprintf!(b"%.999999999999s", "abc"), "abc");
         assert_eq!(sprintf!(b"%.*s", 1i64 << 40, "abc"), "abc");
         assert_eq!(sprintf!(b"%*d|", 1000, 1).len(), 1001);
+    }
+
+    #[test]
+    fn positional_arguments() {
+        // Expected values are gawk's output.
+        assert_eq!(sprintf!(b"%2$s %1$s", "a", "b"), "b a");
+        assert_eq!(sprintf!(b"%1$s-%1$s", "x"), "x-x");
+        assert_eq!(sprintf!(b"[%2$*1$d][%3$.*1$f]", 5, 42, 3.14159), "[   42][3.14159]");
+        assert_eq!(sprintf!(b"[%1$-5s|%1$05d]", 7), "[7    |00007]");
+        // A missing argument is empty; `0$` is not a positional reference.
+        assert_eq!(sprintf!(b"[%3$s][%0$s]", "a"), "[][%0$s]");
     }
 
     #[test]

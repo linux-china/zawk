@@ -308,7 +308,7 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`, or `(i, j) in a`.
 - `IGNORECASE = 1` works as in gawk: regex matching, `FS`/`RS`, string comparisons and `index()` ignore case (a
   single-character string separator such as `FS = "x"` stays literal); `(?i)` in a regex also works. No
-  `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or `match()`. No `RT`, no `printf` positional arguments (`%2$s`).
+  `FIELDWIDTHS`/`FPAT`: use `-i csv`, `substr()` or `match()`. No `RT`.
 - gawk's `switch` is supported (`case` labels are numeric/string/regex constants, bodies fall through until
   `break`). Not supported: `BEGINFILE`/`ENDFILE`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values), `asorti(arr, keys)` (indices) or pipe the output to `sort`.

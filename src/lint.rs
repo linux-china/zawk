@@ -883,10 +883,25 @@ fn number(e: &AstExpr) -> Option<String> {
     }
 }
 
-/// The number of arguments a `printf` format uses, or `None` if it uses positional arguments
-/// (`%1$s`), which are not checked.
-fn format_arguments(fmt: &[u8]) -> Option<usize> {
+/// The number of arguments a `printf` format uses: the sequential ones, or the highest positional
+/// reference (`%2$s`, `*2$`), whichever is larger.
+fn format_arguments(fmt: &[u8]) -> usize {
+    // A positional reference `N$` at `fmt[*i..]`: its number, with `i` moved past it.
+    let position = |i: &mut usize| -> Option<usize> {
+        let start = *i;
+        let mut j = start;
+        while j < fmt.len() && fmt[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j == start || fmt.get(j) != Some(&b'$') {
+            return None;
+        }
+        let n = std::str::from_utf8(&fmt[start..j]).ok()?.parse().ok().filter(|n| *n > 0)?;
+        *i = j + 1;
+        Some(n)
+    };
     let mut n = 0;
+    let mut max_position = 0;
     let mut i = 0;
     while i < fmt.len() {
         if fmt[i] != b'%' {
@@ -898,6 +913,7 @@ fn format_arguments(fmt: &[u8]) -> Option<usize> {
             i += 1;
             continue;
         }
+        let value = position(&mut i);
         while i < fmt.len() && b"-+ #0'".contains(&fmt[i]) {
             i += 1;
         }
@@ -909,14 +925,14 @@ fn format_arguments(fmt: &[u8]) -> Option<usize> {
                 i += 1;
             }
             if fmt.get(i) == Some(&b'*') {
-                n += 1;
                 i += 1;
+                match position(&mut i) {
+                    Some(p) => max_position = max_position.max(p),
+                    None => n += 1,
+                }
             } else {
                 while i < fmt.len() && fmt[i].is_ascii_digit() {
                     i += 1;
-                }
-                if fmt.get(i) == Some(&b'$') {
-                    return None;
                 }
             }
         }
@@ -924,11 +940,14 @@ fn format_arguments(fmt: &[u8]) -> Option<usize> {
             i += 1;
         }
         if i < fmt.len() {
-            n += 1;
+            match value {
+                Some(p) => max_position = max_position.max(p),
+                None => n += 1,
+            }
             i += 1;
         }
     }
-    Some(n)
+    n.max(max_position)
 }
 
 fn plural(n: usize, noun: &str) -> String {
@@ -1116,30 +1135,29 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
 
     // printf formats that use more arguments than given: the missing ones print as empty.
     for (fmt, given, loc) in &facts.formats {
-        if let Some(wanted) = format_arguments(fmt) {
-            if wanted > *given {
-                diags.push(warning(
-                    "W202",
-                    format!(
-                        "format \"{}\" uses {}, got {}: the missing ones are empty",
-                        String::from_utf8_lossy(fmt).escape_debug(),
-                        plural(wanted, "argument"),
-                        given
-                    ),
-                    *loc,
-                ));
-            } else if wanted < *given {
-                diags.push(warning(
-                    "W203",
-                    format!(
-                        "format \"{}\" uses {}, got {}: the extra ones are ignored",
-                        String::from_utf8_lossy(fmt).escape_debug(),
-                        plural(wanted, "argument"),
-                        given
-                    ),
-                    *loc,
-                ));
-            }
+        let wanted = format_arguments(fmt);
+        if wanted > *given {
+            diags.push(warning(
+                "W202",
+                format!(
+                    "format \"{}\" uses {}, got {}: the missing ones are empty",
+                    String::from_utf8_lossy(fmt).escape_debug(),
+                    plural(wanted, "argument"),
+                    given
+                ),
+                *loc,
+            ));
+        } else if wanted < *given {
+            diags.push(warning(
+                "W203",
+                format!(
+                    "format \"{}\" uses {}, got {}: the extra ones are ignored",
+                    String::from_utf8_lossy(fmt).escape_debug(),
+                    plural(wanted, "argument"),
+                    given
+                ),
+                *loc,
+            ));
         }
     }
 
@@ -1703,9 +1721,11 @@ mod tests {
 
     #[test]
     fn format_arguments() {
-        assert_eq!(super::format_arguments(b"%s %d%%\n"), Some(2));
-        assert_eq!(super::format_arguments(b"%-*.*f|%5.2e %lld"), Some(5));
-        assert_eq!(super::format_arguments(b"%2$s %1$s"), None);
+        assert_eq!(super::format_arguments(b"%s %d%%\n"), 2);
+        assert_eq!(super::format_arguments(b"%-*.*f|%5.2e %lld"), 5);
+        assert_eq!(super::format_arguments(b"%2$s %1$s"), 2);
+        assert_eq!(super::format_arguments(b"%1$s %1$s"), 1);
+        assert_eq!(super::format_arguments(b"%2$*3$d"), 3);
         let v = run("BEGIN {\n  printf \"%s %s\\n\", \"a\"\n}");
         assert_eq!(codes(&v), ["W202"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
