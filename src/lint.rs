@@ -1517,6 +1517,29 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
         ));
     }
     for (loc, tok, _) in &toks {
+        let (lit, open) = match tok {
+            Tok::StrLit(lit) => (*lit, "\""),
+            Tok::FStrLit(lit) => (*lit, "f\""),
+            _ => continue,
+        };
+        for (i, c) in lexer::unknown_escapes(lit) {
+            // `\{` and `\}` are the braces of an f-string.
+            if open == "f\"" && matches!(c, '{' | '}') {
+                continue;
+            }
+            let hint = if ".[]()*+?{}|^$".contains(c) {
+                format!(": in a dynamic regex `{}` is then an operator, write `\\\\{}` to match it literally", c, c)
+            } else {
+                String::new()
+            };
+            diags.push(warning(
+                "W102",
+                format!("escape sequence `\\{}` is treated as plain `{}`{}", c, c, hint),
+                Some(loc.advance(open).advance(&lit[..i])),
+            ));
+        }
+    }
+    for (loc, tok, _) in &toks {
         let Tok::Ident(name) = tok else { continue };
         if let Some((_, why)) = IGNORED_GAWK_VARIABLES.iter().find(|(n, _)| n == name) {
             if !reported.contains(name) {
@@ -1606,6 +1629,15 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 9);
         let v = run("BEGIN { substr(1) }");
         assert_eq!(v["diagnostics"][0]["message"], "function `substr` expects 2 or 3 arguments, got 1");
+    }
+
+    #[test]
+    fn unknown_escapes() {
+        let v = run(r#"{ print "a\qb", "x\/y\t\\.", f"\{x\}"; match($0, "a\.b") }"#);
+        assert_eq!(codes(&v), ["W102", "W102", "W102"]);
+        assert_eq!(v["diagnostics"][0]["column"], 11);
+        assert_eq!(v["diagnostics"][1]["column"], 19);
+        assert!(message(&v, 2).contains("write `\\\\.` to match it literally"), "{}", message(&v, 2));
     }
 
     #[test]

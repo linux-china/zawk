@@ -467,10 +467,9 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
                         }
                         buf.push(n);
                     }
-                    _ => {
-                        buf.push(b'\\');
-                        push_char(buf, c);
-                    }
+                    // An unknown escape is the character itself, as in gawk and onetrue-awk:
+                    // "\/" is "/" ("zawk lint" reports these, W102).
+                    _ => push_char(buf, c),
                 };
                 is_escape = false;
             } else {
@@ -483,6 +482,23 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
         }
     }
     arena.alloc_bytes(&buf[..])
+}
+
+/// The escapes of string literal text `lit` that are not escape sequences, as byte offsets of
+/// their backslash and the escaped char: [`parse_string_literal`] drops their backslash.
+pub(crate) fn unknown_escapes(lit: &str) -> Vec<(usize, char)> {
+    let mut found = Vec::new();
+    let mut chars = lit.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if c != '\\' {
+            continue;
+        }
+        match chars.next() {
+            Some((_, 'a' | 'b' | 'f' | 'v' | '\\' | 'n' | 'r' | 't' | '"' | 'x' | '0'..='7')) | None => {}
+            Some((_, c)) => found.push((i, c)),
+        }
+    }
+    found
 }
 
 /// The pattern of a regex literal.
@@ -1098,6 +1114,8 @@ and the third"#;
             parse_string_literal(r#"are you there \77\xh"#, &a, &mut buf),
             b"are you there ?\\xh"
         );
+        assert_eq!(parse_string_literal(r#"a\qb x\/y \. \\."#, &a, &mut buf), b"aqb x/y . \\.");
+        assert_eq!(unknown_escapes(r#"a\qb \\. \t\/"#), [(1, 'q'), (11, '/')]);
     }
 
     #[test]
