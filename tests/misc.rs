@@ -2353,6 +2353,34 @@ fn ignorecase_parallel() {
 }
 
 #[test]
+fn parallel_begin_values_counted_once() {
+    // Every worker starts from the values BEGIN set; aggregating them must count those values
+    // once, not once per worker, so these programs print the same in serial and parallel mode.
+    let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
+    let cases = [
+        (r#"BEGIN { n = 10 } { n++ } END { print n }"#, "20010\n"),
+        (r#"BEGIN { t = 100 } { t -= 1 } END { print t }"#, "-19900\n"),
+        (r#"BEGIN { f = 0.5 } { f += 1 } END { printf "%.1f\n", f }"#, "20000.5\n"),
+        (r#"BEGIN { n = 10; s = "a" } { x++ } END { print n, s, x }"#, "10 a 20000\n"),
+        (r#"BEGIN { a["x"] = 10; a["y"] = 5 } { a["x"]++ } END { print a["x"], a["y"], length(a) }"#, "20010 5 2\n"),
+        (r#"BEGIN { s = "init" } NR == 5 { s = "set" } END { print s }"#, "set\n"),
+        (r#"BEGIN { p[0] = 0 } { p[PID] = 1 } END { print (length(p) > 2) }"#, "1\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(["-pr", "-j4", "--chunk-size", "1024", prog])
+                .write_stdin(input.clone())
+                .assert()
+                .success()
+                .stdout(expected.to_string());
+        }
+    }
+}
+
+#[test]
 fn lint_before_run() {
     // Errors: the report goes to stderr and the program does not run.
     let out = Command::cargo_bin("zawk")

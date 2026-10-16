@@ -1,6 +1,6 @@
 # Parallelism in zawk
 
-zawk provides a rudamentary model of parallelism that can speed up many simple 
+zawk provides a rudimentary model of parallelism that can speed up many simple 
 scripts with little or no modifications. One relatively unique aspect of zawk's implementation is that it can achieve
 nontrivial speedups even when the input is only a single input file or stream.
 The first part of this doc explains the architecture that zawk uses to read
@@ -107,7 +107,7 @@ of an input source:
 Running this script with the `-pr` option will run this
 script in parallel, with a dynamic number of worker threads each getting a roughly equal portion of the input.
 The output of the parallel script will be the same
-as an invocation without the `-pr` option up to a reordering of of the output rows.
+as an invocation without the `-pr` option up to a reordering of the output rows.
 A similar workload in the [performance
 doc](https://github.com/linux-china/zawk/blob/master/info/performance.md) gets
 close to a 2x speedup in record-oriented parallel mode, despite the fact that
@@ -128,6 +128,23 @@ shall see you always have the option of performing the aggregation explicitly.
 * Maps are aggregated by performing a union of the underlying sets of key/value
   pairs, with overlapping values being aggregated according to the corresponding
   scalar rule.
+* Every worker starts from a copy of the values the `BEGIN` block set, and these
+  starting values are counted once, not once per worker: a number is aggregated
+  as `begin + Σ (worker − begin)`, the same for each value of a map, and a
+  string a worker did not change is not picked over one it did. A variable
+  that only `BEGIN` sets keeps its value. So a counter or budget initialized in
+  `BEGIN` gives the same result in serial and parallel mode:
+
+```awk
+BEGIN { budget = 1000 }
+{ budget -= $3 }
+END { print budget }
+```
+
+  This does not help with plain assignments in the main loop: in
+  `BEGIN { t = 5 } { t = $1 } END { print t }` every worker's `t` is a value it
+  assigned, and END sees their sum. `zawk lint -p r` reports such variables
+  (`W302`).
 
 This, among other things, means that simple aggregations like sums:
 ```awk

@@ -63,26 +63,30 @@ pub(crate) struct Slots {
 }
 
 /// A Simple helper trait for implement aggregations for slot values and variables.
-trait Agg {
-    fn agg(self, other: Self) -> Self;
+///
+/// Every worker starts from a copy of the values the `BEGIN` block left in the slots (`base`), so
+/// a worker's contribution is its value minus `base`: numbers are combined as
+/// `self + (other - base)`, which counts the `BEGIN` value once rather than once per worker.
+trait Agg: Sized {
+    fn agg(self, other: Self, base: Option<&Self>) -> Self;
 }
 
 impl Agg for Int {
-    fn agg(self, other: Int) -> Int {
-        self + other
+    fn agg(self, other: Int, base: Option<&Int>) -> Int {
+        self.wrapping_add(other.wrapping_sub(base.copied().unwrap_or(0)))
     }
 }
 
 impl Agg for Float {
-    fn agg(self, other: Float) -> Float {
-        self + other
+    fn agg(self, other: Float, base: Option<&Float>) -> Float {
+        self + (other - base.copied().unwrap_or(0.0))
     }
 }
 
 impl<'a> Agg for UniqueStr<'a> {
-    fn agg(self, other: UniqueStr<'a>) -> UniqueStr<'a> {
-        // Strings are not aggregated explicitly.
-        if other.is_empty() {
+    fn agg(self, other: UniqueStr<'a>, base: Option<&UniqueStr<'a>>) -> UniqueStr<'a> {
+        // Strings are not aggregated explicitly: keep a value a worker set, if any.
+        if other.is_empty() || base == Some(&other) {
             self
         } else {
             other
@@ -91,11 +95,12 @@ impl<'a> Agg for UniqueStr<'a> {
 }
 
 impl<K: std::hash::Hash + Eq, V: Agg + Default> Agg for HashMap<K, V> {
-    fn agg(mut self, other: HashMap<K, V>) -> HashMap<K, V> {
+    fn agg(mut self, other: HashMap<K, V>, base: Option<&HashMap<K, V>>) -> HashMap<K, V> {
         for (k, v) in other {
+            let base_v = base.and_then(|b| b.get(&k));
             let entry = self.entry(k).or_default();
             let v2 = mem::take(entry);
-            *entry = v2.agg(v);
+            *entry = v2.agg(v, base_v);
         }
         self
     }
@@ -112,7 +117,8 @@ pub(crate) struct StageResult {
 }
 
 impl Slots {
-    fn combine(&mut self, mut other: Slots) {
+    /// Add the result of a worker to `self`; `base` holds the slots every worker started with.
+    fn combine(&mut self, mut other: Slots, base: &Slots) {
         macro_rules! for_each_slot_pair {
             ($s1:ident, $s2:ident, $body:expr) => {
                 for_each_slot_pair!(
@@ -123,15 +129,16 @@ impl Slots {
             ($s1:ident, $s2:ident, $body:expr, $($fld:tt),*) => {$({
                 let $s1 = &mut self.$fld;
                 let $s2 = &mut other.$fld;
-                $body
+                let base = &base.$fld;
+                $body(base)
             });*};
         }
 
-        for_each_slot_pair!(a, b, {
+        for_each_slot_pair!(a, b, |base: &Vec<_>| {
             a.resize_with(std::cmp::max(a.len(), b.len()), Default::default);
-            for (a_elt, b_elt_v) in a.iter_mut().zip(b.drain(..)) {
+            for (i, (a_elt, b_elt_v)) in a.iter_mut().zip(b.drain(..)).enumerate() {
                 let a_elt_v = mem::take(a_elt);
-                *a_elt = a_elt_v.agg(b_elt_v);
+                *a_elt = a_elt_v.agg(b_elt_v, base.get(i));
             }
         });
     }
@@ -231,6 +238,12 @@ impl<'a> Core<'a> {
         }
     }
 
+    /// The slots every worker starts with: the values the `BEGIN` block stored. Take it before
+    /// running the main loop on this thread, and pass it to [`Core::combine`].
+    pub fn base_slots(&self) -> Slots {
+        self.slots.clone()
+    }
+
     pub fn extract_result(&mut self, rc: i32) -> StageResult {
         StageResult {
             slots: mem::take(&mut self.slots),
@@ -239,9 +252,11 @@ impl<'a> Core<'a> {
         }
     }
 
-    pub fn combine(&mut self, StageResult { slots, nr, rc: _ }: StageResult) {
-        self.slots.combine(slots);
-        self.vars.nr = self.vars.nr.agg(nr);
+    /// Add the result of a worker; `base` is a copy of the slots taken before the workers started
+    /// (after `BEGIN`), see [`Core::base_slots`].
+    pub fn combine(&mut self, StageResult { slots, nr, rc: _ }: StageResult, base: &Slots) {
+        self.slots.combine(slots, base);
+        self.vars.nr = self.vars.nr.agg(nr, None);
     }
 
     pub fn reseed(&mut self, seed: u64) -> u64 /* old seed */ {
@@ -588,6 +603,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 Err(_) => err!("error in executing worker thread"),
             }
         }
+        let base_slots = self.core.base_slots();
         let scope_res = scope(|s| {
             let (sender, receiver) = bounded(handles.len());
             let float_size = self.floats.regs.len();
@@ -646,7 +662,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             while let Ok(res) = receiver.recv() {
                 let res = res?;
                 let sub_rc = res.rc;
-                self.core.combine(res);
+                self.core.combine(res, &base_slots);
                 if rc == 0 && sub_rc != 0 {
                     rc = sub_rc;
                 }

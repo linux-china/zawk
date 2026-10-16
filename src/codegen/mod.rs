@@ -224,6 +224,7 @@ unsafe fn run_stage(
     // Withhold progress on files other than the main input from the workers; it is restored
     // before running the `end` block.
     let old_read_files = mem::take(rt.input_data.inputs_mut());
+    let base_slots = rt.core.base_slots();
     let scope_res = crossbeam::scope(|s| {
         for (reader, sender, shuttle) in launch_data.into_iter() {
             let cancel_signal = cancel_signal.clone();
@@ -256,7 +257,7 @@ unsafe fn run_stage(
         rt.core.vars.pid = 0;
 
         while let Ok(res) = receiver.recv() {
-            rt.core.combine(res);
+            rt.core.combine(res, &base_slots);
         }
         if let Some(rc) = cancel_signal.get_code() {
             mem::drop(rt);

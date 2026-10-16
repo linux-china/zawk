@@ -7,6 +7,7 @@
 * Add `--deny-warnings` option to runs (implies `--lint`) and to `zawk lint`: warnings count as errors, so the program does not run and the exit code is 1 when there are warnings
 * Add `zawk inspect FILE`: the schema, the first 10 rows and a DuckDB `SUMMARIZE`-like summary (min, max, approx_unique, avg, std, q25, q50, q75, count, null_percentage) of a CSV, TSV, JSON Lines or Parquet file, as monospaced tables (default) or Markdown (`-o markdown`), so that people and AI agents can look at the data before writing a program
 * f-string placeholders now take any expression and an optional Python-style format spec: `f"{NR+1}: {price:.2f} {name:>10}"`. A spec is `[[fill]align][sign][#][0][width][.precision][type]` with `align` one of `<`, `>`, `^` and `type` a printf conversion (`d i o x X e E f F g G s c`) or `%`. **Behavior change**: `{x+1}` used to stay as literal text and is now evaluated; an invalid placeholder expression is a syntax error
+* Fix `-pr`/`-pf`: values set in `BEGIN` were counted once per worker when aggregated for `END` (`BEGIN { n = 10 } { n++ } END { print n }` added 10 for every worker, and `BEGIN { n = 10 } END { print n }` printed 40 with 4 workers). Each worker now contributes only its change from the `BEGIN` value, for numbers and map values, and a string a worker did not change is not picked over one it did
 
 # Version 0.6.1 (2026-09-12)
 
