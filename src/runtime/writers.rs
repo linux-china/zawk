@@ -611,14 +611,9 @@ impl<W: io::Write> JsonlWriter<W> {
     }
 }
 
-/// Reverses the TSV escaping of `print`: `\t` and `\n` are a tab and a newline.
+/// Reverses the TSV escaping of `print`.
 fn unescape_tsv(raw: &[u8]) -> String {
-    let text = String::from_utf8_lossy(raw);
-    if text.contains("\\t") || text.contains("\\n") {
-        text.replace("\\t", "\t").replace("\\n", "\n")
-    } else {
-        text.into_owned()
-    }
+    crate::runtime::str_escape::unescape_tsv(&String::from_utf8_lossy(raw)).into_owned()
 }
 
 fn json_string(s: &str) -> String {

@@ -366,29 +366,7 @@ fn trim_eol(line: &[u8]) -> &[u8] {
 
 /// `\t`, `\n`, `\r` and `\\` escapes, as in `-i tsv`.
 fn unescape_tsv(s: &str) -> String {
-    if !s.contains('\\') {
-        return s.to_string();
-    }
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('t') => out.push('\t'),
-            Some('n') => out.push('\n'),
-            Some('r') => out.push('\r'),
-            Some('\\') => out.push('\\'),
-            Some(c) => {
-                out.push('\\');
-                out.push(c);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
+    crate::runtime::str_escape::unescape_tsv(s).into_owned()
 }
 
 /// `name:TYPE` → (`name`, `TYPE`).

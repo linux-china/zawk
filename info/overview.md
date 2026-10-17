@@ -254,7 +254,8 @@ surprised to discover there were bugs in zawk's parser.
   CSV-escaped lines (enabled via `-o csv` and `-o tsv`). CSV follows RFC 4180:
   inside quotes the only escape is `""`, so backslashes are plain data, and `-o csv`
   keeps line breaks inside quoted fields and ends records with `\n` (use
-  `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n` and `\\` escapes. A quoted
+  `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n`, `\r` and `\\` escapes, on output (`-o tsv`) as on
+  input, so any field survives a round trip. A quoted
   field that is never closed runs to the end of the file; zawk reads it as one
   field and warns on stderr (`zawk: warning: <file>: record <n>: unterminated
   quoted field runs to the end of the file`).

@@ -21,15 +21,48 @@ pub fn escape_csv(text: &str) -> String {
     text.to_string()
 }
 
+/// `-o tsv` escaping: a backslash, tab, newline or carriage return becomes `\\`, `\t`, `\n` or
+/// `\r`, so that `-i tsv` reads the field back as is.
 pub fn escape_tsv(text: &str) -> String {
-    if text.contains("\t") || text.contains("\n") || text.contains("\"") {
-        let new_text = text
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-            .replace("\"", "\"\"");
-        return format!("\"{}\"", new_text);
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(c),
+        }
     }
-    return text.to_string();
+    out
+}
+
+/// Reverses [escape_tsv], as `-i tsv` does: `\t`, `\n`, `\r` and `\\` are a tab, a newline, a
+/// carriage return and a backslash; any other backslash is kept.
+pub fn unescape_tsv(text: &str) -> Cow<'_, str> {
+    if !text.contains('\\') {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('t') => out.push('\t'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('\\') => out.push('\\'),
+            Some(c) => {
+                out.push('\\');
+                out.push(c);
+            }
+            None => out.push('\\'),
+        }
+    }
+    Cow::Owned(out)
 }
 
 pub fn escape_json(text: &str) -> String {

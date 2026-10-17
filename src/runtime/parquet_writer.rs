@@ -249,13 +249,13 @@ fn push_some<T>(v: &mut Vec<T>, x: Option<T>) -> bool {
     }
 }
 
-/// Reverses the TSV escaping of `print` under `-o tsv`: `\t` and `\n` are a tab and a newline.
+/// Reverses the TSV escaping of `print` under `-o tsv`.
 fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
-    let text = String::from_utf8_lossy(raw);
-    if text.contains("\\t") || text.contains("\\n") {
-        text.replace("\\t", "\t").replace("\\n", "\n").into()
-    } else {
-        text
+    match String::from_utf8_lossy(raw) {
+        std::borrow::Cow::Borrowed(text) => crate::runtime::str_escape::unescape_tsv(text),
+        std::borrow::Cow::Owned(text) => {
+            crate::runtime::str_escape::unescape_tsv(&text).into_owned().into()
+        }
     }
 }
 

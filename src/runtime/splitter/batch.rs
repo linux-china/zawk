@@ -26,7 +26,6 @@ use std::sync::atomic::AtomicUsize;
 use std::str;
 
 use lazy_static::lazy_static;
-use regex::{bytes, bytes::Regex};
 
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
@@ -601,7 +600,21 @@ impl<'a> Stepper<'a> {
                     match *bs.get_unchecked(self.prev_ix) {
                         b'n' => self.append("\n".into()),
                         b't' => self.append("\t".into()),
-                        b'\\' => self.append("\\".into()),
+                        b'r' => self.append("\r".into()),
+                        b'\\' => {
+                            self.append("\\".into());
+                            // The escaped backslash is in the offsets too: burn it, or it would
+                            // start another escape.
+                            let _b = get_next!();
+                            debug_assert_eq!(_b, self.prev_ix);
+                        }
+                        b'\t' | b'\n' => {
+                            // A backslash before a separator or line end is kept as is, and the
+                            // separator is handled as usual.
+                            self.append("\\".into());
+                            self.st = State::Init;
+                            continue;
+                        }
                         x => {
                             let buf = &[x];
                             let s: Str<'static> = Str::concat(
@@ -854,10 +867,6 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
 
 // TODO: consider putting these into the runtime struct to avoid the extra indirection.
 lazy_static! {
-    static ref TAB: Regex = Regex::new(r#"\t"#).unwrap();
-    static ref NEWLINE: Regex = Regex::new(r#"\n"#).unwrap();
-    static ref NEEDS_ESCAPE_TSV: bytes::RegexSet =
-        bytes::RegexSet::new([r#"\t"#, r#"\n"#]).unwrap();
 }
 
 /// Whether an RFC 4180 CSV field must be quoted: it contains a quote, comma or line break, or has
@@ -890,22 +899,28 @@ pub fn escape_csv<'a>(s: &Str<'a>) -> Str<'a> {
     })
 }
 
+/// Escape a field for `-o tsv`: a backslash, tab, newline or carriage return becomes `\\`, `\t`,
+/// `\n` or `\r`, the escapes that `-i tsv` reverses.
 pub fn escape_tsv<'a>(s: &Str<'a>) -> Str<'a> {
-    let bs = unsafe { &*s.get_bytes() };
-    let matches = NEEDS_ESCAPE_TSV.matches(bs);
-    if !matches.matched_any() {
-        return s.clone();
-    }
-    let mut cur = s.clone();
-    for m in matches.into_iter() {
-        let (pat, subst_for) = match m {
-            0 => (&*TAB, r#"\t"#),
-            1 => (&*NEWLINE, r#"\n"#),
-            _ => unreachable!(),
-        };
-        cur = cur.subst_all(pat, &Str::from(subst_for).upcast()).0;
-    }
-    cur
+    use std::io::Write;
+    s.with_bytes(|bs| {
+        let escapes = bs.iter().filter(|b| matches!(b, b'\\' | b'\t' | b'\n' | b'\r')).count();
+        if escapes == 0 {
+            return s.clone();
+        }
+        let mut buf = DynamicBuf::new(bs.len() + escapes);
+        for b in bs {
+            let esc: &[u8] = match b {
+                b'\\' => br"\\",
+                b'\t' => br"\t",
+                b'\n' => br"\n",
+                b'\r' => br"\r",
+                _ => std::slice::from_ref(b),
+            };
+            buf.write_all(esc).unwrap();
+        }
+        buf.into_str()
+    })
 }
 
 #[cfg(test)]
@@ -939,6 +954,7 @@ mod escape_tests {
             escape_tsv(&s2),
             Str::from(r#"This ought to be escaped, for one\treason"#)
         );
+        assert_eq!(escape_tsv(&Str::from("a\\nb\r\n")), Str::from(r"a\\nb\r\n"));
     }
 }
 

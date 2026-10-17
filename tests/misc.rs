@@ -2773,3 +2773,28 @@ fn for_in_order_is_reproducible() {
         }
     }
 }
+
+#[test]
+fn tsv_escapes_round_trip() {
+    // `-o tsv` escapes backslashes, tabs, newlines and carriage returns, and `-i tsv` reverses
+    // them, so a literal `\n` survives a round trip.
+    let prog = r#"BEGIN { print "lit\\n", "tab\there", "nl\nx", "cr\ry", "bs\\" }"#;
+    let escaped = "lit\\\\n\ttab\\there\tnl\\nx\tcr\\ry\tbs\\\\\n";
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-o", "tsv", prog])
+            .assert()
+            .success()
+            .stdout(escaped);
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "tsv", r#"{ for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }"#])
+            .write_stdin(String::from(escaped) + "x\\\\\\\\y\tq\\\ttail\n")
+            .assert()
+            .success()
+            .stdout("[lit\\n][tab\there][nl\nx][cr\ry][bs\\]\n[x\\\\y][q\\][tail]\n");
+    }
+}
