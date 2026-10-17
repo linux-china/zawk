@@ -529,6 +529,11 @@ Find unique phone numbers: `!bf_iconatins(phone) { }`
 Floating-point operations: `sin(x)`, `cos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`, `log2(x)`, `log10(x)`, `sqrt(x)`,
 `exp(x)` are delegated to the Rust standard library, or LLVM intrinsics where available.
 
+### intdiv0(x, y)
+
+Integer division truncated toward zero: `intdiv0(7, 3)` is `2`, `intdiv0(-7, 3)` is `-2`.
+Returns `0` instead of failing when `y` is `0`.
+
 ### rand()
 
 Returns a uniform random floating-point number between 0 and 1.

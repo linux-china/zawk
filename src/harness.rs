@@ -932,6 +932,18 @@ depth 0: k=1 v=99
     );
 
     test_program!(
+        intdiv0_func,
+        r#"BEGIN {
+        print intdiv0(10, 3);
+        print intdiv0(10, 0);
+        print intdiv0(7, 3), intdiv0(-7, 3), intdiv0(7, -3);
+        print intdiv0("7.9", "3.9");
+        x = 0; print intdiv0(-5, x);
+        }"#,
+        "3\n0\n2 -2 -2\n2\n0\n"
+    );
+
+    test_program!(
         explicit_split_fs,
         r#" BEGIN {
     split("where is all of this going", m1);

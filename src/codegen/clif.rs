@@ -1159,6 +1159,7 @@ impl<'a> View<'a> {
             Sin => self.call_external(external!(_frawk_sin), args),
             Atan => self.call_external(external!(_frawk_atan), args),
             Atan2 => self.call_external(external!(_frawk_atan2), args),
+            IntDiv0 => self.call_external(external!(_frawk_intdiv0), args),
             Log => self.call_external(external!(_frawk_log), args),
             Log2 => self.call_external(external!(_frawk_log2), args),
             Log10 => self.call_external(external!(_frawk_log10), args),

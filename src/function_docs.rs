@@ -268,6 +268,8 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("cos", MATH, "cos(x: num) -> float", "Cosine (radians).", "cos(0)"),
     d("atan", MATH, "atan(x: num) -> float", "Arc tangent.", "atan(1)"),
     d("atan2", MATH, "atan2(y: num, x: num) -> float", "Arc tangent of y/x.", "atan2(0, -1)"),
+    d("intdiv0", MATH, "intdiv0(x: num, y: num) -> int",
+      "Integer division truncated toward zero; 0 when y is 0.", "intdiv0(-7, 3)"),
     d("min", MATH, "min(a: any, b: any[, c: any]) -> any", "Smallest value (numbers or texts).", "min(1, 2, 3)"),
     d("max", MATH, "max(a: any, b: any[, c: any]) -> any", "Largest value (numbers or texts).", r#"max("A", "B")"#),
     d("eval", MATH, "eval(formula: str[, context: map[str]str]) -> float",

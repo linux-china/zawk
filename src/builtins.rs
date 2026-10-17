@@ -303,6 +303,13 @@ impl Bitwise {
     }
 }
 
+/// Integer division truncated toward zero, returning 0 instead of failing when `y` is 0 (or the
+/// quotient is not finite).
+pub fn intdiv0(x: f64, y: f64) -> f64 {
+    let q = (x.trunc() / y.trunc()).trunc();
+    if q.is_finite() { q } else { 0.0 }
+}
+
 // TODO: move the llvm-level code back into the LLVM module.
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -311,6 +318,8 @@ pub enum FloatFunc {
     Sin,
     Atan,
     Atan2,
+    // Integer division truncated toward zero; 0 when the divisor is 0.
+    IntDiv0,
     // Natural log
     Log,
     // Log base 2
@@ -345,13 +354,14 @@ impl FloatFunc {
             Floor => op.floor(),
             Round => op.round(),
             Trunc => op.trunc(),
-            Atan2 => panic!("float: mismatched arity!"),
+            Atan2 | IntDiv0 => panic!("float: mismatched arity!"),
         }
     }
     pub fn eval2(&self, x: f64, y: f64) -> f64 {
         use FloatFunc::*;
         match self {
             Atan2 => x.atan2(y),
+            IntDiv0 => intdiv0(x, y),
             Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => {
                 panic!("float: mismatched arity!")
             }
@@ -369,6 +379,7 @@ impl FloatFunc {
             Log10 => "log10",
             Sqrt => "sqrt",
             Atan2 => "atan2",
+            IntDiv0 => "intdiv0",
             Exp => "exp",
             Abs => "abs",
             Ceil => "ceil",
@@ -382,7 +393,7 @@ impl FloatFunc {
         use FloatFunc::*;
         match self {
             Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => 1,
-            Atan2 => 2,
+            Atan2 | IntDiv0 => 2,
         }
     }
     fn sig(&self) -> (SmallVec<compile::Ty>, compile::Ty) {
@@ -579,6 +590,7 @@ static_map!(
     ["log10", Function::FloatFunc(FloatFunc::Log10)],
     ["sqrt", Function::FloatFunc(FloatFunc::Sqrt)],
     ["atan2", Function::FloatFunc(FloatFunc::Atan2)],
+    ["intdiv0", Function::FloatFunc(FloatFunc::IntDiv0)],
     ["and", Function::IntFunc(Bitwise::And)],
     ["or", Function::IntFunc(Bitwise::Or)],
     ["compl", Function::IntFunc(Bitwise::Complement)],
