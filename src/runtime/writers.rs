@@ -335,9 +335,10 @@ pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
 ///
 /// Records are expected to be tab-separated and newline-terminated, with tabs and newlines
 /// inside fields already escaped (as for `-o tsv`). Each line becomes a table row; the first one
-/// is the header and is followed by the `| --- |` delimiter row.
+/// is the header and is followed by the `| --- |` delimiter row. With `summary` set
+/// (`--summary`), the row count and per-column statistics follow the table.
 #[derive(Clone)]
-pub struct MarkdownFactory<F>(pub F);
+pub struct MarkdownFactory<F>(pub F, pub bool);
 
 impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
     type Output = F::Output;
@@ -349,7 +350,7 @@ impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
-        MarkdownWriter::new(self.0.stdout())
+        MarkdownWriter::new(self.0.stdout(), self.1)
     }
 }
 
@@ -358,19 +359,25 @@ pub struct MarkdownWriter<W: io::Write> {
     /// The current, not yet newline-terminated, record.
     pending: Vec<u8>,
     header_written: bool,
+    /// Collects statistics of the rows (`--summary`).
+    summary: Option<Summary>,
 }
 
 impl<W: io::Write> MarkdownWriter<W> {
-    pub fn new(inner: W) -> MarkdownWriter<W> {
+    pub fn new(inner: W, summary: bool) -> MarkdownWriter<W> {
         MarkdownWriter {
             inner,
             pending: Vec::new(),
             header_written: false,
+            summary: summary.then(Summary::default),
         }
     }
 
     fn write_row(&mut self, line: &[u8]) -> io::Result<()> {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if let Some(summary) = &mut self.summary {
+            summary.add(line);
+        }
         let mut row = Vec::with_capacity(line.len() + 8);
         let mut columns = 0;
         for cell in line.split(|b| *b == b'\t') {
@@ -424,6 +431,12 @@ impl<W: io::Write> Drop for MarkdownWriter<W> {
             let line = std::mem::take(&mut self.pending);
             let _ = self.write_row(&line);
         }
+        if let Some(summary) = self.summary.take() {
+            if self.header_written {
+                let _ = self.inner.write_all(b"\n");
+            }
+            let _ = self.inner.write_all(summary.markdown().as_bytes());
+        }
         let _ = self.inner.flush();
     }
 }
@@ -436,7 +449,7 @@ mod markdown_tests {
     fn markdown_table() {
         let mut out = Vec::new();
         {
-            let mut w = MarkdownWriter::new(&mut out);
+            let mut w = MarkdownWriter::new(&mut out, false);
             w.write_all(b"name\tage\nAl").unwrap();
             w.write_all(b"ice\t3\nB|ob\t\n").unwrap();
             w.write_all(b"last").unwrap();
@@ -448,13 +461,247 @@ mod markdown_tests {
     }
 }
 
+/// Distinct values are counted up to this many per column (`--summary`).
+const SUMMARY_MAX_DISTINCT: usize = 10_000;
+/// Longer string minimums and maximums are shortened in a summary.
+const SUMMARY_MAX_TEXT: usize = 40;
+
+/// The row count and per-column statistics of `-o table` / `-o markdown` output (`--summary`).
+///
+/// Records are fed in the tab-separated form of `MarkdownFactory`; the first one is the header.
+#[derive(Default)]
+struct Summary {
+    header: Option<Vec<String>>,
+    columns: Vec<ColumnStats>,
+    rows: usize,
+}
+
+#[derive(Default)]
+struct ColumnStats {
+    non_empty: usize,
+    numeric: usize,
+    sum: f64,
+    min_num: Option<f64>,
+    max_num: Option<f64>,
+    min_str: Option<String>,
+    max_str: Option<String>,
+    distinct: hashbrown::HashSet<String>,
+}
+
+impl ColumnStats {
+    fn add(&mut self, cell: String) {
+        if cell.is_empty() {
+            return;
+        }
+        self.non_empty += 1;
+        if let Some(n) = crate::runtime::compare::looks_numeric(cell.as_bytes()) {
+            self.numeric += 1;
+            self.sum += n;
+            self.min_num = Some(self.min_num.map_or(n, |m| m.min(n)));
+            self.max_num = Some(self.max_num.map_or(n, |m| m.max(n)));
+        }
+        if self.min_str.as_ref().is_none_or(|m| cell < *m) {
+            self.min_str = Some(cell.clone());
+        }
+        if self.max_str.as_ref().is_none_or(|m| cell > *m) {
+            self.max_str = Some(cell.clone());
+        }
+        if self.distinct.len() < SUMMARY_MAX_DISTINCT {
+            self.distinct.insert(cell);
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        self.non_empty > 0 && self.numeric == self.non_empty
+    }
+
+    /// The type, non-empty count, distinct count, min, max, sum and mean of the column.
+    fn cells(&self) -> [String; 7] {
+        let distinct = if self.distinct.len() >= SUMMARY_MAX_DISTINCT {
+            format!("{}+", SUMMARY_MAX_DISTINCT)
+        } else {
+            self.distinct.len().to_string()
+        };
+        let text = |s: &Option<String>| s.as_deref().map(shorten).unwrap_or_default();
+        if self.is_number() {
+            let num = |n: Option<f64>| n.map(format_number).unwrap_or_default();
+            let mean = (self.sum / self.non_empty as f64 * 1e6).round() / 1e6;
+            [
+                "number".into(),
+                self.non_empty.to_string(),
+                distinct,
+                num(self.min_num),
+                num(self.max_num),
+                format_number(self.sum),
+                format_number(mean),
+            ]
+        } else {
+            [
+                "string".into(),
+                self.non_empty.to_string(),
+                distinct,
+                text(&self.min_str),
+                text(&self.max_str),
+                String::new(),
+                String::new(),
+            ]
+        }
+    }
+}
+
+fn format_number(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 9007199254740992.0 {
+        (n as i64).to_string()
+    } else {
+        n.to_string()
+    }
+}
+
+fn shorten(s: &str) -> String {
+    if s.chars().count() <= SUMMARY_MAX_TEXT {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(SUMMARY_MAX_TEXT - 1).collect();
+        t.push('…');
+        t
+    }
+}
+
+impl Summary {
+    fn add(&mut self, line: &[u8]) {
+        let cells = line.split(|b| *b == b'\t').map(unescape_tsv);
+        let header = match &mut self.header {
+            None => {
+                self.header = Some(cells.collect());
+                return;
+            }
+            Some(header) => header,
+        };
+        self.rows += 1;
+        for (i, cell) in cells.enumerate() {
+            // Extra cells get positional names, as `$N` would number them.
+            if i >= header.len() {
+                header.push(format!("column{}", i + 1));
+            }
+            if i >= self.columns.len() {
+                self.columns.resize_with(i + 1, Default::default);
+            }
+            self.columns[i].add(cell);
+        }
+    }
+
+    fn rows_line(&self) -> String {
+        format!("{} row{}\n", self.rows, if self.rows == 1 { "" } else { "s" })
+    }
+
+    /// The statistics as records, the first one being the header.
+    fn records(&self) -> Vec<Vec<String>> {
+        let mut records = vec![["column", "type", "non_empty", "distinct", "min", "max", "sum", "mean"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()];
+        let empty = ColumnStats::default();
+        for (i, name) in self.header.iter().flatten().enumerate() {
+            let stats = self.columns.get(i).unwrap_or(&empty);
+            let mut record = vec![name.clone()];
+            record.extend(stats.cells());
+            records.push(record);
+        }
+        records
+    }
+
+    fn table(&self) -> String {
+        let mut out = self.rows_line();
+        if self.header.is_some() {
+            out.push_str(&crate::inspect::boxed_table(self.records()));
+        }
+        out
+    }
+
+    fn markdown(&self) -> String {
+        let mut out = self.rows_line();
+        if self.header.is_none() {
+            return out;
+        }
+        out.push('\n');
+        for (i, record) in self.records().iter().enumerate() {
+            for cell in record {
+                out.push_str("| ");
+                out.push_str(&cell.replace('|', "\\|").replace('\n', " "));
+                out.push(' ');
+            }
+            out.push_str("|\n");
+            if i == 0 {
+                out.push_str(&"| --- ".repeat(record.len()));
+                out.push_str("|\n");
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn markdown_summary() {
+        let mut out = Vec::new();
+        {
+            let mut w = MarkdownWriter::new(&mut out, true);
+            w.write_all(b"name\tage\nAlice\t30\nBob\t5\nB|ob\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 5 |\n| B\\|ob |\n\n\
+             3 rows\n\n\
+             | column | type | non_empty | distinct | min | max | sum | mean |\n\
+             | --- | --- | --- | --- | --- | --- | --- | --- |\n\
+             | name | string | 3 | 3 | Alice | B\\|ob |  |  |\n\
+             | age | number | 2 | 2 | 5 | 30 | 35 | 17.5 |\n"
+        );
+    }
+
+    #[test]
+    fn table_summary() {
+        let mut out = Vec::new();
+        {
+            let mut w = TableWriter::new(&mut out, true);
+            w.write_all(b"n\n1\n2\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "┌───┐\n\
+             │ n │\n\
+             ├───┤\n\
+             │ 1 │\n\
+             │ 2 │\n\
+             └───┘\n\n\
+             2 rows\n\
+             ┌────────┬────────┬───────────┬──────────┬─────┬─────┬─────┬──────┐\n\
+             │ column │ type   │ non_empty │ distinct │ min │ max │ sum │ mean │\n\
+             ├────────┼────────┼───────────┼──────────┼─────┼─────┼─────┼──────┤\n\
+             │ n      │ number │         2 │        2 │   1 │   2 │   3 │  1.5 │\n\
+             └────────┴────────┴───────────┴──────────┴─────┴─────┴─────┴──────┘\n"
+        );
+    }
+
+    #[test]
+    fn empty_summary() {
+        let mut out = Vec::new();
+        drop(TableWriter::new(&mut out, true));
+        assert_eq!(String::from_utf8(out).unwrap(), "0 rows\n");
+    }
+}
+
 /// Wraps a factory so that stdout is rendered as a table with box-drawing borders (`-o table`).
 ///
 /// Records are expected in the same tab-separated form as for `MarkdownFactory`. Column widths
 /// depend on every row, so the records are buffered and the table is written when stdout is
-/// dropped.
+/// dropped. With `summary` set (`--summary`), the row count and per-column statistics follow the
+/// table.
 #[derive(Clone)]
-pub struct TableFactory<F>(pub F);
+pub struct TableFactory<F>(pub F, pub bool);
 
 impl<F: FileFactory> FileFactory for TableFactory<F> {
     type Output = F::Output;
@@ -466,18 +713,19 @@ impl<F: FileFactory> FileFactory for TableFactory<F> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
-        TableWriter::new(self.0.stdout())
+        TableWriter::new(self.0.stdout(), self.1)
     }
 }
 
 pub struct TableWriter<W: io::Write> {
     inner: W,
     buf: Vec<u8>,
+    summary: bool,
 }
 
 impl<W: io::Write> TableWriter<W> {
-    pub fn new(inner: W) -> TableWriter<W> {
-        TableWriter { inner, buf: Vec::new() }
+    pub fn new(inner: W, summary: bool) -> TableWriter<W> {
+        TableWriter { inner, buf: Vec::new(), summary }
     }
 
     fn render(&mut self) -> io::Result<()> {
@@ -488,6 +736,16 @@ impl<W: io::Write> TableWriter<W> {
             .map(|line| line.split('\t').map(String::from).collect())
             .collect();
         self.inner.write_all(crate::inspect::boxed_table(records).as_bytes())?;
+        if self.summary {
+            let mut summary = Summary::default();
+            for line in text.lines() {
+                summary.add(line.as_bytes());
+            }
+            if summary.header.is_some() {
+                self.inner.write_all(b"\n")?;
+            }
+            self.inner.write_all(summary.table().as_bytes())?;
+        }
         self.inner.flush()
     }
 }
@@ -516,7 +774,7 @@ mod table_tests {
     fn boxed_table() {
         let mut out = Vec::new();
         {
-            let mut w = TableWriter::new(&mut out);
+            let mut w = TableWriter::new(&mut out, false);
             w.write_all(b"name\tage\nAlice\t30\nBob\t5\nCarol").unwrap();
         }
         assert_eq!(
