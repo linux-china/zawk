@@ -124,6 +124,48 @@ fn fi_header_per_file() {
     }
 }
 
+// `var=value` operands run when the main loop reaches the next input file (or before END), unlike
+// `-v`, which runs before BEGIN. A file named like an assignment is still read as a file.
+#[test]
+fn operand_assignments() {
+    let tmpdir = tempdir().unwrap();
+    let a = tmpdir.path().join("a.txt");
+    let empty = tmpdir.path().join("empty.txt");
+    let c = tmpdir.path().join("c.csv");
+    std::fs::write(&a, "a1\na2\n").unwrap();
+    std::fs::write(&empty, "").unwrap();
+    std::fs::write(&c, "x,y\n").unwrap();
+    let prog = r#"BEGIN {print "B", v} {print $1, v} END {print "E", v, ARGC, ARGV[3]}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog, "v=1"])
+            .args([&a])
+            .arg("v=2")
+            .args([&empty])
+            .args(["v=3", "FS=,"])
+            .args([&c, &a])
+            .arg("v=4")
+            .assert()
+            .stdout("B \na1 1\na2 1\nx 3\na1 3\na2 3\nE 4 10 v=2\n");
+        // Without file operands, standard input is read after the assignments.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "{print $0, v} END {print v}", "v=a\\tb"])
+            .write_stdin("in\n")
+            .assert()
+            .stdout("in a\tb\na\tb\n");
+    }
+    let named = tmpdir.path().join("k=v");
+    std::fs::write(&named, "from-file\n").unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .current_dir(tmpdir.path())
+        .args(["{print $0, k}", "k=v"])
+        .assert()
+        .stdout("from-file \n");
+}
+
 // A column name missing from the header (a typo, or no -H) reads as "", not as $0, and is
 // not added to FI.
 #[test]

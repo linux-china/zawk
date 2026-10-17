@@ -99,6 +99,9 @@ struct PreludeScalars {
 struct RawPrelude {
     argv: Vec<String>,
     var_decs: Vec<String>,
+    // `var=value` operands, grouped by the input file they precede (see `split_operands`).
+    operand_assigns: Vec<Vec<String>>,
+    operand_files: Vec<String>,
     field_sep: Option<String>,
     output_sep: Option<&'static str>,
     output_record_sep: Option<&'static str>,
@@ -111,6 +114,8 @@ struct Prelude<'a> {
     output_sep: Option<&'a [u8]>,
     output_record_sep: Option<&'a [u8]>,
     argv: Vec<&'a str>,
+    operand_assigns: Vec<Vec<(&'a str, &'a ast::Expr<'a, 'a, &'a str>)>>,
+    operand_files: Vec<&'a str>,
     scalars: PreludeScalars,
 }
 
@@ -255,7 +260,44 @@ fn get_prelude<'a>(a: &'a Arena, raw: &RawPrelude) -> Prelude<'a> {
         output_sep,
         output_record_sep,
         argv: raw.argv.iter().map(|s| a.alloc_str(s.as_str())).collect(),
+        operand_assigns: raw
+            .operand_assigns
+            .iter()
+            .map(|group| get_vars(group.iter().map(|s| s.as_str()), a, &mut buf))
+            .collect(),
+        operand_files: raw.operand_files.iter().map(|s| a.alloc_str(s.as_str())).collect(),
     }
+}
+
+/// Whether a command-line operand is a `var=value` assignment rather than an input file: it
+/// starts with an identifier followed by `=`, and no file of that name exists.
+fn is_operand_assignment(operand: &str) -> bool {
+    match operand.find('=') {
+        Some(i) if i > 0 && lexer::is_ident(&operand[..i]) => {
+            !std::path::Path::new(operand).exists()
+        }
+        _ => false,
+    }
+}
+
+/// Splits command-line operands into input files and `var=value` assignments. The assignments
+/// are grouped by the file they precede: group `k` runs before the k-th file is read, and the
+/// last group after the last file. Without assignments, no groups are returned.
+fn split_operands(operands: &[String]) -> (Vec<String>, Vec<Vec<String>>) {
+    if !operands.iter().any(|op| is_operand_assignment(op)) {
+        return (operands.to_vec(), Vec::new());
+    }
+    let mut files = Vec::new();
+    let mut groups = vec![Vec::new()];
+    for op in operands {
+        if is_operand_assignment(op) {
+            groups.last_mut().unwrap().push(op.clone());
+        } else {
+            files.push(op.clone());
+            groups.push(Vec::new());
+        }
+    }
+    (files, groups)
 }
 
 fn get_context<'a>(
@@ -269,6 +311,8 @@ fn get_context<'a>(
     let parser = parsing::syntax::ProgParser::new();
     let mut prog = ast::Prog::from_stage(a, prelude.scalars.stage.clone());
     prog.argv = mem::take(&mut prelude.argv);
+    prog.operand_assigns = mem::take(&mut prelude.operand_assigns);
+    prog.operand_files = mem::take(&mut prelude.operand_files);
     let stmt = match parser.parse(a, &mut buf, &mut prog, lexer) {
         Ok(()) => {
             prog.field_sep = prelude.field_sep;
@@ -1161,6 +1205,13 @@ fn real_main() {
     let argv: Vec<String> = std::iter::once(program_name)
         .chain(input_files.iter().cloned())
         .collect();
+    // `var=value` operands stay in ARGV, but are not read as input files.
+    let (input_files, operand_assigns) = split_operands(&input_files);
+    if !operand_assigns.is_empty() && !matches!(exec_strategy, ExecutionStrategy::Serial) {
+        // The assignments run as the main loop reaches each file, which workers cannot follow.
+        exec_strategy = ExecutionStrategy::Serial;
+        num_workers = 1;
+    }
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
@@ -1231,6 +1282,8 @@ fn real_main() {
         },
         output_record_sep,
         argv,
+        operand_files: if operand_assigns.is_empty() { Vec::new() } else { input_files.clone() },
+        operand_assigns,
     };
     let opt_dump_bytecode = matches.get_flag("dump-bytecode");
     let opt_dump_cfg = matches.get_flag("dump-cfg");

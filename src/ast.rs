@@ -73,6 +73,11 @@ pub struct Prog<'a, 'b, I> {
     pub pats: arena::Vec<'a, (Pattern<'a, 'b, I>, Option<&'a Stmt<'a, 'b, I>>)>,
     pub stage: Stage<()>,
     pub argv: Vec<&'b str>,
+    // Command-line `var=value` operands: `operand_assigns[k]` are the assignments before the k-th
+    // input file in `operand_files`, and the last entry those after the last file. Unlike `-v`,
+    // they run when the main loop reaches that file (or before END). Empty without such operands.
+    pub operand_assigns: Vec<Vec<(I, &'a Expr<'a, 'b, I>)>>,
+    pub operand_files: Vec<&'b str>,
     pub parse_header: bool,
     // Each input file starts with its own header line (-H, but not for JSON Lines or Parquet,
     // whose FI comes from the record keys).
@@ -186,6 +191,114 @@ fn header_per_file<'a, 'b, I: From<&'b str> + Clone>(arena: &'a Arena) -> &'a St
     ))
 }
 
+// Hidden variables (illegal identifiers) tracking command-line `var=value` operands: the index of
+// the next group of assignments, the file being read, and whether that file has been reached.
+const OPERAND_IDX: &str = "--operand-idx";
+const OPERAND_FILE: &str = "--operand-file";
+const OPERAND_DONE: &str = "--operand-done";
+
+// The assignments of group `k` of operands, followed by OPERAND_IDX = k + 1.
+fn operand_group<'a, 'b, I: From<&'b str> + Clone>(
+    arena: &'a Arena,
+    k: usize,
+    group: &[(I, &'a Expr<'a, 'b, I>)],
+) -> arena::Vec<'a, &'a Stmt<'a, 'b, I>> {
+    use {self::Expr::*, Stmt::*};
+    let mut block = arena.vec_with_capacity(group.len() + 2);
+    for (ident, exp) in group.iter() {
+        block.push(&*arena.alloc(Expr(
+            arena.alloc(Assign(arena.alloc(Var(ident.clone())), exp)),
+        )));
+    }
+    block.push(arena.alloc(Expr(arena.alloc(Assign(
+        arena.alloc(Var(OPERAND_IDX.into())),
+        arena.alloc(ILit(k as i64 + 1)),
+    )))));
+    block
+}
+
+// Runs the `var=value` operands before the current input file when a new file starts, i.e. the
+// groups of assignments up to that file's operand. A file that produced no records (empty,
+// skipped) has its preceding assignments run with those of the next file:
+//  if (FNR == 0 || FILENAME != OPERAND_FILE) {
+//      OPERAND_FILE = FILENAME
+//      OPERAND_DONE = 0
+//      if (!OPERAND_DONE && OPERAND_IDX == k) {   // for each file operand k
+//          <group k>
+//          if (FILENAME == <file k>) OPERAND_DONE = 1
+//      }
+//  }
+fn operand_assigns_new_file<'a, 'b, I: From<&'b str> + Clone + PartialEq>(
+    arena: &'a Arena,
+    groups: &[Vec<(I, &'a Expr<'a, 'b, I>)>],
+    files: &[&'b str],
+) -> &'a Stmt<'a, 'b, I> {
+    use {self::Binop::*, self::Expr::*, Stmt::*};
+    let idx = arena.alloc(Var(OPERAND_IDX.into()));
+    let file = arena.alloc(Var(OPERAND_FILE.into()));
+    let done = arena.alloc(Var(OPERAND_DONE.into()));
+    let filename = arena.alloc(Var("FILENAME".into()));
+    let fnr = arena.alloc(Var("FNR".into()));
+    let mut body = arena.vec_with_capacity(files.len() + 2);
+    body.push(&*arena.alloc(Expr(arena.alloc(Assign(file, filename)))));
+    body.push(arena.alloc(Expr(arena.alloc(Assign(done, arena.alloc(ILit(0)))))));
+    // Without file operands, standard input is read after all the assignments.
+    for k in 0..files.len().max(1) {
+        let mut block = operand_group(arena, k, &groups[k]);
+        // The record was read before the assignments: split it again with a new FS.
+        if groups[k].iter().any(|(ident, _)| *ident == I::from("FS")) {
+            let record = arena.alloc(Unop(self::Unop::Column, arena.alloc(ILit(0))));
+            block.push(arena.alloc(Expr(arena.alloc(Assign(record, record)))));
+        }
+        if let Some(f) = files.get(k) {
+            block.push(arena.alloc(If(
+                arena.alloc(Binop(EQ, filename, arena.alloc(StrLit(f.as_bytes())))),
+                arena.alloc(Expr(arena.alloc(Assign(done, arena.alloc(ILit(1)))))),
+                None,
+            )));
+        }
+        body.push(arena.alloc(If(
+            arena.alloc(And(
+                arena.alloc(Unop(self::Unop::Not, done)),
+                arena.alloc(Binop(EQ, idx, arena.alloc(ILit(k as i64)))),
+            )),
+            arena.alloc(Block(block)),
+            None,
+        )));
+    }
+    arena.alloc(If(
+        arena.alloc(Or(
+            arena.alloc(Binop(EQ, fnr, arena.alloc(ILit(0)))),
+            arena.alloc(Unop(
+                self::Unop::Not,
+                arena.alloc(Binop(EQ, filename, file)),
+            )),
+        )),
+        arena.alloc(Block(body)),
+        None,
+    ))
+}
+
+// Runs the `var=value` operands not run yet (those after the last file, or before files that
+// produced no records) before END:
+//  if (OPERAND_IDX == k) <group k>   // for each group k
+fn operand_assigns_end<'a, 'b, I: From<&'b str> + Clone>(
+    arena: &'a Arena,
+    groups: &[Vec<(I, &'a Expr<'a, 'b, I>)>],
+) -> arena::Vec<'a, &'a Stmt<'a, 'b, I>> {
+    use {self::Binop::*, self::Expr::*, Stmt::*};
+    let idx = arena.alloc(Var(OPERAND_IDX.into()));
+    let mut res = arena.vec_with_capacity(groups.len());
+    for (k, group) in groups.iter().enumerate() {
+        res.push(&*arena.alloc(If(
+            arena.alloc(Binop(EQ, idx, arena.alloc(ILit(k as i64)))),
+            arena.alloc(Block(operand_group(arena, k, group))),
+            None,
+        )));
+    }
+    res
+}
+
 impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
     pub(crate) fn from_stage(arena: &'a Arena, stage: Stage<()>) -> Self {
         Prog {
@@ -201,13 +314,18 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             end: arena.new_vec(),
             pats: arena.new_vec(),
             argv: Vec::new(),
+            operand_assigns: Vec::new(),
+            operand_files: Vec::new(),
             parse_header: false,
             header_per_file: false,
             stage,
             locs: Default::default(),
         }
     }
-    pub(crate) fn desugar_stage(&self, arena: &'a Arena) -> Stage<&'a Stmt<'a, 'b, I>> {
+    pub(crate) fn desugar_stage(&self, arena: &'a Arena) -> Stage<&'a Stmt<'a, 'b, I>>
+    where
+        I: PartialEq,
+    {
         use {self::Binop::*, self::Expr::*, Stmt::*};
         let mut conds = 0;
 
@@ -276,6 +394,14 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
         let per_file_header = self.parse_header
             && self.header_per_file
             && matches!(self.stage, Stage::Main(_));
+        let has_operand_assigns = !self.operand_assigns.is_empty();
+        if has_operand_assigns {
+            inner.push(operand_assigns_new_file(
+                arena,
+                &self.operand_assigns,
+                &self.operand_files,
+            ));
+        }
         if per_file_header {
             inner.push(header_per_file(arena));
         }
@@ -401,7 +527,14 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             });
         }
         if !self.end.is_empty() {
-            end = Some(arena.alloc(Block(self.end.clone())));
+            let end_block = if has_operand_assigns {
+                let mut block = operand_assigns_end(arena, &self.operand_assigns);
+                block.extend(self.end.iter().cloned());
+                block
+            } else {
+                self.end.clone()
+            };
+            end = Some(arena.alloc(Block(end_block)));
         }
         match self.stage {
             Stage::Main(_) => {
