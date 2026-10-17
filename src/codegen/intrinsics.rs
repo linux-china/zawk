@@ -316,18 +316,18 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         dump_int(int_ty);
         dump_float(float_ty);
         dump_null();
-        asort_intint_intint(map_ty, map_ty, int_ty) -> int_ty;
-        asort_intint_strint(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strint_intint(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strint_strint(map_ty, map_ty, int_ty) -> int_ty;
-        asort_intfloat_intfloat(map_ty, map_ty, int_ty) -> int_ty;
-        asort_intfloat_strfloat(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strfloat_intfloat(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strfloat_strfloat(map_ty, map_ty, int_ty) -> int_ty;
-        asort_intstr_intstr(map_ty, map_ty, int_ty) -> int_ty;
-        asort_intstr_strstr(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strstr_intstr(map_ty, map_ty, int_ty) -> int_ty;
-        asort_strstr_strstr(map_ty, map_ty, int_ty) -> int_ty;
+        asort_intint_intint(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_intint_strint(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strint_intint(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strint_strint(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_intfloat_intfloat(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_intfloat_strfloat(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strfloat_intfloat(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strfloat_strfloat(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_intstr_intstr(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_intstr_strstr(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strstr_intstr(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
+        asort_strstr_strstr(rt_ty, map_ty, map_ty, int_ty, str_ref_ty) -> int_ty;
         asorti_intint_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
         asorti_intint_strstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
         asorti_intfloat_intstr(rt_ty, map_ty, map_ty, str_ref_ty) -> int_ty;
@@ -2502,16 +2502,27 @@ pub(crate) unsafe extern "C" fn dump_null() {
     })
 }
 
-// asort(src, dst): one intrinsic per pair of map types with the same value type. `src` and `dst`
-// may be the same map; `strnum` is whether string values may be strnums.
+// asort(src, dst, how): one intrinsic per pair of map types with the same value type. `src` and
+// `dst` may be the same map; `strnum` is whether string values may be strnums.
 macro_rules! asort_intrinsics {
     ($([$name:ident, $src_map:ty, $dst_map:ty]),*) => {
         $(
-            pub(crate) unsafe extern "C" fn $name(src: *mut c_void, dst: *mut c_void, strnum: Int) -> Int {
+            pub(crate) unsafe extern "C" fn $name(
+                runtime: *mut c_void,
+                src: *mut c_void,
+                dst: *mut c_void,
+                strnum: Int,
+                how: *mut c_void,
+            ) -> Int {
                 guard_panic(stringify!($name), || {
+                    let runtime = &mut *(runtime as *mut Runtime);
                     let src = mem::transmute::<*mut c_void, $src_map>(src);
                     let dst = mem::transmute::<*mut c_void, $dst_map>(dst);
-                    let res = math_util::asort(&src, &dst, strnum != 0);
+                    let how = &*(how as *mut Str);
+                    let res = match math_util::asort(&src, &dst, strnum != 0, how) {
+                        Ok(n) => n,
+                        Err(e) => fail!(runtime, "{}", e),
+                    };
                     mem::forget(src);
                     mem::forget(dst);
                     res

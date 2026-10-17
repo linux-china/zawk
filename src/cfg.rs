@@ -3062,9 +3062,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         prim_args.push(PrimVal::ILit(1));
                         prim_args.push(max);
                     }
-                    // asort(arr) => asort(arr, arr): sort in place.
-                    builtins::Function::Asort if args_len == 1 => {
-                        prim_args.push(prim_args[0].clone());
+                    // asort(arr) => asort(arr, arr, ""): sort in place.
+                    // asort(src, dst) => asort(src, dst, ""): "" is the default order.
+                    builtins::Function::Asort if args_len == 1 || args_len == 2 => {
+                        if args_len == 1 {
+                            prim_args.push(prim_args[0].clone());
+                        }
+                        prim_args.push(PrimVal::StrLit(b""));
                     }
                     // asorti(arr) => asorti(arr, arr, "@ind_str_asc"): sort in place.
                     // asorti(src, dst) => asorti(src, dst, "@ind_str_asc");

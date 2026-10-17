@@ -2884,6 +2884,7 @@ impl<'a, 'b> View<'a, 'b> {
                     dst_ty: conv_tys[1],
                     dst: conv_regs[1],
                     strnum: true,
+                    how: conv_regs[2].into(),
                 })
             }
             Asorti => {

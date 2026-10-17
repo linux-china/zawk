@@ -494,9 +494,9 @@ pub(crate) enum Instr<'a> {
         map_ty: Ty,
         map: NumTy,
     },
-    // asort(src, dst): the two maps have the same value type, but their key types may differ.
+    // asort(src, dst, how): the two maps have the same value type, but their key types may differ.
     // The flag is whether the string values of `src` may be strnums (see strnum_analysis): if not,
-    // they sort as strings even when they look numeric.
+    // they sort as strings even when they look numeric. An empty `how` is the default order.
     Asort {
         res: Reg<Int>,
         src_ty: Ty,
@@ -504,6 +504,7 @@ pub(crate) enum Instr<'a> {
         dst_ty: Ty,
         dst: NumTy,
         strnum: bool,
+        how: Reg<Str<'a>>,
     },
     // asorti(src, dst, how): `dst` maps ints or strings to strings, `src` is any map.
     Asorti {
@@ -1824,10 +1825,11 @@ impl<'a> Instr<'a> {
                 f(*map, *map_ty);
             }
             Clear { map_ty, map } => f(*map, *map_ty),
-            Asort { res, src_ty, src, dst_ty, dst, .. } => {
+            Asort { res, src_ty, src, dst_ty, dst, how, .. } => {
                 res.accum(&mut f);
                 f(*src, *src_ty);
                 f(*dst, *dst_ty);
+                how.accum(&mut f);
             }
             Asorti { res, src_ty, src, dst_ty, dst, how } => {
                 res.accum(&mut f);

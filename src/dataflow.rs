@@ -876,8 +876,8 @@ pub(crate) mod boilerplate {
                 f(Key::MapKey(res.reflect().0, Ty::MapIntStr), None);
                 f(Key::MapVal(res.reflect().0, Ty::MapIntStr), Some(Key::MapKey(*map, *map_ty)));
             }
-            Asort { res, src_ty, src, dst_ty, dst, .. } => {
-                f(res.into(), None);
+            Asort { res, src_ty, src, dst_ty, dst, how, .. } => {
+                f(res.into(), Some(how.into()));
                 f(Key::MapKey(*dst, *dst_ty), None);
                 f(Key::MapVal(*dst, *dst_ty), Some(Key::MapVal(*src, *src_ty)));
             }

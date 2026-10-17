@@ -503,8 +503,9 @@ pub(crate) trait CodeGenerator: Backend {
         Ok(())
     }
 
-    /// Sorts the values of `src` into `dst` and stores their number in `res`.
-    fn asort(&mut self, src: Ref, dst: Ref, res: Ref, strnum: bool) -> Result<()> {
+    /// Sorts the values of `src` into `dst` (in the order `how`, if not empty) and stores their
+    /// number in `res`.
+    fn asort(&mut self, src: Ref, dst: Ref, how: Ref, res: Ref, strnum: bool) -> Result<()> {
         use compile::Ty::*;
         let func = match (src.1, dst.1) {
             (MapIntInt, MapIntInt) => intrinsic!(asort_intint_intint),
@@ -521,10 +522,12 @@ pub(crate) trait CodeGenerator: Backend {
             (MapStrStr, MapStrStr) => intrinsic!(asort_strstr_strstr),
             (s, d) => return err!("invalid map types for asort: {:?}, {:?}", s, d),
         };
+        let rt = self.runtime_val();
         let srcv = self.get_val(src)?;
         let dstv = self.get_val(dst)?;
         let strnumv = self.const_int(strnum as i64);
-        let resv = self.call_intrinsic(func, &mut [srcv, dstv, strnumv])?;
+        let howv = self.get_val(how)?;
+        let resv = self.call_intrinsic(func, &mut [rt, srcv, dstv, strnumv, howv])?;
         self.bind_val(res, resv)
     }
 
@@ -1885,8 +1888,8 @@ pub(crate) trait CodeGenerator: Backend {
             ),
             Delete { map_ty, map, key } => self.delete_map((*map, *map_ty), (*key, map_ty.key()?)),
             Clear { map_ty, map } => self.clear_map((*map, *map_ty)),
-            Asort { res, src_ty, src, dst_ty, dst, strnum } => {
-                self.asort((*src, *src_ty), (*dst, *dst_ty), res.reflect(), *strnum)
+            Asort { res, src_ty, src, dst_ty, dst, strnum, how } => {
+                self.asort((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect(), *strnum)
             }
             Asorti { res, src_ty, src, dst_ty, dst, how } => {
                 self.asorti((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect())

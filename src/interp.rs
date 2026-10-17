@@ -2368,8 +2368,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     } => self.contains(*map_ty, *dst, *map, *key),
                     Delete { map_ty, map, key } => self.delete(*map_ty, *map, *key),
                     Clear { map_ty, map } => self.clear(*map_ty, *map),
-                    Asort { res, src_ty, src, dst_ty, dst, strnum } => {
-                        self.asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum)
+                    Asort { res, src_ty, src, dst_ty, dst, strnum, how } => {
+                        self.asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum, *how)?
                     }
                     Asorti { res, src_ty, src, dst_ty, dst, how } => {
                         self.asorti(*res, *src_ty, *src, *dst_ty, *dst, *how)?
@@ -2659,8 +2659,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         map_regs!(map_ty, map, self.get(map).clear());
     }
 
-    fn asort(&mut self, res: Reg<Int>, src_ty: Ty, src: NumTy, dst_ty: Ty, dst: NumTy, strnum: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn asort(
+        &mut self,
+        res: Reg<Int>,
+        src_ty: Ty,
+        src: NumTy,
+        dst_ty: Ty,
+        dst: NumTy,
+        strnum: bool,
+        how: Reg<Str<'a>>,
+    ) -> Result<()> {
         use runtime::{IntMap, StrMap};
+        let how = index(&self.strs, &how);
         // The maps have the same value type: one case per pair of key types and value type.
         macro_rules! asort_maps {
             ($([$src_ty:ident, $src_map:ty, $dst_ty:ident, $dst_map:ty]),*) => {
@@ -2668,7 +2679,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     $((Ty::$src_ty, Ty::$dst_ty) => {
                         let src: Reg<$src_map> = src.into();
                         let dst: Reg<$dst_map> = dst.into();
-                        runtime::math_util::asort(self.get(src), self.get(dst), strnum)
+                        runtime::math_util::asort(self.get(src), self.get(dst), strnum, how)
                     })*
                     _ => panic!("invalid map types for asort: {:?}, {:?}", src_ty, dst_ty),
                 }
@@ -2687,8 +2698,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             [MapIntStr, IntMap<Str<'a>>, MapStrStr, StrMap<'a, Str<'a>>],
             [MapStrStr, StrMap<'a, Str<'a>>, MapIntStr, IntMap<Str<'a>>],
             [MapStrStr, StrMap<'a, Str<'a>>, MapStrStr, StrMap<'a, Str<'a>>]
-        );
+        )?;
         *self.get_mut(res) = n;
+        Ok(())
     }
 
     fn split_seps(

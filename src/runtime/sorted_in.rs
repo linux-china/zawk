@@ -10,7 +10,7 @@ use std::hash::Hash;
 use crate::common::Result;
 use crate::runtime::compare::looks_numeric;
 use crate::runtime::float_parse::str_to_num;
-use crate::runtime::{Float, Int, SharedMap, Str, StrMap};
+use crate::runtime::{Float, Int, SharedMap, Str, StrMap, Uninit};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Key {
@@ -33,7 +33,7 @@ impl SortedIn {
     }
 
     /// Parses an order given to `what` (named in error messages).
-    fn parse_for(s: &[u8], what: &str) -> Result<SortedIn> {
+    pub(crate) fn parse_for(s: &[u8], what: &str) -> Result<SortedIn> {
         let key = match s {
             b"" | b"@unsorted" => return Ok(SortedIn::UNSORTED),
             b"@ind_str_asc" | b"@ind_str_desc" => Key::IndStr,
@@ -184,6 +184,26 @@ where
     let len = keys.len() as Int;
     for (i, k) in keys.into_iter().enumerate() {
         dst.insert(K2::from(i as Int + 1), k.into());
+    }
+    Ok(len)
+}
+
+/// `asort(src, dst, how)`: replaces the contents of `dst` with the values of `src` in the order
+/// `how` (the elements are ordered as `for (k in src)` would visit them with
+/// `PROCINFO["sorted_in"] = how`), indexed from 1, and returns their number. `src` and `dst` may
+/// be the same array.
+pub(crate) fn asort<K1, V, K2>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, how: &Str) -> Result<Int>
+where
+    K1: Hash + Eq + SortItem,
+    V: SortItem + Uninit,
+    K2: Hash + Eq + From<Int>,
+{
+    let order = how.with_bytes(|bs| SortedIn::parse_for(bs, "asort"))?;
+    let vals: Vec<V> = sorted_keys(src, order).iter().map(|k| src.get(k)).collect();
+    dst.clear();
+    let len = vals.len() as Int;
+    for (i, v) in vals.into_iter().enumerate() {
+        dst.insert(K2::from(i as Int + 1), v);
     }
     Ok(len)
 }

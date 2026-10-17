@@ -24,6 +24,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("last_index", "last_index($0, \"x\")", Some(b"5")),
     ("split", "split($0, a, \"f\") a[2]", Some(b"2\xe9x")),
     ("patsplit", "patsplit($0, a, /a/, s) a[1] s[1]", Some(b"1af\xe9x")),
+    ("asort", "(m[1] = $0) (m[2] = \"d\") asort(m, v, \"@val_str_desc\") v[1]", Some(b"caf\xe9xd2d")),
     ("asorti", "(m[$0] = 1) asorti(m, k, \"@ind_str_desc\") k[1]", Some(b"11caf\xe9x")),
     ("last_part", "last_part(\"a/\" $0, \"/\")", Some(b"caf\xe9x")),
     ("sprintf", "sprintf(\"[%s]\", $0)", Some(b"[caf\xe9x]")),

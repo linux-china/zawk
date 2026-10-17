@@ -8,6 +8,7 @@ use snowflake::SnowflakeIdGenerator;
 use std::hash::Hash;
 use crate::runtime::{stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
 use crate::runtime::compare::looks_numeric;
+use crate::runtime::sorted_in::SortItem;
 
 /// Floating point remainder (the result has the sign of `x`, as with C's `fmod`). Integral
 /// operands, the common case (`$1 % 100`), use integer division, which is much faster than `fmod`.
@@ -109,13 +110,17 @@ impl<'a> AsortValue for Str<'a> {
 
 /// `asort(src, dst)`: replaces the contents of `dst` with the values of `src` sorted, indexed from
 /// 1, and returns their number. `src` and `dst` may be the same array (`asort(arr)`). `strnum` is
-/// whether the string values of `src` may be strnums; if not, they sort as strings.
-pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, strnum: bool) -> Int
+/// whether the string values of `src` may be strnums; if not, they sort as strings. A non-empty
+/// `how` sorts in that predefined order instead (see `sorted_in::asort`).
+pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, strnum: bool, how: &Str) -> crate::common::Result<Int>
 where
-    K1: Hash + Eq,
+    K1: Hash + Eq + SortItem,
     K2: Hash + Eq + From<Int>,
-    V: AsortValue + Clone,
+    V: AsortValue + SortItem + crate::runtime::Uninit,
 {
+    if !how.is_empty() {
+        return crate::runtime::sorted_in::asort(src, dst, how);
+    }
     let mut items: Vec<V> = src.iter(|it| it.map(|(_, v)| v.clone()).collect());
     V::asort_sort(&mut items, strnum);
     dst.clear();
@@ -123,7 +128,7 @@ where
     for (i, item) in items.into_iter().enumerate() {
         dst.insert(K2::from(i as Int + 1), item);
     }
-    len
+    Ok(len)
 }
 
 pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {

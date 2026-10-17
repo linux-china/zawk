@@ -2867,3 +2867,32 @@ fn unbraced_pattern_terminated_by_semicolon() {
         }
     }
 }
+
+#[test]
+fn asort_asorti_how() {
+    // The optional third argument of asort/asorti is one of the predefined
+    // `PROCINFO["sorted_in"]` orders.
+    let prog = r#"BEGIN {
+    a["x"] = 10; a["y"] = 9; a["z"] = 100
+    n = asort(a, b, "@val_num_desc"); print n, b[1], b[2], b[3]
+    asort(a, b, "@val_str_asc"); print b[1], b[2], b[3]
+    asort(a, b, "@ind_str_desc"); print b[1], b[2], b[3]
+    asort(a, b); print b[1], b[2], b[3]
+    asorti(a, k, "@val_num_desc"); print k[1], k[2], k[3]
+    asort(a, a, "@val_num_asc"); print a[1], a[2], a[3]
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("3 100 10 9\n10 100 9\n100 9 10\n9 10 100\nz x y\n9 10 100\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"BEGIN { a[1] = 1; asort(a, b, "cmp") }"#)
+            .assert()
+            .failure();
+    }
+}

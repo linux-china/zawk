@@ -734,7 +734,7 @@ impl Function {
                 );
                 ctx.nw.add_dep(arg2, args[2], Constraint::Flows(()));
             }
-            // asort(src, dst): both are maps, the values of `src` flow into `dst` so they share a
+            // asort(src, dst, how): both are maps, the values of `src` flow into `dst` so they share a
             // value type, while their key types are independent.
             Function::Asort => {
                 let (src, dst) = (args[0], args[1]);
@@ -1017,7 +1017,7 @@ impl Function {
             Dejwt => (smallvec![Str, Str], MapStrStr),
             Encrypt => (smallvec![Str, Str, Str], Str),
             Decrypt => (smallvec![Str, Str, Str], Str),
-            Asort => (smallvec![incoming[0], incoming[1]], Int),
+            Asort => (smallvec![incoming[0], incoming[1], Str], Int),
             ArrayStat | ArrayCountDistinct | ArrayTop if !incoming[0].is_array() => {
                 return err!("{} expects an array, got {:?}", self, incoming[0]);
             }
@@ -1152,7 +1152,7 @@ impl Function {
             Seq => 3,
             Uniq => 2,
             Strnum | ToFloat | OfmtStr => 1,
-            Asort => 2,
+            Asort => 3,
             Asorti => 3,
             ArrayMedian | ArrayVar | ArrayStddev | ArrayMode | ArrayCountDistinct => 1,
             ArrayQuantile | ArrayTop => 2,
