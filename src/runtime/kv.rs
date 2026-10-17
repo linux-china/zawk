@@ -1,6 +1,3 @@
-// nats (sync client) is deprecated in favor of async-nats, but still required here
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::stdlib_warning;
@@ -57,14 +54,14 @@ pub(crate) fn kv_clear(namespace: &str) {
 
 static SQLITE_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, rusqlite::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 static REDIS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, redis::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
-static NATS_JETSTREAM: LazyLock<Arc<Mutex<HashMap<String, nats::jetstream::JetStream>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static NATS_STORES: LazyLock<Mutex<HashMap<String, async_nats::jetstream::kv::Store>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn is_redis_url(namespace: &str) -> bool {
     namespace.starts_with("redis://") || namespace.starts_with("redis+tls://")
 }
 
 fn is_nats_url(namespace: &str) -> bool {
-    namespace.starts_with("nats://")
+    namespace.starts_with("nats://") || namespace.starts_with("nats+tls://")
 }
 
 /// Split `scheme://host/name` into the connection URL and the last path segment (the hash key
@@ -120,48 +117,57 @@ mod redis_kv {
 }
 
 mod nats_kv {
-    use nats::jetstream::JetStream;
-    use super::{split_name, KvResult, NATS_JETSTREAM};
+    use async_nats::jetstream::kv::{Config, Store};
+    use futures_util::TryStreamExt;
+    use crate::runtime::network::{nats_client, NATS_RUNTIME};
+    use super::{split_name, KvResult, NATS_STORES};
 
-    /// Run `f` with the key-value store named in the namespace URL, created if needed.
-    fn with_store<T>(url_text: &str, f: impl FnOnce(&nats::kv::Store) -> std::io::Result<T>) -> KvResult<T> {
-        let (conn_url, bucket) = split_name(url_text)?;
-        let mut pool = NATS_JETSTREAM.lock().map_err(|e| e.to_string())?;
-        if !pool.contains_key(conn_url) {
-            let nc = nats::connect(conn_url).map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
-            pool.insert(conn_url.to_string(), nats::jetstream::new(nc));
+    /// The (pooled) key-value store named in the namespace URL, created if needed.
+    fn store(url_text: &str) -> KvResult<Store> {
+        let mut pool = NATS_STORES.lock().map_err(|e| e.to_string())?;
+        if let Some(store) = pool.get(url_text) {
+            return Ok(store.clone());
         }
-        let store = kv_store(&pool[conn_url], bucket)?;
-        f(&store).map_err(|e| e.to_string())
+        let (conn_url, bucket) = split_name(url_text)?;
+        let conn_url = conn_url.replacen("nats+tls://", "tls://", 1);
+        let client = nats_client(&conn_url)?;
+        let store = NATS_RUNTIME.block_on(async {
+            let jetstream = async_nats::jetstream::new(client);
+            match jetstream.get_key_value(bucket).await {
+                Ok(store) => Ok(store),
+                Err(_) => jetstream.create_key_value(Config { bucket: bucket.to_string(), ..Default::default() }).await,
+            }
+        }).map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))?;
+        pool.insert(url_text.to_string(), store.clone());
+        Ok(store)
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
-        with_store(url_text, |store| {
-            Ok(store.get(key)?.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default())
-        })
+        let store = store(url_text)?;
+        let value = NATS_RUNTIME.block_on(store.get(key)).map_err(|e| e.to_string())?;
+        Ok(value.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default())
     }
 
     pub(crate) fn kv_put(url_text: &str, key: &str, value: &str) -> KvResult<()> {
-        with_store(url_text, |store| store.put(key, value).map(drop))
+        let store = store(url_text)?;
+        NATS_RUNTIME.block_on(store.put(key, value.to_string().into())).map(drop).map_err(|e| e.to_string())
     }
 
     pub(crate) fn kv_delete(url_text: &str, key: &str) -> KvResult<()> {
-        with_store(url_text, |store| store.delete(key))
+        let store = store(url_text)?;
+        NATS_RUNTIME.block_on(store.delete(key)).map_err(|e| e.to_string())
     }
 
-    pub(crate) fn kv_clear(_url_text: &str) -> KvResult<()> {
-        // not supported yet: removing all keys of a bucket.
-        Ok(())
-    }
-
-    fn kv_store(jetstream: &JetStream, bucket: &str) -> KvResult<nats::kv::Store> {
-        if let Ok(store) = jetstream.key_value(bucket) {
-            return Ok(store);
-        }
-        jetstream.create_key_value(&nats::kv::Config {
-            bucket: bucket.to_string(),
-            ..Default::default()
-        }).map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))
+    /// Purge every key of the bucket, history included.
+    pub(crate) fn kv_clear(url_text: &str) -> KvResult<()> {
+        let store = store(url_text)?;
+        NATS_RUNTIME.block_on(async {
+            let keys: Vec<String> = store.keys().await.map_err(|e| e.to_string())?.try_collect().await.map_err(|e| e.to_string())?;
+            for key in keys {
+                store.purge(key).await.map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -305,8 +311,12 @@ mod tests {
         let value = "Jackie";
         let url = "nats://localhost:4222/bucket2";
         nats_kv::kv_put(url, "nick", value).unwrap();
-        let value = nats_kv::kv_get(url, "nick").unwrap();
-        println!("{}", value);
+        assert_eq!(nats_kv::kv_get(url, "nick").unwrap(), value);
+        nats_kv::kv_put(url, "phone", "138xxx").unwrap();
+        nats_kv::kv_delete(url, "nick").unwrap();
+        assert_eq!(nats_kv::kv_get(url, "nick").unwrap(), "");
+        nats_kv::kv_clear(url).unwrap();
+        assert_eq!(nats_kv::kv_get(url, "phone").unwrap(), "");
     }
 
     #[test]

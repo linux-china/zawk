@@ -1,6 +1,3 @@
-// nats (sync client) is deprecated in favor of async-nats, but still required here
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -100,8 +97,32 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     }
 }
 
+/// All NATS requests run on this runtime. Its worker thread keeps driving the connections (PING/PONG,
+/// reconnects) between calls, so pooled clients are not dropped by the server while the program is busy.
+pub(crate) static NATS_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("zawk-nats")
+        .enable_all()
+        .build()
+        .expect("failed to build NATS runtime")
+});
+
 // todo graceful shutdown
-static NATS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, nats::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static NATS_CONNECTIONS: LazyLock<Mutex<HashMap<String, async_nats::Client>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The pooled NATS client of `conn_url` (`host:port`, `nats://host:port` or `tls://host:port`), connected if needed.
+pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
+    let mut pool = NATS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
+    if let Some(client) = pool.get(conn_url) {
+        return Ok(client.clone());
+    }
+    let client = NATS_RUNTIME
+        .block_on(async_nats::ConnectOptions::new().connection_timeout(Duration::from_secs(10)).connect(conn_url))
+        .map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
+    pool.insert(conn_url.to_string(), client.clone());
+    Ok(client)
+}
 static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
@@ -122,12 +143,12 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         } else {
             format!("{}:{}", host, url.port().unwrap_or(4222))
         };
-        let mut pool = NATS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        if !pool.contains_key(&conn_url) {
-            let nc = nats::connect(&conn_url).map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
-            pool.insert(conn_url.clone(), nc);
-        }
-        pool[&conn_url].publish(&topic, body).map_err(|e| e.to_string())
+        let client = nats_client(&conn_url)?;
+        // publish only queues the message: flush so it is not lost when the script exits right after
+        NATS_RUNTIME.block_on(async {
+            client.publish(topic, body.to_string().into()).await.map_err(|e| format!("failed to publish: {}", e))?;
+            client.flush().await.map_err(|e| format!("failed to flush: {}", e))
+        })
     } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
         let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", namespace, e))?;
         let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();

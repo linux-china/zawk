@@ -97,8 +97,7 @@ tl = { version = "0.7" }
 logos = "0.16.1"
 local-ip-address = "0.6"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-#nats = { git = "https://github.com/nats-io/nats.rs", rev = "db712168900dc74e2e8982c651d716186bef4fc9" }
-nats = "0.26.0"
+async-nats = { version = "0.50", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
 redis = "1.7"
 minio = { version = "0.4.0", default-features = false, features = ["ring", "rustls-tls", "default-crypto", "http2"] }
 futures-util = "0.3"
