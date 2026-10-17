@@ -417,15 +417,40 @@ pub fn describe_parse_error(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>
         ParseError::UnrecognizedToken {
             token: (l, _, r),
             expected,
-        } => (
-            *l,
-            format!("unexpected {}{}", token_text(prog, l, r), expected_tokens(expected)),
-        ),
+        } => match unsupported_field_operand(prog, l, r) {
+            Some(msg) => (*l, msg),
+            None => (
+                *l,
+                format!("unexpected {}{}", token_text(prog, l, r), expected_tokens(expected)),
+            ),
+        },
         ParseError::ExtraToken { token: (l, _, r) } => {
             (*l, format!("unexpected {}", token_text(prog, l, r)))
         }
         ParseError::User { error } => (error.location, error.desc.to_string()),
     }
+}
+
+/// `$` followed by another `$` or a unary operator (`$$1`, `$++i`, `$-1`, `$!x`) is not supported:
+/// the operand of `$` must be a number, a variable, a call or a parenthesized expression. Returns the
+/// message for the token at `l..r` when it is such an operator right after a `$`.
+pub fn unsupported_field_operand(prog: &str, l: &Loc, r: &Loc) -> Option<String> {
+    let op = prog.get(l.offset()..r.offset())?.trim();
+    if !matches!(op, "$" | "++" | "--" | "-" | "+" | "!") {
+        return None;
+    }
+    if !prog.get(..l.offset())?.trim_end_matches([' ', '\t']).ends_with('$') {
+        return None;
+    }
+    let operand = match op {
+        "$" => "$1".to_string(),
+        "++" | "--" => format!("{}i", op),
+        _ => format!("{}1", op),
+    };
+    Some(format!(
+        "unsupported syntax: `{}` right after `$`; parenthesize the field number, as in `$({})`",
+        op, operand
+    ))
 }
 
 /// The line of `prog` at `loc` with a `^` under `loc`, each on its own indented line.

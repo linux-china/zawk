@@ -264,7 +264,13 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
     let (code, loc) = match err {
         ParseError::InvalidToken { location } => ("E102", *location),
         ParseError::UnrecognizedEof { location, .. } => ("E101", *location),
-        ParseError::UnrecognizedToken { token: (l, _, _), .. } => ("E101", *l),
+        ParseError::UnrecognizedToken { token: (l, _, r), .. } => {
+            if parsing::unsupported_field_operand(prog, l, r).is_some() {
+                ("E201", *l)
+            } else {
+                ("E101", *l)
+            }
+        }
         ParseError::ExtraToken { token: (l, _, _) } => ("E101", *l),
         ParseError::User { error } if error.desc.contains("unsupported") => ("E201", error.location),
         ParseError::User { error } => ("E102", error.location),
@@ -1668,7 +1674,6 @@ const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
     ("FIELDWIDTHS", "fixed-width field splitting is not supported; use substr() or FS"),
     ("FPAT", "field splitting by content is not supported; use FS or match()/split()"),
     ("RT", "the text matched by RS is not available"),
-    ("ERRNO", "system error messages are not stored in ERRNO"),
     ("BINMODE", "binary mode is not supported"),
     ("LINT", "dynamic lint checking is not supported; use `zawk lint`"),
     ("TEXTDOMAIN", "internationalization is not supported"),
@@ -1793,6 +1798,20 @@ mod tests {
     fn lexer_errors() {
         assert_eq!(codes(&run("BEGIN { x = \"abc }")), ["E102"]);
         assert_eq!(codes(&run("@include \"x.awk\"")), ["E201"]);
+    }
+
+    #[test]
+    fn field_operand_operators() {
+        for prog in ["{ print $$1 }", "{ print $++i }", "{ print $--i }", "{ print $-1 }", "{ print $ !0 }", "{ print $+1 }"] {
+            let v = run(prog);
+            assert_eq!(codes(&v), ["E201"], "{}", prog);
+            assert!(message(&v, 0).contains("parenthesize the field number"), "{}", message(&v, 0));
+        }
+        assert_eq!(run("{ print $$1 }")["diagnostics"][0]["column"], 10);
+        // Parenthesized operands, and operators after a whole field reference, are fine.
+        for prog in ["{ print $($1), $(++i), $(-1 + NF), $(!0) }", "{ print $1 - 1, ($NF) + 1, $ 1, -$1, !$1 }"] {
+            assert_eq!(run(prog)["errors"], 0, "{}", prog);
+        }
     }
 
     #[test]

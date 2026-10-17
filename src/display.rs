@@ -379,6 +379,7 @@ impl Display for Variable {
                 CONVFMT => "CONVFMT",
                 OFMT => "OFMT",
                 IGNORECASE => "IGNORECASE",
+                ERRNO => "ERRNO",
             }
         )
     }

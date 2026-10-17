@@ -963,7 +963,8 @@ pub(crate) enum InputFile {
     // A local file, an `s3://` object or an HTTP(S) URL, transparently decompressed.
     Open(Box<dyn io::Read + Send>),
     Stdin(io::Stdin),
-    Failed(io::ErrorKind),
+    // The error from opening the file: its OS error code if it has one, else its kind.
+    Failed(io::ErrorKind, Option<i32>),
 }
 
 impl InputFile {
@@ -981,18 +982,28 @@ impl InputFile {
         };
         match opened {
             Ok(r) => InputFile::Open(r),
-            Err(e) => InputFile::Failed(e.kind()),
+            Err(e) => {
+                set_errno_io(&e);
+                InputFile::Failed(e.kind(), e.raw_os_error())
+            }
         }
     }
 }
 
 impl io::Read for InputFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
+        let res = match self {
             InputFile::Open(r) => r.read(buf),
             InputFile::Stdin(r) => r.read(buf),
-            InputFile::Failed(kind) => Err((*kind).into()),
+            InputFile::Failed(_, Some(code)) => Err(io::Error::from_raw_os_error(*code)),
+            InputFile::Failed(kind, None) => Err((*kind).into()),
+        };
+        if let Err(e) = &res {
+            if e.kind() != io::ErrorKind::Interrupted {
+                set_errno_io(e);
+            }
         }
+        res
     }
 }
 
@@ -1271,7 +1282,36 @@ pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
 /// The value of awk's `close`: the exit status of an output or input command (0 for a file), and
 /// -1 if nothing named that way was open.
 pub(crate) fn close_result(output: Option<Int>, input: Option<Int>) -> Int {
-    output.or(input).unwrap_or(-1)
+    output.or(input).unwrap_or_else(|| {
+        set_errno("close of redirection that was never opened".into());
+        -1
+    })
+}
+
+thread_local! {
+    // gawk's ERRNO: the message of the last failed `getline` or `close`. It is not cleared when
+    // a later call succeeds. Each worker of a parallel program has its own.
+    static ERRNO: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+pub(crate) fn errno() -> String {
+    ERRNO.with(|e| e.borrow().clone())
+}
+
+pub(crate) fn set_errno(msg: String) {
+    ERRNO.with(|e| *e.borrow_mut() = msg);
+}
+
+/// Set ERRNO from an I/O error, as the C library's `strerror` describes it (without Rust's
+/// " (os error N)" suffix), e.g. "No such file or directory".
+pub(crate) fn set_errno_io(e: &io::Error) {
+    let mut msg = e.to_string();
+    if let Some(code) = e.raw_os_error() {
+        if let Some(stripped) = msg.strip_suffix(&format!(" (os error {})", code)) {
+            msg = stripped.to_string();
+        }
+    }
+    set_errno(msg);
 }
 
 /// Largest result a stdlib function may build: a string of this many bytes (`repeat`) or chars

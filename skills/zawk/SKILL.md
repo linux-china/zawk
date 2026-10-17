@@ -85,7 +85,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E001 | a program file cannot be read                                                    |
 | E101 | syntax error: unexpected token or end of program                                 |
 | E102 | invalid token: unterminated string, bad regex literal, unexpected character, ... |
-| E201 | unsupported syntax: `@include`, `@load`, `@namespace`, indirect calls            |
+| E201 | unsupported syntax: `@include`, `@load`, `@namespace`, indirect calls, `$$1`/`$++i` (use `$($1)`) |
 | E202 | unsupported feature: arrays of arrays `a[i][j]` (use `a[i,j]`)                   |
 | E203 | gawk function not available in zawk (e.g. `patsplit`)                           |
 | E300 | other compile error                                                              |
