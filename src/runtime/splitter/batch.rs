@@ -14,12 +14,6 @@
 //! Single-byte splitting is a simpler algorithm adapting the CSV/TSV parsing methods, but ignoring
 //! escaping issues.
 
-/// TODO: on uncommon/adversarial inputs, these parsers can exhibit quadratic behavior. They will
-/// rescan all of the input every time a line exceeds the input chunk size (a few KB by default).
-/// We can fix this easily enough by reusing the computed offsets at the end of the buffer into an
-/// auxiliary vector at the cost of 2x steady-state memory usage, or more complex offset management
-/// in the `Offsets` type.
-/// NB the changes to fix this issue will now be in the chunk module.
 use std::io::Read;
 use std::mem;
 use std::sync::atomic::AtomicUsize;

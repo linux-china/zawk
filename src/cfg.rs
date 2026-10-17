@@ -3031,7 +3031,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // jev(record, instructions) => jev(to_json(record), instructions, jev_threshold)
                     // jev_prob(record, instructions) => jev_prob(to_json(record), instructions)
                     // jev_choice(record, instructions, options) => jev_choice(to_json(record), instructions, to_json(options))
-                    builtins::Function::Jev | builtins::Function::JevProb | builtins::Function::JevChoice | builtins::Function::JevScore => {
+                    // Arity is checked later; with fewer than 2 args, skip the rewrite so the check reports it.
+                    builtins::Function::Jev | builtins::Function::JevProb | builtins::Function::JevChoice | builtins::Function::JevScore
+                        if args_len >= 2 =>
+                    {
                         let json_args: &[usize] = if args_len >= 3 { &[0, 2] } else { &[0] };
                         for &i in json_args {
                             let arg = prim_args[i].clone();
