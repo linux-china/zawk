@@ -914,6 +914,27 @@ fn pad(s: &str, width: usize, right: bool) -> String {
     if right { format!("{}{}", fill, s) } else { format!("{}{}", s, fill) }
 }
 
+/// Renders records as a table with box-drawing borders (`-o table`): the first record is the
+/// header, columns whose non-empty values are all numbers are right-aligned, and short records
+/// are padded with empty cells. Cells are not cut.
+pub fn boxed_table(mut records: Vec<Vec<String>>) -> String {
+    if records.is_empty() {
+        return String::new();
+    }
+    let columns = records.iter().map(|r| r.len()).max().unwrap_or(0).max(1);
+    for r in records.iter_mut() {
+        r.resize(columns, String::new());
+    }
+    let headers = records.remove(0);
+    let right = (0..columns)
+        .map(|i| {
+            let mut values = records.iter().map(|r| r[i].as_str()).filter(|s| !s.is_empty()).peekable();
+            values.peek().is_some() && values.all(|s| matches!(text_shape(s), INT | FLOAT))
+        })
+        .collect();
+    Table { headers, rows: records, right }.boxed_with(usize::MAX)
+}
+
 impl Table {
     fn cells(&self, max: usize, escape_pipes: bool) -> (Vec<String>, Vec<Vec<String>>) {
         let fix = |s: &String| {
@@ -927,7 +948,11 @@ impl Table {
 
     /// A table with box-drawing borders, as DuckDB prints them.
     fn boxed(&self) -> String {
-        let (headers, rows) = self.cells(TABLE_CELL_WIDTH, false);
+        self.boxed_with(TABLE_CELL_WIDTH)
+    }
+
+    fn boxed_with(&self, max: usize) -> String {
+        let (headers, rows) = self.cells(max, false);
         let widths: Vec<usize> = (0..headers.len())
             .map(|i| rows.iter().map(|r| display_width(&r[i])).chain([display_width(&headers[i])]).max().unwrap_or(0))
             .collect();

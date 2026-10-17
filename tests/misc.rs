@@ -1469,6 +1469,25 @@ fn markdown_output() {
 }
 
 #[test]
+fn table_output() {
+    // -o table renders print records as a bordered table: the first record is the header,
+    // numeric columns are right-aligned and short records are padded.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-otable")
+            .arg(r#"BEGIN { print "name", "age" } { print $1, $2 } END { print "张三" }"#)
+            .write_stdin("Alice 30\nBob 5\n")
+            .assert()
+            .success()
+            .stdout(
+                "┌───────┬─────┐\n│ name  │ age │\n├───────┼─────┤\n│ Alice │  30 │\n│ Bob   │   5 │\n│ 张三  │     │\n└───────┴─────┘\n",
+            );
+    }
+}
+
+#[test]
 fn parquet_output() {
     // -o parquet writes the printed records as a Parquet file: the first record is the header,
     // where `name:TYPE` sets a column type; it is read back here with -i parquet.

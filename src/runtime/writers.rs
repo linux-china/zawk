@@ -448,6 +448,90 @@ mod markdown_tests {
     }
 }
 
+/// Wraps a factory so that stdout is rendered as a table with box-drawing borders (`-o table`).
+///
+/// Records are expected in the same tab-separated form as for `MarkdownFactory`. Column widths
+/// depend on every row, so the records are buffered and the table is written when stdout is
+/// dropped.
+#[derive(Clone)]
+pub struct TableFactory<F>(pub F);
+
+impl<F: FileFactory> FileFactory for TableFactory<F> {
+    type Output = F::Output;
+    type Stdout = TableWriter<F::Stdout>;
+    fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
+        self.0.cmd(cmd, env)
+    }
+    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+        self.0.build(path, spec)
+    }
+    fn stdout(&self) -> Self::Stdout {
+        TableWriter::new(self.0.stdout())
+    }
+}
+
+pub struct TableWriter<W: io::Write> {
+    inner: W,
+    buf: Vec<u8>,
+}
+
+impl<W: io::Write> TableWriter<W> {
+    pub fn new(inner: W) -> TableWriter<W> {
+        TableWriter { inner, buf: Vec::new() }
+    }
+
+    fn render(&mut self) -> io::Result<()> {
+        let buf = std::mem::take(&mut self.buf);
+        let text = String::from_utf8_lossy(&buf);
+        let records: Vec<Vec<String>> = text
+            .lines()
+            .map(|line| line.split('\t').map(String::from).collect())
+            .collect();
+        self.inner.write_all(crate::inspect::boxed_table(records).as_bytes())?;
+        self.inner.flush()
+    }
+}
+
+impl<W: io::Write> io::Write for TableWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buf.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<W: io::Write> Drop for TableWriter<W> {
+    fn drop(&mut self) {
+        let _ = self.render();
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    #[test]
+    fn boxed_table() {
+        let mut out = Vec::new();
+        {
+            let mut w = TableWriter::new(&mut out);
+            w.write_all(b"name\tage\nAlice\t30\nBob\t5\nCarol").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "┌───────┬─────┐\n\
+             │ name  │ age │\n\
+             ├───────┼─────┤\n\
+             │ Alice │  30 │\n\
+             │ Bob   │   5 │\n\
+             │ Carol │     │\n\
+             └───────┴─────┘\n"
+        );
+    }
+}
+
 /// Exit status of the most recently closed command behind a handle; see `CmdWriter`.
 type StatusSlot = Arc<Mutex<Option<Int>>>;
 
