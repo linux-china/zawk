@@ -19,24 +19,33 @@ use crate::cfg::SmallVec;
 use crate::compile::{HighLevel, Ty};
 use crate::dataflow::{self, JoinSemiLattice, Key};
 
+/// What a string may be: a strnum, or the uninitialized value (`Str::uninit`, which only flows
+/// through copies too: it comes from missing array elements and unassigned variables).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Strnum {
-    No,
-    Maybe,
+struct Strnum {
+    strnum: bool,
+    uninit: bool,
+}
+
+impl Strnum {
+    const NO: Strnum = Strnum { strnum: false, uninit: false };
+    const MAYBE: Strnum = Strnum { strnum: true, uninit: false };
+    const UNINIT: Strnum = Strnum { strnum: false, uninit: true };
 }
 
 impl JoinSemiLattice for Strnum {
     type Func = ();
     fn bottom() -> Strnum {
-        Strnum::No
+        Strnum::NO
     }
     fn invoke(&mut self, other: &Strnum, (): &()) -> bool /* changed */ {
-        if *self == Strnum::No && *other == Strnum::Maybe {
-            *self = Strnum::Maybe;
-            true
-        } else {
-            false
-        }
+        let res = Strnum {
+            strnum: self.strnum || other.strnum,
+            uninit: self.uninit || other.uninit,
+        };
+        let changed = res != *self;
+        *self = res;
+        changed
     }
 }
 
@@ -49,8 +58,8 @@ pub(crate) struct StrnumAnalysis {
 impl Default for StrnumAnalysis {
     fn default() -> StrnumAnalysis {
         let mut dfa = dataflow::Analysis::default();
-        dfa.add_src(Key::VarVal(Variable::ARGV), Strnum::Maybe);
-        dfa.add_src(Key::VarVal(Variable::ENVIRON), Strnum::Maybe);
+        dfa.add_src(Key::VarVal(Variable::ARGV), Strnum::MAYBE);
+        dfa.add_src(Key::VarVal(Variable::ENVIRON), Strnum::MAYBE);
         StrnumAnalysis {
             dfa,
             params: Vec::new(),
@@ -61,7 +70,13 @@ impl Default for StrnumAnalysis {
 impl StrnumAnalysis {
     /// Mark a string register as possibly holding a strnum.
     pub(crate) fn add_source(&mut self, reg: NumTy, ty: Ty) {
-        self.dfa.add_src(Key::Reg(reg, ty), Strnum::Maybe);
+        self.dfa.add_src(Key::Reg(reg, ty), Strnum::MAYBE);
+    }
+
+    /// Mark a string register as possibly holding the uninitialized value, e.g. a global
+    /// variable that may not be assigned yet.
+    pub(crate) fn add_uninit_source(&mut self, reg: NumTy) {
+        self.dfa.add_src(Key::Reg(reg, Ty::Str), Strnum::UNINIT);
     }
 
     /// Set the parameter registers (and their types) of every function, indexed by function id.
@@ -107,12 +122,13 @@ impl StrnumAnalysis {
         use Instr::*;
         match inst {
             GetColumn(dst, _) | NextLine(dst, _, _) | NextLineStdin(dst) | IntToStr(dst, _)
-            | FloatToStr(dst, _) => self.dfa.add_src(dst, Strnum::Maybe),
+            | FloatToStr(dst, _) => self.dfa.add_src(dst, Strnum::MAYBE),
+            StoreConstStr(dst, s) if s.is_uninit() => self.dfa.add_src(dst, Strnum::UNINIT),
             SplitInt(_, _, map, _) => self.add_map_vals(map),
             SplitStr(_, _, map, _) => self.add_map_vals(map),
             SplitSeps { arr_ty, arr, seps_ty, seps, .. } => {
-                self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::Maybe);
-                self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::Maybe);
+                self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::MAYBE);
+                self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);
             }
             MatchArrInt(_, _, _, map) => self.add_map_vals(map),
             MatchArrStr(_, _, _, map) => self.add_map_vals(map),
@@ -136,6 +152,15 @@ impl StrnumAnalysis {
                         self.dfa.add_query(Key::Reg(reg, ty));
                     }
                 }
+            }
+            // A missing element is the uninitialized value.
+            Lookup { map_ty, dst, .. } if map_ty.val().ok() == Some(Ty::Str) => {
+                self.dfa.add_src(Key::Reg(*dst, Ty::Str), Strnum::UNINIT);
+                dataflow::boilerplate::visit_ll(inst, |dst, src| {
+                    if let Some(src) = src {
+                        self.dfa.add_dep(dst, src, ())
+                    }
+                })
             }
             // Copies.
             Mov(..)
@@ -165,19 +190,25 @@ impl StrnumAnalysis {
     {
         use crate::bytecode::Accum;
         let (reg, ty) = map.reflect();
-        self.dfa.add_src(Key::MapVal(reg, ty), Strnum::Maybe);
+        self.dfa.add_src(Key::MapVal(reg, ty), Strnum::MAYBE);
     }
 
     /// Whether the string register `reg` may hold a strnum. `reg` must have been queried, i.e. be
     /// an operand of a `CmpStr`, `CmpStrNum`, `AwkStrtonum` or `TypeOfString` instruction, or a string
     /// argument of a `Printf` or `Sprintf` instruction, visited by `visit_ll`.
     pub(crate) fn may_be_strnum(&mut self, reg: NumTy) -> bool {
-        *self.dfa.query(Key::Reg(reg, Ty::Str)) == Strnum::Maybe
+        self.dfa.query(Key::Reg(reg, Ty::Str)).strnum
+    }
+
+    /// Whether the string register `reg` may hold the uninitialized value. `reg` must have been
+    /// queried, as for `may_be_strnum`.
+    pub(crate) fn may_be_uninit(&mut self, reg: NumTy) -> bool {
+        self.dfa.query(Key::Reg(reg, Ty::Str)).uninit
     }
 
     /// Whether the string-valued array `map` may hold strnums. `map` must be the source of an
     /// `Asort` instruction visited by `visit_ll`.
     pub(crate) fn map_may_have_strnums(&mut self, map: NumTy, ty: Ty) -> bool {
-        *self.dfa.query(Key::MapVal(map, ty)) == Strnum::Maybe
+        self.dfa.query(Key::MapVal(map, ty)).strnum
     }
 }

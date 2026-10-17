@@ -859,7 +859,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
         }
         // Add a Cfg corresponding to `stmt`
-        let _next = self.convert_stmt(stmt, self.f.entry)?;
+        let next = self.convert_stmt(stmt, self.f.entry)?;
+        // Falling off the end of a function returns no value.
+        self.mark_returned(false, next)?;
         // Insert edges to the exit nodes if where they do not exist
         self.finish()?;
         // SSA Conversion:
@@ -1223,6 +1225,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     (current_open, PrimExpr::Val(PrimVal::Var(Ident::unused())))
                 };
                 self.add_stmt(current_open, PrimStmt::AsgnVar(self.f.ret, e))?;
+                self.mark_returned(ret.is_some(), current_open)?;
                 let exit = self.f.exit;
                 self.jump_to(current_open, exit)?
             }
@@ -1532,6 +1535,25 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     },
                     current_open,
                 );
+            }
+            // A tracked variable assigned an element: it is uninitialized if the element did not
+            // exist (see the `uninit` module).
+            Assign(x, Index(arr @ Var(a), ix))
+                if self.uninit_flag(x).is_some() && !self.f.args_map.contains_key(a) =>
+            {
+                use builtins::Function;
+                let (next, arr_v) = self.convert_val(arr, current_open)?;
+                let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
+                // Check membership first: the lookup creates the element, as in awk.
+                let present =
+                    PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+                let present = self.to_val(present, next)?;
+                let to_e = PrimExpr::Index(arr_v, ix_v);
+                let (next, res) = self.do_assign_hint(x, |_| to_e, None, next)?;
+                let flag = self.uninit_flag(x).unwrap();
+                let flag = self.get_identifier(&flag);
+                self.add_stmt(next, PrimStmt::AsgnVar(flag, PrimExpr::Val(present)))?;
+                return Ok((next, res));
             }
             Assign(x, to) => {
                 let lit = match to {
@@ -1948,13 +1970,33 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.convert_val_inner(expr, current_open, /*in_cond=*/ false)
     }
 
-    /// The flag recording whether the tracked variable read by `e` has been assigned (see the
-    /// `uninit` module).
+    /// The flag recording whether the tracked variable read by `e` has been assigned, or whether
+    /// the tracked function called by `e` returned a value (see the `uninit` module). The flag of
+    /// a call is read after the call.
     fn uninit_flag<'c>(&self, e: &'c Expr<'c, 'b, I>) -> Option<I> {
         match e {
             Expr::Var(x) if !self.f.args_map.contains_key(x) => self.ctx.uninit.vars.get(x).cloned(),
+            Expr::Call(Either::Left(f), _) => self.ctx.uninit.funcs.get(f).cloned(),
             _ => None,
         }
+    }
+
+    /// The flag of the function being converted, if it is tracked (see `uninit_flag`).
+    fn ret_flag(&self) -> Option<I> {
+        match &self.f.name {
+            FunctionName::Named(name) => self.ctx.uninit.funcs.get(name).cloned(),
+            _ => None,
+        }
+    }
+
+    /// Record whether the function being converted returns a value, if it is tracked.
+    fn mark_returned(&mut self, returned: bool, current_open: NodeIx) -> Result<()> {
+        if let Some(flag) = self.ret_flag() {
+            let flag = self.get_identifier(&flag);
+            let v = PrimExpr::Val(PrimVal::ILit(returned as i64));
+            self.add_stmt(current_open, PrimStmt::AsgnVar(flag, v))?;
+        }
+        Ok(())
     }
 
     /// Whether the variable `x` is read as a value somewhere (see the `uninit` module).

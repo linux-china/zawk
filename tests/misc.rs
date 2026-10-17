@@ -2673,6 +2673,33 @@ fn float_literals_with_trailing_dot() {
 }
 
 #[test]
+fn uninitialized_values_are_strnums() {
+    // Missing elements and unassigned variables compare as 0 with numbers and as "" with strings,
+    // whatever the type of the array or variable; copies keep that, other strings do not.
+    let cases = [
+        (r#"BEGIN { a["j"] = "s"; print (a["k"] == 0), (a["k"] == ""), (a["k"] < "a") }"#, "1 1 1\n"),
+        (r#"BEGIN { n = split("", arr); print (arr[1] == 0) }"#, "1\n"),
+        (r#"BEGIN { if (0) x = "a"; y = x; print (x == 0), (y == 0), (("" x) == 0) }"#, "1 1 0\n"),
+        (r#"BEGIN { getline x < "/dev/null"; print (x == 0) }"#, "1\n"),
+        (r#"BEGIN { x = "10"; a["j"] = "10"; print (x < 9), (a["j"] < 9) }"#, "1 1\n"),
+        (r#"BEGIN { a[1] = 5; b = a[2]; c = b; print "[" b "]" "[" c "]", (b == 0) }"#, "[][] 1\n"),
+        (r#"BEGIN { a[1] = 5; for (i = 1; i <= 2; i++) { b = a[i]; print "[" b "]" } }"#, "[5]\n[]\n"),
+        (r#"function f(n) { if (n) return n * 2 } BEGIN { x = f(0); print "[" f(3) "]" "[" f(0) "]" "[" x "]" }"#, "[6][][]\n"),
+        (r#"function f(n) { if (n > 0) { f(n - 1); return } return n } BEGIN { print "[" f(2) "]" "[" f(0) "]" }"#, "[][0]\n"),
+    ];
+    for (prog, expected) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, prog])
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+    }
+}
+
+#[test]
 fn to_json_keeps_empty_values_and_sorts_keys() {
     let prog = r#"BEGIN { a["k"] = "v"; a["e"] = ""; print to_json(a); for (i = 2; i >= 0; i--) b["k" i] = i; print to_json(b) }"#;
     for backend_arg in BACKEND_ARGS {

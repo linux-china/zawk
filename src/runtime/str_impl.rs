@@ -318,6 +318,9 @@ impl<'a> Clone for UniqueStr<'a> {
 }
 
 impl<'a> UniqueStr<'a> {
+    pub fn is_uninit(&self) -> bool {
+        self.0.is_uninit()
+    }
     pub fn into_str(self) -> Str<'a> {
         self.0
     }
@@ -391,9 +394,22 @@ impl<'a> From<Str<'a>> for UniqueStr<'a> {
 #[repr(transparent)]
 pub struct Str<'a>(UnsafeCell<StrRep<'a>>);
 
+/// The bits of the uninitialized value: an empty `Inline` string whose last (unused) byte is set.
+pub(crate) const UNINIT_BITS: u128 = 1 << 120;
+
 impl<'a> Str<'a> {
     pub fn is_empty(&self) -> bool {
-        unsafe { mem::transmute::<&Str, &Inline>(self) == &Inline::default() }
+        // An empty string is an `Inline` one of length 0 (possibly the uninitialized value).
+        unsafe { mem::transmute::<&Str, &Inline>(self).0 as u8 == 0 }
+    }
+    /// The value of an uninitialized variable or a missing array element: an empty string that
+    /// compares as 0 with numbers (see `runtime::compare`). Copies keep this representation, any
+    /// other operation producing an empty string does not.
+    pub fn uninit() -> Str<'a> {
+        Str::from_rep(Inline(UNINIT_BITS).into())
+    }
+    pub fn is_uninit(&self) -> bool {
+        unsafe { mem::transmute::<&Str, &Inline>(self).0 == UNINIT_BITS }
     }
     unsafe fn rep(&self) -> &StrRep<'a> {
         &*self.0.get()
@@ -1124,9 +1140,10 @@ impl<'a> Str<'a> {
     }
 
     pub fn concat(left: Str<'a>, right: Str<'a>) -> Str<'a> {
+        // A concatenation is a string, never the uninitialized value.
         if left.is_empty() {
             mem::forget(left);
-            return right;
+            return if right.is_uninit() { Str::default() } else { right };
         }
         if right.is_empty() {
             mem::forget(right);

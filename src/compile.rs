@@ -806,6 +806,12 @@ impl<'a> Typer<'a> {
                 })
             })
         });
+        // Global string variables hold the uninitialized value until they are assigned.
+        for (reg, ty) in self.regs.globals.values() {
+            if *ty == Ty::Str {
+                sna.add_uninit_source(*reg);
+            }
+        }
         for (fix, frame) in self.frames.iter().enumerate() {
             for reg in frame.strnum_sources.iter() {
                 sna.add_source(*reg, Ty::Str);
@@ -914,7 +920,7 @@ impl<'a> Typer<'a> {
         use runtime::compare::StrKind;
         let refine = |sna: &mut StrnumAnalysis, kind: &mut StrKind, reg: NumTy| {
             if *kind == StrKind::Strnum && !sna.may_be_strnum(reg) {
-                *kind = StrKind::Str;
+                *kind = if sna.may_be_uninit(reg) { StrKind::MaybeUninit } else { StrKind::Str };
             }
         };
         for frame in self.frames.iter_mut() {
@@ -1260,7 +1266,7 @@ impl<'a, 'b> View<'a, 'b> {
             (Null, _) => return Ok(()),
             (Float, Null) => LL::StoreConstFloat(dst_reg.into(), Default::default()),
             (Int, Null) => LL::StoreConstInt(dst_reg.into(), Default::default()),
-            (Str, Null) => LL::StoreConstStr(dst_reg.into(), Default::default()),
+            (Str, Null) => LL::StoreConstStr(dst_reg.into(), runtime::Str::uninit().into()),
             (Float, Int) => LL::IntToFloat(dst_reg.into(), src_reg.into()),
             (Str, Int) => LL::IntToStr(dst_reg.into(), src_reg.into()),
 

@@ -10,6 +10,10 @@
 //! that is set by every assignment to `x`, and those reads produce "" while it is unset. Reading
 //! an element of such an array produces "" when the element does not exist.
 //!
+//! A variable assigned an element of such an array (`b = a[k]`) is uninitialized when the element
+//! did not exist. A user-defined function whose result is read as a string, and that may return
+//! without a value, gets a flag `%ret:f` that tells whether its last call returned one.
+//!
 //! Variables that may be assigned in other ways (getline, sub/gsub, for-in, -v) are left alone,
 //! as are function parameters.
 use crate::arena::Arena;
@@ -26,6 +30,8 @@ pub(crate) struct Uninit<I> {
     pub vars: HashMap<I, I>,
     /// Tracked global arrays: their missing elements read as "" where a string is expected.
     pub maps: HashSet<I>,
+    /// Tracked user-defined functions, mapped to the name of their "returned a value" flag.
+    pub funcs: HashMap<I, I>,
     /// Variables read as a value somewhere (other than by `typeof`, `isarray` or as an argument
     /// of a user-defined function), keyed by the function they are a parameter of (`None` for
     /// globals). gawk's `typeof` reports a variable that was never read as "untyped" rather
@@ -38,6 +44,7 @@ impl<I> Default for Uninit<I> {
         Uninit {
             vars: Default::default(),
             maps: Default::default(),
+            funcs: Default::default(),
             scalar_refs: Default::default(),
         }
     }
@@ -104,6 +111,13 @@ struct Analysis<'a, 'b, I> {
     str_maps: HashSet<I>,
     // Assignments of possibly non-numeric values, with the parameters in scope.
     assigns: Vec<(Target<I>, &'a Expr<'a, 'b, I>, &'a [I])>,
+    // User-defined functions whose result is read as a string, functions with a `return` without
+    // a value, and the values returned by each function (with its parameters).
+    str_funcs: HashSet<I>,
+    bare_return_funcs: HashSet<I>,
+    returns: Vec<(I, &'a Expr<'a, 'b, I>, &'a [I])>,
+    // Functions that may return a value that is not a number.
+    bad_funcs: HashSet<I>,
     // The function being analyzed (`None` for the main program), and the variables read so far.
     cur_fn: Option<I>,
     scalar_refs: HashSet<(Option<I>, I)>,
@@ -159,8 +173,11 @@ where
             ITE(_, t, f) => self.is_num(t, params) && self.is_num(f, params),
             Nullish(l, r) => self.is_num(l, params) && self.is_num(r, params),
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
+            // An element of an array only assigned numbers.
+            Index(..) => self.global_map(e, params).is_some_and(|m| !self.bad_maps.contains(&m)),
+            Call(Either::Left(f), _) if self.udfs.contains(f) => !self.bad_funcs.contains(f),
             Call(f, _) => self.builtin(f).is_some_and(numeric_builtin),
-            StrLit(_) | Index(..) => false,
+            StrLit(_) => false,
         }
     }
 
@@ -169,6 +186,10 @@ where
             self.str_vars.insert(v);
         } else if let Some(m) = self.global_map(e, params) {
             self.str_maps.insert(m);
+        } else if let Expr::Call(Either::Left(f), _) = e {
+            if self.udfs.contains(f) {
+                self.str_funcs.insert(f.clone());
+            }
         }
     }
 
@@ -353,6 +374,14 @@ where
                 self.stmt(body, params);
             }
             Return(e) => {
+                let cur_fn = self.cur_fn.clone();
+                match (e, cur_fn) {
+                    (Some(e), Some(f)) => self.returns.push((f, e, params)),
+                    (None, Some(f)) => {
+                        self.bare_return_funcs.insert(f);
+                    }
+                    _ => {}
+                }
                 if let Some(e) = e {
                     self.expr(e, params);
                 }
@@ -388,6 +417,11 @@ where
                     Target::Map(m) => self.bad_maps.insert(m.clone()),
                 };
             }
+            for (f, e, params) in self.returns.iter() {
+                if !self.is_num(e, params) {
+                    changed |= self.bad_funcs.insert(f.clone());
+                }
+            }
             if !changed {
                 break;
             }
@@ -414,6 +448,10 @@ where
         bad_maps: Default::default(),
         str_maps: Default::default(),
         assigns: Default::default(),
+        str_funcs: Default::default(),
+        bare_return_funcs: Default::default(),
+        returns: Default::default(),
+        bad_funcs: Default::default(),
         cur_fn: None,
         scalar_refs: Default::default(),
         typeof_vars: Default::default(),
@@ -427,7 +465,21 @@ where
         a.stmt(s, &[]);
     }
     a.solve();
-    let vars = a
+    // A variable copied into one read as a string (`c = b`) is read as a string too.
+    loop {
+        let mut changed = false;
+        for (target, rhs, params) in a.assigns.iter() {
+            if let (Target::Var(v), Some(y)) = (target, a.global_var(rhs, params)) {
+                if a.str_vars.contains(v) {
+                    changed |= a.str_vars.insert(y);
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let vars: HashMap<I, I> = a
         .assigned_vars
         .iter()
         .filter(|v| {
@@ -438,15 +490,51 @@ where
             (v.clone(), I::from(flag))
         })
         .collect();
+    // A tracked variable assigned an array element or the result of a function reads the
+    // element or the result as a string.
+    for (target, rhs, _) in a.assigns.iter() {
+        match (target, rhs) {
+            (Target::Var(v), Expr::Index(Expr::Var(m), _)) if vars.contains_key(v) => {
+                a.str_maps.insert(m.clone());
+            }
+            (Target::Var(v), Expr::Call(Either::Left(f), _))
+                if vars.contains_key(v) && a.udfs.contains(f) =>
+            {
+                a.str_funcs.insert(f.clone());
+            }
+            _ => {}
+        }
+    }
     let maps = a
         .assigned_maps
         .iter()
         .filter(|m| a.str_maps.contains(*m) && !a.bad_maps.contains(*m))
         .cloned()
         .collect();
+    // Functions that always end with `return <value>` need no flag.
+    fn ends_with_return<'a, 'b, I>(s: &Stmt<'a, 'b, I>) -> bool {
+        match s {
+            Stmt::Return(Some(_)) => true,
+            Stmt::Block(stmts) => stmts.last().is_some_and(|s| ends_with_return(s)),
+            Stmt::If(_, t, Some(f)) => ends_with_return(t) && ends_with_return(f),
+            _ => false,
+        }
+    }
+    let funcs = decs
+        .iter()
+        .filter(|d| {
+            a.str_funcs.contains(&d.name)
+                && (a.bare_return_funcs.contains(&d.name) || !ends_with_return(d.body))
+        })
+        .map(|d| {
+            let flag: &'a str = arena.alloc_str(&format!("%ret:{}", d.name));
+            (d.name.clone(), I::from(flag))
+        })
+        .collect();
     Uninit {
         vars,
         maps,
+        funcs,
         scalar_refs: a.scalar_refs,
     }
 }

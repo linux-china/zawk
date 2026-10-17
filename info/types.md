@@ -294,15 +294,25 @@ that doesn't result in (too much) over-approximation when it comes to types.
 
 zawk's approach isn't perfect. A program making pervasive use of global
 variables accessed from multiple functions might do more coercions than the same
-program in gawk or mawk. zawk also allows values that are null in some
-execution paths to be represented as integers, so the program:
+program in gawk or mawk.
+
+zawk also represents values that are null in some execution paths with the
+type of the other paths, so an uninitialized value is not tracked as precisely
+as in gawk. The common cases do behave as in Awk, where an uninitialized value
+is both `0` and `""`:
 
 ```
-BEGIN { if (0) { x=6; }; print x; }
+BEGIN { if (0) x = 6; print "[" x "]" }              # []
+BEGIN { if (0) x = "a"; print (x == 0) }             # 1
+BEGIN { a["j"] = "s"; print (a["k"] == 0) }          # 1: a missing element
+BEGIN { a[1] = 5; b = a[2]; print "[" b "]" }        # []
+function f() { if (0) return 1 } BEGIN { print "[" f() "]" }   # []
 ```
 
-Prints an empty line in Awk, and prints 0 in zawk. This was a pragmatic choice
-I made based on the Awk programs that I write and read about. It hasn't been a
-problem so far. If it _does_ become a problem, the solution seems to be to
-replace zawk's "string" type with the more traditional "number and string
-tuple" approach, and use the existing type machinery as a fast path.
+Missing array elements and unassigned string variables hold a special empty
+string that compares as `0` with numbers; copies keep it, any other string
+operation does not. For numeric variables, arrays and function results, a
+hidden flag records whether a value was assigned (see `src/uninit.rs`). A few
+cases still print `0`, e.g. a numeric value that may be uninitialized formatted
+with `printf "%s"`, or assigned from a function that returns one of its
+parameters.

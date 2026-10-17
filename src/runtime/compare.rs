@@ -25,6 +25,9 @@ pub(crate) enum StrKind {
     Strnum = 1,
     /// An uninitialized value (converted to ""): compares as 0 with numeric values.
     Uninit = 2,
+    /// A string that may be the uninitialized value (`Str::uninit`), such as a missing array
+    /// element: compares as `Uninit` if it is, and as `Str` otherwise.
+    MaybeUninit = 3,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -62,13 +65,24 @@ impl StrKind {
         match c {
             0 => StrKind::Str,
             1 => StrKind::Strnum,
-            _ => StrKind::Uninit,
+            2 => StrKind::Uninit,
+            _ => StrKind::MaybeUninit,
+        }
+    }
+    /// The kind of the operand `s`: strnums and possibly uninitialized strings holding the
+    /// uninitialized value are `Uninit`.
+    #[inline]
+    fn of(self, s: &Str) -> StrKind {
+        match self {
+            StrKind::Strnum | StrKind::MaybeUninit if s.is_uninit() => StrKind::Uninit,
+            StrKind::MaybeUninit => StrKind::Str,
+            k => k,
         }
     }
     /// The numeric value of an operand of this kind, if it compares numerically.
     fn numeric_value(self, bs: &[u8]) -> Option<Float> {
         match self {
-            StrKind::Str => None,
+            StrKind::Str | StrKind::MaybeUninit => None,
             StrKind::Strnum => looks_numeric(bs),
             StrKind::Uninit => Some(0.0),
         }
@@ -228,6 +242,7 @@ pub(crate) fn index_folded(needle: &[u8], haystack: &[u8]) -> Option<Int> {
 /// Compare two strings; `code` is `encode(op, kind of l, kind of r)`.
 pub(crate) fn cmp_str_str(l: &Str, r: &Str, code: Int) -> Int {
     let (op, lk, rk) = decode(code);
+    let (lk, rk) = (lk.of(l), rk.of(r));
     l.with_bytes(|lb| {
         r.with_bytes(|rb| {
             // Only parse when both sides may compare numerically.
@@ -244,6 +259,7 @@ pub(crate) fn cmp_str_str(l: &Str, r: &Str, code: Int) -> Int {
 /// Compare a string with a number; `code` is `str_num_code(..)`.
 pub(crate) fn cmp_str_num(s: &Str, n: Float, code: Int) -> Int {
     let (op, sk, _) = decode(code);
+    let sk = sk.of(s);
     let str_on_right = code & (1 << 12) != 0;
     s.with_bytes(|sb| {
         if let Some(sf) = sk.numeric_value(sb) {
@@ -313,6 +329,14 @@ mod tests {
         assert_eq!(cmp_str_str(&s(""), &s(""), encode(Eq, Uninit, Plain)), 1);
         assert_eq!(cmp_str_str(&s(""), &s("0"), encode(Eq, Uninit, Strnum)), 1);
         assert_eq!(cmp_str_str(&s(""), &s("0"), encode(Eq, Uninit, Plain)), 0);
+        // The uninitialized value is 0 or "" unless it is compared as a string.
+        let u = Str::uninit();
+        assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)), 1);
+        assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, Strnum, false)), 1);
+        assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, Plain, false)), 0);
+        assert_eq!(cmp_str_num(&s(""), 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)), 0);
+        assert_eq!(cmp_str_str(&u, &s("0"), encode(Eq, StrKind::MaybeUninit, Strnum)), 1);
+        assert_eq!(cmp_str_str(&s("10"), &s("9"), encode(Lt, StrKind::MaybeUninit, Strnum)), 1);
         // Strings and numbers.
         assert_eq!(cmp_str_num(&s("10"), 9.0, str_num_code(Gt, Strnum, false)), 1);
         assert_eq!(cmp_str_num(&s("abc"), 5.0, str_num_code(Gt, Strnum, false)), 1);

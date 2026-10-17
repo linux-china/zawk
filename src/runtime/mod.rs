@@ -1422,12 +1422,35 @@ impl<K: Hash + Eq, V: Clone> SharedMap<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: Clone + Default> SharedMap<K, V> {
+/// The value of a missing array element.
+pub(crate) trait Uninit {
+    fn uninit() -> Self;
+}
+
+impl Uninit for Int {
+    fn uninit() -> Int {
+        0
+    }
+}
+
+impl Uninit for Float {
+    fn uninit() -> Float {
+        0.0
+    }
+}
+
+impl<'a> Uninit for Str<'a> {
+    fn uninit() -> Str<'a> {
+        Str::uninit()
+    }
+}
+
+impl<K: Hash + Eq + Clone, V: Clone + Uninit> SharedMap<K, V> {
     pub(crate) fn get(&self, k: &K) -> V {
         self.borrow_mut()
             .raw_entry_mut()
             .from_key(k)
-            .or_insert_with(|| (k.clone(), V::default()))
+            .or_insert_with(|| (k.clone(), V::uninit()))
             .1
             .clone()
     }

@@ -515,7 +515,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             stack: Default::default(),
             floats: default_of(regs(Float)),
             ints: default_of(regs(Int)),
-            strs: default_of(regs(Str)),
+            // Unassigned string variables hold the uninitialized value.
+            strs: Storage {
+                regs: (0..regs(Str)).map(|_| runtime::Str::uninit()).collect(),
+                stack: Default::default(),
+            },
             core: Core::new(ff),
 
             line: Default::default(),

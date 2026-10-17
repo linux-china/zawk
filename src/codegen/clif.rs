@@ -819,9 +819,12 @@ impl<'a> View<'a> {
             Null | Int => Ok(self.const_int(0)),
             Float => Ok(self.builder.ins().f64const(0.0)),
             Str => {
-                // cranelift does not currently support iconst for I128
-                let zero64 = self.builder.ins().iconst(types::I64, 0);
-                Ok(self.builder.ins().iconcat(zero64, zero64))
+                // Unassigned string variables hold the uninitialized value. cranelift does not
+                // currently support iconst for I128.
+                let bits = crate::runtime::str_impl::UNINIT_BITS;
+                let low = self.builder.ins().iconst(types::I64, bits as i64);
+                let high = self.builder.ins().iconst(types::I64, (bits >> 64) as i64);
+                Ok(self.builder.ins().iconcat(low, high))
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 let alloc_fn = match ty {
