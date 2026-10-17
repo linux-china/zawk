@@ -259,12 +259,16 @@ fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// The value of a `boolean` cell under `-o jsonl` and `-o parquet`: the words true/t/yes/y/on and
+/// false/f/no/n/off (in any case), and otherwise the truth value of the cell as an input field in
+/// a condition, as in `if ($1)`: false when it is empty or looks like a number equal to zero
+/// (`"0"`, `"0.0"`, `"0x0"`, `" -0 "`), true otherwise (`"2"`, `"abc"`).
 pub(crate) fn parse_bool(s: &str) -> bool {
-    let s = s.trim();
-    match s.to_ascii_lowercase().as_str() {
-        "" | "0" | "false" | "f" | "no" | "n" | "off" => false,
-        "1" | "true" | "t" | "yes" | "y" | "on" => true,
-        _ => parse_float(s).map_or(true, |f| f != 0.0),
+    let t = s.trim();
+    match t.to_ascii_lowercase().as_str() {
+        "false" | "f" | "no" | "n" | "off" => false,
+        "true" | "t" | "yes" | "y" | "on" => true,
+        _ => !crate::runtime::compare::str_is_false(t.as_bytes(), true),
     }
 }
 
@@ -631,6 +635,7 @@ mod tests {
     #[test]
     fn conversions() {
         assert!(parse_bool("yes") && parse_bool("2") && !parse_bool("0.0") && !parse_bool("FALSE"));
+        assert!(!parse_bool("0x0") && !parse_bool(" ") && !parse_bool(" -0 ") && parse_bool("abc"));
         assert_eq!(parse_time("01:00"), Some(3600 * MICROS_PER_SEC));
         assert_eq!(parse_timestamp("1970-01-01T00:00:01Z"), Some(MICROS_PER_SEC));
         assert_eq!(parse_timestamp("1000"), Some(1000 * MICROS_PER_SEC));

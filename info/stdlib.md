@@ -114,7 +114,9 @@ starts with `g`. Target is not changed, and `\1`..`\9` in repl refer to the grou
 
 ### hex(s)
 
-Returns the hexadecimal integer (e.g. 0x123abc) encoded in s, or 0 otherwise.
+Returns the hexadecimal integer (e.g. 0x123abc or ff, after optional blanks and sign) encoded in s, or 0 otherwise.
+The digits are read as a 64-bit unsigned value (wrapping around beyond 16 digits) with the same bits as the result,
+so a 64-bit hash or id keeps all its bits: `hex("ffffffffffffffff")` returns -1.
 
 `hex("0xFF")` returns 255. Please use `strtonum("0x11")` instead.
 

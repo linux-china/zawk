@@ -97,7 +97,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       "Last part of s split by sep; without sep, `/` is tried and then `.`.", r#"last_part("a/b/c")"#),
     d("sprintf", TEXT, "sprintf(fmt: str, args: any...) -> str", "Format args according to the printf format fmt.",
       r#"sprintf("%05.2f", 3.14159)"#),
-    d("hex", TEXT, "hex(s: str) -> int", "Parse a hexadecimal number such as 0xFF, 0 otherwise.", r#"hex("0xFF")"#),
+    d("hex", TEXT, "hex(s: str) -> int", "Parse a hexadecimal number such as 0xFF or ff (64 bits, wrapping), 0 otherwise.", r#"hex("0xFF")"#),
     d("join_fields", TEXT, "join_fields(i: int, j: int[, sep: str]) -> str",
       "Join columns i..j (inclusive) with sep (default OFS).", r#"join_fields(2, 4, "-")"#),
     d("join_csv", TEXT, "join_csv(i: int, j: int) -> str", "Join columns i..j as a CSV row.",
@@ -530,13 +530,9 @@ pub(crate) fn find(filter: Option<&str>) -> Vec<&'static FunctionDoc> {
         .collect()
 }
 
-/// A JSON array with one function per line: compact for agents, and still greppable.
-pub(crate) fn render_json(docs: &[&FunctionDoc]) -> String {
-    if docs.is_empty() {
-        return "[]".to_string();
-    }
-    let lines: Vec<String> = docs.iter().map(|f| f.to_json().to_string()).collect();
-    format!("[\n{}\n]", lines.join(",\n"))
+/// NDJSON with one function per line: compact for agents, streamable, and still greppable.
+pub(crate) fn render_ndjson(docs: &[&FunctionDoc]) -> String {
+    docs.iter().map(|f| format!("{}\n", f.to_json())).collect()
 }
 
 pub(crate) fn render_text(docs: &[&FunctionDoc]) -> String {

@@ -7,7 +7,7 @@
 ///
 /// TODO explain more about what is going on here.
 use crate::pushdown::FieldSet;
-use crate::runtime::{strtoi, Float, Int, SharedMap, IntMap};
+use crate::runtime::{str_to_num, Float, Int, SharedMap, IntMap};
 
 use regex::bytes::{Captures, Regex};
 use smallvec::SmallVec;
@@ -961,9 +961,16 @@ impl<'a> Str<'a> {
             if !how.is_empty() && matches!(how[0], b'g' | b'G') {
                 self.gen_subst_all(pat, subst)
             } else {
-                // this silently ignores strings that cannot be parsed and treats them as "1"
-                let which = strtoi(how);
-                let which = std::cmp::max(1, which);
+                // As in gawk, `how` is converted like any string to a number and truncated; a value
+                // below 1 (including text that is not a number) is treated as 1, with a warning.
+                let which = str_to_num(how);
+                if !(which >= 1.0) {
+                    super::stdlib_warning(
+                        "gensub",
+                        format!("third argument `{}' treated as 1", String::from_utf8_lossy(how)),
+                    );
+                }
+                let which = if which >= 1.0 { which as Int } else { 1 };
                 self.gen_subst_n(pat, subst, which)
             }
         })
@@ -2395,6 +2402,17 @@ And this is the second part"#
         let s6: Str = "xxyz substituted into another xxyz".into();
         let s7 = s6.gen_subst_dynamic(&re2, &s1, &"1".into());
         s7.with_bytes(|bs| assert_eq!(bs, b"String number one substituted into another xxyz"));
+
+        // `how` is a number as by str_to_num, truncated; below 1 (or not a number) is 1.
+        let a: Str = "aaaaaaaaaaaa".into();
+        let re_a = Regex::new("a").unwrap();
+        let b: Str = "b".into();
+        let s8 = a.gen_subst_dynamic(&re_a, &b, &"1e1".into());
+        s8.with_bytes(|bs| assert_eq!(bs, b"aaaaaaaaabaa"));
+        for how in ["0", "-2", "x", "", "1.9"] {
+            let s9 = a.gen_subst_dynamic(&re_a, &b, &how.into());
+            s9.with_bytes(|bs| assert_eq!(bs, b"baaaaaaaaaaa", "how = {:?}", how));
+        }
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
 pub(crate) use command::run_command2;
 pub(crate) use float_parse::{
-    exact_int_literal, hextoi, parse_hex_literal, parse_int_literal, str_to_int, str_to_num, strtod, strtoi,
+    exact_int_literal, hextoi, parse_hex_literal, parse_int_literal, str_to_int, str_to_num, strtod,
 };
 pub(crate) use printf::FormatArg;
 pub use splitter::{

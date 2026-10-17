@@ -135,9 +135,11 @@ fn non_utf8_input_is_preserved() {
 #[test]
 fn every_string_function_is_covered() {
     let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let json: Vec<serde_json::Value> = String::from_utf8(out.stdout).unwrap().lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
     let covered: BTreeSet<&str> = CASES.iter().map(|(name, _, _)| *name).chain(EXEMPT.iter().copied()).collect();
-    let missing: Vec<&str> = json.as_array().unwrap().iter()
+    let missing: Vec<&str> = json.iter()
         .filter(|f| f["params"].as_array().unwrap().iter().any(|p| p["type"] == "str"))
         .map(|f| f["name"].as_str().unwrap())
         .filter(|name| !covered.contains(name))

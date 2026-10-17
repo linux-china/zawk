@@ -1228,12 +1228,9 @@ impl Splitter {
     }
 }
 
-/// Whether awk reads `s`, a field, as a number (a "strnum").
+/// Whether awk reads `s`, a field, as a number (a "strnum"), by the rules of the runtime.
 fn looks_numeric(s: &str) -> bool {
-    let t = s.trim_matches([' ', '\t', '\n']);
-    t.starts_with(|c: char| c.is_ascii_digit() || "+-.".contains(c))
-        && t.chars().all(|c| c.is_ascii_digit() || "+-.eE".contains(c))
-        && t.parse::<f64>().is_ok()
+    crate::runtime::compare::looks_numeric(s.as_bytes()).is_some()
 }
 
 /// The edit distance between two strings.
@@ -1861,6 +1858,9 @@ mod tests {
         let v = run_with("$2 > 10 { n++ }", &with_lines(&["id,price", "1,12.5"], false, Some(",")));
         assert_eq!(codes(&v), ["W129"]);
         assert!(message(&v, 0).contains("looks like a header line"));
+        // Hexadecimal and signed inf/nan fields are numbers, as at run time.
+        let opts = with_lines(&["id,amt", "1,0x1F", "2,+inf", "3,-nan"], true, Some(","));
+        assert!(codes(&run_with("$2 > 5 { n++ }", &opts)).is_empty());
     }
 
     #[test]

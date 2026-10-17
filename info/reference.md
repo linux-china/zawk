@@ -86,8 +86,10 @@ _Unary Operators:_
   or overwrite semantics specified by `>` or `>>`. Like `print`, `printf` can be
   called without parentheses around its arguments, though arguments are parsed
   differently in this mode to avoid ambiguities.
-* `hex(s)`: Returns the hexadecimal integer (e.g. `0x123abc`) encoded in `s`, or
-  `0` otherwise.
+* `hex(s)`: Returns the hexadecimal integer (e.g. `0x123abc` or `ff`, after
+  optional blanks and sign) encoded in `s`, or `0` otherwise. The digits are read
+  as a 64-bit unsigned value with the same bits as the result, so
+  `hex("ffffffffffffffff")` is `-1`.
 * `join_fields(i, j[, sep])`: Returns columns `i` through `j` (1-indexed,
   inclusive) concatenated together, joined by `sep`, or by `OFS` if `sep` is not
   provided.

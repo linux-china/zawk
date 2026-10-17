@@ -1,66 +1,27 @@
 //! Fast float parser based on github.com/lemire/fast_double_parser, but adopted to support AWK
 //! semantics (no failures, just 0s and stopping early). Mistakes are surely my own.
 
-fn is_integer(c: u8) -> bool {
-    c.is_ascii_digit()
-}
-
-/// The simdjson repo has more optimizations to add for int parsing, but this is a big win over libc
-/// for the time being, if only because we do not have to copy `s` into a NUL-terminated
-/// representation.
-pub fn strtoi(bs: &[u8]) -> i64 {
-    if bs.is_empty() {
-        return 0;
+/// The value of `hex(s)`: leading blanks, an optional sign and an optional `0x`/`0X` prefix, then
+/// the hexadecimal digits (as in [`str_to_num`], trailing text is ignored; no digits is 0). The
+/// digits are read as a 64-bit unsigned integer, wrapping around on overflow, and returned with
+/// the same bits as an i64, so a 64-bit hash or id such as `hex("ffffffffffffffff")` is -1.
+pub fn hextoi(bs: &[u8]) -> i64 {
+    let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
+    let start = bs.iter().position(|b| !is_blank(b)).unwrap_or(bs.len());
+    let (neg, mut digits) = match &bs[start..] {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        body => (false, body),
+    };
+    if let [b'0', b'x' | b'X', rest @ ..] = digits {
+        digits = rest;
     }
-    let neg = bs[0] == b'-';
-    let off = if neg || bs[0] == b'+' { 1 } else { 0 };
-    let mut i = 0i64;
-    for b in bs[off..].iter().cloned().take_while(|b| is_integer(*b)) {
-        let digit = (b - b'0') as i64;
-        i = if let Some(i) = i.checked_mul(10).and_then(|i| i.checked_add(digit)) {
-            i
-        } else {
-            // overflow
-            return 0;
-        }
-    }
+    let i = digits
+        .iter()
+        .map_while(|b| (*b as char).to_digit(16))
+        .fold(0u64, |i, d| i.wrapping_mul(16).wrapping_add(d as u64)) as i64;
     if neg {
-        -i
-    } else {
-        i
-    }
-}
-
-/// Simple hexadecimal integer parser, similar in spirit to the strtoi implementation here.
-pub fn hextoi(mut bs: &[u8]) -> i64 {
-    let mut neg = false;
-    if bs.is_empty() {
-        return 0;
-    }
-    if bs[0] == b'-' {
-        neg = true;
-        bs = &bs[1..]
-    }
-    if bs.len() >= 2 && (bs[0..2] == [b'0', b'x'] || bs[0..2] == [b'0', b'X']) {
-        bs = &bs[2..]
-    }
-    let mut i = 0i64;
-    for b in bs.iter().cloned() {
-        let digit = match b {
-            b'A'..=b'F' => (b - b'A') as i64 + 10,
-            b'a'..=b'f' => (b - b'a') as i64 + 10,
-            b'0'..=b'9' => (b - b'0') as i64,
-            _ => break,
-        };
-        i = if let Some(i) = i.checked_mul(16).and_then(|i| i.checked_add(digit)) {
-            i
-        } else {
-            // overflow
-            return 0;
-        }
-    }
-    if neg {
-        -i
+        i.wrapping_neg()
     } else {
         i
     }
@@ -215,6 +176,27 @@ mod tests {
         let imin = format!("{}", i64::MIN);
         assert_eq!(strtod(imax.as_bytes()), i64::MAX as f64);
         assert_eq!(strtod(imin.as_bytes()), i64::MIN as f64);
+    }
+
+    #[test]
+    fn hextoi_values() {
+        for (s, v) in [
+            ("0xff", 255),
+            ("ff", 255),
+            (" ff", 255),
+            ("+ff", 255),
+            ("-0x10", -16),
+            ("0x1fzz", 31),
+            ("", 0),
+            ("-", 0),
+            ("0x", 0),
+            ("zz", 0),
+            ("7fffffffffffffff", i64::MAX),
+            ("ffffffffffffffff", -1),
+            ("1ffffffffffffffff", -1),
+        ] {
+            assert_eq!(hextoi(s.as_bytes()), v, "hextoi({:?})", s);
+        }
     }
 
     #[test]

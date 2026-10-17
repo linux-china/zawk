@@ -2136,8 +2136,9 @@ fn array_scalar_errors_name_the_variable() {
 fn functions_subcommand_lists_builtins() {
     let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
     assert!(out.status.success());
-    let docs: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    let docs = docs.as_array().unwrap();
+    let docs: Vec<serde_json::Value> = String::from_utf8(out.stdout).unwrap().lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
     let trim = docs.iter().find(|f| f["name"] == "trim").unwrap();
     assert_eq!(trim["returns"], "str");
     assert_eq!(trim["params"][0]["optional"], false);
