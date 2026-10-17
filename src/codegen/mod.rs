@@ -1386,7 +1386,6 @@ pub(crate) trait CodeGenerator: Backend {
             MapIntFloatMin(dst,arr) => self.unop(intrinsic!(map_int_float_min), dst, arr),
             MapIntIntSum(dst,arr) => self.unop(intrinsic!(map_int_int_sum), dst, arr),
             MapIntFloatSum(dst,arr) => self.unop(intrinsic!(map_int_float_sum), dst, arr),
-            MapIntIntMean(dst,arr) => self.unop(intrinsic!(map_int_int_mean), dst, arr),
             MapIntFloatMean(dst,arr) => self.unop(intrinsic!(map_int_float_mean), dst, arr),
             FromCsv(dst,src) => self.unop(intrinsic!(from_csv), dst, src),
             MapIntIntToCsv(dst,arr) => self.unop(intrinsic!(map_int_int_to_csv), dst, arr),

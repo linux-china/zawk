@@ -349,7 +349,6 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_float_min(map_ty) -> float_ty;
         [ReadOnly] map_int_int_sum(map_ty) -> int_ty;
         [ReadOnly] map_int_float_sum(map_ty) -> float_ty;
-        [ReadOnly] map_int_int_mean(map_ty) -> int_ty;
         [ReadOnly] array_stat_int_int(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_int_int(map_ty) -> int_ty;
         [ReadOnly] top_int_int(map_ty, int_ty) -> map_ty;
@@ -2749,15 +2748,6 @@ array_stats_intrinsics!(
     [array_stat_str_float, count_distinct_str_float, top_str_float, StrMap<Float>],
     [array_stat_str_str, count_distinct_str_str, top_str_str, StrMap<Str>]
 );
-
-pub(crate) unsafe extern "C" fn map_int_int_mean(arr: *mut c_void) -> Int {
-    guard_panic(stringify!(map_int_int_mean), || {
-        let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
-        let result = math_util::map_int_int_mean(&arr);
-        mem::forget(arr);
-        result
-    })
-}
 
 pub(crate) unsafe extern "C" fn map_int_float_mean(arr: *mut c_void) -> Float {
     guard_panic(stringify!(map_int_float_mean), || {

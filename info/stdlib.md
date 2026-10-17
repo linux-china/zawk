@@ -462,7 +462,13 @@ END { n = asorti(count, keys); for (i = 1; i <= n; i++) print keys[i], count[key
 
 ### _max/_min/_sum/_mean
 
-`_max(arr)`: IntIntMap -> Int, IntFloatMap -> Float
+Max, min, sum and mean of the values of any array (string values are converted to numbers, keys may be strings); 0 for an empty array.
+`_max`/`_min`/`_sum` return an integer for an integer array (e.g. `a[NR] = $1 + 0` with integral values), otherwise a float; `_mean` always returns a float.
+
+```awk
+{ bytes[$1] += $2; latency[NR] = $3 }
+END { print _sum(bytes), _max(latency), _min(latency), _mean(latency) }
+```
 
 ### _median/_quantile/_var/_stddev/_mode
 

@@ -156,84 +156,21 @@ pub(crate) fn map_int_str_join(obj: &IntMap<Str>, sep: &str) -> String {
     items.join(sep)
 }
 
+// The first value is taken from the map itself, not from key 1: the keys need not start at 1.
 pub(crate) fn map_int_int_max(obj: &IntMap<Int>) -> Int {
-    let len = obj.len();
-    return if len == 0 {
-        0
-    } else {
-        let mut max = obj.get(&(1i64));
-        if len == 1 {
-            return max;
-        }
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            if item > max {
-                max = item;
-            }
-        }
-        max
-    };
+    obj.iter(|it| it.map(|(_, v)| *v).max()).unwrap_or(0)
 }
 
 pub(crate) fn map_int_float_max(obj: &IntMap<Float>) -> Float {
-    let len = obj.len();
-    return if len == 0 {
-        0f64
-    } else {
-        let mut max = obj.get(&(1i64));
-        if len == 1 {
-            return max;
-        }
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            if item > max {
-                max = item;
-            }
-        }
-        max
-    };
+    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::max)).unwrap_or(0.0)
 }
 
 pub(crate) fn map_int_int_min(obj: &IntMap<Int>) -> Int {
-    let len = obj.len();
-    return if len == 0 {
-        0
-    } else {
-        let mut min = obj.get(&(1i64));
-        if len == 1 {
-            return min;
-        }
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            if item < min {
-                min = item;
-            }
-        }
-        min
-    };
+    obj.iter(|it| it.map(|(_, v)| *v).min()).unwrap_or(0)
 }
 
 pub(crate) fn map_int_float_min(obj: &IntMap<Float>) -> Float {
-    let len = obj.len();
-    return if len == 0 {
-        0f64
-    } else {
-        let mut min = obj.get(&(1i64));
-        if len == 1 {
-            return min;
-        }
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            if item < min {
-                min = item;
-            }
-        }
-        min
-    };
+    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::min)).unwrap_or(0.0)
 }
 
 
@@ -264,21 +201,6 @@ pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {
             total = total + item;
         }
         total
-    };
-}
-
-pub(crate) fn map_int_int_mean(obj: &IntMap<Int>) -> Int {
-    let len = obj.len();
-    return if len == 0 {
-        0
-    } else {
-        let mut total = 0;
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            total = total + item;
-        }
-        total / (len as i64)
     };
 }
 

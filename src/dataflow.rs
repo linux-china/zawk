@@ -384,9 +384,6 @@ pub(crate) mod boilerplate {
             MapIntFloatSum(dst, arr) => {
                 f(dst.into(), Some(arr.into()));
             }
-            MapIntIntMean(dst, arr) => {
-                f(dst.into(), Some(arr.into()));
-            }
             MapIntFloatMean(dst, arr) => {
                 f(dst.into(), Some(arr.into()));
             }

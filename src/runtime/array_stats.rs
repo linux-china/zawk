@@ -1,7 +1,10 @@
 //! Exact statistics over the values of an array: `_median`, `_quantile`, `_var`, `_stddev`,
 //! `_mode`, `_count_distinct` and `_top`.
 //!
-//! Unlike `_sum`/`_mean`, these accept any array: string values (e.g. `a[NR] = $3`) are converted
+//! `_sum`, `_mean`, `_max` and `_min` over arrays other than `map[int]int`/`map[int]float` are
+//! computed here too.
+//!
+//! These accept any array: string values (e.g. `a[NR] = $3`) are converted
 //! to numbers as awk does, and the keys may be strings (e.g. `c[$1]++; _top(c, 10)`).
 
 use std::cmp::Ordering;
@@ -17,6 +20,10 @@ pub(crate) const STAT_QUANTILE: Int = 0;
 pub(crate) const STAT_VAR: Int = 1;
 pub(crate) const STAT_STDDEV: Int = 2;
 pub(crate) const STAT_MODE: Int = 3;
+pub(crate) const STAT_SUM: Int = 4;
+pub(crate) const STAT_MEAN: Int = 5;
+pub(crate) const STAT_MAX: Int = 6;
+pub(crate) const STAT_MIN: Int = 7;
 
 /// A value of an array as seen by `_count_distinct`: numbers compare by value, strings by bytes.
 pub(crate) trait DistinctItem {
@@ -120,7 +127,8 @@ fn mode(mut xs: Vec<Float>) -> Float {
     best
 }
 
-/// `_median(a)`, `_quantile(a, q)`, `_var(a)`, `_stddev(a)` and `_mode(a)`: the statistic `kind`
+/// `_median(a)`, `_quantile(a, q)`, `_var(a)`, `_stddev(a)`, `_mode(a)`, and `_sum(a)`,
+/// `_mean(a)`, `_max(a)`, `_min(a)` for arrays that are not `map[int]num`: the statistic `kind`
 /// (one of the `STAT_*` constants) of the values of `map`.
 pub(crate) fn array_stat<K, V>(map: &SharedMap<K, V>, kind: Int, q: Float) -> Float
 where
@@ -133,6 +141,11 @@ where
         STAT_VAR => variance(&xs),
         STAT_STDDEV => variance(&xs).sqrt(),
         STAT_MODE => mode(xs),
+        STAT_SUM => xs.iter().sum(),
+        STAT_MEAN if xs.is_empty() => 0.0,
+        STAT_MEAN => xs.iter().sum::<Float>() / xs.len() as Float,
+        STAT_MAX => xs.into_iter().reduce(Float::max).unwrap_or(0.0),
+        STAT_MIN => xs.into_iter().reduce(Float::min).unwrap_or(0.0),
         _ => 0.0,
     }
 }
@@ -205,6 +218,18 @@ mod tests {
         assert!((array_stat(&m, STAT_STDDEV, 0.0) - (32.0f64 / 7.0).sqrt()).abs() < 1e-12);
         assert_eq!(array_stat(&m, STAT_MODE, 0.0), 4.0);
         assert_eq!(array_stat(&floats(&[3.0, 1.0, 3.0, 1.0]), STAT_MODE, 0.0), 1.0);
+    }
+
+    #[test]
+    fn sum_mean_max_min() {
+        let m = floats(&[3.0, -1.0, 4.0, 2.0]);
+        assert_eq!(array_stat(&m, STAT_SUM, 0.0), 8.0);
+        assert_eq!(array_stat(&m, STAT_MEAN, 0.0), 2.0);
+        assert_eq!(array_stat(&m, STAT_MAX, 0.0), 4.0);
+        assert_eq!(array_stat(&m, STAT_MIN, 0.0), -1.0);
+        for kind in [STAT_SUM, STAT_MEAN, STAT_MAX, STAT_MIN] {
+            assert_eq!(array_stat(&floats(&[]), kind, 0.0), 0.0);
+        }
     }
 
     #[test]

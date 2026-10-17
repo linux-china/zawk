@@ -1275,12 +1275,6 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = value;
                     }
-                    MapIntIntMean(dst, arr) => {
-                        let arr = self.get(*arr);
-                        let value = runtime::math_util::map_int_int_mean(arr);
-                        let dst = *dst;
-                        *self.get_mut(dst) = value;
-                    }
                     MapIntFloatMean(dst, arr) => {
                         let arr = self.get(*arr);
                         let value = runtime::math_util::map_int_float_mean(arr);

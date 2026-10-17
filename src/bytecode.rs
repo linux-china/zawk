@@ -362,7 +362,6 @@ pub(crate) enum Instr<'a> {
     MapIntFloatMin(Reg<Float>, Reg<runtime::IntMap<Float>>),
     MapIntIntSum(Reg<Int>, Reg<runtime::IntMap<Int>>),
     MapIntFloatSum(Reg<Float>, Reg<runtime::IntMap<Float>>),
-    MapIntIntMean(Reg<Int>, Reg<runtime::IntMap<Int>>),
     MapIntFloatMean(Reg<Float>, Reg<runtime::IntMap<Float>>),
     FromCsv(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToCsv(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
@@ -1200,10 +1199,6 @@ impl<'a> Instr<'a> {
                 arr.accum(&mut f);
             }
             MapIntFloatSum(dst, arr) => {
-                dst.accum(&mut f);
-                arr.accum(&mut f);
-            }
-            MapIntIntMean(dst, arr) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }

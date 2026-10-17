@@ -743,7 +743,13 @@ impl Function {
                 }));
                 ctx.nw.add_dep(dst, args[1], Constraint::Flows(()));
             }
-            Function::ArrayStat | Function::ArrayCountDistinct | Function::ArrayTop => {
+            Function::ArrayStat
+            | Function::ArrayCountDistinct
+            | Function::ArrayTop
+            | Function::ArrayMax
+            | Function::ArrayMin
+            | Function::ArraySum
+            | Function::ArrayMean => {
                 ctx.constrain_as_map(args[0]);
             }
             Function::Clear => {
@@ -1029,15 +1035,13 @@ impl Function {
             IsNum => (smallvec![incoming[0]], Int),
             IsFormat => (smallvec![Str, Str], Int),
             IntMapJoin => (smallvec![incoming[0], Str], Str),
-            ArrayMax | ArrayMin | ArraySum | ArrayMean => {
-                if let MapIntInt = incoming[0] {
-                    (smallvec![incoming[0]], Int)
-                } else if let MapIntFloat = incoming[0] {
-                    (smallvec![incoming[0]], Float)
-                } else {
-                    return err!("invalid input spec for array _max/_min: {:?}", incoming);
-                }
-            }
+            // map[int]int and map[int]float have fast paths; any other array is computed by
+            // runtime::array_stats (values converted to numbers), as is the mean of map[int]int.
+            ArrayMax | ArrayMin | ArraySum | ArrayMean => match incoming[0] {
+                MapIntInt if *self != ArrayMean => (smallvec![incoming[0]], Int),
+                ty if ty.is_array() => (smallvec![incoming[0]], Float),
+                ty => return err!("{} expects an array of numbers, got {:?}", self, ty),
+            },
             Close => (smallvec![Str], Int),
             Fflush => (smallvec![Str], Int),
             Strnum => (smallvec![Str], Str),
@@ -1367,14 +1371,8 @@ impl Function {
                 Some(Map {
                          key: Some(BaseTy::Int),
                          val: Some(BaseTy::Int)
-                     }) => {
+                     }) if *self != ArrayMean => {
                     Ok(Scalar(BaseTy::Int).abs())
-                }
-                Some(Map {
-                         key: Some(BaseTy::Int),
-                         val: Some(BaseTy::Float)
-                     }) => {
-                    Ok(Scalar(BaseTy::Float).abs())
                 }
                 _ => { Ok(Scalar(BaseTy::Float).abs()) }
             },

@@ -3087,79 +3087,39 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
-            ArrayMax => {
+            ArrayMax | ArrayMin | ArraySum | ArrayMean => {
                 if res_reg != UNUSED {
-                    match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMax(res_reg.into(), conv_regs[0].into()))
+                    let (res, map) = (res_reg, conv_regs[0]);
+                    match (bf, conv_tys[0]) {
+                        (ArrayMax, Ty::MapIntInt) => self.pushl(LL::MapIntIntMax(res.into(), map.into())),
+                        (ArrayMax, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMax(res.into(), map.into())),
+                        (ArrayMin, Ty::MapIntInt) => self.pushl(LL::MapIntIntMin(res.into(), map.into())),
+                        (ArrayMin, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMin(res.into(), map.into())),
+                        (ArraySum, Ty::MapIntInt) => self.pushl(LL::MapIntIntSum(res.into(), map.into())),
+                        (ArraySum, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatSum(res.into(), map.into())),
+                        (ArrayMean, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMean(res.into(), map.into())),
+                        // Every other array: convert the values to numbers, see runtime::array_stats.
+                        (_, map_ty) if map_ty.is_array() => {
+                            use crate::runtime::array_stats::*;
+                            let kind = match bf {
+                                ArrayMax => STAT_MAX,
+                                ArrayMin => STAT_MIN,
+                                ArraySum => STAT_SUM,
+                                _ => STAT_MEAN,
+                            };
+                            let kind_reg = self.regs.stats.new_reg(Ty::Int, RegStatus::Local);
+                            self.pushl(LL::StoreConstInt(kind_reg.into(), kind));
+                            let q_reg = self.regs.stats.new_reg(Ty::Float, RegStatus::Local);
+                            self.pushl(LL::StoreConstFloat(q_reg.into(), 0.0));
+                            self.pushl(LL::ArrayStat {
+                                res: res.into(),
+                                map_ty,
+                                map,
+                                kind: kind_reg.into(),
+                                q: q_reg.into(),
+                            })
                         }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatMax(res_reg.into(), conv_regs[0].into()))
-                        }
-                        _ => {
-                            return err!(
-                                "_max only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
-                        }
-                    }
-                }
-            }
-            ArrayMin => {
-                if res_reg != UNUSED {
-                    match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMin(res_reg.into(), conv_regs[0].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatMin(res_reg.into(), conv_regs[0].into()))
-                        }
-                        _ => {
-                            return err!(
-                                "_min only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
-                        }
-                    }
-                }
-            }
-            ArraySum => {
-                if res_reg != UNUSED {
-                    match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntSum(res_reg.into(), conv_regs[0].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatSum(res_reg.into(), conv_regs[0].into()))
-                        }
-                        _ => {
-                            return err!(
-                                "_sum only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
-                        }
-                    }
-                }
-            }
-            ArrayMean => {
-                if res_reg != UNUSED {
-                    match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntMean(res_reg.into(), conv_regs[0].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatMean(res_reg.into(), conv_regs[0].into()))
-                        }
-                        _ => {
-                            return err!(
-                                "_mean only support IntIntMap/IntFloatMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
-                        }
+                        (_, ty) => return err!("{} expects an array of numbers, got {:?}", bf, ty),
                     }
                 }
             }
