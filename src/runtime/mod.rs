@@ -268,13 +268,22 @@ impl RegexCache {
         reg: &mut FileRead<LR>,
         is_file: bool,
     ) -> Result<Str<'a>> {
-        Ok(if is_file {
-            reg.with_file(file, |reader| reader.read_record(pat, self))?
+        // Keep the read state for the read-error check of this getline (see `FileRead::read_err`):
+        // getline then looks the reader up once rather than twice.
+        reg.last_read_state = None;
+        let (line, state) = if is_file {
+            reg.with_file(file, |reader| {
+                let line = reader.read_record(pat, self)?;
+                Ok((line, reader.read_state()))
+            })?
         } else {
-            reg.with_cmd(file, |reader| reader.read_record(pat, self))?
-        }
-        .clone()
-        .upcast())
+            reg.with_cmd(file, |reader| {
+                let line = reader.read_record(pat, self)?;
+                Ok((line, reader.read_state()))
+            })?
+        };
+        reg.last_read_state = Some((is_file, state));
+        Ok(line.upcast())
     }
 
     // This only gets used if getline is invoked explicitly without an input file argument.
@@ -753,6 +762,9 @@ pub(crate) struct FileRead<LR: LineReader = RegexSplitter<Box<dyn io::Read + Sen
     used_fields: FieldSet,
     backup_used_fields: FieldSet,
     named_columns_applied: bool,
+    // The read state of the last `getline < file` (is_file = true) or `cmd | getline`, which
+    // the read-error check that follows it takes instead of looking the reader up a second time.
+    last_read_state: Option<(/* is_file */ bool, Int)>,
 }
 
 // Set when -H applies to more than one input file, see `FileRead::update_named_columns`.
@@ -779,6 +791,7 @@ impl<LR: LineReader> FileRead<LR> {
                             used_fields: fields.clone(),
                             backup_used_fields: fields,
                             named_columns_applied: true,
+                            last_read_state: None,
                             stdin,
                         })
                     } else {
@@ -818,6 +831,7 @@ impl<LR: LineReader> FileRead<LR> {
             used_fields,
             backup_used_fields,
             named_columns_applied: false,
+            last_read_state: None,
             named_columns: named_columns
                 .map(|cs| cs.into_iter().map(|s| Str::from(s).unmoor()).collect()),
         };
@@ -879,10 +893,19 @@ impl<LR: LineReader> FileRead<LR> {
         self.stdin.read_state()
     }
 
+    // A getline lowers to a read followed by its read-error check on the same file or command,
+    // so the check takes the state that the read left (see `RegexCache::get_line`), and only
+    // looks the reader up if the read failed before reaching it.
     pub(crate) fn read_err(&mut self, path: &Str) -> Result<Int> {
+        if let Some((true, state)) = self.last_read_state.take() {
+            return Ok(state);
+        }
         self.with_file(path, |reader| Ok(reader.read_state()))
     }
     pub(crate) fn read_err_cmd(&mut self, cmd: &Str) -> Result<Int> {
+        if let Some((false, state)) = self.last_read_state.take() {
+            return Ok(state);
+        }
         self.with_cmd(cmd, |reader| Ok(reader.read_state()))
     }
 
@@ -1056,8 +1079,25 @@ impl<V> StrLru<V> {
     }
 }
 
+/// A borrowed key for looking up a `Registry`: it hashes and compares like the `Str` with the
+/// same bytes, so a lookup needs neither a clone of the key nor an `unmoor` (which copies a
+/// literal).
+struct BytesKey<'a>(&'a [u8]);
+
+impl Hash for BytesKey<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // As in `Hash for Str`.
+        self.0.hash(state)
+    }
+}
+
+impl hashbrown::Equivalent<Str<'static>> for BytesKey<'_> {
+    fn equivalent(&self, key: &Str<'static>) -> bool {
+        key.with_bytes(|bs| bs == self.0)
+    }
+}
+
 pub(crate) struct Registry<T> {
-    // TODO(ezr): use the raw bucket interface so we can avoid calls to `unmoor` here.
     // TODO(ezr): we could potentially increase speed here if we did pointer equality (and
     // length) for lookups.
     // We could be fine having duplicates for Regex. We could also also intern strings
@@ -1099,7 +1139,7 @@ impl<T> Registry<T> {
         self.take(s).is_some()
     }
     fn take(&mut self, s: &Str) -> Option<T> {
-        let t = self.cached.remove(&s.clone().unmoor()).map(|(t, _)| t);
+        let t = s.with_bytes(|bs| self.cached.remove(&BytesKey(bs))).map(|(t, _)| t);
         if t.is_some() {
             self.used -= self.cost(s.len());
         }
@@ -1137,39 +1177,31 @@ impl<T> Registry<T> {
         mut new: impl FnMut(&str) -> Result<T>,
         getter: impl FnOnce(&mut T) -> Result<R>,
     ) -> Result<R> {
-        use hashbrown::hash_map::Entry;
-        let k_str = s.clone().unmoor();
         self.clock += 1;
         let clock = self.clock;
-        let cost = self.cost(k_str.len());
-        let full = self.limit.is_some_and(|(budget, _)| self.used + cost > budget);
-        match self.cached.entry(k_str) {
-            Entry::Occupied(mut o) => {
-                let (val, tick) = o.get_mut();
-                *tick = clock;
-                getter(val)
-            }
-            Entry::Vacant(v) => {
-                let (val, res) = v.key().with_bytes(|raw_str| {
-                    let s = match str::from_utf8(raw_str) {
-                        Ok(s) => s,
-                        Err(e) => return err!("invalid UTF-8 for file or regex: {}", e),
-                    };
-                    let mut val = new(s)?;
-                    let res = getter(&mut val);
-                    Ok((val, res))
-                })?;
-                if full {
-                    let key = v.into_key();
-                    self.evict_lru();
-                    self.cached.insert(key, (val, clock));
-                } else {
-                    v.insert((val, clock));
-                }
-                self.used += cost;
-                res
-            }
+        // Look up with the borrowed bytes: only a miss pays for an owned key.
+        let hit = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)));
+        if let Some((val, tick)) = hit {
+            *tick = clock;
+            return getter(val);
         }
+        let (val, res) = s.with_bytes(|raw_str| {
+            let s = match str::from_utf8(raw_str) {
+                Ok(s) => s,
+                Err(e) => return err!("invalid UTF-8 for file or regex: {}", e),
+            };
+            let mut val = new(s)?;
+            let res = getter(&mut val);
+            Ok((val, res))
+        })?;
+        // Only a registry with a memory limit needs the (character) length of the key.
+        let cost = self.limit.map_or(0, |(_, model)| model.cost(s.len()));
+        if self.limit.is_some_and(|(budget, _)| self.used + cost > budget) {
+            self.evict_lru();
+        }
+        self.cached.insert(s.clone().unmoor(), (val, clock));
+        self.used += cost;
+        res
     }
 }
 
