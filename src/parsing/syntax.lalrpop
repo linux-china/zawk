@@ -340,7 +340,7 @@ LookupList: &'a Expr<'a, 'a, &'a str> = {
 }
 
 PrecTern<G>: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOr<G>> "?" <t: PrecTern<G>> ":" <f: PrecTern<G>> => arena.alloc(Expr::ITE(c, t, f)),
+   <c: PrecOr<G>> "?" <t: PrecAsgn<G>> ":" <f: PrecAsgn<G>> => arena.alloc(Expr::ITE(c, t, f)),
    PrecOr<G>,
 }
 
@@ -376,18 +376,18 @@ PrecMatch<G>: &'a Expr<'a,'a,&'a str> = {
 ExprNoIn: &'a Expr<'a,'a,&'a str> = PrecAsgnNoIn;
 
 PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecTernNoIn> "=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Assign(l, r)),
-    <l: PrecTernNoIn> "+=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
-    <l: PrecTernNoIn> "-=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
-    <l: PrecTernNoIn> "*=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
-    <l: PrecTernNoIn> "/=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
-    <l: PrecTernNoIn> "^=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
-    <l: PrecTernNoIn> "%=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
+    <l: PrecMatch<"Gt">> "=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Assign(l, r)),
+    <l: PrecMatch<"Gt">> "+=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Plus, r)),
+    <l: PrecMatch<"Gt">> "-=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Minus, r)),
+    <l: PrecMatch<"Gt">> "*=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mult, r)),
+    <l: PrecMatch<"Gt">> "/=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
+    <l: PrecMatch<"Gt">> "^=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
+    <l: PrecMatch<"Gt">> "%=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
     PrecTernNoIn,
 }
 
 PrecTernNoIn: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOrNoIn> "?" <t: PrecTernNoIn> ":" <f: PrecTern<"Gt">> => arena.alloc(Expr::ITE(c, t, f)),
+   <c: PrecOrNoIn> "?" <t: PrecAsgn<"Gt">> ":" <f: PrecAsgn<"Gt">> => arena.alloc(Expr::ITE(c, t, f)),
    PrecOrNoIn,
 }
 
