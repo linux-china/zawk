@@ -7,7 +7,7 @@ use logos::Logos;
 use semver::{Version};
 use snowflake::SnowflakeIdGenerator;
 use std::hash::Hash;
-use crate::runtime::{Float, Int, IntMap, SharedMap, Str, StrMap};
+use crate::runtime::{stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
 use crate::runtime::compare::looks_numeric;
 
 /// Floating point remainder (the result has the sign of `x`, as with C's `fmod`). Integral
@@ -576,12 +576,14 @@ pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
 
 pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     let version_obj: StrMap<Str> = StrMap::default();
-    if let Some(offset) = text.trim().find('(') {
-        let name = &text[0..offset].trim();
-        let mut value = text[offset + 1..text.len() - 1].trim().to_string();
-        if value.starts_with('"') && value.ends_with('"') {
+    let text = text.trim();
+    if let Some(offset) = text.find('(') {
+        let name = text[0..offset].trim();
+        let inner = &text[offset + 1..];
+        let mut value = inner.strip_suffix(')').unwrap_or(inner).trim().to_string();
+        if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
             value = value[1..value.len() - 1].to_string();
-        } else if value.starts_with('\'') && value.ends_with('\'') {
+        } else if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
             value = value[1..value.len() - 1].to_string();
         }
         version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
@@ -643,6 +645,10 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
     let result: IntMap<Int> = IntMap::default();
     // convert hex str to decimal
     let hex_text = text.trim_start_matches("#");
+    if !hex_text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        stdlib_warning("hex2rgb", format!("invalid hex color {:?}", text));
+        return result;
+    }
     let text_len = hex_text.len();
     let mut red = 0;
     let mut green = 0;

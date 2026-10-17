@@ -430,6 +430,10 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
     let mut name: String = "".to_string();
     let mut name_started = false;
     for c in template.chars() {
+        if c == '{' && name_started || c == '}' && !name_started {
+            stdlib_warning("parse", format!("unbalanced braces in template {:?}", template));
+            return SharedMap::from(map);
+        }
         if c == '{' {
             tokens.push(sep.to_string());
             sep.clear();
@@ -443,6 +447,10 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
         } else {
             sep.push(c);
         }
+    }
+    if name_started {
+        stdlib_warning("parse", format!("unbalanced braces in template {:?}", template));
+        return SharedMap::from(map);
     }
     tokens.push(sep.to_string());
     let mut sub_text = text;
@@ -518,7 +526,13 @@ pub fn is_format(format: &str, text: &str) -> Int {
     }
 }
 
-pub fn generate_password(len: usize) -> String {
+/// Longest password `mkpass` generates; longer requests are errors rather than huge allocations.
+const MAX_PASSWORD_LEN: usize = 4096;
+
+pub fn generate_password(len: usize) -> Result<String> {
+    if len > MAX_PASSWORD_LEN {
+        return err!("mkpass: length {} is too large (maximum {})", len, MAX_PASSWORD_LEN);
+    }
     let pg = passwords::PasswordGenerator {
         length: len,
         numbers: true,
@@ -529,10 +543,10 @@ pub fn generate_password(len: usize) -> String {
         exclude_similar_characters: false,
         strict: true,
     };
-    pg.generate_one().unwrap_or_else(|e| {
+    Ok(pg.generate_one().unwrap_or_else(|e| {
         stdlib_warning("mkpass", e);
         String::new()
-    })
+    }))
 }
 
 pub fn figlet(text: &str) -> String {
@@ -710,7 +724,7 @@ mod tests {
 
     #[test]
     fn test_generate_password() {
-        println!("{}", generate_password(12))
+        println!("{}", generate_password(12).unwrap())
     }
 
     #[test]

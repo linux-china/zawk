@@ -1969,7 +1969,7 @@ pub(crate) unsafe extern "C" fn mkbool(text: *mut U128) -> Int {
 
 pub(crate) unsafe extern "C" fn mkpass(len: Int) -> U128 {
     guard_panic(stringify!(mkpass), || {
-        let password = string_util::generate_password(len.max(0) as usize);
+        let password = or_fail(string_util::generate_password(len.max(0) as usize));
         mem::transmute::<Str, U128>(Str::from(password))
     })
 }

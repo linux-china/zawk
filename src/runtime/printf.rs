@@ -187,7 +187,9 @@ impl Spec {
             Some(n) => n,
             None => {
                 let mut cur = std::io::Cursor::new(&mut buf[..]);
-                if write!(cur, "{:.*}", precision, f.abs()).is_err() {
+                // `{:.*}` panics on precisions above u16::MAX; anything that long cannot fit the
+                // buffer anyway.
+                if precision >= 64 || write!(cur, "{:.*}", precision, f.abs()).is_err() {
                     // Too long for the buffer (huge values or precisions).
                     return snprintf_with(w, &self.c_format(b"", b'f'), CArg::Double(f));
                 }

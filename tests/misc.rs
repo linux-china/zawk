@@ -2568,3 +2568,35 @@ fn default_fs_blanks_are_the_same_everywhere() {
             .stdout("2 1\n2 1\n2 1\n2 1\n2 1\n2 xy 2 2 2\n4 ab 0 0\n");
     }
 }
+
+#[test]
+fn stdlib_bad_arguments_do_not_panic() {
+    // Arguments that used to panic (or abort on a huge allocation) inside stdlib functions.
+    let cases = [
+        (r#"BEGIN { print length(sprintf("%.*f", 70000, 1)) }"#, "70002\n"),
+        (r#"BEGIN { print length(parse("a b", "{x} {y")), length(parse("", "{")) }"#, "0 0\n"),
+        (r#"BEGIN { m = variant("("); print "[" m["name"] "][" m["value"] "]" }"#, "[][]\n"),
+        (r#"BEGIN { m = variant(" week(5) "); print m["name"], m["value"] }"#, "week 5\n"),
+        (r#"BEGIN { print length(hex2rgb("\xff\xfe")) }"#, "0\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg(prog)
+                .assert()
+                .success()
+                .stdout(expected.to_string());
+        }
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("BEGIN { print mkpass(1e19) }")
+            .assert()
+            .code(2)
+            .get_output()
+            .clone();
+        assert!(String::from_utf8_lossy(&out.stderr).contains("mkpass: length"));
+    }
+}
