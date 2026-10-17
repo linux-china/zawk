@@ -4,7 +4,7 @@
 //! very aggressively. Various edge cases still do not work.
 use hashbrown::HashMap;
 use std::borrow::Cow;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use regex::Regex;
 use unicode_xid::UnicodeXID;
 
@@ -138,15 +138,13 @@ pub enum Tok<'a> {
 
 macro_rules! keyword_map {
     ($name:ident<&'static [u8], $vty:ty>, $([$k:expr, $v:expr]),*) => {
-        lazy_static::lazy_static! {
-            pub(crate) static ref $name: hashbrown::HashMap<&'static [u8], $vty> = {
-                let mut m = hashbrown::HashMap::new();
-                $(
-                    m.insert(&$k[..], $v);
-                )*
-                m
-            };
-        }
+        pub(crate) static $name: std::sync::LazyLock<hashbrown::HashMap<&'static [u8], $vty>> = std::sync::LazyLock::new(|| {
+            let mut m = hashbrown::HashMap::new();
+            $(
+                m.insert(&$k[..], $v);
+            )*
+            m
+        });
     }
 }
 
@@ -226,18 +224,16 @@ keyword_map!(
     [b"$", Tok::Dollar]
 );
 
-lazy_static! {
-    // TODO: use a regex set for this instead. It'd be a bit faster and it would allow "must
-    // follow"-style issues to be handled in a clearer way.
-    static ref KEYWORDS_BY_LEN: Vec<HashMap<&'static [u8], Tok<'static>>> = {
-        let max_len = KEYWORDS.keys().map(|s| s.len()).max().unwrap();
-        let mut res: Vec<HashMap<_, _>> = vec![Default::default(); max_len];
-        for (k, v) in KEYWORDS.iter() {
-            res[k.len() - 1].insert(*k, v.clone());
-        }
-        res
-    };
-}
+// TODO: use a regex set for this instead. It'd be a bit faster and it would allow "must
+// follow"-style issues to be handled in a clearer way.
+static KEYWORDS_BY_LEN: LazyLock<Vec<HashMap<&'static [u8], Tok<'static>>>> = LazyLock::new(|| {
+    let max_len = KEYWORDS.keys().map(|s| s.len()).max().unwrap();
+    let mut res: Vec<HashMap<_, _>> = vec![Default::default(); max_len];
+    for (k, v) in KEYWORDS.iter() {
+        res[k.len() - 1].insert(*k, v.clone());
+    }
+    res
+});
 
 pub struct Tokenizer<'a> {
     text: &'a str,
@@ -599,12 +595,10 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn num(&self) -> Option<(Tok<'a>, usize)> {
-        lazy_static! {
-            static ref HEX_PATTERN: Regex = Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+").unwrap();
-            static ref INT_PATTERN: Regex = Regex::new(r"^[+-]?\d+").unwrap();
-            // Adapted from https://www.regular-expressions.info/floatingpoint.html
-            static ref FLOAT_PATTERN: Regex = Regex::new(r"^[-+]?(\d+\.\d*([eE][-+]?\d+)?|\.\d+([eE][-+]?\d+)?|\d+[eE][-+]?\d+)").unwrap();
-        };
+        static HEX_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+").unwrap());
+        static INT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[+-]?\d+").unwrap());
+        // Adapted from https://www.regular-expressions.info/floatingpoint.html
+        static FLOAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[-+]?(\d+\.\d*([eE][-+]?\d+)?|\.\d+([eE][-+]?\d+)?|\d+[eE][-+]?\d+)").unwrap());
         let text = &self.text[self.cur..];
         if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {
             let is = i.as_str();
@@ -621,10 +615,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn fundec(&self) -> Option<(Tok<'a>, usize)> {
-        lazy_static! {
-            static ref FN_PATTERN: Regex =
-                Regex::new(r"^((?:function|func)\s+([a-zA-Z_][a-zA-Z_0-9]*)[ \t]*)\(").unwrap();
-        }
+        static FN_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^((?:function|func)\s+([a-zA-Z_][a-zA-Z_0-9]*)[ \t]*)\(").unwrap());
         let captures = FN_PATTERN.captures(&self.text[self.cur..])?;
         let full = captures.get(1)?.as_str();
         let name = captures.get(2)?.as_str();

@@ -6510,7 +6510,6 @@ dependencies = [
  "jsonwebtoken",
  "lalrpop",
  "lalrpop-util",
- "lazy_static",
  "lettre",
  "libc",
  "liblzma",

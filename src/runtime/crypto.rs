@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use sha2::{Sha256, Sha512, Digest};
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Number, Value};
@@ -10,7 +10,6 @@ use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
 use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
-use lazy_static::lazy_static;
 use crate::runtime::{SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -236,9 +235,7 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
     SharedMap::from(map)
 }
 
-lazy_static! {
-    static ref JWK_POOLS: Arc<Mutex<HashMap<String, Jwk>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static JWK_POOLS: LazyLock<Arc<Mutex<HashMap<String, Jwk>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub fn extract_jwk(full_http_url: &str) -> Option<Jwk> {
     let mut pools = JWK_POOLS.lock().unwrap();
@@ -258,9 +255,7 @@ const ENCRYPT_V2_PREFIX: &str = "v2:";
 const PBKDF2_SALT: &[u8] = b"zawk-encrypt-v2";
 const PBKDF2_ITERATIONS: u32 = 100_000;
 
-lazy_static! {
-    static ref DERIVED_KEYS: Mutex<HashMap<(String, usize), Vec<u8>>> = Mutex::new(HashMap::new());
-}
+static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, usize), Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
     let prf = HmacSha256::new_from_slice(password).unwrap();

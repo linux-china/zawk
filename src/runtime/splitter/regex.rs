@@ -314,16 +314,14 @@ fn find_nonempty(pat: &Regex, s: &[u8]) -> Option<(usize, usize)> {
 mod tests {
     // need to benchmark batched splitting vs. regular splitting to get a feel for things.
     use super::*;
-    use lazy_static::lazy_static;
     use regex::bytes::Regex;
+    use std::sync::LazyLock;
     use std::io::Cursor;
 
-    lazy_static! {
-        static ref STR: String = String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap();
-        static ref LINE: Regex = Regex::new("\n").unwrap();
-        static ref SPACE: Regex = Regex::new(" ").unwrap();
-        static ref BS: Regex = Regex::new("b+").unwrap();
-    }
+    static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
+    static LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\n").unwrap());
+    static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(" ").unwrap());
+    static BS: LazyLock<Regex> = LazyLock::new(|| Regex::new("b+").unwrap());
 
     // Helps type inference along.
     fn ref_str(s: &[u8]) -> Str<'_> {
@@ -539,16 +537,14 @@ mod tests {
 mod bench {
     // need to benchmark batched splitting vs. regular splitting to get a feel for things.
     extern crate test;
-    use lazy_static::lazy_static;
     use regex::bytes::Regex;
+    use std::sync::LazyLock;
     use test::{black_box, Bencher};
 
-    lazy_static! {
-        static ref STR: String = String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap();
-        static ref LINE: Regex = Regex::new("\n").unwrap();
-        static ref SPACE: Regex = Regex::new(" ").unwrap();
-        static ref BS: Regex = Regex::new("b+").unwrap();
-    }
+    static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
+    static LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\n").unwrap());
+    static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(" ").unwrap());
+    static BS: LazyLock<Regex> = LazyLock::new(|| Regex::new("b+").unwrap());
 
     #[bench]
     fn bench_find_iter(b: &mut Bencher) {

@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
-use lazy_static::lazy_static;
 use lettre::Transport;
 use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -102,10 +101,8 @@ fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
 }
 
 // todo graceful shutdown
-lazy_static! {
-    static ref NATS_CONNECTIONS: Arc<Mutex<HashMap<String, nats::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
-    static ref MQTT_CONNECTIONS: Arc<Mutex<HashMap<String, MqttClient>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static NATS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, nats::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
 /// reported as warnings.

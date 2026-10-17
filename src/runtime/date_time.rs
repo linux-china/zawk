@@ -1,6 +1,7 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 const WEEKS: [&'static str; 7] = [
@@ -265,10 +266,7 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result
 }
 
-lazy_static::lazy_static! {
-    static ref DURATION_TOKEN: regex::Regex =
-        regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)").unwrap();
-}
+static DURATION_TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)").unwrap());
 
 /// Map a time unit (Go-style short form or full word) to a unit fend understands.
 /// `m` always means minutes in a duration context, never meters.

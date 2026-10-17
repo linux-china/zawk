@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use crate::runtime::HashMap;
 use urlencoding::decode_binary as url_decode_binary;
@@ -9,7 +9,6 @@ use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use flate2::read::{ZlibDecoder};
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use lazy_static::lazy_static;
 use crate::runtime;
 use crate::runtime::{stdlib_warning, SharedMap, Str};
 
@@ -122,9 +121,7 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     return SharedMap::from(map);
 }
 
-lazy_static! {
-    static ref BLOOM_FILTERS: Arc<Mutex<HashMap<String, GrowableBloom>>> = Arc::new(Mutex::new(HashMap::default()));
-}
+static BLOOM_FILTERS: LazyLock<Arc<Mutex<HashMap<String, GrowableBloom>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::default())));
 
 pub fn bf_insert(item: &[u8], group: &str) {
     let mut filters = BLOOM_FILTERS.lock().unwrap();

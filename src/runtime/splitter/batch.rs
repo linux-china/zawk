@@ -25,8 +25,6 @@ use std::mem;
 use std::sync::atomic::AtomicUsize;
 use std::str;
 
-use lazy_static::lazy_static;
-
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
 use crate::runtime::{
@@ -863,10 +861,6 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
             generic::find_indexes_ascii_whitespace::<generic::Impl>
         }
     }
-}
-
-// TODO: consider putting these into the runtime struct to avoid the extra indirection.
-lazy_static! {
 }
 
 /// Whether an RFC 4180 CSV field must be quoted: it contains a quote, comma or line break, or has

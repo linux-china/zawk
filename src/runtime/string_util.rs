@@ -1,7 +1,7 @@
 use crate::common::Result;
 use crate::runtime::{check_result_len, stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
-use lazy_static::lazy_static;
 use pad::Alignment;
+use std::sync::LazyLock;
 
 /// awk `substr` with 1-based `pos`, counting chars. As in gawk and onetrue awk, a `pos` before
 /// the first char starts at the first char and keeps `len`: `substr("hello", -1, 3)` and
@@ -493,9 +493,7 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     map
 }
 
-lazy_static! {
-    static ref PHONE_REGEX: Regex = Regex::new(r"[0-9+][0-9-]{5,16}").unwrap();
-}
+static PHONE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[0-9+][0-9-]{5,16}").unwrap());
 
 pub fn is_format(format: &str, text: &str) -> Int {
     let result = match format {

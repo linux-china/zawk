@@ -1,15 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use lazy_static::lazy_static;
+use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use mysql::*;
 use mysql::prelude::*;
 use mysql::consts::ColumnType;
 
-lazy_static! {
-    static ref MYSQL_POOLS: Arc<Mutex<HashMap<String, Pool>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static MYSQL_POOLS: LazyLock<Arc<Mutex<HashMap<String, Pool>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();

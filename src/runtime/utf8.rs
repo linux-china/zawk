@@ -65,7 +65,7 @@ pub(crate) fn is_utf8(bs: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
+    use std::sync::LazyLock;
 
     fn parse_utf8_fallback(bs: &[u8]) -> Option<&str> {
         super::validate_utf8_fallback(bs)
@@ -73,10 +73,8 @@ mod tests {
     }
     const LEN: usize = 50_000;
 
-    lazy_static! {
-        static ref ASCII: String = String::from_utf8(bytes(LEN, 0.0)).unwrap();
-        static ref UTF8: String = String::from_utf8(bytes(LEN, 1.0)).unwrap();
-    }
+    static ASCII: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(LEN, 0.0)).unwrap());
+    static UTF8: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(LEN, 1.0)).unwrap());
 
     #[test]
     fn test_partial() {
@@ -132,15 +130,13 @@ mod tests {
 #[cfg(all(feature = "unstable", test))]
 mod bench {
     extern crate test;
-    use lazy_static::lazy_static;
+    use std::sync::LazyLock;
     use test::{black_box, Bencher};
 
     const LEN: usize = 50_000;
 
-    lazy_static! {
-        static ref ASCII: String = String::from_utf8(bytes(LEN, 0.0)).unwrap();
-        static ref UTF8: String = String::from_utf8(bytes(LEN, 1.0)).unwrap();
-    }
+    static ASCII: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(LEN, 0.0)).unwrap());
+    static UTF8: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(LEN, 1.0)).unwrap());
 
     #[bench]
     fn parse_ascii_stdlib(b: &mut Bencher) {

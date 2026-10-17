@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 use std::env;
-use std::sync::{Arc, Mutex};
-use lazy_static::lazy_static;
+use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use libsql::{Builder, params, Value};
 
-lazy_static! {
-    static ref LIBSQL_CONNECTIONS: Arc<Mutex<HashMap<String, libsql::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static LIBSQL_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, libsql::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
     crate::runtime::TOKIO_RUNTIME.block_on(async {

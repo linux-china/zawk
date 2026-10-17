@@ -2,8 +2,7 @@
 #![allow(deprecated)]
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use lazy_static::lazy_static;
+use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::stdlib_warning;
 
 /// Errors of the kv functions are reported as warnings: kv_get then returns an empty string.
@@ -56,11 +55,9 @@ pub(crate) fn kv_clear(namespace: &str) {
     })
 }
 
-lazy_static! {
-    static ref SQLITE_CONNECTIONS: Arc<Mutex<HashMap<String, rusqlite::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
-    static ref REDIS_CONNECTIONS: Arc<Mutex<HashMap<String, redis::Connection>>> = Arc::new(Mutex::new(HashMap::new()));
-    static ref NATS_JETSTREAM: Arc<Mutex<HashMap<String, nats::jetstream::JetStream>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static SQLITE_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, rusqlite::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static REDIS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, redis::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static NATS_JETSTREAM: LazyLock<Arc<Mutex<HashMap<String, nats::jetstream::JetStream>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 fn is_redis_url(namespace: &str) -> bool {
     namespace.starts_with("redis://") || namespace.starts_with("redis+tls://")

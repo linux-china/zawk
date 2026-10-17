@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Mutex;
-use lazy_static::lazy_static;
+use std::sync::{LazyLock, Mutex};
 use miniserde::json;
 use miniserde::json::{Value};
 use serde_json_path::JsonPath;
@@ -163,9 +162,7 @@ const JSON_PATH_COST: CostModel = CostModel {
     per_byte: 32,
 };
 
-lazy_static! {
-    static ref JSON_PATHS: Mutex<StrLru<JsonPath>> = Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST));
-}
+static JSON_PATHS: LazyLock<Mutex<StrLru<JsonPath>>> = LazyLock::new(|| Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST)));
 
 fn compiled_json_path<'p>(pool: &'p mut StrLru<JsonPath>, func: &str, json_path: &str) -> Option<&'p JsonPath> {
     pool.get_or_try_insert(json_path, || JsonPath::parse(json_path))

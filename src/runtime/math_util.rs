@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use evalexpr::{DefaultNumericTypes, Value};
-use lazy_static::lazy_static;
 use logos::Logos;
 use semver::{Version};
 use snowflake::SnowflakeIdGenerator;
@@ -339,9 +338,7 @@ pub(crate) fn uuid(version: &str) -> String {
     }
 }
 
-lazy_static! {
-    static ref SNOWFLAKES: Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static SNOWFLAKES: LazyLock<Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 ///  machine ID(10 bits) should be less 1024
 pub(crate) fn snowflake(machine_id: u16) -> Int {

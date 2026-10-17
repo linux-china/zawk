@@ -32,14 +32,6 @@ pub enum Unop {
     Pos,
 }
 
-static_map!(
-    UNOPS<&'static str, Unop>,
-    ["$", Unop::Column],
-    ["!", Unop::Not],
-    ["-", Unop::Neg],
-    ["+", Unop::Pos]
-);
-
 #[derive(Debug)]
 pub struct FunDec<'a, 'b, I> {
     pub name: I,
@@ -446,23 +438,6 @@ pub enum Binop {
     GTE,
     EQ,
 }
-
-static_map!(
-    BINOPS<&'static str, Binop>,
-    ["+", Binop::Plus],
-    ["-", Binop::Minus],
-    ["*", Binop::Mult],
-    ["/", Binop::Div],
-    ["%", Binop::Mod],
-    ["", Binop::Concat], // we may have to handle this one specially
-    ["~", Binop::IsMatch],
-    ["<", Binop::LT],
-    [">", Binop::GT],
-    ["<=", Binop::LTE],
-    [">=", Binop::GTE],
-    ["==", Binop::EQ],
-    ["^", Binop::Pow]
-);
 
 #[derive(Debug, Clone)]
 pub enum Expr<'a, 'b, I> {

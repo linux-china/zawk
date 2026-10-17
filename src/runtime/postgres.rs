@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use chrono::Utc;
-use lazy_static::lazy_static;
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
 use postgres::types::{FromSql, Kind, Type};
@@ -11,9 +10,7 @@ use postgres::Client;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
-lazy_static! {
-    static ref PG_POOLS: Arc<Mutex<HashMap<String, Client>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+static PG_POOLS: LazyLock<Arc<Mutex<HashMap<String, Client>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
