@@ -271,6 +271,8 @@ mod tests {
             assert_eq!(new_code, format!("{{ print {} }}", code.trim()), "{}", code);
         }
         assert_eq!(sugar_syntax_convert("/error/".to_owned()), "/error/ { print $0 }");
+        // `/a/ ; /b/` becomes `/a/ ; /b/ { print $0 }`, the same as the plain program
+        assert_eq!(sugar_syntax_convert("/a/ ; /b/".to_owned()), "/a/ ; /b/ { print $0 }");
         for code in [
             "$1",
             "$NF",

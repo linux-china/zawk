@@ -2841,3 +2841,29 @@ fn tsv_escapes_round_trip() {
             .stdout("[lit\\n][tab\there][nl\nx][cr\ry][bs\\]\n[x\\\\y][q\\][tail]\n");
     }
 }
+
+#[test]
+fn unbraced_pattern_terminated_by_semicolon() {
+    // POSIX allows `;` as a rule terminator, so `pattern ;` is a complete rule.
+    let cases = [
+        (r#"NR==1; END{print "e"}"#, "a\ne\n"),
+        ("/a/;/b/", "a\nb\n"),
+        ("/a/ ; /b/", "a\nb\n"),
+        ("1;1", "a\na\nb\nb\n"),
+        (r#"NR==1,NR==2; END{print "e"}"#, "a\nb\ne\n"),
+        ("NR==1;\nNR==2", "a\nb\n"),
+        (r#"NR==2;{print "x"}"#, "x\nb\nx\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin("a\nb\n")
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+    }
+}

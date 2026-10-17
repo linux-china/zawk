@@ -32,7 +32,9 @@ ToplevelBraced: () = {
 
 UnbracedPattern: () = {
   <Expr> "\n"+ => prog.pats.push((Pattern::Bool(<>), None)),
+  <Expr> SemiSep => prog.pats.push((Pattern::Bool(<>), None)),
   <e1:Expr> "," "\n"* <e2:Expr> "\n"+ => prog.pats.push((Pattern::Comma(e1, e2), None)),
+  <e1:Expr> "," "\n"* <e2:Expr> SemiSep => prog.pats.push((Pattern::Comma(e1, e2), None)),
 }
 
 ProgInner: () = {
