@@ -2660,6 +2660,19 @@ fn char_at_out_of_range_is_empty() {
 }
 
 #[test]
+fn float_literals_with_trailing_dot() {
+    let prog = r#"BEGIN { print 1., 0., 3.e1, -1., 1.E+2, .5, 1.+1 }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("1 0 30 -1 100 0.5 2\n");
+    }
+}
+
+#[test]
 fn to_json_keeps_empty_values_and_sorts_keys() {
     let prog = r#"BEGIN { a["k"] = "v"; a["e"] = ""; print to_json(a); for (i = 2; i >= 0; i--) b["k" i] = i; print to_json(b) }"#;
     for backend_arg in BACKEND_ARGS {
