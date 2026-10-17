@@ -1405,21 +1405,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(http_post), &mut [url, headers, body])?;
                 self.bind_val(dst.reflect(),resv)
             },
-            SendMail(from, to,subject, body) => {
+            SendMail(from, to, subject, body, url) => {
                 let from = self.get_val(from.reflect())?;
                 let to = self.get_val(to.reflect())?;
                 let subject = self.get_val(subject.reflect())?;
                 let body = self.get_val(body.reflect())?;
-                self.call_void(external!(send_mail), &mut [from, to, subject, body])?;
-                Ok(())
-            }
-            SmtpSend(url, from, to,subject, body) => {
                 let url = self.get_val(url.reflect())?;
-                let from = self.get_val(from.reflect())?;
-                let to = self.get_val(to.reflect())?;
-                let subject = self.get_val(subject.reflect())?;
-                let body = self.get_val(body.reflect())?;
-                self.call_void(external!(smtp_send), &mut [url, from, to, subject, body])?;
+                self.call_void(external!(send_mail), &mut [from, to, subject, body, url])?;
                 Ok(())
             }
             S3Get(dst,bucket, object_name) => {

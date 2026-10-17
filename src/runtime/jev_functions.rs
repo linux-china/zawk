@@ -116,7 +116,7 @@ fn ask(record: &str, question: Question) -> Result<Answer, String> {
 }
 
 fn report(function: &str, error: &str) {
-    eprintln!("zawk: {function}: {error}");
+    crate::runtime::stdlib_warning(function, error);
 }
 
 /// The threshold of `jev`: the `jev_threshold` variable when it is set (above 0), then the

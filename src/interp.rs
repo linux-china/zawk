@@ -1058,22 +1058,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    SendMail(from, to, subject, body) => {
+                    SendMail(from, to, subject, body, url) => {
                         let from = index(&self.strs, from);
                         let to = index(&self.strs, to);
                         let subject = index(&self.strs, subject);
                         let body = index(&self.strs, body);
-                        runtime::network::send_mail(&*from.as_str(), &*to.as_str(),
-                                                    &*subject.as_str(), &*body.as_str());
-                    }
-                    SmtpSend(url, from, to, subject, body) => {
                         let url = index(&self.strs, url);
-                        let from = index(&self.strs, from);
-                        let to = index(&self.strs, to);
-                        let subject = index(&self.strs, subject);
-                        let body = index(&self.strs, body);
-                        runtime::network::smtp_send(&*url.as_str(), &*from.as_str(), &*to.as_str(),
-                                                    &*subject.as_str(), &*body.as_str());
+                        runtime::network::send_mail(&*from.as_str(), &*to.as_str(),
+                                                    &*subject.as_str(), &*body.as_str(), &*url.as_str());
                     }
                     S3Get(dst, bucket, object_name) => {
                         let bucket = index(&self.strs, bucket);

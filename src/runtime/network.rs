@@ -275,59 +275,67 @@ struct ResendRequest {
     text: String,
 }
 
-pub fn send_mail(from: &str, to: &str, subject: &str, text: &str) {
-    let (api_url, api_key) = if let Ok(api_key) = env::var("MLSN_API_KEY") {
+/// Send a mail. The transport is the SMTP server `smtp_url` when given, then the `SMTP_URL`,
+/// `MLSN_API_KEY` (MailerSend) or `RESEND_API_KEY` (Resend) environment variable. Failures are
+/// reported as warnings.
+pub fn send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str) {
+    if let Err(msg) = try_send_mail(from, to, subject, text, smtp_url) {
+        stdlib_warning("send_mail", msg);
+    }
+}
+
+fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str) -> std::result::Result<(), String> {
+    let smtp_url = if smtp_url.is_empty() { env::var("SMTP_URL").unwrap_or_default() } else { smtp_url.to_owned() };
+    let (api_url, api_key) = if !smtp_url.is_empty() {
+        (smtp_url, String::new())
+    } else if let Ok(api_key) = env::var("MLSN_API_KEY") {
         ("https://api.mailersend.com/v1/email".to_owned(), api_key)
     } else if let Ok(api_key) = env::var("RESEND_API_KEY") {
         ("https://api.resend.com/emails".to_owned(), api_key)
     } else {
-        ("".to_owned(), "".to_owned())
+        return Err("no mail transport: pass smtp_url or set SMTP_URL, MLSN_API_KEY or RESEND_API_KEY".to_owned());
     };
     if env::var("DRY_RUN").is_ok() {
         println!("====DRY_RUN MODE====");
-        println!("API URL: {}", api_url);
-        return;
+        // Do not print SMTP credentials: smtps://user:password@host:465
+        let shown = match (api_url.find("://"), api_url.rfind('@')) {
+            (Some(i), Some(j)) if j > i => format!("{}{}", &api_url[..i + 3], &api_url[j + 1..]),
+            _ => api_url.clone(),
+        };
+        println!("API URL: {}", shown);
+        return Ok(());
     }
-    if !api_url.is_empty() {
-        let mut builder = HTTP_CLIENT.post(&api_url)
-            .header("Authorization", format!("Bearer {}", api_key));
-        if api_url.starts_with("https://api.resend.com") {
-            let receivers: Vec<String> = to.split(',').map(|s| s.to_string()).collect();
-            let req = ResendRequest {
-                from: from.to_string(),
-                to: receivers,
-                subject: subject.to_string(),
-                text: text.to_string(),
-            };
-            builder = builder.json(&req);
-        } else if api_url.starts_with("https://api.mailersend.com") {
-            let receivers = to.split(',').map(|email| MailAddress::new(email)).collect();
-            let req = MailerSendRequest {
-                from: MailAddress::new(from),
-                to: receivers,
-                subject: subject.to_string(),
-                text: text.to_string(),
-            };
-            builder = builder.json(&req);
-        }
-        match builder.send() {
-            Ok(resp) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    let body = resp.text().unwrap_or_default();
-                    eprintln!("Failed to send mail via {}: HTTP {} {}", api_url, status, body);
-                }
-            }
-            Err(e) => eprintln!("Failed to send mail via {}: {}", api_url, e),
-        }
+    if api_url.starts_with("smtp://") || api_url.starts_with("smtps://") {
+        return try_smtp_send(&api_url, from, to, subject, text);
     }
-}
-
-/// Send a mail through the SMTP server `url`. Failures are reported as warnings.
-pub fn smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) {
-    if let Err(msg) = try_smtp_send(url, from, to, subject, text) {
-        stdlib_warning("smtp_send", msg);
+    let mut builder = HTTP_CLIENT.post(&api_url)
+        .header("Authorization", format!("Bearer {}", api_key));
+    if api_url.starts_with("https://api.resend.com") {
+        let receivers: Vec<String> = to.split(',').map(|s| s.to_string()).collect();
+        let req = ResendRequest {
+            from: from.to_string(),
+            to: receivers,
+            subject: subject.to_string(),
+            text: text.to_string(),
+        };
+        builder = builder.json(&req);
+    } else {
+        let receivers = to.split(',').map(|email| MailAddress::new(email)).collect();
+        let req = MailerSendRequest {
+            from: MailAddress::new(from),
+            to: receivers,
+            subject: subject.to_string(),
+            text: text.to_string(),
+        };
+        builder = builder.json(&req);
     }
+    let resp = builder.send().map_err(|e| format!("failed to send mail via {}: {}", api_url, e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().unwrap_or_default();
+        return Err(format!("failed to send mail via {}: HTTP {} {}", api_url, status, body));
+    }
+    Ok(())
 }
 
 fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> std::result::Result<(), String> {
@@ -399,7 +407,7 @@ mod tests {
         let to = "linux_china@hotmail.com";
         let subject = "demo.csv processed successfully by zawk";
         let text = "rows: 180, total: 1000";
-        send_mail(from, to, subject, text);
+        send_mail(from, to, subject, text, "");
     }
 
     #[test]
@@ -411,6 +419,6 @@ mod tests {
         let to = "linux_china@example.com";
         let subject = "demo.csv processed successfully by zawk";
         let text = "rows: 180, total: 1000";
-        smtp_send(&smtp_url, from, to, subject, text);
+        send_mail(from, to, subject, text, &smtp_url);
     }
 }

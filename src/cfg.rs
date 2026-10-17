@@ -3019,6 +3019,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         }
                         prim_args.push(PrimVal::StrLit(b"@ind_str_asc"));
                     }
+                    // send_mail(from, to, subject, body) => send_mail(from, to, subject, body, "");
+                    builtins::Function::SendMail if args_len == 4 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // smtp_send(url, from, to, subject, body) => send_mail(from, to, subject, body, url);
+                    builtins::Function::SmtpSend if args_len == 5 => {
+                        let url = prim_args.remove(0);
+                        prim_args.push(url);
+                        bi = builtins::Function::SendMail;
+                    }
                     // http_get(url) => http_get(url, headers), with empty headers: a fresh local
                     // that `Function::feedback` types as a map.
                     builtins::Function::HttpGet if args_len == 1 => {

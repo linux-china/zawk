@@ -849,15 +849,18 @@ and `Content-Type = application/json` will be added as HTTP header by default.
 
 ### email
 
-`send_mail(from, to, subject, body)` by REST API, and `to` could be multiple emails separated by `,`.
-`send_email()` is an alias of `send_mail()`.
+`send_mail(from, to, subject, body[, smtp_url])`: send email, and `to` could be multiple emails separated by `,`.
+Failures are reported as warnings on stderr.
 
-Environment variables for email sending:
+The transport is chosen in this order:
 
-- `MLSN_API_KEY`: API key for [MailerSend](https://www.mailersend.com/)
-- `RESEND_API_KEY`: API key for [Resend](https://resend.com/)
+- `smtp_url` argument: send by SMTP
+- `SMTP_URL` environment variable: send by SMTP
+- `MLSN_API_KEY` environment variable: API key for [MailerSend](https://www.mailersend.com/)
+- `RESEND_API_KEY` environment variable: API key for [Resend](https://resend.com/)
 
-`smtp_send(smtp_url, from, to, subject, body)`: send email by SMTP
+Deprecated aliases: `send_email()` is the same as `send_mail()`, and `smtp_send(smtp_url, from, to, subject, body)`
+is the same as `send_mail(from, to, subject, body, smtp_url)`.
 
 SMTP URL format:
 

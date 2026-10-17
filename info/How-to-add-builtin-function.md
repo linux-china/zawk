@@ -1,5 +1,27 @@
 # how to add a builtin function
 
+### Conventions
+
+Naming:
+
+* Use `snake_case`, and one name per function: do not add synonyms (`send_email` and `smtp_send` are only kept as
+  deprecated aliases of `send_mail`). Put an optional argument at the end instead of adding a variant,
+  e.g. `send_mail(from, to, subject, body[, smtp_url])`.
+* The `_` prefix is only for functions computing a value from the values of an array: `_sum`, `_mean`, `_median`,
+  `_top`, `_join` ... Other functions taking or filling arrays keep plain names: gawk functions (`asort`, `split`,
+  `length`), generators (`seq`, `parse_array`) and transforms (`uniq`).
+* Group related functions by a prefix: `kv_*`, `json_*`, `sqlite_*`, `jev_*`.
+
+Errors:
+
+* A failure returns the zero value of the return type: `""` for a string, `0` for a number, an empty array for a map,
+  and nothing for `void`; the script keeps running.
+* Report the reason with `crate::runtime::stdlib_warning(function_name, message)`, which prints
+  `zawk: warning: function_name: message` to stderr once per distinct message. Do not use `eprintln!` or `panic!`.
+* Exceptions only come from awk/gawk compatibility: `close()`, `getline` and `mktime()` return `-1`, `system()` returns
+  the exit status. A status inside a returned value is part of the value, e.g. `http_get(url)["status"]` is `0` on a
+  network error.
+
 ### Declare function
 
 * Declare function name in `pub enum Function ` of [src/builtins.rs](../src/builtins.rs)
