@@ -898,9 +898,9 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .long("output-format")
             .short('o')
-            .value_name("csv|tsv|markdown|table|parquet")
-            .help("If set, records output via print are escaped according to the rules of the corresponding format. markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING; default STRING), followed by the data rows")
-            .value_parser(["csv", "tsv", "markdown", "md", "table", "parquet"]))
+            .value_name("csv|tsv|jsonl|markdown|table|parquet")
+            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number or :boolean (default string), and each following record becomes a JSON object (a missing column is null). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING; default STRING), followed by the data rows")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"]))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1159,6 +1159,8 @@ fn real_main() {
     let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
         Some("csv") => (Escaper::CSV, Some(","), Some("\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
+        // Records are written as TSV and converted to JSON objects by `JsonlFactory`.
+        Some("jsonl") | Some("ndjson") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and rendered as table rows by `MarkdownFactory`.
         Some("markdown") | Some("md") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and rendered as a bordered table by `TableFactory`.
@@ -1166,7 +1168,7 @@ fn real_main() {
         // Records are written as TSV and converted to a Parquet file by `ParquetFactory`.
         Some("parquet") => (Escaper::TSV, Some("\t"), Some("\n")),
         Some(s) => fail!(
-            "invalid output format {:?}; expected csv, tsv, markdown, table or parquet (or the empty string)",
+            "invalid output format {:?}; expected csv, tsv, jsonl, markdown, table or parquet (or the empty string)",
             s
         ),
         None => (Escaper::Identity, None, None),
@@ -1491,6 +1493,7 @@ fn real_main() {
     let out_file = matches.get_one::<String>("out-file");
     // stdout wrappers for output formats that are not escaped text.
     let output_format = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
+        Some("jsonl") | Some("ndjson") => "jsonl",
         Some("markdown") | Some("md") => "markdown",
         Some("table") => "table",
         Some("parquet") => "parquet",
@@ -1502,6 +1505,10 @@ fn real_main() {
     macro_rules! with_out {
         ($factory:expr, |$inp:ident, $out:ident| $body:expr) => {
             match output_format {
+                "jsonl" => {
+                    let $out = runtime::writers::JsonlFactory($factory);
+                    with_inp!(analysis_result, $inp, $body);
+                }
                 "markdown" => {
                     let $out = runtime::writers::MarkdownFactory($factory);
                     with_inp!(analysis_result, $inp, $body);

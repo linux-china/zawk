@@ -532,6 +532,200 @@ mod table_tests {
     }
 }
 
+/// Wraps a factory so that stdout is written as JSON Lines (`-o jsonl`).
+///
+/// Records are expected in the same tab-separated form as for `MarkdownFactory`. The first record
+/// is the header: a column name may end with `:number`, `:boolean` or `:string` (the default) to
+/// set the JSON type of its values. Every following record becomes one JSON object; a column
+/// missing from a record is `null`.
+#[derive(Clone)]
+pub struct JsonlFactory<F>(pub F);
+
+impl<F: FileFactory> FileFactory for JsonlFactory<F> {
+    type Output = F::Output;
+    type Stdout = JsonlWriter<F::Stdout>;
+    fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
+        self.0.cmd(cmd, env)
+    }
+    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+        self.0.build(path, spec)
+    }
+    fn stdout(&self) -> Self::Stdout {
+        JsonlWriter::new(self.0.stdout())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum JsonType {
+    String,
+    Number,
+    Boolean,
+}
+
+pub struct JsonlWriter<W: io::Write> {
+    inner: W,
+    /// The current, not yet newline-terminated, record.
+    pending: Vec<u8>,
+    /// The JSON-encoded column names and their types, once the header has been read.
+    columns: Option<Vec<(String, JsonType)>>,
+}
+
+impl<W: io::Write> JsonlWriter<W> {
+    pub fn new(inner: W) -> JsonlWriter<W> {
+        JsonlWriter {
+            inner,
+            pending: Vec::new(),
+            columns: None,
+        }
+    }
+
+    fn write_row(&mut self, line: &[u8]) -> io::Result<()> {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let cells: Vec<String> = line.split(|b| *b == b'\t').map(unescape_tsv).collect();
+        let columns = match &mut self.columns {
+            None => {
+                self.columns = Some(cells.iter().map(|c| json_column(c)).collect());
+                return Ok(());
+            }
+            Some(columns) => columns,
+        };
+        // Extra cells get positional names, as `$N` would number them.
+        for i in columns.len()..cells.len() {
+            columns.push((json_string(&format!("column{}", i + 1)), JsonType::String));
+        }
+        let mut row = String::with_capacity(line.len() * 2 + 16);
+        row.push('{');
+        for (i, (name, ty)) in columns.iter().enumerate() {
+            if i > 0 {
+                row.push(',');
+            }
+            row.push_str(name);
+            row.push(':');
+            match cells.get(i) {
+                None => row.push_str("null"),
+                Some(cell) => json_value(cell, *ty, &mut row),
+            }
+        }
+        row.push_str("}\n");
+        self.inner.write_all(row.as_bytes())
+    }
+}
+
+/// Reverses the TSV escaping of `print`: `\t` and `\n` are a tab and a newline.
+fn unescape_tsv(raw: &[u8]) -> String {
+    let text = String::from_utf8_lossy(raw);
+    if text.contains("\\t") || text.contains("\\n") {
+        text.replace("\\t", "\t").replace("\\n", "\n")
+    } else {
+        text.into_owned()
+    }
+}
+
+fn json_string(s: &str) -> String {
+    serde_json::to_string(s).unwrap()
+}
+
+/// Splits a header cell into the JSON-encoded key and the type of the column. A suffix that is
+/// not a known type is part of the name (`host:port` is a string column named "host:port").
+fn json_column(header: &str) -> (String, JsonType) {
+    if let Some((name, ty)) = header.rsplit_once(':') {
+        let ty = match ty.trim().to_ascii_lowercase().as_str() {
+            "number" => Some(JsonType::Number),
+            "boolean" => Some(JsonType::Boolean),
+            "string" => Some(JsonType::String),
+            _ => None,
+        };
+        if let Some(ty) = ty {
+            return (json_string(name), ty);
+        }
+    }
+    (json_string(header), JsonType::String)
+}
+
+/// Appends `cell` as a JSON value of type `ty`. Numbers that do not look numeric are 0; booleans
+/// are parsed as for `-o parquet` (empty, "0", "false", "no", "off", ... are false).
+fn json_value(cell: &str, ty: JsonType, out: &mut String) {
+    use std::fmt::Write;
+    use crate::runtime::compare::looks_numeric;
+    match ty {
+        JsonType::String => out.push_str(&json_string(cell)),
+        JsonType::Number => match looks_numeric(cell.as_bytes()).filter(|n| n.is_finite()) {
+            Some(n) if n.fract() == 0.0 && n.abs() < 9007199254740992.0 => {
+                let _ = write!(out, "{}", n as i64);
+            }
+            Some(n) => {
+                let _ = write!(out, "{}", n);
+            }
+            None => out.push('0'),
+        },
+        JsonType::Boolean => {
+            let truthy = crate::runtime::parquet_writer::parse_bool(cell);
+            out.push_str(if truthy { "true" } else { "false" });
+        }
+    }
+}
+
+impl<W: io::Write> io::Write for JsonlWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut rest = buf;
+        while let Some(pos) = rest.iter().position(|b| *b == b'\n') {
+            if self.pending.is_empty() {
+                self.write_row(&rest[..pos])?;
+            } else {
+                self.pending.extend_from_slice(&rest[..pos]);
+                let line = std::mem::take(&mut self.pending);
+                self.write_row(&line)?;
+            }
+            rest = &rest[pos + 1..];
+        }
+        self.pending.extend_from_slice(rest);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: io::Write> Drop for JsonlWriter<W> {
+    fn drop(&mut self) {
+        // A final record without a trailing newline (e.g. from printf) is still a row.
+        if !self.pending.is_empty() {
+            let line = std::mem::take(&mut self.pending);
+            let _ = self.write_row(&line);
+        }
+        let _ = self.inner.flush();
+    }
+}
+
+#[cfg(test)]
+mod jsonl_tests {
+    use super::*;
+
+    #[test]
+    fn jsonl_rows() {
+        let mut out = Vec::new();
+        {
+            let mut w = JsonlWriter::new(&mut out);
+            w.write_all(b"name\tage:number\tok:Boolean\thost:port\n").unwrap();
+            w.write_all(b"Al\"ice\t30\t1\ta:1\nBob\t1.5\t0\t\tx\nCa").unwrap();
+            w.write_all(b"rol\tabc\tyes\nDan\t 0x10 \t\nFay\t1\tNo\nGus\t2\tfalse\n").unwrap();
+            w.write_all(b"Eve\\tX").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            concat!(
+                r#"{"name":"Al\"ice","age":30,"ok":true,"host:port":"a:1"}"#, "\n",
+                r#"{"name":"Bob","age":1.5,"ok":false,"host:port":"","column5":"x"}"#, "\n",
+                r#"{"name":"Carol","age":0,"ok":true,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Dan","age":16,"ok":false,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Fay","age":1,"ok":false,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Gus","age":2,"ok":false,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Eve\tX","age":null,"ok":null,"host:port":null,"column5":null}"#, "\n",
+            )
+        );
+    }
+}
+
 /// Exit status of the most recently closed command behind a handle; see `CmdWriter`.
 type StatusSlot = Arc<Mutex<Option<Int>>>;
 

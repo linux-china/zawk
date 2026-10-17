@@ -259,7 +259,7 @@ fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
     }
 }
 
-fn parse_bool(s: &str) -> bool {
+pub(crate) fn parse_bool(s: &str) -> bool {
     let s = s.trim();
     match s.to_ascii_lowercase().as_str() {
         "" | "0" | "false" | "f" | "no" | "n" | "off" => false,

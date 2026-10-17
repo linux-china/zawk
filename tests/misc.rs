@@ -1488,6 +1488,32 @@ fn table_output() {
 }
 
 #[test]
+fn jsonl_output() {
+    // -o jsonl writes print records as JSON objects: the first record is the header, where
+    // `name:number` and `name:boolean` set the JSON type, and missing columns are null.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ojsonl")
+            .arg(r#"BEGIN { print "name", "age:number", "ok:boolean" } { print $1, $2, $3 } END { print "a\tb" }"#)
+            .write_stdin("Alice 30 1\nBob x 0\nCarol 5 no\n")
+            .assert()
+            .success()
+            .stdout(concat!(
+                r#"{"name":"Alice","age":30,"ok":true}"#,
+                "\n",
+                r#"{"name":"Bob","age":0,"ok":false}"#,
+                "\n",
+                r#"{"name":"Carol","age":5,"ok":false}"#,
+                "\n",
+                r#"{"name":"a\tb","age":null,"ok":null}"#,
+                "\n",
+            ));
+    }
+}
+
+#[test]
 fn parquet_output() {
     // -o parquet writes the printed records as a Parquet file: the first record is the header,
     // where `name:TYPE` sets a column type; it is read back here with -i parquet.
