@@ -901,6 +901,11 @@ fn real_main() {
             .value_name("csv|tsv|jsonl|markdown|table|parquet")
             .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number or :boolean (default string; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING; default STRING), followed by the data rows")
             .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"]))
+        .arg(Arg::new("summary")
+            .long("summary")
+            .num_args(0)
+            .requires("output-format")
+            .help("With -o table or -o markdown, print the number of rows and per-column statistics (type, non-empty and distinct counts, min, max, sum and mean) after the table; the first record is the header"))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1499,6 +1504,10 @@ fn real_main() {
         Some("parquet") => "parquet",
         _ => "",
     };
+    let summary = matches.get_flag("summary");
+    if summary && !matches!(output_format, "markdown" | "table") {
+        fail!("--summary requires -o table or -o markdown");
+    }
     if output_format == "parquet" && out_file.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         fatal!("refusing to write parquet output to a terminal; use --out-file FILE or redirect stdout");
     }
@@ -1510,11 +1519,11 @@ fn real_main() {
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "markdown" => {
-                    let $out = runtime::writers::MarkdownFactory($factory);
+                    let $out = runtime::writers::MarkdownFactory($factory, summary);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "table" => {
-                    let $out = runtime::writers::TableFactory($factory);
+                    let $out = runtime::writers::TableFactory($factory, summary);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "parquet" => {

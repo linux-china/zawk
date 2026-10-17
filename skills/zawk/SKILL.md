@@ -99,11 +99,18 @@ count characters); `file` is null for program text, and all location fields are 
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W103 | `f` used as a variable or function name (clashes with f-strings `f"..."`)        |
 | W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
+| W116 | `$NF-1` is the last field minus 1, not `$(NF-1)`                              |
+| W117 | field compared with a numeric string (`$3 > "100"`): a string comparison         |
+| W118 | `printf $0` (format reads a field, no arguments): a `%` in the data breaks it; use `printf "%s", $0` |
+| W119 | `FS` assigned in a main rule: applies from the next record only; set it in BEGIN or with `-F` |
+| W120 | string constant as a condition (`if ("0")`): false in zawk if it looks like 0, true in gawk |
 | W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
 | W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |
 | W204 | user function called with more arguments than it declares                        |
 | W205 | `index(/re/, s)`: a regex literal there means `$0 ~ /re/` (use a string, or `match`) |
+| W206 | variable set but never read (the other side of a typo: `totl += $1` ... `print total`) |
+| W207 | function defined but never called (not reported for a program of only functions) |
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 

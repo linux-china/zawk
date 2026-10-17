@@ -218,7 +218,7 @@ fn check_program(prog: &str, opts: &Options) -> Vec<Diagnostic> {
     if let Err(e) = parser.parse(&a, &mut buf, &mut program, lexer::Tokenizer::new(text)) {
         return vec![parse_diagnostic(text, &e)];
     }
-    let mut diags = check_ast(&program, opts);
+    let mut diags = check_ast(text, &program, opts);
     diags.extend(compile_program(&a, text, program, opts.allow_arbitrary_commands));
     diags
 }
@@ -427,9 +427,22 @@ struct Facts<'a, 'p> {
     arrays: Vec<&'a str>,
     /// Calls of functions by name: the name, the number of arguments and the location.
     calls: Vec<(&'a str, usize, Option<Loc>)>,
-    /// `printf` and `sprintf` with a literal format: the format, the number of arguments to
-    /// format and the location.
-    formats: Vec<(&'a [u8], usize, Option<Loc>)>,
+    /// `printf` and `sprintf` with a literal format (or a concatenation of literals): the
+    /// format, the number of arguments to format and the location.
+    formats: Vec<(Vec<u8>, usize, Option<Loc>)>,
+    /// `printf` with a format that reads a field and no arguments (`printf $0`): the location.
+    dynamic_formats: Vec<Option<Loc>>,
+    /// `$NF-1` (meaning `$(NF-1)`): the operator, the number and the location.
+    field_offsets: Vec<(&'static str, i64, Option<Loc>)>,
+    /// Comparisons of a field with a numeric string (`$3 > "100"`): the field, the string and
+    /// the location.
+    string_comparisons: Vec<(String, &'a [u8], Option<Loc>)>,
+    /// Assignments to `FS` in a main rule: the location.
+    main_fs_sets: Vec<Option<Loc>>,
+    /// String literals used as a condition (`if ("0")`): the string and the location.
+    string_conds: Vec<(&'a [u8], Option<Loc>)>,
+    /// Variables read into with `getline var`, often only to skip a line.
+    getline_vars: Vec<&'a str>,
     /// Assignments to read-only variables and fields: the message and the location.
     read_only: Vec<(String, Option<Loc>)>,
     /// Reads of `FI[...]` (e.g. `$FI["name"]`): the column name, if it is a literal, and the
@@ -557,8 +570,10 @@ impl<'a, 'p> Facts<'a, 'p> {
                 }
             }
             Printf(fmt, args, out) => {
-                if let ast::Expr::StrLit(f) = fmt {
-                    self.formats.push((f, args.len(), self.loc(fmt)));
+                match literal(fmt) {
+                    Some(f) => self.formats.push((f, args.len(), self.loc(fmt))),
+                    None if args.is_empty() && has_field(fmt) => self.dynamic_formats.push(self.loc(fmt)),
+                    None => {}
                 }
                 self.expr(fmt);
                 args.iter().for_each(|e| self.expr(e));
@@ -672,12 +687,12 @@ impl<'a, 'p> Facts<'a, 'p> {
         }
     }
 
-    /// Walks a condition, recording assignments used as its value (`if (x = 1)`), also under
-    /// `!`, `&&` and `||`.
+    /// Walks a condition, recording assignments (`if (x = 1)`) and string literals
+    /// (`if ("0")`) used as its value, also under `!`, `&&` and `||`.
     fn condition(&mut self, e: &'a AstExpr<'a>) {
         fn find<'a>(e: &'a AstExpr<'a>, found: &mut Vec<&'a AstExpr<'a>>) {
             match e {
-                ast::Expr::Assign(..) => found.push(e),
+                ast::Expr::Assign(..) | ast::Expr::StrLit(_) => found.push(e),
                 ast::Expr::Unop(ast::Unop::Not, x) => find(x, found),
                 ast::Expr::And(l, r) | ast::Expr::Or(l, r) => {
                     find(l, found);
@@ -691,6 +706,10 @@ impl<'a, 'p> Facts<'a, 'p> {
         for a in found {
             // Assignments to fields and to non-lvalues are errors reported elsewhere.
             let (name, lhs) = match a {
+                ast::Expr::StrLit(s) => {
+                    self.string_conds.push((s, self.loc(a)));
+                    continue;
+                }
                 ast::Expr::Assign(lhs @ ast::Expr::Var(name), _) => (Some(*name), lhs),
                 ast::Expr::Assign(lhs @ ast::Expr::Index(..), _) => (None, lhs),
                 _ => continue,
@@ -723,6 +742,20 @@ impl<'a, 'p> Facts<'a, 'p> {
             _ => return,
         };
         self.field_comparisons.push((field, n, self.loc(at)));
+    }
+
+    /// Records `$3 > "100"` (either way round): a string constant makes it a string comparison
+    /// ("99" > "100").
+    fn check_string_comparison(&mut self, l: &'a AstExpr<'a>, r: &'a AstExpr<'a>) {
+        let (field, s) = match (l, r) {
+            (f @ ast::Expr::Unop(ast::Unop::Column, _), ast::Expr::StrLit(s))
+            | (ast::Expr::StrLit(s), f @ ast::Expr::Unop(ast::Unop::Column, _)) => (f, *s),
+            _ => return,
+        };
+        if crate::runtime::compare::looks_numeric(s).is_some() {
+            let what = FieldRef::of(field).map_or("the field".to_string(), |f| format!("`{}`", f.describe()));
+            self.string_comparisons.push((what, s, self.loc(field)));
+        }
     }
 
     /// Walks an assignment target.
@@ -772,6 +805,16 @@ impl<'a, 'p> Facts<'a, 'p> {
             Binop(ast::Binop::LT | ast::Binop::GT | ast::Binop::LTE | ast::Binop::GTE, l, r) => {
                 self.check_key_comparison(l, r);
                 self.check_field_comparison(l, r);
+                self.check_string_comparison(l, r);
+                self.expr(l);
+                self.expr(r);
+            }
+            // `$NF-1` is the last field minus 1; `$(NF-1)` is the field before the last.
+            Binop(op @ (ast::Binop::Minus | ast::Binop::Plus), l @ Unop(ast::Unop::Column, Var("NF")), r) => {
+                if let ILit(n @ 1..) = r {
+                    let op = if matches!(op, ast::Binop::Minus) { "-" } else { "+" };
+                    self.field_offsets.push((op, *n, self.loc(l)));
+                }
                 self.expr(l);
                 self.expr(r);
             }
@@ -794,6 +837,9 @@ impl<'a, 'p> Facts<'a, 'p> {
             Assign(lhs, rhs) => {
                 if let (Var("FS"), StrLit(fs), Region::Begin) = (lhs, rhs, self.region) {
                     self.fs_literals.push(fs);
+                }
+                if matches!(lhs, Var("FS")) && self.region == Region::Main {
+                    self.main_fs_sets.push(self.loc(lhs));
                 }
                 // `x = x + e` adds up like `x += e`.
                 let sum = match (lhs, rhs) {
@@ -827,6 +873,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                     self.record_changed = true;
                 }
                 if let Some(into) = into {
+                    if let Var(name) = into {
+                        self.getline_vars.push(name);
+                    }
                     self.lvalue(into, SetKind::Other);
                 }
                 if let Some(from) = from {
@@ -838,7 +887,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                     Either::Left(name) => {
                         self.calls.push((name, args.len(), self.loc(e)));
                         if *name == "sprintf" {
-                            if let Some(StrLit(fmt)) = args.first() {
+                            if let Some(fmt) = args.first().and_then(|f| literal(f)) {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
                             }
                         }
@@ -880,6 +929,32 @@ fn number(e: &AstExpr) -> Option<String> {
         ast::Expr::FLit(f) => Some(f.to_string()),
         ast::Expr::Unop(ast::Unop::Neg, x) => number(x).map(|n| format!("-{}", n)),
         ast::Expr::Unop(ast::Unop::Pos, x) => number(x),
+        _ => None,
+    }
+}
+
+/// Whether `e` reads a field (`$0`, `$1 "\n"`, `f"{$1}"`).
+fn has_field(e: &AstExpr) -> bool {
+    use ast::Expr::*;
+    match e {
+        Unop(ast::Unop::Column, _) => true,
+        Unop(_, x) => has_field(x),
+        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Index(l, r) => has_field(l) || has_field(r),
+        ITE(c, t, f) => has_field(c) || has_field(t) || has_field(f),
+        Call(_, args) => args.iter().any(|a| has_field(a)),
+        _ => false,
+    }
+}
+
+/// The text of a string literal, or of a concatenation of string literals (`"%s" "\n"`).
+fn literal(e: &AstExpr) -> Option<Vec<u8>> {
+    match e {
+        ast::Expr::StrLit(s) => Some(s.to_vec()),
+        ast::Expr::Binop(ast::Binop::Concat, l, r) => {
+            let mut s = literal(l)?;
+            s.extend(literal(r)?);
+            Some(s)
+        }
         _ => None,
     }
 }
@@ -965,7 +1040,7 @@ fn warning(code: &'static str, message: String, loc: Option<Loc>) -> Diagnostic 
 }
 
 /// Checks the syntax tree for mistakes that a run accepts silently.
-fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagnostic> {
+fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagnostic> {
     let mut facts = Facts {
         locs: &prog.locs,
         region: Region::Begin,
@@ -975,6 +1050,12 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         arrays: Vec::new(),
         calls: Vec::new(),
         formats: Vec::new(),
+        dynamic_formats: Vec::new(),
+        field_offsets: Vec::new(),
+        string_comparisons: Vec::new(),
+        main_fs_sets: Vec::new(),
+        string_conds: Vec::new(),
+        getline_vars: Vec::new(),
         read_only: Vec::new(),
         header_columns: Vec::new(),
         fields: Vec::new(),
@@ -1104,6 +1185,70 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         ));
     }
 
+    // `$NF-1` is `($NF)-1`: `$` binds tighter than `-`.
+    for (op, n, loc) in &facts.field_offsets {
+        diags.push(warning(
+            "W116",
+            format!(
+                "`$NF{op}{n}` is the last field {} {n}, not a field: `$` binds tighter than `{op}`; write `$(NF{op}{n})` for the field, or `($NF){op}{n}` if the arithmetic is meant",
+                if *op == "-" { "minus" } else { "plus" }
+            ),
+            *loc,
+        ));
+    }
+
+    // `$3 > "100"` compares as strings: "99" > "100".
+    for (field, s, loc) in &facts.string_comparisons {
+        let s = String::from_utf8_lossy(s);
+        diags.push(warning(
+            "W117",
+            format!(
+                "{} is compared with the string \"{}\", so it is compared as a string (\"99\" > \"100\"); drop the quotes (`{}`) to compare as numbers",
+                field, s.escape_debug(), s.trim()
+            ),
+            *loc,
+        ));
+    }
+
+    // `printf $0`: a `%` in the data is read as a conversion.
+    for loc in &facts.dynamic_formats {
+        diags.push(warning(
+            "W118",
+            "printf with a format that reads a field and no arguments: a `%` in the data is read as a conversion (`100%d` prints `1000`); write `printf \"%s\", ...` instead".to_string(),
+            *loc,
+        ));
+    }
+
+    // `{ FS = "," }`: the current record is already split with the old separator.
+    if let Some(loc) = facts.main_fs_sets.first() {
+        diags.push(warning(
+            "W119",
+            "`FS` is assigned in a main rule: the current record is already split, so the new separator only applies from the next record (the first record is split wrongly); set it in BEGIN or with `-F`".to_string(),
+            *loc,
+        ));
+    }
+
+    // `if ("0")`: a string constant as a condition is almost always a mistake.
+    for (s, loc) in &facts.string_conds {
+        let message = if s.is_empty() {
+            "the condition is the empty string: it is always false; compare a value instead".to_string()
+        } else {
+            let lit = String::from_utf8_lossy(s);
+            if crate::runtime::compare::str_is_false(s, true) {
+                format!(
+                    "the condition is the string constant \"{}\": zawk treats it as false (it looks like 0), gawk as true (a non-empty string); compare a value instead, e.g. `x == \"{}\"`",
+                    lit.escape_debug(), lit.escape_debug()
+                )
+            } else {
+                format!(
+                    "the condition is the string constant \"{}\": it is always true; compare a value instead, e.g. `$1 == \"{}\"`",
+                    lit.escape_debug(), lit.escape_debug()
+                )
+            }
+        };
+        diags.push(warning("W120", message, *loc));
+    }
+
     // Variables that are read but never set anywhere: almost always a typo.
     let mut reported: Vec<&str> = Vec::new();
     for u in &facts.uses {
@@ -1132,6 +1277,52 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
             ),
             first.or(u.loc),
         ));
+    }
+    let unset = reported;
+
+    // Variables that are set but never read: the other side of a typo (`totl += $1` ...
+    // `print total`). Arrays, `for (k in a)` keys, variables filled by a function and
+    // `getline var` (often only to skip a line) are left out.
+    let mut reported: Vec<&str> = Vec::new();
+    for s in &facts.sets {
+        let special = crate::builtins::VARIABLES.contains_key(s.name)
+            || s.name == "SUBSEP"
+            || IGNORED_GAWK_VARIABLES.iter().any(|(n, _)| *n == s.name);
+        if special
+            || s.kind == SetKind::Indirect
+            || reported.contains(&s.name)
+            || facts.uses.iter().any(|u| u.name == s.name)
+            || facts.arrays.contains(&s.name)
+            || facts.getline_vars.contains(&s.name)
+            || prog.decs.iter().any(|d| d.name == s.name)
+            || facts.sets.iter().any(|t| t.name == s.name && t.kind == SetKind::Indirect)
+        {
+            continue;
+        }
+        reported.push(s.name);
+        let typo = unset
+            .iter()
+            .map(|u| (edit_distance(s.name, u), *u))
+            .filter(|(d, _)| *d <= 2 && *d < s.name.chars().count())
+            .min_by_key(|(d, _)| *d)
+            .map_or(String::new(), |(_, u)| format!("; `{}` is read but never set, is one of them a typo?", u));
+        diags.push(warning(
+            "W206",
+            format!("variable `{}` is set but never read{}", s.name, typo),
+            s.loc,
+        ));
+    }
+
+    // User functions that are never called (unless the program is only functions, a library).
+    let rules = !prog.begin.is_empty() || !prog.pats.is_empty() || !prog.end.is_empty();
+    for dec in prog.decs.iter().filter(|_| rules) {
+        if !facts.calls.iter().any(|(n, _, _)| *n == dec.name) {
+            let loc = lexer::Tokenizer::new(text)
+                .map_while(Result::ok)
+                .find(|(_, tok, _)| matches!(tok, Tok::FunDec(n) if *n == dec.name))
+                .map(|(l, _, _)| l);
+            diags.push(warning("W207", format!("function `{}` is defined but never called", dec.name), loc));
+        }
     }
 
     // printf formats that use more arguments than given: the missing ones print as empty.
@@ -1663,7 +1854,7 @@ mod tests {
         assert_eq!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (-1 <= k) print k }")), ["W108"]);
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k+0 > 9) print k }")).is_empty());
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k == 1) print k }")).is_empty());
-        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k }")).is_empty());
+        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k, n }")).is_empty());
     }
 
     #[test]
@@ -1689,7 +1880,7 @@ mod tests {
         let v = run("function foo(x) { return x }\nBEGIN {\n  foo = 1; print foo(2) }");
         assert_eq!(codes(&v), ["E305"]);
         assert_eq!(v["diagnostics"][0]["line"], 3);
-        assert_eq!(codes(&run("function foo(x) { return x }\nBEGIN { foo[1] = 1 }")), ["E305"]);
+        assert_eq!(codes(&run("function foo(x) { return x }\nBEGIN { foo[1] = 1 }")), ["W207", "E305"]);
         assert!(codes(&run("function foo(x) { return x }\nBEGIN { print foo(1) }")).is_empty());
     }
 
@@ -1751,6 +1942,49 @@ mod tests {
     }
 
     #[test]
+    fn likely_mistakes() {
+        let v = run("{ print $NF-1 }");
+        assert_eq!(codes(&v), ["W116"]);
+        assert_eq!(v["diagnostics"][0]["column"], 9);
+        assert_eq!(codes(&run("{ print $NF+2 }")), ["W116"]);
+        assert!(codes(&run("{ i = 1; print $(NF-1), $NF, $NF+0, $i-1 }")).is_empty());
+        assert_eq!(codes(&run("$3 > \"100\" { print }")), ["W117"]);
+        assert_eq!(codes(&run("{ if (\"1.5\" <= $FI[\"x\"]) print }")), ["W117", "W105"]);
+        assert!(codes(&run("$3 > 100 || $1 > \"abc\" || $2 == \"10\" { print }")).is_empty());
+        assert_eq!(codes(&run("{ printf $0 }")), ["W118"]);
+        assert_eq!(codes(&run("{ printf($1 \"\\n\") }")), ["W118"]);
+        assert!(codes(&run("{ printf \"%s\\n\", $0 }")).is_empty());
+        let v = run("BEGIN { OFS = \"-\" }\n{ FS = \",\"; print $2 } { FS = \";\" }");
+        assert_eq!(codes(&v), ["W119"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert!(codes(&run("BEGIN { FS = \",\" } { print $2 }")).is_empty());
+        let v = run("BEGIN { if (\"0\") print; while (\"\") break }\n\"x\" { print }");
+        assert_eq!(codes(&v), ["W120", "W120", "W120"]);
+        assert!(message(&v, 0).contains("zawk treats it as false"));
+        assert!(message(&v, 1).contains("always false"));
+        assert!(message(&v, 2).contains("always true"));
+        assert_eq!(v["diagnostics"][2]["line"], 2);
+        assert_eq!(v["diagnostics"][2]["column"], 1);
+    }
+
+    #[test]
+    fn unused() {
+        let v = run("{ totl += $1 }\nEND { print total }");
+        assert_eq!(codes(&v), ["W206", "W201"]);
+        assert!(message(&v, 0).contains("`total`"));
+        assert_eq!(v["diagnostics"][0]["line"], 1);
+        assert_eq!(codes(&run("{ n++ }")), ["W206"]);
+        // Arrays, loop keys, filled by a function, getline, special variables: not reported.
+        assert!(codes(&run("{ a[$1] = 1; n = split($0, p); OFS = \"-\"; getline junk; for (k in a) m++; print m, n }")).is_empty());
+        let v = run("function used(x) { return x }\nfunction unused(x) { return x }\n{ print used($1) }");
+        assert_eq!(codes(&v), ["W207"]);
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        // Formats built from literals are checked too.
+        assert_eq!(codes(&run("BEGIN { printf \"%s \" \"%s\\n\", 1 }")), ["W202"]);
+        assert_eq!(codes(&run("BEGIN { print sprintf(\"%d\" \"\", 1, 2) }")), ["W203"]);
+    }
+
+    #[test]
     fn format_arguments() {
         assert_eq!(super::format_arguments(b"%s %d%%\n"), 2);
         assert_eq!(super::format_arguments(b"%-*.*f|%5.2e %lld"), 5);
@@ -1761,14 +1995,14 @@ mod tests {
         assert_eq!(codes(&v), ["W202"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 3);
-        assert_eq!(codes(&run("BEGIN { x = sprintf(\"%d\", 1, 2) }")), ["W203"]);
+        assert_eq!(codes(&run("BEGIN { print sprintf(\"%d\", 1, 2) }")), ["W203"]);
         assert_eq!(codes(&run("BEGIN { printf(\"%s\") }")), ["W202"]);
         assert!(codes(&run("BEGIN { printf \"%s=%d\\n\", \"a\", 1; x = \"%s\"; printf x }")).is_empty());
     }
 
     #[test]
     fn header_columns() {
-        let prog = "BEGIN { n = 1 }\n{ print $FI[\"name\"], FI[\"age\"] }";
+        let prog = "BEGIN { n = 1; print n }\n{ print $FI[\"name\"], FI[\"age\"] }";
         let v = run(prog);
         assert_eq!(codes(&v), ["W105"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
@@ -1839,7 +2073,7 @@ mod tests {
         assert!(codes(&run_with("BEGIN { FS = \",\" } { print $2 }", &opts)).is_empty());
         assert!(codes(&run_with("{ print $2 }", &with_lines(&["a,b"], false, Some(",")))).is_empty());
         // An unknown separator: no checks.
-        assert!(codes(&run_with("{ x = \",\"; FS = x; print $2 }", &opts)).is_empty());
+        assert!(codes(&run_with("BEGIN { x = \",\"; FS = x } { print $2 }", &opts)).is_empty());
         assert!(codes(&run_with("{ print $1 }", &opts)).is_empty());
         // A header read with the wrong separator.
         let header = with_lines(&["name,age", "a,1"], true, None);
@@ -1849,18 +2083,18 @@ mod tests {
     #[test]
     fn data_string_comparisons() {
         let opts = with_lines(&["id,price", "1,12.5", "2,N/A", "3,", "4, 7 "], true, Some(","));
-        let v = run_with("$2 > 10 || 5 <= $FI[\"price\"] { n++ } $1 > 0 { m++ }", &opts);
+        let v = run_with("$2 > 10 || 5 <= $FI[\"price\"] { n++ } $1 > 0 { m++ } END { print n, m }", &opts);
         assert_eq!(codes(&v), ["W129", "W129"]);
         assert!(message(&v, 0).contains("1 record of the first 4 records of `data.csv` (e.g. record 2: \"N/A\")"));
         assert!(message(&v, 1).contains("`$FI[\"price\"]` is compared with the number 5"));
-        assert!(codes(&run_with("$2 + 0 > 10 { n++ } $2 == 10 { m++ }", &opts)).is_empty());
+        assert!(codes(&run_with("$2 + 0 > 10 { n++ } $2 == 10 { m++ } END { print n, m }", &opts)).is_empty());
         // A header line read as a record.
-        let v = run_with("$2 > 10 { n++ }", &with_lines(&["id,price", "1,12.5"], false, Some(",")));
+        let v = run_with("$2 > 10 { print }", &with_lines(&["id,price", "1,12.5"], false, Some(",")));
         assert_eq!(codes(&v), ["W129"]);
         assert!(message(&v, 0).contains("looks like a header line"));
         // Hexadecimal and signed inf/nan fields are numbers, as at run time.
         let opts = with_lines(&["id,amt", "1,0x1F", "2,+inf", "3,-nan"], true, Some(","));
-        assert!(codes(&run_with("$2 > 5 { n++ }", &opts)).is_empty());
+        assert!(codes(&run_with("$2 > 5 { print }", &opts)).is_empty());
     }
 
     #[test]
@@ -1883,10 +2117,10 @@ mod tests {
         assert_eq!(codes(&v), ["W115"]);
         assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("`x` is assigned"));
         assert_eq!(v["diagnostics"][0]["column"], 13);
-        assert_eq!(codes(&run("BEGIN { while (y = 0) {} }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { do {} while (!(y = 0)) }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { for (i = 0; i = 3; i++) break }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { z = 1; x = (z = 2) ? 1 : 2; print x }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { while (y = 0) {} print y }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { do {} while (!(y = 0)); print y }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { for (i = 0; i = 3; i++) break; print i }")), ["W115"]);
+        assert_eq!(codes(&run("BEGIN { z = 1; x = (z = 2) ? 1 : 2; print x, z }")), ["W115"]);
         assert_eq!(codes(&run("{ a = $1 } a = \"x\" && 1 { print a }")), ["W115"]);
         assert_eq!(codes(&run("BEGIN { a[1] = 0; if (a[1] = 2) print }")), ["W115"]);
         assert!(codes(&run("BEGIN { if ((x = 1) != \"\") print x }")).is_empty());

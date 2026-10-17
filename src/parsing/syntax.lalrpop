@@ -160,7 +160,11 @@ CaseValue: &'a Expr<'a,'a,&'a str> = {
         Expr::FLit(f) => Expr::FLit(-*f),
         _ => unreachable!(),
     }),
-    "STRLIT" => arena.alloc(Expr::StrLit(lexer::parse_string_literal(<>, &arena, buf))),
+    <l:@L> <s:"STRLIT"> => {
+      let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::StrLit(lexer::parse_string_literal(s, &arena, buf)));
+      prog.locs.insert(expr_key(e), l);
+      e
+  },
     "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
 }
 
@@ -243,14 +247,13 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "print(" "\n"* <pa:(<Args?>)> ")" <re:Redirect?> =>
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
-    // The location of `printf` is kept under its format (unless the format has its own), for
-    // `zawk lint`.
+    // The location of `printf` is kept under its format, for `zawk lint`.
     <l:@L> "printf" <spec:PrintExpr> <pa: ("," "\n"* <PrintArgs>)?> <re:Redirect?> => {
-        prog.locs.entry(expr_key(spec)).or_insert(l);
+        prog.locs.insert(expr_key(spec), l);
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re))
     },
     <l:@L> "printf(" "\n"* <spec:(<Expr> "\n"*)> <pa: ("," "\n"* <Args>)?> ")" <re:Redirect?> => {
-        prog.locs.entry(expr_key(spec)).or_insert(l);
+        prog.locs.insert(expr_key(spec), l);
         arena.alloc(Stmt::Printf(spec, arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re))
     },
     // `exit` without a code has no argument: in END it keeps the code of an earlier `exit`.
@@ -505,7 +508,11 @@ Ident: &'a Expr<'a,'a,&'a str> = {
 }
 
 StrLit: &'a Expr<'a,'a,&'a str> = {
-  "STRLIT" => arena.alloc(Expr::StrLit(lexer::parse_string_literal(<>, &arena, buf))),
+  <l:@L> <s:"STRLIT"> => {
+      let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::StrLit(lexer::parse_string_literal(s, &arena, buf)));
+      prog.locs.insert(expr_key(e), l);
+      e
+  },
   <l:@L> <s:"FSTRLIT"> =>? crate::parsing::parse_fstring_literal(s, l, arena, buf, prog),
 }
 
