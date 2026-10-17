@@ -47,6 +47,16 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`
 - `ARGV`/`ARGC` are read-only: changing them doesn't change the input files
 - No `var=value` operands between files: assign variables with `-v var=value`
+- `$0`, fields (`$1`, `$n`) and `NF`/`NR` are read-only: build a new string and print it instead
+  (`print "x", $2`); `sub()`/`gsub()` on `$0` or a field are still allowed. `zawk lint` and `--lint`
+  report such assignments (E305)
+- A string whose value looks like the number zero is false in a condition: `if ("0")`, `if (" 0")`,
+  `if ("0.0")`, `if ("0x0")` and `x = substr("10", 2); if (x)` are all false (gawk treats every
+  non-empty string constant or string result as true). Use `if (s != "")` to test for a non-empty string
+- In `for (k in a)`, how `k` compares depends on how the keys were stored: with keys that are only
+  ever numbers (`a[NR]`, `a[10]`) `k > 9` compares numbers, while with string keys (`a[$1]`, or any
+  `a["x"]` elsewhere in the program) it compares strings, as gawk always does. Write `k+0 > 9` for a
+  numeric comparison and `k "" > "9"` for a string comparison
 - Hexadecimal numbers are recognized, in source and input data, wherever a string becomes a number (arithmetic, comparisons such as `$1 == 16`, printf, sorting): `0x10` is 16 and `-0x10` is -16; a leading zero is decimal: `010` is 10; there are no `0o`/`0b` prefixes
 - With the default `FS`, `\r` separates fields (in the main input, `getline`, `$0 = ...` and `split()` alike), so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
