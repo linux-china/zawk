@@ -3,7 +3,7 @@ use std::io;
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::rc::Weak;
 
-use hashbrown::HashMap;
+use crate::runtime::HashMap;
 
 use crate::runtime::{Int, Str, StrMap};
 
@@ -66,7 +66,7 @@ pub fn run_command(cmd: &str) -> Int {
 }
 
 pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     if let Ok(mut command) = prepare_command(cmd, command_env().as_ref()) {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Ok(output) = command.output() {

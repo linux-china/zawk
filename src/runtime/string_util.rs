@@ -81,7 +81,7 @@ pub fn write_all(path: &str, content: &str) {
 
 pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let is_url_query = pair_sep == "&" && kv_sep == "=";
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     text.trim_matches(|c| c == '"' || c == '\'')
         .split(pair_sep)
         .for_each(|pair| {
@@ -166,7 +166,7 @@ pub(crate) fn message<'b>(text: &str) -> StrMap<'b, Str<'b>> {
 
 /// parse record: `attr_name{key1=value1,key2=value2}`
 pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     if text.starts_with('{') && text.ends_with('}') {
         // simple map
         let lexer = RecordToken::lexer(&text);
@@ -423,7 +423,7 @@ pub fn last_part(text: &str, sep: &str) -> String {
 /// for example: template = "hello {name}, welcome to {city}", text = "hello world, welcome to Beijing"
 /// result is {"name": "world", "city": "Beijing"}
 pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     let mut tokens: Vec<String> = vec![];
     let mut names: Vec<String> = vec![];
     let mut sep: String = "".to_string();

@@ -33,7 +33,7 @@ pub fn user_home() -> String {
 }
 
 pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     let path_buf = PathBuf::from(text);
     if path_buf.exists() {
         map.insert(Str::from("exists"), Str::from("1"));

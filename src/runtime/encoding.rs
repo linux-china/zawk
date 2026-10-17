@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use hashbrown::HashMap;
+use crate::runtime::HashMap;
 use urlencoding::decode_binary as url_decode_binary;
 use base58;
 use base58::{FromBase58, ToBase58};
@@ -101,7 +101,7 @@ fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
-    let mut map: HashMap<Str, Str> = HashMap::new();
+    let mut map: HashMap<Str, Str> = HashMap::default();
     if text.starts_with("data:") {
         let parts: Vec<&str> = text.splitn(2, ",").collect();
         if parts.len() == 2 {
@@ -123,7 +123,7 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
 }
 
 lazy_static! {
-    static ref BLOOM_FILTERS: Arc<Mutex<HashMap<String, GrowableBloom>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref BLOOM_FILTERS: Arc<Mutex<HashMap<String, GrowableBloom>>> = Arc::new(Mutex::new(HashMap::default()));
 }
 
 pub fn bf_insert(item: &[u8], group: &str) {

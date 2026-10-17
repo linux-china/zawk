@@ -554,7 +554,7 @@ impl<'a> Str<'a> {
         map
     }
     pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
-        let mut map = hashbrown::HashMap::new();
+        let mut map = crate::runtime::HashMap::default();
         let mut url_text = self.to_string();
         if url_text.starts_with("jdbc:") {
             url_text = url_text.replace("jdbc:", "jdbc+");

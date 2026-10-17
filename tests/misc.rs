@@ -2730,3 +2730,20 @@ fn json_values_are_decoded() {
             .stdout("[] 0\n1 0\nline1\nline2 \"q\"\n[] [1,2]\nx\ty|2\n");
     }
 }
+
+#[test]
+fn for_in_order_is_reproducible() {
+    let prog = r#"{ a[$1]; b[NR] = $1 } END { for (k in a) printf "%s", k; for (k in b) printf " %s", k; print "" }"#;
+    let input = "x\ny\nz\nw\nv\nfoo\nbar\nbaz\n";
+    let run = |backend_arg: &str| {
+        let out = Command::cargo_bin("zawk").unwrap().args([backend_arg, prog]).write_stdin(input).output().unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let expected = run(BACKEND_ARGS[0]);
+    for backend_arg in BACKEND_ARGS {
+        for _ in 0..5 {
+            assert_eq!(run(backend_arg), expected, "backend {}", backend_arg);
+        }
+    }
+}

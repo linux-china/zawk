@@ -6495,6 +6495,7 @@ dependencies = [
  "fend-core",
  "figlet-rs",
  "flate2",
+ "foldhash 0.2.0",
  "futures-util",
  "grep-cli",
  "growable-bloom-filter",

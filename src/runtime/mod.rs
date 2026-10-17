@@ -1,6 +1,7 @@
 use crate::common::{FileSpec, Result};
 use command::CommandReader;
-use hashbrown::HashMap;
+// Fixed-seed hasher: keeps `for (k in a)` order reproducible across runs and backends.
+pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::FixedState>;
 use regex::bytes::Regex;
 use std::cell::{Cell, RefCell};
 use std::fs::File;
@@ -1002,7 +1003,7 @@ pub(crate) struct StrLru<V> {
 impl<V> StrLru<V> {
     pub(crate) fn new(budget: usize, cost: CostModel) -> Self {
         StrLru {
-            cached: HashMap::new(),
+            cached: HashMap::default(),
             budget,
             cost,
             used: 0,

@@ -6,7 +6,7 @@ use ini::configparser::ini::Ini;
 use crate::runtime::{stdlib_warning, Str, StrMap};
 
 pub(crate) fn read_config<'b>(file: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     if file.ends_with(".ini") {
         match read_ini(file) {
             Ok(data_map) => {

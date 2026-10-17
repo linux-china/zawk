@@ -82,7 +82,7 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     if json_text.starts_with('[') {
         return from_json_array(json_text);
     }
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     if !json_text.is_empty() {
         if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(json_text) {
             for (key, value) in json_obj {
@@ -117,7 +117,7 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
 }
 
 fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = hashbrown::HashMap::new();
+    let mut map = crate::runtime::HashMap::default();
     if !json_text.is_empty() {
         let result = json::from_str::<Vec<Value>>(json_text);
         if let Ok(json_array) = result {

@@ -176,7 +176,7 @@ fn is_trusted_jwks_url(url: &str) -> bool {
 }
 
 pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
-    let map = hashbrown::HashMap::new();
+    let map = crate::runtime::HashMap::default();
     let header = match decode_header(token) {
         Ok(header) => header,
         Err(_) => return SharedMap::from(map),
