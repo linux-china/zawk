@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use miniserde::json;
@@ -45,7 +45,7 @@ pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
 }
 
 pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
-    let mut json_obj: HashMap<String, Int> = HashMap::new();
+    let mut json_obj: BTreeMap<String, Int> = BTreeMap::new();
     obj.iter(|map| {
         for (key, value) in map {
             json_obj.insert(key.to_string(), *value);
@@ -55,7 +55,7 @@ pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
 }
 
 pub(crate) fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
-    let mut json_obj: HashMap<String, Float> = HashMap::new();
+    let mut json_obj: BTreeMap<String, Float> = BTreeMap::new();
     obj.iter(|map| {
         for (key, value) in map {
             json_obj.insert(key.to_string(), *value);
@@ -65,12 +65,10 @@ pub(crate) fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
 }
 
 pub(crate) fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
-    let mut json_obj: HashMap<String, String> = HashMap::new();
+    let mut json_obj: BTreeMap<String, String> = BTreeMap::new();
     obj.iter(|map| {
         for (key, value) in map {
-            if !value.is_empty() {
-                json_obj.insert(key.to_string(), value.to_string());
-            }
+            json_obj.insert(key.to_string(), value.to_string());
         }
     });
     json::to_string(&json_obj)
@@ -108,7 +106,9 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
                     Value::Object(obj) => {
                         map.insert(Str::from(key), Str::from(json::to_string(&obj)));
                     }
-                    _ => {}
+                    Value::Null => {
+                        map.insert(Str::from(key), Str::default());
+                    }
                 }
             }
         }
@@ -144,7 +144,7 @@ fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
                         map.insert(Str::from(key), Str::from(json::to_string(&obj)));
                     }
                     Value::Null => {
-                        map.insert(Str::from(key), Str::from(json::to_string("")));
+                        map.insert(Str::from(key), Str::default());
                     }
                 }
             }
@@ -173,6 +173,15 @@ fn compiled_json_path<'p>(pool: &'p mut StrLru<JsonPath>, func: &str, json_path:
         .ok()
 }
 
+/// Text of a JSONPath result: strings are decoded, null is empty, other values stay JSON text.
+fn json_node_text(node: &serde_json::Value) -> String {
+    match node {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
 pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
     if !json_text.is_empty() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
@@ -181,7 +190,7 @@ pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
                 return "".to_owned();
             };
             if let Some(node) = json_path.query(&json).first() {
-                return node.to_string().trim_matches('"').to_owned();
+                return json_node_text(node);
             }
         }
     }
@@ -197,7 +206,7 @@ pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>
                 return map;
             };
             for (i, item) in json_path.query(&json).iter().enumerate() {
-                map.insert((i + 1) as i64, Str::from(item.to_string()));
+                map.insert((i + 1) as i64, Str::from(json_node_text(item)));
             }
         }
     }

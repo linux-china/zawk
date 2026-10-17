@@ -2658,3 +2658,35 @@ fn char_at_out_of_range_is_empty() {
             .stdout("[]a[]c[]\n");
     }
 }
+
+#[test]
+fn to_json_keeps_empty_values_and_sorts_keys() {
+    let prog = r#"BEGIN { a["k"] = "v"; a["e"] = ""; print to_json(a); for (i = 2; i >= 0; i--) b["k" i] = i; print to_json(b) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("{\"e\":\"\",\"k\":\"v\"}\n{\"k0\":0,\"k1\":1,\"k2\":2}\n");
+    }
+}
+
+#[test]
+fn json_values_are_decoded() {
+    let prog = r#"BEGIN {
+        x = from_json("[1,null,\"s\"]"); print "[" x[2] "]", length(x[2])
+        o = from_json("{\"n\":null}"); print ("n" in o), length(o["n"])
+        print json_value("{\"a\":\"line1\\nline2 \\\"q\\\"\"}", "$.a")
+        print "[" json_value("{\"a\":null}", "$.a") "]", json_value("{\"a\":[1,2]}", "$.a")
+        q = json_query("{\"b\":[{\"n\":\"x\\ty\"},{\"n\":2}]}", "$.b[*].n"); print q[1] "|" q[2]
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("[] 0\n1 0\nline1\nline2 \"q\"\n[] [1,2]\nx\ty|2\n");
+    }
+}

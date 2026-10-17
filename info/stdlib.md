@@ -674,21 +674,25 @@ zawk 'BEGIN{ state["city"] = "Peking";  print jev(state, "the capital of China o
 
 ### from_json
 
-`from_json(json_text)`
+`from_json(json_text)`: parse a JSON object (keys) or array (keys `1..n`) into an array.
+Strings are decoded, `true`/`false` become `1`/`0`, `null` becomes `""`, nested arrays/objects stay as JSON text.
 
 ### to_json
 
-`to_json(array)`
+`to_json(array)`: arrays with integer keys become JSON arrays (ordered by key), other arrays become JSON objects
+with keys sorted, so the output is stable across runs. Empty values are kept. Values follow the array's inferred type:
+a string-valued array (e.g. `a["n"]=1; a["s"]="x"`) encodes every value as a JSON string (`{"n":"1","s":"x"}`).
 
 ### json_value
 
-`json_value(json_text, json_path)`: return only one text value - `json_value(json_text, '$.store.book[0].title')`
+`json_value(json_text, json_path)`: return only one text value - `json_value(json_text, '$.store.book[0].title')`.
+Strings are decoded (escapes resolved, no quotes), `null` becomes `""`, numbers/booleans/arrays/objects are returned as JSON text.
 
 **Tips**: [RFC 9535 JSONPath: Query Expressions for JSON](https://www.rfc-editor.org/rfc/rfc9535.html)
 
 ### json_query
 
-`json_query(json_text, json_path)`: return array with text value
+`json_query(json_text, json_path)`: return array with text value, decoded with the same rules as `json_value`
 
 # CSV
 
