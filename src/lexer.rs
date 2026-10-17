@@ -889,9 +889,23 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += c.len_utf8();
                         let (s, new_start) = self.ident(ix);
                         let bs = self.text.as_bytes();
-                        if new_start < bs.len() && self.text.as_bytes()[new_start] == b'(' {
-                            self.cur = new_start + 1;
+                        // POSIX allows blanks between a builtin's name and `(`, e.g.
+                        // `substr ($0, 2)`; only user-defined calls need the `(` right after.
+                        let is_builtin = crate::builtins::is_awk_builtin(s);
+                        let lparen = if is_builtin {
+                            new_start + bs[new_start..].iter().take_while(|b| matches!(b, b' ' | b'\t')).count()
+                        } else {
+                            new_start
+                        };
+                        if lparen < bs.len() && bs[lparen] == b'(' {
+                            self.cur = lparen + 1;
                             self.spanned(ix, self.cur, Tok::CallStart(s))
+                        } else if is_builtin && s != "length" {
+                            // Builtin names are reserved, as in gawk: `toupper = 1` is an error.
+                            return Some(Err(Error {
+                                location: self.index_to_loc(ix),
+                                desc: format!("builtin function `{}` cannot be used as a variable", s).into(),
+                            }));
                         } else {
                             self.cur = new_start;
                             self.spanned(ix, self.cur, Tok::Ident(s))
@@ -1048,15 +1062,29 @@ and the third"#;
             vec![Ident("switches"), Ident("cases"), Ident("defaults")]
         );
         assert_eq!(
-            toks("nextval exit_code elsewhere done index"),
+            toks("nextval exit_code elsewhere done indexes"),
             vec![
                 Ident("nextval"),
                 Ident("exit_code"),
                 Ident("elsewhere"),
                 Ident("done"),
-                Ident("index"),
+                Ident("indexes"),
             ]
         );
+    }
+
+    #[test]
+    fn builtin_call_with_blanks() {
+        use Tok::*;
+        let toks = |s| lex_str(s).into_iter().map(|x| x.1).filter(|t| t != &Newline).collect::<Vec<_>>();
+        assert_eq!(toks("int (x)"), vec![CallStart("int"), Ident("x"), RParen]);
+        assert_eq!(toks("substr \t($0, 2)").len(), 6);
+        assert_eq!(toks("length"), vec![Ident("length")]);
+        assert_eq!(toks("length ($1)")[0], CallStart("length"));
+        // User-defined and stdlib extension functions still need `(` right after the name.
+        assert_eq!(toks("max (x)"), vec![Ident("max"), LParen, Ident("x"), RParen]);
+        let err = Tokenizer::new("toupper = 1").find_map(|t| t.err()).unwrap();
+        assert!(err.desc.contains("toupper"));
     }
 
     #[test]
