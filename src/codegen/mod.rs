@@ -1286,6 +1286,31 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(json_value), &mut [json_text, json_path])?;
                 self.bind_val(dst.reflect(),resv)
             }
+            JsonHas(dst, json_text, key) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_has), &mut [json_text, key])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            JsonGet(dst, json_text, key) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_get), &mut [json_text, key])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            JsonSet(dst, json_text, key, value) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let value = self.get_val(value.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_set), &mut [json_text, key, value])?;
+                self.bind_val(dst.reflect(),resv)
+            }
+            JsonDel(dst, json_text, key) => {
+                let json_text = self.get_val(json_text.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(json_del), &mut [json_text, key])?;
+                self.bind_val(dst.reflect(),resv)
+            }
             JsonQuery(dst, json_text, json_path) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let json_path = self.get_val(json_path.reflect())?;

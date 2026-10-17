@@ -339,6 +339,10 @@ pub(crate) enum Instr<'a> {
     NullToJson(Reg<Str<'a>>),
     JsonValue(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     JsonQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JsonHas(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JsonGet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JsonSet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    JsonDel(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     HtmlValue(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     HtmlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     XmlValue(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1109,6 +1113,22 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 json_text.accum(&mut f);
                 json_path.accum(&mut f);
+            }
+            JsonHas(dst, json_text, key) => {
+                dst.accum(&mut f);
+                json_text.accum(&mut f);
+                key.accum(&mut f);
+            }
+            JsonGet(dst, json_text, key) | JsonDel(dst, json_text, key) => {
+                dst.accum(&mut f);
+                json_text.accum(&mut f);
+                key.accum(&mut f);
+            }
+            JsonSet(dst, json_text, key, value) => {
+                dst.accum(&mut f);
+                json_text.accum(&mut f);
+                key.accum(&mut f);
+                value.accum(&mut f);
             }
             JsonQuery(dst, json_text, json_path) => {
                 dst.accum(&mut f);

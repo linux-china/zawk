@@ -2801,6 +2801,32 @@ fn json_values_are_decoded() {
 }
 
 #[test]
+fn json_object_functions() {
+    let prog = r#"BEGIN {
+        s = "{\"name\":\"Jack\",\"age\":18,\"n\":null}"
+        print json_has(s, "name"), json_has(s, "n"), json_has(s, "x"), json_has("[1]", "0"), json_has("bad", "a")
+        print json_get(s, "name") "|" json_get(s, "age") "|" json_get(s, "n") "|" json_get(s, "x") "|"
+        print json_set(s, "age", 20)
+        print json_set(s, "city", "Beijing"), json_set("", "a", "[1]"), json_set("bad", "a", 1)
+        print json_del(s, "name"), json_del(s, "x")
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout(concat!(
+                "1 1 0 0 0\n",
+                "Jack|18|||\n",
+                "{\"name\":\"Jack\",\"age\":20,\"n\":null}\n",
+                "{\"name\":\"Jack\",\"age\":18,\"n\":null,\"city\":\"Beijing\"} {\"a\":[1]} bad\n",
+                "{\"age\":18,\"n\":null} {\"name\":\"Jack\",\"age\":18,\"n\":null}\n",
+            ));
+    }
+}
+
+#[test]
 fn for_in_order_is_reproducible() {
     let prog = r#"{ a[$1]; b[NR] = $1 } END { for (k in a) printf "%s", k; for (k in b) printf " %s", k; print "" }"#;
     let input = "x\ny\nz\nw\nv\nfoo\nbar\nbaz\n";

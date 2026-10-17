@@ -1147,6 +1147,35 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = Str::from(res);
                     }
+                    JsonHas(dst, json_text, key) => {
+                        let json_text = index(&self.strs, json_text);
+                        let key = index(&self.strs, key);
+                        let res = runtime::json::json_has(&*json_text.as_str(), &*key.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    JsonGet(dst, json_text, key) => {
+                        let json_text = index(&self.strs, json_text);
+                        let key = index(&self.strs, key);
+                        let res = runtime::json::json_get(&*json_text.as_str(), &*key.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
+                    JsonSet(dst, json_text, key, value) => {
+                        let json_text = index(&self.strs, json_text);
+                        let key = index(&self.strs, key);
+                        let value = index(&self.strs, value);
+                        let res = runtime::json::json_set(&*json_text.as_str(), &*key.as_str(), &*value.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
+                    JsonDel(dst, json_text, key) => {
+                        let json_text = index(&self.strs, json_text);
+                        let key = index(&self.strs, key);
+                        let res = runtime::json::json_del(&*json_text.as_str(), &*key.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = Str::from(res);
+                    }
                     JsonQuery(dst, json_text, json_path) => {
                         let json_text = index(&self.strs, json_text);
                         let json_path = index(&self.strs, json_path);

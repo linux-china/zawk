@@ -97,7 +97,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
 const EXEMPT: &[&str] = &[
     "url", "data_url", "path", "semver", "uuid", "_join", "eval", "fend", "strftime", "mktime",
     "duration", "hex2rgb", "fake", "jev", "jev_prob", "jev_choice", "jev_score", "from_json",
-    "json_value", "json_query", "from_csv", "xml_value", "xml_query", "html_value", "html_query",
+    "json_value", "json_query", "json_has", "json_get", "json_set", "json_del", "from_csv", "xml_value", "xml_query", "html_value", "html_query",
     "jwt", "dejwt", "kv_get", "kv_put", "kv_delete", "kv_clear", "http_get", "http_post",
     "send_mail", "send_email", "smtp_send", "s3_get", "s3_put", "publish", "sqlite_query",
     "sqlite_execute", "libsql_query", "libsql_execute", "pg_query", "pg_execute", "mysql_query",

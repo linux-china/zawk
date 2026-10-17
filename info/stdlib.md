@@ -707,6 +707,24 @@ Strings are decoded (escapes resolved, no quotes), `null` becomes `""`, numbers/
 
 `json_query(json_text, json_path)`: return array with text value, decoded with the same rules as `json_value`
 
+### json_has
+
+`json_has(json_text, key)`: 1 if the JSON object has the top-level key, else 0 - `json_has(json_text, "id")`.
+
+### json_get
+
+`json_get(json_text, key)`: value of the top-level key, `""` if not found, decoded with the same rules as `json_value` - `json_get(json_text, "name")`.
+
+### json_set
+
+`json_set(json_text, key, value)`: new JSON text with the key set - `json_set(json_text, "age", 18)`.
+A value that is valid JSON text (`18`, `true`, `null`, `"text"`, `[1,2]`, `{"a":1}`) is kept as JSON, any other text is stored as a JSON string.
+Empty `json_text` starts a new object; text that is not a JSON object is returned unchanged.
+
+### json_del
+
+`json_del(json_text, key)`: new JSON text without the key - `json_del(json_text, "password")`.
+
 # CSV
 
 ### from_csv

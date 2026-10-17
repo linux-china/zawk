@@ -324,6 +324,19 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(json_text.into()));
                 f(dst.into(), Some(json_path.into()));
             }
+            JsonHas(dst, json_text, key) => {
+                f(dst.into(), Some(json_text.into()));
+                f(dst.into(), Some(key.into()));
+            }
+            JsonGet(dst, json_text, key) | JsonDel(dst, json_text, key) => {
+                f(dst.into(), Some(json_text.into()));
+                f(dst.into(), Some(key.into()));
+            }
+            JsonSet(dst, json_text, key, value) => {
+                f(dst.into(), Some(json_text.into()));
+                f(dst.into(), Some(key.into()));
+                f(dst.into(), Some(value.into()));
+            }
             JsonQuery(dst, json_text, json_path) => {
                 f(dst.into(), Some(json_text.into()));
                 f(dst.into(), Some(json_path.into()));

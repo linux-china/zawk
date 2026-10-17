@@ -2779,6 +2779,31 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::JsonQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            JsonHas => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonHas(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            JsonGet => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
+            JsonSet => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonSet(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+            JsonDel => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::JsonDel(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             HtmlValue => {
                 if res_reg != UNUSED {
                     self.pushl(LL::HtmlValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))

@@ -211,6 +211,50 @@ pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>
 }
 
 
+/// Top-level JSON object of the text, `None` for empty, invalid or non-object text.
+fn json_object(json_text: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    match serde_json::from_str::<serde_json::Value>(json_text) {
+        Ok(serde_json::Value::Object(obj)) => Some(obj),
+        _ => None,
+    }
+}
+
+pub(crate) fn json_has(json_text: &str, key: &str) -> Int {
+    json_object(json_text).is_some_and(|obj| obj.contains_key(key)) as Int
+}
+
+pub(crate) fn json_get(json_text: &str, key: &str) -> String {
+    json_object(json_text)
+        .and_then(|obj| obj.get(key).map(json_node_text))
+        .unwrap_or_default()
+}
+
+/// Value text that is valid JSON (number, true, `"s"`, `[..]`, `{..}`) is stored as is, other text as a JSON string.
+pub(crate) fn json_set(json_text: &str, key: &str, value: &str) -> String {
+    let mut obj = if json_text.trim().is_empty() {
+        serde_json::Map::new()
+    } else {
+        match json_object(json_text) {
+            Some(obj) => obj,
+            None => return json_text.to_owned(),
+        }
+    };
+    let value = serde_json::from_str::<serde_json::Value>(value)
+        .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
+    obj.insert(key.to_owned(), value);
+    serde_json::Value::Object(obj).to_string()
+}
+
+pub(crate) fn json_del(json_text: &str, key: &str) -> String {
+    if let Some(mut obj) = json_object(json_text) {
+        if obj.shift_remove(key).is_some() {
+            return serde_json::Value::Object(obj).to_string();
+        }
+    }
+    json_text.to_owned()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

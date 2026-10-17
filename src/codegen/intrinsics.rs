@@ -301,6 +301,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] float_to_json(float_ty) -> str_ty;
         [ReadOnly] null_to_json() -> str_ty;
         [ReadOnly] json_value(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] json_has(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] json_get(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] json_set(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] json_del(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] json_query(str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] html_value(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] html_query(str_ref_ty, str_ref_ty) -> map_ty;
@@ -2369,6 +2373,42 @@ pub(crate) unsafe extern "C" fn json_value(json_text: *mut U128, json_path: *mut
         let json_path = &*(json_path as *mut Str);
         let value = runtime::json::json_value(&*json_text.as_str(), &*json_path.as_str());
         mem::transmute::<Str, U128>(Str::from(value))
+    })
+}
+
+pub(crate) unsafe extern "C" fn json_has(json_text: *mut U128, key: *mut U128) -> Int {
+    guard_panic(stringify!(json_has), || {
+        let json_text = &*(json_text as *mut Str);
+        let key = &*(key as *mut Str);
+        runtime::json::json_has(&*json_text.as_str(), &*key.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn json_get(json_text: *mut U128, key: *mut U128) -> U128 {
+    guard_panic(stringify!(json_get), || {
+        let json_text = &*(json_text as *mut Str);
+        let key = &*(key as *mut Str);
+        let value = runtime::json::json_get(&*json_text.as_str(), &*key.as_str());
+        mem::transmute::<Str, U128>(Str::from(value))
+    })
+}
+
+pub(crate) unsafe extern "C" fn json_set(json_text: *mut U128, key: *mut U128, value: *mut U128) -> U128 {
+    guard_panic(stringify!(json_set), || {
+        let json_text = &*(json_text as *mut Str);
+        let key = &*(key as *mut Str);
+        let value = &*(value as *mut Str);
+        let res = runtime::json::json_set(&*json_text.as_str(), &*key.as_str(), &*value.as_str());
+        mem::transmute::<Str, U128>(Str::from(res))
+    })
+}
+
+pub(crate) unsafe extern "C" fn json_del(json_text: *mut U128, key: *mut U128) -> U128 {
+    guard_panic(stringify!(json_del), || {
+        let json_text = &*(json_text as *mut Str);
+        let key = &*(key as *mut Str);
+        let res = runtime::json::json_del(&*json_text.as_str(), &*key.as_str());
+        mem::transmute::<Str, U128>(Str::from(res))
     })
 }
 

@@ -133,6 +133,10 @@ pub enum Function {
     ToJson,
     JsonValue,
     JsonQuery,
+    JsonHas,
+    JsonGet,
+    JsonSet,
+    JsonDel,
     HtmlValue,
     HtmlQuery,
     XmlValue,
@@ -490,6 +494,10 @@ static_map!(
     ["to_json", Function::ToJson],
     ["json_value", Function::JsonValue],
     ["json_query", Function::JsonQuery],
+    ["json_has", Function::JsonHas],
+    ["json_get", Function::JsonGet],
+    ["json_set", Function::JsonSet],
+    ["json_del", Function::JsonDel],
     ["html_value", Function::HtmlValue],
     ["html_query", Function::HtmlQuery],
     ["xml_value", Function::XmlValue],
@@ -984,6 +992,9 @@ impl Function {
             ToJson => (smallvec![incoming[0]], Str),
             JsonValue => (smallvec![Str,Str], Str),
             JsonQuery => (smallvec![Str,Str], MapIntStr),
+            JsonHas => (smallvec![Str,Str], Int),
+            JsonGet | JsonDel => (smallvec![Str,Str], Str),
+            JsonSet => (smallvec![Str,Str,Str], Str),
             HtmlValue => (smallvec![Str,Str], Str),
             HtmlQuery => (smallvec![Str,Str], MapIntStr),
             XmlValue => (smallvec![Str,Str], Str),
@@ -1116,6 +1127,8 @@ impl Function {
             Eval => 2,
             DefaultIfEmpty => 2,
             JsonValue | JsonQuery | HtmlValue | HtmlQuery | XmlValue | XmlQuery => 2,
+            JsonHas | JsonGet | JsonDel => 2,
+            JsonSet => 3,
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => 2,
             Pairs => 3,
             LastPart => 2,
@@ -1232,7 +1245,7 @@ impl Function {
             ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | HtmlValue | XmlValue | ToCsv | TypeOfVariable | TypeOfUntyped | IntMapJoin => {
+            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv | TypeOfVariable | TypeOfUntyped | IntMapJoin => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Chars => Ok(Map {
@@ -1266,7 +1279,7 @@ impl Function {
             ToBytes => {
                 Ok(Scalar(BaseTy::Int).abs())
             }
-            StartsWith | EndsWith | TextContains => {
+            StartsWith | EndsWith | TextContains | JsonHas => {
                 Ok(Scalar(BaseTy::Int).abs())
             }
             BloomFilterInsert => Ok(None),
