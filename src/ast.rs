@@ -40,12 +40,14 @@ static_map!(
     ["+", Unop::Pos]
 );
 
+#[derive(Debug)]
 pub struct FunDec<'a, 'b, I> {
     pub name: I,
     pub args: Vec<I>,
     pub body: &'a Stmt<'a, 'b, I>,
 }
 
+#[derive(Debug)]
 pub enum Pattern<'a, 'b, I> {
     Null,
     Bool(&'a Expr<'a, 'b, I>),

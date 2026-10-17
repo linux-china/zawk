@@ -16,6 +16,7 @@ pub mod cross_stage;
 pub mod dataflow;
 mod display;
 pub mod dom;
+mod fmt;
 mod function_docs;
 #[cfg(test)]
 pub mod harness;
@@ -395,6 +396,80 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+/// `zawk fmt`: prints the formatted programs, writes them back with `-w`, or with `--check` exits
+/// with 1 if a program is not formatted. Exits with 2 if a program can't be read or has a syntax
+/// error.
+fn run_fmt(matches: &clap::ArgMatches) -> ! {
+    let opts = fmt::Options {
+        indent: if matches.get_flag("tabs") {
+            "\t".to_string()
+        } else {
+            " ".repeat(*matches.get_one::<usize>("indent").unwrap())
+        },
+    };
+    let write = matches.get_flag("write");
+    let check = matches.get_flag("check");
+    // (name, text); the name is None for stdin and `-e`.
+    let mut programs: Vec<(Option<String>, String)> = Vec::new();
+    if let Some(text) = matches.get_one::<String>("source") {
+        programs.push((None, text.clone()));
+    } else {
+        let files: Vec<String> = matches
+            .get_many::<String>("files")
+            .map(|x| x.cloned().collect())
+            .unwrap_or_else(|| vec!["-".to_string()]);
+        for file in files {
+            let text = if file == "-" {
+                io::read_to_string(io::stdin())
+            } else {
+                std::fs::read_to_string(&file)
+            };
+            match text {
+                Ok(text) => programs.push(((file != "-").then_some(file), text)),
+                Err(e) => {
+                    eprintln!("zawk: can't read {}: {}", file, common::io_error_reason(&e));
+                    std::process::exit(2)
+                }
+            }
+        }
+    }
+    let mut failed = false;
+    let mut unformatted = false;
+    for (name, text) in &programs {
+        let label = name.as_deref().unwrap_or(if matches.contains_id("source") { "-e" } else { "<stdin>" });
+        let out = match fmt::format(text, &opts) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("zawk: {}: {}", label, e);
+                failed = true;
+                continue;
+            }
+        };
+        if check {
+            if out != *text {
+                unformatted = true;
+                println!("{}", label);
+            }
+        } else if let (true, Some(file)) = (write, name) {
+            if out != *text {
+                if let Err(e) = std::fs::write(file, &out) {
+                    eprintln!("zawk: can't write {}: {}", file, common::io_error_reason(&e));
+                    failed = true;
+                }
+            }
+        } else {
+            print!("{}", out);
+        }
+    }
+    std::process::exit(if failed {
+        2
+    } else if unformatted {
+        1
+    } else {
+        0
+    })
+}
+
 /// `zawk lint`: prints the JSON report and exits with 1 if the program has errors (or warnings,
 /// with `--deny-warnings`) or a program file cannot be read.
 fn run_lint(matches: &clap::ArgMatches) -> ! {
@@ -663,6 +738,36 @@ fn real_main() {
         .arg(Arg::new("input-files")
             .num_args(1..)
             .help("The input files of the run: the program is also checked against the first records of the first one (unknown `$FI[...]` columns, fields beyond NF, a wrong field separator, number comparisons of fields that are not numbers)"));
+    let fmt_cmd = Command::new("fmt")
+        .about("Format AWK programs: indent blocks, one statement per line, normalized spaces; comments are kept")
+        .arg(Arg::new("source")
+            .short('e')
+            .long("source")
+            .num_args(1)
+            .conflicts_with("files")
+            .help("Format this program text"))
+        .arg(Arg::new("write")
+            .short('w')
+            .long("write")
+            .num_args(0)
+            .conflicts_with("check")
+            .help("Write the result to the files instead of standard output"))
+        .arg(Arg::new("check")
+            .long("check")
+            .num_args(0)
+            .help("Only list the programs that are not formatted, and exit with 1 if there are any"))
+        .arg(Arg::new("indent")
+            .long("indent")
+            .value_parser(clap::value_parser!(usize))
+            .default_value("4")
+            .help("The number of spaces of one level of indentation"))
+        .arg(Arg::new("tabs")
+            .long("tabs")
+            .num_args(0)
+            .help("Indent with tabs instead of spaces"))
+        .arg(Arg::new("files")
+            .num_args(1..)
+            .help("The program files to format (`-` for standard input); read from stdin when no file is given"));
     let inspect_cmd = Command::new("inspect")
         .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file")
         .arg(Arg::new("input-format")
@@ -699,6 +804,7 @@ fn real_main() {
         .subcommand(functions_cmd)
         .subcommand(lint_cmd)
         .subcommand(inspect_cmd)
+        .subcommand(fmt_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -866,6 +972,10 @@ fn real_main() {
     // lint sub command
     if let Some(matches) = matches.subcommand_matches("lint") {
         run_lint(matches);
+    }
+    // fmt sub command
+    if let Some(matches) = matches.subcommand_matches("fmt") {
+        run_fmt(matches);
     }
     // inspect sub command
     if let Some(matches) = matches.subcommand_matches("inspect") {
