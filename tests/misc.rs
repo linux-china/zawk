@@ -2645,3 +2645,16 @@ fn stdlib_bad_arguments_do_not_panic() {
         assert!(String::from_utf8_lossy(&out.stderr).contains("mkpass: length"));
     }
 }
+
+#[test]
+fn char_at_out_of_range_is_empty() {
+    let prog = r#"BEGIN { print "[" char_at("abc", 0) "]" char_at("abc", 1) "[" char_at("abc", -1) "]" char_at("abc", 3) "[" char_at("abc", 4) "]" }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("[]a[]c[]\n");
+    }
+}

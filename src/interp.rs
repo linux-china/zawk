@@ -2021,13 +2021,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     CharAt(dst, text, index) => {
                         let index = *self.get(*index);
-                        if index <= 0 {
-                            panic!("invalid index for chat_at: {}, should start with 1", index)
+                        // Indexes start at 1; out-of-range indexes yield "" like substr.
+                        *index_mut(&mut self.strs, dst) = if index <= 0 {
+                            Str::default()
                         } else {
-                            let text = self.get(*text);
-                            let index = (index - 1) as usize;
-                            *index_mut(&mut self.strs, dst) = text.char_at(index);
-                        }
+                            self.get(*text).char_at((index - 1) as usize)
+                        };
                     }
                     Chars(dst, text) => {
                         let res = index(&self.strs, text).chars();

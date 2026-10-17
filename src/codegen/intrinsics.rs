@@ -3101,8 +3101,8 @@ pub(crate) unsafe extern "C" fn substr(base: *mut U128, l: Int, r: Int) -> U128 
 pub(crate) unsafe extern "C" fn char_at(text: *mut U128, index: Int) -> U128 {
     guard_panic(stringify!(char_at), || {
         let text = &*(text as *mut Str);
-        let index = (index - 1) as usize;
-        let res = text.char_at(index);
+        // Indexes start at 1; out-of-range indexes yield "" like substr.
+        let res = if index <= 0 { Str::default() } else { text.char_at((index - 1) as usize) };
         mem::transmute::<Str, U128>(res)
     })
 }
