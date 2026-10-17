@@ -2732,6 +2732,19 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             // that usage here.
             Either::Right(bi) => Either::Right(*bi),
         };
+        // index(s, /re/): a regex literal as a value is `$0 ~ /re/`, so this would silently search
+        // for "0" or "1". gawk rejects it, so do we.
+        if let (
+            Either::Right(f @ (builtins::Function::SubstrIndex | builtins::Function::SubstrLastIndex)),
+            [_, Expr::PatLit(_)],
+        ) = (&bi, args)
+        {
+            let name = if *f == builtins::Function::SubstrIndex { "index" } else { "last_index" };
+            return err!(
+                "{}: regexp constant as second argument is not allowed; use `match(s, /re/)` to find the position of a regex match",
+                name
+            );
+        }
         // length and length() => length($0)
         if let (Either::Right(builtins::Function::Length), []) = (&bi, args) {
             return self.call(

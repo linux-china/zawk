@@ -103,7 +103,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
 | W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |
 | W204 | user function called with more arguments than it declares                        |
-| W205 | `index(s, /re/)`: a regex literal there means `$0 ~ /re/` (use a string, or `match`) |
+| W205 | `index(/re/, s)`: a regex literal there means `$0 ~ /re/` (use a string, or `match`) |
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 

@@ -2660,6 +2660,32 @@ fn char_at_out_of_range_is_empty() {
 }
 
 #[test]
+fn index_with_regex_literal_is_error() {
+    // `index(s, /re/)` used to search for "0" or "1" (the value of `$0 ~ /re/`) and return 0.
+    for prog in [r#"BEGIN { print index("abc", /b/) }"#, r#"BEGIN { print last_index("abc", /b/) }"#] {
+        for backend_arg in BACKEND_ARGS {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, prog])
+                .assert()
+                .failure()
+                .stdout("")
+                .get_output()
+                .clone();
+            assert!(String::from_utf8_lossy(&out.stderr).contains("regexp constant as second argument is not allowed"));
+        }
+    }
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, r#"BEGIN { print index("abc", "b"), match("abc", /b/) }"#])
+            .assert()
+            .success()
+            .stdout("2 2\n");
+    }
+}
+
+#[test]
 fn float_literals_with_trailing_dot() {
     let prog = r#"BEGIN { print 1., 0., 3.e1, -1., 1.E+2, .5, 1.+1 }"#;
     for backend_arg in BACKEND_ARGS {

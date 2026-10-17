@@ -460,8 +460,8 @@ struct Facts<'a, 'p> {
     /// Assignments used as a condition (`if (x = 1)`): the assigned variable (if it is one) and
     /// the location.
     cond_assigns: Vec<(Option<&'a str>, Option<Loc>)>,
-    /// Calls of `index` with a regex literal argument (`index(s, /re/)`, where `/re/` means
-    /// `$0 ~ /re/`): the location.
+    /// Calls of `index` with a regex literal as the first argument (`index(/re/, s)`, where
+    /// `/re/` means `$0 ~ /re/`): the location.
     index_regexes: Vec<Option<Loc>>,
 }
 
@@ -842,7 +842,8 @@ impl<'a, 'p> Facts<'a, 'p> {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
                             }
                         }
-                        if *name == "index" && args.iter().any(|a| matches!(a, PatLit(_))) {
+                        // A regex literal as the second argument is a compile error (E300).
+                        if *name == "index" && matches!(args.first(), Some(PatLit(_))) {
                             self.index_regexes.push(self.loc(e));
                         }
                         READ_ONLY_FUNCTIONS.contains(name)
@@ -1179,7 +1180,7 @@ fn check_ast<'a>(prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) -> Vec<Diagn
         }
     }
 
-    // `index(s, /re/)`: a regex literal as a value is `$0 ~ /re/`, so this searches for "0" or "1".
+    // `index(/re/, s)`: a regex literal as a value is `$0 ~ /re/`, so this searches in "0" or "1".
     for loc in &facts.index_regexes {
         diags.push(warning(
             "W205",
@@ -1649,10 +1650,11 @@ mod tests {
 
     #[test]
     fn index_regex() {
-        let v = run("BEGIN { print index(\"abc\", /b/) }");
+        let v = run("{ print index(/a/, $1) }");
         assert_eq!(codes(&v), ["W205"]);
-        assert_eq!(v["diagnostics"][0]["column"], 15);
-        assert_eq!(codes(&run("{ print index(/a/, $1) }")), ["W205"]);
+        assert_eq!(v["diagnostics"][0]["column"], 9);
+        // As the second argument it is a compile error, not a warning.
+        assert_eq!(codes(&run("BEGIN { print index(\"abc\", /b/) }")), ["E300"]);
         assert!(codes(&run("BEGIN { print index(\"abc\", \"b\"), match(\"abc\", /b/) }")).is_empty());
     }
 
