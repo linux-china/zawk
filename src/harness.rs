@@ -978,6 +978,17 @@ depth 0: k=1 v=99
     );
 
     test_program!(
+        stdlib_failure_sets_errno,
+        r#" BEGIN {
+        d = digest("md5", "a"); print "[" ERRNO "]"
+        d = digest("nope", "a"); print ERRNO
+        ERRNO = ""; d = digest("nope", "a"); print ERRNO
+        ERRNO = ""; s = gensub(/a/, "b", 0, "aa"); print s, "[" ERRNO "]"
+        }"#,
+        "[]\ndigest: unsupported algorithm \"nope\"\ndigest: unsupported algorithm \"nope\"\nba []\n"
+    );
+
+    test_program!(
         string_truthiness_matches_nullish,
         r#" BEGIN {
         z = "0.0"

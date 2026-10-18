@@ -1541,16 +1541,65 @@ impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
 }
 
 /// Report the failure of a stdlib function (network, database, crypto, ...) on stderr, e.g.
-/// `zawk: warning: jwt: unsupported algorithm "NOPE"`. The function then returns an empty value
-/// instead of aborting the program. Each distinct message is reported once, so that a function
-/// failing on every record does not flood stderr.
+/// `zawk: warning: jwt: unsupported algorithm "NOPE"`, and set `ERRNO` to `func: msg`. The
+/// function then returns an empty value instead of aborting the program, so a script tells a
+/// failure from an empty result with `ERRNO = ""; r = f(...); if (ERRNO != "") ...`.
 pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
-    static WARNED: LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
-        LazyLock::new(Default::default);
-    let msg = format!("zawk: warning: {}: {}", func, msg);
-    let first = WARNED.lock().map_or(true, |mut warned| warned.insert(msg.clone()));
+    let msg = format!("{}: {}", func, msg);
+    warn_once(&msg);
+    set_errno(msg);
+}
+
+/// Like [`stdlib_warning`], for a notice about a call that still succeeded (`ERRNO` is unchanged).
+pub(crate) fn stdlib_notice(func: &str, msg: impl std::fmt::Display) {
+    warn_once(&format!("{}: {}", func, msg));
+}
+
+/// Most distinct warnings [`warn_once`] remembers: messages often carry a URL, a path or a SQL
+/// statement, so a function failing on every record must not grow the set without bound.
+const MAX_DISTINCT_WARNINGS: usize = 1024;
+
+#[derive(Default)]
+struct Warnings {
+    seen: std::collections::HashSet<String>,
+    /// Warnings not printed: repeats of a printed message, and new messages past the limit.
+    suppressed: u64,
+}
+
+impl Warnings {
+    /// Whether `msg` is to be printed: the first time it is seen, while fewer than
+    /// [`MAX_DISTINCT_WARNINGS`] messages were; otherwise it is counted as suppressed.
+    fn note(&mut self, msg: &str) -> bool {
+        if self.seen.contains(msg) || self.seen.len() >= MAX_DISTINCT_WARNINGS {
+            self.suppressed += 1;
+            false
+        } else {
+            self.seen.insert(msg.to_string())
+        }
+    }
+}
+
+static WARNINGS: LazyLock<std::sync::Mutex<Warnings>> = LazyLock::new(Default::default);
+
+/// Print `zawk: warning: {msg}` the first time `msg` is seen, so that a function failing on every
+/// record does not flood stderr; later repeats are counted and summed up at exit by
+/// [`report_suppressed_warnings`].
+fn warn_once(msg: &str) {
+    let first = WARNINGS.lock().map_or(true, |mut w| w.note(msg));
     if first {
-        eprintln_ignore!("{}", msg);
+        eprintln_ignore!("zawk: warning: {}", msg);
+    }
+}
+
+/// Report, once, how many stdlib warnings [`warn_once`] did not print.
+pub(crate) fn report_suppressed_warnings() {
+    let suppressed = WARNINGS.lock().map_or(0, |mut w| mem::take(&mut w.suppressed));
+    if suppressed > 0 {
+        eprintln_ignore!(
+            "zawk: warning: {} more stdlib warning{} not shown (each message is shown once); test ERRNO after a call to detect each failure",
+            suppressed,
+            if suppressed == 1 { "" } else { "s" }
+        );
     }
 }
 
@@ -1564,8 +1613,9 @@ pub(crate) fn close_result(output: Option<Int>, input: Option<Int>) -> Int {
 }
 
 thread_local! {
-    // gawk's ERRNO: the message of the last failed `getline` or `close`. It is not cleared when
-    // a later call succeeds. Each worker of a parallel program has its own.
+    // gawk's ERRNO: the message of the last failed `getline`, `close` or stdlib function (see
+    // `stdlib_warning`). It is not cleared when a later call succeeds. Each worker of a parallel
+    // program has its own.
     static ERRNO: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
@@ -1937,6 +1987,19 @@ impl<S> Iter<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warnings_are_bounded() {
+        let mut w = Warnings::default();
+        assert!(w.note("a"));
+        assert!(!w.note("a"));
+        for i in 0..2 * MAX_DISTINCT_WARNINGS {
+            w.note(&format!("failure {}", i));
+        }
+        assert_eq!(w.seen.len(), MAX_DISTINCT_WARNINGS);
+        assert_eq!(w.suppressed, 1 + MAX_DISTINCT_WARNINGS as u64 + 1);
+        assert!(!w.note("a"));
+    }
 
     #[test]
     fn str_lru_is_bounded() {

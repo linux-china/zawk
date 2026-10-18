@@ -9,7 +9,17 @@ Functions working with external services or user supplied keys (network, kv, cry
 the program on failure: they print a warning to stderr, such as
 `zawk: warning: kv_get: failed to connect to redis://127.0.0.1:6379: Connection refused`, and return
 an empty value (an empty string or array, or `0` for an HTTP status). Each distinct warning is printed
-once.
+once (at most 1024 of them), and the number of warnings not shown is printed when the program exits.
+
+The failure also sets `ERRNO` to the message without the `zawk: warning: ` prefix (for `http_get`/`http_post`,
+a network error that makes the status `0`), so a script can tell a failure from an empty result.
+`ERRNO` is not cleared when a call succeeds, so clear it first:
+
+```awk
+ERRNO = ""
+rows = sqlite_query("app.db", "select name from users")
+if (ERRNO != "") { print "query failed: " ERRNO > "/dev/stderr"; exit 1 }
+```
 
 A user-defined function with the same name as a stdlib function (such as `trim`, `max` or `abs`)
 takes precedence over it in the whole program, so existing AWK programs that define these helpers
@@ -806,12 +816,17 @@ Algorithms:
 
 Explain for `encrypt` and `decrypt`:
 
-* mode — Encryption mode. now only `aes-128-cbc`, `aes-256-cbc`, `aes-128-gcm`, `aes-256-gcm` support
+* mode — Encryption mode, only `aes-128-gcm`, `aes-256-gcm`, `aes-128-cbc`, `aes-256-cbc` are supported (case-insensitive);
+  any other mode is an error: a warning, `ERRNO` is set and the result is empty.
+  **Use GCM** (`aes-256-gcm` recommended): it is authenticated, a tampered ciphertext fails to decrypt.
+  CBC has no integrity check (the ciphertext can be modified, padding oracle), it is kept for compatibility only.
 * plaintext — Text that need to be encrypted.
-* key — Password of any length. The AES key is derived with PBKDF2-HMAC-SHA256 (100,000 iterations, cached per password).
+* key — Password of any length. The AES key is derived with PBKDF2-HMAC-SHA256 (100,000 iterations) and a random 16 bytes salt.
 
-Output format is `v2:` + Base64(IV/nonce + ciphertext); a random IV/nonce is used for every call.
-`decrypt` also accepts legacy ciphertext without the `v2:` prefix (key = password bytes truncated/zero padded to 16 or 32 bytes).
+Output format is `v3:` + Base64(salt + IV/nonce + ciphertext); a random IV/nonce is used for every call,
+and the random salt is generated once per password per run (so PBKDF2 runs once, not for every record).
+`decrypt` also accepts older formats: `v2:` (PBKDF2 with a fixed salt) and legacy ciphertext without prefix
+(key = password bytes truncated/zero padded to 16 or 32 bytes, deprecated: a warning is printed, please re-encrypt it).
 `decrypt` returns an empty string when the input is malformed, the key is wrong or the plaintext is not valid UTF-8.
 
 ### JWT

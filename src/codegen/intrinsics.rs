@@ -2980,7 +2980,7 @@ pub(crate) unsafe extern "C" fn s3_get(bucket: *mut U128, object_name: *mut U128
     guard_panic(stringify!(s3_get), || {
         let bucket = &*(bucket as *mut Str);
         let object_name = &*(object_name as *mut Str);
-        let body = runtime::s3::get_object(&*bucket.as_str(), &*object_name.as_str()).unwrap();
+        let body = runtime::s3::s3_get(&*bucket.as_str(), &*object_name.as_str());
         let res = Str::from(body);
         mem::transmute::<Str, U128>(res)
     })
@@ -2995,7 +2995,7 @@ pub(crate) unsafe extern "C" fn s3_put(
         let bucket = &*(bucket as *mut Str);
         let object_name = &*(object_name as *mut Str);
         let body = &*(body as *mut Str);
-        let etag = runtime::s3::put_object(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str()).unwrap();
+        let etag = runtime::s3::s3_put(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str());
         let res = Str::from(etag);
         mem::transmute::<Str, U128>(res)
     })

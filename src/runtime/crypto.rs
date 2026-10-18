@@ -250,13 +250,22 @@ pub fn extract_jwk(full_http_url: &str) -> Option<Jwk> {
     Some(jwk)
 }
 
-/// Prefix of ciphertext whose key is derived by PBKDF2-HMAC-SHA256 from the password.
-/// Ciphertext without this prefix is legacy format: key is the password truncated or zero padded.
+/// Ciphertext formats, all with PBKDF2-HMAC-SHA256 derived keys except legacy:
+/// - `v3:` + base64(salt + IV/nonce + ciphertext), with a random 16 bytes salt
+/// - `v2:` + base64(IV/nonce + ciphertext), with the fixed salt `PBKDF2_V2_SALT` (decrypt only)
+/// - no prefix: legacy format, key is the password truncated or zero padded (decrypt only)
+const ENCRYPT_V3_PREFIX: &str = "v3:";
 const ENCRYPT_V2_PREFIX: &str = "v2:";
-const PBKDF2_SALT: &[u8] = b"zawk-encrypt-v2";
+const PBKDF2_V2_SALT: &[u8] = b"zawk-encrypt-v2";
+const SALT_LEN: usize = 16;
 const PBKDF2_ITERATIONS: u32 = 100_000;
 
-static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, usize), Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// derived keys by (password, salt, key length), because derivation is slow by design
+static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, Vec<u8>, usize), Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// random salt used by `encrypt` for a (password, key length), generated once per process: a fresh salt
+/// for every call would run the slow PBKDF2 on every record, and a per-process random salt already
+/// defeats precomputed dictionaries shared by all users of zawk
+static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(String, usize), [u8; SALT_LEN]>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
     let prf = HmacSha256::new_from_slice(password).unwrap();
@@ -276,14 +285,26 @@ fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [
     }
 }
 
-/// derive key with PBKDF2, cached by (password, key length) because derivation is slow by design
-fn derive_key(key_pass: &str, key_len: usize) -> Vec<u8> {
+/// derive key with PBKDF2, cached by (password, salt, key length)
+fn derive_key(key_pass: &str, salt: &[u8], key_len: usize) -> Vec<u8> {
     let mut keys = DERIVED_KEYS.lock().unwrap();
-    keys.entry((key_pass.to_string(), key_len)).or_insert_with(|| {
+    keys.entry((key_pass.to_string(), salt.to_vec(), key_len)).or_insert_with(|| {
         let mut key = vec![0u8; key_len];
-        pbkdf2_hmac_sha256(key_pass.as_bytes(), PBKDF2_SALT, PBKDF2_ITERATIONS, &mut key);
+        pbkdf2_hmac_sha256(key_pass.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
         key
     }).clone()
+}
+
+/// random salt for `encrypt`, see `ENCRYPT_SALTS`
+fn encrypt_salt(key_pass: &str, key_len: usize) -> Option<[u8; SALT_LEN]> {
+    let mut salts = ENCRYPT_SALTS.lock().unwrap();
+    let entry = (key_pass.to_string(), key_len);
+    if let Some(salt) = salts.get(&entry) {
+        return Some(*salt);
+    }
+    let salt = random_bytes::<SALT_LEN>()?;
+    salts.insert(entry, salt);
+    Some(salt)
 }
 
 /// legacy key: password bytes truncated or zero padded to key length
@@ -295,10 +316,20 @@ fn legacy_key(key_pass: &str, key_len: usize) -> Vec<u8> {
     key
 }
 
-/// returns (key length, is GCM)
-fn parse_cipher_mode(mode: &str) -> (usize, bool) {
-    let key_len = if mode.contains("-256-") { 32 } else { 16 };
-    (key_len, mode.ends_with("-gcm"))
+/// returns (key length, is GCM), only the modes in the white list are accepted
+fn parse_cipher_mode(mode: &str) -> Option<(usize, bool)> {
+    match mode.to_ascii_lowercase().as_str() {
+        "aes-128-cbc" => Some((16, false)),
+        "aes-256-cbc" => Some((32, false)),
+        "aes-128-gcm" => Some((16, true)),
+        "aes-256-gcm" => Some((32, true)),
+        _ => None,
+    }
+}
+
+fn unsupported_mode(func: &str, mode: &str) {
+    crate::runtime::stdlib_warning(func, format!(
+        "unsupported mode {:?}, expected aes-128-gcm, aes-256-gcm, aes-128-cbc or aes-256-cbc", mode));
 }
 
 /// buffer with room for PKCS7 padding (always 1..=16 bytes)
@@ -377,26 +408,49 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// Encrypt text with a random IV/nonce, output is `v2:` + base64(IV/nonce + ciphertext).
+/// Encrypt text with a random salt and IV/nonce, output is `v3:` + base64(salt + IV/nonce + ciphertext).
 /// Key is derived from key_pass by PBKDF2-HMAC-SHA256. Returns empty string on failure.
 pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
     // Initialization Vector for Encryption: https://www.baeldung.com/java-encryption-iv
-    let (key_len, gcm) = parse_cipher_mode(mode);
-    let key = derive_key(key_pass, key_len);
+    let Some((key_len, gcm)) = parse_cipher_mode(mode) else {
+        unsupported_mode("encrypt", mode);
+        return String::new();
+    };
+    let Some(salt) = encrypt_salt(key_pass, key_len) else {
+        return String::new();
+    };
+    let key = derive_key(key_pass, &salt, key_len);
     match encrypt_bytes(&key, gcm, plaintext) {
-        Some(bytes) => format!("{}{}", ENCRYPT_V2_PREFIX, STANDARD.encode(bytes)),
+        Some(bytes) => format!("{}{}", ENCRYPT_V3_PREFIX, STANDARD.encode([salt.as_slice(), &bytes].concat())),
         None => String::new(),
     }
 }
 
-/// Decrypt text produced by `encrypt`, both `v2:` and legacy formats are supported.
+/// Decrypt text produced by `encrypt`, `v3:`, `v2:` and legacy formats are supported.
 /// Returns the plaintext bytes, or none if the text is malformed or the key is wrong.
 pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
-    let (key_len, gcm) = parse_cipher_mode(mode);
+    let Some((key_len, gcm)) = parse_cipher_mode(mode) else {
+        unsupported_mode("decrypt", mode);
+        return vec![];
+    };
+    if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
+        return STANDARD.decode(encoded.trim()).ok()
+            .filter(|data| data.len() > SALT_LEN)
+            .and_then(|data| {
+                let (salt, data) = data.split_at(SALT_LEN);
+                decrypt_bytes(&derive_key(key_pass, salt, key_len), gcm, data)
+            })
+            .unwrap_or_default();
+    }
     let (key, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX) {
-        Some(encoded) => (derive_key(key_pass, key_len), encoded),
-        None => (legacy_key(key_pass, key_len), encrypted_text),
+        Some(encoded) => (derive_key(key_pass, PBKDF2_V2_SALT, key_len), encoded),
+        None => {
+            if !encrypted_text.trim().is_empty() {
+                crate::runtime::stdlib_notice("decrypt", "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it");
+            }
+            (legacy_key(key_pass, key_len), encrypted_text)
+        }
     };
     STANDARD.decode(encoded.trim()).ok()
         .and_then(|data| decrypt_bytes(&key, gcm, &data))
@@ -600,11 +654,12 @@ mod tests {
         let key_pass = "密码密码密码密码密码密码密码密码"; // multi-byte chars across byte 16/32
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let encrypted_text = encrypt(mode, long_text.as_bytes(), key_pass);
-            assert!(encrypted_text.starts_with("v2:"));
+            assert!(encrypted_text.starts_with("v3:"));
             assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text.as_bytes());
             assert!(decrypt(mode, &encrypted_text, "wrong").is_empty());
             assert!(decrypt(mode, "", key_pass).is_empty());
             assert!(decrypt(mode, "v2:AAAA", key_pass).is_empty());
+            assert!(decrypt(mode, "v3:AAAA", key_pass).is_empty());
             assert!(decrypt(mode, "not base64!", key_pass).is_empty());
         }
     }
@@ -613,10 +668,46 @@ mod tests {
     fn test_decrypt_legacy() {
         let key_pass = "0123456789abcdef";
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
-            let (key_len, gcm) = parse_cipher_mode(mode);
+            let (key_len, gcm) = parse_cipher_mode(mode).unwrap();
             let bytes = encrypt_bytes(&legacy_key(key_pass, key_len), gcm, b"Hello World").unwrap();
             assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), b"Hello World");
         }
+    }
+
+    #[test]
+    fn test_decrypt_v2() {
+        let key_pass = "0123456789abcdef";
+        for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
+            let (key_len, gcm) = parse_cipher_mode(mode).unwrap();
+            let bytes = encrypt_bytes(&derive_key(key_pass, PBKDF2_V2_SALT, key_len), gcm, b"Hello World").unwrap();
+            let text = format!("v2:{}", STANDARD.encode(bytes));
+            assert_eq!(decrypt(mode, &text, key_pass), b"Hello World");
+        }
+    }
+
+    #[test]
+    fn test_encrypt_v3_salt() {
+        let encrypted_text = encrypt("aes-256-gcm", b"Hello World", "pass");
+        let data = STANDARD.decode(encrypted_text.strip_prefix("v3:").unwrap()).unwrap();
+        // salt + nonce + ciphertext + tag
+        assert_eq!(data.len(), SALT_LEN + 12 + 11 + 16);
+        assert_ne!(&data[..SALT_LEN], PBKDF2_V2_SALT);
+        // a ciphertext with another salt still decrypts: the salt is read from the ciphertext
+        let salt = [7u8; SALT_LEN];
+        let bytes = encrypt_bytes(&derive_key("pass", &salt, 32), true, b"Hello World").unwrap();
+        let text = format!("v3:{}", STANDARD.encode([salt.as_slice(), &bytes].concat()));
+        assert_eq!(decrypt("aes-256-gcm", &text, "pass"), b"Hello World");
+        assert!(decrypt("aes-256-gcm", &text, "wrong").is_empty());
+    }
+
+    #[test]
+    fn test_unsupported_cipher_mode() {
+        for mode in ["aes-256gcm", "des", "aes-256-ctr", "aes-512-gcm", ""] {
+            assert!(parse_cipher_mode(mode).is_none(), "{}", mode);
+            assert_eq!(encrypt(mode, b"Hello World", "pass"), "");
+            assert!(decrypt(mode, "v3:AAAA", "pass").is_empty());
+        }
+        assert_eq!(parse_cipher_mode("AES-256-GCM"), Some((32, true)));
     }
 
     #[test]

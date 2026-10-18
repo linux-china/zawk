@@ -98,6 +98,8 @@ pub fn stdout_broken_pipe() -> bool {
 /// written exits with code 2 rather than 0, and one whose stdout was closed by its reader exits
 /// as if killed by SIGPIPE.
 pub fn exit_code(code: i32) -> i32 {
+    // Every exit of a program run goes through here, after its output has been flushed.
+    crate::runtime::report_suppressed_warnings();
     if stdout_broken_pipe() {
         SIGPIPE_EXIT_CODE
     } else if code == 0 && OUTPUT_FAILED.load(Ordering::Acquire) {

@@ -305,7 +305,8 @@ bytes. Input that is not valid UTF-8 (GBK, Latin-1, binary) is kept byte for byt
 (`digest`, `hmac`, `encode`) work on the raw bytes, and text functions never replace invalid bytes with U+FFFD.
 
 Functions using external services (network, KV, databases, crypto keys) don't stop the program on failure: they print
-one warning to stderr and return an empty value (`0` for an HTTP status).
+one warning to stderr and return an empty value (`0` for an HTTP status). The failure sets `ERRNO` (e.g.
+`sqlite_query: no such table: users`), which is never cleared by a success: `ERRNO = ""; r = f(...); if (ERRNO != "") ...`.
 
 ## Pitfalls (differences from gawk)
 

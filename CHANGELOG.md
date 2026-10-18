@@ -1,5 +1,9 @@
 # Unreleased
 
+* A failing stdlib function (database, HTTP, KV, S3, crypto, ...) now also sets `ERRNO` to its message (e.g. `sqlite_query: no such table: users`), and a network error of `http_get`/`http_post` (status `0`) sets `ERRNO` to the reason, so `ERRNO = ""; r = sqlite_query(db, sql); if (ERRNO != "") ...` tells a failure from an empty result
+* Repeated stdlib warnings are still printed once, but at most 1024 distinct ones are kept (a message per record no longer grows memory without bound), and the number of warnings not shown is reported at exit
+* **Behavior change**: `s3_get`/`s3_put` failures are a warning and an empty result, like other stdlib functions, instead of a fatal panic
+
 # Version 0.6.2 (2026-09-18)
 
 * Add thousands separators: f-string format specs take Python's `,` and `_` groupings (`f"{n:,}"` is `1,234,567`, `{p:,.2f}`, `{n:_d}`, `{n:012,}` is `0,001,234,567`), and `printf`/`sprintf` take the `'` flag (`,`, as gawk in an English locale, independently of the locale) and the `_` flag (`_`): `printf "%'d", 1234567`. Grouping applies to `d i u e E f F g G` and to `%s` values that look like numbers; with `0` the padding zeros are grouped too, as in Python

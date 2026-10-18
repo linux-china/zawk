@@ -46,7 +46,6 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - No `RT`
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`
 - `ARGV`/`ARGC` are read-only: changing them doesn't change the input files
-- No `var=value` operands between files: assign variables with `-v var=value`
 - `$0`, fields (`$1`, `$n`) and `NF`/`NR` are read-only: build a new string and print it instead
   (`print "x", $2`); `sub()`/`gsub()` on `$0` or a field are still allowed. `zawk lint` and `--lint`
   report such assignments (E305)

@@ -968,7 +968,7 @@ impl<'a> Str<'a> {
                 // below 1 (including text that is not a number) is treated as 1, with a warning.
                 let which = str_to_num(how);
                 if !(which >= 1.0) {
-                    super::stdlib_warning(
+                    super::stdlib_notice(
                         "gensub",
                         format!("third argument `{}' treated as 1", String::from_utf8_lossy(how)),
                     );

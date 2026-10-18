@@ -7,7 +7,7 @@ use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Serialize;
 use url::Url;
-use crate::runtime::{stdlib_warning, Str, StrMap};
+use crate::runtime::{set_errno, stdlib_warning, Str, StrMap};
 
 pub fn local_ip() -> String {
     if let Ok(my_ip) = local_ip_address::local_ip() {
@@ -32,10 +32,13 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
     if headers.len() > 0 {
         builder = builder.headers(convert_to_http_headers(headers));
     }
-    if let Ok(resp) = builder.send() {
-        fill_response(resp, &resp_obj);
-    } else {
-        resp_obj.insert(Str::from("status"), Str::from("0"));
+    match builder.send() {
+        Ok(resp) => fill_response(resp, &resp_obj),
+        Err(e) => {
+            // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
+            set_errno(format!("http_get: {}", e));
+            resp_obj.insert(Str::from("status"), Str::from("0"));
+        }
     }
     resp_obj
 }
@@ -59,10 +62,13 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
         }
         builder = builder.body(body_text);
     }
-    if let Ok(resp) = builder.send() {
-        fill_response(resp, &resp_obj);
-    } else {
-        resp_obj.insert(Str::from("status"), Str::from("0"));
+    match builder.send() {
+        Ok(resp) => fill_response(resp, &resp_obj),
+        Err(e) => {
+            // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
+            set_errno(format!("http_post: {}", e));
+            resp_obj.insert(Str::from("status"), Str::from("0"));
+        }
     }
     resp_obj
 }

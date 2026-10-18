@@ -234,6 +234,22 @@ impl io::Read for S3Reader {
     }
 }
 
+/// awk's `s3_get`: the object as text, or empty with a warning (and `ERRNO` set) on failure.
+pub(crate) fn s3_get(bucket_name: &str, object_name: &str) -> String {
+    get_object(bucket_name, object_name).unwrap_or_else(|e| {
+        crate::runtime::stdlib_warning("s3_get", format!("s3://{}/{}: {}", bucket_name, object_name, e));
+        String::new()
+    })
+}
+
+/// awk's `s3_put`: the ETag of the new object, or empty with a warning (and `ERRNO` set) on failure.
+pub(crate) fn s3_put(bucket_name: &str, object_name: &str, body: &str) -> String {
+    put_object(bucket_name, object_name, body).unwrap_or_else(|e| {
+        crate::runtime::stdlib_warning("s3_put", format!("s3://{}/{}: {}", bucket_name, object_name, e));
+        String::new()
+    })
+}
+
 pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, BoxError> {
     let op = s3_operator(bucket_name)?;
     S3_RUNTIME.block_on(async {

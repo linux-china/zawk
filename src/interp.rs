@@ -1073,14 +1073,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     S3Get(dst, bucket, object_name) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);
-                        let body = runtime::s3::get_object(&*bucket.as_str(), &*object_name.as_str()).unwrap();
+                        let body = runtime::s3::s3_get(&*bucket.as_str(), &*object_name.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(body);
                     }
                     S3Put(dst, bucket, object_name, body) => {
                         let bucket = index(&self.strs, bucket);
                         let object_name = index(&self.strs, object_name);
                         let body = index(&self.strs, body);
-                        let etag = runtime::s3::put_object(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str()).unwrap();
+                        let etag = runtime::s3::s3_put(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(etag);
                     }
                     FromJson(dst, src) => {
