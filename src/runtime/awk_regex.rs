@@ -16,8 +16,8 @@
 //!
 //! `regex` reports the leftmost-first match of an alternation (e.g. `x` for `x|xy` against
 //! "xyz"), where POSIX awk reports the leftmost-longest one (`xy`). The `find_at`, `find_iter`
-//! and `captures_at` helpers below restore the POSIX semantics for patterns with an alternation;
-//! other patterns use `regex` directly.
+//! and `captures_at` helpers below restore the POSIX semantics for patterns with an alternation or
+//! a repetition of a group (`(ab)?(abcd)?`); other patterns use `regex` directly.
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use regex_automata::hybrid::dfa::{Cache, DFA};
 use regex_automata::{Anchored, Input, MatchKind};
@@ -167,16 +167,48 @@ thread_local! {
         RefCell::new(super::StrLru::new(LONGEST_BUDGET, LONGEST_COST));
 }
 
+/// Whether the leftmost-first match of `pat` (in the syntax of `regex`) can be shorter than the
+/// leftmost-longest one: the pattern has an alternation, or a repetition of something other than a
+/// single character (`(ab)?(abcd)?`) or that is not greedy. Patterns that fail to parse are
+/// assumed to need it.
+fn needs_longest(pat: &str) -> bool {
+    use regex_syntax::hir::{Hir, HirKind};
+    fn one_char(h: &Hir) -> bool {
+        match h.kind() {
+            HirKind::Class(_) => true,
+            HirKind::Literal(lit) => std::str::from_utf8(&lit.0).map_or(lit.0.len() == 1, |s| s.chars().count() == 1),
+            HirKind::Capture(c) => one_char(&c.sub),
+            _ => false,
+        }
+    }
+    fn walk(h: &Hir) -> bool {
+        match h.kind() {
+            HirKind::Alternation(_) => true,
+            HirKind::Repetition(r) => !r.greedy || !one_char(&r.sub),
+            HirKind::Capture(c) => walk(&c.sub),
+            HirKind::Concat(hs) => hs.iter().any(walk),
+            _ => false,
+        }
+    }
+    regex_syntax::ParserBuilder::new()
+        .utf8(false)
+        .dot_matches_new_line(true)
+        .build()
+        .parse(pat)
+        .map_or(true, |h| walk(&h))
+}
+
 /// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
-/// (no alternation) or the DFA cannot be built.
+/// (see `needs_longest`) or the DFA cannot be built.
 fn longest(re: &Regex) -> Option<Rc<Longest>> {
     let pat = re.as_str();
-    if !pat.contains('|') {
-        return None;
-    }
     LONGEST.with(|cell| {
         if let Some(l) = cell.borrow_mut().get(pat) {
             return l.clone();
+        }
+        if !needs_longest(pat) {
+            cell.borrow_mut().insert(pat.to_owned(), None);
+            return None;
         }
         let dfa = DFA::builder()
             .configure(DFA::config().match_kind(MatchKind::All))
@@ -578,6 +610,54 @@ mod tests {
         let caps = captures_at(&re, b"xyz", 0, 3).unwrap();
         assert_eq!(&caps[1], b"xy");
         assert_eq!(&caps[2], b"z");
+        // Repeated groups choose between alternatives too.
+        assert_eq!(spans("(ab)?(abcd)?", "abcd")[0], (0, 4));
+        assert_eq!(spans("x(y)?(yz)?", "xyz"), vec![(0, 3)]);
+        assert_eq!(spans("(a|ab)(c|bcd)", "abcd"), vec![(0, 4)]);
+        let re = compile("(ab)?(abcd)?").unwrap();
+        let caps = captures_at(&re, b"abcd", 0, 4).unwrap();
+        assert!(caps.get(1).is_none());
+        assert_eq!(&caps[2], b"abcd");
+    }
+
+    #[test]
+    fn needs_longest_from_hir() {
+        assert!(needs_longest("a|ab"));
+        assert!(needs_longest("(ab)?(abcd)?"));
+        assert!(needs_longest("(?:ab)*a"));
+        assert!(!needs_longest("[|]"));
+        assert!(!needs_longest(r"\|"));
+        assert!(!needs_longest("a|b"));
+        assert!(!needs_longest("x?y*[a-z]+(é)?(.){2,3}"));
+    }
+
+    /// Patterns that `needs_longest` lets through use leftmost-first directly: check against the
+    /// longest match from the all-matches DFA on every short haystack.
+    #[test]
+    fn leftmost_first_is_longest_when_skipped() {
+        let atoms = ["a", "b", "a?", "b?", "a*", "b+", "[ab]?", "(a)?", ".?"];
+        let hays: Vec<String> = (0..4)
+            .flat_map(|n| (0..1 << n).map(move |m| (0..n).map(|i| if m >> i & 1 == 1 { 'b' } else { 'a' }).collect()))
+            .collect();
+        for x in atoms {
+            for y in atoms {
+                for z in atoms {
+                    let pat = format!("{}{}{}", x, y, z);
+                    assert!(!needs_longest(&pat), "{}", pat);
+                    let re = compile(&pat).unwrap();
+                    let dfa = DFA::builder()
+                        .configure(DFA::config().match_kind(MatchKind::All))
+                        .build(&pat)
+                        .unwrap();
+                    let l = Longest { cache: RefCell::new(dfa.create_cache()), dfa, exact: OnceCell::new() };
+                    for hay in &hays {
+                        if let Some(m) = re.find(hay.as_bytes()) {
+                            assert_eq!(longest_end(&l, hay.as_bytes(), m.start()), Some(m.end()), "/{}/ {:?}", pat, hay);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
