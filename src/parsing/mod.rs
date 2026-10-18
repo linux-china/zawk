@@ -4,7 +4,7 @@ lalrpop_mod!(pub syntax);
 
 use crate::arena::Arena;
 use crate::ast::{Binop, Expr, Pattern, Prog, Stmt};
-use crate::common::{fatal_message, CompileError, Either, Stage, FATAL_PREFIX};
+use crate::common::{fatal_message, CompileError, Either, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
 use crate::lexer::{self, Loc, Tok};
 use lalrpop_util::ParseError;
 
@@ -481,6 +481,17 @@ fn excerpt(prog: &str, loc: Loc) -> String {
 ///             ^
 /// ```
 pub fn render_error(err: &CompileError) -> String {
+    if let Some(msg) = err.0.strip_prefix(SYNTAX_PREFIX) {
+        return match (err.1, PROGRAM.get()) {
+            (Some(loc), Some((prog, sources))) => format!(
+                "zawk: syntax error at {}: {}{}",
+                sources.describe(prog, loc),
+                msg,
+                excerpt(prog, loc)
+            ),
+            _ => format!("zawk: syntax error: {}", msg),
+        };
+    }
     match (err.1, PROGRAM.get()) {
         (Some(loc), Some((prog, sources))) => {
             let msg = err.0.strip_prefix(FATAL_PREFIX).unwrap_or(&err.0);

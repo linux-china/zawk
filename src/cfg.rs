@@ -501,12 +501,12 @@ impl<'a, I> ProgramContext<'a, I>
                 )
                 .is_some()
             {
-                return err!("duplicate function found for name {}", fundec.name);
+                return syntax_err!("function name `{}' previously defined", fundec.name);
             }
             // POSIX and gawk builtins cannot be redefined; zawk's stdlib functions are shadowed by
             // the user-defined function (see `call`).
             if builtins::is_awk_builtin(&fundec.name.to_string()) {
-                return err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
+                return syntax_err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
             }
             // Special variables (NR, FS, ...) are always resolved to the global builtin, so using
             // one as a parameter would silently ignore the argument and clobber the global.
@@ -515,7 +515,7 @@ impl<'a, I> ProgramContext<'a, I>
                 .iter()
                 .find(|a| builtins::Variable::try_from((*a).clone()).is_ok())
             {
-                return err!(
+                return syntax_err!(
                     "function `{}': parameter `{}': cannot use a special variable as a function parameter",
                     fundec.name,
                     arg
@@ -523,7 +523,7 @@ impl<'a, I> ProgramContext<'a, I>
             }
             for (i, arg) in fundec.args.iter().enumerate() {
                 if let Some(j) = fundec.args[..i].iter().position(|a| a == arg) {
-                    return err!(
+                    return syntax_err!(
                         "function `{}': parameter #{}, `{}', duplicates parameter #{}",
                         fundec.name,
                         i + 1,
@@ -568,7 +568,7 @@ impl<'a, I> ProgramContext<'a, I>
                 .iter()
                 .find(|a| func_table.contains_key(&FunctionName::Named((*a).clone())))
             {
-                return err!(
+                return syntax_err!(
                     "function `{}': parameter `{}': cannot use a function name as a parameter name",
                     fundec.name,
                     arg
@@ -1217,7 +1217,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Return(ret) => {
                 if !matches!(self.f.name, FunctionName::Named(_)) {
-                    return err!("`return' used outside function context");
+                    return syntax_err!("`return' used outside function context");
                 }
                 let (current_open, e) = if let Some(ret) = ret {
                     self.convert_expr(ret, current_open)?
@@ -1584,8 +1584,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             Inc { is_inc, is_post, x } => {
                 if !valid_lhs(x) {
-                    return err!(
-                        "syntax error: the operand of `{}` must be a variable, an array element or a field",
+                    return syntax_err!(
+                        "the operand of `{}` must be a variable, an array element or a field",
                         if *is_inc { "++" } else { "--" }
                     );
                 };
@@ -2468,8 +2468,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 };
                 self.jump_to(current_open, target)
             }
-            None if is_break => err!("`break' is not allowed outside a loop or switch"),
-            None => err!("`continue' is not allowed outside a loop"),
+            None if is_break => syntax_err!("`break' is not allowed outside a loop or switch"),
+            None => syntax_err!("`continue' is not allowed outside a loop"),
         }
     }
 
@@ -2551,8 +2551,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         // The END block runs after the main loop, so jumping back to its header would rerun END
         // forever.
         if self.f.in_end {
-            return err!(
-                "`{}` used in END action",
+            return syntax_err!(
+                "`{}' used in END action",
                 if is_next_file { "nextfile" } else { "next" }
             );
         }
@@ -2567,6 +2567,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 )?;
             }
             self.jump_to(current_open, header)
+        } else if !matches!(self.f.name, FunctionName::Named(_)) {
+            // Outside a function, the toplevel loop has not started yet: this is BEGIN.
+            syntax_err!(
+                "`{}' used in BEGIN action",
+                if is_next_file { "nextfile" } else { "next" }
+            )
         } else {
             err!(
                 "Cannot use `{}` from outside of the toplevel loop! \

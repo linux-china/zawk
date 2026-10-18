@@ -63,7 +63,8 @@ use std::mem;
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-// Exit codes follow gawk: 1 for usage and syntax errors (`fail!`), 2 for other fatal errors
+// Exit codes follow gawk: 1 for usage and syntax errors (`fail!`), including the static errors
+// gawk finds while parsing (see `common::SYNTAX_PREFIX`), 2 for other fatal errors
 // (`fatal!`): errors found while compiling (e.g. an undefined function) or running the program,
 // and files that cannot be read or written.
 // Messages are reported in the gawk style: `zawk: msg` and `zawk: fatal: msg`.
@@ -333,6 +334,7 @@ fn get_context<'a>(
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
+        Err(e) if e.is_syntax() => fail!("{}", parsing::render_error(&e)),
         Err(e) => fatal!("{}", parsing::render_error(&e)),
     }
 }

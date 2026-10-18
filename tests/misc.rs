@@ -1120,6 +1120,16 @@ fn exit_codes_follow_gawk() {
     // As in gawk: 1 for usage and syntax errors, 2 for other fatal errors.
     let cases: &[(&[&str], i32)] = &[
         (&["BEGIN { print 1 +"], 1),
+        // Static errors gawk reports while parsing are syntax errors too.
+        (&["function f(a, a) { } BEGIN { }"], 1),
+        (&["function f(NR) { } BEGIN { }"], 1),
+        (&["function f() { } function f() { } BEGIN { }"], 1),
+        (&["function length() { } BEGIN { }"], 1),
+        (&["BEGIN { return 1 }"], 1),
+        (&["BEGIN { next }"], 1),
+        (&["BEGIN { nextfile }"], 1),
+        (&["END { next }"], 1),
+        (&["BEGIN { break }"], 1),
         (&["--bogus-option", "BEGIN { }"], 1),
         (&["-v", "x", "BEGIN { }"], 1),
         (&[], 1),
@@ -1644,9 +1654,13 @@ fn unicode_identifiers_and_hex() {
 fn return_outside_function() {
     for prog in ["BEGIN { return 1 }", "{ return }", "END { return }"] {
         let output = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
-        assert_eq!(output.status.code(), Some(2), "{}", prog);
+        assert_eq!(output.status.code(), Some(1), "{}", prog);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("`return' used outside function context"), "{}", stderr);
+        assert!(
+            stderr.contains("zawk: syntax error: `return' used outside function context"),
+            "{}",
+            stderr
+        );
     }
 }
 
@@ -1850,18 +1864,18 @@ fn error_messages_are_gawk_style() {
         ),
         (
             "BEGIN { switch (x) { case 1: continue } }",
-            2,
-            &["zawk: fatal: `continue' is not allowed outside a loop"],
+            1,
+            &["zawk: syntax error: `continue' is not allowed outside a loop"],
         ),
         (
             "{ switch ($1) { default: continue } }",
-            2,
-            &["zawk: fatal: `continue' is not allowed outside a loop"],
+            1,
+            &["zawk: syntax error: `continue' is not allowed outside a loop"],
         ),
         (
             "BEGIN { switch (x) { } break }",
-            2,
-            &["zawk: fatal: `break' is not allowed outside a loop or switch"],
+            1,
+            &["zawk: syntax error: `break' is not allowed outside a loop or switch"],
         ),
         // Dynamic regexes fail when they are used.
         (
@@ -2168,10 +2182,23 @@ fn array_scalar_errors_name_the_variable() {
         "attempt to use array returned by `from_json()` in a scalar context",
     );
     assert_fatal("BEGIN { a[1][2] = 3 }", "arrays of arrays such as `a[i][j]` are not supported");
-    assert_fatal(
-        "BEGIN { print 2--1 }",
-        "syntax error: the operand of `--` must be a variable, an array element or a field",
-    );
+    // Reported as a syntax error, with exit code 1, as in gawk.
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg("BEGIN { print 2--1 }")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{}: {}", backend_arg, stderr);
+        assert!(
+            stderr.contains("zawk: syntax error: the operand of `--` must be a variable, an array element or a field"),
+            "{}: {}",
+            backend_arg,
+            stderr
+        );
+    }
 }
 
 #[test]

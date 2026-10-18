@@ -294,7 +294,10 @@ const UNSUPPORTED_GAWK_FUNCTIONS: &[(&str, &str)] = &[
 ];
 
 fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
-    let msg = msg.trim_start_matches("zawk: ").trim_start_matches("fatal: ");
+    let msg = msg
+        .trim_start_matches("zawk: ")
+        .trim_start_matches("fatal: ")
+        .trim_start_matches("syntax error: ");
     // Debug builds prefix messages with where zawk raised them: `[src/cfg.rs:1:2] `.
     let msg = match msg.strip_prefix("[src/").and_then(|m| m.split_once("] ")) {
         Some((_, m)) => m,

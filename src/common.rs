@@ -191,6 +191,10 @@ impl std::fmt::Display for CompileError {
 /// errors, rather than wrapped as an internal runtime failure.
 pub const FATAL_PREFIX: &str = "fatal: ";
 
+/// Prefix of static errors found after parsing (e.g. a duplicate parameter or `return` outside a
+/// function) that gawk reports while parsing: they are reported as syntax errors, with exit code 1.
+pub const SYNTAX_PREFIX: &str = "syntax error: ";
+
 /// A fatal error message in the gawk style: `zawk: fatal: msg`.
 pub fn fatal_message(msg: &str) -> String {
     if msg.starts_with("zawk: ") {
@@ -215,6 +219,16 @@ impl CompileError {
 
     pub fn is_fatal(&self) -> bool {
         self.0.starts_with(FATAL_PREFIX)
+    }
+
+    /// The error reported as a syntax error; see `SYNTAX_PREFIX`.
+    pub fn syntax(mut self) -> CompileError {
+        self.0.insert_str(0, SYNTAX_PREFIX);
+        self
+    }
+
+    pub fn is_syntax(&self) -> bool {
+        self.0.starts_with(SYNTAX_PREFIX)
     }
 }
 
@@ -291,6 +305,13 @@ macro_rules! err_raw {
 macro_rules! err {
     ($($x:tt)*) => {
         Err(err_raw!($($x)*))
+    };
+}
+
+// A static error reported as a syntax error; see `common::SYNTAX_PREFIX`.
+macro_rules! syntax_err {
+    ($($x:tt)*) => {
+        Err(err_raw!($($x)*).syntax())
     };
 }
 

@@ -345,7 +345,7 @@ LookupList: &'a Expr<'a, 'a, &'a str> = {
 }
 
 PrecTern<G>: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOr<G>> "?" <t: PrecAsgn<G>> ":" <f: PrecAsgn<G>> => arena.alloc(Expr::ITE(c, t, f)),
+   <c: PrecOr<G>> "?" "\n"* <t: PrecAsgn<G>> ":" "\n"* <f: PrecAsgn<G>> => arena.alloc(Expr::ITE(c, t, f)),
    PrecOr<G>,
 }
 
@@ -419,7 +419,7 @@ PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
 }
 
 PrecTernNoIn: &'a Expr<'a, 'a, &'a str> = {
-   <c: PrecOrNoIn> "?" <t: PrecAsgn<"Gt">> ":" <f: PrecAsgn<"Gt">> => arena.alloc(Expr::ITE(c, t, f)),
+   <c: PrecOrNoIn> "?" "\n"* <t: PrecAsgn<"Gt">> ":" "\n"* <f: PrecAsgn<"Gt">> => arena.alloc(Expr::ITE(c, t, f)),
    PrecOrNoIn,
 }
 
