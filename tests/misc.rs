@@ -2974,3 +2974,38 @@ fn asort_asorti_how() {
             .failure();
     }
 }
+
+#[test]
+fn folded_regex_constants_in_sub_and_split() {
+    // At -O3, constant patterns of sub/gsub/gensub/split/patsplit are compiled ahead of time;
+    // split()'s special separators ("", " ", single characters) and IGNORECASE are not folded.
+    let prog = r#"{
+        s = $0; n = sub(/a+/, "<&>", s); t = $0; m = gsub(/[[:alpha:]]+/, "[&]", t)
+        g = gensub(/(b)(c)/, "\\2\\1", "g")
+        k = split($0, A, /[ ,]+/); k2 = split($0, B, ","); k3 = split($0, C, " "); k4 = split($0, D, "")
+        p = patsplit($0, P, /[a-z]+/, S); q = split($0, Q, /,/, QS)
+        print s, n, t, m, g, k, A[k], k2, k3, k4, p, P[1], S[p], q, QS[1]
+    }"#;
+    let input = "aab bc,déé éé, x\nbcbc,cc  z\n\n";
+    let expected = "<aa>b bc,déé éé, x 1 [aab] [bc],[déé] [éé], [x] 5 aab cb,déé éé, x 5 x 3 4 16 4 aab  3 ,\n\
+                    bcbc,cc  z 0 [bcbc],[cc]  [z] 3 cbcb,cc  z 3 z 2 2 10 3 bcbc  2 ,\n \
+                    0  0  0  0 0 0 0   0 \n";
+    for backend_arg in BACKEND_ARGS {
+        for opt in ["-O0", "-O3"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, opt, prog])
+                .write_stdin(input)
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-O3", r#"BEGIN { IGNORECASE = 1 } { gsub(/a/, "x"); print $0, split("1A2a3", P, /a/) }"#])
+            .write_stdin("AaA\n")
+            .assert()
+            .success()
+            .stdout("xxx 3\n");
+    }
+}

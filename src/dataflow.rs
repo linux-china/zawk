@@ -747,6 +747,15 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(how.into()));
                 f(dst.into(), Some(in_s.into()));
             }
+            GSubConst(dst, _, y, dstin) | SubConst(dst, _, y, dstin) => {
+                f(dst.into(), Some(y.into()));
+                f(dstin.into(), Some(y.into()));
+            }
+            GenSubConst(dst, _, s, how, in_s) => {
+                f(dst.into(), Some(s.into()));
+                f(dst.into(), Some(how.into()));
+                f(dst.into(), Some(in_s.into()));
+            }
             EscapeTSV(dst, src) | EscapeCSV(dst, src) => f(dst.into(), Some(src.into())),
             Substr(dst, x, y, z) => {
                 f(dst.into(), Some(x.into()));
@@ -826,6 +835,16 @@ pub(crate) mod boilerplate {
                 f(dst1.into(), Some(src2.into()));
                 f(dst2.into(), Some(src1.into()));
                 f(dst2.into(), Some(src2.into()));
+            }
+            SplitIntConst(dst1, src1, dst2, _) => {
+                f(dst1.into(), Some(src1.into()));
+                let (dst2_reg, dst2_ty) = dst2.reflect();
+                debug_assert!(dst2_ty.is_array());
+                f(Key::MapVal(dst2_reg, dst2_ty), Some(src1.into()));
+            }
+            SplitStrConst(dst1, src1, dst2, _) => {
+                f(dst1.into(), Some(src1.into()));
+                f(dst2.into(), Some(src1.into()));
             }
             SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
                 f(res.into(), Some(to_split.into()));

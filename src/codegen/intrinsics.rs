@@ -121,6 +121,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         subst_first(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
         subst_all(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
         gen_subst(rt_ty, str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        subst_first_const(rt_ty, rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
+        subst_all_const(rt_ty, rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
+        gen_subst_const(rt_ty, rt_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         escape_csv(str_ref_ty) -> str_ty;
         escape_tsv(str_ref_ty) -> str_ty;
         substr(str_ref_ty, int_ty, int_ty) -> str_ty;
@@ -136,6 +139,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_col(rt_ty, int_ty, str_ref_ty);
         split_int(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
         split_str(rt_ty, str_ref_ty, map_ty, str_ref_ty) -> int_ty;
+        split_int_const(str_ref_ty, map_ty, rt_ty) -> int_ty;
+        split_str_const(str_ref_ty, map_ty, rt_ty) -> int_ty;
         split_seps_int_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         split_seps_int_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         split_seps_str_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
@@ -144,6 +149,14 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         patsplit_int_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         patsplit_str_int(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
         patsplit_str_str(rt_ty, str_ref_ty, map_ty, str_ref_ty, map_ty) -> int_ty;
+        split_seps_const_int_int(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        split_seps_const_int_str(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        split_seps_const_str_int(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        split_seps_const_str_str(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        patsplit_const_int_int(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        patsplit_const_int_str(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        patsplit_const_str_int(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
+        patsplit_const_str_str(rt_ty, str_ref_ty, map_ty, rt_ty, map_ty) -> int_ty;
         match_arr_int(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         match_arr_str(rt_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         rand_float(rt_ty) -> float_ty;
@@ -1072,6 +1085,39 @@ pub(crate) unsafe extern "C" fn split_int(
         }
         let res = into_arr.len() as Int;
         mem::forget((into_arr, to_split, pat));
+        res
+    })
+}
+
+// split(s, a, re) with a constant-folded regex.
+pub(crate) unsafe extern "C" fn split_int_const(
+    to_split: *mut c_void,
+    into_arr: *mut c_void,
+    pat: *mut c_void,
+) -> Int {
+    guard_panic(stringify!(split_int_const), || {
+        let into_arr = mem::transmute::<*mut c_void, IntMap<Str>>(into_arr);
+        let to_split = &*(to_split as *mut Str);
+        let pat = &*(pat as *const Regex);
+        RegexCache::split_const_intmap(pat, to_split, &into_arr);
+        let res = into_arr.len() as Int;
+        mem::forget(into_arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn split_str_const(
+    to_split: *mut c_void,
+    into_arr: *mut c_void,
+    pat: *mut c_void,
+) -> Int {
+    guard_panic(stringify!(split_str_const), || {
+        let into_arr = mem::transmute::<*mut c_void, StrMap<Str>>(into_arr);
+        let to_split = &*(to_split as *mut Str);
+        let pat = &*(pat as *const Regex);
+        RegexCache::split_const_strmap(pat, to_split, &into_arr);
+        let res = into_arr.len() as Int;
+        mem::forget(into_arr);
         res
     })
 }
@@ -2670,6 +2716,43 @@ split_seps_intrinsics!(
     [patsplit_str_str, StrMap<Str>, StrMap<Str>, true]
 );
 
+// split(s, arr, re, seps) and patsplit(s, arr, re, seps) with a constant-folded regex.
+macro_rules! split_seps_const_intrinsics {
+    ($([$name:ident, $arr_map:ty, $seps_map:ty, $patsplit:expr]),*) => {
+        $(
+            pub(crate) unsafe extern "C" fn $name(
+                _runtime: *mut c_void,
+                to_split: *mut c_void,
+                arr: *mut c_void,
+                pat: *mut c_void,
+                seps: *mut c_void,
+            ) -> Int {
+                guard_panic(stringify!($name), || {
+                    let arr = mem::transmute::<*mut c_void, $arr_map>(arr);
+                    let seps = mem::transmute::<*mut c_void, $seps_map>(seps);
+                    let to_split = &*(to_split as *mut Str);
+                    let pat = &*(pat as *const Regex);
+                    let res =
+                        RegexCache::split_seps_maps_const(pat, to_split, &arr, &seps, $patsplit);
+                    mem::forget((arr, seps));
+                    res
+                })
+            }
+        )*
+    };
+}
+
+split_seps_const_intrinsics!(
+    [split_seps_const_int_int, IntMap<Str>, IntMap<Str>, false],
+    [split_seps_const_int_str, IntMap<Str>, StrMap<Str>, false],
+    [split_seps_const_str_int, StrMap<Str>, IntMap<Str>, false],
+    [split_seps_const_str_str, StrMap<Str>, StrMap<Str>, false],
+    [patsplit_const_int_int, IntMap<Str>, IntMap<Str>, true],
+    [patsplit_const_int_str, IntMap<Str>, StrMap<Str>, true],
+    [patsplit_const_str_int, StrMap<Str>, IntMap<Str>, true],
+    [patsplit_const_str_str, StrMap<Str>, StrMap<Str>, true]
+);
+
 pub(crate) unsafe extern "C" fn map_int_int_join(arr: *mut c_void, sep: *mut U128) -> U128 {
     guard_panic(stringify!(map_int_int_join), || {
         let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
@@ -3113,6 +3196,54 @@ pub(crate) unsafe extern "C" fn gen_subst(
                 .with_regex(pat, |re| in_s.gen_subst_dynamic(re, s, how))
         );
         mem::transmute::<Str, U128>(subbed)
+    })
+}
+
+pub(crate) unsafe extern "C" fn subst_first_const(
+    _runtime: *mut c_void,
+    pat: *mut c_void,
+    s: *mut U128,
+    in_s: *mut U128,
+) -> Int {
+    guard_panic(stringify!(subst_first_const), || {
+        let s = &*(s as *mut Str);
+        let pat = &*(pat as *const Regex);
+        let in_s = &mut *(in_s as *mut Str);
+        let (subbed, new) = in_s.subst_first(pat, s);
+        *in_s = subbed;
+        new as Int
+    })
+}
+
+pub(crate) unsafe extern "C" fn subst_all_const(
+    _runtime: *mut c_void,
+    pat: *mut c_void,
+    s: *mut U128,
+    in_s: *mut U128,
+) -> Int {
+    guard_panic(stringify!(subst_all_const), || {
+        let s = &*(s as *mut Str);
+        let pat = &*(pat as *const Regex);
+        let in_s = &mut *(in_s as *mut Str);
+        let (subbed, nsubs) = in_s.subst_all(pat, s);
+        *in_s = subbed;
+        nsubs
+    })
+}
+
+pub(crate) unsafe extern "C" fn gen_subst_const(
+    _runtime: *mut c_void,
+    pat: *mut c_void,
+    s: *mut U128,
+    how: *mut U128,
+    in_s: *mut U128,
+) -> U128 {
+    guard_panic(stringify!(gen_subst_const), || {
+        let s = &*(s as *mut Str);
+        let pat = &*(pat as *const Regex);
+        let how = &*(how as *mut Str);
+        let in_s = &*(in_s as *mut Str);
+        mem::transmute::<Str, U128>(in_s.gen_subst_dynamic(pat, s, how))
     })
 }
 

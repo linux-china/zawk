@@ -99,8 +99,10 @@ pub struct RegexCache(
     Registry<Regex>,
     // Field separators that are a single character, which awk treats literally.
     Registry<Regex>,
-    // The IGNORECASE setting the cached regexes were compiled with.
-    bool,
+    // The IGNORECASE setting the regexes in the first and last registries were compiled with,
+    // and the registries for the other setting, swapped back in when IGNORECASE changes again:
+    // a program that toggles IGNORECASE per record keeps both sets of regexes cached.
+    (bool, Registry<Regex>, Registry<awk_regex::LightMatcher>),
     // Dynamic patterns of `~` that have not been used often enough yet to be worth compiling into
     // the first registry (see `is_regex_match`).
     Registry<awk_regex::LightMatcher>,
@@ -209,22 +211,108 @@ fn split_byte<'a>(s: &Str<'a>, sep: u8, used_fields: &FieldSet, mut push: impl F
     })
 }
 
+/// Splits `s` at the matches of `re`, as split() does for a regex separator.
+fn split_with<'a>(re: &Regex, s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
+    s.split(
+        re,
+        |s, _| {
+            push(s);
+            1
+        },
+        used_fields,
+    )
+}
+
+type FieldsAndSeps<'a> = (Vec<Str<'a>>, Vec<(Int, Str<'a>)>);
+
+/// The fields and separators of `split(s, arr, re, seps)` for a regex separator `re` (see
+/// `RegexCache::split_seps`).
+fn split_seps_with<'a>(re: &Regex, s: &Str<'a>) -> FieldsAndSeps<'a> {
+    let mut flds = Vec::new();
+    let mut seps = Vec::new();
+    if s.is_empty() {
+        return (flds, seps);
+    }
+    s.with_bytes(|bs| {
+        let mut prev = 0;
+        for (start, end) in awk_regex::find_iter(re, bs) {
+            // As in split(), empty matches do not separate fields.
+            if start == end {
+                continue;
+            }
+            flds.push(s.slice(prev, start));
+            seps.push((flds.len() as Int, s.slice(start, end)));
+            prev = end;
+        }
+        flds.push(s.slice(prev, bs.len()));
+    });
+    (flds, seps)
+}
+
+/// The fields and separators of `patsplit(s, arr, re, seps)` (see `RegexCache::patsplit_seps`).
+fn patsplit_seps_with<'a>(re: &Regex, s: &Str<'a>) -> FieldsAndSeps<'a> {
+    let mut flds = Vec::new();
+    let mut seps = Vec::new();
+    if s.is_empty() {
+        return (flds, seps);
+    }
+    s.with_bytes(|bs| {
+        let mut prev = 0;
+        for (start, end) in awk_regex::find_iter(re, bs) {
+            seps.push((flds.len() as Int, s.slice(prev, start)));
+            flds.push(s.slice(start, end));
+            prev = end;
+        }
+        seps.push((flds.len() as Int, s.slice(prev, bs.len())));
+    });
+    (flds, seps)
+}
+
+/// Replaces the contents of `arr` with `flds` (indexed from 1) and of `seps` with `sep_list`;
+/// returns the number of fields.
+fn fill_seps_maps<'a, K1, K2>(
+    flds: Vec<Str<'a>>,
+    sep_list: Vec<(Int, Str<'a>)>,
+    arr: &SharedMap<K1, Str<'a>>,
+    seps: &SharedMap<K2, Str<'a>>,
+) -> Int
+where
+    K1: Hash + Eq + From<Int>,
+    K2: Hash + Eq + From<Int>,
+{
+    let n = flds.len() as Int;
+    arr.clear();
+    for (i, f) in flds.into_iter().enumerate() {
+        arr.insert(K1::from(i as Int + 1), f);
+    }
+    seps.clear();
+    for (i, sep) in sep_list {
+        seps.insert(K2::from(i), sep);
+    }
+    n
+}
+
 impl RegexCache {
     fn with_budget(budget: usize) -> Self {
         RegexCache(
             Registry::with_memory_limit(budget, REGEX_COST),
             Registry::with_memory_limit(budget, REGEX_COST),
-            false,
+            (
+                false,
+                Registry::with_memory_limit(budget, REGEX_COST),
+                Registry::with_memory_limit(budget, REGEX_COST),
+            ),
             Registry::with_memory_limit(budget, REGEX_COST),
         )
     }
-    /// Drop the cached regexes if IGNORECASE changed since they were compiled.
+    /// Switch to the regexes compiled with the current IGNORECASE setting, if it changed since the
+    /// last lookup.
     fn sync_case(&mut self) {
         let ignore_case = awk_regex::ignore_case();
-        if self.2 != ignore_case {
-            self.0.clear();
-            self.3.clear();
-            self.2 = ignore_case;
+        if self.2.0 != ignore_case {
+            std::mem::swap(&mut self.0, &mut self.2.1);
+            std::mem::swap(&mut self.3, &mut self.2.2);
+            self.2.0 = ignore_case;
         }
     }
     pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
@@ -382,16 +470,7 @@ impl RegexCache {
                 },
             )
         } else {
-            self.with_regex(pat, |re| {
-                s.split(
-                    re,
-                    |s, _| {
-                        push(s);
-                        1
-                    },
-                    used_fields,
-                )
-            })
+            self.with_regex(pat, |re| split_with(re, s, used_fields, &mut push))
         }
     }
     pub(crate) fn split_regex<'a>(
@@ -434,6 +513,29 @@ impl RegexCache {
         })
     }
 
+    /// `split_regex_intmap` with a constant-folded regex (never one of the separators that
+    /// `split_internal` treats specially).
+    pub(crate) fn split_const_intmap<'a>(re: &Regex, s: &Str<'a>, m: &IntMap<Str<'a>>) {
+        let mut i = 0i64;
+        let mut m_b = m.0.borrow_mut();
+        m_b.clear();
+        split_with(re, s, &FieldSet::all(), |s| {
+            i += 1;
+            m_b.insert(i, s);
+        })
+    }
+
+    /// `split_regex_strmap` with a constant-folded regex.
+    pub(crate) fn split_const_strmap<'a>(re: &Regex, s: &Str<'a>, m: &StrMap<'a, Str<'a>>) {
+        let mut i = 0i64;
+        let mut m_b = m.0.borrow_mut();
+        m_b.clear();
+        split_with(re, s, &FieldSet::all(), |s| {
+            i += 1;
+            m_b.insert(convert::<i64, Str<'_>>(i), s);
+        })
+    }
+
     /// `split(s, arr, pat, seps)`: the fields of `s` and the separators, as gawk fills `seps`:
     /// `seps[i]` is the separator between field i and field i+1. With the default `" "`, leading
     /// and trailing blanks are kept as `seps[0]` and `seps[n]`; an empty `pat` splits into
@@ -469,27 +571,11 @@ impl RegexCache {
             });
             return Ok((flds, seps));
         }
-        let mut walk = |re: &Regex| {
-            s.with_bytes(|bs| {
-                let mut prev = 0;
-                for (start, end) in awk_regex::find_iter(re, bs) {
-                    // As in split(), empty matches do not separate fields.
-                    if start == end {
-                        continue;
-                    }
-                    flds.push(s.slice(prev, start));
-                    seps.push((flds.len() as Int, s.slice(start, end)));
-                    prev = end;
-                }
-                flds.push(s.slice(prev, bs.len()));
-            })
-        };
         if is_literal_separator(pat) {
-            self.1.get(pat, literal_regex, |re| walk(re))?;
+            self.1.get(pat, literal_regex, |re| split_seps_with(re, s))
         } else {
-            self.with_regex(pat, walk)?;
+            self.with_regex(pat, |re| split_seps_with(re, s))
         }
-        Ok((flds, seps))
     }
 
     /// `patsplit(s, arr, re, seps)`: the matches of `re` in `s` are the fields, and the text
@@ -501,23 +587,10 @@ impl RegexCache {
         pat: &Str,
         s: &Str<'a>,
     ) -> Result<(Vec<Str<'a>>, Vec<(Int, Str<'a>)>)> {
-        let mut flds = Vec::new();
-        let mut seps = Vec::new();
         if s.is_empty() {
-            return Ok((flds, seps));
+            return Ok(Default::default());
         }
-        self.with_regex(pat, |re| {
-            s.with_bytes(|bs| {
-                let mut prev = 0;
-                for (start, end) in awk_regex::find_iter(re, bs) {
-                    seps.push((flds.len() as Int, s.slice(prev, start)));
-                    flds.push(s.slice(start, end));
-                    prev = end;
-                }
-                seps.push((flds.len() as Int, s.slice(prev, bs.len())));
-            })
-        })?;
-        Ok((flds, seps))
+        self.with_regex(pat, |re| patsplit_seps_with(re, s))
     }
 
     /// `split(s, arr, pat, seps)` (or `patsplit` when `patsplit` is set): replaces the contents
@@ -537,16 +610,25 @@ impl RegexCache {
     {
         let (flds, sep_list) =
             if patsplit { self.patsplit_seps(pat, s)? } else { self.split_seps(pat, s)? };
-        let n = flds.len() as Int;
-        arr.clear();
-        for (i, f) in flds.into_iter().enumerate() {
-            arr.insert(K1::from(i as Int + 1), f);
-        }
-        seps.clear();
-        for (i, sep) in sep_list {
-            seps.insert(K2::from(i), sep);
-        }
-        Ok(n)
+        Ok(fill_seps_maps(flds, sep_list, arr, seps))
+    }
+
+    /// `split_seps_maps` with a constant-folded regex (for split(), never one of the separators
+    /// that `split_seps` treats specially).
+    pub(crate) fn split_seps_maps_const<'a, K1, K2>(
+        re: &Regex,
+        s: &Str<'a>,
+        arr: &SharedMap<K1, Str<'a>>,
+        seps: &SharedMap<K2, Str<'a>>,
+        patsplit: bool,
+    ) -> Int
+    where
+        K1: Hash + Eq + From<Int>,
+        K2: Hash + Eq + From<Int>,
+    {
+        let (flds, sep_list) =
+            if patsplit { patsplit_seps_with(re, s) } else { split_seps_with(re, s) };
+        fill_seps_maps(flds, sep_list, arr, seps)
     }
 
     pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
@@ -1190,10 +1272,6 @@ impl<T> Registry<T> {
         }
         t
     }
-    fn clear(&mut self) {
-        self.cached.clear();
-        self.used = 0;
-    }
     /// Evicts the least recently used half of the entries. Evicting in batches keeps cache hits
     /// down to a counter update while making eviction amortized O(1) per insertion.
     fn evict_lru(&mut self) {
@@ -1757,6 +1835,24 @@ mod tests {
             // A frequently used regex survives evictions.
             assert!(rc.0.cached.contains_key(&hot.clone().unmoor()));
         }
+    }
+
+    #[test]
+    fn regex_cache_keeps_both_ignorecase_settings() {
+        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        let pat = Str::from("ab+c");
+        let s = Str::from("xABBC");
+        for _ in 0..3 {
+            for ic in [false, true] {
+                awk_regex::set_ignore_case(ic);
+                assert_eq!(rc.with_regex(&pat, |re| re.is_match(b"xABBC")).unwrap(), ic);
+                assert_eq!(rc.is_regex_match(&pat, &s).unwrap(), ic);
+            }
+        }
+        // Toggling IGNORECASE swaps the caches instead of recompiling: each setting keeps its
+        // compiled regex.
+        assert_eq!((rc.0.cached.len(), rc.2.1.cached.len()), (1, 1));
+        awk_regex::set_ignore_case(false);
     }
 
     #[test]

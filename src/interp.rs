@@ -2025,6 +2025,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         };
                         *index_mut(&mut self.strs, res) = subbed;
                     }
+                    SubConst(res, pat, s, in_s) => {
+                        let (subbed, new) = {
+                            let s = index(&self.strs, s);
+                            index(&self.strs, in_s).subst_first(pat, s)
+                        };
+                        *index_mut(&mut self.strs, in_s) = subbed;
+                        *index_mut(&mut self.ints, res) = new as Int;
+                    }
+                    GSubConst(res, pat, s, in_s) => {
+                        let (subbed, subs_made) = {
+                            let s = index(&self.strs, s);
+                            index(&self.strs, in_s).subst_all(pat, s)
+                        };
+                        *index_mut(&mut self.strs, in_s) = subbed;
+                        *index_mut(&mut self.ints, res) = subs_made;
+                    }
+                    GenSubConst(res, pat, s, how, in_s) => {
+                        let subbed = {
+                            let s = index(&self.strs, s);
+                            let how = index(&self.strs, how);
+                            index(&self.strs, in_s).gen_subst_dynamic(pat, s, how)
+                        };
+                        *index_mut(&mut self.strs, res) = subbed;
+                    }
                     EscapeCSV(res, s) => {
                         *index_mut(&mut self.strs, res) = {
                             let s = index(&self.strs, s);
@@ -2258,8 +2282,29 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let flds = *flds;
                         *self.get_mut(flds) = res;
                     }
-                    SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit } => {
-                        let n = self.split_seps(*to_split, *arr_ty, *arr, *pat, *seps_ty, *seps, *patsplit)?;
+                    SplitIntConst(flds, to_split, arr, pat) => {
+                        let arr = index(&self.maps_int_str, arr);
+                        runtime::RegexCache::split_const_intmap(pat, index(&self.strs, to_split), arr);
+                        let res = arr.len() as Int;
+                        *index_mut(&mut self.ints, flds) = res;
+                    }
+                    SplitStrConst(flds, to_split, arr, pat) => {
+                        let arr = index(&self.maps_str_str, arr);
+                        runtime::RegexCache::split_const_strmap(pat, index(&self.strs, to_split), arr);
+                        let res = arr.len() as Int;
+                        *index_mut(&mut self.ints, flds) = res;
+                    }
+                    SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit, re } => {
+                        let n = self.split_seps(
+                            *to_split,
+                            *arr_ty,
+                            *arr,
+                            *pat,
+                            *seps_ty,
+                            *seps,
+                            *patsplit,
+                            re.as_deref(),
+                        )?;
                         *self.get_mut(*res) = n;
                     }
                     MatchArrInt(res, s, pat, arr) => {
@@ -2739,6 +2784,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         seps_ty: Ty,
         seps: NumTy,
         patsplit: bool,
+        re: Option<&Regex>,
     ) -> Result<Int> {
         // Index the storages directly (rather than with `get`) to borrow them alongside the
         // regex cache.
@@ -2750,7 +2796,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     $((Ty::$arr_ty, Ty::$seps_ty) => {
                         let arr = index(&self.$arr_regs, &arr.into());
                         let seps = index(&self.$seps_regs, &seps.into());
-                        self.core.regexes.split_seps_maps(pat, to_split, arr, seps, patsplit)
+                        match re {
+                            Some(re) => Ok(runtime::RegexCache::split_seps_maps_const(
+                                re, to_split, arr, seps, patsplit,
+                            )),
+                            None => self.core.regexes.split_seps_maps(pat, to_split, arr, seps, patsplit),
+                        }
                     })*
                     _ => panic!("invalid map types for split: {:?}, {:?}", arr_ty, seps_ty),
                 }

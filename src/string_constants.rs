@@ -93,9 +93,16 @@ impl StringConstantAnalysis {
     pub(crate) fn visit_ll(&mut self, inst: &Instr) {
         use Instr::*;
         if self.cfg.query_regex {
-            // TODO: Do the same for Sub, GSub, Split*
-            if let Match(_, _, pat) | IsMatch(_, _, pat) = inst {
-                self.dfa.add_query(pat)
+            match inst {
+                Match(_, _, pat)
+                | IsMatch(_, _, pat)
+                | Sub(_, pat, _, _)
+                | GSub(_, pat, _, _)
+                | GenSubDynamic(_, pat, _, _, _)
+                | SplitInt(_, _, _, pat)
+                | SplitStr(_, _, _, pat)
+                | SplitSeps { pat, .. } => self.dfa.add_query(pat),
+                _ => {}
             }
         }
         match inst {

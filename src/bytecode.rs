@@ -151,6 +151,26 @@ pub(crate) enum Instr<'a> {
         /*how*/ Reg<Str<'a>>,
         /*in*/ Reg<Str<'a>>,
     ),
+    // Sub, GSub and GenSubDynamic with a constant-folded pattern.
+    SubConst(
+        Reg<Int>,
+        /*pat*/ Arc<Regex>,
+        /*for*/ Reg<Str<'a>>,
+        /*in*/ Reg<Str<'a>>,
+    ),
+    GSubConst(
+        Reg<Int>,
+        /*pat*/ Arc<Regex>,
+        /*for*/ Reg<Str<'a>>,
+        /*in*/ Reg<Str<'a>>,
+    ),
+    GenSubConst(
+        Reg<Str<'a>>,
+        /*pat*/ Arc<Regex>,
+        /*for*/ Reg<Str<'a>>,
+        /*how*/ Reg<Str<'a>>,
+        /*in*/ Reg<Str<'a>>,
+    ),
     EscapeCSV(Reg<Str<'a>>, Reg<Str<'a>>),
     EscapeTSV(Reg<Str<'a>>, Reg<Str<'a>>),
     Substr(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
@@ -425,6 +445,20 @@ pub(crate) enum Instr<'a> {
         Reg<runtime::StrMap<'a, Str<'a>>>,
         Reg<Str<'a>>,
     ),
+    // SplitInt and SplitStr with a constant-folded regex (never one of the separators that
+    // split() treats specially, see `RegexCache::split_internal`).
+    SplitIntConst(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+        Arc<Regex>,
+    ),
+    SplitStrConst(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Arc<Regex>,
+    ),
     // split(s, arr, pat, seps), or patsplit(s, arr, re, seps) when `patsplit` is set: `arr` and
     // `seps` are maps from ints or strings to strings.
     SplitSeps {
@@ -436,6 +470,8 @@ pub(crate) enum Instr<'a> {
         seps_ty: Ty,
         seps: NumTy,
         patsplit: bool,
+        // The constant-folded regex for `pat`, if any. `pat` still holds the pattern text.
+        re: Option<Arc<Regex>>,
     },
     // match(s, re, arr)
     MatchArrInt(
@@ -1620,6 +1656,17 @@ impl<'a> Instr<'a> {
                 how.accum(&mut f);
                 in_s.accum(&mut f);
             }
+            GSubConst(res, _, s, in_s) | SubConst(res, _, s, in_s) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                in_s.accum(&mut f);
+            }
+            GenSubConst(res, _, s, how, in_s) => {
+                res.accum(&mut f);
+                s.accum(&mut f);
+                how.accum(&mut f);
+                in_s.accum(&mut f);
+            }
             EscapeCSV(res, s) | EscapeTSV(res, s) => {
                 res.accum(&mut f);
                 s.accum(&mut f);
@@ -1758,6 +1805,16 @@ impl<'a> Instr<'a> {
                 to_split.accum(&mut f);
                 arr.accum(&mut f);
                 pat.accum(&mut f);
+            }
+            SplitIntConst(flds, to_split, arr, _) => {
+                flds.accum(&mut f);
+                to_split.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            SplitStrConst(flds, to_split, arr, _) => {
+                flds.accum(&mut f);
+                to_split.accum(&mut f);
+                arr.accum(&mut f);
             }
             SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
                 res.accum(&mut f);

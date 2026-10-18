@@ -126,6 +126,8 @@ impl StrnumAnalysis {
             StoreConstStr(dst, s) if s.is_uninit() => self.dfa.add_src(dst, Strnum::UNINIT),
             SplitInt(_, _, map, _) => self.add_map_vals(map),
             SplitStr(_, _, map, _) => self.add_map_vals(map),
+            SplitIntConst(_, _, map, _) => self.add_map_vals(map),
+            SplitStrConst(_, _, map, _) => self.add_map_vals(map),
             SplitSeps { arr_ty, arr, seps_ty, seps, .. } => {
                 self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::MAYBE);
                 self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);

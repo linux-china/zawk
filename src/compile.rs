@@ -829,8 +829,16 @@ impl<'a> Typer<'a> {
                     }
                     if let Some(sca) = &mut self.string_constants {
                         if sca.cfg().query_regex && !sets_ignorecase {
-                            if let Either::Left(LL::IsMatch(_, _, pat))
-                            | Either::Left(LL::Match(_, _, pat)) = stmt
+                            if let Either::Left(
+                                LL::IsMatch(_, _, pat)
+                                | LL::Match(_, _, pat)
+                                | LL::Sub(_, pat, _, _)
+                                | LL::GSub(_, pat, _, _)
+                                | LL::GenSubDynamic(_, pat, _, _, _)
+                                | LL::SplitInt(_, _, _, pat)
+                                | LL::SplitStr(_, _, _, pat)
+                                | LL::SplitSeps { pat, .. },
+                            ) = stmt
                             {
                                 refs.push((fix, bbix, stmtix, *pat));
                             }
@@ -862,9 +870,33 @@ impl<'a> Typer<'a> {
                     if strs.len() != 1 {
                         continue;
                     }
-                    let text = std::str::from_utf8(&strs[0]).map_err(|e| {
-                        CompileError::new(format!("regex patterns must be valid UTF-8: {}", e))
-                    })?;
+                    let inst = &self.frames[frame].cfg.node_weight(NodeIx::new(bb)).unwrap().insts
+                        [stmt];
+                    let is_match = matches!(inst, Either::Left(LL::IsMatch(..) | LL::Match(..)));
+                    // split() treats an empty separator, " " and single characters specially
+                    // rather than as regexes (see `RegexCache::split_internal`).
+                    let is_split = matches!(
+                        inst,
+                        Either::Left(
+                            LL::SplitInt(..)
+                                | LL::SplitStr(..)
+                                | LL::SplitSeps { patsplit: false, .. }
+                        )
+                    );
+                    let text = match std::str::from_utf8(&strs[0]) {
+                        Ok(text) => text,
+                        Err(e) if is_match => {
+                            return Err(CompileError::new(format!(
+                                "regex patterns must be valid UTF-8: {}",
+                                e
+                            )));
+                        }
+                        // Leave these to the runtime, which reports errors when it runs them.
+                        Err(_) => continue,
+                    };
+                    if is_split && text.chars().count() <= 1 {
+                        continue;
+                    }
                     let re = Arc::new(runtime::awk_regex::compile(text).map_err(|err| {
                         CompileError::new(runtime::awk_regex::compile_error(text, &err))
                     })?);
@@ -890,6 +922,25 @@ impl<'a> Typer<'a> {
                         }
                         Either::Left(LL::Match(dst, s, _)) => {
                             Either::Left(LL::MatchConst(*dst, *s, re))
+                        }
+                        Either::Left(LL::Sub(res, _, s, in_s)) => {
+                            Either::Left(LL::SubConst(*res, re, *s, *in_s))
+                        }
+                        Either::Left(LL::GSub(res, _, s, in_s)) => {
+                            Either::Left(LL::GSubConst(*res, re, *s, *in_s))
+                        }
+                        Either::Left(LL::GenSubDynamic(res, _, s, how, in_s)) => {
+                            Either::Left(LL::GenSubConst(*res, re, *s, *how, *in_s))
+                        }
+                        Either::Left(LL::SplitInt(flds, to_split, arr, _)) => {
+                            Either::Left(LL::SplitIntConst(*flds, *to_split, *arr, re))
+                        }
+                        Either::Left(LL::SplitStr(flds, to_split, arr, _)) => {
+                            Either::Left(LL::SplitStrConst(*flds, *to_split, *arr, re))
+                        }
+                        Either::Left(LL::SplitSeps { re: folded, .. }) => {
+                            *folded = Some(re);
+                            continue;
                         }
                         _ => {
                             return err!(
@@ -1837,6 +1888,7 @@ impl<'a, 'b> View<'a, 'b> {
                     seps_ty: conv_tys[3],
                     seps: conv_regs[3],
                     patsplit: *bf == PatSplit,
+                    re: None,
                 })
             }
             Strlen => {

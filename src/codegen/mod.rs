@@ -867,6 +867,34 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(gen_subst), &mut [rt, patv, sv, howv, in_sv])?;
                 self.bind_val(res.reflect(), resv)
             }
+            SubConst(res, pat, s, in_s) => {
+                let rt = self.runtime_val();
+                let patv = self.const_re(pat.clone());
+                let sv = self.get_val(s.reflect())?;
+                let in_sv = self.get_val(in_s.reflect())?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(subst_first_const), &mut [rt, patv, sv, in_sv])?;
+                self.bind_val(res.reflect(), resv)
+            }
+            GSubConst(res, pat, s, in_s) => {
+                let rt = self.runtime_val();
+                let patv = self.const_re(pat.clone());
+                let sv = self.get_val(s.reflect())?;
+                let in_sv = self.get_val(in_s.reflect())?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(subst_all_const), &mut [rt, patv, sv, in_sv])?;
+                self.bind_val(res.reflect(), resv)
+            }
+            GenSubConst(res, pat, s, how, in_s) => {
+                let rt = self.runtime_val();
+                let patv = self.const_re(pat.clone());
+                let sv = self.get_val(s.reflect())?;
+                let howv = self.get_val(how.reflect())?;
+                let in_sv = self.get_val(in_s.reflect())?;
+                let resv = self
+                    .call_intrinsic(intrinsic!(gen_subst_const), &mut [rt, patv, sv, howv, in_sv])?;
+                self.bind_val(res.reflect(), resv)
+            }
             EscapeCSV(dst, s) => self.unop(intrinsic!(escape_csv), dst, s),
             EscapeTSV(dst, s) => self.unop(intrinsic!(escape_tsv), dst, s),
             Substr(res, base, l, r) => {
@@ -1755,7 +1783,23 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(split_int), &mut [rt, tsv, arrv, patv])?;
                 self.bind_val(flds.reflect(), fldsv)
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit } => {
+            SplitIntConst(flds, to_split, arr, pat) => {
+                let tsv = self.get_val(to_split.reflect())?;
+                let arrv = self.get_val(arr.reflect())?;
+                let patv = self.const_re(pat.clone());
+                let fldsv =
+                    self.call_intrinsic(intrinsic!(split_int_const), &mut [tsv, arrv, patv])?;
+                self.bind_val(flds.reflect(), fldsv)
+            }
+            SplitStrConst(flds, to_split, arr, pat) => {
+                let tsv = self.get_val(to_split.reflect())?;
+                let arrv = self.get_val(arr.reflect())?;
+                let patv = self.const_re(pat.clone());
+                let fldsv =
+                    self.call_intrinsic(intrinsic!(split_str_const), &mut [tsv, arrv, patv])?;
+                self.bind_val(flds.reflect(), fldsv)
+            }
+            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit, re: None } => {
                 use compile::Ty::{MapIntStr, MapStrStr};
                 let func = match (arr_ty, seps_ty, patsplit) {
                     (MapIntStr, MapIntStr, false) => intrinsic!(split_seps_int_int),
@@ -1772,6 +1816,27 @@ pub(crate) trait CodeGenerator: Backend {
                 let tsv = self.get_val(to_split.reflect())?;
                 let arrv = self.get_val((*arr, *arr_ty))?;
                 let patv = self.get_val(pat.reflect())?;
+                let sepsv = self.get_val((*seps, *seps_ty))?;
+                let resv = self.call_intrinsic(func, &mut [rt, tsv, arrv, patv, sepsv])?;
+                self.bind_val(res.reflect(), resv)
+            }
+            SplitSeps { res, to_split, arr_ty, arr, seps_ty, seps, patsplit, re: Some(re), .. } => {
+                use compile::Ty::{MapIntStr, MapStrStr};
+                let func = match (arr_ty, seps_ty, patsplit) {
+                    (MapIntStr, MapIntStr, false) => intrinsic!(split_seps_const_int_int),
+                    (MapIntStr, MapStrStr, false) => intrinsic!(split_seps_const_int_str),
+                    (MapStrStr, MapIntStr, false) => intrinsic!(split_seps_const_str_int),
+                    (MapStrStr, MapStrStr, false) => intrinsic!(split_seps_const_str_str),
+                    (MapIntStr, MapIntStr, true) => intrinsic!(patsplit_const_int_int),
+                    (MapIntStr, MapStrStr, true) => intrinsic!(patsplit_const_int_str),
+                    (MapStrStr, MapIntStr, true) => intrinsic!(patsplit_const_str_int),
+                    (MapStrStr, MapStrStr, true) => intrinsic!(patsplit_const_str_str),
+                    (a, s, _) => return err!("invalid map types for split: {:?}, {:?}", a, s),
+                };
+                let rt = self.runtime_val();
+                let tsv = self.get_val(to_split.reflect())?;
+                let arrv = self.get_val((*arr, *arr_ty))?;
+                let patv = self.const_re(re.clone());
                 let sepsv = self.get_val((*seps, *seps_ty))?;
                 let resv = self.call_intrinsic(func, &mut [rt, tsv, arrv, patv, sepsv])?;
                 self.bind_val(res.reflect(), resv)
