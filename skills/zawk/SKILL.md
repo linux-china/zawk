@@ -310,7 +310,6 @@ one warning to stderr and return an empty value (`0` for an HTTP status).
 ## Pitfalls (differences from gawk)
 
 - `-i` is the input format, not gawk's `-i library`.
-- `var=value` operands between files are not supported (they are read as file names): use `-v var=value`.
 - `ARGV`/`ARGC` are read-only: assigning `ARGV[1]` doesn't change the input files.
 - No arrays of arrays (`a[i][j]`): use `a[i, j]` with `SUBSEP`, or `(i, j) in a`.
 - `IGNORECASE = 1` works as in gawk: regex matching, `FS`/`RS`, string comparisons and `index()` ignore case (a
