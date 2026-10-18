@@ -869,7 +869,8 @@ impl<'a> Typer<'a> {
                         CompileError::new(runtime::awk_regex::compile_error(text, &err))
                     })?);
                     // extract_anchored_literal parses the pattern in the syntax of `regex`.
-                    let text = runtime::awk_regex::translate(text);
+                    // It compiled above, so it translates.
+                    let text = runtime::awk_regex::translate(text).unwrap();
                     let text = text.as_str();
                     // TODO: finish up
                     let inst = self.frames[frame]

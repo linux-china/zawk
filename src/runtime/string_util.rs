@@ -63,6 +63,7 @@ pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
 
 pub fn read_all(path: &str) -> String {
     let result = if path.starts_with("http://") || path.starts_with("https://") {
+        crate::runtime::tls::install_default_provider();
         reqwest::blocking::get(path).and_then(|resp| resp.text()).map_err(|e| e.to_string())
     } else {
         std::fs::read_to_string(path).map_err(|e| e.to_string())

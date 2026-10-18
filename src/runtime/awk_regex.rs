@@ -62,7 +62,7 @@ pub(crate) fn with_case(pat: String) -> String {
 
 /// Compile an awk regular expression.
 pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
-    RegexBuilder::new(&with_case(translate(pat)))
+    RegexBuilder::new(&with_case(translate(pat).map_err(regex::Error::Syntax)?))
         .dot_matches_new_line(true)
         .build()
 }
@@ -127,8 +127,12 @@ pub(crate) fn find_literal(kind: Literal, lit: &[u8], hay: &[u8]) -> Option<(usi
 
 /// The syntax error in `pat`, if any, e.g. "unclosed group".
 pub(crate) fn syntax_error(pat: &str) -> Option<String> {
+    let translated = match translate(pat) {
+        Ok(t) => t,
+        Err(e) => return Some(e),
+    };
     regex_syntax::ast::parse::Parser::new()
-        .parse(&translate(pat))
+        .parse(&translated)
         .err()
         .map(|e| e.kind().to_string())
 }
@@ -360,6 +364,17 @@ fn byte_escape(chars: &[char], i: &mut usize) -> Option<u8> {
     Some(b)
 }
 
+/// Copy the `{...}` at `chars[*i]` to `out`, up to and including the closing brace.
+fn push_braced(out: &mut String, chars: &[char], i: &mut usize) {
+    while let Some(&c) = chars.get(*i) {
+        out.push(c);
+        *i += 1;
+        if c == '}' {
+            break;
+        }
+    }
+}
+
 /// Translate the escape sequence at `chars[*i]` (just after a backslash).
 fn translate_escape(out: &mut String, chars: &[char], i: &mut usize, in_bracket: bool) {
     let c = match chars.get(*i) {
@@ -386,20 +401,18 @@ fn translate_escape(out: &mut String, chars: &[char], i: &mut usize, in_bracket:
             out.push('\\');
             out.push(c);
         }
-        // Unicode classes and code points, e.g. \p{Greek} or \x{e9}, as supported by `regex`.
+        // Unicode classes and code points, e.g. \pL, \p{Greek} or \x{e9}, as supported by `regex`.
+        // The braces are copied as is, rather than being taken for an interval.
         'p' | 'P' => {
             out.push('\\');
             out.push(c);
+            if chars.get(*i) == Some(&'{') {
+                push_braced(out, chars, i);
+            }
         }
         'x' if chars.get(*i) == Some(&'{') => {
             out.push_str("\\x");
-            while let Some(&c) = chars.get(*i) {
-                out.push(c);
-                *i += 1;
-                if c == '}' {
-                    break;
-                }
-            }
+            push_braced(out, chars, i);
         }
         // gawk's hex escapes (one or two digits) are bytes, like octal escapes.
         'x' => match parse_hex(chars, i) {
@@ -418,8 +431,7 @@ fn translate_escape(out: &mut String, chars: &[char], i: &mut usize, in_bracket:
 
 /// The Unicode-aware equivalent of the POSIX character class `[:name:]`, for use inside a
 /// bracket expression. `digit` and `xdigit` stay ASCII, like glibc's in a UTF-8 locale, and (also
-/// like glibc) other decimal digits such as `٣` count as `alpha`. Unknown
-/// names are passed through, so that `regex` reports them.
+/// like glibc) other decimal digits such as `٣` count as `alpha`. Returns None for unknown names.
 fn posix_class(name: &str) -> Option<&'static str> {
     Some(match name {
         "alpha" => r"\p{Alphabetic}[\p{Nd}--0-9]",
@@ -463,8 +475,8 @@ fn interval_len(chars: &[char], i: usize) -> Option<usize> {
 }
 
 /// Translate the bracket expression starting at `chars[*i]` (a `[`). Returns false if it is not
-/// terminated, in which case nothing is consumed.
-fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
+/// terminated, in which case nothing is consumed, and an error for an unknown class like `[:foo:]`.
+fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<bool, String> {
     let mut j = *i + 1;
     let mut res = String::from("[");
     // Byte escapes of non-ASCII values (and ranges of them), matched with Unicode mode off.
@@ -482,7 +494,7 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
     loop {
         let c = match chars.get(j) {
             Some(c) => *c,
-            None => return false,
+            None => return Ok(false),
         };
         match c {
             ']' => {
@@ -500,7 +512,7 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
                             let name: String = chars[j + 2..end].iter().collect();
                             match posix_class(&name) {
                                 Some(class) => res.push_str(class),
-                                None => res.extend(&chars[j..end + 2]),
+                                None => return Err(format!("invalid character class name [:{}:]", name)),
                             }
                             j = end + 2;
                         }
@@ -563,7 +575,7 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
         }
     }
     *i = j;
-    true
+    Ok(true)
 }
 
 /// If the bracket expression item at `chars[j]` (a backslash) is a byte escape of a non-ASCII
@@ -597,8 +609,9 @@ fn high_byte_item(bytes: &mut String, chars: &[char], j: usize) -> Option<usize>
     Some(k)
 }
 
-/// Translate an awk regular expression into the syntax of the `regex` crate.
-pub(crate) fn translate(pat: &str) -> String {
+/// Translate an awk regular expression into the syntax of the `regex` crate. Errors that `regex`
+/// would not report, like an unknown character class name, are returned as a message.
+pub(crate) fn translate(pat: &str) -> Result<String, String> {
     let chars: Vec<char> = pat.chars().collect();
     let mut out = String::with_capacity(pat.len() + 8);
     // Whether we are at the start of an expression (where a repetition operator is a literal).
@@ -613,7 +626,7 @@ pub(crate) fn translate(pat: &str) -> String {
                 at_start = false;
             }
             '[' => {
-                if !translate_bracket(&mut out, &chars, &mut i) {
+                if !translate_bracket(&mut out, &chars, &mut i)? {
                     out.push_str(r"\[");
                     i += 1;
                 }
@@ -663,7 +676,7 @@ pub(crate) fn translate(pat: &str) -> String {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -676,27 +689,33 @@ mod tests {
 
     #[test]
     fn translation() {
-        assert_eq!(translate(r"\yfoo\y"), r"\bfoo\b");
-        assert_eq!(translate(r"\<a\>"), r"\b{start}a\b{end}");
-        assert_eq!(translate("a{"), r"a\{");
-        assert_eq!(translate("{"), r"\{");
-        assert_eq!(translate("a{,}"), r"a\{,\}");
-        assert_eq!(translate("a{2}b{1,}c{1,3}"), "a{2}b{1,}c{1,3}");
-        assert_eq!(translate(r"\101"), r"\x{41}");
-        assert_eq!(translate("[[]"), r"[\[]");
-        assert_eq!(translate("[]a]"), r"[\]a]");
-        assert_eq!(translate("[^]a]"), r"[^\]a]");
-        assert_eq!(translate("[[:alpha:]_]"), r"[\p{Alphabetic}[\p{Nd}--0-9]_]");
-        assert_eq!(translate("[^[:digit:]]"), "[^0-9]");
-        assert_eq!(translate("[a&&b]"), r"[a\&\&b]");
-        assert_eq!(translate("(?:.)"), "(?:.)");
-        assert_eq!(translate(r"\351"), r"(?-u:\xE9)");
-        assert_eq!(translate(r"\xc3\xa9"), r"(?-u:\xC3)(?-u:\xA9)");
-        assert_eq!(translate(r"\x41\xg"), r"\x{41}xg");
-        assert_eq!(translate(r"\x{e9}"), r"\x{e9}");
-        assert_eq!(translate(r"[a\351]"), r"(?-u:[a\xE9])");
-        assert_eq!(translate(r"[^\200-\377]"), r"(?-u:[^\x80-\xFF])");
-        assert_eq!(translate(r"[é\351]"), r"(?:[é]|(?-u:[\xE9]))");
+        assert_eq!(translate(r"\yfoo\y").unwrap(), r"\bfoo\b");
+        assert_eq!(translate(r"\<a\>").unwrap(), r"\b{start}a\b{end}");
+        assert_eq!(translate("a{").unwrap(), r"a\{");
+        assert_eq!(translate("{").unwrap(), r"\{");
+        assert_eq!(translate("a{,}").unwrap(), r"a\{,\}");
+        assert_eq!(translate("a{2}b{1,}c{1,3}").unwrap(), "a{2}b{1,}c{1,3}");
+        assert_eq!(translate(r"\101").unwrap(), r"\x{41}");
+        assert_eq!(translate("[[]").unwrap(), r"[\[]");
+        assert_eq!(translate("[]a]").unwrap(), r"[\]a]");
+        assert_eq!(translate("[^]a]").unwrap(), r"[^\]a]");
+        assert_eq!(translate("[[:alpha:]_]").unwrap(), r"[\p{Alphabetic}[\p{Nd}--0-9]_]");
+        assert_eq!(translate("[^[:digit:]]").unwrap(), "[^0-9]");
+        assert_eq!(translate("[a&&b]").unwrap(), r"[a\&\&b]");
+        assert_eq!(translate("(?:.)").unwrap(), "(?:.)");
+        assert_eq!(translate(r"\351").unwrap(), r"(?-u:\xE9)");
+        assert_eq!(translate(r"\xc3\xa9").unwrap(), r"(?-u:\xC3)(?-u:\xA9)");
+        assert_eq!(translate(r"\x41\xg").unwrap(), r"\x{41}xg");
+        assert_eq!(translate(r"\x{e9}").unwrap(), r"\x{e9}");
+        assert_eq!(translate(r"\p{Greek}+").unwrap(), r"\p{Greek}+");
+        assert_eq!(translate(r"[\P{Greek}\x{e9}]").unwrap(), r"[\P{Greek}\x{e9}]");
+        assert_eq!(translate(r"\pL").unwrap(), r"\pL");
+        assert!(translate("[[:foo:]]").is_err());
+        assert_eq!(syntax_error("[[:foo:]]").unwrap(), "invalid character class name [:foo:]");
+        assert!(compile("a|[^[:nope:]]").is_err());
+        assert_eq!(translate(r"[a\351]").unwrap(), r"(?-u:[a\xE9])");
+        assert_eq!(translate(r"[^\200-\377]").unwrap(), r"(?-u:[^\x80-\xFF])");
+        assert_eq!(translate(r"[é\351]").unwrap(), r"(?:[é]|(?-u:[\xE9]))");
     }
 
     #[test]
