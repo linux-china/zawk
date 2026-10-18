@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) mod command;
 pub(crate) mod awk_regex;
+pub(crate) mod regex_memory;
 pub(crate) mod compare;
 pub(crate) mod numfmt;
 pub mod float_parse;
@@ -80,19 +81,29 @@ pub use splitter::{
 };
 pub use str_impl::{Str, UniqueStr};
 
-/// Memory budget, in bytes, for the compiled regexes kept per cache. Dynamic regexes can come
-/// from input data (`$0 ~ $1`, `split($0, a, $2)`), so once the estimated size of the cache
-/// (see `REGEX_COST`) reaches this budget the least recently used half of it is evicted. The
-/// budget is by memory rather than by count so that programs matching against a few thousand
-/// distinct patterns (e.g. from a lookup table) do not recompile on every record.
-const REGEX_CACHE_BUDGET: usize = 64 << 20;
+/// How the memory of a compiled dynamic regex counts against `regex_memory`. Dynamic regexes can
+/// come from input data (`$0 ~ $1`, `split($0, a, $2)`), so the caches are bounded by memory,
+/// rather than by count so that programs matching against a few thousand distinct patterns
+/// (e.g. from a lookup table) do not recompile on every record. Searching allocates the caches
+/// of the regex engines, measured at up to about half the compiled size (more for Unicode
+/// classes). Without the allocator's counters, a short pattern like `^us.r123$` is estimated
+/// at about 16KB.
+const REGEX_COST: EntryCost = EntryCost {
+    measured_percent: 150,
+    estimate: CostModel {
+        base: 12 << 10,
+        per_byte: 512,
+    },
+};
 
-/// Estimated memory of a compiled regex (including its match caches) for a pattern of the given
-/// length in bytes. A short pattern like `^us.r123$` measures about 16KB, so the budget holds
-/// around 3500 of them.
-const REGEX_COST: CostModel = CostModel {
-    base: 12 << 10,
-    per_byte: 512,
+/// How the memory of a `LightMatcher` counts against `regex_memory`: measured while it is built
+/// with the engine its first use builds (see `RegexCache::light_matcher`).
+const LIGHT_COST: EntryCost = EntryCost {
+    measured_percent: 100,
+    estimate: CostModel {
+        base: 4 << 10,
+        per_byte: 256,
+    },
 };
 
 pub struct RegexCache(
@@ -103,19 +114,31 @@ pub struct RegexCache(
     // and the registries for the other setting, swapped back in when IGNORECASE changes again:
     // a program that toggles IGNORECASE per record keeps both sets of regexes cached.
     (bool, Registry<Regex>, Registry<awk_regex::LightMatcher>),
-    // Dynamic patterns of `~` that have not been used often enough yet to be worth compiling into
-    // the first registry (see `is_regex_match`).
+    // Dynamic patterns that have not been used often enough yet to be worth compiling into the
+    // first registry (see `light_matcher`).
     Registry<awk_regex::LightMatcher>,
+    // The eviction round of `regex_memory` the registries last took part in.
+    u64,
 );
 
-/// How many times `~` uses a dynamic pattern with the cheap matcher (see
-/// `awk_regex::LightMatcher`) before compiling it fully: a full regex takes several times longer
-/// to build, but its prefilter and full DFA make matching faster.
+/// How many times a dynamic pattern is used with the cheap matcher (see
+/// `awk_regex::LightMatcher`) before compiling it fully: a full regex takes 10–50 times longer to
+/// build, but its prefilter and full DFA make matching faster.
 const LIGHT_USES: u32 = 4;
 
 impl Default for RegexCache {
     fn default() -> Self {
-        RegexCache::with_budget(REGEX_CACHE_BUDGET)
+        RegexCache(
+            Registry::with_memory_limit(REGEX_COST),
+            Registry::with_memory_limit(REGEX_COST),
+            (
+                false,
+                Registry::with_memory_limit(REGEX_COST),
+                Registry::with_memory_limit(LIGHT_COST),
+            ),
+            Registry::with_memory_limit(LIGHT_COST),
+            regex_memory::round(),
+        )
     }
 }
 
@@ -212,7 +235,7 @@ fn split_byte<'a>(s: &Str<'a>, sep: u8, used_fields: &FieldSet, mut push: impl F
 }
 
 /// Splits `s` at the matches of `re`, as split() does for a regex separator.
-fn split_with<'a>(re: &Regex, s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
+fn split_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
     s.split(
         re,
         |s, _| {
@@ -227,7 +250,7 @@ type FieldsAndSeps<'a> = (Vec<Str<'a>>, Vec<(Int, Str<'a>)>);
 
 /// The fields and separators of `split(s, arr, re, seps)` for a regex separator `re` (see
 /// `RegexCache::split_seps`).
-fn split_seps_with<'a>(re: &Regex, s: &Str<'a>) -> FieldsAndSeps<'a> {
+fn split_seps_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>) -> FieldsAndSeps<'a> {
     let mut flds = Vec::new();
     let mut seps = Vec::new();
     if s.is_empty() {
@@ -250,7 +273,7 @@ fn split_seps_with<'a>(re: &Regex, s: &Str<'a>) -> FieldsAndSeps<'a> {
 }
 
 /// The fields and separators of `patsplit(s, arr, re, seps)` (see `RegexCache::patsplit_seps`).
-fn patsplit_seps_with<'a>(re: &Regex, s: &Str<'a>) -> FieldsAndSeps<'a> {
+fn patsplit_seps_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>) -> FieldsAndSeps<'a> {
     let mut flds = Vec::new();
     let mut seps = Vec::new();
     if s.is_empty() {
@@ -293,30 +316,27 @@ where
 }
 
 impl RegexCache {
-    fn with_budget(budget: usize) -> Self {
-        RegexCache(
-            Registry::with_memory_limit(budget, REGEX_COST),
-            Registry::with_memory_limit(budget, REGEX_COST),
-            (
-                false,
-                Registry::with_memory_limit(budget, REGEX_COST),
-                Registry::with_memory_limit(budget, REGEX_COST),
-            ),
-            Registry::with_memory_limit(budget, REGEX_COST),
-        )
-    }
     /// Switch to the regexes compiled with the current IGNORECASE setting, if it changed since the
-    /// last lookup.
-    fn sync_case(&mut self) {
+    /// last lookup, and take part in the eviction rounds of `regex_memory` that started since.
+    fn sync(&mut self) {
         let ignore_case = awk_regex::ignore_case();
         if self.2.0 != ignore_case {
             std::mem::swap(&mut self.0, &mut self.2.1);
             std::mem::swap(&mut self.3, &mut self.2.2);
             self.2.0 = ignore_case;
         }
+        let round = regex_memory::round();
+        if self.4 != round {
+            self.4 = round;
+            self.0.sync_budget(round);
+            self.1.sync_budget(round);
+            self.2.1.sync_budget(round);
+            self.2.2.sync_budget(round);
+            self.3.sync_budget(round);
+        }
     }
     pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
-        self.sync_case();
+        self.sync();
         self.0.get(
             pat,
             |s| match awk_regex::compile(s) {
@@ -337,26 +357,83 @@ impl RegexCache {
         let single_char =
             rs.with_bytes(|bs| std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1));
         if single_char {
+            self.sync();
             self.1.get(rs, literal_regex, |x| f(x))
         } else {
             self.with_regex(rs, f)
         }
     }
-    pub(crate) fn with_regex_fallible<T>(
+    /// Runs `f` with a searcher for the dynamic pattern `pat`, to search `s` (and only `s`, see
+    /// `light_matcher`).
+    pub(crate) fn with_search<T>(
         &mut self,
         pat: &Str,
-        mut f: impl FnMut(&Regex) -> Result<T>,
+        s: &Str,
+        f: impl FnOnce(&dyn awk_regex::Search) -> T,
     ) -> Result<T> {
-        self.sync_case();
+        self.with_search_fallible(pat, s, |re| Ok(f(re)))
+    }
+    pub(crate) fn with_search_fallible<T>(
+        &mut self,
+        pat: &Str,
+        s: &Str,
+        f: impl FnOnce(&dyn awk_regex::Search) -> Result<T>,
+    ) -> Result<T> {
+        self.sync();
+        if let Some(re) = self.0.lookup(pat) {
+            return f(re);
+        }
+        let mut f = Some(f);
+        let light = s.with_bytes(|bs| {
+            let m = self.light_matcher(pat, bs)?;
+            let f = &mut f;
+            if !m.may_match(bs) {
+                return Some(f.take().unwrap()(&awk_regex::NoMatch));
+            }
+            m.with_engine(bs, |e| f.take().unwrap()(e))
+        });
+        if let Some(res) = light {
+            return res;
+        }
+        // `f` was not called.
+        let f = f.take().unwrap();
         self.0.get_fallible(
             pat,
             |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(r),
                 Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
-            // eta-expansion required to get this compiling..
-            |x| f(x),
+            |re| f(re),
         )
+    }
+
+    /// The light matcher (see `awk_regex::LightMatcher`) for a dynamic pattern that is not
+    /// compiled yet, with this use counted, to search `hay`; `None` once the pattern has been used
+    /// `LIGHT_USES` times (it is then compiled fully), or when it does not parse (`compile` then
+    /// reports the error). Patterns built from the input are often each used once
+    /// (`$0 ~ ("^[a-z]+ " $9)`, `match($0, "^" $1)`), so a new pattern starts with the matcher
+    /// that is cheap to build.
+    fn light_matcher(&mut self, pat: &Str, hay: &[u8]) -> Option<&mut awk_regex::LightMatcher> {
+        let uses = match self.3.lookup(pat) {
+            Some(m) => m.uses,
+            None => {
+                // Measure the memory of the matcher with the engine its first use builds.
+                let (m, measured) = regex_memory::measure(|| {
+                    let mut m = pat.with_bytes(|bs| str::from_utf8(bs).ok().and_then(awk_regex::LightMatcher::new))?;
+                    m.prepare(hay);
+                    Some(m)
+                });
+                self.3.insert(pat, m?, measured);
+                0
+            }
+        };
+        if uses >= LIGHT_USES {
+            self.3.remove(pat);
+            return None;
+        }
+        let m = self.3.lookup(pat)?;
+        m.uses += 1;
+        Some(m)
     }
 
     pub(crate) fn get_line<'a, LR: LineReader>(
@@ -455,6 +532,7 @@ impl RegexCache {
             split_byte(s, sep, used_fields, push);
             Ok(())
         } else if is_literal_separator(pat) {
+            self.sync();
             self.1.get(
                 pat,
                 literal_regex,
@@ -470,7 +548,7 @@ impl RegexCache {
                 },
             )
         } else {
-            self.with_regex(pat, |re| split_with(re, s, used_fields, &mut push))
+            self.with_search(pat, s, |re| split_with(re, s, used_fields, &mut push))
         }
     }
     pub(crate) fn split_regex<'a>(
@@ -572,9 +650,10 @@ impl RegexCache {
             return Ok((flds, seps));
         }
         if is_literal_separator(pat) {
+            self.sync();
             self.1.get(pat, literal_regex, |re| split_seps_with(re, s))
         } else {
-            self.with_regex(pat, |re| split_seps_with(re, s))
+            self.with_search(pat, s, |re| split_seps_with(re, s))
         }
     }
 
@@ -590,7 +669,7 @@ impl RegexCache {
         if s.is_empty() {
             return Ok(Default::default());
         }
-        self.with_regex(pat, |re| patsplit_seps_with(re, s))
+        self.with_search(pat, s, |re| patsplit_seps_with(re, s))
     }
 
     /// `split(s, arr, pat, seps)` (or `patsplit` when `patsplit` is set): replaces the contents
@@ -631,7 +710,11 @@ impl RegexCache {
         fill_seps_maps(flds, sep_list, arr, seps)
     }
 
-    pub(crate) fn regex_const_match_loc(vars: &mut Variables, re: &Regex, s: &Str) -> Result<Int> {
+    pub(crate) fn regex_const_match_loc(
+        vars: &mut Variables,
+        re: &(impl awk_regex::Search + ?Sized),
+        s: &Str,
+    ) -> Result<Int> {
         Self::store_match_loc(vars, s, |bs| awk_regex::find_at(re, bs, 0))
     }
     /// Sets RSTART and RLENGTH to the match `find` reports in `s` and returns RSTART.
@@ -671,7 +754,7 @@ impl RegexCache {
         if let Some(found) = Self::find_literal(pat, s) {
             return Self::store_match_loc(vars, s, |_| found);
         }
-        self.with_regex_fallible(pat, |re| Self::regex_const_match_loc(vars, re, s))
+        self.with_search_fallible(pat, s, |re| Self::regex_const_match_loc(vars, re, s))
     }
 
     /// gawk's `match(s, re, arr)`: like `match(s, re)`, and also clears `arr` and passes the whole
@@ -684,14 +767,14 @@ impl RegexCache {
         s: &Str<'a>,
         mut f: impl FnMut(Int, Str<'a>, Int, Int),
     ) -> Result<Int> {
-        self.with_regex_fallible(pat, |re| {
+        self.with_search_fallible(pat, s, |re| {
             let groups: Vec<(Int, usize, usize)> = s.with_bytes(|bs| match awk_regex::find_at(re, bs, 0)
                 .and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
             {
                 Some(caps) => caps
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, m)| m.map(|m| (i as Int, m.start(), m.end())))
+                    .filter_map(|(i, m)| m.map(|(from, to)| (i as Int, from, to)))
                     .collect(),
                 None => Vec::new(),
             });
@@ -753,29 +836,14 @@ impl RegexCache {
         if let Some(found) = Self::find_literal(pat, s) {
             return Ok(found.is_some());
         }
-        // Patterns built from the input are often each used once (`$0 ~ ("^[a-z]+ " $9)`), so a
-        // new pattern starts with the matcher that is cheap to build, and is compiled fully on its
-        // `LIGHT_USES + 1`-th use.
-        self.sync_case();
+        // Patterns built from the input are often each used once (`$0 ~ ("^[a-z]+ " $9)`): see
+        // `light_matcher`.
+        self.sync();
         if let Some(re) = self.0.lookup(pat) {
             return Ok(Self::regex_const_match(re, s));
         }
-        if let Some(m) = self.3.lookup(pat) {
-            if m.uses < LIGHT_USES {
-                m.uses += 1;
-                if let Some(res) = s.with_bytes(|bs| m.is_match(bs)) {
-                    return Ok(res);
-                }
-            }
-            self.3.remove(pat);
-        } else if let Some(mut m) =
-            pat.with_bytes(|bs| str::from_utf8(bs).ok().and_then(awk_regex::LightMatcher::new))
-        {
-            if let Some(res) = s.with_bytes(|bs| m.is_match(bs)) {
-                m.uses = 1;
-                self.3.insert(pat, m);
-                return Ok(res);
-            }
+        if let Some(res) = s.with_bytes(|bs| self.light_matcher(pat, bs)?.is_match(bs)) {
+            return Ok(res);
         }
         self.with_regex(pat, |re| Self::regex_const_match(re, s))
     }
@@ -1141,11 +1209,12 @@ impl CostModel {
 /// several arguments). Once inserting an entry would take the estimated memory of the entries
 /// past the budget, the least recently used half is evicted (see `Registry::evict_lru`).
 pub(crate) struct StrLru<V> {
-    // Each value is paired with the `clock` value of its last use.
-    cached: HashMap<String, (V, u64)>,
-    budget: usize,
+    // Each value is paired with the `clock` value of its last use and its memory.
+    cached: HashMap<String, (V, u64, usize)>,
+    // The memory budget, or `None` for a cache counted against `regex_memory`.
+    budget: Option<usize>,
     cost: CostModel,
-    // The estimated memory of the entries.
+    // The memory of the entries.
     used: usize,
     clock: u64,
 }
@@ -1154,32 +1223,54 @@ impl<V> StrLru<V> {
     pub(crate) fn new(budget: usize, cost: CostModel) -> Self {
         StrLru {
             cached: HashMap::default(),
-            budget,
+            budget: Some(budget),
             cost,
             used: 0,
             clock: 0,
         }
     }
+    /// A cache counted against `regex_memory`, whose entries are measured when built (see
+    /// `insert_measured`), or estimated with `cost` when the allocator does not tell.
+    pub(crate) fn with_regex_memory(cost: CostModel) -> Self {
+        StrLru {
+            budget: None,
+            ..StrLru::new(0, cost)
+        }
+    }
     pub(crate) fn get(&mut self, key: &str) -> Option<&V> {
         self.clock += 1;
         let clock = self.clock;
-        self.cached.get_mut(key).map(|(v, tick)| {
+        self.cached.get_mut(key).map(|(v, tick, _)| {
             *tick = clock;
             &*v
         })
     }
     pub(crate) fn insert(&mut self, key: String, v: V) -> &V {
-        let cost = self.cost.cost(key.len());
-        if let Some(old) = self.cached.remove(&key) {
-            drop(old);
-            self.used -= cost;
+        self.insert_measured(key, v, None)
+    }
+    /// Inserts `v`, which took `measured` bytes to build (if known; see
+    /// `regex_memory::measure`).
+    pub(crate) fn insert_measured(&mut self, key: String, v: V, measured: Option<usize>) -> &V {
+        let cost = measured.unwrap_or_else(|| self.cost.cost(key.len()));
+        if let Some((_, _, old)) = self.cached.remove(&key) {
+            self.used -= old;
+            if self.budget.is_none() {
+                regex_memory::release(old);
+            }
         }
-        if self.used + cost > self.budget {
+        let full = match self.budget {
+            Some(budget) => self.used + cost > budget,
+            None => regex_memory::make_room(cost),
+        };
+        if full {
             self.evict_lru();
+        }
+        if self.budget.is_none() {
+            regex_memory::charge(cost);
         }
         self.clock += 1;
         self.used += cost;
-        &self.cached.entry(key).insert((v, self.clock)).into_mut().0
+        &self.cached.entry(key).insert((v, self.clock, cost)).into_mut().0
     }
     /// The value for `key`, created by `new` when it is not cached.
     pub(crate) fn get_or_try_insert<E>(
@@ -1193,16 +1284,20 @@ impl<V> StrLru<V> {
         let v = new()?;
         Ok(self.insert(key.to_owned(), v))
     }
-    fn evict_lru(&mut self) {
-        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
+    /// Evicts the least recently used half of the entries.
+    pub(crate) fn evict_lru(&mut self) {
+        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick, _)| *tick).collect();
         if ticks.is_empty() {
             return;
         }
         let mid = ticks.len() / 2;
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
-        self.cached.retain(|_, (_, tick)| *tick > threshold);
-        let cost = self.cost;
-        self.used = self.cached.keys().map(|k| cost.cost(k.len())).sum();
+        self.cached.retain(|_, (_, tick, _)| *tick > threshold);
+        let used = self.cached.values().map(|(_, _, cost)| *cost).sum();
+        if self.budget.is_none() {
+            regex_memory::release(self.used - used);
+        }
+        self.used = used;
     }
 }
 
@@ -1230,13 +1325,16 @@ pub(crate) struct Registry<T> {
     // We could be fine having duplicates for Regex. We could also also intern strings
     // as we go by swapping out one Rc for another as we encounter them. That would keep the
     // fast path fast, but we would have to make sure we weren't keeping any Refs alive.
-    // Each value is paired with the `clock` value of its last use.
-    cached: HashMap<Str<'static>, (T, u64)>,
-    // When set, the least recently used half of the registry is evicted before inserting a new
-    // entry that would take the estimated memory of the entries past the budget.
-    limit: Option<(usize, CostModel)>,
-    // The estimated memory of the entries, when `limit` is set.
+    // Each value is paired with the `clock` value of its last use and its memory as counted
+    // against `regex_memory` (0 when `limit` is not set).
+    cached: HashMap<Str<'static>, (T, u64, usize)>,
+    // When set, the entries count against the budget of `regex_memory`, and the least recently
+    // used half of the registry is evicted in each eviction round.
+    limit: Option<EntryCost>,
+    // The memory of the entries, when `limit` is set.
     used: usize,
+    // The eviction round of `regex_memory` the registry last took part in.
+    round: u64,
     clock: u64,
 }
 impl<T> Default for Registry<T> {
@@ -1245,62 +1343,99 @@ impl<T> Default for Registry<T> {
             cached: Default::default(),
             limit: None,
             used: 0,
+            round: 0,
             clock: 0,
         }
     }
 }
 
+impl<T> Drop for Registry<T> {
+    fn drop(&mut self) {
+        if self.limit.is_some() {
+            regex_memory::release(self.used);
+        }
+    }
+}
+
+/// How a registry counted against `regex_memory` accounts for the memory of an entry.
+#[derive(Clone, Copy)]
+pub(crate) struct EntryCost {
+    /// The percentage of the memory measured while building an entry (see `Registry::get`) to
+    /// count: a compiled regex allocates its search caches when first used.
+    measured_percent: usize,
+    /// The estimate, from the length of the key, when the allocator does not tell.
+    estimate: CostModel,
+}
+
 impl<T> Registry<T> {
-    fn with_memory_limit(budget: usize, cost: CostModel) -> Self {
+    fn with_memory_limit(cost: EntryCost) -> Self {
         Registry {
             cached: Default::default(),
-            limit: Some((budget, cost)),
+            limit: Some(cost),
             used: 0,
+            round: regex_memory::round(),
             clock: 0,
         }
     }
-    fn cost(&self, key_len: usize) -> usize {
-        self.limit.map_or(0, |(_, model)| model.cost(key_len))
+    /// The memory to count for an entry for a key of `key_len` bytes, of which building took
+    /// `measured` bytes (if known), not counting `measured_percent`. A measured entry also counts
+    /// its key and its slot in the table (twice, as the table can be half empty).
+    fn cost(&self, key_len: usize, measured: Option<usize>) -> usize {
+        let slot = 2 * mem::size_of::<(Str<'static>, (T, u64, usize))>() + key_len;
+        self.limit.map_or(0, |limit| measured.map_or_else(|| limit.estimate.cost(key_len), |m| m + slot))
     }
     fn remove(&mut self, s: &Str) -> bool {
         self.take(s).is_some()
     }
     fn take(&mut self, s: &Str) -> Option<T> {
-        let t = s.with_bytes(|bs| self.cached.remove(&BytesKey(bs))).map(|(t, _)| t);
-        if t.is_some() {
-            self.used -= self.cost(s.len());
+        let (t, _, cost) = s.with_bytes(|bs| self.cached.remove(&BytesKey(bs)))?;
+        self.used -= cost;
+        if self.limit.is_some() {
+            regex_memory::release(cost);
         }
-        t
+        Some(t)
     }
     /// Evicts the least recently used half of the entries. Evicting in batches keeps cache hits
     /// down to a counter update while making eviction amortized O(1) per insertion.
     fn evict_lru(&mut self) {
-        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick)| *tick).collect();
+        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick, _)| *tick).collect();
         if ticks.is_empty() {
             return;
         }
         let mid = ticks.len() / 2;
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
         // Ticks are unique, so this keeps exactly the entries more recent than the median.
-        self.cached.retain(|_, (_, tick)| *tick > threshold);
-        let model = self.limit.map(|(_, model)| model);
-        self.used = model.map_or(0, |m| self.cached.keys().map(|k| m.cost(k.len())).sum());
+        self.cached.retain(|_, (_, tick, _)| *tick > threshold);
+        let used = self.cached.values().map(|(_, _, cost)| *cost).sum();
+        regex_memory::release(self.used - used);
+        self.used = used;
+    }
+    /// Takes part in the eviction rounds of `regex_memory` that started since the last call.
+    fn sync_budget(&mut self, round: u64) {
+        if self.limit.is_some() && self.round != round {
+            self.round = round;
+            self.evict_lru();
+        }
     }
     /// The entry for `s`, if any, marked as just used.
     fn lookup(&mut self, s: &Str) -> Option<&mut T> {
         self.clock += 1;
         let clock = self.clock;
-        let (val, tick) = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)))?;
+        let (val, tick, _) = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)))?;
         *tick = clock;
         Some(val)
     }
-    /// Adds an entry for `s`, which must not have one yet.
-    fn insert(&mut self, s: &Str, val: T) {
-        let cost = self.limit.map_or(0, |(_, model)| model.cost(s.len()));
-        if self.limit.is_some_and(|(budget, _)| self.used + cost > budget) {
-            self.evict_lru();
+    /// Adds an entry for `s`, which must not have one yet, that took `measured` bytes to build
+    /// (if known; see `regex_memory::measure`).
+    fn insert(&mut self, s: &Str, val: T, measured: Option<usize>) {
+        let cost = self.cost(s.len(), measured);
+        if self.limit.is_some() {
+            if regex_memory::make_room(cost) {
+                self.sync_budget(regex_memory::round());
+            }
+            regex_memory::charge(cost);
         }
-        self.cached.insert(s.clone().unmoor(), (val, self.clock));
+        self.cached.insert(s.clone().unmoor(), (val, self.clock, cost));
         self.used += cost;
     }
     fn get<R>(
@@ -1321,20 +1456,28 @@ impl<T> Registry<T> {
         let clock = self.clock;
         // Look up with the borrowed bytes: only a miss pays for an owned key.
         let hit = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)));
-        if let Some((val, tick)) = hit {
+        if let Some((val, tick, _)) = hit {
             *tick = clock;
             return getter(val);
         }
-        let (val, res) = s.with_bytes(|raw_str| {
+        let percent = self.limit.map(|limit| limit.measured_percent);
+        let (val, res, measured) = s.with_bytes(|raw_str| {
             let s = match str::from_utf8(raw_str) {
                 Ok(s) => s,
                 Err(e) => return err!("invalid UTF-8 for file or regex: {}", e),
             };
-            let mut val = new(s)?;
+            let (val, measured) = match percent {
+                Some(percent) => {
+                    let (val, measured) = regex_memory::measure(|| new(s));
+                    (val, measured.map(|m| m * percent / 100))
+                }
+                None => (new(s), None),
+            };
+            let mut val = val?;
             let res = getter(&mut val);
-            Ok((val, res))
+            Ok((val, res, measured))
         })?;
-        self.insert(s, val);
+        self.insert(s, val, measured);
         res
     }
 }
@@ -1811,13 +1954,19 @@ mod tests {
     // Room for a few hundred short patterns.
     const TEST_BUDGET: usize = 2 << 20;
 
+    /// A regex cache with `TEST_BUDGET` as the memory budget of this thread's regex caches.
+    fn test_cache() -> RegexCache {
+        regex_memory::set_budget(TEST_BUDGET);
+        RegexCache::default()
+    }
+
     #[test]
     fn regex_cache_is_bounded() {
-        let mut rc = RegexCache::with_budget(TEST_BUDGET);
-        for i in 0..(TEST_BUDGET / REGEX_COST.cost(4) * 3) {
+        let mut rc = test_cache();
+        for i in 0..(TEST_BUDGET / REGEX_COST.estimate.cost(4) * 3) {
             let pat = Str::from(format!("x{}", i));
             assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
-            assert!(rc.0.used <= TEST_BUDGET);
+            assert!(regex_memory::used() <= TEST_BUDGET);
         }
         // Entries still hit after the cache has been cleared.
         let pat = Str::from("x0".to_string());
@@ -1825,10 +1974,35 @@ mod tests {
     }
 
     #[test]
+    fn regex_cache_counts_measured_memory() {
+        // `[[:alpha:]]` compiles to `\p{Alphabetic}`, about 100KB: the budget holds a few dozen
+        // such regexes, whatever the length of the pattern, rather than the ~70 short patterns
+        // the estimate from its length would allow.
+        let mut rc = test_cache();
+        let hay = Str::from("中文 abc");
+        for i in 0..200 {
+            let pat = Str::from(format!("[[:alpha:]]+x{}", i));
+            assert!(!rc.with_regex(&pat, |re| re.is_match(b"x")).unwrap());
+            assert!(!rc.is_regex_match(&Str::from(format!("[[:alpha:]]+y{}", i)), &hay).unwrap());
+            assert!(regex_memory::used() <= TEST_BUDGET);
+        }
+        if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
+            assert!(rc.0.cached.len() < 40, "{} regexes cached", rc.0.cached.len());
+        }
+        // The light matchers and compiled regexes share the budget with the longest-match
+        // machinery.
+        for i in 0..200 {
+            let pat = Str::from(format!("[[:alpha:]]+(a|ab){}", i));
+            rc.with_regex(&pat, |re| awk_regex::find_at(re, b"ab0", 0)).unwrap();
+            assert!(regex_memory::used() <= TEST_BUDGET);
+        }
+    }
+
+    #[test]
     fn regex_cache_keeps_recently_used() {
-        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        let mut rc = test_cache();
         let hot = Str::from("hot".to_string());
-        for i in 0..(TEST_BUDGET / REGEX_COST.cost(4) * 3) {
+        for i in 0..(TEST_BUDGET / REGEX_COST.estimate.cost(4) * 3) {
             assert!(rc.with_regex(&hot, |re| re.is_match(b"hot")).unwrap());
             let pat = Str::from(format!("x{}", i));
             assert!(rc.with_regex(&pat, |re| re.is_match(b"x0")).is_ok());
@@ -1839,7 +2013,7 @@ mod tests {
 
     #[test]
     fn regex_cache_keeps_both_ignorecase_settings() {
-        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        let mut rc = test_cache();
         let pat = Str::from("ab+c");
         let s = Str::from("xABBC");
         for _ in 0..3 {
@@ -1857,7 +2031,7 @@ mod tests {
 
     #[test]
     fn literal_patterns_skip_the_cache() {
-        let mut rc = RegexCache::with_budget(TEST_BUDGET);
+        let mut rc = test_cache();
         let cases: &[(&str, &str, bool)] = &[
             ("user1", "a user12", true),
             ("^user1", "user12", true),
@@ -1889,6 +2063,39 @@ mod tests {
         assert!(rc.is_regex_match(&pat, &Str::from("uber")).unwrap());
         // Invalid patterns report the error of `compile`.
         let err = rc.is_regex_match(&Str::from("a("), &Str::from("a")).unwrap_err();
+        assert!(format!("{}", err).contains("invalid regex /a(/"), "{}", err);
+    }
+
+    #[test]
+    fn searches_start_with_light_matchers() {
+        let mut rc = test_cache();
+        let find = |rc: &mut RegexCache, pat: &str, s: &str| {
+            let s = Str::from(s);
+            rc.with_search(&Str::from(pat), &s, |re| {
+                s.with_bytes(|bs| {
+                    let spans: Vec<_> = awk_regex::find_iter(re, bs).collect();
+                    let groups = spans.first().and_then(|&(from, to)| awk_regex::captures_at(re, bs, from, to));
+                    (spans, groups.map(|g| g.iter().collect::<Vec<_>>()))
+                })
+            })
+            .unwrap()
+        };
+        // The same results from the light matcher (ASCII and other text, and text its literals
+        // rule out), and from the compiled regex once the pattern has been used `LIGHT_USES` times.
+        let cases: &[(&str, &str, Vec<(usize, usize)>, Option<Vec<Option<(usize, usize)>>>)] = &[
+            ("(x|xy)(z?)", "a xyz xz", vec![(2, 5), (6, 8)], Some(vec![Some((2, 5)), Some((2, 4)), Some((4, 5))])),
+            ("(x|xy)(z?)", "é xyz xz", vec![(3, 6), (7, 9)], Some(vec![Some((3, 6)), Some((3, 5)), Some((5, 6))])),
+            ("(x|xy)(z?)", "abc", vec![], None),
+            ("^(a+)(b)?", "aab", vec![(0, 3)], Some(vec![Some((0, 3)), Some((0, 2)), Some((2, 3))])),
+        ];
+        for (pat, s, spans, groups) in cases {
+            for i in 0..=LIGHT_USES {
+                assert_eq!(&find(&mut rc, pat, s), &(spans.clone(), groups.clone()), "/{}/ on {:?}", pat, s);
+                assert_eq!(rc.0.cached.len() == 1, i == LIGHT_USES, "/{}/ use {}", pat, i + 1);
+            }
+            rc.0.cached.clear();
+        }
+        let err = rc.with_search(&Str::from("a("), &Str::from("a"), |_| ()).unwrap_err();
         assert!(format!("{}", err).contains("invalid regex /a(/"), "{}", err);
     }
 }

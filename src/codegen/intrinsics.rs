@@ -3145,7 +3145,7 @@ pub(crate) unsafe extern "C" fn subst_first(
             runtime
                 .core
                 .regexes
-                .with_regex(pat, |re| in_s.subst_first(re, s))
+                .with_search(pat, in_s, |re| in_s.subst_first(re, s))
         );
         *in_s = subbed;
         new as Int
@@ -3168,7 +3168,7 @@ pub(crate) unsafe extern "C" fn subst_all(
             runtime
                 .core
                 .regexes
-                .with_regex(pat, |re| in_s.subst_all(re, s))
+                .with_search(pat, in_s, |re| in_s.subst_all(re, s))
         );
         *in_s = subbed;
         nsubs
@@ -3193,7 +3193,7 @@ pub(crate) unsafe extern "C" fn gen_subst(
             runtime
                 .core
                 .regexes
-                .with_regex(pat, |re| in_s.gen_subst_dynamic(re, s, how))
+                .with_search(pat, in_s, |re| in_s.gen_subst_dynamic(re, s, how))
         );
         mem::transmute::<Str, U128>(subbed)
     })

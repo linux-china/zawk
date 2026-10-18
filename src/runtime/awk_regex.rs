@@ -68,66 +68,203 @@ pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
         .build()
 }
 
-/// A matcher for `~` that is cheap to build, for dynamic patterns that are used only a few times
-/// (`$0 ~ ("^[a-z]+ " $9)`, one pattern per record). `compile` builds `regex`'s full set of
-/// engines, including a full DFA for small patterns, which takes several times longer (~18µs vs
-/// ~3µs for `^[a-z]+ abc`) than the forward-only lazy DFA used here, with no capture groups,
-/// reverse search or prefilter. `RegexCache::is_regex_match` switches a pattern to `compile` once
-/// it is reused.
+/// A matcher that is cheap to build, for dynamic patterns that are used only a few times
+/// (`$0 ~ ("^[a-z]+ " $9)`, `match($0, "^" $1 " [^ ]+")`, one pattern per record). `compile`
+/// builds `regex`'s full set of engines (reverse NFA, one-pass DFA, a full DFA for small patterns,
+/// prefilter), which takes 25–90µs; the Thompson NFA and PikeVM used here take 1–3µs, and match
+/// short text about as fast. `RegexCache` switches a pattern to `compile` once it is reused.
 ///
 /// Unicode classes (`[[:alpha:]]` is `\p{Alphabetic}`, `.` any character) make up most of the
-/// build time of the rest, so the engine is built for the characters of the text at hand (see
+/// build time of the NFA, so the engine is built for the characters of the text at hand (see
 /// `restrict`): a match can only consume characters of the text, so the result is the same. The
 /// engine for ASCII text is kept; for other text one is built per call.
+///
+/// Before any engine is used, the text is checked for the literals every match starts and ends
+/// with (see `may_match`): a pattern built from the input mostly does not match it.
 pub(crate) struct LightMatcher {
     hir: regex_syntax::hir::Hir,
-    /// The engine for ASCII text, once built; `Some(None)` when it cannot be built.
-    ascii: Option<Option<LightEngine>>,
+    /// Whether leftmost-first matches can be shorter than leftmost-longest ones (see
+    /// `needs_longest`).
+    longest: bool,
+    /// Literals one of which every match starts with, and whether matches start at the start of
+    /// the text; `None` when unknown.
+    prefixes: Option<(Vec<Vec<u8>>, bool)>,
+    /// The same for the end of matches.
+    suffixes: Option<(Vec<Vec<u8>>, bool)>,
+    /// The engine for ASCII text, once built; `Some(None)` when it cannot be built. Boxed, as the
+    /// registry of matchers keeps them in its table.
+    ascii: Option<Option<Box<LightEngine>>>,
     /// How many times the matcher was used.
     pub(crate) uses: u32,
 }
 
-struct LightEngine {
-    /// `None` when the lazy DFA cannot be built.
-    dfa: Option<(DFA, Cache)>,
+/// A PikeVM with its cache.
+struct Pike {
+    vm: PikeVM,
+    cache: RefCell<regex_automata::nfa::thompson::pikevm::Cache>,
+}
+
+impl Pike {
+    fn from_nfa(nfa: regex_automata::nfa::thompson::NFA, kind: MatchKind) -> Pike {
+        let vm = PikeVM::builder()
+            .configure(PikeVM::config().match_kind(kind))
+            .build_from_nfa(nfa)
+            .expect("PikeVM supports every NFA");
+        let cache = RefCell::new(vm.create_cache());
+        Pike { vm, cache }
+    }
+
+    /// The capture groups of the first match of `input`.
+    fn groups(&self, input: &Input) -> Option<Groups> {
+        let mut caps = self.vm.create_captures();
+        self.vm.search(&mut self.cache.borrow_mut(), input, &mut caps);
+        caps.is_match().then(|| {
+            Groups((0..caps.group_len()).map(|i| caps.get_group(i).map(|s| (s.start, s.end))).collect())
+        })
+    }
+}
+
+thread_local! {
+    /// The NFA compiler for `light_nfa`. A compiler allocates a cache for compiling non-ASCII
+    /// classes that takes longer to set up (~9µs) than compiling a short pattern; reusing the
+    /// compiler reuses it.
+    static NFA_COMPILER: regex_automata::nfa::thompson::Compiler = {
+        use regex_automata::nfa::thompson::{Compiler, Config};
+        let mut c = Compiler::new();
+        c.configure(Config::new().utf8(false).nfa_size_limit(Some(10 << 20)));
+        c
+    };
+}
+
+/// The NFA for `hir`, with the configuration of `regex::bytes::Regex` (see `compile`).
+fn light_nfa(hir: &regex_syntax::hir::Hir) -> Option<regex_automata::nfa::thompson::NFA> {
+    NFA_COMPILER.with(|c| {
+        let nfa = c.build_from_hir(hir).ok();
+        // The compiler keeps the states it built until the next build: build an empty pattern to
+        // free them now, so that `regex_memory::measure` counts what the NFA keeps, rather than
+        // that less what the previous build kept.
+        let _ = c.build_from_hir(&regex_syntax::hir::Hir::empty());
+        nfa
+    })
+}
+
+/// The engines of a `LightMatcher` for some text, each built on first use.
+pub(crate) struct LightEngine {
+    /// The pattern, restricted to the characters of the text.
+    hir: regex_syntax::hir::Hir,
+    longest: bool,
     nfa: regex_automata::nfa::thompson::NFA,
+    /// Leftmost-first matches, searching with `FIRST_CACHE`.
+    first: PikeVM,
+    /// Tells engines apart for `FIRST_CACHE`.
+    id: u64,
+    /// A lazy DFA for `is_match`, built on its second use: for a single search of short text,
+    /// building it costs more than searching with `first`. `None` when it cannot be built.
+    dfa: OnceCell<Option<(DFA, RefCell<Cache>)>>,
+    is_match_uses: std::cell::Cell<u32>,
+    /// Reporting all matches, so that an anchored search ends at the longest (see `Longest`).
+    all: OnceCell<Pike>,
+    /// For capture groups: of the pattern, and of the pattern anchored at the end (see
+    /// `captures_at`; `None` when it cannot be built).
+    groups: OnceCell<Pike>,
+    exact: OnceCell<Option<Pike>>,
+}
+
+/// Numbers `LightEngine`s.
+static ENGINE_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+thread_local! {
+    /// The cache of the PikeVM `first` of `LightEngine`s, and the id of the engine it was last
+    /// set up for. Most engines are used for a single search: resetting the cache for another
+    /// engine keeps its allocations, which take longer to make (and free) than the search.
+    static FIRST_CACHE: RefCell<Option<(u64, regex_automata::nfa::thompson::pikevm::Cache)>> =
+        const { RefCell::new(None) };
 }
 
 impl LightEngine {
-    fn new(hir: &regex_syntax::hir::Hir) -> Option<LightEngine> {
-        use regex_automata::nfa::thompson::{Compiler, Config, WhichCaptures};
-        // The configuration of `regex::bytes::Regex` (see `compile`), minus capture groups.
-        let nfa = Compiler::new()
-            .configure(
-                Config::new()
-                    .utf8(false)
-                    .which_captures(WhichCaptures::None)
-                    .nfa_size_limit(Some(10 << 20)),
-            )
-            .build_from_hir(hir)
-            .ok()?;
-        let dfa = DFA::builder()
-            .configure(DFA::config().unicode_word_boundary(true))
-            .build_from_nfa(nfa.clone())
-            .ok()
-            .map(|dfa| {
-                let cache = dfa.create_cache();
-                (dfa, cache)
-            });
-        Some(LightEngine { dfa, nfa })
+    fn new(hir: regex_syntax::hir::Hir, longest: bool) -> Option<LightEngine> {
+        let nfa = light_nfa(&hir)?;
+        Some(LightEngine {
+            first: PikeVM::new_from_nfa(nfa.clone()).expect("PikeVM supports every NFA"),
+            id: ENGINE_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            hir,
+            longest,
+            nfa,
+            dfa: OnceCell::new(),
+            is_match_uses: Default::default(),
+            all: OnceCell::new(),
+            groups: OnceCell::new(),
+            exact: OnceCell::new(),
+        })
     }
 
-    fn is_match(&mut self, hay: &[u8]) -> bool {
+    fn is_match(&self, hay: &[u8]) -> bool {
         let input = Input::new(hay).earliest(true);
-        if let Some((dfa, cache)) = &mut self.dfa {
-            if let Ok(m) = dfa.try_search_fwd(cache, &input) {
-                return m.is_some();
+        let uses = self.is_match_uses.get();
+        self.is_match_uses.set(uses + 1);
+        if uses > 0 {
+            let dfa = self.dfa.get_or_init(|| {
+                DFA::builder()
+                    .configure(DFA::config().unicode_word_boundary(true))
+                    .build_from_nfa(self.nfa.clone())
+                    .ok()
+                    .map(|dfa| {
+                        let cache = RefCell::new(dfa.create_cache());
+                        (dfa, cache)
+                    })
+            });
+            if let Some((dfa, cache)) = dfa {
+                if let Ok(m) = dfa.try_search_fwd(&mut cache.borrow_mut(), &input) {
+                    return m.is_some();
+                }
+            }
+            // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text) or could
+            // not be built.
+        }
+        self.with_first_cache(|cache| self.first.is_match(cache, input))
+    }
+
+    fn with_first_cache<T>(&self, f: impl FnOnce(&mut regex_automata::nfa::thompson::pikevm::Cache) -> T) -> T {
+        FIRST_CACHE.with_borrow_mut(|c| {
+            let (id, cache) = c.get_or_insert_with(|| (self.id, self.first.create_cache()));
+            if *id != self.id {
+                cache.reset(&self.first);
+                *id = self.id;
+            }
+            f(cache)
+        })
+    }
+}
+
+impl Search for LightEngine {
+    fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+        let m = self.with_first_cache(|cache| self.first.find(cache, Input::new(hay).range(start..)))?;
+        if !self.longest {
+            return Some((m.start(), m.end()));
+        }
+        let all = self.all.get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::All));
+        let input = Input::new(hay).range(m.start()..).anchored(Anchored::Yes);
+        let end = all.vm.find(&mut all.cache.borrow_mut(), input).map_or(m.end(), |l| l.end().max(m.end()));
+        Some((m.start(), end))
+    }
+
+    fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
+        use regex_syntax::hir::{Hir, Look};
+        if self.longest {
+            let exact = self.exact.get_or_init(|| {
+                light_nfa(&Hir::concat(vec![self.hir.clone(), Hir::look(Look::End)]))
+                    .map(|nfa| Pike::from_nfa(nfa, MatchKind::LeftmostFirst))
+            });
+            if let Some(exact) = exact {
+                // As in `captures_at`: the text before `from` stays visible to look-behind.
+                let input = Input::new(&hay[..to]).range(from..).anchored(Anchored::Yes);
+                if let Some(g) = exact.groups(&input) {
+                    return Some(g);
+                }
             }
         }
-        // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text) or could not be
-        // built.
-        let pike = PikeVM::new_from_nfa(self.nfa.clone()).expect("PikeVM supports every NFA");
-        pike.is_match(&mut pike.create_cache(), input)
+        let groups = self.groups.get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::LeftmostFirst));
+        groups.groups(&Input::new(hay).range(from..))
     }
 }
 
@@ -204,10 +341,24 @@ fn may_be_too_big(hir: &regex_syntax::hir::Hir) -> bool {
     walk(hir, 1)
 }
 
+/// Literals one of which every match of `hir` starts with (or ends with, for
+/// `ExtractKind::Suffix`), when there are a few, none empty.
+fn required_literals(hir: &regex_syntax::hir::Hir, kind: regex_syntax::hir::literal::ExtractKind) -> Option<Vec<Vec<u8>>> {
+    let mut extractor = regex_syntax::hir::literal::Extractor::new();
+    extractor.kind(kind).limit_total(64);
+    let seq = extractor.extract(hir);
+    let lits = seq.literals()?;
+    if lits.len() > 8 || lits.iter().any(|l| l.is_empty()) {
+        return None;
+    }
+    Some(lits.iter().map(|l| l.as_bytes().to_vec()).collect())
+}
+
 impl LightMatcher {
     /// A matcher for the awk regex `pat`, or `None` when it does not parse (or may be too big,
     /// see `may_be_too_big`); the caller then goes through `compile`, which reports errors.
     pub(crate) fn new(pat: &str) -> Option<LightMatcher> {
+        use regex_syntax::hir::{literal::ExtractKind, Look};
         let hir = regex_syntax::ParserBuilder::new()
             .utf8(false)
             .dot_matches_new_line(true)
@@ -217,22 +368,64 @@ impl LightMatcher {
         if may_be_too_big(&hir) {
             return None;
         }
+        let props = hir.properties();
+        let prefixes = required_literals(&hir, ExtractKind::Prefix)
+            .map(|lits| (lits, props.look_set_prefix().contains(Look::Start)));
+        let suffixes = required_literals(&hir, ExtractKind::Suffix)
+            .map(|lits| (lits, props.look_set_suffix().contains(Look::End)));
         Some(LightMatcher {
+            longest: hir_needs_longest(&hir),
             hir,
+            prefixes,
+            suffixes,
             ascii: None,
             uses: 0,
         })
     }
 
-    /// Whether the pattern matches `hay`, or `None` when the engine for it cannot be built; the
-    /// caller then goes through `compile`, which reports the error.
-    pub(crate) fn is_match(&mut self, hay: &[u8]) -> Option<bool> {
-        if hay.is_ascii() {
-            let hir = &self.hir;
-            let engine = self.ascii.get_or_insert_with(|| LightEngine::new(&restrict(hir, &ascii_chars(), true)));
-            return engine.as_mut().map(|e| e.is_match(hay));
+    /// Whether the pattern can match `hay`, judging by the literals its matches start and end
+    /// with; `false` means that it does not match.
+    pub(crate) fn may_match(&self, hay: &[u8]) -> bool {
+        let prefix = |(lits, start): &(Vec<Vec<u8>>, bool)| {
+            lits.iter().any(|l| if *start { hay.starts_with(l) } else { memchr::memmem::find(hay, l).is_some() })
+        };
+        let suffix = |(lits, end): &(Vec<Vec<u8>>, bool)| {
+            lits.iter().any(|l| if *end { hay.ends_with(l) } else { memchr::memmem::find(hay, l).is_some() })
+        };
+        self.prefixes.as_ref().is_none_or(prefix) && self.suffixes.as_ref().is_none_or(suffix)
+    }
+
+    /// Builds what the first use of the matcher on `hay` needs, so that its memory can be
+    /// measured with the matcher's (see `RegexCache::light_matcher`).
+    pub(crate) fn prepare(&mut self, hay: &[u8]) {
+        if hay.is_ascii() && self.may_match(hay) {
+            self.ascii_engine();
         }
-        LightEngine::new(&restrict(&self.hir, &chars_of(hay), false)).map(|mut e| e.is_match(hay))
+    }
+
+    fn ascii_engine(&mut self) -> Option<&LightEngine> {
+        let (hir, longest) = (&self.hir, self.longest);
+        self.ascii
+            .get_or_insert_with(|| LightEngine::new(restrict(hir, &ascii_chars(), true), longest).map(Box::new))
+            .as_deref()
+    }
+
+    /// Runs `f` with the engine for `hay` (and other text made of the same characters), or
+    /// returns `None` when it cannot be built; the caller then goes through `compile`, which
+    /// reports the error.
+    pub(crate) fn with_engine<T>(&mut self, hay: &[u8], f: impl FnOnce(&LightEngine) -> T) -> Option<T> {
+        if hay.is_ascii() {
+            return self.ascii_engine().map(f);
+        }
+        LightEngine::new(restrict(&self.hir, &chars_of(hay), false), self.longest).map(|e| f(&e))
+    }
+
+    /// Whether the pattern matches `hay`, or `None` when the engine for it cannot be built.
+    pub(crate) fn is_match(&mut self, hay: &[u8]) -> Option<bool> {
+        if !self.may_match(hay) {
+            return Some(false);
+        }
+        self.with_engine(hay, |e| e.is_match(hay))
     }
 }
 
@@ -328,21 +521,26 @@ struct Longest {
     exact: OnceCell<Option<Regex>>,
 }
 
-/// Memory budget, in bytes, for the patterns kept in `LONGEST`. Like `RegexCache` (see
-/// `REGEX_CACHE_BUDGET`), patterns can come from input data, so once the estimated size of the
-/// cache reaches this budget the least recently used half of it is evicted.
-const LONGEST_BUDGET: usize = 64 << 20;
-
-/// Estimated memory of the longest-match machinery for a pattern of the given length in bytes.
+/// Estimated memory of the longest-match machinery for a pattern of the given length in bytes,
+/// when the allocator does not tell (see `regex_memory::measure`).
 const LONGEST_COST: super::CostModel = super::CostModel {
     base: 8 << 10,
     per_byte: 512,
 };
 
 thread_local! {
-    /// The longest-match machinery per pattern.
+    /// The longest-match machinery per pattern. Patterns can come from input data, so it counts
+    /// against the memory budget of the regex caches (see `regex_memory`).
     static LONGEST: RefCell<super::StrLru<Option<Rc<Longest>>>> =
-        RefCell::new(super::StrLru::new(LONGEST_BUDGET, LONGEST_COST));
+        RefCell::new(super::StrLru::with_regex_memory(LONGEST_COST));
+}
+
+/// Evicts the least recently used half of the caches here, for an eviction round of
+/// `regex_memory`. A cache in use is skipped: it is the one adding an entry, which evicts by
+/// itself.
+pub(crate) fn evict_caches() {
+    LONGEST.with(|cell| cell.try_borrow_mut().map(|mut cache| cache.evict_lru()).ok());
+    EXTENDERS.with(|cell| cell.try_borrow_mut().map(|mut cache| cache.evict_lru()).ok());
 }
 
 /// Whether the leftmost-first match of `pat` (in the syntax of `regex`) can be shorter than the
@@ -350,6 +548,16 @@ thread_local! {
 /// single character (`(ab)?(abcd)?`) or that is not greedy. Patterns that fail to parse are
 /// assumed to need it.
 fn needs_longest(pat: &str) -> bool {
+    regex_syntax::ParserBuilder::new()
+        .utf8(false)
+        .dot_matches_new_line(true)
+        .build()
+        .parse(pat)
+        .map_or(true, |h| hir_needs_longest(&h))
+}
+
+/// `needs_longest` for the parsed pattern.
+fn hir_needs_longest(hir: &regex_syntax::hir::Hir) -> bool {
     use regex_syntax::hir::{Hir, HirKind};
     fn one_char(h: &Hir) -> bool {
         match h.kind() {
@@ -368,12 +576,7 @@ fn needs_longest(pat: &str) -> bool {
             _ => false,
         }
     }
-    regex_syntax::ParserBuilder::new()
-        .utf8(false)
-        .dot_matches_new_line(true)
-        .build()
-        .parse(pat)
-        .map_or(true, |h| walk(&h))
+    walk(hir)
 }
 
 /// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
@@ -385,11 +588,11 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
             return l.clone();
         }
         if !needs_longest(pat) {
-            cell.borrow_mut().insert(pat.to_owned(), None);
+            cell.borrow_mut().insert_measured(pat.to_owned(), None, Some(0));
             return None;
         }
-        let l = Longest::new(pat).map(Rc::new);
-        cell.borrow_mut().insert(pat.to_owned(), l.clone());
+        let (l, measured) = super::regex_memory::measure(|| Longest::new(pat).map(Rc::new));
+        cell.borrow_mut().insert_measured(pat.to_owned(), l.clone(), measured);
         l
     })
 }
@@ -434,14 +637,80 @@ fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
     pike.find(&mut cache.borrow_mut(), input).map(|m| m.end())
 }
 
-/// The leftmost-longest match of `re` in `hay` starting at or after `start`, as (start, end).
-pub(crate) fn find_at(re: &Regex, hay: &[u8], start: usize) -> Option<(usize, usize)> {
-    let m = re.find_at(hay, start)?;
-    let (from, to) = (m.start(), m.end());
-    match longest(re) {
-        Some(l) => Some((from, longest_end(&l, hay, from).map_or(to, |e| e.max(to)))),
-        None => Some((from, to)),
+/// The capture groups of a match, as byte ranges of the text; `None` for groups that did not
+/// participate.
+pub(crate) struct Groups(Vec<Option<(usize, usize)>>);
+
+impl Groups {
+    /// The range of group `i` (0 for the whole match).
+    pub(crate) fn get(&self, i: usize) -> Option<(usize, usize)> {
+        self.0.get(i).copied().flatten()
     }
+    /// The number of groups, including group 0.
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub(crate) fn iter(&self) -> impl Iterator<Item = Option<(usize, usize)>> + '_ {
+        self.0.iter().copied()
+    }
+}
+
+/// What `find_at`, `find_iter` and `captures_at` search with: a compiled `Regex`, or the engine
+/// of a `LightMatcher` (only for the text it was built for).
+pub(crate) trait Search {
+    /// The leftmost-longest match in `hay` starting at or after `start`, as (start, end).
+    fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)>;
+    /// The capture groups for the match `from..to` of `hay` (as found by `search_at`).
+    fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups>;
+}
+
+/// A pattern known not to match the text at hand (see `LightMatcher::may_match`).
+pub(crate) struct NoMatch;
+
+impl Search for NoMatch {
+    fn search_at(&self, _: &[u8], _: usize) -> Option<(usize, usize)> {
+        None
+    }
+    fn groups_at(&self, _: &[u8], _: usize, _: usize) -> Option<Groups> {
+        None
+    }
+}
+
+impl Search for Regex {
+    fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+        let m = self.find_at(hay, start)?;
+        let (from, to) = (m.start(), m.end());
+        match longest(self) {
+            Some(l) => Some((from, longest_end(&l, hay, from).map_or(to, |e| e.max(to)))),
+            None => Some((from, to)),
+        }
+    }
+
+    fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
+        let groups = |c: Captures| Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect());
+        if let Some(l) = longest(self) {
+            let exact = l.exact.get_or_init(|| {
+                RegexBuilder::new(&format!("(?:{})\\z", self.as_str()))
+                    .dot_matches_new_line(true)
+                    .build()
+                    .ok()
+            });
+            if let Some(exact) = exact {
+                // Text before `from` stays visible to look-behind assertions such as `\b`.
+                if let Some(c) = exact.captures_at(&hay[..to], from) {
+                    if c.get(0).map(|m| m.start()) == Some(from) {
+                        return Some(groups(c));
+                    }
+                }
+            }
+        }
+        self.captures_at(hay, from).map(groups)
+    }
+}
+
+/// The leftmost-longest match of `re` in `hay` starting at or after `start`, as (start, end).
+pub(crate) fn find_at<S: Search + ?Sized>(re: &S, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+    re.search_at(hay, start)
 }
 
 /// What it takes to tell whether a match of a pattern can still change when more text is appended
@@ -487,7 +756,7 @@ fn first_bytes(dfa: &DFA) -> Box<[bool; 256]> {
 thread_local! {
     /// The extension-check machinery per pattern (record separators, so few of them).
     static EXTENDERS: RefCell<super::StrLru<Option<Rc<Extender>>>> =
-        RefCell::new(super::StrLru::new(LONGEST_BUDGET, LONGEST_COST));
+        RefCell::new(super::StrLru::with_regex_memory(LONGEST_COST));
     /// The pattern last looked up in `EXTENDERS` and its entry: a reader asks for the same
     /// separator once per record.
     static LAST_EXTENDER: RefCell<Option<(String, Option<Rc<Extender>>)>> = const { RefCell::new(None) };
@@ -509,31 +778,33 @@ fn extender_uncached(pat: &str) -> Option<Rc<Extender>> {
         if let Some(x) = cell.borrow_mut().get(pat) {
             return x.clone();
         }
-        let max_len = regex_syntax::ParserBuilder::new()
-            .utf8(false)
-            .dot_matches_new_line(true)
-            .build()
-            .parse(pat)
-            .ok()
-            .and_then(|h| h.properties().maximum_len());
-        let x = DFA::builder()
-            .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
-            .syntax(
-                regex_automata::util::syntax::Config::new()
-                    .utf8(false)
-                    .dot_matches_new_line(true),
-            )
-            .thompson(regex_automata::nfa::thompson::Config::new().utf8(false))
-            .build(pat)
-            .ok()
-            .map(|dfa| {
-                let first = first_bytes(&dfa);
-                let few: Vec<u8> = (0..=255u8).filter(|&b| first[b as usize]).collect();
-                let few_first = (few.len() <= 3).then_some(few);
-                let cache = RefCell::new(dfa.create_cache());
-                Rc::new(Extender { dfa, cache, max_len, first, few_first })
-            });
-        cell.borrow_mut().insert(pat.to_owned(), x.clone());
+        let (x, measured) = super::regex_memory::measure(|| {
+            let max_len = regex_syntax::ParserBuilder::new()
+                .utf8(false)
+                .dot_matches_new_line(true)
+                .build()
+                .parse(pat)
+                .ok()
+                .and_then(|h| h.properties().maximum_len());
+            DFA::builder()
+                .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
+                .syntax(
+                    regex_automata::util::syntax::Config::new()
+                        .utf8(false)
+                        .dot_matches_new_line(true),
+                )
+                .thompson(regex_automata::nfa::thompson::Config::new().utf8(false))
+                .build(pat)
+                .ok()
+                .map(|dfa| {
+                    let first = first_bytes(&dfa);
+                    let few: Vec<u8> = (0..=255u8).filter(|&b| first[b as usize]).collect();
+                    let few_first = (few.len() <= 3).then_some(few);
+                    let cache = RefCell::new(dfa.create_cache());
+                    Rc::new(Extender { dfa, cache, max_len, first, few_first })
+                })
+        });
+        cell.borrow_mut().insert_measured(pat.to_owned(), x.clone(), measured);
         x
     })
 }
@@ -603,8 +874,8 @@ pub(crate) fn next_char(hay: &[u8], pos: usize) -> usize {
 
 /// All successive non-overlapping leftmost-longest matches of `re` in `hay`, as (start, end).
 /// As with `Regex::find_iter`, an empty match right after the previous match is skipped.
-pub(crate) fn find_iter<'h>(
-    re: &'h Regex,
+pub(crate) fn find_iter<'h, S: Search + ?Sized>(
+    re: &'h S,
     hay: &'h [u8],
 ) -> impl Iterator<Item = (usize, usize)> + 'h {
     let mut pos = 0;
@@ -625,24 +896,8 @@ pub(crate) fn find_iter<'h>(
 }
 
 /// The capture groups of `re` for the match `from..to` of `hay` (as found by `find_at`).
-pub(crate) fn captures_at<'h>(re: &Regex, hay: &'h [u8], from: usize, to: usize) -> Option<Captures<'h>> {
-    if let Some(l) = longest(re) {
-        let exact = l.exact.get_or_init(|| {
-            RegexBuilder::new(&format!("(?:{})\\z", re.as_str()))
-                .dot_matches_new_line(true)
-                .build()
-                .ok()
-        });
-        if let Some(exact) = exact {
-            // Text before `from` stays visible to look-behind assertions such as `\b`.
-            if let Some(c) = exact.captures_at(&hay[..to], from) {
-                if c.get(0).map(|m| m.start()) == Some(from) {
-                    return Some(c);
-                }
-            }
-        }
-    }
-    re.captures_at(hay, from)
+pub(crate) fn captures_at<S: Search + ?Sized>(re: &S, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
+    re.groups_at(hay, from, to)
 }
 
 /// Push `c` as a literal. Only meta characters are escaped: `regex` rejects escapes of other
@@ -1119,8 +1374,8 @@ mod tests {
         assert_eq!(spans("ab", "abab"), vec![(0, 2), (2, 4)]);
         let re = compile("(x|xy)(z?)").unwrap();
         let caps = captures_at(&re, b"xyz", 0, 3).unwrap();
-        assert_eq!(&caps[1], b"xy");
-        assert_eq!(&caps[2], b"z");
+        assert_eq!(caps.get(1), Some((0, 2)));
+        assert_eq!(caps.get(2), Some((2, 3)));
         // Repeated groups choose between alternatives too.
         assert_eq!(spans("(ab)?(abcd)?", "abcd")[0], (0, 4));
         assert_eq!(spans("x(y)?(yz)?", "xyz"), vec![(0, 3)]);
@@ -1128,7 +1383,7 @@ mod tests {
         let re = compile("(ab)?(abcd)?").unwrap();
         let caps = captures_at(&re, b"abcd", 0, 4).unwrap();
         assert!(caps.get(1).is_none());
-        assert_eq!(&caps[2], b"abcd");
+        assert_eq!(caps.get(2), Some((0, 4)));
         // Word boundaries, in ASCII text (lazy DFA) and next to non-ASCII text (PikeVM).
         assert_eq!(spans("\\<(a|ab)", "ab c"), vec![(0, 2)]);
         assert_eq!(spans("(a|ab)\\B", "abc"), vec![(0, 2)]);
@@ -1165,6 +1420,63 @@ mod tests {
         set_ignore_case(false);
         assert!(LightMatcher::new("(").is_none());
         assert!(LightMatcher::new("[[:foo:]]").is_none());
+    }
+
+    #[test]
+    fn light_search_agrees_with_compile() {
+        let pats = [
+            "^[a-z]+ ab", "[[:alpha:]]+", "(a|ab)(c|bcd)", "x|xy", "(x|xy)(z?)", "(ab)?(abcd)?", "\\<(a|ab)",
+            "(a|ab)\\B", "\\y(a|ab)", "\\<(中|中文)", "(x|xy)\\y", "x*", "y|", "[^ ]+", "(.)(.)", "^$", "$",
+            "数据|data", "(é+)(b)?", "a{2,3}", "\\351", "(foo)?bar$", "^(user[0-9]+) ([^ ]+)",
+        ];
+        let hays: [&[u8]; 14] = [
+            b"", b"abcd", b"xyz", b"ab c", b"abc", b"\xc3\xa9 ab", b"\xe8\xaf\xb4 \xe4\xb8\xad\xe6\x96\x87",
+            b"\xc3\xa9 xy \xc3\xa9", b"\xc3\xa9\xc3\xa9b aaa", b"foobar", b"user12 x\xe4\xb8\xad y", b"\xe9a",
+            b"\xe6\x95\xb0\xe6\x8d\xae data", b"aaaa",
+        ];
+        for ic in [false, true] {
+            set_ignore_case(ic);
+            for pat in pats {
+                let re = compile(pat).unwrap();
+                let mut light = LightMatcher::new(pat).unwrap();
+                for hay in hays {
+                    let want: Vec<_> = find_iter(&re, hay).collect();
+                    let groups = |s: &dyn Search, spans: &[(usize, usize)]| -> Vec<Vec<Option<(usize, usize)>>> {
+                        spans.iter().map(|&(f, t)| captures_at(s, hay, f, t).unwrap().iter().collect()).collect()
+                    };
+                    let want_groups = groups(&re, &want);
+                    let ctx = format!("/{}/ on {:?} ic={}", pat, hay, ic);
+                    if !light.may_match(hay) {
+                        assert!(want.is_empty(), "{}", ctx);
+                        continue;
+                    }
+                    light
+                        .with_engine(hay, |e| {
+                            let got: Vec<_> = find_iter(e, hay).collect();
+                            assert_eq!(got, want, "{}", ctx);
+                            assert_eq!(groups(e, &got), want_groups, "{}", ctx);
+                        })
+                        .unwrap();
+                }
+            }
+        }
+        set_ignore_case(false);
+    }
+
+    #[test]
+    fn light_matcher_required_literals() {
+        let may = |pat: &str, hay: &str| LightMatcher::new(pat).unwrap().may_match(hay.as_bytes());
+        assert!(may("^user1 [^ ]+ foo", "user1 x foo"));
+        assert!(!may("^user1 [^ ]+ foo", "xuser1 x foo"));
+        assert!(!may("^user1 [^ ]+ foo", "user1 x fo"));
+        assert!(!may("bar$", "bar x"));
+        assert!(may("(foo|bar)x", "a barx"));
+        assert!(!may("(foo|bar)x", "a bazx"));
+        assert!(may("[a-z]+", "1"));
+        assert!(may("\\<abc", "abc"));
+        set_ignore_case(true);
+        assert!(may("^user", "USER"));
+        set_ignore_case(false);
     }
 
     #[test]
@@ -1241,18 +1553,15 @@ mod tests {
     #[test]
     fn longest_cache_is_bounded() {
         const BUDGET: usize = 2 << 20;
-        LONGEST.with(|cell| cell.borrow_mut().budget = BUDGET);
+        super::super::regex_memory::set_budget(BUDGET);
         let hot = compile("hot|hotter").unwrap();
         for i in 0..(BUDGET / LONGEST_COST.cost(8) * 3) {
             assert_eq!(find_at(&hot, b"hotter", 0), Some((0, 6)));
             let re = compile(&format!("zz|x{}", i)).unwrap();
             assert_eq!(find_at(&re, format!("x{}", i).as_bytes(), 0).map(|(f, _)| f), Some(0));
-            LONGEST.with(|cell| {
-                let cache = cell.borrow();
-                assert!(cache.used <= BUDGET);
-                // A frequently used pattern survives evictions.
-                assert!(cache.cached.contains_key(hot.as_str()));
-            });
+            assert!(super::super::regex_memory::used() <= BUDGET);
+            // A frequently used pattern survives evictions.
+            LONGEST.with(|cell| assert!(cell.borrow().cached.contains_key(hot.as_str())));
         }
         // Evicted patterns are rebuilt and still match leftmost-longest.
         let re = compile("x|x0").unwrap();

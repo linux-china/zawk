@@ -1996,7 +1996,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_regex(pat, |re| in_s.subst_first(re, s))?
+                                .with_search(pat, in_s, |re| in_s.subst_first(re, s))?
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = new as Int;
@@ -2008,7 +2008,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_regex(pat, |re| in_s.subst_all(re, s))?
+                                .with_search(pat, in_s, |re| in_s.subst_all(re, s))?
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = subs_made;
@@ -2021,14 +2021,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_regex(pat, |re| in_s.gen_subst_dynamic(re, s, how))?
+                                .with_search(pat, in_s, |re| in_s.gen_subst_dynamic(re, s, how))?
                         };
                         *index_mut(&mut self.strs, res) = subbed;
                     }
                     SubConst(res, pat, s, in_s) => {
                         let (subbed, new) = {
                             let s = index(&self.strs, s);
-                            index(&self.strs, in_s).subst_first(pat, s)
+                            index(&self.strs, in_s).subst_first(&**pat, s)
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = new as Int;
@@ -2036,7 +2036,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     GSubConst(res, pat, s, in_s) => {
                         let (subbed, subs_made) = {
                             let s = index(&self.strs, s);
-                            index(&self.strs, in_s).subst_all(pat, s)
+                            index(&self.strs, in_s).subst_all(&**pat, s)
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = subs_made;
@@ -2045,7 +2045,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let subbed = {
                             let s = index(&self.strs, s);
                             let how = index(&self.strs, how);
-                            index(&self.strs, in_s).gen_subst_dynamic(pat, s, how)
+                            index(&self.strs, in_s).gen_subst_dynamic(&**pat, s, how)
                         };
                         *index_mut(&mut self.strs, res) = subbed;
                     }

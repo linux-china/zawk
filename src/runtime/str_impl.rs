@@ -9,7 +9,7 @@
 use crate::pushdown::FieldSet;
 use crate::runtime::{str_to_num, Float, Int, SharedMap, IntMap};
 
-use regex::bytes::{Captures, Regex};
+use super::awk_regex::{Groups, Search};
 use smallvec::SmallVec;
 
 use std::alloc::{alloc_zeroed, dealloc, realloc, Layout};
@@ -443,9 +443,9 @@ impl<'a> Str<'a> {
         unsafe { mem::transmute::<Str<'a>, u128>(self) }
     }
 
-    pub fn split(
+    pub(crate) fn split(
         &self,
-        pat: &Regex,
+        pat: &(impl Search + ?Sized),
         // We want to accommodate functions that skip based on empty fields, like Awk whitespace
         // splitting. As a result, we pass down the field, and whether or not it was empty (emptiness
         // checks for the string itself are insufficient if used_fields projects some fields away),
@@ -914,7 +914,7 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub fn subst_first(&self, pat: &Regex, subst: &Str<'a>) -> (Str<'a>, bool) {
+    pub(crate) fn subst_first(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> (Str<'a>, bool) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 if let Some((start, end)) = super::awk_regex::find_at(pat, s, 0) {
@@ -930,7 +930,7 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub fn subst_all(&self, pat: &Regex, subst: &Str<'a>) -> (Str<'a>, Int) {
+    pub(crate) fn subst_all(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> (Str<'a>, Int) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 let mut buf = DynamicBuf::new(0);
@@ -956,7 +956,7 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub fn gen_subst_dynamic(&self, pat: &Regex, subst: &Str<'a>, how: &Str<'a>) -> Str<'a> {
+    pub(crate) fn gen_subst_dynamic(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>, how: &Str<'a>) -> Str<'a> {
         how.with_bytes(|how| {
             if !how.is_empty() && matches!(how[0], b'g' | b'G') {
                 self.gen_subst_all(pat, subst)
@@ -976,7 +976,7 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub fn gen_subst_all(&self, pat: &Regex, subst: &Str<'a>) -> Str<'a> {
+    pub(crate) fn gen_subst_all(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 let mut buf = DynamicBuf::new(0);
@@ -991,7 +991,7 @@ impl<'a> Str<'a> {
                         continue;
                     };
                     buf.write_all(&s[prev..start]).unwrap();
-                    process_match_gen(c, subst, &mut buf).unwrap();
+                    process_match_gen(&c, s, subst, &mut buf).unwrap();
                     prev = end;
                     count += 1;
                 }
@@ -1007,7 +1007,7 @@ impl<'a> Str<'a> {
 
     /// Handle the general substitution for a case of integer value in "how"
     /// Will replace match number `which` (indexed from 1)
-    pub fn gen_subst_n(&self, pat: &Regex, subst: &Str<'a>, which: Int) -> Str<'a> {
+    pub(crate) fn gen_subst_n(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>, which: Int) -> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 // Match against the whole string (not a suffix) so that anchors and word
@@ -1021,7 +1021,7 @@ impl<'a> Str<'a> {
                 }) {
                     let mut buf = DynamicBuf::new(s.len());
                     buf.write_all(&s[0..start]).unwrap();
-                    process_match_gen(c, subst, &mut buf).unwrap();
+                    process_match_gen(&c, s, subst, &mut buf).unwrap();
                     buf.write_all(&s[end..]).unwrap();
                     buf.into_str()
                 } else {
@@ -2049,7 +2049,7 @@ fn process_match(matched: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result
 }
 
 /// Helper function for `subst_gen` function; handles the syntax for &, \0, \1, etc...
-fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io::Result<()> {
+fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result<()> {
     let mut start = 0;
     let mut escaped = false;
     for (i, b) in subst.iter().cloned().enumerate() {
@@ -2059,7 +2059,7 @@ fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io:
                     w.write_all(&subst[start..i - 1])?;
                     let n = b - b'0';
                     match matched.get(n as usize) {
-                        Some(match_) => w.write_all(match_.as_bytes())?,
+                        Some((from, to)) => w.write_all(&hay[from..to])?,
                         None => eprintln_ignore!(
                             // no match - no substitution (same as gawk); warning is nice though
                             "Couldn't substitute match {}, we have only {}",
@@ -2079,7 +2079,8 @@ fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io:
                     w.write_all(&[b'&'])?;
                 } else {
                     w.write_all(&subst[start..i])?;
-                    w.write_all(matched.get(0).unwrap().as_bytes())?;
+                    let (from, to) = matched.get(0).unwrap();
+                    w.write_all(&hay[from..to])?;
                 }
                 start = i + 1;
             }
@@ -2102,6 +2103,7 @@ fn process_match_gen(matched: Captures, subst: &[u8], w: &mut impl Write) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use regex::bytes::Regex;
 
     #[test]
     fn as_text_round_trip() {
