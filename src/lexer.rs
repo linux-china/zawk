@@ -334,7 +334,13 @@ fn paren_arg_list(rest: &str) -> Option<usize> {
             b'[' => brackets += 1,
             b']' => brackets = brackets.saturating_sub(1),
             b',' if parens == 1 && brackets == 0 => comma = true,
-            b'\n' => return None,
+            // Newlines inside the parentheses don't end the statement; skip comments to the
+            // end of the line so their contents aren't taken as code.
+            b'#' => {
+                while i + 1 < bs.len() && bs[i + 1] != b'\n' {
+                    i += 1;
+                }
+            }
             _ => {}
         }
         if !matches!(c, b' ' | b'\t') {
@@ -1162,6 +1168,7 @@ and the third"#;
         assert_eq!(regex_lit_end(b"a\\\r\nb/"), Some(5));
         assert!(unknown_escapes("x\\\ny\\\r\nz").is_empty());
         assert_eq!(paren_arg_list(" (/a\\\r\nb/, \"c\\\r\nd\")"), Some(2));
+        assert_eq!(paren_arg_list(" (1, # ) \"\n 2) > \"f\""), Some(2));
     }
 
     #[test]

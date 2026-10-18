@@ -59,7 +59,7 @@ Function: FunDec<'a, 'a, &'a str> = {
 
 FormalParams: Vec<&'a str> = {
    <"IDENT"> => vec![<>],
-   <v:(<"IDENT"> ",")+> <iopt:(<"IDENT">)?> => match iopt {
+   <v:(<"IDENT"> "," "\n"*)+> <iopt:(<"IDENT">)?> => match iopt {
       Some(e) => { let mut v = v; v.push(e); v }
       None => v,
    }
@@ -333,7 +333,7 @@ PrecAsgn<G>: &'a Expr<'a,'a,&'a str> = {
 }
 
 LookupList: &'a Expr<'a, 'a, &'a str> = {
-    <first:PrecMatch<"Gt">> <rest:("," <PrecMatch<"Gt">>)+> => {
+    <first:PrecMatch<"Gt">> <rest:("," "\n"* <PrecMatch<"Gt">>)+> => {
       let mut res = first;
       let subsep = arena.alloc(Expr::Var("SUBSEP"));
       for dim in rest.into_iter() {
