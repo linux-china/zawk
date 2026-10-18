@@ -12,6 +12,20 @@ Tech Stack:
 
 - AWK parser: [LALRPOP](https://github.com/lalrpop/lalrpop) - LR(1) parser generator for Rust
 - Compiler backend: Cranelift
+- Apache OpenDAL: operator for object storage, file systems
+
+Please ignore the following differences with gawk：
+
+-  `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
+- `FIELDWIDTHS` / `FPAT`
+- `@include "nonexistent"`
+- `RT`
+-  readonly
+- `a[i][j]` 
+- ignore f-string difference
+- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`
+-  `$$1`, `$++i` not support
+-  `@/re/` 
 
 Notes:
 
