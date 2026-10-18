@@ -3551,13 +3551,11 @@ fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
                     let mut bs = Vec::new();
                     for ast in &asts[1..] {
                         match ast {
+                            // Literals are code points (Unicode mode is on); byte escapes of
+                            // non-ASCII values are `(?-u:\xE9)` groups and need the regex.
                             Ast::Literal(l) => {
-                                if let Some(b) = l.byte() {
-                                    bs.push(b);
-                                } else {
-                                    let mut buf = [0u8; 4];
-                                    bs.extend_from_slice(l.c.encode_utf8(&mut buf).as_bytes());
-                                }
+                                let mut buf = [0u8; 4];
+                                bs.extend_from_slice(l.c.encode_utf8(&mut buf).as_bytes());
                             }
                             _ => return None,
                         }

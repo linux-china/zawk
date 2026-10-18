@@ -7,8 +7,9 @@
 //!   at the start of an expression.
 //! * gawk's operators: `\y` (word boundary), `\<` and `\>` (start/end of a word), `` \` `` and
 //!   `\'` (start/end of the string), and `\B`.
-//! * Escapes: `\b` is a backspace (gawk uses `\y` for word boundaries), `\a`, `\v`, `\f` and
-//!   octal escapes (`\101`); other letters that are not operators are literal characters.
+//! * Escapes: `\b` is a backspace (gawk uses `\y` for word boundaries), `\a`, `\v`, `\f`; octal
+//!   (`\351`) and hex (`\xE9`) escapes are bytes, not code points (see `push_byte`); other
+//!   letters that are not operators are literal characters.
 //! * POSIX character classes (`[:alpha:]` etc.) match non-ASCII characters too, as in gawk under a
 //!   UTF-8 locale (the `regex` crate's own versions are ASCII-only); see `posix_class`.
 //! * In bracket expressions, `[`, `&`, `~` and `-` sequences that the `regex` crate treats as
@@ -303,7 +304,8 @@ fn push_literal(out: &mut String, c: char) {
     out.push(c);
 }
 
-fn push_octal(out: &mut String, chars: &[char], i: &mut usize) {
+/// The value of the octal escape (up to three digits) at `chars[*i]`.
+fn parse_octal(chars: &[char], i: &mut usize) -> u8 {
     let mut value = 0u32;
     let mut n = 0;
     while n < 3 && *i < chars.len() && ('0'..='7').contains(&chars[*i]) {
@@ -311,7 +313,51 @@ fn push_octal(out: &mut String, chars: &[char], i: &mut usize) {
         *i += 1;
         n += 1;
     }
-    out.push_str(&format!("\\x{{{:x}}}", value & 0xff));
+    (value & 0xff) as u8
+}
+
+/// The value of the hex escape (one or two digits, as in gawk) at `chars[*i]`, just after `\x`.
+fn parse_hex(chars: &[char], i: &mut usize) -> Option<u8> {
+    let mut value = 0u32;
+    let mut n = 0;
+    while n < 2 && *i < chars.len() && chars[*i].is_ascii_hexdigit() {
+        value = value * 16 + chars[*i].to_digit(16).unwrap();
+        *i += 1;
+        n += 1;
+    }
+    (n > 0).then_some(value as u8)
+}
+
+/// Push the byte escape `b` (from `\351` or `\xE9`). As in gawk, it matches a byte, not the
+/// character U+00E9: ASCII values are the same either way, the others are matched with Unicode
+/// mode off. Inside a bracket expression the escape is written as `\xE9`, and
+/// `translate_bracket` moves it out of the Unicode part of the class.
+fn push_byte(out: &mut String, b: u8, in_bracket: bool) {
+    if b < 0x80 {
+        out.push_str(&format!("\\x{{{:x}}}", b));
+    } else if in_bracket {
+        out.push_str(&format!("\\x{:02X}", b));
+    } else {
+        out.push_str(&format!("(?-u:\\x{:02X})", b));
+    }
+}
+
+/// The byte escape (`\351` or `\xE9`) at `chars[*i]` (a backslash), if any, consuming it.
+fn byte_escape(chars: &[char], i: &mut usize) -> Option<u8> {
+    if chars.get(*i) != Some(&'\\') {
+        return None;
+    }
+    let mut j = *i + 1;
+    let b = match chars.get(j) {
+        Some('0'..='7') => parse_octal(chars, &mut j),
+        Some('x') if chars.get(j + 1) != Some(&'{') => {
+            j += 1;
+            parse_hex(chars, &mut j)?
+        }
+        _ => return None,
+    };
+    *i = j;
+    Some(b)
 }
 
 /// Translate the escape sequence at `chars[*i]` (just after a backslash).
@@ -340,14 +386,30 @@ fn translate_escape(out: &mut String, chars: &[char], i: &mut usize, in_bracket:
             out.push('\\');
             out.push(c);
         }
-        // Unicode classes and hex escapes, e.g. \p{Greek} or \x41, as supported by `regex`.
-        'p' | 'P' | 'x' => {
+        // Unicode classes and code points, e.g. \p{Greek} or \x{e9}, as supported by `regex`.
+        'p' | 'P' => {
             out.push('\\');
             out.push(c);
         }
+        'x' if chars.get(*i) == Some(&'{') => {
+            out.push_str("\\x");
+            while let Some(&c) = chars.get(*i) {
+                out.push(c);
+                *i += 1;
+                if c == '}' {
+                    break;
+                }
+            }
+        }
+        // gawk's hex escapes (one or two digits) are bytes, like octal escapes.
+        'x' => match parse_hex(chars, i) {
+            Some(b) => push_byte(out, b, in_bracket),
+            None => out.push('x'),
+        },
         '0'..='7' => {
             *i -= 1;
-            push_octal(out, chars, i);
+            let b = parse_octal(chars, i);
+            push_byte(out, b, in_bracket);
         }
         // Other escaped characters are literal (gawk warns about unknown escapes).
         c => push_literal(out, c),
@@ -405,7 +467,10 @@ fn interval_len(chars: &[char], i: usize) -> Option<usize> {
 fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
     let mut j = *i + 1;
     let mut res = String::from("[");
-    if chars.get(j) == Some(&'^') {
+    // Byte escapes of non-ASCII values (and ranges of them), matched with Unicode mode off.
+    let mut bytes = String::new();
+    let negated = chars.get(j) == Some(&'^');
+    if negated {
         res.push('^');
         j += 1;
     }
@@ -456,6 +521,10 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
                 }
             },
             '\\' => {
+                if let Some(k) = high_byte_item(&mut bytes, chars, j) {
+                    j = k;
+                    continue;
+                }
                 j += 1;
                 translate_escape(&mut res, chars, &mut j, /*in_bracket=*/ true);
             }
@@ -475,9 +544,57 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> bool {
             }
         }
     }
-    out.push_str(&res);
+    if bytes.is_empty() {
+        out.push_str(&res);
+    } else {
+        let body = &res[if negated { 2 } else { 1 }..res.len() - 1];
+        let neg = if negated { "^" } else { "" };
+        let byte_safe = body.is_ascii()
+            && !["\\p", "\\P", "\\w", "\\W", "\\d", "\\D", "\\s", "\\S"].iter().any(|e| body.contains(e));
+        if byte_safe {
+            // ASCII is the same with Unicode mode on or off, so the whole class can be bytes.
+            out.push_str(&format!("(?-u:[{}{}{}])", neg, body, bytes));
+        } else if !negated {
+            out.push_str(&format!("(?:{}|(?-u:[{}]))", res, bytes));
+        } else {
+            // A negated class mixing Unicode classes and bytes cannot be split into an
+            // alternation; fall back to treating the bytes as code points.
+            out.push_str(&format!("[^{}{}]", body, bytes));
+        }
+    }
     *i = j;
     true
+}
+
+/// If the bracket expression item at `chars[j]` (a backslash) is a byte escape of a non-ASCII
+/// value, or a range with such an end (`\200-\377`), push it to `bytes` in the syntax of `regex`
+/// and return the index after it.
+fn high_byte_item(bytes: &mut String, chars: &[char], j: usize) -> Option<usize> {
+    let mut k = j;
+    let lo = byte_escape(chars, &mut k)?;
+    let mut hi = None;
+    if chars.get(k) == Some(&'-') && chars.get(k + 1).is_some_and(|&c| c != ']') {
+        let mut m = k + 1;
+        hi = match byte_escape(chars, &mut m) {
+            Some(b) => Some(b),
+            None if chars[m] != '\\' && chars[m].is_ascii() => {
+                m += 1;
+                Some(chars[m - 1] as u8)
+            }
+            None => None,
+        };
+        if hi.is_some() {
+            k = m;
+        }
+    }
+    if lo < 0x80 && hi.map_or(true, |h| h < 0x80) {
+        return None;
+    }
+    bytes.push_str(&format!("\\x{:02X}", lo));
+    if let Some(h) = hi {
+        bytes.push_str(&format!("-\\x{:02X}", h));
+    }
+    Some(k)
 }
 
 /// Translate an awk regular expression into the syntax of the `regex` crate.
@@ -573,6 +690,28 @@ mod tests {
         assert_eq!(translate("[^[:digit:]]"), "[^0-9]");
         assert_eq!(translate("[a&&b]"), r"[a\&\&b]");
         assert_eq!(translate("(?:.)"), "(?:.)");
+        assert_eq!(translate(r"\351"), r"(?-u:\xE9)");
+        assert_eq!(translate(r"\xc3\xa9"), r"(?-u:\xC3)(?-u:\xA9)");
+        assert_eq!(translate(r"\x41\xg"), r"\x{41}xg");
+        assert_eq!(translate(r"\x{e9}"), r"\x{e9}");
+        assert_eq!(translate(r"[a\351]"), r"(?-u:[a\xE9])");
+        assert_eq!(translate(r"[^\200-\377]"), r"(?-u:[^\x80-\xFF])");
+        assert_eq!(translate(r"[é\351]"), r"(?:[é]|(?-u:[\xE9]))");
+    }
+
+    #[test]
+    fn byte_escapes() {
+        assert!(is_match(r"\303\251", "é"));
+        assert!(is_match(r"\xc3\xa9", "é"));
+        assert!(!is_match(r"^\351", "é"));
+        assert!(compile(r"^\351$").unwrap().is_match(b"\xe9"));
+        assert!(compile(r"^[\200-\377]+$").unwrap().is_match("中文".as_bytes()));
+        assert!(!is_match(r"[\200-\377]", "abc"));
+        assert!(is_match(r"^[^\200-\377]+$", "abc"));
+        assert!(is_match(r"^[[:alpha:]\351]$", "é"));
+        assert!(compile(r"^[[:alpha:]\351]$").unwrap().is_match(b"\xe9"));
+        assert!(is_match(r"^\x{e9}$", "é"));
+        assert!(is_match(r"\101\x42", "AB"));
     }
 
     #[test]
