@@ -40,9 +40,8 @@
 //! > BEGIN { x= "tee /tmp/out"; print "TEST" | x; x=$1; }
 //! > BEGIN { x= 1?"tee /tmp/out":$1; print "TEST" | x;}
 //!
-//! Users who wish to execute a script they believe is safe, but is rejected by the analysis
-//! (either because the analysis is too conservative, or because they trust user input) can opt out
-//! of taint analysis using the -A flag.
+//! The analysis is off by default, as in gawk: users who run untrusted input through shell
+//! commands can opt in with the --taint-check flag.
 use crate::bytecode::{Accum, Instr};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::HighLevel;
@@ -158,12 +157,12 @@ mod tests {
 
     fn assert_analysis_reject(p: &str) {
         assert!(
-            program_compiles(p, /*allow_arbitrary=*/ true).is_ok(),
+            program_compiles(p, /*taint_check=*/ false).is_ok(),
             "program should compile without taint checks: {}",
             p
         );
         assert!(
-            program_compiles(p, /*allow_arbitrary=*/ false).is_err(),
+            program_compiles(p, /*taint_check=*/ true).is_err(),
             "taint analysis should rule out: {}",
             p
         );
@@ -171,12 +170,12 @@ mod tests {
 
     fn assert_analysis_accept(p: &str) {
         assert!(
-            program_compiles(p, /*allow_arbitrary=*/ true).is_ok(),
+            program_compiles(p, /*taint_check=*/ false).is_ok(),
             "program should compile without taint checks: {}",
             p
         );
         assert!(
-            program_compiles(p, /*allow_arbitrary=*/ false).is_ok(),
+            program_compiles(p, /*taint_check=*/ true).is_ok(),
             "taint analysis should pass for program: {}",
             p
         );
