@@ -196,6 +196,16 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
     }))
 }
 
+/// Maps `<user>/<repo>/<awk_file_path>` (the part after `gh:`) to its raw GitHub URL on the
+/// default branch, e.g. `https://raw.githubusercontent.com/<user>/<repo>/HEAD/<awk_file_path>`.
+fn github_raw_url(gh_path: &str) -> Option<String> {
+    let mut parts = gh_path.splitn(3, '/');
+    let user = parts.next().filter(|s| !s.is_empty())?;
+    let repo = parts.next().filter(|s| !s.is_empty())?;
+    let file = parts.next().map(|s| s.trim_start_matches('/')).filter(|s| !s.is_empty())?;
+    Some(format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"))
+}
+
 fn chained<LR: LineReader>(lr: LR) -> ChainedReader<LR> {
     ChainedReader::new(once(lr))
 }
@@ -1166,9 +1176,22 @@ fn real_main() {
                     prog.push('\n');
                     continue;
                 }
-                if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
+                let remote_url = if let Some(gh_path) = prog_file.strip_prefix("gh:") {
+                    match github_raw_url(gh_path) {
+                        Some(url) => Some(url),
+                        None => fatal!(
+                            "can't open source file `{}' for reading: expected `gh:<user>/<repo>/<awk_file_path>'",
+                            prog_file
+                        ),
+                    }
+                } else if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
+                    Some(prog_file.clone())
+                } else {
+                    None
+                };
+                if let Some(url) = remote_url {
                     // Error pages (404, proxy errors, ...) must not be run as programs.
-                    match reqwest::blocking::get(prog_file)
+                    match reqwest::blocking::get(&url)
                         .and_then(|resp| resp.error_for_status())
                         .and_then(|resp| resp.text())
                     {
