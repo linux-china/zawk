@@ -252,6 +252,8 @@ fn regex_lit_end(bs: &[u8]) -> Option<usize> {
     let mut in_bracket = false;
     while i < bs.len() {
         match bs[i] {
+            // A backslash-newline (or backslash-CRLF) is a line continuation.
+            b'\\' if bs[i + 1..].starts_with(b"\r\n") => i += 2,
             b'\\' => i += 1,
             b'/' | b'\n' if !in_bracket => return Some(i),
             b'[' if !in_bracket => {
@@ -412,6 +414,11 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
                     'r' => buf.push(b'\r'),
                     't' => buf.push(b'\t'),
                     '"' => buf.push(b'"'),
+                    // A backslash-newline (or backslash-CRLF) is a line continuation, as in POSIX.
+                    '\n' => {}
+                    '\r' if iter.clone().next() == Some('\n') => {
+                        iter.next();
+                    }
                     // 1 or 2 hex digits
                     'x' => {
                         let mut n = if let Some(x) = iter.next() {
@@ -490,7 +497,8 @@ pub(crate) fn unknown_escapes(lit: &str) -> Vec<(usize, char)> {
             continue;
         }
         match chars.next() {
-            Some((_, 'a' | 'b' | 'f' | 'v' | '\\' | 'n' | 'r' | 't' | '"' | 'x' | '0'..='7')) | None => {}
+            Some((_, 'a' | 'b' | 'f' | 'v' | '\\' | 'n' | 'r' | 't' | '"' | 'x' | '0'..='7' | '\n')) | None => {}
+            Some((_, '\r')) if lit[i + 2..].starts_with('\n') => {}
             Some((_, c)) => found.push((i, c)),
         }
     }
@@ -544,10 +552,16 @@ fn unescape_regex_literal(lit: &str, buf: &mut Vec<u8>) {
     // failure when we try and compile the regular expression.
     buf.clear();
     let mut is_escape = false;
-    for c in lit.chars() {
+    let mut chars = lit.chars();
+    while let Some(c) = chars.next() {
         if is_escape {
             match c {
                 '/' => buf.push(b'/'),
+                // A backslash-newline (or backslash-CRLF) is a line continuation, as in POSIX.
+                '\n' => {}
+                '\r' if chars.clone().next() == Some('\n') => {
+                    chars.next();
+                }
                 c => {
                     buf.push(b'\\');
                     push_char(buf, c);
@@ -1135,6 +1149,19 @@ and the third"#;
         );
         assert_eq!(parse_string_literal(r#"a\qb x\/y \. \\."#, &a, &mut buf), b"aqb x/y . \\.");
         assert_eq!(unknown_escapes(r#"a\qb \\. \t\/"#), [(1, 'q'), (11, '/')]);
+    }
+
+    #[test]
+    fn backslash_newline_in_literals() {
+        let mut buf = Vec::new();
+        let a = Arena::default();
+        assert_eq!(parse_string_literal("x\\\ny", &a, &mut buf), b"xy");
+        assert_eq!(parse_string_literal("x\\\r\ny\\\rz", &a, &mut buf), b"xy\rz");
+        assert_eq!(parse_regex_literal("a\\\nb", &a, &mut buf), b"ab");
+        assert_eq!(parse_regex_literal("a\\\r\nb", &a, &mut buf), b"ab");
+        assert_eq!(regex_lit_end(b"a\\\r\nb/"), Some(5));
+        assert!(unknown_escapes("x\\\ny\\\r\nz").is_empty());
+        assert_eq!(paren_arg_list(" (/a\\\r\nb/, \"c\\\r\nd\")"), Some(2));
     }
 
     #[test]

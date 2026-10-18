@@ -360,11 +360,38 @@ PrecAnd<G>: &'a Expr<'a, 'a, &'a str> = {
 }
 
 PrecIn<G>: &'a Expr<'a,'a,&'a str> = {
-    <l: PrecMatch<G>> "in" <r: PrecMatch<G>> =>
-        arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
-    "(" <l: LookupList> Rparen "in" <r: PrecMatch<G>> =>
-        arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
+    InMatch<G>,
     PrecMatch<G>,
+}
+
+// The right operand of `in` is an array name, as in POSIX (`non_unary_expr In NAME`). As in gawk,
+// the result of `k in arr` may be the left operand of comparison and match operators:
+// `k in seen == 0` is `(k in seen) == 0` and `1 in a ~ x` is `(1 in a) ~ x`.
+InTerm<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: PrecMatch<G>> "in" <r: Ident> =>
+        arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
+    "(" <l: LookupList> Rparen "in" <r: Ident> =>
+        arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
+    <l: InMatch<G>> "in" <r: Ident> =>
+        arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
+}
+
+InCmp<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: InTerm<G>> "<" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LT, l, r)),
+    <l: InTerm<G>> "<=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::LTE, l, r)),
+    <l: InTerm<G>> ">" <r: PrecCat> if G == "Gt" => arena.alloc(Expr::Binop(Binop::GT, l, r)),
+    <l: InTerm<G>> ">=" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::GTE, l, r)),
+    <l: InTerm<G>> "==" <r: PrecCat> => arena.alloc(Expr::Binop(Binop::EQ, l, r)),
+    <l: InTerm<G>> "!=" <r: PrecCat> => arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Binop(Binop::EQ, l, r)))),
+    InTerm<G>,
+}
+
+InMatch<G>: &'a Expr<'a,'a,&'a str> = {
+    <l: InMatch<G>> "~" <r: PrecCmp<G>> => arena.alloc(Expr::Binop(Binop::IsMatch, l, r)),
+    <l: InMatch<G>> "!~" <r: PrecCmp<G>> => arena.alloc(Expr::Unop(
+            Unop::Not,
+            arena.alloc(Expr::Binop(Binop::IsMatch, l, r)))),
+    InCmp<G>,
 }
 
 PrecMatch<G>: &'a Expr<'a,'a,&'a str> = {
