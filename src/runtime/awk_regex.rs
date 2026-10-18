@@ -645,8 +645,10 @@ pub(crate) fn captures_at<'h>(re: &Regex, hay: &'h [u8], from: usize, to: usize)
     re.captures_at(hay, from)
 }
 
+/// Push `c` as a literal. Only meta characters are escaped: `regex` rejects escapes of other
+/// characters such as `<` and `>`.
 fn push_literal(out: &mut String, c: char) {
-    if c.is_ascii_punctuation() {
+    if regex_syntax::is_meta_character(c) {
         out.push('\\');
     }
     out.push(c);
@@ -1060,6 +1062,9 @@ mod tests {
         assert_eq!(translate(r"[a\351]").unwrap(), r"(?-u:[a\xE9])");
         assert_eq!(translate(r"[^\200-\377]").unwrap(), r"(?-u:[^\x80-\xFF])");
         assert_eq!(translate(r"[é\351]").unwrap(), r"(?:[é]|(?-u:[\xE9]))");
+        assert_eq!(translate(r"[\<\>]").unwrap(), "[<>]");
+        assert_eq!(translate(r"[\-\]\&]").unwrap(), r"[\-\]\&]");
+        assert_eq!(translate(r"\!\/").unwrap(), "!/");
     }
 
     #[test]
@@ -1095,6 +1100,10 @@ mod tests {
         assert!(is_match("[a&]", "&"));
         assert!(is_match(r"\101", "A"));
         assert!(is_match(r"\q", "q"));
+        assert!(is_match(r"[\<]", "<"));
+        assert!(is_match(r"[\>]", ">"));
+        assert!(!is_match(r"[\<\>]", "a"));
+        assert!(is_match("[[.<.]]", "<"));
         assert!(is_match("[[:digit:]]+", "x12"));
     }
 
