@@ -101,7 +101,15 @@ pub struct RegexCache(
     Registry<Regex>,
     // The IGNORECASE setting the cached regexes were compiled with.
     bool,
+    // Dynamic patterns of `~` that have not been used often enough yet to be worth compiling into
+    // the first registry (see `is_regex_match`).
+    Registry<awk_regex::LightMatcher>,
 );
+
+/// How many times `~` uses a dynamic pattern with the cheap matcher (see
+/// `awk_regex::LightMatcher`) before compiling it fully: a full regex takes several times longer
+/// to build, but its prefilter and full DFA make matching faster.
+const LIGHT_USES: u32 = 4;
 
 impl Default for RegexCache {
     fn default() -> Self {
@@ -207,6 +215,7 @@ impl RegexCache {
             Registry::with_memory_limit(budget, REGEX_COST),
             Registry::with_memory_limit(budget, REGEX_COST),
             false,
+            Registry::with_memory_limit(budget, REGEX_COST),
         )
     }
     /// Drop the cached regexes if IGNORECASE changed since they were compiled.
@@ -214,6 +223,7 @@ impl RegexCache {
         let ignore_case = awk_regex::ignore_case();
         if self.2 != ignore_case {
             self.0.clear();
+            self.3.clear();
             self.2 = ignore_case;
         }
     }
@@ -660,6 +670,30 @@ impl RegexCache {
     pub(crate) fn is_regex_match(&mut self, pat: &Str, s: &Str) -> Result<bool> {
         if let Some(found) = Self::find_literal(pat, s) {
             return Ok(found.is_some());
+        }
+        // Patterns built from the input are often each used once (`$0 ~ ("^[a-z]+ " $9)`), so a
+        // new pattern starts with the matcher that is cheap to build, and is compiled fully on its
+        // `LIGHT_USES + 1`-th use.
+        self.sync_case();
+        if let Some(re) = self.0.lookup(pat) {
+            return Ok(Self::regex_const_match(re, s));
+        }
+        if let Some(m) = self.3.lookup(pat) {
+            if m.uses < LIGHT_USES {
+                m.uses += 1;
+                if let Some(res) = s.with_bytes(|bs| m.is_match(bs)) {
+                    return Ok(res);
+                }
+            }
+            self.3.remove(pat);
+        } else if let Some(mut m) =
+            pat.with_bytes(|bs| str::from_utf8(bs).ok().and_then(awk_regex::LightMatcher::new))
+        {
+            if let Some(res) = s.with_bytes(|bs| m.is_match(bs)) {
+                m.uses = 1;
+                self.3.insert(pat, m);
+                return Ok(res);
+            }
         }
         self.with_regex(pat, |re| Self::regex_const_match(re, s))
     }
@@ -1174,6 +1208,23 @@ impl<T> Registry<T> {
         let model = self.limit.map(|(_, model)| model);
         self.used = model.map_or(0, |m| self.cached.keys().map(|k| m.cost(k.len())).sum());
     }
+    /// The entry for `s`, if any, marked as just used.
+    fn lookup(&mut self, s: &Str) -> Option<&mut T> {
+        self.clock += 1;
+        let clock = self.clock;
+        let (val, tick) = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)))?;
+        *tick = clock;
+        Some(val)
+    }
+    /// Adds an entry for `s`, which must not have one yet.
+    fn insert(&mut self, s: &Str, val: T) {
+        let cost = self.limit.map_or(0, |(_, model)| model.cost(s.len()));
+        if self.limit.is_some_and(|(budget, _)| self.used + cost > budget) {
+            self.evict_lru();
+        }
+        self.cached.insert(s.clone().unmoor(), (val, self.clock));
+        self.used += cost;
+    }
     fn get<R>(
         &mut self,
         s: &Str,
@@ -1205,13 +1256,7 @@ impl<T> Registry<T> {
             let res = getter(&mut val);
             Ok((val, res))
         })?;
-        // Only a registry with a memory limit needs the (character) length of the key.
-        let cost = self.limit.map_or(0, |(_, model)| model.cost(s.len()));
-        if self.limit.is_some_and(|(budget, _)| self.used + cost > budget) {
-            self.evict_lru();
-        }
-        self.cached.insert(s.clone().unmoor(), (val, clock));
-        self.used += cost;
+        self.insert(s, val);
         res
     }
 }
@@ -1735,9 +1780,19 @@ mod tests {
             let got = rc.is_regex_match(&Str::from(pat), &Str::from(s)).unwrap();
             assert_eq!(got, want, "{:?} ~ {:?}", s, pat);
         }
-        assert!(rc.0.cached.is_empty());
-        // Patterns with operators still go through the regex engine.
-        assert!(rc.is_regex_match(&Str::from("^u.er$"), &Str::from("user")).unwrap());
-        assert_eq!(rc.0.cached.len(), 1);
+        assert!(rc.0.cached.is_empty() && rc.3.cached.is_empty());
+        // Patterns with operators still go through a regex engine: the cheap one for the first
+        // `LIGHT_USES` uses, then a fully compiled regex.
+        let pat = Str::from("^u.er$");
+        for _ in 0..LIGHT_USES {
+            assert!(rc.is_regex_match(&pat, &Str::from("user")).unwrap());
+            assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (0, 1));
+        }
+        assert!(!rc.is_regex_match(&pat, &Str::from("users")).unwrap());
+        assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (1, 0));
+        assert!(rc.is_regex_match(&pat, &Str::from("uber")).unwrap());
+        // Invalid patterns report the error of `compile`.
+        let err = rc.is_regex_match(&Str::from("a("), &Str::from("a")).unwrap_err();
+        assert!(format!("{}", err).contains("invalid regex /a(/"), "{}", err);
     }
 }

@@ -21,6 +21,7 @@
 //! a repetition of a group (`(ab)?(abcd)?`); other patterns use `regex` directly.
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use regex_automata::hybrid::dfa::{Cache, DFA};
+use regex_automata::nfa::thompson::pikevm::PikeVM;
 use regex_automata::{Anchored, Input, MatchKind};
 use std::cell::{OnceCell, RefCell};
 use std::rc::Rc;
@@ -65,6 +66,174 @@ pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
     RegexBuilder::new(&with_case(translate(pat).map_err(regex::Error::Syntax)?))
         .dot_matches_new_line(true)
         .build()
+}
+
+/// A matcher for `~` that is cheap to build, for dynamic patterns that are used only a few times
+/// (`$0 ~ ("^[a-z]+ " $9)`, one pattern per record). `compile` builds `regex`'s full set of
+/// engines, including a full DFA for small patterns, which takes several times longer (~18µs vs
+/// ~3µs for `^[a-z]+ abc`) than the forward-only lazy DFA used here, with no capture groups,
+/// reverse search or prefilter. `RegexCache::is_regex_match` switches a pattern to `compile` once
+/// it is reused.
+///
+/// Unicode classes (`[[:alpha:]]` is `\p{Alphabetic}`, `.` any character) make up most of the
+/// build time of the rest, so the engine is built for the characters of the text at hand (see
+/// `restrict`): a match can only consume characters of the text, so the result is the same. The
+/// engine for ASCII text is kept; for other text one is built per call.
+pub(crate) struct LightMatcher {
+    hir: regex_syntax::hir::Hir,
+    /// The engine for ASCII text, once built; `Some(None)` when it cannot be built.
+    ascii: Option<Option<LightEngine>>,
+    /// How many times the matcher was used.
+    pub(crate) uses: u32,
+}
+
+struct LightEngine {
+    /// `None` when the lazy DFA cannot be built.
+    dfa: Option<(DFA, Cache)>,
+    nfa: regex_automata::nfa::thompson::NFA,
+}
+
+impl LightEngine {
+    fn new(hir: &regex_syntax::hir::Hir) -> Option<LightEngine> {
+        use regex_automata::nfa::thompson::{Compiler, Config, WhichCaptures};
+        // The configuration of `regex::bytes::Regex` (see `compile`), minus capture groups.
+        let nfa = Compiler::new()
+            .configure(
+                Config::new()
+                    .utf8(false)
+                    .which_captures(WhichCaptures::None)
+                    .nfa_size_limit(Some(10 << 20)),
+            )
+            .build_from_hir(hir)
+            .ok()?;
+        let dfa = DFA::builder()
+            .configure(DFA::config().unicode_word_boundary(true))
+            .build_from_nfa(nfa.clone())
+            .ok()
+            .map(|dfa| {
+                let cache = dfa.create_cache();
+                (dfa, cache)
+            });
+        Some(LightEngine { dfa, nfa })
+    }
+
+    fn is_match(&mut self, hay: &[u8]) -> bool {
+        let input = Input::new(hay).earliest(true);
+        if let Some((dfa, cache)) = &mut self.dfa {
+            if let Ok(m) = dfa.try_search_fwd(cache, &input) {
+                return m.is_some();
+            }
+        }
+        // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text) or could not be
+        // built.
+        let pike = PikeVM::new_from_nfa(self.nfa.clone()).expect("PikeVM supports every NFA");
+        pike.is_match(&mut pike.create_cache(), input)
+    }
+}
+
+/// `hir` with every class restricted to `chars`; in text made of those characters (and bytes
+/// that are not valid UTF-8) it matches the same as `hir`. When `chars` is ASCII, Unicode word
+/// boundaries become ASCII ones too, which the lazy DFA handles without giving up. Byte classes
+/// are left alone.
+fn restrict(hir: &regex_syntax::hir::Hir, chars: &regex_syntax::hir::ClassUnicode, ascii: bool) -> regex_syntax::hir::Hir {
+    use regex_syntax::hir::{Capture, Class, Hir, HirKind, Look, Repetition};
+    match hir.kind() {
+        HirKind::Class(Class::Unicode(c)) => {
+            let mut c = c.clone();
+            c.intersect(chars);
+            Hir::class(Class::Unicode(c))
+        }
+        HirKind::Look(look) if ascii => Hir::look(match look {
+            Look::WordUnicode => Look::WordAscii,
+            Look::WordUnicodeNegate => Look::WordAsciiNegate,
+            Look::WordStartUnicode => Look::WordStartAscii,
+            Look::WordEndUnicode => Look::WordEndAscii,
+            Look::WordStartHalfUnicode => Look::WordStartHalfAscii,
+            Look::WordEndHalfUnicode => Look::WordEndHalfAscii,
+            other => *other,
+        }),
+        HirKind::Repetition(r) => Hir::repetition(Repetition {
+            sub: Box::new(restrict(&r.sub, chars, ascii)),
+            ..r.clone()
+        }),
+        HirKind::Capture(c) => Hir::capture(Capture {
+            sub: Box::new(restrict(&c.sub, chars, ascii)),
+            ..c.clone()
+        }),
+        HirKind::Concat(hs) => Hir::concat(hs.iter().map(|h| restrict(h, chars, ascii)).collect()),
+        HirKind::Alternation(hs) => Hir::alternation(hs.iter().map(|h| restrict(h, chars, ascii)).collect()),
+        _ => hir.clone(),
+    }
+}
+
+/// The ASCII characters.
+fn ascii_chars() -> regex_syntax::hir::ClassUnicode {
+    use regex_syntax::hir::{ClassUnicode, ClassUnicodeRange};
+    ClassUnicode::new([ClassUnicodeRange::new('\0', '\x7F')])
+}
+
+/// The ASCII characters and those of `hay`.
+fn chars_of(hay: &[u8]) -> regex_syntax::hir::ClassUnicode {
+    use regex_syntax::hir::{ClassUnicode, ClassUnicodeRange};
+    let mut chars = ascii_chars();
+    chars.union(&ClassUnicode::new(
+        hay.utf8_chunks()
+            .flat_map(|c| c.valid().chars())
+            .filter(|c| !c.is_ascii())
+            .map(|c| ClassUnicodeRange::new(c, c)),
+    ));
+    chars
+}
+
+/// Whether compiling `hir` with all of Unicode could exceed `regex`'s size limit, which the
+/// restricted engines of `LightMatcher` would not notice: counted repetitions multiply the size
+/// of what they repeat.
+fn may_be_too_big(hir: &regex_syntax::hir::Hir) -> bool {
+    use regex_syntax::hir::{Hir, HirKind};
+    fn walk(h: &Hir, times: u64) -> bool {
+        match h.kind() {
+            HirKind::Repetition(r) => {
+                let n = times.saturating_mul(r.max.unwrap_or(r.min).max(1) as u64);
+                n > 64 || walk(&r.sub, n)
+            }
+            HirKind::Capture(c) => walk(&c.sub, times),
+            HirKind::Concat(hs) | HirKind::Alternation(hs) => hs.iter().any(|h| walk(h, times)),
+            _ => false,
+        }
+    }
+    walk(hir, 1)
+}
+
+impl LightMatcher {
+    /// A matcher for the awk regex `pat`, or `None` when it does not parse (or may be too big,
+    /// see `may_be_too_big`); the caller then goes through `compile`, which reports errors.
+    pub(crate) fn new(pat: &str) -> Option<LightMatcher> {
+        let hir = regex_syntax::ParserBuilder::new()
+            .utf8(false)
+            .dot_matches_new_line(true)
+            .build()
+            .parse(&with_case(translate(pat).ok()?))
+            .ok()?;
+        if may_be_too_big(&hir) {
+            return None;
+        }
+        Some(LightMatcher {
+            hir,
+            ascii: None,
+            uses: 0,
+        })
+    }
+
+    /// Whether the pattern matches `hay`, or `None` when the engine for it cannot be built; the
+    /// caller then goes through `compile`, which reports the error.
+    pub(crate) fn is_match(&mut self, hay: &[u8]) -> Option<bool> {
+        if hay.is_ascii() {
+            let hir = &self.hir;
+            let engine = self.ascii.get_or_insert_with(|| LightEngine::new(&restrict(hir, &ascii_chars(), true)));
+            return engine.as_mut().map(|e| e.is_match(hay));
+        }
+        LightEngine::new(&restrict(&self.hir, &chars_of(hay), false)).map(|mut e| e.is_match(hay))
+    }
 }
 
 /// Where a pattern without regex operators (see `as_literal`) has to match its text.
@@ -792,6 +961,35 @@ mod tests {
         let caps = captures_at(&re, b"abcd", 0, 4).unwrap();
         assert!(caps.get(1).is_none());
         assert_eq!(&caps[2], b"abcd");
+    }
+
+    #[test]
+    fn light_matcher_agrees_with_compile() {
+        let pats = [
+            "^[a-z]+ ab", "[[:alpha:]]+ x$", "[[:upper:]]", "[^a]b", "^.$", "^..$", "\\<caf\\>",
+            "\\yab\\y", "\\Bé", "(a|ab)(c|bcd)", "[[:space:]]+", "\\303\\251", "^\\351", "\\p{Greek}+",
+            "[^[:alnum:]]", "x*", "^$", "[é-ë]", "数据|data", "\\w+\\s\\w+$", "a{2,3}", ".{100}",
+        ];
+        let hays: [&[u8]; 14] = [
+            b"", b"ab", b"xab", b"abc x", b"caf\xc3\xa9", b"caf", b"na\xc3\xafve caf\xc3\xa9 ab", b"\xce\xb1\xce\xb2",
+            b"\xe6\x95\xb0\xe6\x8d\xae", b"Ab", b"\xe9", b"\xe2\x80\x83 x", b"aa", b"word word",
+        ];
+        for ic in [false, true] {
+            set_ignore_case(ic);
+            for pat in pats {
+                let re = compile(pat).unwrap();
+                let Some(mut light) = LightMatcher::new(pat) else {
+                    assert_eq!(pat, ".{100}");
+                    continue;
+                };
+                for hay in hays {
+                    assert_eq!(light.is_match(hay), Some(re.is_match(hay)), "{:?} ~ /{}/ ic={}", hay, pat, ic);
+                }
+            }
+        }
+        set_ignore_case(false);
+        assert!(LightMatcher::new("(").is_none());
+        assert!(LightMatcher::new("[[:foo:]]").is_none());
     }
 
     #[test]
