@@ -4,7 +4,7 @@
 * Repeated stdlib warnings are still printed once, but at most 1024 distinct ones are kept (a message per record no longer grows memory without bound), and the number of warnings not shown is reported at exit
 * **Behavior change**: `s3_get`/`s3_put` failures are a warning and an empty result, like other stdlib functions, instead of a fatal panic
 
-# Version 0.6.2 (2026-09-18)
+# Version 0.6.2 (2026-10-18)
 
 * Add thousands separators: f-string format specs take Python's `,` and `_` groupings (`f"{n:,}"` is `1,234,567`, `{p:,.2f}`, `{n:_d}`, `{n:012,}` is `0,001,234,567`), and `printf`/`sprintf` take the `'` flag (`,`, as gawk in an English locale, independently of the locale) and the `_` flag (`_`): `printf "%'d", 1234567`. Grouping applies to `d i u e E f F g G` and to `%s` values that look like numbers; with `0` the padding zeros are grouped too, as in Python
 * Add the `??` operator: `name ?? "Guest"` is `"Guest"` when `name` is uninitialized, empty, zero or a string that looks like zero (`"0"`, `"0.0"`, `"+0"`, as with strnums), and `name` otherwise; the left side is evaluated once. It binds tighter than any other operator, so `"Hello " name ?? "Guest"` is `"Hello " (name ?? "Guest")`
@@ -15,7 +15,7 @@
 * f-string placeholders now take any expression and an optional Python-style format spec: `f"{NR+1}: {price:.2f} {name:>10}"`. A spec is `[[fill]align][sign][#][0][width][.precision][type]` with `align` one of `<`, `>`, `^` and `type` a printf conversion (`d i o x X e E f F g G s c`) or `%`. **Behavior change**: `{x+1}` used to stay as literal text and is now evaluated; an invalid placeholder expression is a syntax error
 * Add gawk's `ERRNO`: the system error message of the last failed `getline < file` (e.g. `No such file or directory`) or `close()` of a redirection that was never opened, so `if ((getline line < f) < 0) print "cannot read " f ": " ERRNO` works as in gawk
 
-# Version 0.6.1 (2026-09-12)
+# Version 0.6.1 (2026-10-12)
 
 * Add [Jev support](https://github.com/linux-china/zawk/blob/master/info/stdlib.md#decisionjev) 
 * **Behavior change**: CSV now follows RFC 4180. `-i csv` no longer interprets `\n`, `\t` and `\\` inside quoted fields (`"C:\new"` stays `C:\new`), and keeps a lone `\r` inside a field (only the `\r` of a CRLF line ending is dropped). `-o csv` and `escape_csv()`/`escape("csv", s)` keep line breaks inside quotes instead of writing `\n`/`\t`, also quote fields with `\r` or leading/trailing spaces, and `-o csv` ends records with `\n` instead of `\r\n` (use `-v 'ORS=\r\n'` for CRLF)
@@ -26,7 +26,7 @@
 * Add JSON Lines input format `-i jsonl` (alias `ndjson`): keys of the first record populate `FI`, e.g. `zawk -i jsonl '{ print $FI["name"] }' demo.jsonl`
 * Add parquet input format `-i parquet`: keys of the first record populate `FI`, e.g. `zawk -i parquet '{ print $FI["name"] }' demo.parquet`
 
-# Version 0.6.0 (2026-09-10)
+# Version 0.6.0 (2026-10-10)
 
 * Fix lots of bugs reported by LLM
 * Remove LLVM backend and keep Cranelift only
