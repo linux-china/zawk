@@ -1,3 +1,4 @@
+[tk] execute deps from cargo
 zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 ├── Inflector v0.11.4
 │   ├── lazy_static v1.5.1
@@ -22,21 +23,21 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── crypto-common v0.2.2
 │   │   │   ├── getrandom v0.4.3
 │   │   │   │   ├── cfg-if v1.0.5
-│   │   │   │   ├── libc v0.2.190
+│   │   │   │   ├── libc v0.2.191
 │   │   │   │   └── rand_core v0.10.1
 │   │   │   ├── hybrid-array v0.4.15 (*)
 │   │   │   └── rand_core v0.10.1
-│   │   └── inout v0.2.3
+│   │   └── inout v0.2.4
 │   │       ├── block-padding v0.4.2
 │   │       │   └── hybrid-array v0.4.15 (*)
 │   │       └── hybrid-array v0.4.15 (*)
 │   ├── cpubits v0.1.1
 │   └── cpufeatures v0.3.1
-│       └── libc v0.2.190
+│       └── libc v0.2.191
 ├── aes-gcm v0.11.1
 │   ├── aead v0.6.1
 │   │   ├── crypto-common v0.2.2 (*)
-│   │   └── inout v0.2.3 (*)
+│   │   └── inout v0.2.4 (*)
 │   ├── aes v0.9.3 (*)
 │   ├── cipher v0.5.2 (*)
 │   ├── ctr v0.10.1
@@ -120,7 +121,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   │       └── rand_core v0.6.4
 │   │   │           └── getrandom v0.2.17
 │   │   │               ├── cfg-if v1.0.5
-│   │   │               └── libc v0.2.190
+│   │   │               └── libc v0.2.191
 │   │   ├── ed25519-dalek v2.2.0
 │   │   │   ├── curve25519-dalek v4.1.3
 │   │   │   │   ├── cfg-if v1.0.5
@@ -134,15 +135,14 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   │   ├── sha2 v0.10.9
 │   │   │   │   ├── cfg-if v1.0.5
 │   │   │   │   ├── cpufeatures v0.2.17
-│   │   │   │   │   └── libc v0.2.190
+│   │   │   │   │   └── libc v0.2.191
 │   │   │   │   └── digest v0.10.7 (*)
 │   │   │   ├── signature v2.2.0 (*)
 │   │   │   ├── subtle v2.6.1
 │   │   │   └── zeroize v1.9.1 (*)
 │   │   ├── log v0.4.34
-│   │   │   └── value-bag v1.14.1
 │   │   ├── rand v0.8.8
-│   │   │   ├── libc v0.2.190
+│   │   │   ├── libc v0.2.191
 │   │   │   ├── rand_chacha v0.3.1
 │   │   │   │   ├── ppv-lite86 v0.2.21
 │   │   │   │   │   └── zerocopy v0.8.63
@@ -175,14 +175,14 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── ring v0.17.14
 │   │   ├── cfg-if v1.0.5
 │   │   ├── getrandom v0.2.17 (*)
-│   │   ├── libc v0.2.190
+│   │   ├── libc v0.2.191
 │   │   └── untrusted v0.9.0
 │   │   [build-dependencies]
 │   │   └── cc v1.8.0
 │   │       ├── find-msvc-tools v0.1.14
 │   │       ├── jobserver v0.1.35
-│   │       │   └── libc v0.2.190
-│   │       ├── libc v0.2.190
+│   │       │   └── libc v0.2.191
+│   │       ├── libc v0.2.191
 │   │       └── shlex v2.0.1
 │   ├── rustls-native-certs v0.8.5
 │   │   ├── rustls-pki-types v1.15.1
@@ -191,12 +191,12 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │       ├── bitflags v2.13.2
 │   │       ├── core-foundation v0.10.1
 │   │       │   ├── core-foundation-sys v0.8.7
-│   │       │   └── libc v0.2.190
+│   │       │   └── libc v0.2.191
 │   │       ├── core-foundation-sys v0.8.7
-│   │       ├── libc v0.2.190
+│   │       ├── libc v0.2.191
 │   │       └── security-framework-sys v2.17.0
 │   │           ├── core-foundation-sys v0.8.7
-│   │           └── libc v0.2.190
+│   │           └── libc v0.2.191
 │   ├── rustls-pki-types v1.15.1 (*)
 │   ├── rustls-webpki v0.103.15
 │   │   ├── ring v0.17.14 (*)
@@ -204,6 +204,13 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   └── untrusted v0.9.0
 │   ├── serde v1.0.229 (*)
 │   ├── serde_json v1.0.154
+│   │   ├── foldhash v0.2.0
+│   │   ├── indexmap v2.14.2
+│   │   │   ├── equivalent v1.0.3
+│   │   │   └── hashbrown v0.17.1
+│   │   │       ├── allocator-api2 v0.2.21
+│   │   │       ├── equivalent v1.0.3
+│   │   │       └── foldhash v0.2.0
 │   │   ├── itoa v1.0.18
 │   │   ├── memchr v2.8.3
 │   │   ├── serde_core v1.0.229
@@ -231,19 +238,19 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │       └── time-core v0.1.9
 │   ├── tokio v1.53.3
 │   │   ├── bytes v1.12.1 (*)
-│   │   ├── libc v0.2.190
+│   │   ├── libc v0.2.191
 │   │   ├── mio v1.2.4
-│   │   │   └── libc v0.2.190
+│   │   │   └── libc v0.2.191
 │   │   ├── pin-project-lite v0.2.17
 │   │   ├── socket2 v0.6.5
-│   │   │   └── libc v0.2.190
+│   │   │   └── libc v0.2.191
 │   │   └── tokio-macros v2.7.2 (proc-macro)
 │   │       ├── proc-macro2 v1.0.107 (*)
 │   │       ├── quote v1.0.47 (*)
 │   │       └── syn v3.0.9 (*)
 │   ├── tokio-rustls v0.26.6
 │   │   ├── rustls v0.23.46
-│   │   │   ├── log v0.4.34 (*)
+│   │   │   ├── log v0.4.34
 │   │   │   ├── once_cell v1.21.4
 │   │   │   ├── ring v0.17.14 (*)
 │   │   │   ├── rustls-pki-types v1.15.1 (*)
@@ -259,11 +266,11 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── bytes v1.12.1 (*)
 │   │   ├── futures-core v0.3.34
 │   │   ├── futures-sink v0.3.34
-│   │   ├── libc v0.2.190
+│   │   ├── libc v0.2.191
 │   │   ├── pin-project-lite v0.2.17
 │   │   └── tokio v1.53.3 (*)
 │   ├── tracing v0.1.44
-│   │   ├── log v0.4.34 (*)
+│   │   ├── log v0.4.34
 │   │   ├── pin-project-lite v0.2.17
 │   │   ├── tracing-attributes v0.1.31 (proc-macro)
 │   │   │   ├── proc-macro2 v1.0.107 (*)
@@ -377,11 +384,10 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 ├── chrono v0.4.45
 │   ├── iana-time-zone v0.1.65
 │   │   └── core-foundation-sys v0.8.7
-│   ├── num-traits v0.2.19
-│   │   └── libm v0.2.16
-│   │   [build-dependencies]
-│   │   └── autocfg v1.5.1
-│   └── serde v1.0.229 (*)
+│   └── num-traits v0.2.19
+│       └── libm v0.2.16
+│       [build-dependencies]
+│       └── autocfg v1.5.1
 ├── chrono-systemd-time v0.4.0
 │   └── chrono v0.4.45 (*)
 ├── clap v4.6.7
@@ -408,10 +414,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   │   ├── cranelift-entity v0.136.3
 │   │   │   │   ├── cranelift-bitset v0.136.3
 │   │   │   │   │   └── wasmtime-internal-core v49.0.3
-│   │   │   │   │       ├── hashbrown v0.17.1
-│   │   │   │   │       │   ├── allocator-api2 v0.2.21
-│   │   │   │   │       │   ├── equivalent v1.0.3
-│   │   │   │   │       │   └── foldhash v0.2.0
+│   │   │   │   │       ├── hashbrown v0.17.1 (*)
 │   │   │   │   │       └── libm v0.2.16
 │   │   │   │   └── wasmtime-internal-core v49.0.3 (*)
 │   │   │   └── wasmtime-internal-core v49.0.3 (*)
@@ -423,17 +426,15 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── gimli v0.33.0
 │   │   │   ├── fnv v1.0.7
 │   │   │   ├── hashbrown v0.16.1
-│   │   │   └── indexmap v2.14.2
-│   │   │       ├── equivalent v1.0.3
-│   │   │       └── hashbrown v0.17.1 (*)
+│   │   │   └── indexmap v2.14.2 (*)
 │   │   ├── hashbrown v0.17.1 (*)
 │   │   ├── libm v0.2.16
-│   │   ├── log v0.4.34 (*)
+│   │   ├── log v0.4.34
 │   │   ├── regalloc2 v0.15.2
 │   │   │   ├── allocator-api2 v0.2.21
 │   │   │   ├── bumpalo v3.20.3 (*)
 │   │   │   ├── hashbrown v0.17.1 (*)
-│   │   │   ├── log v0.4.34 (*)
+│   │   │   ├── log v0.4.34
 │   │   │   ├── rustc-hash v2.1.3
 │   │   │   └── smallvec v1.16.3
 │   │   ├── rustc-hash v2.1.3
@@ -450,7 +451,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   └── cranelift-frontend v0.136.3
 │       ├── cranelift-codegen v0.136.3 (*)
 │       ├── hashbrown v0.17.1 (*)
-│       ├── log v0.4.34 (*)
+│       ├── log v0.4.34
 │       ├── smallvec v1.16.3
 │       └── target-lexicon v0.13.5
 ├── cranelift-codegen v0.136.3 (*)
@@ -467,18 +468,18 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── cranelift-native v0.136.3
 │   │   ├── cranelift-codegen v0.136.3 (*)
 │   │   └── target-lexicon v0.13.5
-│   ├── libc v0.2.190
-│   ├── log v0.4.34 (*)
+│   ├── libc v0.2.191
+│   ├── log v0.4.34
 │   ├── memmap2 v0.9.11
-│   │   └── libc v0.2.190
+│   │   └── libc v0.2.191
 │   ├── region v3.0.2
 │   │   ├── bitflags v1.3.2
-│   │   ├── libc v0.2.190
+│   │   ├── libc v0.2.191
 │   │   └── mach2 v0.4.3
-│   │       └── libc v0.2.190
+│   │       └── libc v0.2.191
 │   ├── target-lexicon v0.13.5
 │   └── wasmtime-internal-jit-icache-coherence v49.0.3
-│       ├── libc v0.2.190
+│       ├── libc v0.2.191
 │       └── wasmtime-internal-core v49.0.3 (*)
 ├── cranelift-module v0.136.3 (*)
 ├── cranelift-native v0.136.3 (*)
@@ -509,7 +510,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   └── regex v1.13.1 (*)
 ├── dirs v7.0.0
 │   └── dirs-sys v0.5.0
-│       ├── libc v0.2.190
+│       ├── libc v0.2.191
 │       └── option-ext v0.2.0
 ├── dotenvy v0.15.7
 ├── email_address v0.2.9
@@ -518,11 +519,12 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── anstream v1.0.0 (*)
 │   ├── anstyle v1.0.14
 │   ├── env_filter v2.0.0
-│   │   ├── log v0.4.34 (*)
+│   │   ├── log v0.4.34
 │   │   └── regex v1.13.1 (*)
 │   ├── jiff v0.2.38
-│   │   └── jiff-core v0.1.1
-│   └── log v0.4.34 (*)
+│   │   ├── jiff-core v0.1.1
+│   │   └── serde_core v1.0.229
+│   └── log v0.4.34
 ├── evalexpr v13.1.0
 ├── fake v5.1.0
 │   ├── deunicode v1.6.2
@@ -550,11 +552,11 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── globset v0.4.20
 │   │   ├── aho-corasick v1.1.5 (*)
 │   │   ├── bstr v1.13.1 (*)
-│   │   ├── log v0.4.34 (*)
+│   │   ├── log v0.4.34
 │   │   ├── regex-automata v0.4.18 (*)
 │   │   └── regex-syntax v0.8.11
-│   ├── libc v0.2.190
-│   ├── log v0.4.34 (*)
+│   ├── libc v0.2.191
+│   ├── log v0.4.34
 │   └── termcolor v1.4.1
 ├── growable-bloom-filter v2.1.1
 │   ├── serde v1.0.229 (*)
@@ -574,8 +576,8 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── rand v0.7.3
 │   │   ├── getrandom v0.1.16
 │   │   │   ├── cfg-if v1.0.5
-│   │   │   └── libc v0.2.190
-│   │   ├── libc v0.2.190
+│   │   │   └── libc v0.2.191
+│   │   ├── libc v0.2.191
 │   │   ├── rand_chacha v0.2.2
 │   │   │   ├── ppv-lite86 v0.2.21 (*)
 │   │   │   └── rand_core v0.5.1
@@ -703,7 +705,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── fastrand v2.5.0
 │   ├── hostname v0.4.2
 │   │   ├── cfg-if v1.0.5
-│   │   └── libc v0.2.190
+│   │   └── libc v0.2.191
 │   ├── httpdate v1.0.3
 │   ├── idna v1.1.0 (*)
 │   ├── mime v0.3.17
@@ -715,14 +717,14 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── rustls-native-certs v0.8.5 (*)
 │   ├── socket2 v0.6.5 (*)
 │   └── url v2.5.8 (*)
-├── libc v0.2.190
+├── libc v0.2.191
 ├── liblzma v0.4.8
 │   └── liblzma-sys v0.4.9
-│       └── libc v0.2.190
+│       └── libc v0.2.191
 │       [build-dependencies]
 │       ├── cc v1.8.0 (*)
 │       └── pkg-config v0.3.34
-├── libsql v0.9.30
+├── libsql v0.10.0
 │   ├── async-stream v0.3.6
 │   │   ├── async-stream-impl v0.3.6 (proc-macro)
 │   │   │   ├── proc-macro2 v1.0.107 (*)
@@ -780,13 +782,13 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── itoa v1.0.18
 │   │   ├── pin-project-lite v0.2.17
 │   │   ├── socket2 v0.5.10
-│   │   │   └── libc v0.2.190
+│   │   │   └── libc v0.2.191
 │   │   ├── tokio v1.53.3 (*)
 │   │   ├── tower-service v0.3.3
 │   │   ├── tracing v0.1.44 (*)
 │   │   └── want v0.3.2
 │   │       └── try-lock v0.2.5
-│   ├── libsql-hrana v0.9.30
+│   ├── libsql-hrana v0.10.0
 │   │   ├── base64 v0.21.7
 │   │   ├── bytes v1.12.1 (*)
 │   │   ├── prost v0.12.6
@@ -803,7 +805,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── bitflags v2.13.2
 │   │   ├── fallible-iterator v0.3.0
 │   │   ├── indexmap v2.14.2 (*)
-│   │   ├── log v0.4.34 (*)
+│   │   ├── log v0.4.34
 │   │   ├── memchr v2.8.3
 │   │   ├── phf v0.11.3
 │   │   │   ├── phf_macros v0.11.3 (proc-macro)
@@ -845,8 +847,8 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   └── tracing v0.1.44 (*)
 │   └── tracing v0.1.44 (*)
 ├── local-ip-address v0.6.13
-│   └── libc v0.2.190
-├── log v0.4.34 (*)
+│   └── libc v0.2.191
+├── log v0.4.34
 ├── logos v0.16.1
 │   └── logos-derive v0.16.1 (proc-macro)
 │       └── logos-codegen v0.16.1
@@ -865,253 +867,6 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   └── unicase v2.10.0
 │   [build-dependencies]
 │   └── unicase v2.10.0
-├── minio v0.4.0
-│   ├── async-recursion v1.2.0 (proc-macro)
-│   │   ├── proc-macro2 v1.0.107 (*)
-│   │   ├── quote v1.0.47 (*)
-│   │   └── syn v3.0.9 (*)
-│   ├── async-std v1.13.2
-│   │   ├── async-attributes v1.1.2 (proc-macro)
-│   │   │   ├── quote v1.0.47 (*)
-│   │   │   └── syn v1.0.109
-│   │   │       ├── proc-macro2 v1.0.107 (*)
-│   │   │       ├── quote v1.0.47 (*)
-│   │   │       └── unicode-ident v1.0.27
-│   │   ├── async-channel v1.9.0
-│   │   │   ├── concurrent-queue v2.5.0
-│   │   │   │   └── crossbeam-utils v0.8.23
-│   │   │   ├── event-listener v2.5.3
-│   │   │   └── futures-core v0.3.34
-│   │   ├── async-global-executor v2.4.1
-│   │   │   ├── async-channel v2.5.0
-│   │   │   │   ├── concurrent-queue v2.5.0 (*)
-│   │   │   │   ├── event-listener-strategy v0.5.4
-│   │   │   │   │   ├── event-listener v5.4.2
-│   │   │   │   │   │   ├── parking v2.2.1
-│   │   │   │   │   │   └── pin-project-lite v0.2.17
-│   │   │   │   │   └── pin-project-lite v0.2.17
-│   │   │   │   ├── futures-core v0.3.34
-│   │   │   │   └── pin-project-lite v0.2.17
-│   │   │   ├── async-executor v1.14.0
-│   │   │   │   ├── async-task v4.7.1
-│   │   │   │   ├── concurrent-queue v2.5.0 (*)
-│   │   │   │   ├── fastrand v2.5.0
-│   │   │   │   ├── futures-lite v2.6.1
-│   │   │   │   │   ├── fastrand v2.5.0
-│   │   │   │   │   ├── futures-core v0.3.34
-│   │   │   │   │   ├── futures-io v0.3.34
-│   │   │   │   │   ├── parking v2.2.1
-│   │   │   │   │   └── pin-project-lite v0.2.17
-│   │   │   │   ├── pin-project-lite v0.2.17
-│   │   │   │   └── slab v0.4.12
-│   │   │   ├── async-io v2.6.0
-│   │   │   │   ├── cfg-if v1.0.5
-│   │   │   │   ├── concurrent-queue v2.5.0 (*)
-│   │   │   │   ├── futures-io v0.3.34
-│   │   │   │   ├── futures-lite v2.6.1 (*)
-│   │   │   │   ├── parking v2.2.1
-│   │   │   │   ├── polling v3.11.0
-│   │   │   │   │   ├── cfg-if v1.0.5
-│   │   │   │   │   └── rustix v1.1.5
-│   │   │   │   │       ├── bitflags v2.13.2
-│   │   │   │   │       ├── errno v0.3.14
-│   │   │   │   │       │   └── libc v0.2.190
-│   │   │   │   │       └── libc v0.2.190
-│   │   │   │   ├── rustix v1.1.5 (*)
-│   │   │   │   └── slab v0.4.12
-│   │   │   │   [build-dependencies]
-│   │   │   │   └── autocfg v1.5.1
-│   │   │   ├── async-lock v3.4.2
-│   │   │   │   ├── event-listener v5.4.2 (*)
-│   │   │   │   ├── event-listener-strategy v0.5.4 (*)
-│   │   │   │   └── pin-project-lite v0.2.17
-│   │   │   ├── blocking v1.7.0
-│   │   │   │   ├── async-channel v2.5.0 (*)
-│   │   │   │   ├── async-task v4.7.1
-│   │   │   │   ├── futures-io v0.3.34
-│   │   │   │   ├── futures-lite v2.6.1 (*)
-│   │   │   │   └── piper v0.2.5
-│   │   │   │       ├── atomic-waker v1.1.2
-│   │   │   │       ├── fastrand v2.5.0
-│   │   │   │       └── futures-io v0.3.34
-│   │   │   ├── futures-lite v2.6.1 (*)
-│   │   │   └── once_cell v1.21.4
-│   │   ├── async-io v2.6.0 (*)
-│   │   ├── async-lock v3.4.2 (*)
-│   │   ├── crossbeam-utils v0.8.23
-│   │   ├── futures-core v0.3.34
-│   │   ├── futures-io v0.3.34
-│   │   ├── futures-lite v2.6.1 (*)
-│   │   ├── kv-log-macro v1.0.7
-│   │   │   └── log v0.4.34 (*)
-│   │   ├── log v0.4.34 (*)
-│   │   ├── memchr v2.8.3
-│   │   ├── once_cell v1.21.4
-│   │   ├── pin-project-lite v0.2.17
-│   │   ├── pin-utils v0.1.1
-│   │   └── slab v0.4.12
-│   ├── async-stream v0.3.6 (*)
-│   ├── async-trait v0.1.92 (proc-macro) (*)
-│   ├── base64 v0.22.1
-│   ├── bytes v1.12.1 (*)
-│   ├── chrono v0.4.45 (*)
-│   ├── crc-fast v1.10.0
-│   │   ├── digest v0.10.7 (*)
-│   │   └── spin v0.10.1
-│   ├── dashmap v6.2.1
-│   │   ├── cfg-if v1.0.5
-│   │   ├── crossbeam-utils v0.8.23
-│   │   ├── hashbrown v0.14.5
-│   │   ├── lock_api v0.4.14 (*)
-│   │   ├── once_cell v1.21.4
-│   │   └── parking_lot_core v0.9.12
-│   │       ├── cfg-if v1.0.5
-│   │       ├── libc v0.2.190
-│   │       └── smallvec v1.16.3
-│   ├── env_logger v0.11.11 (*)
-│   ├── futures-util v0.3.34 (*)
-│   ├── hmac v0.12.1 (*)
-│   ├── http v1.5.0
-│   │   ├── bytes v1.12.1 (*)
-│   │   └── itoa v1.0.18
-│   ├── hyper v1.12.0
-│   │   ├── atomic-waker v1.1.2
-│   │   ├── bytes v1.12.1 (*)
-│   │   ├── futures-channel v0.3.34 (*)
-│   │   ├── futures-core v0.3.34
-│   │   ├── h2 v0.4.20
-│   │   │   ├── atomic-waker v1.1.2
-│   │   │   ├── bytes v1.12.1 (*)
-│   │   │   ├── fnv v1.0.7
-│   │   │   ├── futures-core v0.3.34
-│   │   │   ├── futures-sink v0.3.34
-│   │   │   ├── http v1.5.0 (*)
-│   │   │   ├── indexmap v2.14.2 (*)
-│   │   │   ├── slab v0.4.12
-│   │   │   ├── tokio v1.53.3 (*)
-│   │   │   ├── tokio-util v0.7.20 (*)
-│   │   │   └── tracing v0.1.44 (*)
-│   │   ├── http v1.5.0 (*)
-│   │   ├── http-body v1.1.0
-│   │   │   ├── bytes v1.12.1 (*)
-│   │   │   └── http v1.5.0 (*)
-│   │   ├── httparse v1.10.1
-│   │   ├── httpdate v1.0.3
-│   │   ├── itoa v1.0.18
-│   │   ├── pin-project-lite v0.2.17
-│   │   ├── smallvec v1.16.3
-│   │   ├── tokio v1.53.3 (*)
-│   │   └── want v0.3.2 (*)
-│   ├── lazy_static v1.5.1 (*)
-│   ├── log v0.4.34 (*)
-│   ├── md5 v0.8.1
-│   ├── multimap v0.10.1
-│   │   └── serde v1.0.229 (*)
-│   ├── percent-encoding v2.3.2
-│   ├── regex v1.13.1 (*)
-│   ├── reqwest v0.12.28
-│   │   ├── base64 v0.22.1
-│   │   ├── bytes v1.12.1 (*)
-│   │   ├── futures-channel v0.3.34 (*)
-│   │   ├── futures-core v0.3.34
-│   │   ├── futures-util v0.3.34 (*)
-│   │   ├── h2 v0.4.20 (*)
-│   │   ├── http v1.5.0 (*)
-│   │   ├── http-body v1.1.0 (*)
-│   │   ├── http-body-util v0.1.5
-│   │   │   ├── bytes v1.12.1 (*)
-│   │   │   ├── futures-core v0.3.34
-│   │   │   ├── http v1.5.0 (*)
-│   │   │   ├── http-body v1.1.0 (*)
-│   │   │   └── pin-project-lite v0.2.17
-│   │   ├── hyper v1.12.0 (*)
-│   │   ├── hyper-rustls v0.27.10
-│   │   │   ├── http v1.5.0 (*)
-│   │   │   ├── hyper v1.12.0 (*)
-│   │   │   ├── hyper-util v0.1.21
-│   │   │   │   ├── base64 v0.23.1
-│   │   │   │   ├── bytes v1.12.1 (*)
-│   │   │   │   ├── futures-channel v0.3.34 (*)
-│   │   │   │   ├── futures-util v0.3.34 (*)
-│   │   │   │   ├── http v1.5.0 (*)
-│   │   │   │   ├── http-body v1.1.0 (*)
-│   │   │   │   ├── httparse v1.10.1
-│   │   │   │   ├── hyper v1.12.0 (*)
-│   │   │   │   ├── ipnet v2.12.2
-│   │   │   │   ├── libc v0.2.190
-│   │   │   │   ├── percent-encoding v2.3.2
-│   │   │   │   ├── pin-project-lite v0.2.17
-│   │   │   │   ├── socket2 v0.6.5 (*)
-│   │   │   │   ├── tokio v1.53.3 (*)
-│   │   │   │   ├── tower-service v0.3.3
-│   │   │   │   └── tracing v0.1.44 (*)
-│   │   │   ├── rustls v0.23.46 (*)
-│   │   │   ├── tokio v1.53.3 (*)
-│   │   │   ├── tokio-rustls v0.26.6 (*)
-│   │   │   ├── tower-service v0.3.3
-│   │   │   └── webpki-roots v1.0.9
-│   │   │       └── rustls-pki-types v1.15.1 (*)
-│   │   ├── hyper-util v0.1.21 (*)
-│   │   ├── log v0.4.34 (*)
-│   │   ├── percent-encoding v2.3.2
-│   │   ├── pin-project-lite v0.2.17
-│   │   ├── rustls v0.23.46 (*)
-│   │   ├── rustls-pki-types v1.15.1 (*)
-│   │   ├── serde v1.0.229 (*)
-│   │   ├── serde_json v1.0.154 (*)
-│   │   ├── serde_urlencoded v0.7.1
-│   │   │   ├── form_urlencoded v1.2.2 (*)
-│   │   │   ├── itoa v1.0.18
-│   │   │   ├── ryu v1.0.23
-│   │   │   └── serde v1.0.229 (*)
-│   │   ├── sync_wrapper v1.0.2
-│   │   │   └── futures-core v0.3.34
-│   │   ├── tokio v1.53.3 (*)
-│   │   ├── tokio-rustls v0.26.6 (*)
-│   │   ├── tokio-util v0.7.20 (*)
-│   │   ├── tower v0.5.3
-│   │   │   ├── futures-core v0.3.34
-│   │   │   ├── futures-util v0.3.34 (*)
-│   │   │   ├── pin-project-lite v0.2.17
-│   │   │   ├── sync_wrapper v1.0.2 (*)
-│   │   │   ├── tokio v1.53.3 (*)
-│   │   │   ├── tower-layer v0.3.3
-│   │   │   └── tower-service v0.3.3
-│   │   ├── tower-http v0.6.11
-│   │   │   ├── bitflags v2.13.2
-│   │   │   ├── bytes v1.12.1 (*)
-│   │   │   ├── futures-util v0.3.34 (*)
-│   │   │   ├── http v1.5.0 (*)
-│   │   │   ├── http-body v1.1.0 (*)
-│   │   │   ├── pin-project-lite v0.2.17
-│   │   │   ├── tower v0.5.3 (*)
-│   │   │   ├── tower-layer v0.3.3
-│   │   │   ├── tower-service v0.3.3
-│   │   │   └── url v2.5.8 (*)
-│   │   ├── tower-service v0.3.3
-│   │   ├── url v2.5.8 (*)
-│   │   └── webpki-roots v1.0.9 (*)
-│   ├── ring v0.17.14 (*)
-│   ├── serde v1.0.229 (*)
-│   ├── serde_json v1.0.154 (*)
-│   ├── sha1 v0.10.7
-│   │   ├── cfg-if v1.0.5
-│   │   ├── cpufeatures v0.2.17 (*)
-│   │   └── digest v0.10.7 (*)
-│   ├── sha2 v0.10.9 (*)
-│   ├── thiserror v2.0.21 (*)
-│   ├── typed-builder v0.23.2
-│   │   └── typed-builder-macro v0.23.2 (proc-macro)
-│   │       ├── proc-macro2 v1.0.107 (*)
-│   │       ├── quote v1.0.47 (*)
-│   │       └── syn v2.0.119 (*)
-│   ├── url v2.5.8 (*)
-│   ├── urlencoding v2.1.3
-│   ├── uuid v1.28.0
-│   │   ├── getrandom v0.4.3 (*)
-│   │   └── rand v0.10.3 (*)
-│   └── xmltree v0.12.0
-│       └── xml v1.4.0
 ├── miniserde v0.1.46
 │   ├── itoa v1.0.18
 │   ├── mini-internal v0.1.46 (proc-macro)
@@ -1120,7 +875,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   └── syn v3.0.9 (*)
 │   └── zmij v1.0.23
 ├── murmur3 v0.5.2
-├── mysql v28.0.3
+├── mysql v28.0.4
 │   ├── arc-swap v1.9.2
 │   │   └── rustversion v1.0.23 (proc-macro)
 │   ├── bufstream v0.1.4
@@ -1133,7 +888,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │       ├── proc-macro2 v1.0.107 (*)
 │   │       ├── quote v1.0.47 (*)
 │   │       └── syn v3.0.9 (*)
-│   ├── libc v0.2.190
+│   ├── libc v0.2.191
 │   ├── lru v0.18.5
 │   ├── mysql_common v0.37.3
 │   │   ├── base64 v0.22.1
@@ -1146,17 +901,23 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── flate2 v1.1.10 (*)
 │   │   ├── getrandom v0.3.4
 │   │   │   ├── cfg-if v1.0.5
-│   │   │   └── libc v0.2.190
+│   │   │   └── libc v0.2.191
 │   │   ├── num-bigint v0.4.8 (*)
 │   │   ├── num-traits v0.2.19 (*)
 │   │   ├── regex v1.13.1 (*)
 │   │   ├── saturating v0.1.0
 │   │   ├── serde v1.0.229 (*)
 │   │   ├── serde_json v1.0.154 (*)
-│   │   ├── sha1 v0.10.7 (*)
+│   │   ├── sha1 v0.10.7
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   ├── cpufeatures v0.2.17 (*)
+│   │   │   └── digest v0.10.7 (*)
 │   │   ├── sha2 v0.10.9 (*)
 │   │   ├── thiserror v2.0.21 (*)
-│   │   └── uuid v1.28.0 (*)
+│   │   └── uuid v1.28.0
+│   │       ├── getrandom v0.4.3 (*)
+│   │       ├── rand v0.10.3 (*)
+│   │       └── serde_core v1.0.229
 │   ├── pem v4.0.0
 │   │   └── base64 v0.23.1
 │   ├── percent-encoding v2.3.2
@@ -1169,18 +930,19 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── webpki v0.22.4
 │   │   ├── ring v0.17.14 (*)
 │   │   └── untrusted v0.9.0
-│   └── webpki-roots v1.0.9 (*)
+│   └── webpki-roots v1.0.9
+│       └── rustls-pki-types v1.15.1 (*)
 ├── notify-rust v4.18.2
-│   ├── log v0.4.34 (*)
+│   ├── log v0.4.34
 │   └── mac-notification-sys v0.6.15
-│       ├── log v0.4.34 (*)
+│       ├── log v0.4.34
 │       ├── objc2 v0.6.5
 │       │   └── objc2-encode v4.1.0
 │       ├── objc2-foundation v0.3.2
 │       │   ├── bitflags v2.13.2
 │       │   ├── block2 v0.6.2
 │       │   │   └── objc2 v0.6.5 (*)
-│       │   ├── libc v0.2.190
+│       │   ├── libc v0.2.191
 │       │   ├── objc2 v0.6.5 (*)
 │       │   └── objc2-core-foundation v0.3.2
 │       │       ├── bitflags v2.13.2
@@ -1191,7 +953,212 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │       └── cc v1.8.0 (*)
 ├── num-traits v0.2.19 (*)
 ├── num_cpus v1.17.0
-│   └── libc v0.2.190
+│   └── libc v0.2.191
+├── opendal v0.59.4
+│   ├── opendal-core v0.59.4
+│   │   ├── anyhow v1.0.104
+│   │   ├── asyncband v0.7.3
+│   │   ├── base64 v0.23.1
+│   │   ├── bytes v1.12.1 (*)
+│   │   ├── futures v0.3.34 (*)
+│   │   ├── http v1.5.0
+│   │   │   ├── bytes v1.12.1 (*)
+│   │   │   └── itoa v1.0.18
+│   │   ├── jiff v0.2.38 (*)
+│   │   ├── log v0.4.34
+│   │   ├── md-5 v0.11.0
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   └── digest v0.11.3 (*)
+│   │   ├── percent-encoding v2.3.2
+│   │   ├── quick-xml v0.41.0
+│   │   │   ├── memchr v2.8.3
+│   │   │   └── serde v1.0.229 (*)
+│   │   ├── reqsign-core v3.3.2
+│   │   │   ├── anyhow v1.0.104
+│   │   │   ├── asyncband v0.7.3
+│   │   │   ├── base64 v0.23.1
+│   │   │   ├── bytes v1.12.1 (*)
+│   │   │   ├── hex v0.4.3
+│   │   │   ├── hmac v0.13.0 (*)
+│   │   │   ├── http v1.5.0 (*)
+│   │   │   ├── jiff v0.2.38 (*)
+│   │   │   ├── log v0.4.34
+│   │   │   ├── percent-encoding v2.3.2
+│   │   │   ├── sha1 v0.11.0
+│   │   │   │   ├── cfg-if v1.0.5
+│   │   │   │   ├── cpufeatures v0.3.1 (*)
+│   │   │   │   └── digest v0.11.3 (*)
+│   │   │   └── sha2 v0.11.1
+│   │   │       ├── cfg-if v1.0.5
+│   │   │       ├── cpufeatures v0.3.1 (*)
+│   │   │       └── digest v0.11.3 (*)
+│   │   ├── serde v1.0.229 (*)
+│   │   ├── serde_json v1.0.154 (*)
+│   │   ├── tokio v1.53.3 (*)
+│   │   ├── url v2.5.8 (*)
+│   │   └── uuid v1.28.0 (*)
+│   ├── opendal-layer-retry v0.59.4
+│   │   ├── backon v1.6.0
+│   │   │   ├── fastrand v2.5.0
+│   │   │   └── tokio v1.53.3 (*)
+│   │   ├── log v0.4.34
+│   │   └── opendal-core v0.59.4 (*)
+│   └── opendal-service-s3 v0.59.4
+│       ├── base64 v0.23.1
+│       ├── bytes v1.12.1 (*)
+│       ├── crc-fast v1.10.0
+│       │   ├── digest v0.10.7 (*)
+│       │   └── spin v0.10.1
+│       ├── http v1.5.0 (*)
+│       ├── log v0.4.34
+│       ├── md-5 v0.11.0 (*)
+│       ├── opendal-core v0.59.4 (*)
+│       ├── quick-xml v0.41.0 (*)
+│       ├── reqsign-aws-v4 v3.3.1
+│       │   ├── bytes v1.12.1 (*)
+│       │   ├── http v1.5.0 (*)
+│       │   ├── log v0.4.34
+│       │   ├── quick-xml v0.42.0
+│       │   │   ├── memchr v2.8.3
+│       │   │   └── serde v1.0.229 (*)
+│       │   ├── reqsign-aws-core v3.2.0
+│       │   │   ├── bytes v1.12.1 (*)
+│       │   │   ├── form_urlencoded v1.2.2 (*)
+│       │   │   ├── hex v0.4.3
+│       │   │   ├── http v1.5.0 (*)
+│       │   │   ├── log v0.4.34
+│       │   │   ├── percent-encoding v2.3.2
+│       │   │   ├── quick-xml v0.42.0 (*)
+│       │   │   ├── reqsign-core v3.3.2 (*)
+│       │   │   ├── rust-ini v0.21.3
+│       │   │   │   ├── cfg-if v1.0.5
+│       │   │   │   └── ordered-multimap v0.7.3
+│       │   │   │       ├── dlv-list v0.5.2
+│       │   │   │       │   └── const-random v0.1.18
+│       │   │   │       │       └── const-random-macro v0.1.16 (proc-macro)
+│       │   │   │       │           ├── getrandom v0.2.17
+│       │   │   │       │           │   ├── cfg-if v1.0.5
+│       │   │   │       │           │   └── libc v0.2.191
+│       │   │   │       │           ├── once_cell v1.21.4
+│       │   │   │       │           └── tiny-keccak v2.0.2
+│       │   │   │       │               └── crunchy v0.2.4
+│       │   │   │       └── hashbrown v0.14.5
+│       │   │   ├── serde v1.0.229 (*)
+│       │   │   ├── serde_json v1.0.154 (*)
+│       │   │   ├── serde_urlencoded v0.7.1
+│       │   │   │   ├── form_urlencoded v1.2.2 (*)
+│       │   │   │   ├── itoa v1.0.18
+│       │   │   │   ├── ryu v1.0.23
+│       │   │   │   └── serde v1.0.229 (*)
+│       │   │   └── sha1 v0.11.0 (*)
+│       │   ├── reqsign-core v3.3.2 (*)
+│       │   └── serde v1.0.229 (*)
+│       ├── reqsign-core v3.3.2 (*)
+│       ├── reqsign-file-read-tokio v3.0.7
+│       │   ├── anyhow v1.0.104
+│       │   ├── reqsign-core v3.3.2 (*)
+│       │   └── tokio v1.53.3 (*)
+│       ├── serde v1.0.229 (*)
+│       └── url v2.5.8 (*)
+├── opendal-http-transport-reqwest v0.59.4
+│   ├── bytes v1.12.1 (*)
+│   ├── futures v0.3.34 (*)
+│   ├── http v1.5.0 (*)
+│   ├── http-body v1.1.0
+│   │   ├── bytes v1.12.1 (*)
+│   │   └── http v1.5.0 (*)
+│   ├── opendal-core v0.59.4 (*)
+│   └── reqwest v0.13.5
+│       ├── base64 v0.23.1
+│       ├── bytes v1.12.1 (*)
+│       ├── futures-channel v0.3.34 (*)
+│       ├── futures-core v0.3.34
+│       ├── futures-util v0.3.34 (*)
+│       ├── http v1.5.0 (*)
+│       ├── http-body v1.1.0 (*)
+│       ├── http-body-util v0.1.5
+│       │   ├── bytes v1.12.1 (*)
+│       │   ├── futures-core v0.3.34
+│       │   ├── http v1.5.0 (*)
+│       │   ├── http-body v1.1.0 (*)
+│       │   └── pin-project-lite v0.2.17
+│       ├── hyper v1.12.0
+│       │   ├── atomic-waker v1.1.2
+│       │   ├── bytes v1.12.1 (*)
+│       │   ├── futures-core v0.3.34
+│       │   ├── http v1.5.0 (*)
+│       │   ├── http-body v1.1.0 (*)
+│       │   ├── httparse v1.10.1
+│       │   ├── itoa v1.0.18
+│       │   ├── pin-project-lite v0.2.17
+│       │   ├── smallvec v1.16.3
+│       │   ├── tokio v1.53.3 (*)
+│       │   └── want v0.3.2 (*)
+│       ├── hyper-rustls v0.27.10
+│       │   ├── http v1.5.0 (*)
+│       │   ├── hyper v1.12.0 (*)
+│       │   ├── hyper-util v0.1.21
+│       │   │   ├── base64 v0.23.1
+│       │   │   ├── bytes v1.12.1 (*)
+│       │   │   ├── futures-channel v0.3.34 (*)
+│       │   │   ├── futures-util v0.3.34 (*)
+│       │   │   ├── http v1.5.0 (*)
+│       │   │   ├── http-body v1.1.0 (*)
+│       │   │   ├── httparse v1.10.1
+│       │   │   ├── hyper v1.12.0 (*)
+│       │   │   ├── ipnet v2.12.2
+│       │   │   ├── libc v0.2.191
+│       │   │   ├── percent-encoding v2.3.2
+│       │   │   ├── pin-project-lite v0.2.17
+│       │   │   ├── socket2 v0.6.5 (*)
+│       │   │   ├── tokio v1.53.3 (*)
+│       │   │   ├── tower-service v0.3.3
+│       │   │   └── tracing v0.1.44 (*)
+│       │   ├── rustls v0.23.46 (*)
+│       │   ├── tokio v1.53.3 (*)
+│       │   ├── tokio-rustls v0.26.6 (*)
+│       │   └── tower-service v0.3.3
+│       ├── hyper-util v0.1.21 (*)
+│       ├── log v0.4.34
+│       ├── percent-encoding v2.3.2
+│       ├── pin-project-lite v0.2.17
+│       ├── rustls v0.23.46 (*)
+│       ├── rustls-pki-types v1.15.1 (*)
+│       ├── rustls-platform-verifier v0.7.1
+│       │   ├── core-foundation v0.10.1 (*)
+│       │   ├── core-foundation-sys v0.8.7
+│       │   ├── log v0.4.34
+│       │   ├── rustls v0.23.46 (*)
+│       │   ├── security-framework v3.7.0 (*)
+│       │   └── security-framework-sys v2.17.0 (*)
+│       ├── serde v1.0.229 (*)
+│       ├── serde_json v1.0.154 (*)
+│       ├── sync_wrapper v1.0.2
+│       │   └── futures-core v0.3.34
+│       ├── tokio v1.53.3 (*)
+│       ├── tokio-rustls v0.26.6 (*)
+│       ├── tokio-util v0.7.20 (*)
+│       ├── tower v0.5.3
+│       │   ├── futures-core v0.3.34
+│       │   ├── futures-util v0.3.34 (*)
+│       │   ├── pin-project-lite v0.2.17
+│       │   ├── sync_wrapper v1.0.2 (*)
+│       │   ├── tokio v1.53.3 (*)
+│       │   ├── tower-layer v0.3.3
+│       │   └── tower-service v0.3.3
+│       ├── tower-http v0.6.11
+│       │   ├── bitflags v2.13.2
+│       │   ├── bytes v1.12.1 (*)
+│       │   ├── futures-util v0.3.34 (*)
+│       │   ├── http v1.5.0 (*)
+│       │   ├── http-body v1.1.0 (*)
+│       │   ├── pin-project-lite v0.2.17
+│       │   ├── tower v0.5.3 (*)
+│       │   ├── tower-layer v0.3.3
+│       │   ├── tower-service v0.3.3
+│       │   └── url v2.5.8 (*)
+│       ├── tower-service v0.3.3
+│       └── url v2.5.8 (*)
 ├── pad v0.1.6
 │   └── unicode-width v0.1.14
 ├── parquet v60.0.0
@@ -1218,9 +1185,9 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── seq-macro v0.3.6 (proc-macro)
 │   ├── snap v1.1.2
 │   ├── twox-hash v2.1.5
-│   └── zstd v0.14.2
-│       └── zstd-safe v8.1.0
-│           └── zstd-sys v2.1.1+zstd.1.5.7
+│   └── zstd v0.14.3
+│       └── zstd-safe v8.2.0
+│           └── zstd-sys v2.1.2+zstd.1.5.7
 │               [build-dependencies]
 │               ├── cc v1.8.0 (*)
 │               └── pkg-config v0.3.34
@@ -1236,7 +1203,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── bytes v1.12.1 (*)
 │   ├── fallible-iterator v0.2.0
 │   ├── futures-util v0.3.34 (*)
-│   ├── log v0.4.34 (*)
+│   ├── log v0.4.34
 │   ├── tokio v1.53.3 (*)
 │   └── tokio-postgres v0.7.18
 │       ├── async-trait v0.1.92 (proc-macro) (*)
@@ -1245,10 +1212,13 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │       ├── fallible-iterator v0.2.0
 │       ├── futures-channel v0.3.34 (*)
 │       ├── futures-util v0.3.34 (*)
-│       ├── log v0.4.34 (*)
+│       ├── log v0.4.34
 │       ├── parking_lot v0.12.5
 │       │   ├── lock_api v0.4.14 (*)
-│       │   └── parking_lot_core v0.9.12 (*)
+│       │   └── parking_lot_core v0.9.12
+│       │       ├── cfg-if v1.0.5
+│       │       ├── libc v0.2.191
+│       │       └── smallvec v1.16.3
 │       ├── percent-encoding v2.3.2
 │       ├── phf v0.13.1
 │       │   └── phf_shared v0.13.1
@@ -1260,18 +1230,13 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │       │   ├── bytes v1.12.1 (*)
 │       │   ├── fallible-iterator v0.2.0
 │       │   ├── hmac v0.13.0 (*)
-│       │   ├── md-5 v0.11.0
-│       │   │   ├── cfg-if v1.0.5
-│       │   │   └── digest v0.11.3 (*)
+│       │   ├── md-5 v0.11.0 (*)
 │       │   ├── memchr v2.8.3
 │       │   ├── rand v0.10.3 (*)
-│       │   ├── sha2 v0.11.1
-│       │   │   ├── cfg-if v1.0.5
-│       │   │   ├── cpufeatures v0.3.1 (*)
-│       │   │   └── digest v0.11.3 (*)
+│       │   ├── sha2 v0.11.1 (*)
 │       │   └── stringprep v0.1.5
 │       │       ├── unicode-bidi v0.3.18
-│       │       ├── unicode-normalization v0.1.25
+│       │       ├── unicode-normalization v0.1.26
 │       │       │   └── tinyvec v1.13.3
 │       │       └── unicode-properties v0.1.4
 │       ├── postgres-types v0.2.14
@@ -1288,7 +1253,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │       ├── tokio v1.53.3 (*)
 │       ├── tokio-util v0.7.20 (*)
 │       └── whoami v2.1.3
-│           ├── libc v0.2.190
+│           ├── libc v0.2.191
 │           └── objc2-system-configuration v0.3.2
 │               └── objc2-core-foundation v0.3.2 (*)
 ├── prometheus-parse v0.2.5
@@ -1318,7 +1283,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 ├── regex v1.13.1 (*)
 ├── regex-automata v0.4.18 (*)
 ├── regex-syntax v0.8.11
-├── reqwest v0.12.28 (*)
+├── reqwest v0.13.5 (*)
 ├── rs-snowflake v0.6.0
 ├── rumqttc v0.25.1
 │   ├── bytes v1.12.1 (*)
@@ -1328,7 +1293,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── futures-sink v0.3.34
 │   │   └── spin v0.9.9 (*)
 │   ├── futures-util v0.3.34 (*)
-│   ├── log v0.4.34 (*)
+│   ├── log v0.4.34
 │   ├── rustls-native-certs v0.8.5 (*)
 │   ├── rustls-pemfile v2.2.0 (*)
 │   ├── rustls-webpki v0.102.8
@@ -1394,15 +1359,23 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   ├── fastrand v2.5.0
 │   ├── getrandom v0.4.3 (*)
 │   ├── once_cell v1.21.4
-│   └── rustix v1.1.5 (*)
+│   └── rustix v1.1.5
+│       ├── bitflags v2.13.2
+│       ├── errno v0.3.14
+│       │   └── libc v0.2.191
+│       └── libc v0.2.191
 ├── termcolor v1.4.1
 ├── thiserror v2.0.21 (*)
-├── tikv-jemallocator v0.7.0
-│   ├── libc v0.2.190
+├── tikv-jemalloc-ctl v0.7.0
+│   ├── libc v0.2.191
+│   ├── paste v1.0.15 (proc-macro)
 │   └── tikv-jemalloc-sys v0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8
-│       └── libc v0.2.190
+│       └── libc v0.2.191
 │       [build-dependencies]
 │       └── cc v1.8.0 (*)
+├── tikv-jemallocator v0.7.0
+│   ├── libc v0.2.191
+│   └── tikv-jemalloc-sys v0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8 (*)
 ├── time v0.3.55 (*)
 ├── tl v0.7.8
 ├── tokio v1.53.3 (*)
@@ -1425,14 +1398,14 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 ├── ulid v3.0.0
 │   └── rand v0.10.3 (*)
 ├── unicode-segmentation v1.13.3
-├── unicode-width v0.1.14
+├── unicode-width v0.2.2
 ├── unicode-xid v0.2.6
 ├── url v2.5.8 (*)
 ├── urlencoding v2.1.3
 ├── uuid v1.28.0 (*)
 ├── whoami v2.1.3 (*)
 ├── xxhash-rust v0.8.19
-└── zstd v0.14.2 (*)
+└── zstd v0.14.3 (*)
 [build-dependencies]
 └── lalrpop v0.23.1
     ├── ascii-canvas v4.0.0
@@ -1486,7 +1459,7 @@ zawk v0.6.1 (/Users/linux_china/RustroverProjects/zawk)
 │   │   ├── predicates-core v1.0.10
 │   │   └── termtree v0.5.1
 │   └── wait-timeout v0.2.1
-│       └── libc v0.2.190
+│       └── libc v0.2.191
 ├── rstest v0.27.0
 │   ├── futures-timer v3.0.4
 │   ├── futures-util v0.3.34 (*)
