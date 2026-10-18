@@ -221,8 +221,15 @@ impl<R: Read> RegexSplitter<R> {
             // makes it harder for us to call mutable methods like advance in the body, so just get
             // the start and end pointers.
             match find_nonempty(pat, s) {
-                // We need this check in case the regex matches across a chunk boundary.
-                Some((start, end)) if end + self.reader.start < self.reader.end => {
+                // We need this check in case the regex matches across a chunk boundary: a match
+                // that ends before the end of the buffer can still be lengthened (or preceded by
+                // an earlier one) by the rest of the input, e.g. `a|abc` matching the `a` of a
+                // buffer ending in "ab", or a buffer that ends in the middle of a character.
+                Some((start, end))
+                    if end + self.reader.start < self.reader.end
+                        && (self.reader.state == ReaderState::Eof
+                            || !crate::runtime::awk_regex::may_extend(pat, s, start)) =>
+                {
                     // Valid offsets guaranteed by correctness of regex `find`.
                     let res = self
                         .reader
@@ -377,6 +384,31 @@ mod tests {
         assert_eq!(split("b?", "xaaybz\n"), vec!["xaay", "z\n"]);
         assert_eq!(split("x*", "xaaybz\n"), vec!["", "aaybz\n"]);
         assert_eq!(split("q*", "xaaybz\n"), vec!["xaaybz\n"]);
+    }
+
+    /// A match that ends before the end of a chunk can still change with the next chunk: it can
+    /// get longer, or a match starting earlier can appear.
+    #[test]
+    fn test_separator_across_chunk_boundary() {
+        let split = |re: &str, input: &str, chunk_size: usize| {
+            let re = crate::runtime::awk_regex::compile(re).unwrap();
+            let c = Cursor::new(String::from(input));
+            let mut rdr = RegexSplitter::new(c, chunk_size, "", /*check_utf8=*/ false);
+            let mut lines = Vec::new();
+            while !rdr.reader.is_eof() {
+                lines.push(rdr.read_line_regex(&re).upcast().to_string());
+            }
+            lines
+        };
+        let recs = |sep: &str, n: usize| (0..n).map(|i| format!("r{}{}", "q".repeat(i % 7), sep)).collect::<String>();
+        let want = |n: usize| (0..n).map(|i| format!("r{}", "q".repeat(i % 7))).collect::<Vec<_>>();
+        for chunk_size in [4, 5, 7, 16, 33] {
+            assert_eq!(split("a|abc", &recs("abc", 40), chunk_size), want(40), "chunk {}", chunk_size);
+            assert_eq!(split("中+", &recs("中中", 40), chunk_size), want(40), "chunk {}", chunk_size);
+            assert_eq!(split("x\\>", &recs("x", 40), chunk_size).len(), 1, "chunk {}", chunk_size);
+            assert_eq!(split("abcd|c", "xxabcdyyabcdzz", chunk_size), vec!["xx", "yy", "zz"], "chunk {}", chunk_size);
+            assert_eq!(split("\n\n+", "a\n\n\n\nb\n\nc", chunk_size), vec!["a", "b", "c"], "chunk {}", chunk_size);
+        }
     }
 
     #[test]

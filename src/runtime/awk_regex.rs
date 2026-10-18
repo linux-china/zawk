@@ -318,8 +318,12 @@ pub(crate) fn compile_error(pat: &str, err: &regex::Error) -> String {
 /// What it takes to turn a leftmost-first match into the leftmost-longest one.
 struct Longest {
     /// A lazy DFA reporting all matches, so that an anchored forward search ends at the longest.
+    /// With Unicode word boundaries (`\y`, `\<`, `\>`, `\B`) it gives up on non-ASCII bytes.
     dfa: DFA,
     cache: RefCell<Cache>,
+    /// The same as a PikeVM, for when the lazy DFA gives up; built on first use.
+    pike: OnceCell<(PikeVM, RefCell<regex_automata::nfa::thompson::pikevm::Cache>)>,
+    nfa: regex_automata::nfa::thompson::NFA,
     /// The pattern anchored at the end, `(?:pat)\z`, to get capture groups of a given span.
     exact: OnceCell<Option<Regex>>,
 }
@@ -384,36 +388,50 @@ fn longest(re: &Regex) -> Option<Rc<Longest>> {
             cell.borrow_mut().insert(pat.to_owned(), None);
             return None;
         }
-        let dfa = DFA::builder()
-            .configure(DFA::config().match_kind(MatchKind::All))
-            .syntax(
-                regex_automata::util::syntax::Config::new()
-                    .utf8(false)
-                    .dot_matches_new_line(true),
-            )
-            .thompson(regex_automata::nfa::thompson::Config::new().utf8(false))
-            .build(pat)
-            .ok();
-        let l = dfa.map(|dfa| {
-            let cache = RefCell::new(dfa.create_cache());
-            Rc::new(Longest {
-                dfa,
-                cache,
-                exact: OnceCell::new(),
-            })
-        });
+        let l = Longest::new(pat).map(Rc::new);
         cell.borrow_mut().insert(pat.to_owned(), l.clone());
         l
     })
 }
 
+impl Longest {
+    fn new(pat: &str) -> Option<Longest> {
+        use regex_automata::nfa::thompson::{Config, WhichCaptures, NFA};
+        let nfa = NFA::compiler()
+            .syntax(
+                regex_automata::util::syntax::Config::new()
+                    .utf8(false)
+                    .dot_matches_new_line(true),
+            )
+            .configure(Config::new().utf8(false).which_captures(WhichCaptures::Implicit))
+            .build(pat)
+            .ok()?;
+        let dfa = DFA::builder()
+            .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
+            .build_from_nfa(nfa.clone())
+            .ok()?;
+        let cache = RefCell::new(dfa.create_cache());
+        Some(Longest { dfa, cache, pike: OnceCell::new(), nfa, exact: OnceCell::new() })
+    }
+}
+
 /// The end of the longest match of `l` starting at `start`.
 fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
     let input = Input::new(hay).range(start..).anchored(Anchored::Yes);
-    let mut cache = l.cache.borrow_mut();
-    // The lazy DFA gives up on e.g. Unicode word boundaries next to non-ASCII text; the caller
-    // then keeps the leftmost-first match.
-    l.dfa.try_search_fwd(&mut cache, &input).ok().flatten().map(|m| m.offset())
+    if let Ok(m) = l.dfa.try_search_fwd(&mut l.cache.borrow_mut(), &input) {
+        return m.map(|m| m.offset());
+    }
+    // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text): the PikeVM, also
+    // reporting all matches, ends at the longest one too.
+    let (pike, cache) = l.pike.get_or_init(|| {
+        let pike = PikeVM::builder()
+            .configure(PikeVM::config().match_kind(MatchKind::All))
+            .build_from_nfa(l.nfa.clone())
+            .expect("PikeVM supports every NFA");
+        let cache = RefCell::new(pike.create_cache());
+        (pike, cache)
+    });
+    pike.find(&mut cache.borrow_mut(), input).map(|m| m.end())
 }
 
 /// The leftmost-longest match of `re` in `hay` starting at or after `start`, as (start, end).
@@ -423,6 +441,147 @@ pub(crate) fn find_at(re: &Regex, hay: &[u8], start: usize) -> Option<(usize, us
     match longest(re) {
         Some(l) => Some((from, longest_end(&l, hay, from).map_or(to, |e| e.max(to)))),
         None => Some((from, to)),
+    }
+}
+
+/// What it takes to tell whether a match of a pattern can still change when more text is appended
+/// (see `may_extend`).
+struct Extender {
+    /// A lazy DFA reporting all matches; an anchored search from a position is alive at the end of
+    /// the text while the text from that position is the prefix of a possible match.
+    dfa: DFA,
+    cache: RefCell<Cache>,
+    /// The maximum length of a match, if bounded.
+    max_len: Option<usize>,
+    /// The bytes an anchored search can start with without dying at once, whatever precedes it;
+    /// only positions holding one of them need a search (see `may_extend`).
+    first: Box<[bool; 256]>,
+    /// The bytes of `first`, when there are at most three, to find them with memchr.
+    few_first: Option<Vec<u8>>,
+}
+
+/// The bytes that the anchored searches of `dfa` can consume first without dying or quitting,
+/// in any of the contexts a start state depends on (the text start, a line terminator, a word
+/// or non-word byte before it).
+fn first_bytes(dfa: &DFA) -> Box<[bool; 256]> {
+    let mut cache = dfa.create_cache();
+    let mut first = Box::new([false; 256]);
+    for behind in [None, Some(b'\n'), Some(b'\r'), Some(b'a'), Some(b' '), Some(0x80)] {
+        let config = regex_automata::util::start::Config::new()
+            .anchored(Anchored::Yes)
+            .look_behind(behind);
+        // Contexts that quit (non-ASCII bytes with Unicode word boundaries) never get a
+        // search going either (see `alive_at_end`).
+        let Ok(start) = dfa.start_state(&mut cache, &config) else {
+            continue;
+        };
+        for b in 0..=255u8 {
+            if let Ok(sid) = dfa.next_state(&mut cache, start, b) {
+                first[b as usize] |= !sid.is_dead() && !sid.is_quit();
+            }
+        }
+    }
+    first
+}
+
+thread_local! {
+    /// The extension-check machinery per pattern (record separators, so few of them).
+    static EXTENDERS: RefCell<super::StrLru<Option<Rc<Extender>>>> =
+        RefCell::new(super::StrLru::new(LONGEST_BUDGET, LONGEST_COST));
+    /// The pattern last looked up in `EXTENDERS` and its entry: a reader asks for the same
+    /// separator once per record.
+    static LAST_EXTENDER: RefCell<Option<(String, Option<Rc<Extender>>)>> = const { RefCell::new(None) };
+}
+
+/// The extension-check machinery for `re`, or `None` when the DFA cannot be built.
+fn extender(re: &Regex) -> Option<Rc<Extender>> {
+    let pat = re.as_str();
+    if let Some(x) = LAST_EXTENDER.with_borrow(|last| last.as_ref().filter(|(p, _)| p == pat).map(|(_, x)| x.clone())) {
+        return x;
+    }
+    let x = extender_uncached(pat);
+    LAST_EXTENDER.with_borrow_mut(|last| *last = Some((pat.to_owned(), x.clone())));
+    x
+}
+
+fn extender_uncached(pat: &str) -> Option<Rc<Extender>> {
+    EXTENDERS.with(|cell| {
+        if let Some(x) = cell.borrow_mut().get(pat) {
+            return x.clone();
+        }
+        let max_len = regex_syntax::ParserBuilder::new()
+            .utf8(false)
+            .dot_matches_new_line(true)
+            .build()
+            .parse(pat)
+            .ok()
+            .and_then(|h| h.properties().maximum_len());
+        let x = DFA::builder()
+            .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
+            .syntax(
+                regex_automata::util::syntax::Config::new()
+                    .utf8(false)
+                    .dot_matches_new_line(true),
+            )
+            .thompson(regex_automata::nfa::thompson::Config::new().utf8(false))
+            .build(pat)
+            .ok()
+            .map(|dfa| {
+                let first = first_bytes(&dfa);
+                let few: Vec<u8> = (0..=255u8).filter(|&b| first[b as usize]).collect();
+                let few_first = (few.len() <= 3).then_some(few);
+                let cache = RefCell::new(dfa.create_cache());
+                Rc::new(Extender { dfa, cache, max_len, first, few_first })
+            });
+        cell.borrow_mut().insert(pat.to_owned(), x.clone());
+        x
+    })
+}
+
+/// Whether an anchored search for `x` from `from` is still alive at the end of `hay`, i.e. more
+/// text could complete or lengthen a match starting there.
+fn alive_at_end(x: &Extender, cache: &mut Cache, hay: &[u8], from: usize) -> bool {
+    let input = Input::new(hay).range(from..).anchored(Anchored::Yes);
+    let Ok(mut sid) = x.dfa.start_state_forward(cache, &input) else {
+        return false;
+    };
+    for &b in &hay[from..] {
+        sid = match x.dfa.next_state(cache, sid, b) {
+            Ok(sid) => sid,
+            Err(_) => return false,
+        };
+        // A quit state (Unicode word boundaries next to non-ASCII text) is taken as dead: the
+        // match is then kept, rather than reading on, possibly to the end of the input.
+        if sid.is_dead() || sid.is_quit() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether the leftmost-longest match of `re` in `hay` starting at `start` (as found by
+/// `find_at`) can change when more text is appended to `hay`: lengthen (`a|abc` matching `a` of
+/// "ab", `中+` matching "中" before the first byte of another "中", `x\>` before the end), or be
+/// preceded by a match starting earlier (`abcd|c` matching `c` of "abc"). Used by readers
+/// that search a buffer of the input before the rest of it is read.
+pub(crate) fn may_extend(re: &Regex, hay: &[u8], start: usize) -> bool {
+    let Some(x) = extender(re) else {
+        return false;
+    };
+    // A search from `from` can only reach the end of `hay` if a match can be that long.
+    let lo = x.max_len.map_or(0, |m| hay.len().saturating_sub(m));
+    if lo > start {
+        return false;
+    }
+    let mut cache = x.cache.borrow_mut();
+    let mut alive = |from: usize| alive_at_end(&x, &mut cache, hay, from);
+    let window = &hay[lo..=start];
+    match x.few_first.as_deref() {
+        Some([]) => false,
+        Some(&[a]) => memchr::memchr_iter(a, window).any(|i| alive(lo + i)),
+        Some(&[a, b]) => memchr::memchr2_iter(a, b, window).any(|i| alive(lo + i)),
+        Some(&[a, b, c]) => memchr::memchr3_iter(a, b, c, window).any(|i| alive(lo + i)),
+        _ => (lo..=start).any(|from| x.first[hay[from] as usize] && alive(from)),
     }
 }
 
@@ -961,6 +1120,13 @@ mod tests {
         let caps = captures_at(&re, b"abcd", 0, 4).unwrap();
         assert!(caps.get(1).is_none());
         assert_eq!(&caps[2], b"abcd");
+        // Word boundaries, in ASCII text (lazy DFA) and next to non-ASCII text (PikeVM).
+        assert_eq!(spans("\\<(a|ab)", "ab c"), vec![(0, 2)]);
+        assert_eq!(spans("(a|ab)\\B", "abc"), vec![(0, 2)]);
+        assert_eq!(spans("\\y(a|ab)", "é ab"), vec![(3, 5)]);
+        assert_eq!(spans("(a|ab)\\B", "abé"), vec![(0, 2)]);
+        assert_eq!(spans("\\<(中|中文)", "说 中文"), vec![(4, 10)]);
+        assert_eq!(spans("(x|xy)\\y", "é xy é"), vec![(3, 5)]);
     }
 
     #[test]
@@ -1032,11 +1198,7 @@ mod tests {
                     let pat = format!("{}{}{}", x, y, z);
                     assert!(!needs_longest(&pat), "{}", pat);
                     let re = compile(&pat).unwrap();
-                    let dfa = DFA::builder()
-                        .configure(DFA::config().match_kind(MatchKind::All))
-                        .build(&pat)
-                        .unwrap();
-                    let l = Longest { cache: RefCell::new(dfa.create_cache()), dfa, exact: OnceCell::new() };
+                    let l = Longest::new(&pat).unwrap();
                     for hay in &hays {
                         if let Some(m) = re.find(hay.as_bytes()) {
                             assert_eq!(longest_end(&l, hay.as_bytes(), m.start()), Some(m.end()), "/{}/ {:?}", pat, hay);
