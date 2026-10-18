@@ -57,8 +57,10 @@ fn s3_config() -> Result<S3Config, BoxError> {
 }
 
 fn build_s3_operator(bucket: &str) -> Result<Operator, BoxError> {
-    // Installs the HTTP transport (the `auto-register-services` feature is off); runs once.
-    opendal::install_default();
+    // Installs the HTTP transport (the `auto-register-services` feature is off); the first call
+    // wins. reqwest is built without a rustls provider, so ring must be the default one.
+    crate::runtime::tls::install_default_provider();
+    opendal::HttpTransporter::install_default(opendal_http_transport_reqwest::ReqwestTransport::default());
     let config = s3_config()?;
     // Only the settings above are used: no config files nor instance metadata.
     let builder = S3::default()

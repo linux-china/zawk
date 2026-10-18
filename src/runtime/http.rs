@@ -14,6 +14,7 @@ fn client() -> io::Result<&'static reqwest::blocking::Client> {
     if let Some(client) = CLIENT.get() {
         return Ok(client);
     }
+    crate::runtime::tls::install_default_provider();
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("zawk/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(30))

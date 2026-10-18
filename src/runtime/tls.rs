@@ -1,7 +1,8 @@
-//! rustls client configs shared by network clients (MQTT, PostgreSQL).
+//! rustls client configs shared by network clients (MQTT, PostgreSQL), and the process-wide
+//! default provider used by reqwest (HTTP functions, S3).
 //!
-//! The ring provider is set explicitly: rustls can't pick a default provider because both ring and
-//! aws-lc-rs are enabled by other dependencies.
+//! ring is the only crypto provider: reqwest is built with `rustls-no-provider`, so it uses the
+//! default provider installed by [`install_default_provider`].
 
 use std::sync::Arc;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -11,6 +12,12 @@ use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 
 fn provider() -> Arc<CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
+}
+
+/// Installs ring as the process-wide default rustls provider; must be called before a reqwest
+/// client is built. Later calls do nothing.
+pub(crate) fn install_default_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 /// TLS config verifying the server certificate against the platform root certificates.

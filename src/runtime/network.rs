@@ -18,6 +18,7 @@ pub fn local_ip() -> String {
 
 /// Shared HTTP client: reuses the connection pool across calls, with explicit timeouts.
 static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    crate::runtime::tls::install_default_provider();
     reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))

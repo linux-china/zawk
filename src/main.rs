@@ -694,6 +694,7 @@ fn real_main() {
     //.env load support
     dotenvy::dotenv().ok();
     runtime::logging::init();
+    runtime::tls::install_default_provider();
     let dump_cmd = Command::new("dump").about("Dump text to CSV")
         .arg(Arg::new("prometheus")
             .long("prometheus")
