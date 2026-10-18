@@ -784,6 +784,31 @@ fn integer_overflow() {
 }
 
 #[test]
+fn integer_overflow_halts_before_wrapped_value_is_used() {
+    // `x + C` with an integer `x` and constant `C` is integer arithmetic, and overflow is fatal.
+    // The cranelift backend checks several operations at once (before the next side effect), so
+    // the wrapped-around value must never reach the comparison's branch or `print`.
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { x = 9007199254740992; n = 0
+                           while (1) { n++; x = x + 9007199254740992 + 9007199254740992; z = x + 1
+                                       if (z < 0) { print "wrapped"; exit } }
+                           print "unreachable" }
+                   END { print "end", n }"#,
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{backend_arg}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{backend_arg}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("integer overflow"), "{backend_arg}: {stderr}");
+    }
+}
+
+#[test]
 fn float_array_keys() {
     // Floating-point keys are converted to strings, and can be mixed with integer keys.
     for backend_arg in BACKEND_ARGS {

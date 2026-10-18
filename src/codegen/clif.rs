@@ -115,7 +115,27 @@ struct Frame {
     // variable: that keeps the number of SSA variables and long-lived values down, both of which
     // otherwise make compile time superlinear in the size of the program.
     str_slots: SecondaryMap<Variable, Option<StackSlot>>,
+    // In functions with many globals, the pointers to the globals are spilled to this stack slot
+    // on entry and reloaded at each use (`global_offsets` maps each global's variable to its
+    // offset in the slot). Otherwise each pointer is live from the entry block to its last use,
+    // and register allocation for a program with thousands of rules was quadratic.
+    globals_slot: Option<StackSlot>,
+    // In very large functions, numeric locals live in stack slots instead of SSA values (see
+    // `LARGE_FUNCTION_BLOCKS`).
+    numbers_in_memory: bool,
+    num_slots: SecondaryMap<Variable, Option<(StackSlot, Type)>>,
+    global_offsets: SecondaryMap<Variable, Option<u32>>,
     runtime: Variable,
+    // The runtime parameter itself. It is defined in the entry block, so it dominates every block
+    // and can be used without going through `use_var`.
+    runtime_param: Value,
+    // One cold block per `fail` intrinsic, shared by every check in the function that calls it
+    // (see `fail_if`). A block per check made compile time and memory quadratic in the size of
+    // straight-line arithmetic.
+    fail_blocks: HashMap<*const u8, Block>,
+    // The overflow flags of integer arithmetic emitted since the last check, or-ed together (see
+    // `defer_overflow_check`).
+    pending_overflow: Option<Value>,
     // The entry block is the entry to the function. It is filled in first and contains argument
     // initialization code. It jumps unconditionally to the header block.
     entry_block: Block,
@@ -208,6 +228,50 @@ impl Jit for Generator {
     }
 }
 
+/// Functions taking more globals than this keep the pointers to them in a stack slot rather than
+/// in SSA values (see `Frame::globals_slot`).
+const MAX_GLOBALS_IN_REGS: usize = 32;
+
+/// Functions with more basic blocks than this keep their numeric locals in stack slots rather
+/// than in SSA values. Generated programs (thousands of rules, each with a counter) otherwise have
+/// thousands of values live across thousands of blocks, and register allocation takes time and
+/// memory quadratic in the size of the program.
+const LARGE_FUNCTION_BLOCKS: usize = 2000;
+
+/// Instructions that only compute numbers from numbers, with no side effects and no way to fail:
+/// they may run on the wrapped-around result of an integer overflow that has not been checked yet
+/// (see `View::defer_overflow_check`).
+fn is_pure_numeric(inst: &compile::LL) -> bool {
+    use crate::bytecode::Instr::*;
+    use compile::Ty;
+    matches!(
+        inst,
+        StoreConstInt(..)
+            | StoreConstFloat(..)
+            | IntToFloat(..)
+            | AddInt(..)
+            | AddFloat(..)
+            | MinusInt(..)
+            | MinusFloat(..)
+            | MulInt(..)
+            | MulFloat(..)
+            | NegInt(..)
+            | NegFloat(..)
+            | Not(..)
+            | LTInt(..)
+            | LTFloat(..)
+            | GTInt(..)
+            | GTFloat(..)
+            | LTEInt(..)
+            | LTEFloat(..)
+            | GTEInt(..)
+            | GTEFloat(..)
+            | EQInt(..)
+            | EQFloat(..)
+            | Mov(Ty::Int | Ty::Float, ..)
+    )
+}
+
 fn jit_builder() -> Result<JITBuilder> {
     // Adapted from the cranelift source.
     let mut flag_builder = settings::builder();
@@ -226,6 +290,11 @@ fn jit_builder() -> Result<JITBuilder> {
     let isa_builder = cranelift_native::builder()
         .map_err(|msg| err_raw!("host machine is not supported by cranelift: {}", msg))?;
     flag_builder.enable("enable_llvm_abi_extensions").unwrap();
+    // The IR verifier is a sizable fraction of compile time for large functions; keep it for
+    // debug builds and tests only.
+    if !cfg!(debug_assertions) {
+        flag_builder.set("enable_verifier", "false").unwrap();
+    }
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| err_raw!("failed to initialize cranelift isa: {:?}", e))?;
@@ -402,11 +471,18 @@ impl Generator {
                 header_block,
                 // this will get overwritten in process_args
                 runtime: Variable::new(0),
+                runtime_param: Value::from_u32(0),
+                fail_blocks: Default::default(),
+                pending_overflow: None,
                 n_vars: 0,
                 vars: Default::default(),
                 iters: Default::default(),
                 header_actions: Default::default(),
                 str_slots: Default::default(),
+                globals_slot: None,
+                global_offsets: Default::default(),
+                numbers_in_memory: false,
+                num_slots: Default::default(),
             },
             builder,
             shared: &mut self.shared,
@@ -505,6 +581,7 @@ impl<'a> View<'a> {
 
     fn gen_function_body(mut self, insts: &compile::Frame) -> Result<()> {
         let nodes = insts.cfg.raw_nodes();
+        self.f.numbers_in_memory = nodes.len() > LARGE_FUNCTION_BLOCKS;
         let bbs: Vec<_> = (0..nodes.len())
             .map(|_| self.builder.create_block())
             .collect();
@@ -545,10 +622,19 @@ impl<'a> View<'a> {
                 self.builder.switch_to_block(bbs[i]);
                 for inst in &node.weight.insts {
                     match inst {
-                        Either::Left(ll) => self.gen_ll_inst(ll)?,
-                        Either::Right(hl) => self.gen_hl_inst(hl)?,
+                        Either::Left(ll) => {
+                            if !is_pure_numeric(ll) {
+                                self.flush_overflow_check();
+                            }
+                            self.gen_ll_inst(ll)?
+                        }
+                        Either::Right(hl) => {
+                            self.flush_overflow_check();
+                            self.gen_hl_inst(hl)?
+                        }
                     }
                 }
+                self.flush_overflow_check();
                 // branch-related metadata
                 let mut tcase = None;
                 let mut ecase = None;
@@ -654,6 +740,12 @@ impl<'a> View<'a> {
             .iter()
             .cloned()
             .collect();
+        let n_globals = self.f.n_params.saturating_sub(n_args + 1);
+        if n_globals > MAX_GLOBALS_IN_REGS {
+            let ptr_bytes = self.void_ptr_ty().bytes();
+            let slot = self.stack_slot_bytes(ptr_bytes * n_globals as u32);
+            self.f.globals_slot = Some(slot);
+        }
         for (i, (val, (rf, ty))) in params.into_iter().zip(param_tys).enumerate() {
             self.f.n_vars += 1;
             let var = self.builder.declare_var(ty);
@@ -661,8 +753,17 @@ impl<'a> View<'a> {
             if i == self.f.n_params - 1 {
                 // runtime
                 self.f.runtime = var;
+                self.f.runtime_param = val;
             } else if i >= n_args {
                 // global
+                if let Some(slot) = self.f.globals_slot {
+                    let offset = ty.bytes() * (i - n_args) as u32;
+                    let ptr_ty = self.void_ptr_ty();
+                    self.builder
+                        .ins()
+                        .stack_store(ptr_ty, val, slot, offset as i32);
+                    self.f.global_offsets[var] = Some(offset);
+                }
                 self.f.vars.insert(
                     rf,
                     VarRef {
@@ -727,6 +828,8 @@ impl<'a> View<'a> {
         let FuncInfo { globals, func_id } = self.shared.func_ids[id as usize]
             .as_ref()
             .expect("all referenced functions must be declared");
+        let func_id = *func_id;
+        let mut global_vars = SmallVec::<[Variable; 5]>::with_capacity(globals.len());
         for global in globals {
             // We don't use get_val here because we want to pass the pointer to the global, and
             // get_val will issue a load.
@@ -735,17 +838,19 @@ impl<'a> View<'a> {
                     var,
                     kind: VarKind::Global,
                     ..
-                }) => {
-                    to_pass.push(self.builder.use_var(*var));
-                }
+                }) => global_vars.push(*var),
                 _ => return err!("internal error, functions disagree on if reference is global"),
             }
+        }
+        for var in global_vars {
+            let ptr = self.var_val(var);
+            to_pass.push(ptr);
         }
         to_pass.push(self.builder.use_var(self.f.runtime));
         let fref = self
             .shared
             .module
-            .declare_func_in_func(*func_id, self.builder.func);
+            .declare_func_in_func(func_id, self.builder.func);
         let call_inst = self.builder.ins().call(fref, &to_pass[..]);
         Ok(self
             .builder
@@ -856,8 +961,25 @@ impl<'a> View<'a> {
         if let Some(slot) = self.f.str_slots[var] {
             let ptr_ty = self.void_ptr_ty();
             self.builder.ins().stack_addr(ptr_ty, slot, 0)
+        } else if let Some((slot, ty)) = self.f.num_slots[var] {
+            let ptr_ty = self.void_ptr_ty();
+            self.builder.ins().stack_load(ptr_ty, ty, slot, 0)
+        } else if let Some(offset) = self.f.global_offsets[var] {
+            let ptr_ty = self.void_ptr_ty();
+            let slot = self.f.globals_slot.unwrap();
+            self.builder.ins().stack_load(ptr_ty, ptr_ty, slot, offset as i32)
         } else {
             self.builder.use_var(var)
+        }
+    }
+
+    /// Assign `v` to the local variable `var`.
+    fn def_local(&mut self, var: Variable, v: Value) {
+        if let Some((slot, _)) = self.f.num_slots[var] {
+            let ptr_ty = self.void_ptr_ty();
+            self.builder.ins().stack_store(ptr_ty, v, slot, 0);
+        } else {
+            self.builder.def_var(var, v);
         }
     }
 
@@ -867,9 +989,7 @@ impl<'a> View<'a> {
             use compile::Ty::*;
             let default_v = self.default_value(ty)?;
             match ty {
-                Null | Int | Float => {
-                    self.builder.def_var(var, default_v);
-                }
+                Null | Int | Float => self.def_local(var, default_v),
                 Str => {
                     // The stack slot was allocated in `declare_local`; initialize it.
                     let slot = self.f.str_slots[var].expect("local string without a stack slot");
@@ -889,6 +1009,12 @@ impl<'a> View<'a> {
         use compile::Ty::*;
         let cl_ty = self.get_ty(ty);
         let next_var = match ty {
+            Int | Float if self.f.numbers_in_memory => {
+                let var = self.builder.declare_var(cl_ty);
+                let slot = self.stack_slot_bytes(cl_ty.bytes());
+                self.f.num_slots[var] = Some((slot, cl_ty));
+                var
+            }
             Null | Int | Float => self.builder.declare_var(cl_ty),
             Str => {
                 let ptr_ty = self.ptr_to(cl_ty);
@@ -1055,18 +1181,49 @@ impl<'a> View<'a> {
     /// Emit a branch to a cold block calling `fail` (an intrinsic taking the runtime that does not
     /// return) when `cond` is true. Code emitted after this call runs only when `cond` is false.
     fn fail_if(&mut self, cond: Value, fail: *const u8) {
-        let fail_block = self.builder.create_block();
         let cont_block = self.builder.create_block();
-        self.builder.set_cold_block(fail_block);
+        let (fail_block, is_new) = match self.f.fail_blocks.get(&fail) {
+            Some(b) => (*b, false),
+            None => {
+                let b = self.builder.create_block();
+                self.builder.set_cold_block(b);
+                self.f.fail_blocks.insert(fail, b);
+                (b, true)
+            }
+        };
         self.builder.ins().brif(cond, fail_block, &[], cont_block, &[]);
-        self.builder.seal_block(fail_block);
-        self.builder.switch_to_block(fail_block);
-        let rt = self.runtime_val();
-        self.call_external_void(fail, &[rt]);
-        // `fail` does not return; the jump only gives the block a terminator.
-        self.builder.ins().jump(cont_block, &[]);
+        if is_new {
+            // The block is left unsealed so that later checks can branch to it; it reads no
+            // variables, so sealing it at the end of the function costs nothing.
+            self.builder.switch_to_block(fail_block);
+            let rt = self.f.runtime_param;
+            self.call_external_void(fail, &[rt]);
+            // `fail` does not return; the trap only gives the block a terminator.
+            self.builder.ins().trap(TrapCode::unwrap_user(1));
+        }
         self.builder.seal_block(cont_block);
         self.builder.switch_to_block(cont_block);
+    }
+
+    /// Record that execution must halt with an integer overflow error if `of` is true.
+    ///
+    /// Checking every `+ - *` right away splits the block at each one, and the Cranelift frontend
+    /// keeps per-variable state for every block: compile time and memory grew quadratically for
+    /// long runs of integer arithmetic. Instead, the flags are or-ed together and checked once
+    /// before the next instruction that is not [`is_pure_numeric`] (and at the end of the block),
+    /// so a wrapped-around intermediate result is never observed.
+    fn defer_overflow_check(&mut self, of: Value) {
+        let of = match self.f.pending_overflow.take() {
+            Some(prev) => self.builder.ins().bor(prev, of),
+            None => of,
+        };
+        self.f.pending_overflow = Some(of);
+    }
+
+    fn flush_overflow_check(&mut self) {
+        if let Some(of) = self.f.pending_overflow.take() {
+            self.fail_if(of, external!(int_overflow));
+        }
     }
 
     /// We assume that `args` contains floating point or signed integer values depending on the
@@ -1090,17 +1247,17 @@ impl<'a> View<'a> {
                 // Halt on overflow rather than silently wrapping around.
                 Mul => {
                     let (res, of) = self.builder.ins().smul_overflow(args[0], args[1]);
-                    self.fail_if(of, external!(int_overflow));
+                    self.defer_overflow_check(of);
                     res
                 }
                 Minus => {
                     let (res, of) = self.builder.ins().ssub_overflow(args[0], args[1]);
-                    self.fail_if(of, external!(int_overflow));
+                    self.defer_overflow_check(of);
                     res
                 }
                 Add => {
                     let (res, of) = self.builder.ins().sadd_overflow(args[0], args[1]);
-                    self.fail_if(of, external!(int_overflow));
+                    self.defer_overflow_check(of);
                     res
                 }
                 Mod => {
@@ -1252,10 +1409,10 @@ impl<'a> View<'a> {
         match r.1 {
             Int | Float => {
                 if let VarKind::Global = kind {
-                    let p = self.builder.use_var(var);
+                    let p = self.var_val(var);
                     self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
                 } else {
-                    self.builder.def_var(var, v);
+                    self.def_local(var, v);
                 }
             }
             Str => {
@@ -1269,7 +1426,7 @@ impl<'a> View<'a> {
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 if let VarKind::Global = kind {
                     // Drop the value currently in the pointer
-                    let p = self.builder.use_var(var);
+                    let p = self.var_val(var);
                     let pointee = self
                         .builder
                         .ins()

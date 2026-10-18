@@ -76,3 +76,31 @@ fn long_boolean_chains() {
     );
     check(&prog, "1 2 -1\n");
 }
+
+/// Every integer `+`/`-`/`*` used to split the block for its overflow check, and the cranelift
+/// frontend keeps per-variable state for every block: 25000 statements took 3-6GB of memory.
+#[test]
+fn long_integer_arithmetic() {
+    let n = 25000;
+    let stmts: Vec<_> = (0..n).map(|i| format!("y{i} = x + {i}")).collect();
+    let prog = format!("BEGIN {{ x = 1\n{}\nprint y7, y{} }}", stmts.join("\n"), n - 1);
+    check(&prog, &format!("8 {n}\n"));
+}
+
+/// Thousands of rules each bumping its own counter keep thousands of values live across thousands
+/// of blocks; register allocation for 5000 such rules took over a minute and several GB.
+#[test]
+fn thousands_of_counters() {
+    let n = 3000;
+    let rules: Vec<_> = (0..n).map(|i| format!("$1 != \"k{i}\" {{ c{i}++ }}")).collect();
+    let prog = format!("{}\nEND {{ print c3 + c4 }}", rules.join("\n"));
+    check(&prog, "2\n");
+    // The same, with the counters as globals (they are read by a function).
+    let sum: Vec<_> = (0..n).map(|i| format!("c{i}")).collect();
+    let prog = format!(
+        "function total() {{ return {} }}\n{}\nEND {{ print total() }}",
+        sum.join(" + "),
+        rules.join("\n")
+    );
+    check(&prog, &format!("{n}\n"));
+}
