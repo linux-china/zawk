@@ -122,6 +122,8 @@ pub(crate) enum Instr<'a> {
 
     // String processing
     Concat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    // A chain of three or more concatenations, built in one go (see `Str::concat_n`).
+    ConcatN(Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
     StartsWithConst(Reg<Int>, Reg<Str<'a>>, Arc<[u8]>),
     IsMatch(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     IsMatchConst(Reg<Int>, Reg<Str<'a>>, Arc<AwkRegex>),
@@ -1605,6 +1607,12 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 l.accum(&mut f);
                 r.accum(&mut f);
+            }
+            ConcatN(res, args) => {
+                res.accum(&mut f);
+                for a in args {
+                    a.accum(&mut f);
+                }
             }
             Match(res, l, r) => {
                 res.accum(&mut f);

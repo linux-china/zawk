@@ -338,7 +338,7 @@ fn char_count(bs: &[u8]) -> usize {
     if super::str_impl::characters_as_bytes() {
         return bs.len();
     }
-    match str::from_utf8(bs) {
+    match simdutf8::basic::from_utf8(bs) {
         Ok(s) => s.chars().count(),
         Err(_) => bs.len(),
     }

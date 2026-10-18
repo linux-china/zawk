@@ -193,7 +193,7 @@ fn split_blanks<'a>(s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(St
     s.with_bytes(|bs| {
         for (i, (start, end)) in blank_fields(bs).enumerate() {
             push(if used_fields.get(i + 1) {
-                s.slice(start, end)
+                s.slice_of(bs, start, end)
             } else {
                 Str::default()
             });
@@ -219,7 +219,7 @@ fn split_byte<'a>(s: &Str<'a>, sep: u8, used_fields: &FieldSet, mut push: impl F
         }
         let mut field = |i: usize, start: usize, end: usize| {
             push(if used_fields.get(i) {
-                s.slice(start, end)
+                s.slice_of(bs, start, end)
             } else {
                 Str::default()
             });
@@ -380,11 +380,19 @@ impl RegexCache {
         s: &Str,
         f: impl FnOnce(&dyn awk_regex::Search) -> Result<T>,
     ) -> Result<T> {
+        let mut f = Some(f);
+        // Literal text (`gsub("eps", "E")`) needs no regex, cached or not.
+        let literal = pat.with_bytes(|p| {
+            let (kind, lit) = awk_regex::as_literal(p)?;
+            Some(f.take().unwrap()(&awk_regex::LiteralSearch::new(kind, lit)))
+        });
+        if let Some(res) = literal {
+            return res;
+        }
         self.sync();
         if let Some(re) = self.0.lookup(pat) {
-            return f(re);
+            return f.take().unwrap()(re);
         }
-        let mut f = Some(f);
         let light = s.with_bytes(|bs| {
             let m = self.light_matcher(pat, bs)?;
             let f = &mut f;

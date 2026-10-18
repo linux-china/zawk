@@ -353,8 +353,9 @@ pub(crate) struct ProgramContext<'a, I> {
     // table at construction time (in the func_table passed to View).
     pub funcs: Vec<Function<'a, I>>,
     main_offset: Stage<usize>,
-    // Permit arbitrary strings to be passed to a subshell, skips any taint analysis of the script.
-    pub allow_arbitrary_commands: bool,
+    // Reject strings that may contain user input being passed to a subshell (taint analysis).
+    // Off by default, as in gawk.
+    pub taint_check: bool,
     // Lower certain regular expression instructions to direct invocations of a given pattern,
     // rather than dynamic lookups
     pub fold_regex_constants: bool,
@@ -712,7 +713,7 @@ impl<'a, I> ProgramContext<'a, I>
             shared,
             funcs,
             main_offset,
-            allow_arbitrary_commands: false,
+            taint_check: false,
             fold_regex_constants: false,
             parse_header: p.parse_header,
         })
@@ -1433,6 +1434,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if s.is_empty() =>
             {
                 return self.missing_or_empty(arr, ix, current_open);
+            }
+            Binop(ast::Binop::Concat, Binop(ast::Binop::Concat, ..), _)
+            | Binop(ast::Binop::Concat, _, Binop(ast::Binop::Concat, ..)) => {
+                return self.convert_concat(expr, current_open);
             }
             Binop(op, e1, e2) => {
                 let (str1, str2) = uninit::string_operands(expr);
@@ -2436,6 +2441,27 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// difference that adds a constant (`i + 1`, `NR - 1`, `i++`) stays an integer: overflowing
     /// would take more than 2^31 steps. Otherwise (`a + b`, as in a Fibonacci sequence) it may grow
     /// without bound, so `v` is converted to a float, which makes the operation a float one.
+    /// A chain of three or more concatenations (`$1 "," $2`), as a single call with all the
+    /// operands, so that the result is built in one go rather than one `Concat` node per operand
+    /// (see `Str::concat_n`). The operands are evaluated left to right, as in nested binary
+    /// concatenations.
+    fn convert_concat<'c>(
+        &mut self,
+        expr: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
+        let mut leaves = SmallVec::new();
+        flatten_concat(expr, &mut leaves);
+        let mut next = current_open;
+        let mut vs = SmallVec::with_capacity(leaves.len());
+        for (i, leaf) in leaves.iter().enumerate() {
+            let (n, v) = self.convert_str_operand(leaf, next, /*ofmt=*/ false)?;
+            next = n;
+            vs.push(self.snapshot_before(v, &leaves[i + 1..], next)?);
+        }
+        Ok((next, PrimExpr::CallBuiltin(builtins::Function::Binop(ast::Binop::Concat), vs)))
+    }
+
     fn widen_sum_operand(
         &mut self,
         op: ast::Binop,

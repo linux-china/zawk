@@ -837,7 +837,8 @@ impl Function {
                 _ => (smallvec![Int], Int),
             },
             Unop(Column) => (smallvec![Int], Str),
-            Binop(Concat) => (smallvec![Str; 2], Str),
+            // A chain of concatenations is one call (see `View::convert_concat`).
+            Binop(Concat) => (smallvec![Str; incoming.len()], Str),
             SubstrIndex | SubstrLastIndex | Binop(IsMatch) => (smallvec![Str; 2], Int),
             // Not doesn't convert its operand to an integer before negating it, as in awk: a
             // number is true when it is nonzero, and a string when it is nonempty (or, for a
@@ -1112,6 +1113,10 @@ impl Function {
 
     pub(crate) fn arity(&self) -> Option<usize> {
         use Function::*;
+        if let Binop(ast::Binop::Concat) = self {
+            // Two operands or more: a chain of concatenations is one call.
+            return None;
+        }
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),

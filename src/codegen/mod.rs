@@ -378,6 +378,9 @@ pub(crate) trait CodeGenerator: Backend {
 
     fn print_all(&mut self, output: &Option<(StrReg, FileSpec)>, args: &[StrReg]) -> Result<()>;
 
+    /// Stores the concatenation of `args` in `dst` (see `Str::concat_n`).
+    fn concat_n(&mut self, dst: &StrReg, args: &[StrReg]) -> Result<()>;
+
     /// Moves the contents of `src` into `dst`, taking refcounts into consideration if necessary.
     fn mov(&mut self, ty: compile::Ty, dst: NumTy, src: NumTy) -> Result<()>;
 
@@ -800,6 +803,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), res)
             }
             Concat(dst, l, r) => self.binop(intrinsic!(concat), dst, l, r),
+            ConcatN(dst, args) => self.concat_n(dst, &args[..]),
             StartsWithConst(dst, s, bs) => {
                 let s = self.get_val(s.reflect())?;
                 let ptr = self.const_slice(bs.clone());

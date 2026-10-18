@@ -1088,14 +1088,15 @@ mod generic {
         }
 
         unsafe fn find_quote_mask(self, prev_iter_inside_quote: &mut u64) -> (u64, u64) {
-            // NB: this implementation is pretty naive. We could definitely speed this up.
             let quote_mask = self.cmp_against_input(b'"').mask();
-            let mut running_xor = 0;
-            let mut res = 0u64;
-            for ix in 0..64 {
-                running_xor ^= quote_mask.wrapping_shr(ix) & 1;
-                res |= running_xor.wrapping_shl(ix);
-            }
+            // Prefix XOR: bit i of `res` is the parity of the quotes at positions 0..=i.
+            let mut res = quote_mask;
+            res ^= res << 1;
+            res ^= res << 2;
+            res ^= res << 4;
+            res ^= res << 8;
+            res ^= res << 16;
+            res ^= res << 32;
             let in_quotes_mask = res ^ *prev_iter_inside_quote;
             *prev_iter_inside_quote = (in_quotes_mask as i64).wrapping_shr(63) as u64;
             (in_quotes_mask, quote_mask)
@@ -2186,6 +2187,47 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             }
         }
         smoke_test::<generic::Impl>();
+    }
+
+    #[test]
+    fn generic_quote_mask_matches_naive() {
+        use generic::Vector;
+        // xorshift64: deterministic inputs, about a third of the bytes are quotes.
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..20_000 {
+            let mut buf = [0u8; generic::Impl::INPUT_SIZE];
+            for b in buf.iter_mut() {
+                *b = if next() % 3 == 0 { b'"' } else { b'a' };
+            }
+            let prev = if next() & 1 == 0 { 0 } else { !0u64 };
+            let mut want_prev = prev;
+            let quote_mask = buf
+                .iter()
+                .enumerate()
+                .fold(0u64, |m, (i, b)| m | ((*b == b'"') as u64) << i);
+            let mut running_xor = 0;
+            let mut naive = 0u64;
+            for ix in 0..64 {
+                running_xor ^= quote_mask.wrapping_shr(ix) & 1;
+                naive |= running_xor.wrapping_shl(ix);
+            }
+            naive ^= want_prev;
+            want_prev = (naive as i64).wrapping_shr(63) as u64;
+
+            let mut got_prev = prev;
+            let (in_quotes, quotes) = unsafe {
+                generic::Impl::fill_input(buf.as_ptr()).find_quote_mask(&mut got_prev)
+            };
+            assert_eq!(quotes, quote_mask);
+            assert_eq!(in_quotes, naive, "buf={:?} prev={prev:#x}", buf);
+            assert_eq!(got_prev, want_prev);
+        }
     }
 
     fn csv_read_all(corpus: &str, chunk_size: usize) -> Vec<Vec<String>> {

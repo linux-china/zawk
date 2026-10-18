@@ -1299,7 +1299,6 @@ fn unreadable_input_is_fatal_with_regex_separators() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
-            .arg("-A")
             .arg(prog)
             .assert()
             .success()
@@ -3007,5 +3006,31 @@ fn folded_regex_constants_in_sub_and_split() {
             .assert()
             .success()
             .stdout("xxx 3\n");
+    }
+}
+
+#[test]
+fn taint_check_is_opt_in() {
+    // As in gawk, input may be used in commands by default; --taint-check rejects it.
+    let prog = r#"{ cmd = "echo " $1; cmd | getline x; print x; system("echo " $2); print $1 | "cat" }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .write_stdin("a b\n")
+            .assert()
+            .success()
+            .stdout("a\nb\na\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("--taint-check")
+            .arg(prog)
+            .write_stdin("a b\n")
+            .assert()
+            .failure();
+        // -A is still accepted, with no effect.
+        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg("-A").arg(prog).write_stdin("a b\n").assert().success();
     }
 }

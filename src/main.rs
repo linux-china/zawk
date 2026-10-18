@@ -89,7 +89,7 @@ macro_rules! fatal {
 
 #[derive(Clone)]
 struct PreludeScalars {
-    arbitrary_shell: bool,
+    taint_check: bool,
     fold_regexes: bool,
     parse_header: bool,
     header_per_file: bool,
@@ -330,7 +330,7 @@ fn get_context<'a>(
     };
     match cfg::ProgramContext::from_prog(a, stmt, prelude.scalars.escaper) {
         Ok(mut ctx) => {
-            ctx.allow_arbitrary_commands = prelude.scalars.arbitrary_shell;
+            ctx.taint_check = prelude.scalars.taint_check;
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
@@ -614,7 +614,7 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
     }
 }
 
-/// The lint options given by the `-A`, `-p`, `-v`, `-H` and `-i` arguments of `zawk lint` or of a run.
+/// The lint options given by the `--taint-check`, `-p`, `-v`, `-H` and `-i` arguments of `zawk lint` or of a run.
 fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
     // As for a run, JSON Lines, Parquet and Markdown input imply -H.
     let header = matches.get_flag("parse-header")
@@ -639,7 +639,7 @@ fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
         header,
         field_sep,
         data: None,
-        allow_arbitrary_commands: matches.get_flag("arbitrary-shell"),
+        taint_check: matches.get_flag("taint-check"),
         parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
             Some("f") | Some("file") => Some(lint::Parallel::File),
@@ -736,11 +736,16 @@ fn real_main() {
             .num_args(1)
             .action(clap::ArgAction::Append)
             .help("Lint this program text (can be repeated, combined with -f in order)"))
+        .arg(Arg::new("taint-check")
+            .long("taint-check")
+            .num_args(0)
+            .help("Reject user input in commands run by pipes and system(), as with `zawk --taint-check`"))
         .arg(Arg::new("arbitrary-shell")
             .short('A')
             .long("arbitrary-shell")
             .num_args(0)
-            .help("Allow user input in commands run by pipes and system(), as with `zawk -A`"))
+            .hide(true)
+            .help("Deprecated, no effect: user input is allowed in commands by default"))
         .arg(Arg::new("posix")
             .long("posix")
             .num_args(0)
@@ -972,7 +977,12 @@ fn real_main() {
             .short('A')
             .long("arbitrary-shell")
             .num_args(0)
-            .help("By default, strings that are passed to the shell via pipes or the 'system' function are restricted from potentially containing user input. This flag bypasses that check, for the cases where such a use is known to be safe"))
+            .hide(true)
+            .help("Deprecated, no effect: user input is allowed in commands by default"))
+        .arg(Arg::new("taint-check")
+            .long("taint-check")
+            .num_args(0)
+            .help("Reject programs whose commands run by pipes or the 'system' function may contain user input (off by default, as in gawk)"))
         .arg(Arg::new("jobs")
             .short('j')
             .requires("parallel-strategy")
@@ -1232,7 +1242,7 @@ fn real_main() {
         ),
         None => (Escaper::Identity, None, None),
     };
-    let arbitrary_shell = matches.get_flag("arbitrary-shell");
+    let taint_check = matches.get_flag("taint-check");
     runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
     let jsonl = matches!(
         matches.get_one::<String>("input-format").map(|s| s.as_str()),
@@ -1277,7 +1287,7 @@ fn real_main() {
         output_sep,
         scalars: PreludeScalars {
             escaper,
-            arbitrary_shell,
+            taint_check,
             fold_regexes: opt_level >= 3,
             stage: exec_strategy.stage(),
             parse_header,

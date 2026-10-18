@@ -112,6 +112,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] len_str(str_ref_ty) -> int_ty;
         starts_with_const(str_ref_ty, rt_ty, int_ty) -> int_ty;
         concat(str_ref_ty, str_ref_ty) -> str_ty;
+        concat_n(pa_args_ty, int_ty) -> str_ty;
         [ReadOnly] match_pat(rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] match_const_pat(str_ref_ty, rt_ty) -> int_ty;
         [ReadOnly] match_pat_loc(rt_ty, str_ref_ty, str_ref_ty) -> int_ty;
@@ -3049,6 +3050,13 @@ pub(crate) unsafe extern "C" fn concat(s1: *mut c_void, s2: *mut c_void) -> U128
         let s2 = &*(s2 as *mut Str);
         let res = Str::concat(s1.clone(), s2.clone());
         mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn concat_n(args: *mut usize, num_args: Int) -> U128 {
+    guard_panic(stringify!(concat_n), || {
+        let pieces: &[&Str] = slice::from_raw_parts(args as *const usize as *const &Str, num_args as usize);
+        mem::transmute::<Str, U128>(Str::concat_n(pieces))
     })
 }
 

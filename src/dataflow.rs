@@ -724,6 +724,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(x.into()));
                 f(dst.into(), Some(y.into()));
             }
+            ConcatN(dst, args) => {
+                for x in args {
+                    f(dst.into(), Some(x.into()));
+                }
+            }
             StartsWithConst(dst, x, _) => f(dst.into(), Some(x.into())),
 
             // NB: this assumes that regexes that have been constant-folded are not tainted by

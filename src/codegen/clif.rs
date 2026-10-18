@@ -579,6 +579,26 @@ impl<'a> View<'a> {
         self.builder.create_sized_stack_slot(data)
     }
 
+    /// An array on the stack of pointers to the strings in `args`, for intrinsics that take a
+    /// variable number of strings: its address and length.
+    fn str_ptr_array(&mut self, args: &[StrReg]) -> Result<(Value, Value)> {
+        let len = i32::try_from(args.len()).expect("too many string arguments") as u32;
+        let slot_size = mem::size_of::<usize>() as i32;
+        let bytes = len
+            .checked_mul(slot_size as u32)
+            .expect("too many string arguments");
+        let slot = self.stack_slot_bytes(bytes);
+        let void_ptr_ty = self.void_ptr_ty();
+        for (ix, reg) in args.iter().cloned().enumerate() {
+            let arg = self.get_val(reg.reflect())?;
+            self.builder
+                .ins()
+                .stack_store(void_ptr_ty, arg, slot, ix as i32 * slot_size);
+        }
+        let addr = self.builder.ins().stack_addr(void_ptr_ty, slot, 0);
+        Ok((addr, self.const_int(len as _)))
+    }
+
     fn gen_function_body(mut self, insts: &compile::Frame) -> Result<()> {
         let nodes = insts.cfg.raw_nodes();
         self.f.numbers_in_memory = nodes.len() > LARGE_FUNCTION_BLOCKS;
@@ -1725,28 +1745,8 @@ impl<'a> CodeGenerator for View<'a> {
     fn print_all(&mut self, output: &Option<(StrReg, FileSpec)>, args: &[StrReg]) -> Result<()> {
         // NB: Unlike LLVM, we do not generate custom stub methods here, we just inline the the
         // "var args" implementation.
-
-        // First, allocate an array for all of the arguments on the stack.
-        let len = i32::try_from(args.len()).expect("too many arguments to print_all") as u32;
-        let slot_size = mem::size_of::<usize>() as i32;
-        let bytes = len
-            .checked_mul(slot_size as u32)
-            .expect("too many arguments to print_all");
-        let slot = self.stack_slot_bytes(bytes);
-
-        // Now, store pointers to each of the strings into the array.
-        let void_ptr_ty = self.void_ptr_ty();
-        for (ix, reg) in args.iter().cloned().enumerate() {
-            let arg = self.get_val(reg.reflect())?;
-            self.builder
-                .ins()
-                .stack_store(void_ptr_ty, arg, slot, ix as i32 * slot_size);
-        }
-
+        let (addr, num_args) = self.str_ptr_array(args)?;
         let rt = self.runtime_val();
-        let ty = self.void_ptr_ty();
-        let addr = self.builder.ins().stack_addr(ty, slot, 0);
-        let num_args = self.const_int(len as _);
 
         if let Some((out, spec)) = output {
             let output = self.get_val(out.reflect())?;
@@ -1759,6 +1759,12 @@ impl<'a> CodeGenerator for View<'a> {
             self.call_external_void(external!(print_all_stdout), &[rt, addr, num_args]);
         }
         Ok(())
+    }
+
+    fn concat_n(&mut self, dst: &StrReg, args: &[StrReg]) -> Result<()> {
+        let (addr, num_args) = self.str_ptr_array(args)?;
+        let res = self.call_intrinsic(Op::Intrinsic(external!(concat_n)), &mut [addr, num_args])?;
+        self.bind_val(dst.reflect(), res)
     }
 
     fn mov(&mut self, ty: compile::Ty, dst: NumTy, src: NumTy) -> Result<()> {

@@ -224,12 +224,12 @@ pub(crate) fn bench_program(
     run_prog_nodebug(&mut interp, stdout)
 }
 
-pub(crate) fn program_compiles(prog: &str, allow_arbitrary: bool) -> Result<()> {
+pub(crate) fn program_compiles(prog: &str, taint_check: bool) -> Result<()> {
     let a = Arena::default();
     let esc = Escaper::Identity;
     let stmt = parse_program(prog, &a, esc, ExecutionStrategy::Serial)?;
     let mut ctx = cfg::ProgramContext::from_prog(&a, stmt, esc)?;
-    ctx.allow_arbitrary_commands = allow_arbitrary;
+    ctx.taint_check = taint_check;
     compile::context_compiles(&mut ctx)
 }
 

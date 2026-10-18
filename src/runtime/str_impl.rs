@@ -933,13 +933,16 @@ impl<'a> Str<'a> {
     pub(crate) fn subst_all(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> (Str<'a>, Int) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
-                let mut buf = DynamicBuf::new(0);
+                let mut buf = DynamicBuf::default();
                 let mut prev = 0;
                 let mut count = 0;
                 let mut bound = CharBoundary::new(s);
                 for (start, end) in super::awk_regex::find_iter(pat, s) {
                     if bound.splits_char(start, end) {
                         continue;
+                    }
+                    if count == 0 {
+                        buf = DynamicBuf::new(subst_capacity(s, subst));
                     }
                     buf.write_all(&s[prev..start]).unwrap();
                     process_match(&s[start..end], subst, &mut buf).unwrap();
@@ -979,7 +982,7 @@ impl<'a> Str<'a> {
     pub(crate) fn gen_subst_all(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
-                let mut buf = DynamicBuf::new(0);
+                let mut buf = DynamicBuf::default();
                 let mut prev = 0;
                 let mut count = 0;
                 let mut bound = CharBoundary::new(s);
@@ -990,6 +993,9 @@ impl<'a> Str<'a> {
                     let Some(c) = super::awk_regex::captures_at(pat, s, start, end) else {
                         continue;
                     };
+                    if count == 0 {
+                        buf = DynamicBuf::new(subst_capacity(s, subst));
+                    }
                     buf.write_all(&s[prev..start]).unwrap();
                     process_match_gen(&c, s, subst, &mut buf).unwrap();
                     prev = end;
@@ -1178,6 +1184,53 @@ impl<'a> Str<'a> {
         }
     }
 
+    /// The concatenation of `pieces`, left to right, as a chain of `concat` would give, built in
+    /// one go: `$1 "," $2 "," $3` would otherwise make a `Concat` node per operand and flatten
+    /// them again when the result is used. Long results are still built as `Concat` ropes, so that
+    /// appending to a string in a loop (`s = s "," $i`) does not copy the string every time.
+    pub fn concat_n(pieces: &[&Str<'a>]) -> Str<'a> {
+        const MAX_FLAT_LEN: usize = 256;
+        let total: usize = pieces.iter().map(|p| p.bytes_len()).sum();
+        if total == 0 {
+            return Str::default();
+        }
+        if total > MAX_FLAT_LEN {
+            return pieces.iter().fold(Str::default(), |acc, p| Str::concat(acc, (*p).clone()));
+        }
+        let mut nonempty = pieces.iter().filter(|p| !p.is_empty());
+        if let (Some(only), None) = (nonempty.next(), nonempty.next()) {
+            return (*only).clone();
+        }
+        unsafe {
+            if total <= MAX_INLINE_SIZE {
+                // Pieces this short are not `Concat`s (which are longer than MAX_INLINE_SIZE).
+                let mut buf = [0u8; MAX_INLINE_SIZE];
+                let mut at = 0;
+                for p in pieces {
+                    let bs = &*p.get_bytes();
+                    buf[at..at + bs.len()].copy_from_slice(bs);
+                    at += bs.len();
+                }
+                return Str::from_rep(Inline::from_raw(buf.as_ptr(), total).into());
+            }
+            let mut buf = UniqueBuf::new(total);
+            let mut at = 0;
+            for p in pieces {
+                p.for_each_chunk(|bs| {
+                    buf.as_mut_bytes()[at..at + bs.len()].copy_from_slice(bs);
+                    at += bs.len();
+                });
+            }
+            Str::from_rep(
+                Boxed {
+                    len: total as u64,
+                    buf: buf.into_buf(),
+                }
+                .into(),
+            )
+        }
+    }
+
     fn from_rep(rep: StrRep<'a>) -> Str<'a> {
         Str(UnsafeCell::new(rep))
     }
@@ -1279,6 +1332,20 @@ impl<'a> Str<'a> {
             self.force()
         }
         self.slice_nooverflow(from, to)
+    }
+
+    /// `self.slice(from, to)`, where `bs` are the bytes of `self` (as passed by `with_bytes`).
+    /// Short slices, such as most fields that split() produces, are copied out of `bs` without
+    /// looking up the bytes of `self` again.
+    pub(crate) fn slice_of(&self, bs: &[u8], from: usize, to: usize) -> Str<'a> {
+        let piece = &bs[from..to];
+        if piece.is_empty() {
+            Str::default()
+        } else if piece.len() <= MAX_INLINE_SIZE {
+            unsafe { Str::from_rep(Inline::from_unchecked(piece).into()) }
+        } else {
+            self.slice(from, to)
+        }
     }
 
     pub fn slice(&self, from: usize, to: usize) -> Str<'a> {
@@ -2012,6 +2079,14 @@ impl<'s> CharBoundary<'s> {
     }
 }
 
+/// The capacity to allocate, on the first match, for the result of replacing every match in `s`
+/// with `subst` (`gsub`, `gensub(.., "g")`): room for `s` and some growth, so that the buffer is
+/// not reallocated (and copied) again and again as the result is written. The result is shrunk
+/// to fit at the end (see `DynamicBufHeap::into_str`).
+fn subst_capacity(s: &[u8], subst: &[u8]) -> usize {
+    s.len() + std::cmp::max(s.len() / 8, subst.len())
+}
+
 /// Helper function for `subst_first` and `subst_all`: handles '&' syntax.
 fn process_match(matched: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result<()> {
     if memchr::memchr(b'&', subst).is_none() {
@@ -2679,10 +2754,13 @@ fn char_width(bs: &[u8]) -> usize {
 pub(crate) fn char_count(bs: &[u8]) -> usize {
     if bs.is_ascii() || characters_as_bytes() {
         bs.len()
+    } else if let Ok(text) = simdutf8::basic::from_utf8(bs) {
+        // SIMD validation dominates; `chars().count()` is already a word-at-a-time count.
+        text.chars().count()
     } else {
-        match str::from_utf8(bs) {
-            Ok(text) => text.chars().count(),
-            Err(_) => String::from_utf8_lossy(bs).chars().count(),
-        }
+        // Each invalid sequence is one char, as `String::from_utf8_lossy` would replace it.
+        bs.utf8_chunks()
+            .map(|chunk| chunk.valid().chars().count() + usize::from(!chunk.invalid().is_empty()))
+            .sum()
     }
 }

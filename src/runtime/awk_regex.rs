@@ -85,12 +85,17 @@ pub struct AwkRegex {
     /// For the regexes of `RegexCache` (see `counted`): the memory of `longest`, charged to
     /// `regex_memory` until the regex is dropped.
     charged: Option<AtomicUsize>,
+    /// When the pattern is literal text (see `literal_parts`): searches go through memchr
+    /// instead of the regex engines.
+    literal: Option<LiteralSearch<'static>>,
 }
 
 impl AwkRegex {
     /// Wraps `re` (in the syntax of `regex`).
     pub(crate) fn new(re: Regex) -> AwkRegex {
-        AwkRegex { re, longest: OnceLock::new(), charged: None }
+        // A pattern compiled under IGNORECASE starts with `(?i)`, so it is never literal here.
+        let literal = literal_parts(re.as_str().as_bytes()).map(|(kind, lit)| LiteralSearch::new(kind, lit).into_owned());
+        AwkRegex { re, longest: OnceLock::new(), charged: None, literal }
     }
 
     /// Counts the memory of what is built for leftmost-longest matches against `regex_memory`,
@@ -522,9 +527,20 @@ pub(crate) enum Literal {
 /// where it has to match and the text. Such patterns, which programs often build from their
 /// input (`$2 ~ ("^" $1 "$")`), are matched without compiling (or caching) a regex.
 pub(crate) fn as_literal(pat: &[u8]) -> Option<(Literal, &[u8])> {
-    if ignore_case() || std::str::from_utf8(pat).is_err() {
+    if ignore_case() {
         return None;
     }
+    literal_parts(pat)
+}
+
+/// `as_literal` regardless of IGNORECASE; also holds for patterns in the syntax of `regex`, whose
+/// operators include all of awk's. A group around the text, as the lexer puts around single
+/// letters (see `lexer::parse_regex_literal`), does not change what it matches.
+fn literal_parts(pat: &[u8]) -> Option<(Literal, &[u8])> {
+    if std::str::from_utf8(pat).is_err() {
+        return None;
+    }
+    let pat = pat.strip_prefix(b"(?:").and_then(|p| p.strip_suffix(b")")).unwrap_or(pat);
     let (start, rest) = match pat.strip_prefix(b"^") {
         Some(rest) => (true, rest),
         None => (false, pat),
@@ -560,6 +576,41 @@ pub(crate) fn find_literal(kind: Literal, lit: &[u8], hay: &[u8]) -> Option<(usi
         Literal::Prefix => hay.starts_with(lit).then_some((0, n)),
         Literal::Suffix => hay.ends_with(lit).then(|| (hay.len() - n, hay.len())),
         Literal::Exact => (hay == lit).then_some((0, n)),
+    }
+}
+
+/// A literal pattern (see `as_literal`) to search with `find_at`, `find_iter` and `captures_at`:
+/// memchr's substring search instead of a regex engine.
+pub(crate) struct LiteralSearch<'p> {
+    kind: Literal,
+    finder: memchr::memmem::Finder<'p>,
+}
+
+impl<'p> LiteralSearch<'p> {
+    pub(crate) fn new(kind: Literal, lit: &'p [u8]) -> LiteralSearch<'p> {
+        LiteralSearch { kind, finder: memchr::memmem::Finder::new(lit) }
+    }
+
+    fn into_owned(self) -> LiteralSearch<'static> {
+        LiteralSearch { kind: self.kind, finder: self.finder.into_owned() }
+    }
+}
+
+impl Search for LiteralSearch<'_> {
+    fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+        let lit = self.finder.needle();
+        let n = lit.len();
+        // `^` and `$` anchor at the ends of `hay`, not at `start` (as with `Regex::find_at`).
+        match self.kind {
+            Literal::Contains => self.finder.find(hay.get(start..)?).map(|i| (start + i, start + i + n)),
+            Literal::Prefix => (start == 0 && hay.starts_with(lit)).then_some((0, n)),
+            Literal::Suffix => (hay.len() >= start + n && hay.ends_with(lit)).then(|| (hay.len() - n, hay.len())),
+            Literal::Exact => (start == 0 && hay == lit).then_some((0, n)),
+        }
+    }
+
+    fn groups_at(&self, _: &[u8], from: usize, to: usize) -> Option<Groups> {
+        Some(Groups(vec![Some((from, to))]))
     }
 }
 
@@ -738,6 +789,9 @@ impl Search for NoMatch {
 
 impl Search for AwkRegex {
     fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+        if let Some(lit) = &self.literal {
+            return lit.search_at(hay, start);
+        }
         let m = self.re.find_at(hay, start)?;
         let (from, to) = (m.start(), m.end());
         match self.longest() {
@@ -747,6 +801,9 @@ impl Search for AwkRegex {
     }
 
     fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
+        if let Some(lit) = &self.literal {
+            return lit.groups_at(hay, from, to);
+        }
         let groups = |c: Captures| Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect());
         if let Some(l) = self.longest() {
             let exact = l.exact.get_or_init(|| {
@@ -1616,9 +1673,13 @@ mod tests {
         assert!(re.is_match(b"hot") && re.longest.get().is_none());
         assert_eq!(find_at(&re, b"hotter", 0), Some((0, 6)));
         assert!(re.longest.get().unwrap().is_some());
-        let re = compile("hot").unwrap();
+        let re = compile("ho+t").unwrap();
         assert_eq!(find_at(&re, b"hotter", 0), Some((0, 3)));
         assert!(re.longest.get().unwrap().is_none());
+        // Literal patterns are searched with memchr, without the regex engines.
+        let re = compile("hot").unwrap();
+        assert_eq!(find_at(&re, b"hotter", 0), Some((0, 3)));
+        assert!(re.longest.get().is_none());
     }
 
     /// Constant regexes are shared by the threads of parallel programs.
@@ -1641,5 +1702,33 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    #[test]
+    fn literal_search_matches_regex() {
+        let pats = ["a", "(?:a)", "ab", "^a", "a$", "^ab$", "", "^", "$", "^$", "é", " ", "(?: )"];
+        let hays = ["", "a", "ab", "aab", "abab", "ba", "xaby", "aaa", "é", "aéa", "a b", "  "];
+        for pat in pats {
+            let (kind, lit) = as_literal(pat.as_bytes()).unwrap();
+            let lit = LiteralSearch::new(kind, lit);
+            let re = Regex::new(pat).unwrap();
+            for hay in hays {
+                let hay = hay.as_bytes();
+                for start in 0..=hay.len() {
+                    let want = re.find_at(hay, start).map(|m| (m.start(), m.end()));
+                    assert_eq!(lit.search_at(hay, start), want, "{:?} in {:?} from {}", pat, hay, start);
+                }
+                let all: Vec<_> = find_iter(&lit, hay).collect();
+                let mut full = AwkRegex::new(re.clone());
+                full.literal = None;
+                let want: Vec<_> = find_iter(&full, hay).collect();
+                assert_eq!(all, want, "{:?} in {:?}", pat, hay);
+            }
+        }
+        for pat in [".", "a.", "a|b", "(?:a)|(?:b)", "(?:.)", "(?i)a", "a*", "[a]", "\\a"] {
+            assert!(compile(pat).unwrap().literal.is_none(), "{}", pat);
+        }
+        assert!(compile("(?:x)").unwrap().literal.is_some());
+        assert!(compile("abc").unwrap().literal.is_some());
     }
 }

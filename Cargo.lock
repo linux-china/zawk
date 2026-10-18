@@ -6554,6 +6554,7 @@ dependencies = [
  "sha2 0.11.1",
  "shell-escape",
  "shlex",
+ "simdutf8",
  "smallvec",
  "sxd-document",
  "sxd-xpath",

@@ -1940,6 +1940,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let r = self.get(*r).clone();
                         *self.get_mut(res) = Str::concat(l, r);
                     }
+                    ConcatN(res, args) => {
+                        let res = *res;
+                        let s = {
+                            let pieces = args.iter().map(|a| self.get(*a)).collect::<smallvec::SmallVec<[&Str; 8]>>();
+                            Str::concat_n(&pieces)
+                        };
+                        *self.get_mut(res) = s;
+                    }
                     Match(res, l, r) => {
                         *index_mut(&mut self.ints, res) = self
                             .core

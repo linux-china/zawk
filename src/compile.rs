@@ -683,7 +683,7 @@ impl<'a> Typer<'a> {
         // and global variables.
 
         let mut generator = Typer::default();
-        if !pc.allow_arbitrary_commands {
+        if pc.taint_check {
             generator.taint_analysis = Some(Default::default());
         }
         if pc.fold_regex_constants || pc.parse_header {
@@ -854,8 +854,7 @@ impl<'a> Typer<'a> {
             if !tsa.ok() {
                 return err!(concat!(
                     "command potentially containing interpolated user ",
-                    "input detected.\nIf this is a false positive, you can pass the -A flag ",
-                    "to bypass this check."
+                    "input detected.\nIf this is a false positive, run without the --taint-check flag."
                 ));
             }
         }
@@ -1554,6 +1553,12 @@ impl<'a, 'b> View<'a, 'b> {
             Binop(Div) => gen_op!(Div, [Float, Div]),
             Binop(Pow) => gen_op!(Pow, [Float, Pow]),
             Binop(Mod) => gen_op!(Mod, [Float, ModFloat], [Int, ModInt]),
+            Binop(Concat) if conv_regs.len() > 2 => {
+                if res_reg != UNUSED {
+                    let args = conv_regs.iter().map(|r| (*r).into()).collect();
+                    self.pushl(LL::ConcatN(res_reg.into(), args));
+                }
+            }
             Binop(Concat) => gen_op!(Concat, [Str, Concat]),
             Binop(IsMatch) => gen_op!(IsMatch, [Str, IsMatch]),
             // Comparisons with a string operand follow awk's strnum rules. Strings start out as

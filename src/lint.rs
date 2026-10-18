@@ -59,8 +59,8 @@ struct Diagnostic {
 /// How the program will be run.
 #[derive(Default, Clone)]
 pub struct Options {
-    /// `-A`: allow user input in commands.
-    pub allow_arbitrary_commands: bool,
+    /// `--taint-check`: reject user input in commands.
+    pub taint_check: bool,
     /// `-p`: the program runs in parallel.
     pub parallel: Option<Parallel>,
     /// Variables set on the command line with `-v`.
@@ -219,7 +219,7 @@ fn check_program(prog: &str, opts: &Options) -> Vec<Diagnostic> {
         return vec![parse_diagnostic(text, &e)];
     }
     let mut diags = check_ast(text, &program, opts);
-    diags.extend(compile_program(&a, text, program, opts.allow_arbitrary_commands));
+    diags.extend(compile_program(&a, text, program, opts.taint_check));
     diags
 }
 
@@ -228,7 +228,7 @@ fn compile_program<'a>(
     a: &'a Arena,
     text: &str,
     program: ast::Prog<'a, 'a, &'a str>,
-    allow_arbitrary_commands: bool,
+    taint_check: bool,
 ) -> Option<Diagnostic> {
     let program = a.alloc(program);
     // The type checker reports some unsupported programs with a panic: report it as an error
@@ -237,7 +237,7 @@ fn compile_program<'a>(
     std::panic::set_hook(Box::new(|_| {}));
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut ctx = cfg::ProgramContext::from_prog(a, program, Escaper::Identity)?;
-        ctx.allow_arbitrary_commands = allow_arbitrary_commands;
+        ctx.taint_check = taint_check;
         compile::context_compiles(&mut ctx)
     }));
     std::panic::set_hook(hook);
