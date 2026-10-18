@@ -1191,10 +1191,7 @@ fn real_main() {
                 };
                 if let Some(url) = remote_url {
                     // Error pages (404, proxy errors, ...) must not be run as programs.
-                    match reqwest::blocking::get(&url)
-                        .and_then(|resp| resp.error_for_status())
-                        .and_then(|resp| resp.text())
-                    {
+                    match runtime::network::fetch_text(&url) {
                         Ok(p) => {
                             prog.push_str(p.as_str());
                             prog.push('\n');

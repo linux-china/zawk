@@ -243,8 +243,7 @@ pub fn extract_jwk(full_http_url: &str) -> Option<Jwk> {
         return Some(jwk.clone());
     }
     let (http_url, kid) = full_http_url.split_once('#')?;
-    crate::runtime::tls::install_default_provider();
-    let jwkset: JwkSet = reqwest::blocking::get(http_url).ok()?.json::<JwkSet>().ok()?;
+    let jwkset: JwkSet = crate::runtime::network::fetch(http_url).ok()?.json::<JwkSet>().ok()?;
     let jwk = jwkset.find(kid)?.clone();
     pools.insert(full_http_url.to_string(), jwk.clone());
     Some(jwk)

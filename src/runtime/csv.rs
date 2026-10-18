@@ -64,8 +64,7 @@ pub fn vec_to_csv(csv: &[&str]) -> String {
 
 pub fn parse_prometheus(url_or_file: &str) -> String {
     let text = if url_or_file.starts_with("http://") || url_or_file.starts_with("https://") {
-        crate::runtime::tls::install_default_provider();
-        reqwest::blocking::get(url_or_file).and_then(|resp| resp.text()).map_err(|e| e.to_string())
+        crate::runtime::network::fetch_text(url_or_file)
     } else {
         std::fs::read_to_string(url_or_file).map_err(|e| e.to_string())
     };

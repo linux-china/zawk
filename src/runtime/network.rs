@@ -20,11 +20,24 @@ pub fn local_ip() -> String {
 static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
     crate::runtime::tls::install_default_provider();
     reqwest::blocking::Client::builder()
+        .user_agent(concat!("zawk/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()
         .expect("Failed to build HTTP client")
 });
+
+/// GET `url` with the shared client for functions that use the body as data (`read_all`,
+/// `parse_prometheus`, JWKS, `-f URL`): error statuses (404, proxy errors, ...) are errors, so an
+/// error page is never read as content.
+pub(crate) fn fetch(url: &str) -> reqwest::Result<Response> {
+    HTTP_CLIENT.get(url).send().and_then(|resp| resp.error_for_status())
+}
+
+/// The body at `url` as text, see `fetch`; the error leaves out the URL, which callers report.
+pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
+    fetch(url).and_then(|resp| resp.text()).map_err(|e| e.without_url().to_string())
+}
 
 pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
     let resp_obj: StrMap<Str> = StrMap::default();
