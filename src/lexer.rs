@@ -374,6 +374,28 @@ pub fn is_ident(s: &str) -> bool {
     true
 }
 
+/// Describes why `rest` (the text after the `function`/`func` keyword) is not a valid function
+/// header. Function names are restricted to ASCII `[a-zA-Z_][a-zA-Z_0-9]*`.
+fn bad_fundec_desc(kw: &str, rest: &str) -> String {
+    let rest = rest.trim_start();
+    let name: String = if rest.starts_with(is_id_start) {
+        rest.chars().take_while(|c| is_id_body(*c)).collect()
+    } else {
+        String::new()
+    };
+    if name.is_empty() {
+        format!("`{}` is a reserved word and must be followed by a function name", kw)
+    } else if !name.is_ascii() {
+        format!("invalid function name `{}`: function names must be ASCII ([a-zA-Z_][a-zA-Z_0-9]*)", name)
+    } else if KEYWORDS.get(name.as_bytes()).is_some() {
+        format!("invalid function name `{}`: it is a reserved word", name)
+    } else if !rest[name.len()..].trim_start_matches([' ', '\t']).starts_with('(') {
+        format!("expected `(` after function name `{}`", name)
+    } else {
+        format!("invalid function name `{}`: function names must match [a-zA-Z_][a-zA-Z_0-9]*", name)
+    }
+}
+
 fn is_id_start(c: char) -> bool {
     c == '_' || c.is_xid_start()
 }
@@ -908,6 +930,15 @@ impl<'a> Iterator for Tokenizer<'a> {
                     } else if is_id_start(c) {
                         self.cur += c.len_utf8();
                         let (s, new_start) = self.ident(ix);
+                        let builtin_func_call = s == "func" && self.text[new_start..].starts_with('(');
+                        if (s == "function" || s == "func") && !builtin_func_call {
+                            // `fundec` did not match, so this is not a valid function header.
+                            // `func(...)` right before `(` is the `func` builtin parser.
+                            return Some(Err(Error {
+                                location: self.index_to_loc(ix),
+                                desc: bad_fundec_desc(s, &self.text[new_start..]).into(),
+                            }));
+                        }
                         let bs = self.text.as_bytes();
                         // POSIX allows blanks between a builtin's name and `(`, e.g.
                         // `substr ($0, 2)`; only user-defined calls need the `(` right after.
@@ -1237,5 +1268,27 @@ and the third"#;
         unescape_regex_literal("[/]a\\/b", &mut buf);
         assert_eq!(&buf[..], b"[/]a/b");
         assert!(Tokenizer::new("/[a/\n").any(|t| t.is_err()));
+    }
+
+    #[test]
+    fn function_is_reserved() {
+        use Tok::*;
+        let toks: Vec<_> = lex_str("function f(a) func g (b)").into_iter().map(|x| x.1).collect();
+        assert_eq!(&toks[..3], &[FunDec("f"), LParen, Ident("a")]);
+        assert_eq!(&toks[4..6], &[FunDec("g"), LParen]);
+        for text in [
+            "function 函数(a) { return a }",
+            "function f函(a) { return a }",
+            "function if(a) { return a }",
+            "function f { return 1 }",
+            "function = 1",
+            "x = func + 1",
+        ] {
+            assert!(Tokenizer::new(text).any(|t| t.is_err()), "{:?}", text);
+        }
+        let toks: Vec<_> = lex_str("func(s)").into_iter().map(|x| x.1).collect();
+        assert_eq!(&toks[..1], &[CallStart("func")]);
+        let toks: Vec<_> = lex_str("functionx = 1").into_iter().map(|x| x.1).collect();
+        assert_eq!(&toks[..1], &[Ident("functionx")]);
     }
 }

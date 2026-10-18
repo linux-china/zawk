@@ -59,3 +59,20 @@ fn many_rules() {
     let prog = format!("{}\nEND {{ print n }}", rules.join("\n"));
     check(&prog, &format!("{}\n", 3 * N));
 }
+
+/// Long chains of `&&`/`||`/`?:` used to get a dead phi node per temporary at every enclosing join
+/// point: 2000 terms meant 2 million phis and several seconds of compile time.
+#[test]
+fn long_boolean_chains() {
+    let terms = 2000;
+    let and: Vec<_> = (0..terms).map(|i| format!("$1 > {}", i - terms)).collect();
+    let or: Vec<_> = (0..terms).map(|i| format!("$1 == \"x{i}\"")).collect();
+    let ite: Vec<_> = (0..terms).map(|i| format!("$1 == {i} ? {i} :")).collect();
+    let prog = format!(
+        "{{ x = {}; if ({}) y = 1; else y = 2; z = {} -1; print x, y, z }}",
+        and.join(" && "),
+        or.join(" || "),
+        ite.join(" ")
+    );
+    check(&prog, "1 2 -1\n");
+}

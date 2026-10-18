@@ -270,6 +270,54 @@ impl<'a> PrimStmt<'a> {
             IterDrop(v) | Return(v) => v.replace(update),
         }
     }
+
+    /// Calls `f` on the variables read by this statement (those `replace` would update).
+    fn visit_uses(&self, mut f: impl FnMut(Ident)) {
+        fn val(v: &PrimVal, f: &mut impl FnMut(Ident)) {
+            if let PrimVal::Var(id) = v {
+                f(*id)
+            }
+        }
+        fn expr(e: &PrimExpr, f: &mut impl FnMut(Ident)) {
+            use PrimExpr::*;
+            match e {
+                Val(v) | IterBegin(v) | HasNext(v) | Next(v) => val(v, f),
+                Phi(_) | LoadBuiltin(_) => {}
+                Sprintf(fmt, args) => {
+                    val(fmt, f);
+                    args.iter().for_each(|a| val(a, f));
+                }
+                CallBuiltin(_, args) | CallUDF(_, args) => args.iter().for_each(|a| val(a, f)),
+                Index(v1, v2) => {
+                    val(v1, f);
+                    val(v2, f);
+                }
+            }
+        }
+        use PrimStmt::*;
+        match self {
+            AsgnIndex(ident, v, e) => {
+                f(*ident);
+                val(v, &mut f);
+                expr(e, &mut f);
+            }
+            AsgnVar(_, e) | SetBuiltin(_, e) => expr(e, &mut f),
+            PrintAll(specs, output) => {
+                specs.iter().for_each(|s| val(s, &mut f));
+                if let Some((out, _)) = output {
+                    val(out, &mut f);
+                }
+            }
+            Printf(fmt, specs, output) => {
+                val(fmt, &mut f);
+                specs.iter().for_each(|s| val(s, &mut f));
+                if let Some((out, _)) = output {
+                    val(out, &mut f);
+                }
+            }
+            IterDrop(v) | Return(v) => val(v, &mut f),
+        }
+    }
 }
 
 /// The name of a called function, as written in the program.
@@ -3286,16 +3334,53 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         self.f.cfg.node_weight_mut(at).unwrap().sealed = true;
     }
 
+    /// The blocks that read each variable before assigning it (reads in a block's outgoing
+    /// transitions come after all of its statements).
+    fn upward_exposed_uses(&self) -> HashMap<Ident, Vec<NodeIx>> {
+        let mut res = HashMap::<Ident, Vec<NodeIx>>::default();
+        let mut defined = HashSet::<Ident>::default();
+        for n in self.f.cfg.node_indices() {
+            defined.clear();
+            let mut add = |id: Ident, defined: &HashSet<Ident>| {
+                if !defined.contains(&id) {
+                    let blocks = res.entry(id).or_default();
+                    if blocks.last() != Some(&n) {
+                        blocks.push(n);
+                    }
+                }
+            };
+            for stmt in self.f.cfg.node_weight(n).unwrap().q.iter() {
+                stmt.visit_uses(|id| add(id, &defined));
+                if let PrimStmt::AsgnVar(id, _) = stmt {
+                    defined.insert(*id);
+                }
+            }
+            for e in self.f.cfg.edges_directed(n, Direction::Outgoing) {
+                if let Transition(Some(PrimVal::Var(id))) = e.weight() {
+                    add(*id, &defined);
+                }
+            }
+        }
+        res
+    }
+
+    // Phi nodes are only inserted where the variable is live (pruned SSA). Otherwise a temporary
+    // (e.g. the result of `?:` or `&&`) gets a dead phi node at every enclosing join point, which
+    // is quadratic in the length of a chain of `&&`.
     fn insert_phis(&mut self) {
         use crate::common::WorkList;
         // TODO: do we need defsites and orig after this, or can we deallocate them here?
 
+        let uses = self.upward_exposed_uses();
+        // live[n] == i + 1 when the i'th variable in may_rename is live on entry to block n.
+        let mut live = vec![0usize; self.f.cfg.node_count()];
+        let mut stack = Vec::new();
         // phis: the set of basic blocks that must have a phi node for a given variable.
         let mut phis = HashMap::<Ident, HashSet<NodeIx>>::new();
         let mut worklist = WorkList::default();
         // TODO rework this iteration to explicitly intersect may_rename and defsites? That way we
         // do O(min(|defsites|,|may_rename|)) work.
-        for ident in self.ctx.may_rename.iter().cloned() {
+        for (i, ident) in self.ctx.may_rename.iter().cloned().enumerate() {
             if ident.global && self.ctx.local_globals.get(&ident.low).is_none() {
                 continue;
             }
@@ -3305,6 +3390,27 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             } else {
                 continue;
             };
+            let use_blocks = match uses.get(&ident) {
+                Some(u) => u,
+                None => continue,
+            };
+            // Compute the blocks where `ident` is live on entry: walk backwards from its uses,
+            // stopping at blocks that assign it.
+            let stamp = i + 1;
+            for n in use_blocks.iter().copied() {
+                if live[n.index()] != stamp {
+                    live[n.index()] = stamp;
+                    stack.push(n);
+                }
+            }
+            while let Some(n) = stack.pop() {
+                for p in self.f.cfg.neighbors_directed(n, Direction::Incoming) {
+                    if live[p.index()] != stamp && !defsites.contains(&p) {
+                        live[p.index()] = stamp;
+                        stack.push(p);
+                    }
+                }
+            }
             worklist.extend(defsites.iter().copied());
             while let Some(node) = worklist.pop() {
                 // For all nodes on the dominance frontier without phi nodes for this identifier,
@@ -3312,6 +3418,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // block (no renaming).
                 for d in self.f.df[node.index()].iter() {
                     let d_ix = NodeIx::new(*d as usize);
+                    if live[d_ix.index()] != stamp {
+                        continue;
+                    }
                     if phis.get(&ident).map(|s| s.contains(&d_ix)) != Some(true) {
                         let phi = PrimExpr::Phi(
                             self.f
