@@ -12,7 +12,7 @@ use crate::runtime::{
     Float, Int, Str, UniqueStr,
 };
 
-use regex::bytes::Regex;
+use crate::runtime::awk_regex::AwkRegex;
 pub(crate) use crate::interp::Interp;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
@@ -124,9 +124,9 @@ pub(crate) enum Instr<'a> {
     Concat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     StartsWithConst(Reg<Int>, Reg<Str<'a>>, Arc<[u8]>),
     IsMatch(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
-    IsMatchConst(Reg<Int>, Reg<Str<'a>>, Arc<Regex>),
+    IsMatchConst(Reg<Int>, Reg<Str<'a>>, Arc<AwkRegex>),
     Match(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
-    MatchConst(Reg<Int>, Reg<Str<'a>>, Arc<Regex>),
+    MatchConst(Reg<Int>, Reg<Str<'a>>, Arc<AwkRegex>),
     // index(s, t) returns index of substring t in s, 0 if it does not appear.
     SubstrIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     SubstrLastIndex(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -154,19 +154,19 @@ pub(crate) enum Instr<'a> {
     // Sub, GSub and GenSubDynamic with a constant-folded pattern.
     SubConst(
         Reg<Int>,
-        /*pat*/ Arc<Regex>,
+        /*pat*/ Arc<AwkRegex>,
         /*for*/ Reg<Str<'a>>,
         /*in*/ Reg<Str<'a>>,
     ),
     GSubConst(
         Reg<Int>,
-        /*pat*/ Arc<Regex>,
+        /*pat*/ Arc<AwkRegex>,
         /*for*/ Reg<Str<'a>>,
         /*in*/ Reg<Str<'a>>,
     ),
     GenSubConst(
         Reg<Str<'a>>,
-        /*pat*/ Arc<Regex>,
+        /*pat*/ Arc<AwkRegex>,
         /*for*/ Reg<Str<'a>>,
         /*how*/ Reg<Str<'a>>,
         /*in*/ Reg<Str<'a>>,
@@ -451,13 +451,13 @@ pub(crate) enum Instr<'a> {
         Reg<Int>,
         Reg<Str<'a>>,
         Reg<runtime::IntMap<Str<'a>>>,
-        Arc<Regex>,
+        Arc<AwkRegex>,
     ),
     SplitStrConst(
         Reg<Int>,
         Reg<Str<'a>>,
         Reg<runtime::StrMap<'a, Str<'a>>>,
-        Arc<Regex>,
+        Arc<AwkRegex>,
     ),
     // split(s, arr, pat, seps), or patsplit(s, arr, re, seps) when `patsplit` is set: `arr` and
     // `seps` are maps from ints or strings to strings.
@@ -471,7 +471,7 @@ pub(crate) enum Instr<'a> {
         seps: NumTy,
         patsplit: bool,
         // The constant-folded regex for `pat`, if any. `pat` still holds the pattern text.
-        re: Option<Arc<Regex>>,
+        re: Option<Arc<AwkRegex>>,
     },
     // match(s, re, arr)
     MatchArrInt(

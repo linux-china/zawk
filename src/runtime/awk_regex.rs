@@ -23,8 +23,12 @@ use regex::bytes::{Captures, Regex, RegexBuilder};
 use regex_automata::hybrid::dfa::{Cache, DFA};
 use regex_automata::nfa::thompson::pikevm::PikeVM;
 use regex_automata::{Anchored, Input, MatchKind};
+use regex_automata::util::pool::Pool;
 use std::cell::{OnceCell, RefCell};
+use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 thread_local! {
     // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`). Worker
@@ -62,10 +66,82 @@ pub(crate) fn with_case(pat: String) -> String {
 }
 
 /// Compile an awk regular expression.
-pub(crate) fn compile(pat: &str) -> Result<Regex, regex::Error> {
+pub(crate) fn compile(pat: &str) -> Result<AwkRegex, regex::Error> {
     RegexBuilder::new(&with_case(translate(pat).map_err(regex::Error::Syntax)?))
         .dot_matches_new_line(true)
         .build()
+        .map(AwkRegex::new)
+}
+
+/// A compiled regex, with what it takes to report its leftmost-longest matches (see `find_at`),
+/// so that searches need no lookup by pattern. It dereferences to the `Regex`, whose own methods
+/// report leftmost-first matches.
+pub struct AwkRegex {
+    re: Regex,
+    /// Built on the first search for the leftmost-longest match: `is_match` (`~`) does not need
+    /// it. `None` when leftmost-first is already leftmost-longest (see `needs_longest`) or the DFA
+    /// cannot be built.
+    longest: OnceLock<Option<Longest>>,
+    /// For the regexes of `RegexCache` (see `counted`): the memory of `longest`, charged to
+    /// `regex_memory` until the regex is dropped.
+    charged: Option<AtomicUsize>,
+}
+
+impl AwkRegex {
+    /// Wraps `re` (in the syntax of `regex`).
+    pub(crate) fn new(re: Regex) -> AwkRegex {
+        AwkRegex { re, longest: OnceLock::new(), charged: None }
+    }
+
+    /// Counts the memory of what is built for leftmost-longest matches against `regex_memory`,
+    /// for regexes of a thread's `RegexCache`, which are dropped on the thread that built them.
+    pub(crate) fn counted(mut self) -> AwkRegex {
+        self.charged = Some(AtomicUsize::new(0));
+        self
+    }
+
+    fn longest(&self) -> Option<&Longest> {
+        self.longest
+            .get_or_init(|| {
+                let pat = self.re.as_str();
+                if !needs_longest(pat) {
+                    return None;
+                }
+                let Some(charged) = &self.charged else {
+                    return Longest::new(pat);
+                };
+                let (l, measured) = super::regex_memory::measure(|| Longest::new(pat));
+                if l.is_some() {
+                    let cost = measured.unwrap_or_else(|| LONGEST_COST.cost(pat.len()));
+                    super::regex_memory::make_room(cost);
+                    super::regex_memory::charge(cost);
+                    charged.store(cost, Ordering::Relaxed);
+                }
+                l
+            })
+            .as_ref()
+    }
+}
+
+impl Drop for AwkRegex {
+    fn drop(&mut self) {
+        if let Some(charged) = &self.charged {
+            super::regex_memory::release(charged.load(Ordering::Relaxed));
+        }
+    }
+}
+
+impl std::ops::Deref for AwkRegex {
+    type Target = Regex;
+    fn deref(&self) -> &Regex {
+        &self.re
+    }
+}
+
+impl std::fmt::Debug for AwkRegex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.re.fmt(f)
+    }
 }
 
 /// A matcher that is cheap to build, for dynamic patterns that are used only a few times
@@ -508,38 +584,34 @@ pub(crate) fn compile_error(pat: &str, err: &regex::Error) -> String {
     format!("invalid regex /{}/: {}", pat, reason)
 }
 
-/// What it takes to turn a leftmost-first match into the leftmost-longest one.
+/// Creates the caches of a `Pool`, one per thread searching with it.
+type CacheFn<T> = Box<dyn Fn() -> T + Send + Sync + UnwindSafe + RefUnwindSafe>;
+
+/// What it takes to turn a leftmost-first match into the leftmost-longest one. Constant regexes
+/// are shared by the threads of parallel programs, so the search caches are pooled.
 struct Longest {
     /// A lazy DFA reporting all matches, so that an anchored forward search ends at the longest.
     /// With Unicode word boundaries (`\y`, `\<`, `\>`, `\B`) it gives up on non-ASCII bytes.
     dfa: DFA,
-    cache: RefCell<Cache>,
+    cache: Pool<Cache, CacheFn<Cache>>,
     /// The same as a PikeVM, for when the lazy DFA gives up; built on first use.
-    pike: OnceCell<(PikeVM, RefCell<regex_automata::nfa::thompson::pikevm::Cache>)>,
+    pike: OnceLock<(PikeVM, Pool<regex_automata::nfa::thompson::pikevm::Cache, CacheFn<regex_automata::nfa::thompson::pikevm::Cache>>)>,
     nfa: regex_automata::nfa::thompson::NFA,
     /// The pattern anchored at the end, `(?:pat)\z`, to get capture groups of a given span.
-    exact: OnceCell<Option<Regex>>,
+    exact: OnceLock<Option<Regex>>,
 }
 
-/// Estimated memory of the longest-match machinery for a pattern of the given length in bytes,
-/// when the allocator does not tell (see `regex_memory::measure`).
+/// Estimated memory of the longest-match or extension-check machinery for a pattern of the given
+/// length in bytes, when the allocator does not tell (see `regex_memory::measure`).
 const LONGEST_COST: super::CostModel = super::CostModel {
     base: 8 << 10,
     per_byte: 512,
 };
 
-thread_local! {
-    /// The longest-match machinery per pattern. Patterns can come from input data, so it counts
-    /// against the memory budget of the regex caches (see `regex_memory`).
-    static LONGEST: RefCell<super::StrLru<Option<Rc<Longest>>>> =
-        RefCell::new(super::StrLru::with_regex_memory(LONGEST_COST));
-}
-
 /// Evicts the least recently used half of the caches here, for an eviction round of
 /// `regex_memory`. A cache in use is skipped: it is the one adding an entry, which evicts by
 /// itself.
 pub(crate) fn evict_caches() {
-    LONGEST.with(|cell| cell.try_borrow_mut().map(|mut cache| cache.evict_lru()).ok());
     EXTENDERS.with(|cell| cell.try_borrow_mut().map(|mut cache| cache.evict_lru()).ok());
 }
 
@@ -579,24 +651,6 @@ fn hir_needs_longest(hir: &regex_syntax::hir::Hir) -> bool {
     walk(hir)
 }
 
-/// The longest-match machinery for `re`, or `None` when leftmost-first is already leftmost-longest
-/// (see `needs_longest`) or the DFA cannot be built.
-fn longest(re: &Regex) -> Option<Rc<Longest>> {
-    let pat = re.as_str();
-    LONGEST.with(|cell| {
-        if let Some(l) = cell.borrow_mut().get(pat) {
-            return l.clone();
-        }
-        if !needs_longest(pat) {
-            cell.borrow_mut().insert_measured(pat.to_owned(), None, Some(0));
-            return None;
-        }
-        let (l, measured) = super::regex_memory::measure(|| Longest::new(pat).map(Rc::new));
-        cell.borrow_mut().insert_measured(pat.to_owned(), l.clone(), measured);
-        l
-    })
-}
-
 impl Longest {
     fn new(pat: &str) -> Option<Longest> {
         use regex_automata::nfa::thompson::{Config, WhichCaptures, NFA};
@@ -613,15 +667,18 @@ impl Longest {
             .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
             .build_from_nfa(nfa.clone())
             .ok()?;
-        let cache = RefCell::new(dfa.create_cache());
-        Some(Longest { dfa, cache, pike: OnceCell::new(), nfa, exact: OnceCell::new() })
+        let cache = {
+            let dfa = dfa.clone();
+            Pool::new(Box::new(move || dfa.create_cache()) as CacheFn<Cache>)
+        };
+        Some(Longest { dfa, cache, pike: OnceLock::new(), nfa, exact: OnceLock::new() })
     }
 }
 
 /// The end of the longest match of `l` starting at `start`.
 fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
     let input = Input::new(hay).range(start..).anchored(Anchored::Yes);
-    if let Ok(m) = l.dfa.try_search_fwd(&mut l.cache.borrow_mut(), &input) {
+    if let Ok(m) = l.dfa.try_search_fwd(&mut l.cache.get(), &input) {
         return m.map(|m| m.offset());
     }
     // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text): the PikeVM, also
@@ -631,10 +688,13 @@ fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
             .configure(PikeVM::config().match_kind(MatchKind::All))
             .build_from_nfa(l.nfa.clone())
             .expect("PikeVM supports every NFA");
-        let cache = RefCell::new(pike.create_cache());
+        let cache = {
+            let pike = pike.clone();
+            Pool::new(Box::new(move || pike.create_cache()) as CacheFn<_>)
+        };
         (pike, cache)
     });
-    pike.find(&mut cache.borrow_mut(), input).map(|m| m.end())
+    pike.find(&mut cache.get(), input).map(|m| m.end())
 }
 
 /// The capture groups of a match, as byte ranges of the text; `None` for groups that did not
@@ -676,19 +736,19 @@ impl Search for NoMatch {
     }
 }
 
-impl Search for Regex {
+impl Search for AwkRegex {
     fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
-        let m = self.find_at(hay, start)?;
+        let m = self.re.find_at(hay, start)?;
         let (from, to) = (m.start(), m.end());
-        match longest(self) {
-            Some(l) => Some((from, longest_end(&l, hay, from).map_or(to, |e| e.max(to)))),
+        match self.longest() {
+            Some(l) => Some((from, longest_end(l, hay, from).map_or(to, |e| e.max(to)))),
             None => Some((from, to)),
         }
     }
 
     fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
         let groups = |c: Captures| Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect());
-        if let Some(l) = longest(self) {
+        if let Some(l) = self.longest() {
             let exact = l.exact.get_or_init(|| {
                 RegexBuilder::new(&format!("(?:{})\\z", self.as_str()))
                     .dot_matches_new_line(true)
@@ -704,7 +764,7 @@ impl Search for Regex {
                 }
             }
         }
-        self.captures_at(hay, from).map(groups)
+        self.re.captures_at(hay, from).map(groups)
     }
 }
 
@@ -1551,20 +1611,35 @@ mod tests {
     }
 
     #[test]
-    fn longest_cache_is_bounded() {
-        const BUDGET: usize = 2 << 20;
-        super::super::regex_memory::set_budget(BUDGET);
-        let hot = compile("hot|hotter").unwrap();
-        for i in 0..(BUDGET / LONGEST_COST.cost(8) * 3) {
-            assert_eq!(find_at(&hot, b"hotter", 0), Some((0, 6)));
-            let re = compile(&format!("zz|x{}", i)).unwrap();
-            assert_eq!(find_at(&re, format!("x{}", i).as_bytes(), 0).map(|(f, _)| f), Some(0));
-            assert!(super::super::regex_memory::used() <= BUDGET);
-            // A frequently used pattern survives evictions.
-            LONGEST.with(|cell| assert!(cell.borrow().cached.contains_key(hot.as_str())));
+    fn longest_is_built_on_first_search() {
+        let re = compile("hot|hotter").unwrap();
+        assert!(re.is_match(b"hot") && re.longest.get().is_none());
+        assert_eq!(find_at(&re, b"hotter", 0), Some((0, 6)));
+        assert!(re.longest.get().unwrap().is_some());
+        let re = compile("hot").unwrap();
+        assert_eq!(find_at(&re, b"hotter", 0), Some((0, 3)));
+        assert!(re.longest.get().unwrap().is_none());
+    }
+
+    /// Constant regexes are shared by the threads of parallel programs.
+    #[test]
+    fn awk_regex_is_shared_across_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<AwkRegex>();
+        let re = std::sync::Arc::new(compile(r"a|ab\>").unwrap());
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let re = re.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        assert_eq!(find_at(&*re, b"x ab", 0), Some((2, 4)));
+                        assert_eq!(find_at(&*re, "中 ab".as_bytes(), 0), Some((4, 6)));
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
         }
-        // Evicted patterns are rebuilt and still match leftmost-longest.
-        let re = compile("x|x0").unwrap();
-        assert_eq!(find_at(&re, b"x0", 0), Some((0, 2)));
     }
 }

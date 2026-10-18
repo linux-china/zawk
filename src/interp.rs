@@ -9,7 +9,7 @@ use crossbeam::scope;
 use crossbeam_channel::bounded;
 use crate::runtime::HashMap;
 use rand::{self, rngs::StdRng, RngExt, SeedableRng};
-use regex::bytes::Regex;
+use crate::runtime::awk_regex::AwkRegex;
 
 use std::mem;
 use std::time::SystemTime;
@@ -278,7 +278,7 @@ impl<'a> Core<'a> {
         self.regexes.regex_match_loc(&mut self.vars, pat, s)
     }
 
-    pub fn match_const_regex(&mut self, s: &Str<'a>, pat: &Regex) -> Result<Int> {
+    pub fn match_const_regex(&mut self, s: &Str<'a>, pat: &AwkRegex) -> Result<Int> {
         runtime::RegexCache::regex_const_match_loc(&mut self.vars, pat, s)
     }
 
@@ -2784,7 +2784,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         seps_ty: Ty,
         seps: NumTy,
         patsplit: bool,
-        re: Option<&Regex>,
+        re: Option<&AwkRegex>,
     ) -> Result<Int> {
         // Index the storages directly (rather than with `get`) to borrow them alongside the
         // regex cache.

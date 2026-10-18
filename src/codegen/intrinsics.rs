@@ -26,7 +26,7 @@ use crate::{
 use libc::c_void;
 use paste::paste;
 use rand::{self, RngExt};
-use regex::bytes::Regex;
+use crate::runtime::awk_regex::AwkRegex;
 use smallvec;
 
 use std::convert::TryFrom;
@@ -1098,7 +1098,7 @@ pub(crate) unsafe extern "C" fn split_int_const(
     guard_panic(stringify!(split_int_const), || {
         let into_arr = mem::transmute::<*mut c_void, IntMap<Str>>(into_arr);
         let to_split = &*(to_split as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         RegexCache::split_const_intmap(pat, to_split, &into_arr);
         let res = into_arr.len() as Int;
         mem::forget(into_arr);
@@ -1114,7 +1114,7 @@ pub(crate) unsafe extern "C" fn split_str_const(
     guard_panic(stringify!(split_str_const), || {
         let into_arr = mem::transmute::<*mut c_void, StrMap<Str>>(into_arr);
         let to_split = &*(to_split as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         RegexCache::split_const_strmap(pat, to_split, &into_arr);
         let res = into_arr.len() as Int;
         mem::forget(into_arr);
@@ -2731,7 +2731,7 @@ macro_rules! split_seps_const_intrinsics {
                     let arr = mem::transmute::<*mut c_void, $arr_map>(arr);
                     let seps = mem::transmute::<*mut c_void, $seps_map>(seps);
                     let to_split = &*(to_split as *mut Str);
-                    let pat = &*(pat as *const Regex);
+                    let pat = &*(pat as *const AwkRegex);
                     let res =
                         RegexCache::split_seps_maps_const(pat, to_split, &arr, &seps, $patsplit);
                     mem::forget((arr, seps));
@@ -3073,7 +3073,7 @@ pub(crate) unsafe extern "C" fn match_pat(
 pub(crate) unsafe extern "C" fn match_const_pat(s: *mut c_void, pat: *mut c_void) -> Int {
     guard_panic(stringify!(match_const_pat), || {
         let s = &*(s as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         RegexCache::regex_const_match(pat, s) as Int
     })
 }
@@ -3104,7 +3104,7 @@ pub(crate) unsafe extern "C" fn match_const_pat_loc(
     guard_panic(stringify!(match_const_pat_loc), || {
         let runtime = runtime as *mut Runtime;
         let s = &*(s as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         try_abort!(
             runtime,
             (*runtime).core.match_const_regex(s, pat),
@@ -3207,7 +3207,7 @@ pub(crate) unsafe extern "C" fn subst_first_const(
 ) -> Int {
     guard_panic(stringify!(subst_first_const), || {
         let s = &*(s as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         let in_s = &mut *(in_s as *mut Str);
         let (subbed, new) = in_s.subst_first(pat, s);
         *in_s = subbed;
@@ -3223,7 +3223,7 @@ pub(crate) unsafe extern "C" fn subst_all_const(
 ) -> Int {
     guard_panic(stringify!(subst_all_const), || {
         let s = &*(s as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         let in_s = &mut *(in_s as *mut Str);
         let (subbed, nsubs) = in_s.subst_all(pat, s);
         *in_s = subbed;
@@ -3240,7 +3240,7 @@ pub(crate) unsafe extern "C" fn gen_subst_const(
 ) -> U128 {
     guard_panic(stringify!(gen_subst_const), || {
         let s = &*(s as *mut Str);
-        let pat = &*(pat as *const Regex);
+        let pat = &*(pat as *const AwkRegex);
         let how = &*(how as *mut Str);
         let in_s = &*(in_s as *mut Str);
         mem::transmute::<Str, U128>(in_s.gen_subst_dynamic(pat, s, how))

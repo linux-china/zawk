@@ -4,7 +4,7 @@ use std::io::Read;
 use crate::common::{CompileError, Result};
 use crate::pushdown::FieldSet;
 use crate::runtime::Str;
-use regex::bytes::Regex;
+use crate::runtime::awk_regex::AwkRegex;
 
 use super::{DefaultLine, LineReader, Reader, ReaderState};
 
@@ -164,7 +164,7 @@ impl<R: Read> RegexSplitter<R> {
         Ok(line)
     }
 
-    pub fn read_line_regex(&mut self, pat: &Regex) -> Str<'static> {
+    pub fn read_line_regex(&mut self, pat: &AwkRegex) -> Str<'static> {
         // We keep this as a separate method because it helps in writing tests.
         let (res, consumed) = self.read_line_inner(pat);
         self.reader.last_len = consumed;
@@ -211,7 +211,7 @@ impl<R: Read> RegexSplitter<R> {
         }
     }
 
-    fn read_line_inner(&mut self, pat: &Regex) -> (Str<'static>, usize) {
+    fn read_line_inner(&mut self, pat: &AwkRegex) -> (Str<'static>, usize) {
         if self.reader.is_eof() {
             return (Str::default(), 0);
         }
@@ -305,7 +305,7 @@ impl<R: Read> RegexSplitter<R> {
 /// The leftmost non-empty (leftmost-longest) match of `pat` in `s`. Empty matches are never
 /// separators: otherwise a record separator such as `a*` or `b?` would match the empty string at
 /// the start of the input over and over again, yielding no records at all.
-fn find_nonempty(pat: &Regex, s: &[u8]) -> Option<(usize, usize)> {
+fn find_nonempty(pat: &AwkRegex, s: &[u8]) -> Option<(usize, usize)> {
     let mut pos = 0;
     while pos <= s.len() {
         let (start, end) = crate::runtime::awk_regex::find_at(pat, s, pos)?;
@@ -326,9 +326,9 @@ mod tests {
     use std::io::Cursor;
 
     static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
-    static LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\n").unwrap());
-    static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(" ").unwrap());
-    static BS: LazyLock<Regex> = LazyLock::new(|| Regex::new("b+").unwrap());
+    static LINE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("\n").unwrap()));
+    static SPACE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new(" ").unwrap()));
+    static BS: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("b+").unwrap()));
 
     // Helps type inference along.
     fn ref_str(s: &[u8]) -> Str<'_> {
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_empty_matching_separator() {
         let split = |re: &str, input: &str| {
-            let re = Regex::new(re).unwrap();
+            let re = AwkRegex::new(Regex::new(re).unwrap());
             let c = Cursor::new(String::from(input));
             let mut rdr = RegexSplitter::new(c, /*chunk_size=*/ 4, "", /*check_utf8=*/ false);
             let mut lines = Vec::new();
@@ -574,9 +574,9 @@ mod bench {
     use test::{black_box, Bencher};
 
     static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
-    static LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\n").unwrap());
-    static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(" ").unwrap());
-    static BS: LazyLock<Regex> = LazyLock::new(|| Regex::new("b+").unwrap());
+    static LINE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("\n").unwrap()));
+    static SPACE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new(" ").unwrap()));
+    static BS: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("b+").unwrap()));
 
     #[bench]
     fn bench_find_iter(b: &mut Bencher) {

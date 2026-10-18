@@ -1,7 +1,7 @@
 //! The memory budget shared by the caches of regexes built at runtime: the dynamic regexes of
-//! `RegexCache` (compiled ones and `LightMatcher`s, for both IGNORECASE settings) and what
-//! `awk_regex` builds from regexes for leftmost-longest matches (`LONGEST`) and record
-//! separators (`EXTENDERS`). Dynamic regexes can come from input data (`$0 ~ $1`), so these
+//! `RegexCache` (compiled ones, with their leftmost-longest machinery, and `LightMatcher`s,
+//! for both IGNORECASE settings) and what `awk_regex` builds from regexes for record separators
+//! (`EXTENDERS`). Dynamic regexes can come from input data (`$0 ~ $1`), so these
 //! caches are bounded by memory, measured with the allocator's counters for the thread while an
 //! entry is built: the size of a compiled regex depends on its character classes much more than
 //! on the length of its pattern (`[[:alpha:]]x1` takes ~110KB, as `[[:alpha:]]` is

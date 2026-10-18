@@ -11,7 +11,7 @@ use crate::{
     runtime::{self, UniqueStr},
 };
 
-use regex::bytes::Regex;
+use crate::runtime::awk_regex::AwkRegex;
 
 use std::marker::PhantomData;
 use std::mem;
@@ -278,7 +278,7 @@ unsafe fn run_stage(
 /// Handles to ensure the liveness of rust objects passed by pointer into generated code.
 #[derive(Default)]
 pub(crate) struct Handles {
-    res: Vec<Arc<Regex>>,
+    res: Vec<Arc<AwkRegex>>,
     slices: Vec<Arc<[u8]>>,
 }
 
@@ -328,7 +328,7 @@ pub(crate) trait CodeGenerator: Backend {
     // const_{re,slice} take an `Arc` so that it can store a pointer to `c` and ensure references
     // to `c` will live as long as the generated code.
 
-    fn const_re(&mut self, pat: Arc<Regex>) -> Self::Val {
+    fn const_re(&mut self, pat: Arc<AwkRegex>) -> Self::Val {
         let res = self.const_ptr(&*pat);
         self.handles().res.push(pat);
         res

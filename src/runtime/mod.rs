@@ -3,6 +3,7 @@ use command::CommandReader;
 // Fixed-seed hasher: keeps `for (k in a)` order reproducible across runs and backends.
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::FixedState>;
 use regex::bytes::Regex;
+use awk_regex::AwkRegex;
 use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::hash::Hash;
@@ -107,13 +108,13 @@ const LIGHT_COST: EntryCost = EntryCost {
 };
 
 pub struct RegexCache(
-    Registry<Regex>,
+    Registry<AwkRegex>,
     // Field separators that are a single character, which awk treats literally.
-    Registry<Regex>,
+    Registry<AwkRegex>,
     // The IGNORECASE setting the regexes in the first and last registries were compiled with,
     // and the registries for the other setting, swapped back in when IGNORECASE changes again:
     // a program that toggles IGNORECASE per record keeps both sets of regexes cached.
-    (bool, Registry<Regex>, Registry<awk_regex::LightMatcher>),
+    (bool, Registry<AwkRegex>, Registry<awk_regex::LightMatcher>),
     // Dynamic patterns that have not been used often enough yet to be worth compiling into the
     // first registry (see `light_matcher`).
     Registry<awk_regex::LightMatcher>,
@@ -144,9 +145,9 @@ impl Default for RegexCache {
 
 /// A regex matching the single character `c` literally. IGNORECASE does not apply to it, as in
 /// gawk.
-fn literal_regex(c: &str) -> Result<Regex> {
+fn literal_regex(c: &str) -> Result<AwkRegex> {
     match Regex::new(&regex::escape(c)) {
-        Ok(r) => Ok(r),
+        Ok(r) => Ok(AwkRegex::new(r)),
         Err(e) => err!("{}", e),
     }
 }
@@ -335,12 +336,12 @@ impl RegexCache {
             self.3.sync_budget(round);
         }
     }
-    pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&Regex) -> T) -> Result<T> {
+    pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&AwkRegex) -> T) -> Result<T> {
         self.sync();
         self.0.get(
             pat,
             |s| match awk_regex::compile(s) {
-                Ok(r) => Ok(r),
+                Ok(r) => Ok(r.counted()),
                 Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
             // eta-expansion required to get this compiling..
@@ -352,7 +353,7 @@ impl RegexCache {
     pub(crate) fn with_record_separator<T>(
         &mut self,
         rs: &Str,
-        mut f: impl FnMut(&Regex) -> T,
+        mut f: impl FnMut(&AwkRegex) -> T,
     ) -> Result<T> {
         let single_char =
             rs.with_bytes(|bs| std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1));
@@ -400,7 +401,7 @@ impl RegexCache {
         self.0.get_fallible(
             pat,
             |s| match awk_regex::compile(s) {
-                Ok(r) => Ok(r),
+                Ok(r) => Ok(r.counted()),
                 Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
             |re| f(re),
@@ -593,7 +594,7 @@ impl RegexCache {
 
     /// `split_regex_intmap` with a constant-folded regex (never one of the separators that
     /// `split_internal` treats specially).
-    pub(crate) fn split_const_intmap<'a>(re: &Regex, s: &Str<'a>, m: &IntMap<Str<'a>>) {
+    pub(crate) fn split_const_intmap<'a>(re: &AwkRegex, s: &Str<'a>, m: &IntMap<Str<'a>>) {
         let mut i = 0i64;
         let mut m_b = m.0.borrow_mut();
         m_b.clear();
@@ -604,7 +605,7 @@ impl RegexCache {
     }
 
     /// `split_regex_strmap` with a constant-folded regex.
-    pub(crate) fn split_const_strmap<'a>(re: &Regex, s: &Str<'a>, m: &StrMap<'a, Str<'a>>) {
+    pub(crate) fn split_const_strmap<'a>(re: &AwkRegex, s: &Str<'a>, m: &StrMap<'a, Str<'a>>) {
         let mut i = 0i64;
         let mut m_b = m.0.borrow_mut();
         m_b.clear();
@@ -695,7 +696,7 @@ impl RegexCache {
     /// `split_seps_maps` with a constant-folded regex (for split(), never one of the separators
     /// that `split_seps` treats specially).
     pub(crate) fn split_seps_maps_const<'a, K1, K2>(
-        re: &Regex,
+        re: &AwkRegex,
         s: &Str<'a>,
         arr: &SharedMap<K1, Str<'a>>,
         seps: &SharedMap<K2, Str<'a>>,
@@ -828,7 +829,7 @@ impl RegexCache {
         })
     }
 
-    pub(crate) fn regex_const_match(pat: &Regex, s: &Str) -> bool {
+    pub(crate) fn regex_const_match(pat: &AwkRegex, s: &Str) -> bool {
         s.with_bytes(|bs| pat.is_match(bs))
     }
 
@@ -1989,8 +1990,7 @@ mod tests {
         if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
             assert!(rc.0.cached.len() < 40, "{} regexes cached", rc.0.cached.len());
         }
-        // The light matchers and compiled regexes share the budget with the longest-match
-        // machinery.
+        // The longest-match machinery, built on the first search, counts against the budget too.
         for i in 0..200 {
             let pat = Str::from(format!("[[:alpha:]]+(a|ab){}", i));
             rc.with_regex(&pat, |re| awk_regex::find_at(re, b"ab0", 0)).unwrap();

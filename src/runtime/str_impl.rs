@@ -2104,6 +2104,7 @@ fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Wr
 mod tests {
     use super::*;
     use regex::bytes::Regex;
+    use crate::runtime::awk_regex::AwkRegex;
 
     #[test]
     fn as_text_round_trip() {
@@ -2277,7 +2278,7 @@ mod tests {
         assert_eq!(s2.slice(2, 6), s3.slice(17, 21));
     }
 
-    fn test_str_split(pat: &Regex, base: &[u8]) {
+    fn test_str_split(pat: &AwkRegex, base: &[u8]) {
         let s = Str::from(base);
         let want = pat
             .split(base)
@@ -2309,15 +2310,15 @@ mod tests {
 
     #[test]
     fn basic_splitting() {
-        let pat0 = Regex::new(",").unwrap();
+        let pat0 = AwkRegex::new(Regex::new(",").unwrap());
         test_str_split(&pat0, b"what,is,,,up,");
-        let pat = Regex::new(r#"[ \t]"#).unwrap();
+        let pat = AwkRegex::new(Regex::new(r#"[ \t]"#).unwrap());
         test_str_split(&pat, b"what is \t up ");
     }
 
     #[test]
     fn split_long_string() {
-        let pat = Regex::new(r#"[ \t]"#).unwrap();
+        let pat = AwkRegex::new(Regex::new(r#"[ \t]"#).unwrap());
         test_str_split(
             &pat,
             crate::test_string_constants::PRIDE_PREJUDICE_CH2.as_bytes(),
@@ -2347,12 +2348,12 @@ And this is the second part"#
     fn subst() {
         let s1: Str = "String number one".into();
         let s2: Str = "m".into();
-        let re1 = Regex::new("n").unwrap();
+        let re1 = AwkRegex::new(Regex::new("n").unwrap());
         let (s3, n1) = s1.subst_all(&re1, &s2);
         assert_eq!(n1, 3);
         s3.with_bytes(|bs| assert_eq!(bs, b"Strimg mumber ome"));
 
-        let re2 = Regex::new("xxyz").unwrap();
+        let re2 = AwkRegex::new(Regex::new("xxyz").unwrap());
         let (s4, n2) = s3.subst_all(&re2, &s2);
         assert_eq!(n2, 0);
         assert_eq!(s3, s4);
@@ -2372,7 +2373,7 @@ And this is the second part"#
     fn subst_ampersand() {
         let s1: Str = "hahbhc".into();
         let s2: Str = "ha&".into();
-        let re1 = Regex::new("h.").unwrap();
+        let re1 = AwkRegex::new(Regex::new("h.").unwrap());
         let (s3, subbed) = s1.subst_first(&re1, &s2);
         assert!(subbed);
         s3.with_bytes(|bs| assert_eq!(bs, b"hahahbhc"));
@@ -2389,11 +2390,11 @@ And this is the second part"#
     fn gen_subst_basic() {
         let s1: Str = "String number one".into();
         let s2: Str = "m".into();
-        let re1 = Regex::new("n").unwrap();
+        let re1 = AwkRegex::new(Regex::new("n").unwrap());
         let s3 = s1.gen_subst_dynamic(&re1, &s2, &"g".into());
         s3.with_bytes(|bs| assert_eq!(bs, b"Strimg mumber ome"));
 
-        let re2 = Regex::new("xxyz").unwrap();
+        let re2 = AwkRegex::new(Regex::new("xxyz").unwrap());
         let s4 = s3.gen_subst_dynamic(&re2, &s2, &"g".into());
         assert_eq!(s3, s4);
 
@@ -2407,7 +2408,7 @@ And this is the second part"#
 
         // `how` is a number as by str_to_num, truncated; below 1 (or not a number) is 1.
         let a: Str = "aaaaaaaaaaaa".into();
-        let re_a = Regex::new("a").unwrap();
+        let re_a = AwkRegex::new(Regex::new("a").unwrap());
         let b: Str = "b".into();
         let s8 = a.gen_subst_dynamic(&re_a, &b, &"1e1".into());
         s8.with_bytes(|bs| assert_eq!(bs, b"aaaaaaaaabaa"));
@@ -2421,7 +2422,7 @@ And this is the second part"#
     fn gen_subst() {
         let s1: Str = "abc def".into();
         let s2: Str = "\\2 \\1 \\0".into();
-        let re1 = Regex::new("(.+) (.+)").unwrap();
+        let re1 = AwkRegex::new(Regex::new("(.+) (.+)").unwrap());
         let s3 = s1.gen_subst_dynamic(&re1, &s2, &"g".into());
         s3.with_bytes(|bs| assert_eq!(bs, b"def abc abc def"));
     }
