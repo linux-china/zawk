@@ -257,6 +257,22 @@ pub(crate) fn find_at(re: &Regex, hay: &[u8], start: usize) -> Option<(usize, us
     }
 }
 
+/// The position just past the character at `pos`: a whole UTF-8 sequence when one starts there,
+/// otherwise a single byte. Used to step over an empty match without splitting a character.
+pub(crate) fn next_char(hay: &[u8], pos: usize) -> usize {
+    let n = match hay.get(pos) {
+        Some(&b) if b >= 0xF0 => 4,
+        Some(&b) if b >= 0xE0 => 3,
+        Some(&b) if b >= 0xC0 => 2,
+        _ => 1,
+    };
+    if n > 1 && hay.get(pos..pos + n).is_some_and(|c| std::str::from_utf8(c).is_ok()) {
+        pos + n
+    } else {
+        pos + 1
+    }
+}
+
 /// All successive non-overlapping leftmost-longest matches of `re` in `hay`, as (start, end).
 /// As with `Regex::find_iter`, an empty match right after the previous match is skipped.
 pub(crate) fn find_iter<'h>(
@@ -271,7 +287,7 @@ pub(crate) fn find_iter<'h>(
         }
         let (from, to) = find_at(re, hay, pos)?;
         if from == to && last_end == Some(to) {
-            pos = to + 1;
+            pos = next_char(hay, to);
             continue;
         }
         pos = to;
@@ -776,6 +792,21 @@ mod tests {
         let caps = captures_at(&re, b"abcd", 0, 4).unwrap();
         assert!(caps.get(1).is_none());
         assert_eq!(&caps[2], b"abcd");
+    }
+
+    #[test]
+    fn empty_matches_step_over_whole_chars() {
+        let re = compile("x*").unwrap();
+        let spans: Vec<_> = find_iter(&re, "éb".as_bytes()).collect();
+        assert_eq!(spans, vec![(0, 0), (2, 2), (3, 3)]);
+        let spans: Vec<_> = find_iter(&re, "中".as_bytes()).collect();
+        assert_eq!(spans, vec![(0, 0), (3, 3)]);
+        // Invalid UTF-8 advances one byte at a time.
+        let spans: Vec<_> = find_iter(&re, b"\xffa").collect();
+        assert_eq!(spans, vec![(0, 0), (1, 1), (2, 2)]);
+        assert_eq!(next_char("é".as_bytes(), 0), 2);
+        assert_eq!(next_char(b"\xc3", 0), 1);
+        assert_eq!(next_char(b"", 0), 1);
     }
 
     #[test]

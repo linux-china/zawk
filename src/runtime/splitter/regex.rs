@@ -305,7 +305,7 @@ fn find_nonempty(pat: &Regex, s: &[u8]) -> Option<(usize, usize)> {
         if start < end {
             return Some((start, end));
         }
-        pos = start + 1;
+        pos = crate::runtime::awk_regex::next_char(s, start);
     }
     None
 }
