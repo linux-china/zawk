@@ -4,6 +4,11 @@
 //! widths and precisions taken from the arguments. Numeric conversions are formatted with the C
 //! library's `snprintf` (with a format we build, so it is always well-formed); `%s` and `%c` are
 //! formatted here, counting UTF-8 characters for widths and precisions, as gawk does.
+//!
+//! The `'` flag groups the integer digits of decimal conversions in thousands with `,` (as gawk
+//! does in an English locale, but independently of the locale), and the `_` flag (a zawk
+//! extension) groups them with `_`. Zero padding then fills with grouped zeros, as in Python
+//! (`%'010d` of 1234 is `00,001,234`).
 use crate::common::Result;
 use crate::runtime::compare::looks_numeric;
 use crate::runtime::{convert, Float, Int, Str};
@@ -92,6 +97,8 @@ struct Spec {
     space: bool,
     alt: bool,
     zero: bool,
+    // The thousands separator of the `'` (`,`) or `_` flag.
+    group: Option<u8>,
     width: Option<usize>,
     precision: Option<usize>,
     conv: u8,
@@ -378,7 +385,52 @@ impl<'a> FormatArg<'a> {
     }
 }
 
-fn process_spec(w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
+/// Writes `s`, a formatted number (or, for `%s`, a string) with no padding, with its integer
+/// digits grouped by `sep`, zero-padded to `width` if `zero` (the zeros are grouped too, and the
+/// result never starts with a separator). Returns `None` if `s` does not start with digits after
+/// an optional sign.
+fn group_digits(s: &[u8], sep: u8, zero: bool, width: usize) -> Option<Vec<u8>> {
+    let sign = s.iter().take_while(|c| matches!(c, b'+' | b'-' | b' ')).count().min(1);
+    let digits = s[sign..].iter().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    let (int, rest) = s[sign..].split_at(digits);
+    let grouped_len = |n: usize| n + (n - 1) / 3;
+    let mut n = digits;
+    if zero {
+        while sign + grouped_len(n) + rest.len() < width {
+            n += 1;
+        }
+    }
+    let mut res = Vec::with_capacity(sign + grouped_len(n) + rest.len());
+    res.extend_from_slice(&s[..sign]);
+    for k in 0..n {
+        if k > 0 && (n - k) % 3 == 0 {
+            res.push(sep);
+        }
+        res.push(if k < n - digits { b'0' } else { int[k - (n - digits)] });
+    }
+    res.extend_from_slice(rest);
+    Some(res)
+}
+
+fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
+    if let Some(sep) = spec.group {
+        if matches!(spec.conv, b'd' | b'i' | b'u' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b's') {
+            let plain = Spec { group: None, width: None, minus: false, zero: false, ..*spec };
+            let mut buf = Vec::new();
+            process_spec(&mut buf, &plain, arg)?;
+            // Strings are grouped (and zero-padded) only if they look like numbers.
+            let grouped = if spec.conv == b's' && looks_numeric(&buf).is_none() {
+                None
+            } else {
+                group_digits(&buf, sep, spec.zero && !spec.minus, spec.width.unwrap_or(0))
+            };
+            let buf = grouped.unwrap_or(buf);
+            return spec.pad(&mut w, &buf, char_count(&buf));
+        }
+    }
     match spec.conv {
         b'd' | b'i' => match arg.to_integer() {
             Ok(i) => spec.write_int(w, i),
@@ -501,6 +553,8 @@ fn parse_spec(
             b' ' => spec.space = true,
             b'#' => spec.alt = true,
             b'0' => spec.zero = true,
+            b'\'' => spec.group = Some(b','),
+            b'_' => spec.group = Some(b'_'),
             _ => break,
         }
         i += 1;
@@ -699,6 +753,14 @@ mod tests {
     }
 
     #[test]
+    fn digit_grouping() {
+        let s = sprintf!(b"%'d|%_d|%'010.2f|%-'10d|%'s|%'s|%'d", 1234567, 1234567, 1234.5, 1234, "9876543", "abc12345", -999);
+        assert_eq!(s.as_str(), "1,234,567|1_234_567|001,234.50|1,234     |9,876,543|abc12345|-999");
+        let s = sprintf!(b"%'08d|%'+d|%'14.1f|%'e", 1234, 1000, -1234567.25, 1234.5);
+        assert_eq!(s.as_str(), "0,001,234|+1,000|  -1,234,567.2|1.234500e+03");
+    }
+
+    #[test]
     fn float_rounding() {
         let s1 = sprintf!(b"%02.2f", 2.375);
         assert_eq!(s1.as_str(), "2.38");
@@ -737,6 +799,7 @@ mod tests {
                         space: flags & 4 != 0,
                         alt: flags & 8 != 0,
                         zero: flags & 16 != 0,
+                        group: None,
                         width,
                         precision,
                         conv: b'd',
@@ -794,6 +857,7 @@ mod tests {
                         space: flags & 4 != 0,
                         alt: false,
                         zero: flags & 16 != 0,
+                        group: None,
                         width,
                         precision,
                         conv: b'f',
