@@ -232,12 +232,13 @@ fn parse_placeholder<'a>(
     Ok(e)
 }
 
-/// Applies the format spec of an f-string placeholder (as in Python, without `=` alignment and
-/// grouping): `[[fill]align][sign][#][0][width][.precision][type]`, where `align` is `<`, `>` or
-/// `^`, `sign` is `+`, `-` or a space, and `type` is a printf conversion (`d i o x X e E f F g G s
-/// c`) or `%` (the number times 100, in `f` format, with a `%` sign). Without a type the value is
-/// formatted as a string (`%s`, so `.n` truncates; `0` pads it with zeros on the left). Values
-/// are right-aligned by default.
+/// Applies the format spec of an f-string placeholder (as in Python, without `=` alignment):
+/// `[[fill]align][sign][#][0][width][grouping][.precision][type]`, where `align` is `<`, `>` or
+/// `^`, `sign` is `+`, `-` or a space, `grouping` is `,` or `_` (the thousands separator, printf's
+/// `'` and `_` flags), and `type` is a printf conversion (`d i o x X e E f F g G s c`) or `%` (the
+/// number times 100, in `f` format, with a `%` sign). Without a type the value is formatted as a
+/// string (`%s`, so `.n` truncates; `0` pads it with zeros on the left; with a grouping, a value
+/// that looks like a number has its digits grouped). Values are right-aligned by default.
 fn format_spec<'a>(
     e: &'a Expr<'a, 'a, &'a str>,
     spec: &str,
@@ -280,6 +281,14 @@ fn format_spec<'a>(
         chars[start..*i].iter().collect::<String>()
     };
     let width = digits(&mut i);
+    let group = match chars.get(i) {
+        Some(',') => Some('\''),
+        Some('_') => Some('_'),
+        _ => None,
+    };
+    if group.is_some() {
+        i += 1;
+    }
     let mut precision = None;
     if chars.get(i) == Some(&'.') {
         i += 1;
@@ -298,9 +307,10 @@ fn format_spec<'a>(
         }
         Some(_) => return Err(invalid()),
     };
-    if i != chars.len() {
+    if i != chars.len() || (group.is_some() && "oxXcs".contains(ty) && typed) {
         return Err(invalid());
     }
+    flags.extend(group);
     let (conv, suffix, arg) = match ty {
         'i' => ('d', "", e),
         '%' => ('f', "%%", &*arena.alloc(Expr::Binop(Binop::Mult, e, arena.alloc(Expr::ILit(100))))),
@@ -314,7 +324,7 @@ fn format_spec<'a>(
     // printf pads with spaces (or zeros); other fills, centering and zero-padding a value of
     // unknown type (`%05s` pads with spaces) use the pad functions.
     let (fill, pad_fn) = match (align, fill) {
-        (None, None) if zero && !typed => (Some('0'), Some("pad_start")),
+        (None, None) if zero && !typed && group.is_none() => (Some('0'), Some("pad_start")),
         (Some('^'), _) => (fill, Some("pad")),
         (Some('<'), Some(f)) if f != ' ' => (fill, Some("pad_end")),
         (Some('>'), Some(f)) if f != ' ' => (fill, Some("pad_start")),

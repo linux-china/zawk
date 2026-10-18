@@ -28,7 +28,7 @@ Features:
 * gawk's `switch` statement: `switch ($1) { case 1: ...; break; case /^a/: ...; break; default: ... }`
 * String interpolation with f-strings: `f"SELECT * FROM {table} WHERE id = {$1}"`. A placeholder is any expression
   (`{NR+1}`, `{toupper($2)}`, `{a[\"k\"]}`), optionally with a Python-style format spec: `{price:.2f}`, `{name:>10}`,
-  `{n:05d}`, `{s:*^9}`, `{ratio:.1%}`; `{{` and `}}` are literal braces.
+  `{n:05d}`, `{s:*^9}`, `{ratio:.1%}`, `{total:,}`, `{amount:_.2f}`; `{{` and `}}` are literal braces.
 
 The info subdirectory has more in-depth information on zawk:
 

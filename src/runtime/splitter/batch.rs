@@ -650,7 +650,7 @@ impl InputFormat {
 // available CPU features.
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx2,pclmulqdq")]
 unsafe fn find_indexes_csv_avx2(
     buf: &[u8],
     offsets: &mut Offsets,
@@ -661,7 +661,7 @@ unsafe fn find_indexes_csv_avx2(
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx2,pclmulqdq")]
 unsafe fn find_indexes_tsv_avx2(
     buf: &[u8],
     offsets: &mut Offsets,
@@ -672,7 +672,7 @@ unsafe fn find_indexes_tsv_avx2(
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "sse2")]
+#[target_feature(enable = "sse2,pclmulqdq")]
 unsafe fn find_indexes_csv_sse2(
     buf: &[u8],
     offsets: &mut Offsets,
@@ -683,7 +683,7 @@ unsafe fn find_indexes_csv_sse2(
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "sse2,pclmulqdq")]
 unsafe fn find_indexes_tsv_sse2(
     buf: &[u8],
     offsets: &mut Offsets,

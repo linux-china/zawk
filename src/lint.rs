@@ -999,7 +999,7 @@ fn format_arguments(fmt: &[u8]) -> usize {
             continue;
         }
         let value = position(&mut i);
-        while i < fmt.len() && b"-+ #0'".contains(&fmt[i]) {
+        while i < fmt.len() && b"-+ #0'_".contains(&fmt[i]) {
             i += 1;
         }
         for part in 0..2 {
