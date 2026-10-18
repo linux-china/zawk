@@ -1,17 +1,25 @@
 use bytes::Bytes;
 use futures_util::StreamExt;
-use minio::s3::builders::ObjectContent;
-use minio::s3::MinioClient;
-use minio::s3::creds::StaticProvider;
-use minio::s3::http::BaseUrl;
-use minio::s3::response::{PutObjectContentResponse};
-use minio::s3::types::{Region, S3Api};
+use opendal::layers::RetryLayer;
+use opendal::services::S3;
+use opendal::Operator;
+use std::collections::HashMap;
 use std::io;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, Mutex};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-static S3_CLIENT: OnceLock<MinioClient> = OnceLock::new();
+/// The S3 settings read from the environment, shared by the operators of all buckets.
+struct S3Config {
+    endpoint: String,
+    access_key_id: String,
+    secret_access_key: String,
+    region: String,
+}
+
+/// One operator per bucket (an OpenDAL operator is bound to a bucket); operators are cheap to
+/// clone and share the HTTP client.
+static S3_OPERATORS: LazyLock<Mutex<HashMap<String, Operator>>> = LazyLock::new(Default::default);
 
 /// All S3 requests run on this runtime. Its worker threads keep downloading objects read as
 /// input (`zawk '...' s3://bucket/key`) while the program processes the bytes received so far,
@@ -26,7 +34,7 @@ static S3_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 });
 
 /// The value of the first environment variable of `names` that is set: the `S3_*` names, then
-/// the AWS style ones.
+/// the OpenDAL and AWS style ones.
 fn env_any(names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
 }
@@ -35,25 +43,45 @@ fn env_required(names: &[&str]) -> Result<String, BoxError> {
     env_any(names).ok_or_else(|| format!("environment variable {} is not set", names.join(" or ")).into())
 }
 
-fn build_s3_client() -> Result<MinioClient, BoxError> {
-    let s3_endpoint = env_required(&["S3_ENDPOINT", "S3_ENDPOINT_URL", "AWS_ENDPOINT_URL", "AWS_ENDPOINT"])?;
-    let s3_access_key = env_required(&["S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"])?;
-    let s3_access_secret = env_required(&["S3_ACCESS_KEY_SECRET", "AWS_SECRET_ACCESS_KEY"])?;
-    let s3_region = env_required(&["S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"])?;
-    let mut base_url = s3_endpoint.parse::<BaseUrl>()?;
-    base_url.region = Region::new(s3_region.as_str())?;
-    let static_provider = StaticProvider::new(&s3_access_key, &s3_access_secret, None);
-    let client = MinioClient::new(base_url, Some(static_provider), None, None)?;
-    Ok(client)
+fn s3_config() -> Result<S3Config, BoxError> {
+    Ok(S3Config {
+        endpoint: env_required(&["S3_ENDPOINT", "OPENDAL_S3_ENDPOINT", "AWS_ENDPOINT_URL"])?,
+        access_key_id: env_required(&["S3_ACCESS_KEY_ID", "OPENDAL_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"])?,
+        secret_access_key: env_required(&[
+            "S3_ACCESS_KEY_SECRET",
+            "OPENDAL_S3_SECRET_ACCESS_KEY",
+            "AWS_SECRET_ACCESS_KEY",
+        ])?,
+        region: env_required(&["S3_REGION", "OPENDAL_S3_REGION", "AWS_REGION"])?,
+    })
 }
 
-/// Returns a cached S3 client; it is built on first successful call and reused afterwards.
-fn s3_client() -> Result<&'static MinioClient, BoxError> {
-    if let Some(client) = S3_CLIENT.get() {
-        return Ok(client);
+fn build_s3_operator(bucket: &str) -> Result<Operator, BoxError> {
+    // Installs the HTTP transport (the `auto-register-services` feature is off); runs once.
+    opendal::install_default();
+    let config = s3_config()?;
+    // Only the settings above are used: no config files nor instance metadata.
+    let builder = S3::default()
+        .bucket(bucket)
+        .endpoint(&config.endpoint)
+        .region(&config.region)
+        .access_key_id(&config.access_key_id)
+        .secret_access_key(&config.secret_access_key)
+        .disable_config_load()
+        .disable_ec2_metadata();
+    Ok(Operator::new(builder)?.layer(RetryLayer::new()))
+}
+
+/// Returns a cached operator for `bucket`; it is built on first successful call and reused
+/// afterwards.
+fn s3_operator(bucket: &str) -> Result<Operator, BoxError> {
+    let mut operators = S3_OPERATORS.lock().unwrap();
+    if let Some(op) = operators.get(bucket) {
+        return Ok(op.clone());
     }
-    let client = build_s3_client()?;
-    Ok(S3_CLIENT.get_or_init(|| client))
+    let op = build_s3_operator(bucket)?;
+    operators.insert(bucket.to_string(), op.clone());
+    Ok(op)
 }
 
 pub fn is_s3_url(path: &str) -> bool {
@@ -72,15 +100,13 @@ fn read_error(url: &str, e: &(dyn std::error::Error + 'static)) -> String {
     format!("cannot read `{}': {}", url, describe(e))
 }
 
-/// A one-line description of an S3 error: the error code and message returned by the server,
-/// or the error with its causes (the client's errors only say e.g. "Network error occurred").
+/// A one-line description of an S3 error: the kind of the error and the message returned by the
+/// server, or the error with its causes.
 fn describe(e: &(dyn std::error::Error + 'static)) -> String {
-    use minio::s3::error::{Error, S3ServerError};
-    if let Some(Error::S3Server(S3ServerError::S3Error(response))) = e.downcast_ref::<Error>() {
-        let code = response.code().to_string();
-        return match response.message() {
-            Some(message) if !message.is_empty() => format!("{}: {}", code, message),
-            _ => code,
+    if let Some(e) = e.downcast_ref::<opendal::Error>() {
+        return match e.message() {
+            "" => e.kind().to_string(),
+            message => format!("{}: {}", e.kind(), message),
         };
     }
     let mut text = e.to_string();
@@ -101,12 +127,9 @@ fn describe(e: &(dyn std::error::Error + 'static)) -> String {
 /// is processed. Returns the size of the object.
 pub fn check_object(url: &str) -> Result<u64, String> {
     let (bucket, key) = parse_s3_url(url)?;
-    let client = s3_client().map_err(|e| read_error(url, &*e))?;
+    let op = s3_operator(bucket).map_err(|e| read_error(url, &*e))?;
     S3_RUNTIME
-        .block_on(async {
-            let response = client.stat_object(bucket, key)?.build().send().await?;
-            Ok::<_, BoxError>(response.size()?)
-        })
+        .block_on(async { Ok::<_, BoxError>(op.stat(key).await?.content_length()) })
         .map_err(|e| read_error(url, &*e))
 }
 
@@ -114,12 +137,9 @@ pub fn check_object(url: &str) -> Result<u64, String> {
 /// Parquet).
 pub fn read_object_bytes(url: &str) -> io::Result<Bytes> {
     let (bucket, key) = parse_s3_url(url).map_err(io::Error::other)?;
-    let client = s3_client().map_err(|e| io::Error::other(read_error(url, &*e)))?;
+    let op = s3_operator(bucket).map_err(|e| io::Error::other(read_error(url, &*e)))?;
     S3_RUNTIME
-        .block_on(async {
-            let response = client.get_object(bucket, key)?.build().send().await?;
-            Ok::<_, BoxError>(response.into_bytes().await?)
-        })
+        .block_on(async { Ok::<_, BoxError>(op.read(key).await?.to_bytes()) })
         .map_err(|e| io::Error::other(read_error(url, &*e)))
 }
 
@@ -149,11 +169,11 @@ impl S3Reader {
     fn start(&self) -> io::Result<tokio::sync::mpsc::Receiver<io::Result<Bytes>>> {
         let url = self.url.clone();
         let (bucket, key) = parse_s3_url(&url).map_err(io::Error::other)?;
-        let (bucket, key) = (bucket.to_string(), key.to_string());
-        let client = s3_client().map_err(|e| io::Error::other(read_error(&url, &*e)))?;
+        let key = key.to_string();
+        let op = s3_operator(bucket).map_err(|e| io::Error::other(read_error(&url, &*e)))?;
         let (tx, rx) = tokio::sync::mpsc::channel(READY_PARTS);
         S3_RUNTIME.spawn(async move {
-            if let Err(e) = download(client, bucket, key, &tx).await {
+            if let Err(e) = download(op, key, &tx).await {
                 let _ = tx.send(Err(io::Error::other(read_error(&url, &*e)))).await;
             }
         });
@@ -164,28 +184,22 @@ impl S3Reader {
 /// Sends the parts of an object to `tx`, in order; stops early when the reader is gone (e.g. the
 /// program exited).
 async fn download(
-    client: &MinioClient,
-    bucket: String,
+    op: Operator,
     key: String,
     tx: &tokio::sync::mpsc::Sender<io::Result<Bytes>>,
 ) -> Result<(), BoxError> {
-    use minio::s3::response_traits::HasEtagFromHeaders;
-    let stat = client.stat_object(&bucket, &key)?.build().send().await?;
-    let size = stat.size()?;
+    let stat = op.stat(&key).await?;
+    let size = stat.content_length();
     // All parts must come from the same version of the object.
-    let etag = stat.etag()?.to_string();
+    let etag = stat.etag().map(str::to_string);
     let parts = (0..size).step_by(PART_SIZE as usize).map(|offset| {
-        let (bucket, key, etag) = (bucket.clone(), key.clone(), etag.clone());
+        let (op, key, etag) = (op.clone(), key.clone(), etag.clone());
         async move {
-            let response = client
-                .get_object(bucket, key)?
-                .offset(offset)
-                .length(PART_SIZE.min(size - offset))
-                .match_etag(etag)
-                .build()
-                .send()
-                .await?;
-            Ok::<_, BoxError>(response.into_bytes().await?)
+            let mut read = op.read_with(&key).range(offset..(offset + PART_SIZE).min(size));
+            if let Some(etag) = &etag {
+                read = read.if_match(etag);
+            }
+            Ok::<_, BoxError>(read.await?.to_bytes())
         }
     });
     let mut parts = futures_util::stream::iter(parts).buffered(PARALLEL_PARTS);
@@ -219,29 +233,20 @@ impl io::Read for S3Reader {
 }
 
 pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, BoxError> {
-    let client = s3_client()?;
+    let op = s3_operator(bucket_name)?;
     S3_RUNTIME.block_on(async {
-        let response = client.get_object(bucket_name, object_name)?.build().send().await?;
-        let content = response.content()?.to_segmented_bytes().await?.to_bytes();
-        let result = String::from_utf8(content.to_vec())?;
-        Ok(result)
+        let content = op.read(object_name).await?.to_vec();
+        Ok(String::from_utf8(content)?)
     })
 }
 
-pub fn put_object(
-    bucket_name: &str,
-    object_name: &str,
-    body: &str,
-) -> Result<PutObjectContentResponse, BoxError> {
-    let client = s3_client()?;
-    let content = ObjectContent::from(body.to_string());
+/// Puts `body` as the object, and returns its ETag (empty if the server returned none).
+pub fn put_object(bucket_name: &str, object_name: &str, body: &str) -> Result<String, BoxError> {
+    let op = s3_operator(bucket_name)?;
+    let body = body.to_string();
     S3_RUNTIME.block_on(async {
-        let response = client
-            .put_object_content(bucket_name, object_name, content)?
-            .build()
-            .send()
-            .await?;
-        Ok(response)
+        let metadata = op.write(object_name, body).await?;
+        Ok(metadata.etag().unwrap_or_default().trim_matches('"').to_string())
     })
 }
 

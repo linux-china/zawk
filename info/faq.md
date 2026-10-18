@@ -96,13 +96,13 @@ $ zawk 'BEGIN { while ((getline line < "s3://bucket1/demo.csv") > 0) print line 
 
 The S3 settings are read from environment variables, also from a `.env` file in the current directory:
 
-- `S3_ENDPOINT` (or `AWS_ENDPOINT_URL`), e.g. `http://127.0.0.1:9000`
-- `S3_ACCESS_KEY_ID` (or `AWS_ACCESS_KEY_ID`)
-- `S3_ACCESS_KEY_SECRET` (or `AWS_SECRET_ACCESS_KEY`)
-- `S3_REGION` (or `AWS_REGION`)
+- `S3_ENDPOINT` (or `OPENDAL_S3_ENDPOINT`, `AWS_ENDPOINT_URL`), e.g. `http://127.0.0.1:9000`
+- `S3_ACCESS_KEY_ID` (or `OPENDAL_S3_ACCESS_KEY_ID`, `AWS_ACCESS_KEY_ID`)
+- `S3_ACCESS_KEY_SECRET` (or `OPENDAL_S3_SECRET_ACCESS_KEY`, `AWS_SECRET_ACCESS_KEY`)
+- `S3_REGION` (or `OPENDAL_S3_REGION`, `AWS_REGION`)
 
 Objects are checked before any input is processed: a missing setting, bucket or object, or denied
-access is reported as an error, e.g. `cannot read `s3://bucket1/nope.csv': NoSuchKey: Object does not exist`.
+access is reported as an error, e.g. `cannot read `s3://bucket1/nope.csv': NotFound`.
 Objects are streamed: 8MB parts are downloaded in parallel (4 at a time) while the program processes
 the data, so memory use stays bounded for large objects. Parquet objects are read into memory.
 

@@ -34,7 +34,6 @@ use std::io;
 use std::mem;
 use std::slice;
 use std::time::SystemTime;
-use minio::s3::response_traits::HasEtagFromHeaders;
 
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -2912,11 +2911,8 @@ pub(crate) unsafe extern "C" fn s3_put(
         let bucket = &*(bucket as *mut Str);
         let object_name = &*(object_name as *mut Str);
         let body = &*(body as *mut Str);
-        let result = runtime::s3::put_object(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str())
-            .unwrap()
-            .etag();
-        let etag = result.unwrap();
-        let res = Str::from(etag.as_str());
+        let etag = runtime::s3::put_object(&*bucket.as_str(), &*object_name.as_str(), &*body.as_str()).unwrap();
+        let res = Str::from(etag);
         mem::transmute::<Str, U128>(res)
     })
 }
