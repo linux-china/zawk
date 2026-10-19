@@ -10,7 +10,7 @@ use aes::cipher::consts::U12;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
 use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
-use crate::runtime::{SharedMap, Str, StrMap};
+use crate::runtime::{stdlib_warning, SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
@@ -175,78 +175,90 @@ fn is_trusted_jwks_url(url: &str) -> bool {
 }
 
 pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
-    let map = crate::runtime::HashMap::default();
-    let header = match decode_header(token) {
-        Ok(header) => header,
-        Err(_) => return SharedMap::from(map),
-    };
-    // allowed algorithms are decided by the key, and header.alg must be in the white list
-    let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
-        if !is_trusted_jwks_url(key) {
-            return SharedMap::from(map);
-        }
-        let jwk = match extract_jwk(key) {
-            Some(jwk) => jwk,
-            None => return SharedMap::from(map),
-        };
-        if !jwk_allowed_algorithms(&jwk).contains(&header.alg) {
-            return SharedMap::from(map);
-        }
-        DecodingKey::from_jwk(&jwk).ok()
-    } else if key.trim_start().starts_with("-----BEGIN") {
-        decoding_key_from_pem(header.alg, key)
-    } else if HMAC_ALGORITHMS.contains(&header.alg) {
-        Some(DecodingKey::from_secret(key.as_ref()))
-    } else {
-        None
-    };
-    let decoding_key = match decoding_key {
-        Some(decoding_key) => decoding_key,
-        None => return SharedMap::from(map),
-    };
-    let mut map = map;
-    let validation = Validation::new(header.alg);
-    if let Ok(toke_data) = jsonwebtoken::decode::<BTreeMap<String, Value>>(&token, &decoding_key, &validation) {
-        for (key, value) in toke_data.claims {
-            match value {
-                Value::Null => {}
-                Value::Bool(bool_value) => {
-                    if bool_value {
-                        map.insert(Str::from(key), Str::from("1".to_string()));
-                    } else {
-                        map.insert(Str::from(key), Str::from("0".to_string()));
+    let mut map = crate::runtime::HashMap::default();
+    match verify_jwt(key, token) {
+        Ok(claims) => {
+            for (key, value) in claims {
+                match value {
+                    Value::Null => {}
+                    Value::Bool(bool_value) => {
+                        if bool_value {
+                            map.insert(Str::from(key), Str::from("1".to_string()));
+                        } else {
+                            map.insert(Str::from(key), Str::from("0".to_string()));
+                        }
                     }
-                }
-                Value::Number(num) => {
-                    map.insert(Str::from(key), Str::from(num.to_string()));
-                }
-                Value::String(text) => {
-                    map.insert(Str::from(key), Str::from(text));
-                }
-                Value::Array(arr) => {
-                    map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
-                }
-                Value::Object(obj) => {
-                    map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+                    Value::Number(num) => {
+                        map.insert(Str::from(key), Str::from(num.to_string()));
+                    }
+                    Value::String(text) => {
+                        map.insert(Str::from(key), Str::from(text));
+                    }
+                    Value::Array(arr) => {
+                        map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
+                    }
+                    Value::Object(obj) => {
+                        map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+                    }
                 }
             }
         }
+        // an invalid token and a wrong key/JWKS configuration both give an empty map, ERRNO tells why
+        Err(msg) => stdlib_warning("dejwt", msg),
     }
     SharedMap::from(map)
 }
 
+/// Verify the signature and the time claims of a JWT: `exp` and `nbf` are optional,
+/// but checked when present (60 seconds leeway), so a token without `exp` never expires.
+fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String> {
+    let header = decode_header(token).map_err(|e| format!("invalid token header: {}", e))?;
+    // allowed algorithms are decided by the key, and header.alg must be in the white list
+    let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
+        if !is_trusted_jwks_url(key) {
+            return Err(format!("JWKS URL must be https (http only for localhost): {}", key));
+        }
+        let jwk = extract_jwk(key)?;
+        if !jwk_allowed_algorithms(&jwk).contains(&header.alg) {
+            return Err(format!("algorithm {:?} of the token is not allowed by the JWK {}", header.alg, key));
+        }
+        DecodingKey::from_jwk(&jwk).map_err(|e| format!("invalid JWK {}: {}", key, e))?
+    } else if key.trim_start().starts_with("-----BEGIN") {
+        decoding_key_from_pem(header.alg, key)
+            .ok_or_else(|| format!("PEM key is not a valid public key for algorithm {:?}", header.alg))?
+    } else if HMAC_ALGORITHMS.contains(&header.alg) {
+        DecodingKey::from_secret(key.as_ref())
+    } else {
+        return Err(format!("algorithm {:?} needs a PEM public key or JWKS URL, not a secret", header.alg));
+    };
+    let mut validation = Validation::new(header.alg);
+    validation.required_spec_claims.clear();
+    validation.validate_nbf = true;
+    jsonwebtoken::decode::<BTreeMap<String, Value>>(token, &decoding_key, &validation)
+        .map(|token_data| token_data.claims)
+        .map_err(|e| format!("invalid token: {}", e))
+}
+
 static JWK_POOLS: LazyLock<Arc<Mutex<HashMap<String, Jwk>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-pub fn extract_jwk(full_http_url: &str) -> Option<Jwk> {
+pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
     let mut pools = JWK_POOLS.lock().unwrap();
     if let Some(jwk) = pools.get(full_http_url) {
-        return Some(jwk.clone());
+        return Ok(jwk.clone());
     }
-    let (http_url, kid) = full_http_url.split_once('#')?;
-    let jwkset: JwkSet = crate::runtime::network::fetch(http_url).ok()?.json::<JwkSet>().ok()?;
-    let jwk = jwkset.find(kid)?.clone();
+    let (http_url, kid) = full_http_url
+        .split_once('#')
+        .ok_or_else(|| format!("JWKS URL needs the key id as fragment, e.g. {}#kid", full_http_url))?;
+    let jwkset: JwkSet = crate::runtime::network::fetch(http_url)
+        .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e.without_url()))?
+        .json::<JwkSet>()
+        .map_err(|e| format!("invalid JWKS {}: {}", http_url, e))?;
+    let jwk = jwkset
+        .find(kid)
+        .ok_or_else(|| format!("key id {:?} not found in JWKS {}", kid, http_url))?
+        .clone();
     pools.insert(full_http_url.to_string(), jwk.clone());
-    Some(jwk)
+    Ok(jwk)
 }
 
 /// Ciphertext formats, all with PBKDF2-HMAC-SHA256 derived keys except legacy:
@@ -583,6 +595,25 @@ mod tests {
         assert_eq!(claims.len(), 0);
         // invalid token should not panic
         assert_eq!(dejwt("123456", "not-a-token").len(), 0);
+    }
+
+    #[test]
+    fn test_dejwt_exp_optional() {
+        // a token without exp is valid
+        let payload: StrMap<Str> = StrMap::default();
+        payload.insert(Str::from("sub"), Str::from("1"));
+        let token = jwt("HS256", "secret", &payload);
+        assert_eq!(dejwt("secret", &token).get(&Str::from("sub")).as_str(), "1");
+        // an expired token is rejected, and ERRNO tells why
+        payload.insert(Str::from("exp"), Str::from("1000"));
+        let token = jwt("HS256", "secret", &payload);
+        crate::runtime::set_errno(String::new());
+        assert_eq!(dejwt("secret", &token).len(), 0);
+        assert!(crate::runtime::errno().contains("ExpiredSignature"), "{}", crate::runtime::errno());
+        // wrong secret
+        crate::runtime::set_errno(String::new());
+        assert_eq!(dejwt("other", &token).len(), 0);
+        assert!(crate::runtime::errno().starts_with("dejwt: invalid token"));
     }
 
     #[test]

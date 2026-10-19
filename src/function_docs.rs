@@ -371,7 +371,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       "Sign a JWT: HS256/384/512 with a secret, RS*/ES*/EdDSA with a PEM private key.",
       r#"payload["sub"] = "1"; token = jwt("HS256", "secret", payload)"#),
     d("dejwt", CRYPTO, "dejwt(key: str, token: str) -> map[str]str",
-      "Verify a JWT with a secret, PEM public key or JWKS URL; returns the payload, empty if invalid.",
+      "Verify a JWT with a secret, PEM public key or JWKS URL; exp/nbf checked when present. Returns the payload, empty if invalid (ERRNO tells why).",
       r#"dejwt("secret", token)["sub"]"#),
     // KV
     d("kv_get", KV, "kv_get(namespace: str, key: str) -> str",

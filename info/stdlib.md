@@ -850,6 +850,17 @@ JWK: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`,
 a PEM key only accepts `RS*`/`PS*`/`ES*`/`EdDSA`, a plain secret only accepts `HS*`,
 and a JWK only accepts algorithms matching its key type and `alg`. An empty map is returned if verification fails.
 
+**Claims**: `exp` and `nbf` are optional, and checked when present (with 60 seconds leeway):
+an expired token, or one not valid yet, is rejected; a token without `exp` never expires.
+
+**Errors**: on failure (bad signature, expired token, wrong key type, JWKS fetch error, non-https JWKS URL, ...)
+`dejwt` prints a warning on stderr and sets `ERRNO`, e.g. `dejwt: invalid token: ExpiredSignature`:
+
+```awk
+ERRNO = ""; claims = dejwt("secret", token)
+if (ERRNO != "") print "invalid JWT: " ERRNO
+```
+
 **Tips**: you can use https://jwkset.com/generate to generate JWK json and keys PEM text.
 
 # KV
