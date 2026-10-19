@@ -3680,7 +3680,7 @@ pub(crate) unsafe extern "C" fn printf_impl_file(
         let rt = rt as *mut Runtime;
         let text = try_abort!(
             rt,
-            runtime::printf::format(&*(spec as *mut Str), &format_args[..]),
+            runtime::printf::format("printf", &*(spec as *mut Str), &format_args[..]),
             "printf:"
         );
         try_abort!(rt, (*rt).core.write_files.check_output(output_wrapped));
@@ -3702,7 +3702,7 @@ pub(crate) unsafe extern "C" fn sprintf_impl(
         let spec = &*(spec as *mut Str);
         let res = try_abort!(
             rt,
-            runtime::printf::format(spec, &format_args[..]),
+            runtime::printf::format("sprintf", spec, &format_args[..]),
             "sprintf:"
         );
         mem::transmute::<Str, U128>(res)
@@ -3721,7 +3721,7 @@ pub(crate) unsafe extern "C" fn printf_impl_stdout(
         let rt = rt as *mut Runtime;
         let text = try_abort!(
             rt,
-            runtime::printf::format(&*(spec as *mut Str), &format_args[..]),
+            runtime::printf::format("printf", &*(spec as *mut Str), &format_args[..]),
             "printf:"
         );
         // Like print, exit silently on write errors (e.g. stdout piped to `head`).

@@ -497,9 +497,16 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
     }
 }
 
-pub(crate) fn format<'a>(spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
+/// Format `spec` with `args` for `func` (`printf` or `sprintf`), which names it in the warning
+/// about missing arguments.
+pub(crate) fn format<'a>(func: &str, spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
     let mut buf = crate::runtime::str_impl::DynamicBuf::default();
-    spec.with_bytes(|bs| printf(&mut buf, bs, args))?;
+    spec.with_bytes(|bs| {
+        if printf(&mut buf, bs, args)? {
+            warn_missing(func, bs);
+        }
+        Ok(())
+    })?;
     Ok(buf.into_str())
 }
 
@@ -629,9 +636,22 @@ impl Spec {
     }
 }
 
-pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<()> {
+/// Warn (once per format) that `fmt` uses more arguments than given; gawk makes this fatal.
+fn warn_missing(func: &str, fmt: &[u8]) {
+    crate::runtime::stdlib_notice(
+        func,
+        format!(
+            "not enough arguments for format \"{}\": the missing ones print as empty",
+            String::from_utf8_lossy(fmt).escape_debug()
+        ),
+    );
+}
+
+/// Write `fmt` formatted with `args`, returning whether a conversion had no argument.
+fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
     // Missing arguments are empty strings (as in onetrue awk).
     let default = FormatArg::S(Default::default());
+    let missing = std::cell::Cell::new(false);
     let mut arg_ix = 0;
     let mut i = 0;
     let mut raw_start = 0;
@@ -643,13 +663,16 @@ pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Resul
         write_bytes(&mut w, &fmt[raw_start..i])?;
         // Positional references (`%2$s`, `*2$`) take the given argument and leave the sequential
         // position unchanged.
-        let mut next_int = |pos: Option<usize>| match pos {
-            Some(p) => args.get(p).map_or(0, FormatArg::to_int),
-            None => {
-                let res = args.get(arg_ix).map_or(0, FormatArg::to_int);
-                arg_ix += 1;
-                res
-            }
+        let mut next_int = |pos: Option<usize>| {
+            let arg = match pos {
+                Some(p) => args.get(p),
+                None => {
+                    arg_ix += 1;
+                    args.get(arg_ix - 1)
+                }
+            };
+            missing.set(missing.get() || arg.is_none());
+            arg.map_or(0, FormatArg::to_int)
         };
         match parse_spec(fmt, i + 1, &mut next_int) {
             Some((spec, position, end)) => {
@@ -665,6 +688,7 @@ pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Resul
                             args.get(arg_ix - 1)
                         }
                     };
+                    missing.set(missing.get() || arg.is_none());
                     process_spec(&mut w, &spec, arg.unwrap_or(&default))?;
                 }
                 i = end;
@@ -677,7 +701,8 @@ pub(crate) fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Resul
         }
         raw_start = i;
     }
-    write_bytes(&mut w, &fmt[raw_start..])
+    write_bytes(&mut w, &fmt[raw_start..])?;
+    Ok(missing.get())
 }
 
 #[cfg(test)]
@@ -742,6 +767,18 @@ mod tests {
         assert_eq!(sprintf!(b"[%1$-5s|%1$05d]", 7), "[7    |00007]");
         // A missing argument is empty; `0$` is not a positional reference.
         assert_eq!(sprintf!(b"[%3$s][%0$s]", "a"), "[][%0$s]");
+    }
+
+    #[test]
+    fn missing_arguments() {
+        use FormatArg::*;
+        let missing = |fmt: &[u8], args: &[FormatArg]| printf(Vec::<u8>::new(), fmt, args).unwrap();
+        assert!(missing(b"%s %s", &[S("a".into())]));
+        assert!(missing(b"%*d", &[I(5)]));
+        assert!(missing(b"%2$s", &[S("a".into())]));
+        assert!(!missing(b"%s %s", &[S("a".into()), S("b".into())]));
+        assert!(!missing(b"%1$s-%1$s 100%%", &[S("a".into())]));
+        assert!(!missing(b"no conversions", &[]));
     }
 
     #[test]

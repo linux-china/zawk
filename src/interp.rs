@@ -2347,7 +2347,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             scratch.push(self.format_arg(*a, *strnum)?);
                         }
                         let fmt_str = index(&self.strs, fmt);
-                        let res = runtime::printf::format(fmt_str, &scratch[..])?;
+                        let res = runtime::printf::format("sprintf", fmt_str, &scratch[..])?;
                         scratch.clear();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
@@ -2381,7 +2381,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         }
                         let fmt_str = index(&self.strs, fmt);
                         // Format errors are fatal; write errors exit silently, as with print.
-                        let text = runtime::printf::format(fmt_str, &scratch[..])?;
+                        let text = runtime::printf::format("printf", fmt_str, &scratch[..])?;
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
                             self.core
