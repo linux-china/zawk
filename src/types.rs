@@ -275,6 +275,7 @@
 //! [static analysis algorithms]: https://cs.au.dk/~amoeller/spa/
 //! [Hindley-Milner]: https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 //! [`State`]: [crate::types::State]
+use crate::ast;
 use crate::builtins;
 use crate::cfg::{self, is_unused, Function, Ident, ProgramContext};
 use crate::common::{self, FileSpec, NodeIx, NumTy, Result};
@@ -1040,11 +1041,17 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         if let Some(func_id) = key.func_id {
             let func = &self.func_table[func_id as usize];
             if let Some(arg) = func.args.iter().find(|a| a.id.low == low) {
-                return Some(format!("`{}` (parameter of function `{}`)", arg.name, func.name));
+                let name = arg.name.to_string();
+                let name = ast::source_name(&name);
+                return Some(if ast::is_local_name(&arg.name.to_string()) {
+                    format!("`{}` (local variable of function `{}`)", name, func.name)
+                } else {
+                    format!("`{}` (parameter of function `{}`)", name, func.name)
+                });
             }
         }
         // Globals referenced only from the main program are local to it.
-        self.global_names.get(&low).map(|name| format!("`{}`", name))
+        self.global_names.get(&low).map(|name| format!("`{}`", ast::source_name(name)))
     }
 
     pub(crate) fn constant(&mut self, tv: State) -> NodeIx {

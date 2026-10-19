@@ -3034,3 +3034,61 @@ fn taint_check_is_opt_in() {
         Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg("-A").arg(prog).write_stdin("a b\n").assert().success();
     }
 }
+
+#[test]
+fn local_variables() {
+    let cases: &[(&str, &str)] = &[
+        // A local is only visible in its rule, and shadows a global of the same name.
+        (
+            r#"{ a = "g" } { local a = "jackie"; print a } { print "[" a "]" }"#,
+            "jackie\n[g]\njackie\n[g]\n",
+        ),
+        (r#"{ local a = "jackie" } { print "[" a "]" }"#, "[]\n[]\n"),
+        // A local is uninitialized on each run of its rule.
+        ("{ local n; n++; print n }", "1\n1\n"),
+        (r#"{ local n; print "[" n "]"; n++ }"#, "[]\n[]\n"),
+        ("{ local arr[]; arr[NR] = 1; print length(arr) }", "1\n1\n"),
+        (
+            r#"{ if (NR == 2) { local x = "set" } print "[" x "]" }"#,
+            "[]\n[set]\n",
+        ),
+        ("{ for (i = 0; i < 3; i++) { local n; n++; printf \"%d \", n } print \"\" }", "1 1 1 \n1 1 1 \n"),
+        // The scope starts after the declaration, and its initializer reads the outer variable.
+        (
+            "BEGIN { a = 10 } { print a; local a = a + 1; print a } END { print a }",
+            "10\n11\n10\n11\n10\n",
+        ),
+        ("{ local a = 1, b = a + 1, m[]; m[1]; print a, b, length(m) }", "1 2 1\n1 2 1\n"),
+        // Locals of a function are new on each call, and are not globals.
+        (
+            "function f(n) { local acc[]; local s = 0; for (i = 1; i <= n; i++) { acc[i] = i; s += i } return s \":\" length(acc) } { print f(NR) }",
+            "1:1\n3:2\n",
+        ),
+        (
+            "function fact(n) { local r = 1; if (n > 1) r = n * fact(n - 1); return r } { print fact(NR + 3) }",
+            "24\n120\n",
+        ),
+        (r#"function g() { return x } { local x = 7; print "[" g() "]" }"#, "[]\n[]\n"),
+        (r#"{ local x = NR; print f"x={x}" }"#, "x=1\nx=2\n"),
+    ];
+    for (prog, expected) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg(prog)
+                .write_stdin("a\nb\n")
+                .assert()
+                .stdout(expected.to_string());
+        }
+    }
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("{ local NR = 1 }")
+        .write_stdin("")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("cannot declare the special variable `NR' as local"), "{}", stderr);
+}

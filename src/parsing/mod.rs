@@ -3,7 +3,8 @@ use lalrpop_util::lalrpop_mod;
 lalrpop_mod!(pub syntax);
 
 use crate::arena::Arena;
-use crate::ast::{Binop, Expr, Pattern, Prog, Stmt};
+use crate::ast::{expr_key, Binop, Expr, Pattern, Prog, Stmt, UNINIT_VAR};
+use crate::builtins::{Function, Variable};
 use crate::common::{fatal_message, CompileError, Either, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
 use crate::lexer::{self, Loc, Tok};
 use lalrpop_util::ParseError;
@@ -56,6 +57,129 @@ pub(crate) fn check_switch_cases<'a>(
         }
     }
     Ok(())
+}
+
+type ParseResult<'a, T> = Result<T, ParseError<Loc, Tok<'a>, lexer::Error>>;
+
+/// The variable `name` as written at `loc`: the local variable of that name, if one is visible.
+pub(crate) fn var<'a>(
+    name: &'a str,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> &'a Expr<'a, 'a, &'a str> {
+    let e: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(local_name(name, prog)));
+    prog.locs.insert(expr_key(e), loc);
+    e
+}
+
+/// The name of the variable `name`: the new name of the local variable `name`, if one is visible.
+pub(crate) fn local_name<'a>(name: &'a str, prog: &Prog<'a, 'a, &'a str>) -> &'a str {
+    prog.locals.names.get(name).copied().unwrap_or(name)
+}
+
+/// One declaration of a `local` statement, at `loc`: `local x`, `local x = init`, or `local x[]`
+/// for an array. `init` is parsed before `x` is declared, so a variable `x` in it is the outer one
+/// (`local x = x + 1`). Returns the statement that makes `x` a new variable (see `LocalScope`).
+pub(crate) fn declare_local<'a>(
+    name: &'a str,
+    init: Option<&'a Expr<'a, 'a, &'a str>>,
+    array: bool,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    if Variable::try_from(name).is_ok() || name == "length" {
+        return Err(ParseError::User {
+            error: lexer::Error {
+                location: loc,
+                desc: format!("cannot declare the special variable `{}' as local", name).into(),
+            },
+        });
+    }
+    prog.locals.count += 1;
+    let new: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
+    let v: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(new));
+    prog.locs.insert(expr_key(v), loc);
+    let stmt = match (init, array) {
+        (Some(init), _) => Expr::Assign(v, init),
+        (None, true) => Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[v])),
+        (None, false) => Expr::Assign(v, arena.alloc(Expr::Var(UNINIT_VAR))),
+    };
+    let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(arena.alloc(stmt)));
+    prog.locals.names.insert(name, new);
+    prog.locals.decls.push((new, array, expr_key(stmt)));
+    Ok(stmt)
+}
+
+/// The statement that makes the local variable `name` uninitialized, or empties the local array.
+fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a, 'a, &'a str> {
+    let v: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(name));
+    let e = if array {
+        Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[v]))
+    } else {
+        Expr::Assign(v, arena.alloc(Expr::Var(UNINIT_VAR)))
+    };
+    arena.alloc(Stmt::Expr(arena.alloc(e)))
+}
+
+/// The `local` statement made of the declarations `decls`.
+pub(crate) fn local_stmt<'a>(
+    decls: Vec<&'a Stmt<'a, 'a, &'a str>>,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> &'a Stmt<'a, 'a, &'a str> {
+    if decls.len() == 1 {
+        return decls[0];
+    }
+    let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&decls[..])));
+    let n = prog.locals.decls.len();
+    for d in prog.locals.decls[n - decls.len()..].iter_mut() {
+        d.2 = expr_key(stmt);
+    }
+    stmt
+}
+
+/// Ends the scope of the local variables of the rule whose action is `body`. A local declared in a
+/// nested statement (`if (c) { local x = 1 }`) may be read without running its declaration, so
+/// the rule starts by making it uninitialized.
+pub(crate) fn end_rule_scope<'a>(
+    body: &'a Stmt<'a, 'a, &'a str>,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> &'a Stmt<'a, 'a, &'a str> {
+    let decls = std::mem::take(&mut prog.locals.decls);
+    prog.locals.names.clear();
+    let top: Vec<usize> = match body {
+        Stmt::Block(stmts) => stmts.iter().map(|s| expr_key(*s)).collect(),
+        s => vec![expr_key(s)],
+    };
+    let mut stmts: Vec<_> = decls
+        .iter()
+        .filter(|(_, _, key)| !top.contains(key))
+        .map(|(name, array, _)| reset_local(name, *array, arena))
+        .collect();
+    if stmts.is_empty() {
+        return body;
+    }
+    stmts.push(body);
+    arena.alloc(Stmt::Block(arena.new_vec_from_slice(&stmts[..])))
+}
+
+/// Ends the scope of the local variables of a function, and returns its parameters followed by
+/// its locals. A parameter that is not passed is uninitialized on each call, so the locals are
+/// too; `UNINIT_VAR` is one as well.
+pub(crate) fn end_function_scope<'a>(
+    mut args: Vec<&'a str>,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> Vec<&'a str> {
+    let decls = std::mem::take(&mut prog.locals.decls);
+    prog.locals.names.clear();
+    if decls.iter().any(|(_, array, _)| !array) {
+        args.push(UNINIT_VAR);
+    }
+    args.extend(decls.iter().map(|(name, _, _)| *name));
+    args
 }
 
 type FStrResult<'a> = Result<&'a Expr<'a, 'a, &'a str>, ParseError<Loc, Tok<'a>, lexer::Error>>;
@@ -203,6 +327,7 @@ fn parse_placeholder<'a>(
         loc.advance(src.get(..k).unwrap_or(&src))
     };
     let mut inner = Prog::from_stage(arena, Stage::Main(()));
+    inner.locals.names = prog.locals.names.clone();
     let parsed = syntax::ProgParser::new().parse(arena, &mut Vec::new(), &mut inner, lexer::Tokenizer::new(text));
     let e = match (parsed, inner.pats.first()) {
         (Ok(()), Some((Pattern::Bool(e), None))) if inner.pats.len() == 1 => *e,

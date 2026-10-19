@@ -35,7 +35,10 @@ pub enum Unop {
 #[derive(Debug)]
 pub struct FunDec<'a, 'b, I> {
     pub name: I,
+    /// The parameters, followed by the `local` variables of the body (see `LocalScope`).
     pub args: Vec<I>,
+    /// The number of declared parameters at the start of `args`.
+    pub params: usize,
     pub body: &'a Stmt<'a, 'b, I>,
 }
 
@@ -85,6 +88,64 @@ pub struct Prog<'a, 'b, I> {
     // Where calls and variable references start in the program text, for error messages: see
     // `expr_key`.
     pub locs: ExprLocs,
+    // The `local` variables of the rule or function being parsed.
+    pub locals: LocalScope<I>,
+}
+
+/// The value of a variable that is never assigned: `local x` assigns it to `x`, which makes `x`
+/// uninitialized again (see `parsing::declare_local`).
+pub const UNINIT_VAR: &str = "%uninit";
+
+/// The name of the variable `name` in the program: the name of a `local` variable without the
+/// suffix that makes it unique (see `LocalScope`).
+pub fn source_name(name: &str) -> &str {
+    match name.rsplit_once('@') {
+        Some((base, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => name,
+    }
+}
+
+/// `text` with the names of `local` variables quoted in it (`` `x@1` ``) replaced by their names in
+/// the program (see `source_name`).
+pub fn source_names(text: &str) -> String {
+    text.split('`')
+        .enumerate()
+        .map(|(i, s)| if i % 2 == 1 { source_name(s) } else { s })
+        .collect::<Vec<_>>()
+        .join("`")
+}
+
+/// Whether `name` is the new name of a `local` variable.
+pub fn is_local_name(name: &str) -> bool {
+    source_name(name).len() != name.len()
+}
+
+/// The `local` variables declared so far in the rule or function being parsed.
+///
+/// A local variable `x` is renamed to `x@N`, which can not be written in a program, from its
+/// declaration to the end of the rule or function, so the rest of the compiler sees an ordinary
+/// variable: in a rule it is a global only referenced from the main program, which is kept in a
+/// register, and in a function it is an extra parameter. A local in a rule is uninitialized on
+/// each run of the rule: its declaration assigns it `UNINIT_VAR` (or `delete`s an array), and the
+/// rule starts with such an assignment for the locals declared in nested statements.
+pub struct LocalScope<I> {
+    /// The new names of the visible locals.
+    pub names: hashbrown::HashMap<I, I>,
+    /// The locals declared in the rule or function: the new name, whether it is an array, and the
+    /// key (`expr_key`) of its declaration statement.
+    pub decls: Vec<(I, bool, usize)>,
+    /// The number of locals declared in the program, which numbers their new names.
+    pub count: usize,
+}
+
+impl<I> Default for LocalScope<I> {
+    fn default() -> Self {
+        LocalScope {
+            names: Default::default(),
+            decls: Vec::new(),
+            count: 0,
+        }
+    }
 }
 
 /// Locations of expressions in the program text, keyed by `expr_key`.
@@ -320,6 +381,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             header_per_file: false,
             stage,
             locs: Default::default(),
+            locals: Default::default(),
         }
     }
     pub(crate) fn desugar_stage(&self, arena: &'a Arena) -> Stage<&'a Stmt<'a, 'b, I>>

@@ -2085,6 +2085,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         };
         let val = match rhs.and_then(|rhs| self.uninit_flag(rhs)) {
             Some(src) => PrimVal::Var(self.get_identifier(&src)),
+            // `local x` makes `x` uninitialized again.
+            None if matches!(rhs, Some(Expr::Var(v)) if v.to_string() == ast::UNINIT_VAR) => PrimVal::ILit(0),
             None => PrimVal::ILit(1),
         };
         let flag = self.get_identifier(&flag);

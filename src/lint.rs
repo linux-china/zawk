@@ -1043,7 +1043,7 @@ fn warning(code: &'static str, message: String, loc: Option<Loc>) -> Diagnostic 
     Diagnostic {
         code,
         severity: Severity::Warning,
-        message,
+        message: crate::ast::source_names(&message),
         loc,
     }
 }
@@ -1263,6 +1263,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     for u in &facts.uses {
         let special = crate::builtins::VARIABLES.contains_key(u.name)
             || u.name == "SUBSEP"
+            || u.name == crate::ast::UNINIT_VAR
             || IGNORED_GAWK_VARIABLES.iter().any(|(n, _)| *n == u.name);
         if special
             || reported.contains(&u.name)
@@ -1309,15 +1310,17 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             continue;
         }
         reported.push(s.name);
+        let name = crate::ast::source_name(s.name);
         let typo = unset
             .iter()
-            .map(|u| (edit_distance(s.name, u), *u))
-            .filter(|(d, _)| *d <= 2 && *d < s.name.chars().count())
+            .map(|u| (edit_distance(name, u), *u))
+            .filter(|(d, _)| *d <= 2 && *d < name.chars().count())
             .min_by_key(|(d, _)| *d)
             .map_or(String::new(), |(_, u)| format!("; `{}` is read but never set, is one of them a typo?", u));
+        let what = if crate::ast::is_local_name(s.name) { "local variable" } else { "variable" };
         diags.push(warning(
             "W206",
-            format!("variable `{}` is set but never read{}", s.name, typo),
+            format!("{} `{}` is set but never read{}", what, name, typo),
             s.loc,
         ));
     }
@@ -1365,14 +1368,14 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     // Calls of user functions with more arguments than parameters.
     for (name, given, loc) in &facts.calls {
         if let Some(dec) = prog.decs.iter().find(|d| d.name == *name) {
-            if *given > dec.args.len() {
+            if *given > dec.params {
                 diags.push(warning(
                     "W204",
                     format!(
                         "function `{}` is called with {} but declares {}: the extra arguments are ignored",
                         name,
                         plural(*given, "argument"),
-                        plural(dec.args.len(), "parameter")
+                        plural(dec.params, "parameter")
                     ),
                     *loc,
                 ));

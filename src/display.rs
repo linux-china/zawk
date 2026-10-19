@@ -524,6 +524,7 @@ impl<'a> Display for lexer::Tok<'a> {
             In => "in",
             Delete => "delete",
             Return => "return",
+            Local => "local",
 
             Ident(s) => return write!(fmt, "identifier({})", s),
             StrLit(s) => return write!(fmt, "{:?}", s),

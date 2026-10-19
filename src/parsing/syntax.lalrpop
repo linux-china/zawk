@@ -49,12 +49,16 @@ pub Prog: () = {
 }
 
 Function: FunDec<'a, 'a, &'a str> = {
-    <name:"FUNDEC"> "(" <args:FormalParams?> Rparen <body:Block> =>
+    <name:"FUNDEC"> "(" <args:FormalParams?> Rparen <body:Block> => {
+        let args = args.unwrap_or(Default::default());
+        let params = args.len();
         FunDec {
           name,
           body,
-          args: args.unwrap_or(Default::default()),
-       }
+          args: crate::parsing::end_function_scope(args, prog),
+          params,
+        }
+    }
 }
 
 FormalParams: Vec<&'a str> = {
@@ -66,32 +70,33 @@ FormalParams: Vec<&'a str> = {
 }
 
 Begin: &'a Stmt<'a,'a,&'a str> = {
-    "BEGIN" "\n"* <Block> => <>
+    "BEGIN" "\n"* <b:Block> => crate::parsing::end_rule_scope(b, arena, prog),
 }
 
 Prepare: &'a Stmt<'a,'a,&'a str> = {
-    "PREPARE" "\n"* <Block> => <>
+    "PREPARE" "\n"* <b:Block> => crate::parsing::end_rule_scope(b, arena, prog),
 }
 
 BeginFile: &'a Stmt<'a,'a,&'a str> = {
-    "BEGINFILE" "\n"* <Block> => <>
+    "BEGINFILE" "\n"* <b:Block> => crate::parsing::end_rule_scope(b, arena, prog),
 }
 
 EndFile: &'a Stmt<'a,'a,&'a str> = {
-    "ENDFILE" "\n"* <Block> => <>
+    "ENDFILE" "\n"* <b:Block> => crate::parsing::end_rule_scope(b, arena, prog),
 }
 
 End: &'a Stmt<'a,'a,&'a str> = {
-    "END" "\n"* <Block> => <>
+    "END" "\n"* <b:Block> => crate::parsing::end_rule_scope(b, arena, prog),
 }
 
 PatAction: (Pattern<'a,'a,&'a str>, Option<&'a Stmt<'a,'a,&'a str>>) = {
   <p:Expr?> <b:Block> => (match p {
                    Some(e) => Pattern::Bool(e),
                    None => Pattern::Null,
-              }, Some(b)),
+              }, Some(crate::parsing::end_rule_scope(b, arena, prog))),
   // A range pattern: both ends are full expressions, as in `NR == 1, NR == 3`.
-  <l:Expr> "," "\n"* <r:Expr> <b:Block> => (Pattern::Comma(l, r), Some(b)),
+  <l:Expr> "," "\n"* <r:Expr> <b:Block> =>
+      (Pattern::Comma(l, r), Some(crate::parsing::end_rule_scope(b, arena, prog))),
 }
 
 // Resolving if/else groupings courtesy of wikipedia
@@ -113,7 +118,7 @@ OpenStmt: &'a Stmt<'a,'a,&'a str> = {
                 body
         )),
     "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>
-        arena.alloc(Stmt::ForEach(id, arr, body)),
+        arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
 }
 
 ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
@@ -129,7 +134,7 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
                 body
         )),
     "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>
-        arena.alloc(Stmt::ForEach(id, arr, body)),
+        arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
 
 
     Do <body:BaseStmt> "while" "(" <cond:Expr> ")" Sep => arena.alloc(Stmt::DoWhile(cond, body)),
@@ -270,6 +275,19 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
     "next" => arena.alloc(Stmt::Next),
     "nextfile" => arena.alloc(Stmt::NextFile),
     "return" <Expr?> => arena.alloc(Stmt::Return(<>)),
+    "local" <LocalDecls> => crate::parsing::local_stmt(<>, arena, prog),
+}
+
+// The declarations of a `local` statement: `local x, y = 1, arr[]`.
+LocalDecls: Vec<&'a Stmt<'a,'a,&'a str>> = {
+    <LocalDecl> => vec![<>],
+    <v:LocalDecls> "," "\n"* <d:LocalDecl> => { let mut v = v; v.push(d); v },
+}
+
+LocalDecl: &'a Stmt<'a,'a,&'a str> = {
+    <l:@L> <i:"IDENT"> =>? crate::parsing::declare_local(i, None, false, l, arena, prog),
+    <l:@L> <i:"IDENT"> "[" "]" =>? crate::parsing::declare_local(i, None, true, l, arena, prog),
+    <l:@L> <i:"IDENT"> "=" <e:Expr> =>? crate::parsing::declare_local(i, Some(e), false, l, arena, prog),
 }
 
 // The block of a rule or function, which may be followed by a `;`.
@@ -526,13 +544,13 @@ Col: &'a Expr<'a,'a,&'a str> = {
 Ident: &'a Expr<'a,'a,&'a str> = {
   // `length` without parentheses is `length($0)`; it is a builtin, not a variable.
   <l:@L> <i:"IDENT"> => {
-      let e: &'a Expr<'a,'a,&'a str> = if i == "length" {
-          arena.alloc(Expr::Call(Either::Right(Function::Length), &[]))
+      if i == "length" {
+          let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::Call(Either::Right(Function::Length), &[]));
+          prog.locs.insert(expr_key(e), l);
+          e
       } else {
-          arena.alloc(Expr::Var(arena.alloc_str(i)))
-      };
-      prog.locs.insert(expr_key(e), l);
-      e
+          crate::parsing::var(arena.alloc_str(i), l, arena, prog)
+      }
   },
 }
 
@@ -676,5 +694,6 @@ extern {
       "delete" => Tok::Delete,
       "in" => Tok::In,
       "return" => Tok::Return,
+      "local" => Tok::Local,
   }
 }

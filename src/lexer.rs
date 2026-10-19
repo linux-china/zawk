@@ -122,6 +122,7 @@ pub enum Tok<'a> {
     In,
     Delete,
     Return,
+    Local,
 
     Ident(&'a str),
     StrLit(&'a str),
@@ -221,6 +222,7 @@ keyword_map!(
     [b":", Tok::COLON],
     [b"delete", Tok::Delete],
     [b"return", Tok::Return],
+    [b"local", Tok::Local],
     [b"$", Tok::Dollar]
 );
 

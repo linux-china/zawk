@@ -172,6 +172,8 @@ where
             Assign(_, e) => self.is_num(e, params),
             ITE(_, t, f) => self.is_num(t, params) && self.is_num(f, params),
             Nullish(l, r) => self.is_num(l, params) && self.is_num(r, params),
+            // The value of `local x`.
+            Var(i) if i.to_string() == crate::ast::UNINIT_VAR => true,
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
             // An element of an array only assigned numbers.
             Index(..) => self.global_map(e, params).is_some_and(|m| !self.bad_maps.contains(&m)),

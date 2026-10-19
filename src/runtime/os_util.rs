@@ -18,16 +18,18 @@ pub fn arch() -> String {
 }
 
 pub fn pwd() -> String {
-    std::env::current_dir()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string()
+    match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(e) => {
+            runtime::stdlib_warning("pwd", e);
+            "".to_string()
+        }
+    }
 }
 
 pub fn user_home() -> String {
     match dirs::home_dir() {
-        Some(path) => path.to_str().unwrap().to_string(),
+        Some(path) => path.to_string_lossy().into_owned(),
         None => "".to_string(),
     }
 }
