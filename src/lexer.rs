@@ -120,6 +120,7 @@ pub enum Tok<'a> {
     Newline,
     Comma,
     In,
+    NotIn,
     Delete,
     Return,
     Local,
@@ -214,6 +215,7 @@ keyword_map!(
     [b"\r\n", Tok::Newline],
     [b",", Tok::Comma],
     [b"in", Tok::In],
+    [b"!in", Tok::NotIn],
     [b"!", Tok::Not],
     [b"&&", Tok::AND],
     [b"||", Tok::OR],
@@ -353,9 +355,12 @@ fn paren_arg_list(rest: &str) -> Option<usize> {
     if !comma || i >= bs.len() {
         return None;
     }
-    // `(a, b) in arr` is a membership test.
+    // `(a, b) in arr` and `(a, b) !in arr` are membership tests.
     let mut j = i + 1;
     while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+        j += 1;
+    }
+    if bs[j..].starts_with(b"!") {
         j += 1;
     }
     if bs[j..].starts_with(b"in") && !bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
@@ -1106,6 +1111,9 @@ and the third"#;
         assert_eq!(toks("return}"), vec![Return, Semi, RBrace]);
         assert_eq!(toks("print\"x\""), vec![Print, StrLit("x")]);
         assert_eq!(toks("k in a"), vec![Ident("k"), In, Ident("a")]);
+        assert_eq!(toks("k !in a"), vec![Ident("k"), NotIn, Ident("a")]);
+        assert_eq!(toks("!inside"), vec![Not, Ident("inside")]);
+        assert_eq!(toks("!index(s)"), vec![Not, CallStart("index"), Ident("s"), RParen]);
         assert_eq!(
             toks("switch(x){case /a/:default:}"),
             vec![Switch, LParen, Ident("x"), RParen, LBrace, Case, PatLit("a"), COLON, Default, COLON, Semi, RBrace]

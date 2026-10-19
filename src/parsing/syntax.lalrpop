@@ -396,6 +396,13 @@ InTerm<G>: &'a Expr<'a,'a,&'a str> = {
         arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
     <l: InMatch<G>> "in" <r: Ident> =>
         arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))),
+    // `k !in arr` is `!(k in arr)`, as in Kotlin.
+    <l: PrecMatch<G>> "!in" <r: Ident> =>
+        arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))))),
+    "(" <l: LookupList> Rparen "!in" <r: Ident> =>
+        arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))))),
+    <l: InMatch<G>> "!in" <r: Ident> =>
+        arena.alloc(Expr::Unop(Unop::Not, arena.alloc(Expr::Call(Either::Right(Function::Contains), arena.alloc_slice(&[r, l]))))),
 }
 
 InCmp<G>: &'a Expr<'a,'a,&'a str> = {
@@ -697,6 +704,7 @@ extern {
       ":" => Tok::COLON,
       "delete" => Tok::Delete,
       "in" => Tok::In,
+      "!in" => Tok::NotIn,
       "return" => Tok::Return,
       "local" => Tok::Local,
   }

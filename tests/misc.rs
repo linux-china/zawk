@@ -719,6 +719,30 @@ fn foreach_key_value() {
 }
 
 #[test]
+fn not_in_operator() {
+    // (program, expected stdout)
+    let cases: &[(&str, &str)] = &[
+        (r#"$1 !in seen { seen[$1]; print $2 }"#, "1\n2\n"),
+        (r#"{ a[$1, $2] } END { print ((("a", 1) !in a)) ((("a", 2) !in a)) }"#, "01\n"),
+        (r#"END { a["x"]; print "x" !in a, "y" !in a, !("y" !in a) }"#, "0 1 0\n"),
+        (r#"END { inside = 1; index_ = 2; print !inside, !index("ab", "b") }"#, "0 0\n"),
+        (r#"END { a[1]; if (2 !in a && 1 in a) print "ok" }"#, "ok\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("a 1\nb 2\na 3\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}
+
+#[test]
 fn redirect_truncates_existing_file() {
     for backend_arg in BACKEND_ARGS {
         let tmp = tempdir().unwrap();

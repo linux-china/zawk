@@ -316,6 +316,10 @@ surprised to discover there were bugs in zawk's parser.
   `END { for (k, v in cnt) print k, v }`. On an array made by `split`, it works like
   Python's `enumerate`: `for (i, x in a)`. `arr` must be an array variable (not a
   function call).
+* zawk supports a negated membership test, like Kotlin's `!in` (Python's
+  `not in`): `k !in arr` is the same as `!(k in arr)`, e.g.
+  `$1 !in seen { seen[$1]; print }`. It works with multi-dimensional keys too:
+  `(i, j) !in arr`.
 * With the `-H` flag, zawk parses the first line of input (without updating
   `NR` or `FNR`) and populates the `FI` builtin variable with the contents the
   fields in the first line mapping to their index. So in a script parsing a

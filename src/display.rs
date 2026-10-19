@@ -522,6 +522,7 @@ impl<'a> Display for lexer::Tok<'a> {
             Newline => "\\n",
             Comma => ",",
             In => "in",
+            NotIn => "!in",
             Delete => "delete",
             Return => "return",
             Local => "local",
