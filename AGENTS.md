@@ -23,7 +23,7 @@ Please ignore the following differences with gawk：
 -  readonly
 - `a[i][j]` 
 - ignore f-string difference
-- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`
+- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
 -  `$$1`, `$++i` not support
 -  `@/re/` 
 
