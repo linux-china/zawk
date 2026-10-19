@@ -1790,7 +1790,8 @@ fn table_output() {
 #[test]
 fn jsonl_output() {
     // -o jsonl writes print records as JSON objects: the first record is the header, where
-    // `name:number` and `name:boolean` set the JSON type, and missing columns are null.
+    // `name:number` and `name:boolean` set the JSON type, and missing columns are null. Invalid
+    // numbers are null too, with a warning on stderr.
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -1803,13 +1804,14 @@ fn jsonl_output() {
             .stdout(concat!(
                 r#"{"name":"Alice","age":30,"ok":true}"#,
                 "\n",
-                r#"{"name":"Bob","age":0,"ok":false}"#,
+                r#"{"name":"Bob","age":null,"ok":false}"#,
                 "\n",
                 r#"{"name":"Carol","age":5,"ok":false}"#,
                 "\n",
                 r#"{"name":"a\tb","age":null,"ok":null}"#,
                 "\n",
-            ));
+            ))
+            .stderr("zawk: jsonl column \"age\" (Number): 1 invalid value(s) written as null\n");
     }
 }
 
@@ -2088,6 +2090,19 @@ fn error_messages_are_gawk_style() {
             r#"$0 ~ /a(b/"#,
             1,
             &["zawk: syntax error at line 1, column 6: invalid regex /a(b/: unclosed group"],
+        ),
+        // A bare `"` inside an f-string placeholder ends the f-string, leaving the `{` unclosed.
+        (
+            r#"BEGIN { print f"{name ?? "Guest"}" }"#,
+            1,
+            &[
+                "zawk: syntax error at line 1, column 17: unclosed `{` in f-string: write `{{` for a literal `{`, and use \\\" for quotes inside a placeholder",
+            ],
+        ),
+        (
+            r#"BEGIN { x = 1; print f"{x" }"#,
+            1,
+            &["unclosed `{` in f-string"],
         ),
         // Invalid switch statements, as in gawk.
         (

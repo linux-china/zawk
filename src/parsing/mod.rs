@@ -267,7 +267,8 @@ type FStrResult<'a> = Result<&'a Expr<'a, 'a, &'a str>, ParseError<Loc, Tok<'a>,
 /// A placeholder holds any expression (`{NR+1}`, `{$1}`, `{toupper(name)}`, `{a[\"k\"]}`: a `"`
 /// is written `\"`, as the f-string ends at a bare `"`), optionally followed by a format spec
 /// after a `:` that is not part of a `?:` (see `format_spec`). `{{` and `}}` are literal braces,
-/// and an empty placeholder `{}` or a `{` without a matching `}` is kept as text.
+/// and an empty placeholder `{}` is kept as text. A `{` without a matching `}` is an error: it
+/// usually comes from a bare `"` inside a placeholder, which ends the f-string.
 pub(crate) fn parse_fstring_literal<'a>(
     lit: &'a str,
     loc: Loc,
@@ -311,9 +312,10 @@ pub(crate) fn parse_fstring_literal<'a>(
             b'{' => {
                 let start = i + 1;
                 let Some((colon, end)) = placeholder_end(&lit[start..]) else {
-                    text.push('{');
-                    i += 1;
-                    continue;
+                    return Err(error(
+                        i,
+                        "unclosed `{` in f-string: write `{{` for a literal `{`, and use \\\" for quotes inside a placeholder, as in f\"{a[\\\"k\\\"]}\"".into(),
+                    ));
                 };
                 let expr_end = start + colon.unwrap_or(end);
                 let src = &lit[start..expr_end];

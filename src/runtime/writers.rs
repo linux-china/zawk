@@ -828,6 +828,8 @@ pub struct JsonlWriter<W: io::Write> {
     pending: Vec<u8>,
     /// The JSON-encoded column names and their types, once the header has been read.
     columns: Option<Vec<(String, JsonType)>>,
+    /// Per column, the number of cells that were not valid for its type and were written as null.
+    invalid: Vec<u64>,
 }
 
 impl<W: io::Write> JsonlWriter<W> {
@@ -836,6 +838,7 @@ impl<W: io::Write> JsonlWriter<W> {
             inner,
             pending: Vec::new(),
             columns: None,
+            invalid: Vec::new(),
         }
     }
 
@@ -863,7 +866,14 @@ impl<W: io::Write> JsonlWriter<W> {
             row.push(':');
             match cells.get(i) {
                 None => row.push_str("null"),
-                Some(cell) => json_value(cell, *ty, &mut row),
+                Some(cell) => {
+                    if !json_value(cell, *ty, &mut row) {
+                        if self.invalid.len() <= i {
+                            self.invalid.resize(i + 1, 0);
+                        }
+                        self.invalid[i] += 1;
+                    }
+                }
             }
         }
         row.push_str("}\n");
@@ -897,9 +907,11 @@ fn json_column(header: &str) -> (String, JsonType) {
     (json_string(header), JsonType::String)
 }
 
-/// Appends `cell` as a JSON value of type `ty`. Numbers that do not look numeric are 0; booleans
-/// are parsed as for `-o parquet` (empty, "0", "false", "no", "off", ... are false).
-fn json_value(cell: &str, ty: JsonType, out: &mut String) {
+/// Appends `cell` as a JSON value of type `ty`, returning false if it was not valid for the type.
+/// As for `-o parquet`, empty numbers are null and numbers that are not numeric (or not finite) are
+/// null and invalid; booleans are parsed as for `-o parquet` (empty, "0", "false", "no", "off", ...
+/// are false).
+fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
     use std::fmt::Write;
     use crate::runtime::compare::looks_numeric;
     match ty {
@@ -911,13 +923,17 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) {
             Some(n) => {
                 let _ = write!(out, "{}", n);
             }
-            None => out.push('0'),
+            None => {
+                out.push_str("null");
+                return cell.trim().is_empty();
+            }
         },
         JsonType::Boolean => {
             let truthy = crate::runtime::parquet_writer::parse_bool(cell);
             out.push_str(if truthy { "true" } else { "false" });
         }
     }
+    true
 }
 
 impl<W: io::Write> io::Write for JsonlWriter<W> {
@@ -949,6 +965,11 @@ impl<W: io::Write> Drop for JsonlWriter<W> {
             let _ = self.write_row(&line);
         }
         let _ = self.inner.flush();
+        if let Some(columns) = &self.columns {
+            for ((name, ty), &n) in columns.iter().zip(&self.invalid).filter(|(_, n)| **n > 0) {
+                eprintln!("zawk: jsonl column {} ({:?}): {} invalid value(s) written as null", name, ty, n);
+            }
+        }
     }
 }
 
@@ -971,7 +992,7 @@ mod jsonl_tests {
             concat!(
                 r#"{"name":"Al\"ice","age":30,"ok":true,"host:port":"a:1"}"#, "\n",
                 r#"{"name":"Bob","age":1.5,"ok":false,"host:port":"","column5":"x"}"#, "\n",
-                r#"{"name":"Carol","age":0,"ok":true,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Carol","age":null,"ok":true,"host:port":null,"column5":null}"#, "\n",
                 r#"{"name":"Dan","age":16,"ok":false,"host:port":null,"column5":null}"#, "\n",
                 r#"{"name":"Fay","age":1,"ok":false,"host:port":null,"column5":null}"#, "\n",
                 r#"{"name":"Gus","age":2,"ok":false,"host:port":null,"column5":null}"#, "\n",
