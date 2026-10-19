@@ -2030,6 +2030,31 @@ fn empty_match_respects_utf8_boundaries() {
 }
 
 #[test]
+fn gensub_unmatched_and_missing_groups() {
+    for backend_arg in BACKEND_ARGS {
+        // An optional group that did not participate is silently replaced by "" (as in gawk).
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, r#"BEGIN{print gensub(/(a)(b)?/, "<\\2>", "g", "ab a")}"#])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "<b> <>\n", "{}", backend_arg);
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "", "{}", backend_arg);
+
+        // A group the regex does not have is also replaced by "", with a single notice.
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, r#"{print gensub(/(a)/, "<\\3\\1>", "g")}"#])
+            .write_stdin("a\na\na\n")
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "<a>\n<a>\n<a>\n", "{}", backend_arg);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(stderr.matches("nonexistent group").count(), 1, "{} {}", backend_arg, stderr);
+    }
+}
+
+#[test]
 fn extension_functions_reject_invalid_args_without_panic() {
     let cases = [
         (r#"BEGIN{print mask("é")}"#, "*\n"),

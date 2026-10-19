@@ -2132,15 +2132,16 @@ fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Wr
             b'0'..=b'9' => {
                 if escaped {
                     w.write_all(&subst[start..i - 1])?;
-                    let n = b - b'0';
-                    match matched.get(n as usize) {
-                        Some((from, to)) => w.write_all(&hay[from..to])?,
-                        None => eprintln_ignore!(
-                            // no match - no substitution (same as gawk); warning is nice though
-                            "Couldn't substitute match {}, we have only {}",
-                            n,
-                            matched.len()
-                        ),
+                    let n = (b - b'0') as usize;
+                    // A group that did not participate (e.g. `(b)?`) or does not exist is replaced
+                    // by the empty string, as in gawk; only a missing group is worth a notice.
+                    if let Some((from, to)) = matched.get(n) {
+                        w.write_all(&hay[from..to])?;
+                    } else if n >= matched.len() {
+                        runtime::stdlib_notice(
+                            "gensub",
+                            format!("\\{} refers to a nonexistent group, the regex has {}", n, matched.len() - 1),
+                        );
                     }
                 } else {
                     w.write_all(&subst[start..i])?;
