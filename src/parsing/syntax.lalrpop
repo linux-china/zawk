@@ -119,6 +119,8 @@ OpenStmt: &'a Stmt<'a,'a,&'a str> = {
         )),
     "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>
         arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
+    <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>?
+        crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
 }
 
 ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
@@ -135,6 +137,8 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
         )),
     "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>
         arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
+    <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>?
+        crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
 
 
     Do <body:BaseStmt> "while" "(" <cond:Expr> ")" Sep => arena.alloc(Stmt::DoWhile(cond, body)),

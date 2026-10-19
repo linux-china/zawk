@@ -310,6 +310,12 @@ surprised to discover there were bugs in zawk's parser.
   `default` are syntax errors.
 * zawk functions can return arrays, function calls can appear in the array
   position for a for-each loop.
+* zawk supports key-value iteration over an array, like Python's
+  `for k, v in d.items()`: `for (k, v in arr) body` is the same as
+  `for (k in arr) { v = arr[k]; body }`, e.g.
+  `END { for (k, v in cnt) print k, v }`. On an array made by `split`, it works like
+  Python's `enumerate`: `for (i, x in a)`. `arr` must be an array variable (not a
+  function call).
 * With the `-H` flag, zawk parses the first line of input (without updating
   `NR` or `FNR`) and populates the `FI` builtin variable with the contents the
   fields in the first line mapping to their index. So in a script parsing a

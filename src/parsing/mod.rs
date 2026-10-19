@@ -78,6 +78,31 @@ pub(crate) fn local_name<'a>(name: &'a str, prog: &Prog<'a, 'a, &'a str>) -> &'a
     prog.locals.names.get(name).copied().unwrap_or(name)
 }
 
+/// `for (k, v in arr) body`, desugared to `for (k in arr) { v = arr[k]; body }`. `arr` must be an
+/// array variable, so that indexing it again in each iteration does not evaluate it again.
+pub(crate) fn foreach_kv<'a>(
+    k: &'a str,
+    v: &'a str,
+    arr: &'a Expr<'a, 'a, &'a str>,
+    body: &'a Stmt<'a, 'a, &'a str>,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    if !matches!(arr, Expr::Var(_)) {
+        return user_error(loc, "for (k, v in arr) expects an array variable after `in`".into());
+    }
+    if k == v {
+        return user_error(loc, format!("for (k, v in arr) needs two different variables, got `{k}` twice"));
+    }
+    let (k, v) = (local_name(k, prog), local_name(v, prog));
+    let key: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(k));
+    let val: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(v));
+    let set_v: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(arena.alloc(Expr::Assign(val, arena.alloc(Expr::Index(arr, key))))));
+    let body = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[set_v, body])));
+    Ok(arena.alloc(Stmt::ForEach(k, arr, body)))
+}
+
 /// A declaration of a `local` statement: the name, where it is, and the statement that makes the
 /// name a new variable.
 pub(crate) type LocalDecl<'a> = (&'a str, Loc, &'a Stmt<'a, 'a, &'a str>);

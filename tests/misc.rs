@@ -689,6 +689,36 @@ fn assert_exits_with_message() {
 }
 
 #[test]
+fn foreach_key_value() {
+    // (program, expected stdout); output is sorted where the iteration order is not fixed
+    let cases: &[(&str, &str)] = &[
+        (r#"{ c[$1] += $2 } END { for (k, v in c) print k, v | "sort" }"#, "a 4\nb 2\n"),
+        (r#"END { n = split("x y z", a); for (i, x in a) s[i] = x; print s[1] s[2] s[3] }"#, "xyz\n"),
+        (r#"END { c["p"] = 1; for (k, v in c) { if (v) continue; print "no" } print k, v }"#, "p 1\n"),
+        (r#"function sum(arr,   k, v, s) { for (k, v in arr) s += v; return s } { c[NR] = $2 } END { print sum(c) "|" k v "|" }"#, "6||\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("a 1\nb 2\na 3\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+    let errors = [
+        "function f() { local a[]; return a } BEGIN { for (k, v in f()) print k }",
+        "BEGIN { for (k, k in a) print k }",
+    ];
+    for prog in errors {
+        Command::cargo_bin("zawk").unwrap().arg(prog).assert().code(1);
+    }
+}
+
+#[test]
 fn redirect_truncates_existing_file() {
     for backend_arg in BACKEND_ARGS {
         let tmp = tempdir().unwrap();
