@@ -665,7 +665,11 @@ fn exit_runs_end_block() {
 fn assert_exits_with_message() {
     // (program, expected stdout, expected stderr, expected exit code)
     let cases: &[(&str, &str, &str, i32)] = &[
-        (r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#, "1\n2\nend\n", "line 3: too big\n", 2),
+        // a failed assert exits at once, without running END
+        (r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#, "1\n2\n", "line 3: too big\n", 2),
+        (r#"function f(x) { assert(x < 2, "f " x); return x } { print f($1) } END{print "end"}"#, "1\n", "f 2\n", 2),
+        (r#"BEGIN { assert(0, "begin") } END{print "end"}"#, "", "begin\n", 2),
+        (r#"END { assert(0, "end"); print "after" }"#, "", "end\n", 2),
         (r#"{ assert(NF == 1, f"bad {NR}") } END{print "end"}"#, "end\n", "", 0),
         // the condition is tested as by `if`: a regex matches $0
         (r#"{ assert(/[12]/, "no match at " NR); print }"#, "1\n2\n", "no match at 3\n", 2),
@@ -2465,6 +2469,25 @@ fn array_scalar_errors_name_the_variable() {
 }
 
 #[test]
+fn builtin_variable_and_array_argument_errors_are_located() {
+    assert_fatal("BEGIN { ARGV = 1 }", "line 1, column 9: attempt to use array `ARGV` in a scalar context");
+    assert_fatal("BEGIN { NR[1] = 2 }", "line 1, column 9: attempt to use scalar `NR` as an array");
+    assert_fatal("BEGIN { for (k in NF) n++ }", "line 1, column 19: attempt to use scalar `NF` as an array");
+    assert_fatal(
+        r#"BEGIN { k["a"] = 5; sqlite_execute("t.db", "insert into t values(?)", k) }"#,
+        "line 1, column 21: sqlite_execute: argument 3 must be an array with integer keys (a[1], a[2], ...) \
+         of type map[int]str, but array `k` has type map[str]str",
+    );
+    // A for-in loop variable cannot be a builtin array: reported as a syntax error.
+    for prog in ["BEGIN { x[1] = 1; for (k, ARGV in x) n++ }", "BEGIN { x[1] = 1; for (ENVIRON in x) n++ }"] {
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{}: {}", prog, stderr);
+        assert!(stderr.contains("line 1, column 19: attempt to use array `"), "{}: {}", prog, stderr);
+    }
+}
+
+#[test]
 fn functions_subcommand_lists_builtins() {
     let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
     assert!(out.status.success());
@@ -2899,7 +2922,8 @@ fn nullish_assign() {
     let prog = r#"function f() { calls++; return "w" }
 BEGIN { x ??= 5; x ??= 7; y = "0.0"; y ??= "d"; print x, y, (z ??= 3) + 1, z
     i = 1; a[i++] ??= "v"; a[1] ??= f(); a[i++] ??= f(); print i, a[1], a[2], length(a), calls
-    n ??= m ??= 4; print n, m }
+    n ??= m ??= 4; print n, m
+    k = 1; b[k] ??= (k = 2); for (x in b) print x, b[x], k }
 { OFS ??= ","; total[$1] ??= 10; total[$1] += $2; $3 ??= "c"; print }
 END { print total["a"], total["b"] }"#;
     for backend_arg in BACKEND_ARGS {
@@ -2909,7 +2933,7 @@ END { print total["a"], total["b"] }"#;
             .arg(prog)
             .write_stdin("a 1\nb 2\na 3\n")
             .assert()
-            .stdout("5 d 4 3\n3 v w 2 1\n4 4\na 1 c\nb 2 c\na 3 c\n14 12\n");
+            .stdout("5 d 4 3\n3 v w 2 1\n4 4\n1 2 2\na 1 c\nb 2 c\na 3 c\n14 12\n");
     }
 }
 

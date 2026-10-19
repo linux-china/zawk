@@ -95,6 +95,8 @@ pub(crate) fn foreach_kv<'a>(
     if k == v {
         return user_error(loc, format!("for (k, v in arr) needs two different variables, got `{k}` twice"));
     }
+    check_loop_var(k, loc)?;
+    check_loop_var(v, loc)?;
     let (k, v) = (local_name(k, prog), local_name(v, prog));
     let key: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(k));
     let val: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(v));
@@ -106,6 +108,27 @@ pub(crate) fn foreach_kv<'a>(
 /// A declaration of a `local` statement: the name, where it is, and the statement that makes the
 /// name a new variable.
 pub(crate) type LocalDecl<'a> = (&'a str, Loc, &'a Stmt<'a, 'a, &'a str>);
+
+/// `for (k in arr) body`.
+pub(crate) fn foreach<'a>(
+    k: &'a str,
+    arr: &'a Expr<'a, 'a, &'a str>,
+    body: &'a Stmt<'a, 'a, &'a str>,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    check_loop_var(k, loc)?;
+    Ok(arena.alloc(Stmt::ForEach(local_name(k, prog), arr, body)))
+}
+
+/// A for-in loop assigns scalars to its variables, so they cannot be builtin arrays such as ARGV.
+fn check_loop_var<'a>(name: &'a str, loc: Loc) -> ParseResult<'a, ()> {
+    match Variable::try_from(name) {
+        Ok(v) if v.is_array() => user_error(loc, format!("attempt to use array `{name}` in a scalar context")),
+        _ => Ok(()),
+    }
+}
 
 fn user_error<'a, T>(location: Loc, desc: String) -> ParseResult<'a, T> {
     Err(ParseError::User {
@@ -160,7 +183,8 @@ fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a,
 
 /// The `local` statement made of the declarations `decls`, which must declare different names.
 /// An expression statement. `assert(cond, msg)` is desugared here to
-/// `if (cond) ; else { print msg > "/dev/stderr"; exit 2 }`, so that `cond` is tested as by `if`.
+/// `if (cond) ; else { print msg > "/dev/stderr"; abort 2 }`, so that `cond` is tested as by `if`.
+/// Unlike `exit`, the abort does not run the END block.
 pub(crate) fn expr_stmt<'a>(
     e: &'a Expr<'a, 'a, &'a str>,
     loc: Loc,
@@ -175,8 +199,7 @@ pub(crate) fn expr_stmt<'a>(
     let stderr: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::StrLit(b"/dev/stderr"));
     let print: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Print(arena.alloc_slice(&[msg]), Some((stderr, FileSpec::Trunc))));
     let code: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::ILit(2));
-    let exit: &'a Stmt<'a, 'a, &'a str> =
-        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit), arena.alloc_slice(&[code])))));
+    let exit: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Abort(code));
     let fail = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[print, exit])));
     Ok(arena.alloc(Stmt::If(cond, arena.alloc(Stmt::Block(arena.new_vec())), Some(fail))))
 }

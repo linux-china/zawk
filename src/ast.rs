@@ -740,6 +740,8 @@ pub enum Stmt<'a, 'b, I> {
     Next,
     NextFile,
     Return(Option<&'a Expr<'a, 'b, I>>),
+    // Exits the program at once with the given code, without running END: a failed `assert`.
+    Abort(&'a Expr<'a, 'b, I>),
     // The END block of a serial program: `exit` from BEGIN or the main loop jumps here, see
     // `cfg::View::do_exit`.
     EndBlock(&'a Stmt<'a, 'b, I>),

@@ -529,6 +529,16 @@ impl Rule {
     }
 }
 
+/// The name of the array type `ty` as written in the function docs, e.g. `map[int]str`.
+fn array_ty_name(ty: compile::Ty) -> String {
+    let base = |t: Result<compile::Ty>| match t {
+        Ok(compile::Ty::Int) => "int",
+        Ok(compile::Ty::Float) => "float",
+        _ => "str",
+    };
+    format!("map[{}]{}", base(ty.key()), base(ty.val()))
+}
+
 fn concrete(state: State) -> TVar<BaseTy> {
     fn concrete_scalar(o: &Option<BaseTy>) -> BaseTy {
         o.unwrap_or(BaseTy::Null)
@@ -928,13 +938,54 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             let Ok((expected, _)) = f.type_sig(&tys[..]) else {
                 continue;
             };
-            for ((arg, ty), exp) in args.iter().zip(tys.iter()).zip(expected.iter()) {
+            for (i, ((arg, ty), exp)) in args.iter().zip(tys.iter()).zip(expected.iter()).enumerate() {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
                     return Err(self.kind_error(*arg, !ty.is_array()));
+                }
+                // Arrays are not converted between key and value types.
+                if ty.is_array() && ty != exp {
+                    return Err(self.array_arg_error(f, i, *arg, *ty, *exp));
                 }
             }
         }
         Ok(())
+    }
+
+    /// An error for the array `arg`, of type `ty`, passed as argument `i` of the builtin `f`,
+    /// which expects an array of type `exp`.
+    fn array_arg_error(
+        &self,
+        f: &builtins::Function,
+        i: usize,
+        arg: NodeIx,
+        ty: compile::Ty,
+        exp: compile::Ty,
+    ) -> common::CompileError {
+        let name = f.awk_name().unwrap_or("builtin");
+        let hint = match exp.key() {
+            Ok(compile::Ty::Int) if ty.key().ok() != Some(compile::Ty::Int) => {
+                " with integer keys (a[1], a[2], ...)"
+            }
+            _ => "",
+        };
+        let what = match self.describe(arg) {
+            Some(d) => format!("array {}", d),
+            None => "the array".to_string(),
+        };
+        let msg = format!(
+            "{}: argument {} must be an array{} of type {}, but {} has type {}",
+            name,
+            i + 1,
+            hint,
+            array_ty_name(exp),
+            what,
+            array_ty_name(ty)
+        );
+        let err = common::CompileError::new(msg);
+        match self.use_locs.builtin_calls.get(name) {
+            Some(loc) => err.with_loc(*loc),
+            None => err,
+        }
     }
 
     /// Check that no scalar local (`local x`) is used as an array. Its declaration assigns it its

@@ -117,8 +117,8 @@ OpenStmt: &'a Stmt<'a,'a,&'a str> = {
                 update.map(|x| arena.alloc(Stmt::Expr(x))),
                 body
         )),
-    "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>
-        arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
+    <l:@L> "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>?
+        crate::parsing::foreach(id, arr, body, l, arena, prog),
     <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>?
         crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
 }
@@ -135,8 +135,8 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
                 update.map(|x| arena.alloc(Stmt::Expr(x))),
                 body
         )),
-    "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>
-        arena.alloc(Stmt::ForEach(crate::parsing::local_name(id, prog), arr, body)),
+    <l:@L> "for" "(" <id:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>?
+        crate::parsing::foreach(id, arr, body, l, arena, prog),
     <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>?
         crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
 

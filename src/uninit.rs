@@ -396,6 +396,7 @@ where
                 self.expr(arr, params);
                 self.stmt(body, params);
             }
+            Abort(e) => self.expr(e, params),
             Return(e) => {
                 let cur_fn = self.cur_fn.clone();
                 match (e, cur_fn) {

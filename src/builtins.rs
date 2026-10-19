@@ -1764,6 +1764,11 @@ impl<'a> Variables<'a> {
 }
 
 impl Variable {
+    /// Whether the variable is an array, such as ARGV or ENVIRON.
+    pub(crate) fn is_array(&self) -> bool {
+        matches!(self.ty(), types::TVar::Map { .. })
+    }
+
     pub(crate) fn ty(&self) -> types::TVar<types::BaseTy> {
         use Variable::*;
         match self {

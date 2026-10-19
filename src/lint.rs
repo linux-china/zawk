@@ -636,6 +636,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                     self.expr(e);
                 }
             }
+            Abort(e) => self.expr(e),
             EndBlock(s) => self.stmt(s),
         }
     }

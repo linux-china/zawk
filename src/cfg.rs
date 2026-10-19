@@ -1003,6 +1003,18 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.set_cond(current_open, *cond, 2)?;
                 current_open
             }
+            // Exits at once, even where `exit` would run END first.
+            Abort(code) => {
+                let (current_open, code_v) = self.convert_val(code, current_open)?;
+                self.add_stmt(
+                    current_open,
+                    PrimStmt::AsgnVar(
+                        Ident::unused(),
+                        PrimExpr::CallBuiltin(builtins::Function::Exit, smallvec![code_v]),
+                    ),
+                )?;
+                current_open
+            }
             &Expr(&ast::Expr::Call(Either::Right(builtins::Function::Exit), args)) if args.len() <= 1 => {
                 self.do_exit(args.first().copied(), current_open)?
             }
@@ -1206,6 +1218,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             ForEach(v, array, body) => {
                 let v_id = self.get_identifier(v);
+                self.check_builtin_var(array, /*as_array=*/ true)?;
                 self.record_array_use(array);
                 let (next, array_val) = self.convert_val(array, current_open)?;
                 current_open = next;
@@ -1349,6 +1362,42 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
     }
 
+    /// Reject indexing a scalar builtin variable (`NR[1]`) or assigning a scalar to an array
+    /// builtin (`ARGV = 1`), located at the variable: type inference does not track builtins.
+    fn check_builtin_kind<'c>(&self, expr: &'c Expr<'c, 'b, I>) -> Result<()> {
+        use Expr::*;
+        let (var, as_array) = match expr {
+            Index(v, _)
+            | Assign(Index(v, _), _)
+            | AssignOp(Index(v, _), _, _)
+            | Inc { x: Index(v, _), .. } => (*v, true),
+            Assign(v @ Var(_), _) | AssignOp(v @ Var(_), _, _) | Inc { x: v @ Var(_), .. } => {
+                (*v, false)
+            }
+            _ => return Ok(()),
+        };
+        self.check_builtin_var(var, as_array)
+    }
+
+    /// Reject using the builtin variable `var` as an array if `as_array`, or as a scalar.
+    fn check_builtin_var<'c>(&self, var: &'c Expr<'c, 'b, I>, as_array: bool) -> Result<()> {
+        let Expr::Var(name) = var else { return Ok(()) };
+        let Ok(b) = builtins::Variable::try_from(name.clone()) else { return Ok(()) };
+        if b.is_array() == as_array {
+            return Ok(());
+        }
+        let msg = if as_array {
+            format!("attempt to use scalar `{}` as an array", name)
+        } else {
+            format!("attempt to use array `{}` in a scalar context", name)
+        };
+        let err = crate::common::CompileError::new(msg);
+        Err(match self.loc_of(var) {
+            Some(loc) => err.with_loc(loc),
+            None => err,
+        })
+    }
+
     /// Records a use of `arr` as an array, if it is a variable.
     fn record_array_use<'c>(&mut self, arr: &'c Expr<'c, 'b, I>) {
         if let Expr::Var(_) = arr {
@@ -1386,6 +1435,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         in_cond: bool,
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
         use Expr::*;
+
+        self.check_builtin_kind(expr)?;
 
         // `a[i][j]` parses as indexing the element `a[i]`, which would otherwise be reported as a
         // confusing type error.
@@ -1515,8 +1566,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 }
                 let (next, lv) = if let Index(arr, ix) = l {
                     let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
-                    let (next, ix_v) = self.convert_index(ix, next, in_cond)?;
+                    let (next, mut ix_v) = self.convert_index(ix, next, in_cond)?;
                     if let Some(to) = reassign {
+                        // Snapshot a variable subscript so that `to` reassigning it (as in
+                        // `a[k] ??= (k = 2)`) cannot make the check and the store use different keys.
+                        if let PrimVal::Var(_) = &ix_v {
+                            let ix_id = self.fresh_local();
+                            self.add_stmt(next, PrimStmt::AsgnVar(ix_id, PrimExpr::Val(ix_v)))?;
+                            ix_v = PrimVal::Var(ix_id);
+                        }
                         let arr_id = if let PrimVal::Var(id) = &arr_v {
                             *id
                         } else {
