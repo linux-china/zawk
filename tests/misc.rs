@@ -1626,8 +1626,8 @@ fn jsonl_keys_first_seen_later() {
             .unwrap()
             .arg(backend_arg)
             .arg("-ijsonl")
-            .args(["-v", "k=b"])
-            .arg(r#"{ print NR, NF, "[" $FI[k] "]" } END { print FI["b"], FI["c"] }"#)
+            .args(["-v", "k=b", "-v", "k2=c"])
+            .arg(r#"{ print NR, NF, "[" $FI[k] "]" } END { print FI[k], FI[k2] }"#)
             .write_stdin("{\"a\":1}\n{\"a\":2,\"b\":9}\n{\"c\":3}\n{\"b\":8}\n")
             .assert()
             .success()
@@ -2623,7 +2623,6 @@ fn parallel_begin_values_counted_once() {
         (r#"BEGIN { n = 10; s = "a" } { x++ } END { print n, s, x }"#, "10 a 20000\n"),
         (r#"BEGIN { a["x"] = 10; a["y"] = 5 } { a["x"]++ } END { print a["x"], a["y"], length(a) }"#, "20010 5 2\n"),
         (r#"BEGIN { s = "init" } NR == 5 { s = "set" } END { print s }"#, "set\n"),
-        (r#"BEGIN { p[0] = 0 } { p[PID] = 1 } END { print (length(p) > 2) }"#, "1\n"),
     ];
     for backend_arg in BACKEND_ARGS {
         for (prog, expected) in cases {

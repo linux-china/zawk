@@ -700,10 +700,11 @@ mod tests {
     }
 
     #[test]
-    fn schema_from_first_line_plus_extras() {
+    fn schema_from_first_line_plus_extras_then_new_keys() {
         let (names, vals) = fields("{\"a\":1,\"b\":2}\n{\"c\":3,\"b\":4,\"z\":5}", &["c", "a"]);
-        assert_eq!(names, vec!["a", "b", "c"]);
-        assert_eq!(vals, vec!["", "4", "3"]);
+        // `z` is first seen in the last record: it is appended.
+        assert_eq!(names, vec!["a", "b", "c", "z"]);
+        assert_eq!(vals, vec!["", "4", "3", "5"]);
     }
 
     #[test]
