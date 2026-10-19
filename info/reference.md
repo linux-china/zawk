@@ -29,6 +29,10 @@ _Binary operators:_
   * The right operand is a term, optionally with `++`/`--` or preceded by unary `-`, `+` or `!`
     (`u ?? -1`, `u ?? x++`, `u ?? !v`). Anything else needs parentheses: `u ?? (a + 1)`. A following
     `^` applies to the whole `??`: `u ?? 2 ^ 2` is `(u ?? 2) ^ 2`.
+* Default assignment: `l ??= r` is `l ?? (l = r)`, like `??=` in JavaScript and C#: when `l` is empty (as for
+  `??`), `r` is evaluated and assigned to `l`; otherwise `r` is not evaluated and `l` is unchanged. Its value is
+  the new value of `l`. It has the precedence of `=` (`r` can be any expression), and the subscript of an array
+  element is evaluated once: `{ OFS ??= ","; total[$1] ??= 0 }`, `seen[i++] ??= NR`.
 
 _Unary Operators:_
 

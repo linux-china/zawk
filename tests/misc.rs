@@ -2878,6 +2878,27 @@ BEGIN {
 }
 
 #[test]
+fn nullish_assign() {
+    // `l ??= r` assigns `r` only when `l` is uninitialized, empty or zero; `r` is not evaluated
+    // otherwise, and an array element's subscript is evaluated once.
+    let prog = r#"function f() { calls++; return "w" }
+BEGIN { x ??= 5; x ??= 7; y = "0.0"; y ??= "d"; print x, y, (z ??= 3) + 1, z
+    i = 1; a[i++] ??= "v"; a[1] ??= f(); a[i++] ??= f(); print i, a[1], a[2], length(a), calls
+    n ??= m ??= 4; print n, m }
+{ OFS ??= ","; total[$1] ??= 10; total[$1] += $2; $3 ??= "c"; print }
+END { print total["a"], total["b"] }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .write_stdin("a 1\nb 2\na 3\n")
+            .assert()
+            .stdout("5 d 4 3\n3 v w 2 1\n4 4\na 1 c\nb 2 c\na 3 c\n14 12\n");
+    }
+}
+
+#[test]
 fn hex_strings_are_numbers_everywhere() {
     // One string-to-number conversion: arithmetic, comparisons, truth values, printf and sorting
     // all read `0x` prefixed input (with an optional sign) as hexadecimal; there are no `0o`/`0b`

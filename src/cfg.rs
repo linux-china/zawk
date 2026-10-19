@@ -1496,10 +1496,46 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 //
                 // An array element on the left is only read when it is present (as with `k in a`),
                 // so `a[k] ?? d` does not create `a[k]`.
-                let (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
+                //
+                // `a[k] ??= d` is parsed as `a[k] ?? (a[k] = d)` with the same `a[k]` node on both
+                // sides; the store reuses the array and subscript computed for the read, so `k`
+                // is evaluated once.
+                let reassign = match (l, r) {
+                    (Index(arr, ix), Assign(Index(arr2, ix2), to))
+                        if std::ptr::eq(*arr, *arr2) && std::ptr::eq(*ix, *ix2) =>
+                    {
+                        Some(*to)
+                    }
+                    _ => None,
+                };
+                let (mut fstart, mut fend, mut fe) =
+                    (current_open, current_open, PrimExpr::Val(PrimVal::ILit(0)));
+                if reassign.is_none() {
+                    (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
+                }
                 let (next, lv) = if let Index(arr, ix) = l {
                     let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
                     let (next, ix_v) = self.convert_index(ix, next, in_cond)?;
+                    if let Some(to) = reassign {
+                        let arr_id = if let PrimVal::Var(id) = &arr_v {
+                            *id
+                        } else {
+                            let arr_id = self.fresh_local();
+                            self.add_stmt(
+                                next,
+                                PrimStmt::AsgnVar(arr_id, PrimExpr::Val(arr_v.clone())),
+                            )?;
+                            arr_id
+                        };
+                        let (start, end, to_e) =
+                            self.standalone_expr(to, /*in_cond=*/ false)?;
+                        let to_v = self.to_val(to_e, end)?;
+                        self.add_stmt(
+                            end,
+                            PrimStmt::AsgnIndex(arr_id, ix_v.clone(), PrimExpr::Val(to_v.clone())),
+                        )?;
+                        (fstart, fend, fe) = (start, end, PrimExpr::Val(to_v));
+                    }
                     let present = PrimExpr::CallBuiltin(
                         builtins::Function::Contains,
                         smallvec![arr_v.clone(), ix_v.clone()],

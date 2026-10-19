@@ -351,6 +351,9 @@ PrecAsgn<G>: &'a Expr<'a,'a,&'a str> = {
     <l: PrecIn<G>> "/=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
     <l: PrecIn<G>> "^=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
     <l: PrecIn<G>> "%=" <r: PrecAsgn<G>> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
+    // `l ??= r` is `l ?? (l = r)`: `r` is evaluated and assigned only when `l` is false as a
+    // strnum. An array element's subscript is evaluated once (see `Nullish` in cfg.rs).
+    <l: PrecIn<G>> "??=" <r: PrecAsgn<G>> => arena.alloc(Expr::Nullish(l, arena.alloc(Expr::Assign(l, r)))),
     PrecTern<G>,
 }
 
@@ -444,6 +447,7 @@ PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
     <l: PrecMatch<"Gt">> "/=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Div, r)),
     <l: PrecMatch<"Gt">> "^=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
     <l: PrecMatch<"Gt">> "%=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
+    <l: PrecMatch<"Gt">> "??=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Nullish(l, arena.alloc(Expr::Assign(l, r)))),
     PrecTernNoIn,
 }
 
@@ -701,6 +705,7 @@ extern {
       "&&" => Tok::AND,
       "?" => Tok::QUESTION,
       "??" => Tok::Nullish,
+      "??=" => Tok::NullishAssign,
       ":" => Tok::COLON,
       "delete" => Tok::Delete,
       "in" => Tok::In,
