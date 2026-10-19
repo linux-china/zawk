@@ -567,37 +567,45 @@ pub(crate) mod boilerplate {
             }
             LogError( _message) => {
             }
-            SqliteQuery(dst, db_path, sql) => {
+            SqliteQuery(dst, db_path, sql, params) => {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            SqliteExecute(dst, db_path, sql) => {
+            SqliteExecute(dst, db_path, sql, params) => {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            LibsqlQuery(dst, db_path, sql) => {
+            LibsqlQuery(dst, db_path, sql, params) => {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            LibsqlExecute(dst, db_path, sql) => {
+            LibsqlExecute(dst, db_path, sql, params) => {
                 f(dst.into(), Some(db_path.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            MysqlQuery(dst, db_url, sql) => {
+            MysqlQuery(dst, db_url, sql, params) => {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            MysqlExecute(dst, db_url, sql) => {
+            MysqlExecute(dst, db_url, sql, params) => {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            PgQuery(dst, db_url, sql) => {
+            PgQuery(dst, db_url, sql, params) => {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
-            PgExecute(dst, db_url, sql) => {
+            PgExecute(dst, db_url, sql, params) => {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));
+                f(dst.into(), Some(params.into()));
             }
             Publish( _namespace, _body) => {
             }

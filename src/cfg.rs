@@ -3178,6 +3178,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::HttpGet if args_len == 1 => {
                         prim_args.push(PrimVal::Var(self.fresh_local()));
                     }
+                    // sqlite_query(db, sql) => sqlite_query(db, sql, params), with no parameters: a
+                    // fresh local that `Function::feedback` types as a map; the same for the other
+                    // database functions.
+                    builtins::Function::SqliteQuery | builtins::Function::SqliteExecute
+                    | builtins::Function::LibsqlQuery | builtins::Function::LibsqlExecute
+                    | builtins::Function::MysqlQuery | builtins::Function::MysqlExecute
+                    | builtins::Function::PgQuery | builtins::Function::PgExecute
+                        if args_len == 2 =>
+                    {
+                        prim_args.push(PrimVal::Var(self.fresh_local()));
+                    }
                     // http_post(url) => http_post(url, "", headers);
                     builtins::Function::HttpPost if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b""));

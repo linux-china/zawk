@@ -2732,49 +2732,49 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::SqliteQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::SqliteQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             SqliteExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             LibsqlQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::LibsqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::LibsqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             LibsqlExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::LibsqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::LibsqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             MysqlQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             MysqlExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             PgQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::PgQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::PgQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             PgExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::PgExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::PgExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
             Publish => {
                 self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into()))

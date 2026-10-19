@@ -949,13 +949,30 @@ Publish events to MQTT: `publish("mqtt://servername:1883/topic", body)`
 
 # Database
 
+All database functions take an optional third argument `params`, an array of positional parameters
+bound to a prepared statement in key order (`arr[1]`, `arr[2]`...), so values containing `'` work
+and untrusted input cannot inject SQL. **Do not build SQL by concatenating field values.**
+
+```awk
+{
+  params[1] = $1; params[2] = $2
+  sqlite_execute("app.db", "insert into users(id, name) values(?, ?)", params)
+}
+```
+
+Placeholders: `?` or `?1` for SQLite/libSQL, `?` for MySQL, `$1`, `$2`... for PostgreSQL.
+Parameters are passed as text: SQLite/libSQL/MySQL convert them by column type, PostgreSQL converts them
+to the inferred parameter type (bool, integers, floats, numeric, json, uuid, inet, bytea, date/time types;
+empty value is NULL for non-text types). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
+
 ### SQLite
 
 url: `sqlite.db` db path
 
 - `sqlite_query("sqlite.db", "select nick,email,age from user")`:
   `sqlite_query("sqlite.db", "select nick,email,age from user")[1]`
-- `sqlite_execute("sqlite.db, "update users set nick ='demo' where id = 1")`
+- `sqlite_execute("sqlite.db", "update users set nick ='demo' where id = 1")`
+- `split("demo,1", p, ","); sqlite_execute("sqlite.db", "update users set nick = ? where id = ?", p)`
 
 ### libSQL
 
@@ -973,6 +990,7 @@ url: `postgresql://postgres:postgres@localhost/db_name`
 
 - `pg_query(url, "select id, name from people")`,
 - `pg_execute(url,"update users set nick ='demo' where id = 1")`
+- `split("demo,1", p, ","); pg_execute(url, "update users set nick = $1 where id = $2", p)`
 
 ### MySQL
 
@@ -980,6 +998,7 @@ url: `mysql://root:123456@localhost:3306/test`
 
 - `mysql_query(url, "select id, name from people")`,
 - `mysql_execute(url,"update users set nick ='demo' where id = 1")`
+- `split("demo,1", p, ","); mysql_execute(url, "update users set nick = ? where id = ?", p)`
 
 # Data Time
 

@@ -8,9 +8,24 @@ use mysql::consts::ColumnType;
 
 static MYSQL_POOLS: LazyLock<Arc<Mutex<HashMap<String, Pool>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
+/// Positional parameters bound as strings (MySQL converts them to the column types), or `None`
+/// when there are none: then the text protocol is used, since not every statement can be prepared.
+fn positional_params(params: &IntMap<Str>) -> Option<Params> {
+    let values = crate::runtime::sqlite::positional_params(params);
+    if values.is_empty() {
+        None
+    } else {
+        Some(Params::Positional(values.into_iter().map(Value::from).collect()))
+    }
+}
+
+pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    let rows: Vec<Row> = match with_conn(db_url, |conn| conn.query(sql)) {
+    let result = match positional_params(params) {
+        Some(params) => with_conn(db_url, |conn| conn.exec(sql, params)),
+        None => with_conn(db_url, |conn| conn.query(sql)),
+    };
+    let rows: Vec<Row> = match result {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("mysql_query", e);
@@ -67,10 +82,14 @@ fn format_mysql_time(negative: bool, days: u32, hours: u8, minutes: u8, seconds:
     text
 }
 
-pub(crate) fn mysql_execute(db_url: &str, sql: &str) -> Int {
+pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     // `exec` would return the rows of a result set, which INSERT/UPDATE/DELETE do not have; the
     // affected row count is reported by the connection instead.
-    match with_conn(db_url, |conn| conn.query_drop(sql).map(|_| conn.affected_rows())) {
+    let result = match positional_params(params) {
+        Some(params) => with_conn(db_url, |conn| conn.exec_drop(sql, params).map(|_| conn.affected_rows())),
+        None => with_conn(db_url, |conn| conn.query_drop(sql).map(|_| conn.affected_rows())),
+    };
+    match result {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("mysql_execute", e);
@@ -115,7 +134,7 @@ mod tests {
     fn test_query() {
         let sql = "SELECT id, name FROM people";
         let db_url = "mysql://root:123456@localhost:3306/test";
-        let rows = mysql_query(db_url, sql);
+        let rows = mysql_query(db_url, sql, &IntMap::default());
         for key in rows.to_vec() {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
@@ -127,6 +146,6 @@ mod tests {
     fn test_delete_row() {
         let sql = "delete from people where id ='2'";
         let db_url = "mysql://root:123456@localhost:3306/test";
-        let _ = mysql_execute(db_url, sql);
+        let _ = mysql_execute(db_url, sql, &IntMap::default());
     }
 }

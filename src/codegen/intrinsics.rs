@@ -269,14 +269,14 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] rgb2hex(int_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] variant(str_ref_ty) -> map_ty;
         [ReadOnly] func(str_ref_ty) -> map_ty;
-        [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty) -> map_ty;
-        [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty) -> int_ty;
-        [ReadOnly] libsql_query(str_ref_ty, str_ref_ty) -> map_ty;
-        [ReadOnly] libsql_execute(str_ref_ty, str_ref_ty) -> int_ty;
-        [ReadOnly] mysql_query(str_ref_ty, str_ref_ty) -> map_ty;
-        [ReadOnly] mysql_execute(str_ref_ty, str_ref_ty) -> int_ty;
-        [ReadOnly] pg_query(str_ref_ty, str_ref_ty) -> map_ty;
-        [ReadOnly] pg_execute(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] sqlite_query(str_ref_ty, str_ref_ty, map_ty) -> map_ty;
+        [ReadOnly] sqlite_execute(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        [ReadOnly] libsql_query(str_ref_ty, str_ref_ty, map_ty) -> map_ty;
+        [ReadOnly] libsql_execute(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        [ReadOnly] mysql_query(str_ref_ty, str_ref_ty, map_ty) -> map_ty;
+        [ReadOnly] mysql_execute(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        [ReadOnly] pg_query(str_ref_ty, str_ref_ty, map_ty) -> map_ty;
+        [ReadOnly] pg_execute(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
         [ReadOnly] http_get(str_ref_ty, map_ty) -> map_ty;
         [ReadOnly] http_post(str_ref_ty, map_ty, str_ref_ty) -> map_ty;
         send_mail(str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty);
@@ -2257,71 +2257,91 @@ pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {
     })
 }
 
-pub(crate) unsafe extern "C" fn sqlite_query(db_path: *mut U128, sql: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn sqlite_query(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
     guard_panic(stringify!(sqlite_query), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
-        let res = runtime::sqlite::sqlite_query(&*db_path.as_str(), &*sql.as_str());
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::sqlite::sqlite_query(&*db_path.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
 
-pub(crate) unsafe extern "C" fn sqlite_execute(db_path: *mut U128, sql: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn sqlite_execute(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
     guard_panic(stringify!(sqlite_execute), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
-        runtime::sqlite::sqlite_execute(&*db_path.as_str(), &*sql.as_str())
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::sqlite::sqlite_execute(&*db_path.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
+        res
     })
 }
 
-pub(crate) unsafe extern "C" fn libsql_query(db_path: *mut U128, sql: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn libsql_query(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
     guard_panic(stringify!(libsql_query), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
-        let res = runtime::libsql::libsql_query(&*db_path.as_str(), &*sql.as_str());
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::libsql::libsql_query(&*db_path.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
 
-pub(crate) unsafe extern "C" fn libsql_execute(db_path: *mut U128, sql: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn libsql_execute(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
     guard_panic(stringify!(libsql_execute), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
-        runtime::libsql::libsql_execute(&*db_path.as_str(), &*sql.as_str())
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::libsql::libsql_execute(&*db_path.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
+        res
     })
 }
 
-pub(crate) unsafe extern "C" fn mysql_query(db_url: *mut U128, sql: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn mysql_query(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
     guard_panic(stringify!(mysql_query), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
-        let res = runtime::mysql::mysql_query(&*db_url.as_str(), &*sql.as_str());
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::mysql::mysql_query(&*db_url.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
 
-pub(crate) unsafe extern "C" fn mysql_execute(db_url: *mut U128, sql: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn mysql_execute(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
     guard_panic(stringify!(mysql_execute), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
-        runtime::mysql::mysql_execute(&*db_url.as_str(), &*sql.as_str())
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::mysql::mysql_execute(&*db_url.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
+        res
     })
 }
 
-pub(crate) unsafe extern "C" fn pg_query(db_url: *mut U128, sql: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn pg_query(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
     guard_panic(stringify!(pg_query), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
-        let res = runtime::postgres::pg_query(&*db_url.as_str(), &*sql.as_str());
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::postgres::pg_query(&*db_url.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
 
-pub(crate) unsafe extern "C" fn pg_execute(db_url: *mut U128, sql: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn pg_execute(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
     guard_panic(stringify!(pg_execute), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
-        runtime::postgres::pg_execute(&*db_url.as_str(), &*sql.as_str())
+        let params = mem::transmute::<*mut c_void, IntMap<Str>>(params);
+        let res = runtime::postgres::pg_execute(&*db_url.as_str(), &*sql.as_str(), &params);
+        mem::forget(params);
+        res
     })
 }
 

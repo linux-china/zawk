@@ -3,17 +3,19 @@ use std::env;
 use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
-use libsql::{Builder, params, Value};
+use libsql::{Builder, Value};
+use libsql::params::Params;
+use crate::runtime::sqlite::positional_params;
 
 static LIBSQL_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, libsql::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
+pub(crate) fn libsql_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     crate::runtime::TOKIO_RUNTIME.block_on(async {
-        libsql_query_async(db_path, sql).await
+        libsql_query_async(db_path, sql, params).await
     })
 }
 
-pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<Str<'a>> {
+pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str, params: &IntMap<Str<'_>>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
@@ -23,7 +25,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
             || url.starts_with("https://")) {
             // local database: use rusqlite to avoid linking a second bundled SQLite
             drop(pool);
-            return crate::runtime::sqlite::sqlite_query(url.as_str(), sql);
+            return crate::runtime::sqlite::sqlite_query(url.as_str(), sql, params);
         }
         match connect(url, auth_token).await {
             Ok(connection) => {
@@ -36,7 +38,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str) -> IntMap<S
         }
     }
     let conn = &pool[db_path];
-    if let Err(e) = libsql_query_into(conn, sql, &map).await {
+    if let Err(e) = libsql_query_into(conn, sql, text_params(params), &map).await {
         stdlib_warning("libsql_query", e);
     }
     map
@@ -65,11 +67,21 @@ async fn connect(url: String, auth_token: String) -> libsql::Result<libsql::Conn
     Builder::new_remote(url, auth_token).build().await?.connect()
 }
 
-async fn libsql_query_into(conn: &libsql::Connection, sql: &str, map: &IntMap<Str<'_>>) -> libsql::Result<()> {
+/// Positional parameters, bound as text values.
+fn text_params(params: &IntMap<Str>) -> Params {
+    let values = positional_params(params);
+    if values.is_empty() {
+        Params::None
+    } else {
+        Params::Positional(values.into_iter().map(Value::Text).collect())
+    }
+}
+
+async fn libsql_query_into(conn: &libsql::Connection, sql: &str, params: Params, map: &IntMap<Str<'_>>) -> libsql::Result<()> {
     let stmt = conn.prepare(sql).await?;
     let mut index = 1;
     let mut colum_count = 0;
-    let mut rows = stmt.query(params![]).await?;
+    let mut rows = stmt.query(params).await?;
     while let Some(row) = rows.next().await? {
         let mut items: Vec<String> = vec![];
         let mut i: i32 = 0;
@@ -96,13 +108,13 @@ async fn libsql_query_into(conn: &libsql::Connection, sql: &str, map: &IntMap<St
     }
     Ok(())
 }
-pub(crate) fn libsql_execute(db_path: &str, sql: &str) -> Int {
+pub(crate) fn libsql_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     crate::runtime::TOKIO_RUNTIME.block_on(async {
-        libsql_execute_async(db_path, sql).await
+        libsql_execute_async(db_path, sql, params).await
     })
 }
 
-pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str) -> Int {
+pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str, params: &IntMap<Str<'_>>) -> Int {
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
         match connect(db_path.to_string(), "".to_string()).await {
@@ -115,7 +127,7 @@ pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str) -> Int {
             }
         }
     }
-    match pool[db_path].execute(sql, params![]).await {
+    match pool[db_path].execute(sql, text_params(params)).await {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("libsql_execute", e);
@@ -133,7 +145,7 @@ mod tests {
     async fn test_query_async() {
         let sql = "SELECT id, email FROM users";
         let db_path = "http://127.0.0.1:8080";
-        let rows = libsql_query_async(db_path, sql).await;
+        let rows = libsql_query_async(db_path, sql, &IntMap::default()).await;
         for key in rows.to_vec() {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
@@ -145,7 +157,7 @@ mod tests {
     fn test_query() {
         let sql = "SELECT id, email FROM users";
         let db_path = "http://127.0.0.1:8080";
-        let rows = libsql_query(db_path, sql);
+        let rows = libsql_query(db_path, sql, &IntMap::default());
         for key in rows.to_vec() {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
@@ -157,6 +169,6 @@ mod tests {
     async fn test_create_db() {
         let sql = "CREATE TABLE IF NOT EXISTS user (nick VARCHAR UNIQUE, email VARCHAR, age INT)";
         let db_path = "http://127.0.0.1:8080";
-        let _ = libsql_execute(db_path, sql);
+        let _ = libsql_execute(db_path, sql, &IntMap::default());
     }
 }

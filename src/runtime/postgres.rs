@@ -5,7 +5,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use chrono::Utc;
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
-use postgres::types::{FromSql, Kind, Type};
+use bytes::BytesMut;
+use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
 use postgres::Client;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
@@ -34,7 +35,15 @@ fn connect(db_url: &str) -> Result<Client, String> {
     } else {
         crate::runtime::tls::client_config_no_verify()
     };
-    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config?)).map_err(|e| e.to_string())
+    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config?)).map_err(error_text)
+}
+
+/// `postgres::Error` displays only its kind, such as "db error": append the cause.
+fn error_text(e: postgres::Error) -> String {
+    match e.source() {
+        Some(cause) => format!("{}: {}", e, cause),
+        None => e.to_string(),
+    }
 }
 
 /// The cached client for `db_url`, connecting on first use.
@@ -45,10 +54,92 @@ fn client<'p>(pools: &'p mut HashMap<String, Client>, db_url: &str) -> Result<&'
     Ok(pools.get_mut(db_url).unwrap())
 }
 
-pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
+/// A positional parameter given as text, converted to the type the server inferred for it.
+#[derive(Debug)]
+struct PgParam(String);
+
+impl ToSql for PgParam {
+    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        let text = self.0.as_str();
+        if <&str as ToSql>::accepts(ty) || matches!(ty.kind(), Kind::Enum(_)) {
+            // text-like types and enum labels are sent as is
+            return text.to_sql(ty, out);
+        }
+        // an empty (uninitialized) value is NULL for non-text types
+        if text.is_empty() {
+            return Ok(IsNull::Yes);
+        }
+        let value = text.trim();
+        match *ty {
+            Type::BOOL => match value.to_ascii_lowercase().as_str() {
+                "t" | "true" | "y" | "yes" | "on" | "1" => true.to_sql(ty, out),
+                "f" | "false" | "n" | "no" | "off" | "0" => false.to_sql(ty, out),
+                _ => Err(format!("invalid boolean: {}", text).into()),
+            },
+            Type::CHAR => (value.bytes().next().unwrap_or(0) as i8).to_sql(ty, out),
+            Type::INT2 => value.parse::<i16>()?.to_sql(ty, out),
+            Type::INT4 => value.parse::<i32>()?.to_sql(ty, out),
+            Type::INT8 => value.parse::<i64>()?.to_sql(ty, out),
+            Type::OID => value.parse::<u32>()?.to_sql(ty, out),
+            Type::FLOAT4 => value.parse::<f32>()?.to_sql(ty, out),
+            Type::FLOAT8 => value.parse::<f64>()?.to_sql(ty, out),
+            Type::NUMERIC => match encode_numeric(value) {
+                Some(raw) => {
+                    out.extend_from_slice(&raw);
+                    Ok(IsNull::No)
+                }
+                None => Err(format!("invalid numeric: {}", text).into()),
+            },
+            Type::JSON | Type::JSONB => serde_json::from_str::<serde_json::Value>(text)?.to_sql(ty, out),
+            Type::UUID => Uuid::parse_str(value)?.to_sql(ty, out),
+            Type::INET => value.parse::<std::net::IpAddr>()?.to_sql(ty, out),
+            // `\\x...` is hex, as in the text format of bytea
+            Type::BYTEA => match value.strip_prefix("\\x") {
+                Some(hex_text) => hex::decode(hex_text)?.to_sql(ty, out),
+                None => text.as_bytes().to_sql(ty, out),
+            },
+            Type::DATE => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")?.to_sql(ty, out),
+            Type::TIME => parse_time(value)?.to_sql(ty, out),
+            Type::TIMESTAMP => parse_timestamp(value)?.to_sql(ty, out),
+            // without an offset the timestamp is taken as UTC
+            Type::TIMESTAMPTZ => match chrono::DateTime::parse_from_rfc3339(value)
+                .or_else(|_| chrono::DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f%#z"))
+            {
+                Ok(dt) => dt.with_timezone(&Utc).to_sql(ty, out),
+                Err(_) => parse_timestamp(value)?.and_utc().to_sql(ty, out),
+            },
+            _ => Err(format!("unsupported parameter type {}: cast it in SQL, e.g. `$1::text::{}`", ty, ty).into()),
+        }
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+
+    to_sql_checked!();
+}
+
+fn parse_time(text: &str) -> Result<chrono::NaiveTime, chrono::ParseError> {
+    chrono::NaiveTime::parse_from_str(text, "%H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(text, "%H:%M"))
+}
+
+fn parse_timestamp(text: &str) -> Result<chrono::NaiveDateTime, chrono::ParseError> {
+    chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").map(|d| d.and_time(chrono::NaiveTime::MIN)))
+}
+
+fn positional_params(params: &IntMap<Str>) -> Vec<PgParam> {
+    crate::runtime::sqlite::positional_params(params).into_iter().map(PgParam).collect()
+}
+
+pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
+    let params = positional_params(params);
+    let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
     let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    let rows = match client(&mut pools, db_url).and_then(|client| client.query(sql, &[]).map_err(|e| e.to_string())) {
+    let rows = match client(&mut pools, db_url).and_then(|client| client.query(sql, &params).map_err(error_text)) {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("pg_query", e);
@@ -69,9 +160,11 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub(crate) fn pg_execute(db_url: &str, sql: &str) -> Int {
+pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
+    let params = positional_params(params);
+    let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
     let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    match client(&mut pools, db_url).and_then(|client| client.execute(sql, &[]).map_err(|e| e.to_string())) {
+    match client(&mut pools, db_url).and_then(|client| client.execute(sql, &params).map_err(error_text)) {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("pg_execute", e);
@@ -104,6 +197,57 @@ impl<'a> FromSql<'a> for PgEnum {
     fn accepts(ty: &Type) -> bool {
         matches!(ty.kind(), Kind::Enum(_))
     }
+}
+
+/// Binary wire format of a `numeric` from decimal text such as `-12.50`: base 10000 digits with
+/// the weight of the first one; the inverse of `decode_numeric`.
+fn encode_numeric(text: &str) -> Option<Vec<u8>> {
+    let (negative, body) = match text.strip_prefix('-') {
+        Some(body) => (true, body),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let header = |ndigits: usize, weight: i16, sign: u16, dscale: u16| {
+        let mut raw = Vec::with_capacity(8 + ndigits * 2);
+        raw.extend((ndigits as u16).to_be_bytes());
+        raw.extend(weight.to_be_bytes());
+        raw.extend(sign.to_be_bytes());
+        raw.extend(dscale.to_be_bytes());
+        raw
+    };
+    if body.eq_ignore_ascii_case("nan") {
+        return Some(header(0, 0, 0xC000, 0));
+    }
+    let (int_part, frac_part) = body.split_once('.').unwrap_or((body, ""));
+    if (int_part.is_empty() && frac_part.is_empty())
+        || !int_part.bytes().chain(frac_part.bytes()).all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let int_part = int_part.trim_start_matches('0');
+    let dscale = u16::try_from(frac_part.len()).ok()?;
+    // pad the integer part on the left and the fraction on the right to groups of 4 digits
+    let int_pad = (4 - int_part.len() % 4) % 4;
+    let frac_pad = (4 - frac_part.len() % 4) % 4;
+    let text = format!("{}{}{}{}", "0".repeat(int_pad), int_part, frac_part, "0".repeat(frac_pad));
+    let mut digits: Vec<u16> = text.as_bytes().chunks(4)
+        .map(|group| group.iter().fold(0, |n, b| n * 10 + (b - b'0') as u16))
+        .collect();
+    let mut weight = ((int_pad + int_part.len()) / 4) as i64 - 1;
+    let leading_zeros = digits.iter().take_while(|&&d| d == 0).count();
+    digits.drain(..leading_zeros);
+    weight -= leading_zeros as i64;
+    while digits.last() == Some(&0) {
+        digits.pop();
+    }
+    if digits.is_empty() {
+        weight = 0;
+    }
+    let sign = if negative && !digits.is_empty() { 0x4000 } else { 0 };
+    let mut raw = header(digits.len(), i16::try_from(weight).ok()?, sign, dscale);
+    for d in digits {
+        raw.extend(d.to_be_bytes());
+    }
+    Some(raw)
 }
 
 fn decode_numeric(raw: &[u8]) -> Option<String> {
@@ -270,11 +414,24 @@ mod tests {
     }
 
     #[test]
+    fn test_encode_numeric() {
+        for text in ["12345.678", "0.00012", "-0.00012", "100000000", "0.00", "3.14", "-12.50", "0", "7", "NaN"] {
+            assert_eq!(decode_numeric(&encode_numeric(text).unwrap()).unwrap(), text);
+        }
+        assert_eq!(decode_numeric(&encode_numeric("+007.10").unwrap()).unwrap(), "7.10");
+        assert_eq!(decode_numeric(&encode_numeric(".5").unwrap()).unwrap(), "0.5");
+        assert_eq!(decode_numeric(&encode_numeric("-0").unwrap()).unwrap(), "0");
+        for text in ["", ".", "abc", "1e5", "1.2.3", "--1"] {
+            assert!(encode_numeric(text).is_none(), "{}", text);
+        }
+    }
+
+    #[test]
     #[ignore]
     fn test_query() {
         let sql = "SELECT name FROM city";
         let db_url = "postgres://postgres:postgres@localhost/demo";
-        let rows = pg_query(db_url, sql);
+        let rows = pg_query(db_url, sql, &IntMap::default());
         for key in rows.to_vec() {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
@@ -286,6 +443,6 @@ mod tests {
     fn test_delete_row() {
         let sql = "delete from blogs where id = 2";
         let db_url = "postgresql://postgres:postgres@localhost/demo";
-        let _ = pg_execute(db_url, sql);
+        let _ = pg_execute(db_url, sql, &IntMap::default());
     }
 }

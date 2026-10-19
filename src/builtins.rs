@@ -732,6 +732,18 @@ impl Function {
                 );
                 ctx.nw.add_dep(map, args[args.len() - 1], Constraint::Flows(()));
             }
+            // the positional parameters of the database functions
+            Function::SqliteQuery | Function::SqliteExecute | Function::LibsqlQuery | Function::LibsqlExecute
+            | Function::MysqlQuery | Function::MysqlExecute | Function::PgQuery | Function::PgExecute => {
+                let map = ctx.constant(
+                    Map {
+                        key: BaseTy::Int,
+                        val: BaseTy::Str,
+                    }
+                        .abs(),
+                );
+                ctx.nw.add_dep(map, args[2], Constraint::Flows(()));
+            }
             Function::MatchArr => {
                 let arg2 = ctx.constant(
                     Map {
@@ -986,8 +998,8 @@ impl Function {
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             LogDebug | LogInfo | LogWarn | LogError => (smallvec![Str], Null),
-            SqliteQuery | LibsqlQuery | MysqlQuery | PgQuery => (smallvec![Str, Str], MapIntStr),
-            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => (smallvec![Str, Str], Int),
+            SqliteQuery | LibsqlQuery | MysqlQuery | PgQuery => (smallvec![Str, Str, MapIntStr], MapIntStr),
+            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => (smallvec![Str, Str, MapIntStr], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -1184,7 +1196,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 2,
+            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 3,
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
             IsInt | IsNum => 1,

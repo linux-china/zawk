@@ -331,14 +331,14 @@ pub(crate) enum Instr<'a> {
     LogInfo(Reg<Str<'a>>),
     LogWarn(Reg<Str<'a>>),
     LogError(Reg<Str<'a>>),
-    SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
-    LibsqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    LibsqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
-    MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
-    PgQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    PgExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    LibsqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    LibsqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    PgQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    PgExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterInsert(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1018,45 +1018,53 @@ impl<'a> Instr<'a> {
             LogError( message) => {
                 message.accum(&mut f);
             }
-            SqliteQuery(dst, db_path, sql) => {
+            SqliteQuery(dst, db_path, sql, params) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            SqliteExecute(dst, db_path, sql) => {
+            SqliteExecute(dst, db_path, sql, params) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            LibsqlQuery(dst, db_path, sql) => {
+            LibsqlQuery(dst, db_path, sql, params) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            LibsqlExecute(dst, db_path, sql) => {
+            LibsqlExecute(dst, db_path, sql, params) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            MysqlQuery(dst, db_url, sql) => {
+            MysqlQuery(dst, db_url, sql, params) => {
                 dst.accum(&mut f);
                 db_url.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            MysqlExecute(dst, db_url, sql) => {
+            MysqlExecute(dst, db_url, sql, params) => {
                 dst.accum(&mut f);
                 db_url.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            PgQuery(dst, db_url, sql) => {
+            PgQuery(dst, db_url, sql, params) => {
                 dst.accum(&mut f);
                 db_url.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
-            PgExecute(dst, db_url, sql) => {
+            PgExecute(dst, db_url, sql, params) => {
                 dst.accum(&mut f);
                 db_url.accum(&mut f);
                 sql.accum(&mut f);
+                params.accum(&mut f);
             }
             Publish(namespace, body) => {
                 namespace.accum(&mut f);

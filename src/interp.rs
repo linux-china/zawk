@@ -1386,59 +1386,67 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let message = index(&self.strs, message);
                         runtime::logging::log_error(&*file_name.as_str(), &*message.as_str());
                     }
-                    SqliteQuery(dst, db_path, sql) => {
+                    SqliteQuery(dst, db_path, sql, params) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::sqlite::sqlite_query(&*db_path.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::sqlite::sqlite_query(&*db_path.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    SqliteExecute(dst, db_path, sql) => {
+                    SqliteExecute(dst, db_path, sql, params) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::sqlite::sqlite_execute(&*db_path.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::sqlite::sqlite_execute(&*db_path.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    LibsqlQuery(dst, db_path, sql) => {
+                    LibsqlQuery(dst, db_path, sql, params) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::libsql::libsql_query(&*db_path.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::libsql::libsql_query(&*db_path.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    LibsqlExecute(dst, db_path, sql) => {
+                    LibsqlExecute(dst, db_path, sql, params) => {
                         let db_path = index(&self.strs, db_path);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::libsql::libsql_execute(&*db_path.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::libsql::libsql_execute(&*db_path.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    MysqlQuery(dst, db_url, sql) => {
+                    MysqlQuery(dst, db_url, sql, params) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::mysql::mysql_query(&*db_url.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::mysql::mysql_query(&*db_url.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    MysqlExecute(dst, db_url, sql) => {
+                    MysqlExecute(dst, db_url, sql, params) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::mysql::mysql_execute(&*db_url.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::mysql::mysql_execute(&*db_url.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    PgQuery(dst, db_url, sql) => {
+                    PgQuery(dst, db_url, sql, params) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::postgres::pg_query(&*db_url.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::postgres::pg_query(&*db_url.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
-                    PgExecute(dst, db_url, sql) => {
+                    PgExecute(dst, db_url, sql, params) => {
                         let db_url = index(&self.strs, db_url);
                         let sql = index(&self.strs, sql);
-                        let res = runtime::postgres::pg_execute(&*db_url.as_str(), &*sql.as_str());
+                        let params = self.get(*params);
+                        let res = runtime::postgres::pg_execute(&*db_url.as_str(), &*sql.as_str(), params);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

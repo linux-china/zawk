@@ -3152,3 +3152,32 @@ fn local_variables() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("cannot declare the special variable `NR' as local"), "{}", stderr);
 }
+
+#[test]
+fn sqlite_positional_params() {
+    // values with quotes or SQL in them are bound as data, not spliced into the statement
+    let input = "1,O'Brien\n2,x'); drop table u; --\n";
+    let prog = r#"BEGIN { sqlite_execute(DB, "create table u(id int, name text)") }
+{ p[1] = $1; p[2] = $2; n += sqlite_execute(DB, "insert into u values(?, ?)", p) }
+END {
+    print n
+    q[1] = "O'Brien"; print sqlite_query(DB, "select id, typeof(id) from u where name = ?", q)[1]
+    rows = sqlite_query(DB, "select name from u order by id")
+    for (i = 1; i <= length(rows); i++) print rows[i]
+    print sqlite_execute(DB, "delete from u")
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        let tmpdir = tempdir().unwrap();
+        let db = tmpdir.path().join("params.db");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg("-F,")
+            .arg("-v")
+            .arg(format!("DB={}", db.display()))
+            .arg(prog)
+            .write_stdin(input)
+            .assert()
+            .stdout("2\n1,integer\nO'Brien\nx'); drop table u; --\n2\n");
+    }
+}

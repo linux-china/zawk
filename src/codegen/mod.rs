@@ -1250,52 +1250,60 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Variant(dst,text) => self.unop(intrinsic!(variant), dst, text),
             Func(dst,text) => self.unop(intrinsic!(func), dst, text),
-            SqliteQuery(dst,db_path,sql) => {
+            SqliteQuery(dst,db_path,sql,params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(sqlite_query), &mut [db_path, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(sqlite_query), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            SqliteExecute(dst,db_path,sql) => {
+            SqliteExecute(dst,db_path,sql,params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(sqlite_execute), &mut [db_path, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(sqlite_execute), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            LibsqlQuery(dst,db_path,sql) => {
+            LibsqlQuery(dst,db_path,sql,params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(libsql_query), &mut [db_path, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(libsql_query), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            LibsqlExecute(dst,db_path,sql) => {
+            LibsqlExecute(dst,db_path,sql,params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(libsql_execute), &mut [db_path, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(libsql_execute), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MysqlQuery(dst,db_url,sql) => {
+            MysqlQuery(dst,db_url,sql,params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mysql_query), &mut [db_url, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(mysql_query), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MysqlExecute(dst,db_url,sql) => {
+            MysqlExecute(dst,db_url,sql,params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mysql_execute), &mut [db_url, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(mysql_execute), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            PgQuery(dst,db_url,sql) => {
+            PgQuery(dst,db_url,sql,params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(pg_query), &mut [db_url, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pg_query), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            PgExecute(dst,db_url,sql) => {
+            PgExecute(dst,db_url,sql,params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(pg_execute), &mut [db_url, sql])?;
+                let params = self.get_val(params.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(pg_execute), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),

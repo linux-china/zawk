@@ -228,9 +228,9 @@ zawk -i csv -H '{ t = mktime($FI["created_at"]); c[strftime("%Y-%m-%d", t, 1)]++
 # Call an API per record and extract a value from the JSON response
 zawk '{ r = http_get("https://api.example.com/users/" $1); print $1, r["status"], json_value(r["text"], "$.name") }' ids.txt
 
-# Load CSV into SQLite (escape values for SQL)
+# Load CSV into SQLite (bind values as parameters; never concatenate them into SQL)
 zawk -i csv -H 'BEGIN { sqlite_execute("app.db", "create table if not exists users(id int, name text)") }
-  { sqlite_execute("app.db", "insert into users values(" int($1) ", '\''" escape("sql", $2) "'\'')") }' users.csv
+  { p[1] = $1; p[2] = $2; sqlite_execute("app.db", "insert into users values(?, ?)", p) }' users.csv
 
 # Query SQLite: each row is a CSV encoded string
 zawk 'BEGIN { rows = sqlite_query("app.db", "select id, name from users"); for (i in rows) { split(rows[i], f, ","); print f[2] } }'
