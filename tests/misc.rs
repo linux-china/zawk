@@ -1259,6 +1259,66 @@ fn parquet_input() {
 }
 
 #[test]
+fn json_input() {
+    // -i json: the elements of an array (or the records a JSONPath after `#` selects) are read as
+    // JSON Lines; an object is one record, a string or number is a record of plain text.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let array = dir.join("demo-array.json").to_str().unwrap().to_string();
+    let doc = dir.join("demo.json").to_str().unwrap().to_string();
+    let data = format!("{}#$.data", doc);
+    let cases: [(&[&str], &str, String); 8] = [
+        (&["-i", "json"], r#"{ print NR, $FI["name"], $3, NF }"#, array.clone()),
+        (&["-i", "json"], r#"{ print NR, $FI["name"], $3, NF }"#, data.clone()),
+        // `.json` files are read as JSON without `-i`.
+        (&[], r#"{ print NR, $FI["name"], $3, NF }"#, data.clone()),
+        (&[], "NR == 2", array.clone()),
+        (&[], r#"{ print $FI["msg"], $FI["success"]; print $FI["data"] }"#, doc.clone()),
+        (&[], r#"{ print $0 "|" $1 "|" NF }"#, format!("{}#$.msg", doc)),
+        (&[], r#"{ print $FI["name"] }"#, format!("{}#$.data[?@.age > 18]", doc)),
+        (&[], r#"{ print FILENAME == ARGV[1] }"#, format!("{}#$.data[0]", doc)),
+    ];
+    let expected = [
+        "1 Jackie 18 3\n2 John 20 3\n",
+        "1 Jackie 18 3\n2 John 20 3\n",
+        "1 Jackie 18 3\n2 John 20 3\n",
+        "{\"id\":2,\"name\":\"John\",\"age\":20}\n",
+        "family members 1\n[{\"id\":1,\"name\":\"Jackie\",\"age\":18},{\"id\":2,\"name\":\"John\",\"age\":20}]\n",
+        "family members|family members|1\n",
+        "John\n",
+        "0\n",
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for ((args, prog, file), expected) in cases.iter().zip(expected) {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .arg(prog)
+                .arg(file)
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+        // Standard input, and an error for a file that is not JSON.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "json", r#"{ print $FI["name"] }"#])
+            .pipe_stdin(&array)
+            .unwrap()
+            .assert()
+            .success()
+            .stdout("Jackie\nJohn\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "json", "{ print }", "Cargo.toml"])
+            .assert()
+            .code(2);
+    }
+}
+
+#[test]
 fn unreadable_input_is_fatal_with_regex_separators() {
     // With a regex FS, a custom RS, paragraph mode, or FS assigned in a rule, records are read by
     // the regex splitter. An input file that cannot be read stops the program with an error, as

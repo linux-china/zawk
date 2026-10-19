@@ -1,4 +1,4 @@
-//! `zawk inspect`: a quick look at a CSV, TSV, JSON Lines or Parquet file before writing a
+//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines or Parquet file before writing a
 //! program for it.
 //!
 //! The report has three parts:
@@ -21,7 +21,7 @@ use std::io::{self, BufRead, BufReader, Cursor, Read};
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::runtime::splitter::{jsonl, parquet::ParquetJson};
+use crate::runtime::splitter::{json, jsonl, parquet::ParquetJson};
 use crate::runtime::{decompress, http, s3};
 
 /// A value of a column.
@@ -42,6 +42,8 @@ pub enum Cell {
 pub enum Format {
     Csv,
     Tsv,
+    /// A JSON document, read as JSON Lines (`file.json#$.data` selects the records).
+    Json,
     Jsonl,
     Parquet,
 }
@@ -51,6 +53,7 @@ impl Format {
         Some(match name {
             "csv" => Format::Csv,
             "tsv" => Format::Tsv,
+            "json" => Format::Json,
             "jsonl" | "ndjson" => Format::Jsonl,
             "parquet" => Format::Parquet,
             _ => return None,
@@ -61,6 +64,7 @@ impl Format {
         match self {
             Format::Csv => "csv",
             Format::Tsv => "tsv",
+            Format::Json => "json",
             Format::Jsonl => "jsonl",
             Format::Parquet => "parquet",
         }
@@ -71,6 +75,7 @@ impl Format {
         match self {
             Format::Csv => "-i csv -H",
             Format::Tsv => "-i tsv -H",
+            Format::Json => "-i json",
             Format::Jsonl => "-i jsonl",
             Format::Parquet => "-i parquet",
         }
@@ -97,7 +102,7 @@ pub fn inspect(path: &str, opts: &Options) -> io::Result<String> {
     let mut ins = Inspector::new(opts.sample_rows);
     let (format, limited) = match opts.format {
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
-        Some(format) => (format, read_text(open_input(path)?, format, opts, &mut ins)?),
+        Some(format) => (format, read_text(open_format(path, format)?, format, opts, &mut ins)?),
         None => {
             if path != "-" && extension_format(path) == Some(Format::Parquet) {
                 (Format::Parquet, read_parquet(path, opts, &mut ins)?)
@@ -117,7 +122,8 @@ pub fn inspect(path: &str, opts: &Options) -> io::Result<String> {
                     }
                     (format, read_parquet(path, opts, &mut ins)?)
                 } else {
-                    let input = Box::new(Cursor::new(prefix).chain(input));
+                    let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
+                    let input = if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input };
                     (format, read_text(input, format, opts, &mut ins)?)
                 }
             }
@@ -140,7 +146,8 @@ fn extension_format(path: &str) -> Option<Format> {
     Some(match ext {
         "csv" => Format::Csv,
         "tsv" | "tab" => Format::Tsv,
-        "jsonl" | "ndjson" | "json" => Format::Jsonl,
+        "json" => Format::Json,
+        "jsonl" | "ndjson" => Format::Jsonl,
         "parquet" | "pq" => Format::Parquet,
         _ => return None,
     })
@@ -151,13 +158,24 @@ fn sniff_text(prefix: &[u8]) -> Format {
     if first == Some(&b'{') {
         return Format::Jsonl;
     }
+    if first == Some(&b'[') {
+        return Format::Json;
+    }
     let line = prefix.split(|b| *b == b'\n').next().unwrap_or_default();
     let count = |c: u8| line.iter().filter(|b| **b == c).count();
     if count(b'\t') > count(b',') { Format::Tsv } else { Format::Csv }
 }
 
-/// Opens a file, URL, S3 object or standard input (`-`), decompressing it if needed.
+/// Opens `path` to be read as `format`: a JSON document is read as JSON Lines.
+fn open_format(path: &str, format: Format) -> io::Result<Box<dyn Read + Send>> {
+    let input = open_input(path)?;
+    Ok(if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input })
+}
+
+/// Opens a file, URL, S3 object or standard input (`-`), decompressing it if needed. A JSONPath
+/// after the file (`file.json#$.data`) is ignored.
 fn open_input(path: &str) -> io::Result<Box<dyn Read + Send>> {
+    let path = json::split_path(path).0;
     if path == "-" {
         decompress::maybe_decompress(path, io::stdin())
     } else if s3::is_s3_url(path) {
@@ -190,7 +208,7 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
     Ok(false)
 }
 
-/// Reads the rows of a CSV, TSV or JSON Lines input; returns whether reading stopped at
+/// Reads the rows of a CSV, TSV, JSON or JSON Lines input; returns whether reading stopped at
 /// `--max-rows`.
 fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
     let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
@@ -235,7 +253,7 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                 }
             }
         }
-        Format::Jsonl => {
+        Format::Json | Format::Jsonl => {
             let mut reader = BufReader::new(input);
             let mut line = Vec::new();
             loop {
@@ -308,11 +326,11 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
             .iter()
             .map(|l| l.split('\t').map(unescape_tsv).collect())
             .collect(),
-        Some(Format::Jsonl) => {
+        Some(format @ (Format::Json | Format::Jsonl)) => {
             // As for a run, the keys of the first object are the fields, in order.
             let mut keys: Option<Vec<String>> = None;
             let mut rows = Vec::new();
-            for line in lines(open_input(path)?, usize::MAX)? {
+            for line in lines(open_format(path, format)?, usize::MAX)? {
                 if rows.len() >= max_records {
                     break;
                 }

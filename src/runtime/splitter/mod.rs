@@ -7,6 +7,7 @@
 // TODO: add padding to the linereader trait
 pub mod batch;
 pub mod chunk;
+pub mod json;
 pub mod jsonl;
 pub mod markdown;
 pub mod parquet;

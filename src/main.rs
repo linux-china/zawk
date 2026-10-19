@@ -47,6 +47,7 @@ use common::{CancelSignal, ExecutionStrategy, Stage};
 use runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
+        json::JsonRecords,
         jsonl::JsonlReader,
         markdown::MarkdownCsv,
         parquet::ParquetJson,
@@ -593,9 +594,10 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         };
         sources.push(lint::Source { name: None, text });
     }
-    let mut opts = lint_options(matches);
+    let format = input_format(matches, &input_files);
+    let format = format.as_deref();
+    let mut opts = lint_options(matches, format);
     // The data-aware checks read the first records of the first input file.
-    let format = matches.get_one::<String>("input-format").map(|s| s.as_str());
     if let Some(file) = input_files.first().filter(|_| !matches!(format, Some("markdown" | "md"))) {
         let rows = *matches.get_one::<usize>("sample-rows").unwrap();
         match inspect::sample(file, format.and_then(inspect::Format::parse), opts.header, rows) {
@@ -614,8 +616,8 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
 
 /// `zawk --lint`: prints the JSON report to stderr when the program has diagnostics, and exits
 /// with 1 without running the program when it has errors (or warnings, with `--deny-warnings`).
-fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
-    let (errors, warnings, report) = lint::lint(sources, &lint_options(matches));
+fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format: Option<&str>) {
+    let (errors, warnings, report) = lint::lint(sources, &lint_options(matches, format));
     if errors + warnings > 0 {
         eprintln!("{}", report);
     }
@@ -624,14 +626,31 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches) {
     }
 }
 
-/// The lint options given by the `--taint-check`, `-p`, `-v`, `-H` and `-i` arguments of `zawk lint` or of a run.
-fn lint_options(matches: &clap::ArgMatches) -> lint::Options {
-    // As for a run, JSON Lines, Parquet and Markdown input imply -H.
+/// The input format of a run (or of `zawk lint`): `-i`, or `json` when it is not given and every
+/// input file is a JSON document (`.json`), unless a field separator is given.
+fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<String> {
+    if let Some(format) = matches.get_one::<String>("input-format") {
+        return Some(format.clone());
+    }
+    let field_sep = matches.try_get_one::<String>("field-separator").ok().flatten().is_some()
+        || matches
+            .try_get_many::<String>("var")
+            .ok()
+            .flatten()
+            .into_iter()
+            .flatten()
+            .any(|v| v.trim_start().starts_with("FS="));
+    let files: Vec<&String> = input_files.iter().filter(|f| !is_operand_assignment(f)).collect();
+    (!field_sep && !files.is_empty() && files.iter().all(|f| runtime::splitter::json::is_json_file(f)))
+        .then(|| String::from("json"))
+}
+
+/// The lint options given by the `--taint-check`, `-p`, `-v` and `-H` arguments of `zawk lint` or
+/// of a run, and its input `format`.
+fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
+    // As for a run, JSON, JSON Lines, Parquet and Markdown input imply -H.
     let header = matches.get_flag("parse-header")
-        || matches!(
-            matches.get_one::<String>("input-format").map(|s| s.as_str()),
-            Some("jsonl" | "ndjson" | "parquet" | "markdown" | "md")
-        );
+        || matches!(format, Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md"));
     let vars = || matches.get_many::<String>("var").into_iter().flatten();
     // `-F`, or `-v FS=...`, with escapes processed as for a run.
     let field_sep = matches
@@ -777,8 +796,8 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"])
-            .help("The input format of the run; jsonl, parquet and markdown imply -H"))
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"])
+            .help("The input format of the run (json for `.json` files when not given); json, jsonl, parquet and markdown imply -H"))
         .arg(Arg::new("field-separator")
             .short('F')
             .long("field-separator")
@@ -835,7 +854,7 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet"])
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet"])
             .help("The format of the files; by default it is guessed from the file extension, then from the content"))
         .arg(Arg::new("output-format")
             .short('o')
@@ -935,10 +954,10 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv|jsonl|parquet|markdown")
+            .value_name("csv|tsv|json|jsonl|parquet|markdown")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "parquet", "markdown", "md"]))
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -1094,7 +1113,7 @@ fn real_main() {
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") => None,
+        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -1230,7 +1249,7 @@ fn real_main() {
         if lint_sources.is_empty() {
             lint_sources.push(lint::Source { name: None, text: program_code.clone() });
         }
-        lint_before_run(&lint_sources, &matches);
+        lint_before_run(&lint_sources, &matches, input_format(&matches, &input_files).as_deref());
     }
     parsing::set_program(&program_code, source_map);
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
@@ -1264,23 +1283,17 @@ fn real_main() {
     };
     let taint_check = matches.get_flag("taint-check");
     runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
-    let jsonl = matches!(
-        matches.get_one::<String>("input-format").map(|s| s.as_str()),
-        Some("jsonl") | Some("ndjson")
-    );
-    let parquet = matches!(
-        matches.get_one::<String>("input-format").map(|s| s.as_str()),
-        Some("parquet")
-    );
-    let markdown = matches!(
-        matches.get_one::<String>("input-format").map(|s| s.as_str()),
-        Some("markdown") | Some("md")
-    );
-    // JSON Lines records, Parquet files and Markdown tables are self-describing, so FI is always
-    // populated from the first record (the column names for Parquet and Markdown tables).
-    let parse_header = matches.get_flag("parse-header") || jsonl || parquet || markdown;
-    // Every input file starts with a header line (JSON Lines and Parquet map each record by key).
-    let header_per_file = parse_header && !jsonl && !parquet;
+    let input_format = input_format(&matches, &input_files);
+    let json = matches!(input_format.as_deref(), Some("json"));
+    let jsonl = matches!(input_format.as_deref(), Some("jsonl") | Some("ndjson"));
+    let parquet = matches!(input_format.as_deref(), Some("parquet"));
+    let markdown = matches!(input_format.as_deref(), Some("markdown") | Some("md"));
+    // JSON documents, JSON Lines records, Parquet files and Markdown tables are self-describing, so
+    // FI is always populated from the first record (the column names for Parquet and Markdown
+    // tables).
+    let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown;
+    // Every input file starts with a header line (JSON and Parquet records are mapped by key).
+    let header_per_file = parse_header && !json && !jsonl && !parquet;
     let multi_file_headers = header_per_file && input_files.len() > 1;
     if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
         // The workers cannot tell which record is the header of a file.
@@ -1402,6 +1415,29 @@ fn real_main() {
                     exec_strategy,
                     signal.clone(),
                 );
+                $body
+            } else if json {
+                // JSON documents are read as JSON Lines, a JSONPath (`file.json#$.data`) selecting
+                // the records.
+                let fi_names = awk_util::fi_constant_keys(&program_code);
+                let operands: Vec<String> =
+                    if input_files.len() == 0 { vec![String::from("-")] } else { input_files.clone() };
+                let sources: Vec<_> = operands
+                    .into_iter()
+                    .map(|operand| {
+                        let file = runtime::splitter::json::split_path(&operand).0.to_string();
+                        (JsonRecords::new(open_file_read(file.as_str()), &operand), file)
+                    })
+                    .collect();
+                let $inp = JsonlReader::new(
+                    sources.into_iter(),
+                    fi_names,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                )
+                .scalar_text();
                 $body
             } else if jsonl {
                 let fi_names = awk_util::fi_constant_keys(&program_code);

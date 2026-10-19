@@ -154,6 +154,8 @@ pub struct JsonlReader {
     // Line number of the last line read in the current file, for warnings. None for the workers
     // of a parallel run, which do not see whole files.
     line_no: Option<usize>,
+    // A bare JSON string or number is a record of plain text: `$0` is the value (`-i json`).
+    scalar_text: bool,
 }
 
 impl JsonlReader {
@@ -186,7 +188,14 @@ impl JsonlReader {
             header: Header::Start,
             used_fields: FieldSet::all(),
             line_no: Some(0),
+            scalar_text: false,
         }
+    }
+
+    /// Reads a bare JSON string or number as plain text: `$0` is the (unescaped) value, as `$1`.
+    pub fn scalar_text(mut self) -> Self {
+        self.scalar_text = true;
+        self
     }
 
     fn build_schema(&mut self, line: &Str<'static>) {
@@ -222,6 +231,7 @@ impl JsonlReader {
         out.fields.clear();
         let schema = self.schema();
         let used = &self.used_fields;
+        let mut scalar = false;
         let valid = line.with_bytes(|bs| {
             let start = skip_ws(bs, 0);
             match bs.get(start) {
@@ -251,6 +261,7 @@ impl JsonlReader {
                             };
                         if valid {
                             out.fields.push(val.to_str(&line, bs));
+                            scalar = true;
                             return true;
                         }
                     }
@@ -259,7 +270,7 @@ impl JsonlReader {
                 None => true,
             }
         });
-        out.line = line;
+        out.line = if scalar && self.scalar_text { out.fields[0].clone() } else { line };
         valid
     }
 
@@ -294,6 +305,7 @@ impl LineReader for JsonlReader {
             .map(|factory| {
                 let schema = self.schema.clone();
                 let used_fields = self.used_fields.clone();
+                let scalar_text = self.scalar_text;
                 Box::new(move || JsonlReader {
                     inner: factory(),
                     scratch: DefaultLine::default(),
@@ -302,6 +314,7 @@ impl LineReader for JsonlReader {
                     header: Header::Done,
                     used_fields,
                     line_no: None,
+                    scalar_text,
                 }) as _
             })
             .collect()
@@ -603,6 +616,7 @@ mod tests {
             header: Header::Start,
             used_fields: FieldSet::all(),
             line_no: Some(0),
+            scalar_text: false,
         };
         let first = Str::from(json.lines().next().unwrap()).unmoor();
         r.build_schema(&first);
