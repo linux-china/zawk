@@ -108,6 +108,9 @@ pub trait LineReader: Sized {
     fn read_state(&self) -> i64;
     fn next_file(&mut self) -> Result<bool>;
     fn set_used_fields(&mut self, used_fields: &FieldSet);
+    /// Calls `f` with the name and index of each column that was named after the header and not
+    /// reported yet (a JSON key first seen in a later record), so that it can be added to `FI`.
+    fn new_columns(&mut self, _f: &mut dyn FnMut(Str<'static>, Int)) {}
     // Whether or not this LineReader is configured to check for valid UTF-8. This is used to
     // propagate consistent options across multiple LineReader instances.
     fn check_utf8(&self) -> bool;

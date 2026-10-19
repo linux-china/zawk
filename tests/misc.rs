@@ -1319,6 +1319,38 @@ fn json_input() {
 }
 
 #[test]
+fn json_lines_and_text_in_json_files() {
+    // A `.json` file of JSON Lines is read as JSON Lines, and one that does not start with `{` or
+    // `[` is read as text without `-i`.
+    let tmp = tempdir().unwrap();
+    let lines = tmp.path().join("lines.json");
+    File::create(&lines).unwrap().write_all(b"{\"a\":1}\n{\"a\":2.50}\n").unwrap();
+    let text = tmp.path().join("text.json");
+    File::create(&text).unwrap().write_all(b"a b c\n").unwrap();
+    for backend_arg in BACKEND_ARGS {
+        for args in [&[][..], &["-i", "json"][..]] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(args)
+                .arg(r#"{ print NR, $FI["a"] }"#)
+                .arg(&lines)
+                .assert()
+                .success()
+                .stdout("1 1\n2 2.50\n");
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg("{ print $2 }")
+            .arg(&text)
+            .assert()
+            .success()
+            .stdout("b\n");
+    }
+}
+
+#[test]
 fn unreadable_input_is_fatal_with_regex_separators() {
     // With a regex FS, a custom RS, paragraph mode, or FS assigned in a rule, records are read by
     // the regex splitter. An input file that cannot be read stops the program with an error, as
@@ -1582,6 +1614,34 @@ fn malformed_input_warnings() {
                 .success()
                 .stderr("zawk: warning: -: record 2: unterminated quoted field runs to the end of the file\n");
         }
+    }
+}
+
+#[test]
+fn jsonl_keys_first_seen_later() {
+    // A key missing from the first record gets the next column when it shows up, and FI maps it,
+    // also when `$FI[k]` is narrowed down to a constant key by `-v`.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijsonl")
+            .args(["-v", "k=b"])
+            .arg(r#"{ print NR, NF, "[" $FI[k] "]" } END { print FI["b"], FI["c"] }"#)
+            .write_stdin("{\"a\":1}\n{\"a\":2,\"b\":9}\n{\"c\":3}\n{\"b\":8}\n")
+            .assert()
+            .success()
+            .stdout("1 1 []\n2 2 [9]\n3 3 []\n4 3 [8]\n2 3\n");
+        // A scalar first record no longer leaves later objects without columns.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijson")
+            .arg("{ print NR, NF, $1 }")
+            .write_stdin(r#"[1, {"x":{"y":1}}]"#)
+            .assert()
+            .success()
+            .stdout("1 1 1\n2 1 {\"y\":1}\n");
     }
 }
 

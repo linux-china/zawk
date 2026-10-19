@@ -10,6 +10,9 @@
 //! reader first emits a virtual header record whose fields are the schema names; the first record
 //! is then emitted again as ordinary data, so no input is consumed by the header.
 //!
+//! A key first seen in a later record is appended to the schema (so NF grows from that record
+//! on), and reported through `LineReader::new_columns` so that it is added to `FI` as well.
+//!
 //! Value mapping: strings are unescaped, numbers keep their source text, `true`/`false` become
 //! `1`/`0`, `null` and missing keys are empty, and nested objects/arrays keep their raw JSON text.
 //! A top-level array is split positionally into `$1..$n`. A line that is not valid JSON keeps the
@@ -17,8 +20,8 @@
 //! reported on stderr (blank lines are not).
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
@@ -38,10 +41,13 @@ const NO_FIELD_SEP: u8 = 0;
 
 type Inner = ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Schema {
     names: Vec<String>,
     index: HashMap<Vec<u8>, usize>,
+    // The number of columns in the header. The used-field set only covers those: a later column
+    // can still be referenced through FI, so it is always parsed.
+    header_len: usize,
 }
 
 impl Schema {
@@ -49,6 +55,30 @@ impl Schema {
         if !self.index.contains_key(name.as_bytes()) {
             self.index.insert(name.as_bytes().to_vec(), self.names.len());
             self.names.push(name);
+        }
+    }
+}
+
+// The schema shared by the main reader and the workers of a parallel run. It only grows, so a
+// column index never changes once assigned.
+#[derive(Default)]
+struct SharedSchema {
+    schema: RwLock<Schema>,
+    len: AtomicUsize,
+}
+
+impl SharedSchema {
+    // Brings `local` up to date, first adding `name` if given and missing.
+    fn sync(&self, local: &mut Schema, name: Option<String>) {
+        if let Some(name) = name {
+            let mut schema = self.schema.write().unwrap();
+            schema.push(name);
+            self.len.store(schema.names.len(), Ordering::Release);
+            if schema.names.len() > local.names.len() {
+                *local = schema.clone();
+            }
+        } else if self.len.load(Ordering::Acquire) > local.names.len() {
+            *local = self.schema.read().unwrap().clone();
         }
     }
 }
@@ -147,7 +177,11 @@ pub struct JsonlReader {
     scratch: DefaultLine,
     // Shared with the worker readers of a parallel run, which may be created before the main
     // reader sees the first record.
-    schema: Arc<OnceLock<Schema>>,
+    shared: Arc<SharedSchema>,
+    // This reader's copy of the schema, refreshed when the shared one grows.
+    schema: Schema,
+    // The number of columns already in FI (the header, or what `new_columns` reported).
+    reported: usize,
     extra_names: Vec<String>,
     header: Header,
     used_fields: FieldSet,
@@ -183,7 +217,9 @@ impl JsonlReader {
         JsonlReader {
             inner,
             scratch: DefaultLine::default(),
-            schema: Default::default(),
+            shared: Default::default(),
+            schema: Schema::default(),
+            reported: 0,
             extra_names,
             header: Header::Start,
             used_fields: FieldSet::all(),
@@ -208,16 +244,15 @@ impl JsonlReader {
         for name in self.extra_names.drain(..) {
             schema.push(name);
         }
-        let _ = self.schema.set(schema);
-    }
-
-    fn schema(&self) -> &Schema {
-        static EMPTY: OnceLock<Schema> = OnceLock::new();
-        self.schema.get().unwrap_or_else(|| EMPTY.get_or_init(Schema::default))
+        schema.header_len = schema.names.len();
+        self.reported = schema.names.len();
+        self.shared.len.store(schema.names.len(), Ordering::Release);
+        *self.shared.schema.write().unwrap() = schema.clone();
+        self.schema = schema;
     }
 
     fn header_line(&self, out: &mut JsonlLine) {
-        let names = &self.schema().names;
+        let names = &self.schema.names;
         out.fields.clear();
         out.fields
             .extend(names.iter().map(|n| Str::from(n.clone()).unmoor()));
@@ -226,10 +261,12 @@ impl JsonlReader {
     }
 
     /// Split `line` into `out`. Returns false if the line is neither blank nor valid JSON.
-    fn fill(&self, line: Str<'static>, out: &mut JsonlLine) -> bool {
+    fn fill(&mut self, line: Str<'static>, out: &mut JsonlLine) -> bool {
         out.diverged = false;
         out.fields.clear();
-        let schema = self.schema();
+        let shared = &self.shared;
+        let schema = &mut self.schema;
+        shared.sync(schema, None);
         let used = &self.used_fields;
         let mut scalar = false;
         let valid = line.with_bytes(|bs| {
@@ -239,9 +276,17 @@ impl JsonlReader {
                     out.fields.resize_with(schema.names.len(), Str::default);
                     let fields = &mut out.fields;
                     parse_object(bs, |key, val| {
-                        if let Some(&ix) = schema.index.get(key.as_bytes())
-                            && used.get(ix + 1)
-                        {
+                        let ix = match schema.index.get(key.as_bytes()) {
+                            Some(&ix) => ix,
+                            None => {
+                                // A key not seen before: it gets the next column.
+                                let key = key.into_owned();
+                                shared.sync(schema, Some(key.clone()));
+                                fields.resize_with(schema.names.len(), Str::default);
+                                schema.index[key.as_bytes()]
+                            }
+                        };
+                        if ix >= schema.header_len || used.get(ix + 1) {
                             fields[ix] = val.to_str(&line, bs);
                         }
                     })
@@ -303,13 +348,16 @@ impl LineReader for JsonlReader {
             .request_handles(size)
             .into_iter()
             .map(|factory| {
-                let schema = self.schema.clone();
+                let shared = self.shared.clone();
                 let used_fields = self.used_fields.clone();
                 let scalar_text = self.scalar_text;
                 Box::new(move || JsonlReader {
                     inner: factory(),
                     scratch: DefaultLine::default(),
-                    schema,
+                    schema: Schema::default(),
+                    shared,
+                    // A worker's FI may not hold the header yet: report every column.
+                    reported: 0,
                     extra_names: Vec::new(),
                     header: Header::Done,
                     used_fields,
@@ -369,6 +417,14 @@ impl LineReader for JsonlReader {
     }
     fn set_used_fields(&mut self, used_fields: &FieldSet) {
         self.used_fields = used_fields.clone();
+    }
+    fn new_columns(&mut self, f: &mut dyn FnMut(Str<'static>, Int)) {
+        if self.reported < self.schema.names.len() {
+            for (ix, name) in self.schema.names.iter().enumerate().skip(self.reported) {
+                f(Str::from(name.clone()).unmoor(), ix as Int + 1);
+            }
+            self.reported = self.schema.names.len();
+        }
     }
 }
 
@@ -611,7 +667,9 @@ mod tests {
                 CancelSignal::default(),
             ),
             scratch: DefaultLine::default(),
-            schema: Default::default(),
+            shared: Default::default(),
+            schema: Schema::default(),
+            reported: 0,
             extra_names: extra.iter().map(|s| s.to_string()).collect(),
             header: Header::Start,
             used_fields: FieldSet::all(),
@@ -623,7 +681,7 @@ mod tests {
         let mut line = JsonlLine::default();
         r.fill(Str::from(json.lines().last().unwrap()).unmoor(), &mut line);
         (
-            r.schema().names.clone(),
+            r.schema.names.clone(),
             line.fields.iter().map(|s| s.to_string()).collect(),
         )
     }

@@ -1078,6 +1078,11 @@ impl<LR: LineReader> FileRead<LR> {
         self.stdin.set_used_fields(&self.used_fields)
     }
 
+    /// Adds the columns named after the header (see `LineReader::new_columns`) to `fi`.
+    pub(crate) fn sync_named_columns<'a>(&mut self, fi: &StrMap<'a, Int>) {
+        self.stdin.new_columns(&mut |name, col| fi.insert(name.upcast(), col));
+    }
+
     pub(crate) fn stdin_filename(&self) -> Str<'static> {
         self.stdin.filename()
     }

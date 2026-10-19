@@ -2615,6 +2615,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         if changed {
                             self.reset_file_vars();
                         }
+                        self.read_files.sync_named_columns(&self.core.vars.fi);
                         *self.get_mut(dst) = res;
                     }
                     NextLineStdinFused() => {
@@ -2626,6 +2627,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         if changed {
                             self.reset_file_vars()
                         }
+                        self.read_files.sync_named_columns(&self.core.vars.fi);
                     }
                     NextFile() => {
                         self.read_files.next_file()?;

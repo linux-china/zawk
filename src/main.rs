@@ -627,7 +627,8 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format:
 }
 
 /// The input format of a run (or of `zawk lint`): `-i`, or `json` when it is not given and every
-/// input file is a JSON document (`.json`), unless a field separator is given.
+/// input file is a JSON document (`.json` that starts with `{` or `[`), unless a field separator
+/// is given.
 fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<String> {
     if let Some(format) = matches.get_one::<String>("input-format") {
         return Some(format.clone());
@@ -641,7 +642,9 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
             .flatten()
             .any(|v| v.trim_start().starts_with("FS="));
     let files: Vec<&String> = input_files.iter().filter(|f| !is_operand_assignment(f)).collect();
-    (!field_sep && !files.is_empty() && files.iter().all(|f| runtime::splitter::json::is_json_file(f)))
+    (!field_sep && !files.is_empty() && files.iter().all(|f| {
+        runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
+    }))
         .then(|| String::from("json"))
 }
 
@@ -956,7 +959,7 @@ fn real_main() {
             .short('i')
             .value_name("csv|tsv|json|jsonl|parquet|markdown")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys of the first record to columns. json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
             .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"]))
         .arg(Arg::new("var")
             .short('v')

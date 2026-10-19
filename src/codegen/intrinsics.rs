@@ -923,6 +923,10 @@ pub(crate) unsafe extern "C" fn next_line_stdin_fused(runtime: *mut c_void) {
         if changed {
             runtime.reset_file_vars();
         }
+        let fi = &runtime.core.vars.fi;
+        with_input!(&mut runtime.input_data, |(_, read_files)| {
+            read_files.sync_named_columns(fi);
+        });
     })
 }
 
@@ -954,6 +958,10 @@ pub(crate) unsafe extern "C" fn next_line_stdin(runtime: *mut c_void) -> U128 {
         if changed {
             runtime.reset_file_vars();
         }
+        let fi = &runtime.core.vars.fi;
+        with_input!(&mut runtime.input_data, |(_, read_files)| {
+            read_files.sync_named_columns(fi);
+        });
         mem::transmute::<Str, U128>(res)
     })
 }
