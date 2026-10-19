@@ -3,7 +3,7 @@ use lalrpop_util::lalrpop_mod;
 lalrpop_mod!(pub syntax);
 
 use crate::arena::Arena;
-use crate::ast::{expr_key, Binop, Expr, Pattern, Prog, Stmt, UNINIT_VAR};
+use crate::ast::{expr_key, uninit_var, Binop, Expr, Pattern, Prog, Stmt};
 use crate::builtins::{Function, Variable};
 use crate::common::{fatal_message, CompileError, Either, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
 use crate::lexer::{self, Loc, Tok};
@@ -78,6 +78,19 @@ pub(crate) fn local_name<'a>(name: &'a str, prog: &Prog<'a, 'a, &'a str>) -> &'a
     prog.locals.names.get(name).copied().unwrap_or(name)
 }
 
+/// A declaration of a `local` statement: the name, where it is, and the statement that makes the
+/// name a new variable.
+pub(crate) type LocalDecl<'a> = (&'a str, Loc, &'a Stmt<'a, 'a, &'a str>);
+
+fn user_error<'a, T>(location: Loc, desc: String) -> ParseResult<'a, T> {
+    Err(ParseError::User {
+        error: lexer::Error {
+            location,
+            desc: desc.into(),
+        },
+    })
+}
+
 /// One declaration of a `local` statement, at `loc`: `local x`, `local x = init`, or `local x[]`
 /// for an array. `init` is parsed before `x` is declared, so a variable `x` in it is the outer one
 /// (`local x = x + 1`). Returns the statement that makes `x` a new variable (see `LocalScope`).
@@ -88,14 +101,10 @@ pub(crate) fn declare_local<'a>(
     loc: Loc,
     arena: &'a Arena,
     prog: &mut Prog<'a, 'a, &'a str>,
-) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
-    if Variable::try_from(name).is_ok() || name == "length" {
-        return Err(ParseError::User {
-            error: lexer::Error {
-                location: loc,
-                desc: format!("cannot declare the special variable `{}' as local", name).into(),
-            },
-        });
+) -> ParseResult<'a, LocalDecl<'a>> {
+    // SUBSEP is an ordinary variable for the rest of the compiler, but `a[i, j]` reads the global.
+    if Variable::try_from(name).is_ok() || name == "length" || name == "SUBSEP" {
+        return user_error(loc, format!("cannot declare the special variable `{}' as local", name));
     }
     prog.locals.count += 1;
     let new: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
@@ -104,12 +113,13 @@ pub(crate) fn declare_local<'a>(
     let stmt = match (init, array) {
         (Some(init), _) => Expr::Assign(v, init),
         (None, true) => Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[v])),
-        (None, false) => Expr::Assign(v, arena.alloc(Expr::Var(UNINIT_VAR))),
+        (None, false) => Expr::Assign(v, arena.alloc(Expr::Var(arena.alloc_str(&uninit_var(new))))),
     };
     let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(arena.alloc(stmt)));
     prog.locals.names.insert(name, new);
     prog.locals.decls.push((new, array, expr_key(stmt)));
-    Ok(stmt)
+    prog.locals.declared.push((name, loc));
+    Ok((name, loc, stmt))
 }
 
 /// The statement that makes the local variable `name` uninitialized, or empties the local array.
@@ -118,26 +128,43 @@ fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a,
     let e = if array {
         Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[v]))
     } else {
-        Expr::Assign(v, arena.alloc(Expr::Var(UNINIT_VAR)))
+        Expr::Assign(v, arena.alloc(Expr::Var(arena.alloc_str(&uninit_var(name)))))
     };
     arena.alloc(Stmt::Expr(arena.alloc(e)))
 }
 
-/// The `local` statement made of the declarations `decls`.
+/// The `local` statement made of the declarations `decls`, which must declare different names.
 pub(crate) fn local_stmt<'a>(
-    decls: Vec<&'a Stmt<'a, 'a, &'a str>>,
+    decls: Vec<LocalDecl<'a>>,
     arena: &'a Arena,
     prog: &mut Prog<'a, 'a, &'a str>,
-) -> &'a Stmt<'a, 'a, &'a str> {
-    if decls.len() == 1 {
-        return decls[0];
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    for (i, (name, loc, _)) in decls.iter().enumerate() {
+        if decls[..i].iter().any(|(prev, _, _)| prev == name) {
+            return user_error(*loc, format!("local variable `{}' is declared twice in the same statement", name));
+        }
     }
-    let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&decls[..])));
+    if decls.len() == 1 {
+        return Ok(decls[0].2);
+    }
+    let stmts: Vec<_> = decls.iter().map(|d| d.2).collect();
+    let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&stmts[..])));
     let n = prog.locals.decls.len();
     for d in prog.locals.decls[n - decls.len()..].iter_mut() {
         d.2 = expr_key(stmt);
     }
-    stmt
+    Ok(stmt)
+}
+
+/// Rejects a local variable named after a function, which may be defined after it, as gawk
+/// rejects such a variable.
+pub(crate) fn check_local_names<'a>(prog: &Prog<'a, 'a, &'a str>) -> ParseResult<'a, ()> {
+    for (name, loc) in prog.locals.declared.iter() {
+        if prog.decs.iter().any(|d| d.name == *name) {
+            return user_error(*loc, format!("function `{}' cannot be declared as a local variable", name));
+        }
+    }
+    Ok(())
 }
 
 /// Ends the scope of the local variables of the rule whose action is `body`. A local declared in a
@@ -168,15 +195,18 @@ pub(crate) fn end_rule_scope<'a>(
 
 /// Ends the scope of the local variables of a function, and returns its parameters followed by
 /// its locals. A parameter that is not passed is uninitialized on each call, so the locals are
-/// too; `UNINIT_VAR` is one as well.
+/// too; the `uninit_var` of a scalar local is one as well.
 pub(crate) fn end_function_scope<'a>(
     mut args: Vec<&'a str>,
+    arena: &'a Arena,
     prog: &mut Prog<'a, 'a, &'a str>,
 ) -> Vec<&'a str> {
     let decls = std::mem::take(&mut prog.locals.decls);
     prog.locals.names.clear();
-    if decls.iter().any(|(_, array, _)| !array) {
-        args.push(UNINIT_VAR);
+    for (name, array, _) in decls.iter() {
+        if !array {
+            args.push(arena.alloc_str(&uninit_var(name)));
+        }
     }
     args.extend(decls.iter().map(|(name, _, _)| *name));
     args

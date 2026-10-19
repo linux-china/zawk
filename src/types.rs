@@ -725,8 +725,13 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             tc.get_function(main, /*arg_nodes=*/ Default::default(), main_base);
         }
 
-        tc.solve()?;
+        if let Err(e) = tc.solve() {
+            // A scalar local used as an array may make another value conflict first.
+            tc.check_scalar_locals()?;
+            return Err(e);
+        }
         tc.check_builtin_args()?;
+        tc.check_scalar_locals()?;
         tc.check_ssa_kinds()?;
         let mut var_tys = HashMap::new();
         let mut func_tys = HashMap::new();
@@ -927,6 +932,31 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
                     return Err(self.kind_error(*arg, !ty.is_array()));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check that no scalar local (`local x`) is used as an array. Its declaration assigns it its
+    /// own `uninit_var`, which only becomes an array when the local is one.
+    fn check_scalar_locals(&self) -> Result<()> {
+        for (Args { id, func_id, .. }, ix) in self.env.iter() {
+            // Globals referenced only from the main program are local to it.
+            let name = func_id
+                .and_then(|f| self.func_table[f as usize].args.iter().find(|a| a.id.low == id.low))
+                .map(|a| a.name)
+                .or_else(|| self.global_names.get(&id.low).copied());
+            if !name.is_some_and(ast::is_uninit_var) || !matches!(self.nw.read(*ix), Some(TVar::Map { .. })) {
+                continue;
+            }
+            for n in self.nw.graph.neighbors(*ix) {
+                let Some(local) = self.var_name(n) else { continue };
+                let err = self.kind_error(n, true);
+                let hint = local.split('`').nth(1).unwrap_or("x");
+                return Err(common::CompileError(
+                    format!("{} (declare it with `local {}[]`)", err.0, hint),
+                    err.1,
+                ));
             }
         }
         Ok(())

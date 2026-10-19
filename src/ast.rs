@@ -92,9 +92,21 @@ pub struct Prog<'a, 'b, I> {
     pub locals: LocalScope<I>,
 }
 
-/// The value of a variable that is never assigned: `local x` assigns it to `x`, which makes `x`
-/// uninitialized again (see `parsing::declare_local`).
+/// The value of a variable that is never assigned: `local x` assigns `%uninit@N` (its own copy,
+/// see `uninit_var`) to `x@N`, which makes `x` uninitialized again (see `parsing::declare_local`).
 pub const UNINIT_VAR: &str = "%uninit";
+
+/// The never-assigned variable that `local` assigns to the local variable `name` (`x@N`). Each
+/// local has its own, so that a scalar local used as an array is the only one that conflicts.
+pub fn uninit_var(name: &str) -> String {
+    let n = name.rsplit_once('@').map_or("", |(_, n)| n);
+    format!("{}@{}", UNINIT_VAR, n)
+}
+
+/// Whether `name` is a variable made by `uninit_var`.
+pub fn is_uninit_var(name: &str) -> bool {
+    source_name(name) == UNINIT_VAR
+}
 
 /// The name of the variable `name` in the program: the name of a `local` variable without the
 /// suffix that makes it unique (see `LocalScope`).
@@ -126,7 +138,7 @@ pub fn is_local_name(name: &str) -> bool {
 /// declaration to the end of the rule or function, so the rest of the compiler sees an ordinary
 /// variable: in a rule it is a global only referenced from the main program, which is kept in a
 /// register, and in a function it is an extra parameter. A local in a rule is uninitialized on
-/// each run of the rule: its declaration assigns it `UNINIT_VAR` (or `delete`s an array), and the
+/// each run of the rule: its declaration assigns it `uninit_var` (or `delete`s an array), and the
 /// rule starts with such an assignment for the locals declared in nested statements.
 pub struct LocalScope<I> {
     /// The new names of the visible locals.
@@ -136,6 +148,9 @@ pub struct LocalScope<I> {
     pub decls: Vec<(I, bool, usize)>,
     /// The number of locals declared in the program, which numbers their new names.
     pub count: usize,
+    /// The names of the locals declared in the program, and where, to check that none is named
+    /// after a function (see `parsing::check_local_names`).
+    pub declared: Vec<(I, Loc)>,
 }
 
 impl<I> Default for LocalScope<I> {
@@ -144,6 +159,7 @@ impl<I> Default for LocalScope<I> {
             names: Default::default(),
             decls: Vec::new(),
             count: 0,
+            declared: Vec::new(),
         }
     }
 }

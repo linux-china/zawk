@@ -109,6 +109,9 @@ struct Analysis<'a, 'b, I> {
     assigned_maps: HashSet<I>,
     bad_maps: HashSet<I>,
     str_maps: HashSet<I>,
+    // Global variables used as arrays (`x[k]`, `k in x`, `for (k in x)`, `delete x`): a value
+    // copied into one (`x = y`) is an array, which has no "uninitialized" string value.
+    array_vars: HashSet<I>,
     // Assignments of possibly non-numeric values, with the parameters in scope.
     assigns: Vec<(Target<I>, &'a Expr<'a, 'b, I>, &'a [I])>,
     // User-defined functions whose result is read as a string, functions with a `return` without
@@ -173,7 +176,7 @@ where
             ITE(_, t, f) => self.is_num(t, params) && self.is_num(f, params),
             Nullish(l, r) => self.is_num(l, params) && self.is_num(r, params),
             // The value of `local x`.
-            Var(i) if i.to_string() == crate::ast::UNINIT_VAR => true,
+            Var(i) if crate::ast::is_uninit_var(&i.to_string()) => true,
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
             // An element of an array only assigned numbers.
             Index(..) => self.global_map(e, params).is_some_and(|m| !self.bad_maps.contains(&m)),
@@ -220,6 +223,12 @@ where
         }
     }
 
+    fn array_use(&mut self, arr: &'a Expr<'a, 'b, I>, params: &'a [I]) {
+        if let Some(v) = self.global_var(arr, params) {
+            self.array_vars.insert(v);
+        }
+    }
+
     fn scalar_ref(&mut self, i: &I, params: &[I]) {
         let func = if params.contains(i) { self.cur_fn.clone() } else { None };
         self.scalar_refs.insert((func, i.clone()));
@@ -235,7 +244,12 @@ where
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Cond(_) | ReadStdin => {}
             Var(i) => self.scalar_ref(i, params),
             Unop(_, e) => self.expr(e, params),
-            Binop(_, l, r) | Index(l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
+            Index(arr, ix) => {
+                self.array_use(arr, params);
+                self.expr(arr, params);
+                self.expr(ix, params);
+            }
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
                 self.expr(l, params);
                 self.expr(r, params);
             }
@@ -271,6 +285,11 @@ where
                 let bi = self.builtin(f);
                 if let (Some(Function::Length), [arg]) = (bi, args) {
                     self.string_read(arg, params);
+                }
+                match (bi, args) {
+                    (Some(Function::Contains), [arr, _]) => self.array_use(arr, params),
+                    (Some(Function::Delete | Function::Clear), [arr, ..]) => self.array_use(arr, params),
+                    _ => {}
                 }
                 if let (Some(Function::Sub | Function::GSub), [_, _, target, ..]) = (bi, args) {
                     self.untracked_assign(target, params);
@@ -311,6 +330,7 @@ where
     fn lvalue(&mut self, e: &'a Expr<'a, 'b, I>, params: &'a [I]) {
         match e {
             Expr::Index(arr, ix) => {
+                self.array_use(arr, params);
                 self.expr(arr, params);
                 self.expr(ix, params);
             }
@@ -372,6 +392,7 @@ where
                     self.assigned_vars.insert(v.clone());
                     self.bad_vars.insert(v.clone());
                 }
+                self.array_use(arr, params);
                 self.expr(arr, params);
                 self.stmt(body, params);
             }
@@ -449,6 +470,7 @@ where
         assigned_maps: Default::default(),
         bad_maps: Default::default(),
         str_maps: Default::default(),
+        array_vars: Default::default(),
         assigns: Default::default(),
         str_funcs: Default::default(),
         bare_return_funcs: Default::default(),
@@ -485,7 +507,8 @@ where
         .assigned_vars
         .iter()
         .filter(|v| {
-            (a.str_vars.contains(*v) && !a.bad_vars.contains(*v)) || a.typeof_vars.contains(*v)
+            ((a.str_vars.contains(*v) && !a.bad_vars.contains(*v)) || a.typeof_vars.contains(*v))
+                && !a.array_vars.contains(*v)
         })
         .map(|v| {
             let flag: &'a str = arena.alloc_str(&format!("%def:{}", v));

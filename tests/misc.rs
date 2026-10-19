@@ -3220,6 +3220,26 @@ fn local_variables() {
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("cannot declare the special variable `NR' as local"), "{}", stderr);
+    let errors = [
+        ("BEGIN { local SUBSEP = \"x\" }", "cannot declare the special variable `SUBSEP' as local"),
+        ("function f() { return 1 } BEGIN { local f = 2 }", "function `f' cannot be declared as a local variable"),
+        ("BEGIN { local f = 2 } function f() { return 1 }", "function `f' cannot be declared as a local variable"),
+        ("BEGIN { local x = 1, x = 2 }", "local variable `x' is declared twice in the same statement"),
+        (
+            "BEGIN { local x; x[1] = 1; print length(x) }",
+            "line 1, column 18: attempt to use scalar `x` as an array (declare it with `local x[]`)",
+        ),
+        (
+            "BEGIN { local y; y = 1; local x; x[1] = 1 }",
+            "line 1, column 34: attempt to use scalar `x` as an array",
+        ),
+    ];
+    for (prog, expected) in errors {
+        let out = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        assert!(!out.status.success(), "{}", prog);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(expected), "{}: {}", prog, stderr);
+    }
 }
 
 #[test]

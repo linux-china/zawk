@@ -45,7 +45,7 @@ ProgInner: () = {
 }
 
 pub Prog: () = {
-  "\n"* ProgInner?
+  "\n"* ProgInner? =>? crate::parsing::check_local_names(prog),
 }
 
 Function: FunDec<'a, 'a, &'a str> = {
@@ -55,7 +55,7 @@ Function: FunDec<'a, 'a, &'a str> = {
         FunDec {
           name,
           body,
-          args: crate::parsing::end_function_scope(args, prog),
+          args: crate::parsing::end_function_scope(args, arena, prog),
           params,
         }
     }
@@ -275,16 +275,16 @@ LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
     "next" => arena.alloc(Stmt::Next),
     "nextfile" => arena.alloc(Stmt::NextFile),
     "return" <Expr?> => arena.alloc(Stmt::Return(<>)),
-    "local" <LocalDecls> => crate::parsing::local_stmt(<>, arena, prog),
+    "local" <LocalDecls> =>? crate::parsing::local_stmt(<>, arena, prog),
 }
 
 // The declarations of a `local` statement: `local x, y = 1, arr[]`.
-LocalDecls: Vec<&'a Stmt<'a,'a,&'a str>> = {
+LocalDecls: Vec<crate::parsing::LocalDecl<'a>> = {
     <LocalDecl> => vec![<>],
     <v:LocalDecls> "," "\n"* <d:LocalDecl> => { let mut v = v; v.push(d); v },
 }
 
-LocalDecl: &'a Stmt<'a,'a,&'a str> = {
+LocalDecl: crate::parsing::LocalDecl<'a> = {
     <l:@L> <i:"IDENT"> =>? crate::parsing::declare_local(i, None, false, l, arena, prog),
     <l:@L> <i:"IDENT"> "[" "]" =>? crate::parsing::declare_local(i, None, true, l, arena, prog),
     <l:@L> <i:"IDENT"> "=" <e:Expr> =>? crate::parsing::declare_local(i, Some(e), false, l, arena, prog),

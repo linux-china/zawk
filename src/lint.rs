@@ -1263,7 +1263,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     for u in &facts.uses {
         let special = crate::builtins::VARIABLES.contains_key(u.name)
             || u.name == "SUBSEP"
-            || u.name == crate::ast::UNINIT_VAR
+            || crate::ast::is_uninit_var(u.name)
             || IGNORED_GAWK_VARIABLES.iter().any(|(n, _)| *n == u.name);
         if special
             || reported.contains(&u.name)
