@@ -3130,6 +3130,16 @@ fn local_variables() {
         ),
         (r#"function g() { return x } { local x = 7; print "[" g() "]" }"#, "[]\n[]\n"),
         (r#"{ local x = NR; print f"x={x}" }"#, "x=1\nx=2\n"),
+        // Extra arguments do not land in the slots of the callee's locals, but are evaluated.
+        (
+            r#"function f(a) { local x, y = 1; print "x=[" x "]", y } { f(1, 2, 3) }"#,
+            "x=[] 1\nx=[] 1\n",
+        ),
+        (
+            r#"function f(a) { local tmp[]; tmp["k"] = 1; return length(tmp) } { data["x"]; data["y"]; print f(1, data), length(data) }"#,
+            "1 2\n1 2\n",
+        ),
+        ("function f(a) { local x; return a x } { n = 0; print f(1, n++), n }", "1 1\n1 1\n"),
     ];
     for (prog, expected) in cases {
         for backend_arg in BACKEND_ARGS {

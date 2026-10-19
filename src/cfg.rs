@@ -537,6 +537,7 @@ impl<'a, I> ProgramContext<'a, I>
             exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
             uninit: Default::default(),
             uses: Default::default(),
+            params: p.decs.iter().map(|d| d.params).collect(),
         };
         let stage = p.desugar_stage(arena);
         shared.uninit = uninit::analyze(arena, &p.decs[..], &stage);
@@ -771,6 +772,9 @@ struct GlobalContext<I> {
     // Numeric variables and arrays whose uninitialized value may be read as a string.
     uninit: uninit::Uninit<I>,
     uses: UseLocs,
+    // The number of declared parameters of each user-defined function (indexed by its id): the
+    // `local` variables of its body follow them in `Function::args`.
+    params: Vec<usize>,
 }
 
 impl<I> GlobalContext<I> {
@@ -2881,6 +2885,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         .entry(None)
                         .or_insert_with(Vec::new)
                         .push((current_open.index(), None));
+                    // Extra arguments are evaluated (for their side effects) but not passed: they
+                    // would otherwise land in the slots of the callee's `local` variables, which
+                    // are filled with nulls instead.
+                    prim_args.truncate(self.ctx.params[*i as usize]);
                     let call = PrimExpr::CallUDF(*i, prim_args);
                     if self.ctx.exit_to_end {
                         // `exit` inside the callee returns early with the exiting flag set.
