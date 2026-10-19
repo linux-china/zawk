@@ -68,8 +68,10 @@ fn format_mysql_time(negative: bool, days: u32, hours: u8, minutes: u8, seconds:
 }
 
 pub(crate) fn mysql_execute(db_url: &str, sql: &str) -> Int {
-    match with_conn(db_url, |conn| conn.exec::<Row, _, _>(sql, Params::Empty)) {
-        Ok(result) => result.len() as Int,
+    // `exec` would return the rows of a result set, which INSERT/UPDATE/DELETE do not have; the
+    // affected row count is reported by the connection instead.
+    match with_conn(db_url, |conn| conn.query_drop(sql).map(|_| conn.affected_rows())) {
+        Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("mysql_execute", e);
             0
