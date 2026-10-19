@@ -31,7 +31,7 @@ use super::{
         self, CancellableChunkProducer, Chunk, ChunkProducer, OffsetChunk, ParallelChunkProducer,
         ShardedChunkProducer,
     },
-    display_name, input_warning, normalize_join_indexes, DefaultLine, LineReader, ReaderState,
+    display_name, input_warning, normalize_join_indexes, resolve_negative_col, DefaultLine, LineReader, ReaderState,
 };
 
 pub struct CSVReader<P> {
@@ -355,9 +355,14 @@ impl<'a> super::Line<'a> for Line {
         if col == 0 {
             return Ok(self.raw.clone().upcast());
         }
-        if col < 0 {
-            return err!("attempt to access negative index {}", col);
-        }
+        let col = if col < 0 {
+            match resolve_negative_col(col, self.fields.len()) {
+                Some(col) => col,
+                None => return Ok(Str::default().upcast()),
+            }
+        } else {
+            col
+        };
         Ok(self
             .fields
             .get(col as usize - 1)

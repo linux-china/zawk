@@ -743,6 +743,29 @@ fn not_in_operator() {
 }
 
 #[test]
+fn negative_field_index() {
+    // (program, expected stdout)
+    let cases: &[(&str, &str)] = &[
+        (r#"{ print $(-1), $(-2), $(-3) }"#, "c b a\ny x \n"),
+        (r#"{ k = 1; print $(-k) == $NF }"#, "1\n1\n"),
+        (r#"{ print "[" $(-4) "]" }"#, "[]\n[]\n"),
+        (r#"{ $(-1) = "z"; print; print NF }"#, "a b z\n3\nx z\n2\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("a b c\nx y\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}
+
+#[test]
 fn redirect_truncates_existing_file() {
     for backend_arg in BACKEND_ARGS {
         let tmp = tempdir().unwrap();
@@ -2037,9 +2060,9 @@ fn error_messages_are_gawk_style() {
             ],
         ),
         (
-            r#"BEGIN { x = -1; print $x }"#,
+            r#"BEGIN { x = -1; $x = 1 }"#,
             2,
-            &["zawk: fatal: attempt to access field -1"],
+            &["zawk: fatal: attempt to assign field -1"],
         ),
         (
             r#"BEGIN { a[1][2] = 1 }"#,

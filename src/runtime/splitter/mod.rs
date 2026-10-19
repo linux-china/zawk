@@ -116,6 +116,18 @@ pub trait LineReader: Sized {
     fn check_utf8(&self) -> bool;
 }
 
+/// Resolves a negative field index the way Python resolves a negative list index: `$(-k)` is
+/// `$(NF + 1 - k)`. Returns `None` when `-k` reaches past the first field.
+fn resolve_negative_col(col: Int, nf: usize) -> Option<Int> {
+    debug_assert!(col < 0);
+    let col = nf as Int + 1 + col;
+    if col >= 1 {
+        Some(col)
+    } else {
+        None
+    }
+}
+
 fn normalize_join_indexes(start: Int, end: Int, nf: usize) -> Result<(usize, usize)> {
     if start <= 0 || end <= 0 {
         return err!("smallest joinable column is 1, got {}", start);
@@ -233,9 +245,15 @@ impl<'a> Line<'a> for DefaultLine {
         self.split_all_fields(pat, rc)
     }
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>> {
-        if col < 0 {
-            return err!("attempt to access field {}; field must be nonnegative", col);
-        }
+        let col = if col < 0 {
+            self.split_all_fields(pat, rc)?;
+            match resolve_negative_col(col, self.fields.len()) {
+                Some(col) => col,
+                None => return Ok(Str::default()),
+            }
+        } else {
+            col
+        };
         let res = if col == 0 && !self.diverged {
             self.line.clone()
         } else if col == 0 && self.diverged {
@@ -260,10 +278,22 @@ impl<'a> Line<'a> for DefaultLine {
             self.fields.clear();
             return Ok(());
         }
-        if col < 0 {
-            return err!("attempt to access field {}; field must be nonnegative", col);
-        }
-        self.split_if_needed(pat, rc)?;
+        let col = if col < 0 {
+            self.split_all_fields(pat, rc)?;
+            match resolve_negative_col(col, self.fields.len()) {
+                Some(c) => c,
+                None => {
+                    return err!(
+                        "attempt to assign field {}; only {} fields",
+                        col,
+                        self.fields.len()
+                    )
+                }
+            }
+        } else {
+            self.split_if_needed(pat, rc)?;
+            col
+        };
         let col = col as usize - 1;
         if col >= self.fields.len() {
             self.fields.resize_with(col + 1, Str::default);

@@ -320,6 +320,11 @@ surprised to discover there were bugs in zawk's parser.
   `not in`): `k !in arr` is the same as `!(k in arr)`, e.g.
   `$1 !in seen { seen[$1]; print }`. It works with multi-dimensional keys too:
   `(i, j) !in arr`.
+* zawk supports negative field indexes, like Python's `xs[-1]`: `$(-k)` is the
+  same as `$(NF + 1 - k)`, so `$(-1)` is `$NF` and `$(-2)` is `$(NF-1)`.
+  Reading past the first field (`$(-k)` with `k > NF`) gives the empty string;
+  assigning there is a fatal error. Write the index in parentheses: `$-1` is
+  a syntax error.
 * With the `-H` flag, zawk parses the first line of input (without updating
   `NR` or `FNR`) and populates the `FI` builtin variable with the contents the
   fields in the first line mapping to their index. So in a script parsing a
