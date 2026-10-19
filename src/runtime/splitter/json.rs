@@ -6,11 +6,13 @@
 //! The records of a document are selected with an optional JSONPath after the file name, as in
 //! `demo.json#$.data`:
 //!
-//! * an array (the whole document, or the single node a path selects) is one record per element;
+//! * an array (the whole document, or the node a singular path such as `$.data` or `$.a[0]`
+//!   selects) is one record per element;
 //! * an object is a single record;
 //! * a string, number, boolean or null is a single record of plain text: `$0` and `$1` are the
 //!   value (a string unescaped);
-//! * a path selecting several nodes (e.g. `$.data[*]`) is one record per node.
+//! * any other path (e.g. `$.data[*]`, `$..x`, a slice or a filter) is one record per node it
+//!   selects, however many there are.
 //!
 //! Nested objects and arrays of a record keep their JSON text. The whole document is read into
 //! memory.
@@ -112,6 +114,7 @@ pub fn to_jsonl(data: &[u8], path: Option<&str>) -> Result<Vec<u8>, String> {
     match path {
         None => push_records(doc, &mut records)?,
         Some(path) => {
+            let singular = is_singular(path);
             let path = JsonPath::parse(path).map_err(|e| format!("invalid JSONPath `{}': {}", path, e))?;
             // The path is evaluated on a `Value` copy of the document, whose nodes map back to
             // their original text by address.
@@ -119,8 +122,11 @@ pub fn to_jsonl(data: &[u8], path: Option<&str>) -> Result<Vec<u8>, String> {
             let tree = build(doc, &mut raws)?;
             raws.insert(&tree as *const Value, doc);
             let nodes: Vec<&RawValue> = path.query(&tree).all().into_iter().map(|node| raws[&(node as *const Value)]).collect();
+            // A singular path (`$.data`, `$.a[0]`) selects at most one node, whose elements are the
+            // records; any other path (`[*]`, `..`, slices, filters, unions) is one record per node,
+            // whatever the number of nodes.
             match nodes.as_slice() {
-                [node] => push_records(node, &mut records)?,
+                [node] if singular => push_records(node, &mut records)?,
                 nodes => records.extend(nodes),
             }
             if records.is_empty() {
@@ -169,6 +175,16 @@ pub fn looks_like_json(file: &str) -> bool {
     match head.iter().find(|b| !b.is_ascii_whitespace()) {
         Some(b) => matches!(b, b'{' | b'['),
         None => true,
+    }
+}
+
+/// Whether `path` is a singular query (RFC 9535 2.3.5.1: only name and index segments), which
+/// selects at most one node. `serde_json_path` doesn't expose it, but a comparison in a filter only
+/// accepts a singular query.
+fn is_singular(path: &str) -> bool {
+    match path.strip_prefix('$') {
+        Some(rel) => JsonPath::parse(&format!("$[?@{} == 0]", rel)).is_ok(),
+        None => false,
     }
 }
 
@@ -313,6 +329,21 @@ mod tests {
         assert_eq!(lines(doc, Some("$.b[1]")), "2.00\n");
         assert_eq!(lines(doc, Some("$.b[*]")), "1.0\n[2.00]\n");
         assert_eq!(lines("3.14000", None), "3.14000\n");
+    }
+
+    #[test]
+    fn singular_path() {
+        // Only a singular path expands an array; other paths keep one record per node, however many.
+        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[*]")), "[1,2]\n");
+        assert_eq!(lines(r#"{"rows":[[1,2],[3,4]]}"#, Some("$.rows[*]")), "[1,2]\n[3,4]\n");
+        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[0]")), "1\n2\n");
+        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$['rows'][-1]")), "1\n2\n");
+        assert_eq!(lines(r#"{"a":{"b":[1,2]}}"#, Some("$..b")), "[1,2]\n");
+        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[0:1]")), "[1,2]\n");
+        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[?@[0] == 1]")), "[1,2]\n");
+        for (path, singular) in [("$", true), ("$.a", true), ("$.a[0].b", true), ("$[\"a'b\"]", true), ("$[*]", false), ("$..a", false), ("$['a','b']", false), ("$[0:1]", false), ("$[?@.a]", false)] {
+            assert_eq!(is_singular(path), singular, "{}", path);
+        }
     }
 
     #[test]

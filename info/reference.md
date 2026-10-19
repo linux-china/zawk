@@ -16,6 +16,8 @@ no spaces allowed.
 _Binary operators:_
 * Arithmetic: `+`, `-`, `/`, `*`, `*`, `^` (which is exponentiation), and `%`
 * Comparison (which also work on strings): `<`, `>`, `<=`, `>=`, `==`, `!=`.
+* Membership: `k in arr` is 1 when `arr` has the key `k`; `k !in arr` is the same as `!(k in arr)`, e.g.
+  `$1 !in seen { seen[$1]; print }`. Multi-dimensional keys work with both: `(i, j) in arr`, `(i, j) !in arr`.
 * Default value: `l ?? r` is `r` when `l` is "empty", and `l` otherwise. `l` is evaluated once.
   * Empty means uninitialized, `""`, or a number that is zero. A string counts as a number when it
     looks like one (as a strnum does), so `"0"`, `"0.0"`, `"+0"` and `" -0 "` are empty too, even as
@@ -36,9 +38,20 @@ _Binary operators:_
 
 _Unary Operators:_
 
-* `$x`: Get column `x`.
+* `$x`: Get column `x`. A negative index counts from the end: `$(-k)` is `$(NF + 1 - k)`, so `$(-1)` is
+  `$NF` and `$(-2)` is `$(NF-1)`. Reading before the first field (`k > NF`) gives `""`, assigning there is a
+  fatal error. The parentheses are required: `$-1` is a syntax error.
 * `+`, `-`: Unary "positive" and negation.
 * `!`: logical negation.
+
+## Statements
+
+* `for (k in arr) body`: iterate over the keys of `arr` (order set by `PROCINFO["sorted_in"]`, unspecified
+  otherwise). `arr` may be a function call returning an array.
+* `for (k, v in arr) body`: key-value iteration, the same as `for (k in arr) { v = arr[k]; body }`, e.g.
+  `END { for (k, v in cnt) print k, v }`. On an array made by `split` it works like Python's `enumerate`:
+  `for (i, x in a)`. Unlike `for (k in arr)`, `arr` must be an array variable: `for (k, v in f())` is a syntax
+  error, so assign the result first (`a = f(); for (k, v in a) ...`).
 
 ## Math
 
@@ -119,6 +132,10 @@ _Unary Operators:_
   exits with the given exit code. This means that scripts with long loop
   iterations may not exit immediately. `exit` can be called with and without
   parentheses.
+* `assert(cond, msg)`: If `cond` is false (tested as by `if`), prints `msg` to
+  stderr and exits at once with code `2`. Unlike `exit 2`, the `END` block is
+  not run (in serial and parallel mode alike), e.g.
+  `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
 
 # Other Functions
 

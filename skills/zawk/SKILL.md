@@ -206,6 +206,18 @@ zawk '{ n = cnt[$1] ?? -1 }'              # an array element is not created by ?
 - `-u ?? 5` is `-(u ?? 5)`; `1 + u ?? 5` is `1 + (u ?? 5)`. Parenthesize a compound right side: `u ?? (a + 1)`.
 - A field holding `0` counts as empty and is replaced: for numeric columns use `($3 == "" ? 0 : $3)`.
 
+## Syntax extensions
+
+```shell
+zawk '$1 !in seen { seen[$1]; print }'             # !in: same as !(k in arr); (i, j) !in arr works too
+zawk '{ c[$1]++ } END { for (k, v in c) print k, v }'  # key-value loop: v = arr[k]
+zawk '{ print $(-1), $(-2) }'                      # negative field index: $NF, $(NF-1)
+zawk '{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }'  # fail fast: exit 2, END is not run
+```
+
+- `for (k, v in arr)` needs an array variable: `for (k, v in f())` is a syntax error; use `a = f(); for (k, v in a)`.
+- Write `$(-1)` with parentheses: `$-1` is a syntax error. `$(-k)` with `k > NF` reads `""`.
+
 ## Recipes
 
 ```shell
@@ -295,7 +307,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Database | `sqlite_query`, `sqlite_execute`, `libsql_query`, `libsql_execute`, `pg_query`, `pg_execute`, `mysql_query`, `mysql_execute` |
 | OS | `whoami`, `os`, `os_family`, `arch`, `pwd`, `user_home`, `getenv`, `system`, `system2` |
 | I/O | `read_all`, `write_all`, `read_config`, `close`, `fflush` |
-| Misc | `typeof`, `isarray`, `var_dump`, `pprint`, `log_debug`, `log_info`, `log_warn`, `log_error`, `version`, `exit` |
+| Misc | `typeof`, `isarray`, `var_dump`, `pprint`, `log_debug`, `log_info`, `log_warn`, `log_error`, `version`, `exit`, `assert` |
 
 Functions returning `map[...]` return an array: index the call directly (`url($1)["host"]`) or assign it
 (`u = url($1)`). Use `var_dump(x)` to see an array's structure on stderr.

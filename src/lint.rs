@@ -799,9 +799,10 @@ impl<'a, 'p> Facts<'a, 'p> {
             }
             Unop(op, x) => {
                 if self.region == Region::Begin && matches!(op, ast::Unop::Column) {
-                    let what = match x {
-                        ILit(n) => format!("`${}`", n),
-                        _ => "fields".to_string(),
+                    let what = match (FieldRef::of(e), x) {
+                        (Some(f), _) => format!("`{}`", f.describe()),
+                        (None, Unop(ast::Unop::Neg, ILit(n))) => format!("a field (`$(-{})`)", n),
+                        _ => "a computed field (`$(...)`)".to_string(),
                     };
                     self.begin_record_reads.push((what, self.loc(e)));
                 }
@@ -2162,6 +2163,10 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 9);
         assert!(v["diagnostics"][0]["message"].as_str().unwrap().starts_with("`$1`"));
         assert!(v["diagnostics"][1]["message"].as_str().unwrap().contains("always 0"));
+        assert!(v["diagnostics"][3]["message"].as_str().unwrap().starts_with("a computed field (`$(...)`) is read"));
+        let v = run("BEGIN { print $(-1), $FI[\"id\"] }");
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().starts_with("a field (`$(-1)`) is read"));
+        assert!(v["diagnostics"][1]["message"].as_str().unwrap().starts_with("`$FI[\"id\"]` is read"));
         // After `getline`, or outside BEGIN, there is a record.
         assert!(codes(&run("BEGIN { getline; print $1, NF }")).is_empty());
         assert!(codes(&run("BEGIN { while ((getline < \"f\") > 0) print $0 }")).is_empty());

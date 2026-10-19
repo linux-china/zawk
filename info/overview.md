@@ -325,6 +325,9 @@ surprised to discover there were bugs in zawk's parser.
   Reading past the first field (`$(-k)` with `k > NF`) gives the empty string;
   assigning there is a fatal error. Write the index in parentheses: `$-1` is
   a syntax error.
+* zawk supports `assert(cond, msg)`: when `cond` is false, `msg` is printed to
+  stderr and zawk exits at once with code `2`; unlike `exit 2`, the `END` block
+  is not run, e.g. `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
 * With the `-H` flag, zawk parses the first line of input (without updating
   `NR` or `FNR`) and populates the `FI` builtin variable with the contents the
   fields in the first line mapping to their index. So in a script parsing a
