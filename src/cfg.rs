@@ -555,7 +555,8 @@ impl<'a, I> ProgramContext<'a, I>
             }
             // POSIX and gawk builtins cannot be redefined; zawk's stdlib functions are shadowed by
             // the user-defined function (see `call`).
-            if builtins::is_awk_builtin(&fundec.name.to_string()) {
+            // `assert` is desugared by the parser, so a user-defined one would never be called.
+            if builtins::is_awk_builtin(&fundec.name.to_string()) || fundec.name.to_string() == "assert" {
                 return syntax_err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
             }
             // Special variables (NR, FS, ...) are always resolved to the global builtin, so using

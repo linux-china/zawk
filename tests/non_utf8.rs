@@ -102,7 +102,7 @@ const EXEMPT: &[&str] = &[
     "send_mail", "send_email", "smtp_send", "s3_get", "s3_put", "publish", "sqlite_query",
     "sqlite_execute", "libsql_query", "libsql_execute", "pg_query", "pg_execute", "mysql_query",
     "mysql_execute", "getenv", "system", "system2", "read_all", "write_all", "read_config",
-    "close", "fflush", "log_debug", "log_info", "log_warn", "log_error",
+    "close", "fflush", "log_debug", "log_info", "log_warn", "log_error", "assert",
 ];
 
 fn run(backend: &str, expr: &str) -> Vec<u8> {

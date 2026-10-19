@@ -662,6 +662,33 @@ fn exit_runs_end_block() {
 }
 
 #[test]
+fn assert_exits_with_message() {
+    // (program, expected stdout, expected stderr, expected exit code)
+    let cases: &[(&str, &str, &str, i32)] = &[
+        (r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#, "1\n2\nend\n", "line 3: too big\n", 2),
+        (r#"{ assert(NF == 1, f"bad {NR}") } END{print "end"}"#, "end\n", "", 0),
+        // the condition is tested as by `if`: a regex matches $0
+        (r#"{ assert(/[12]/, "no match at " NR); print }"#, "1\n2\n", "no match at 3\n", 2),
+    ];
+    for (prog, out, err, code) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("1\n2\n3\n")
+                .assert()
+                .code(*code)
+                .stdout(String::from(*out))
+                .stderr(String::from(*err));
+        }
+    }
+    for prog in ["BEGIN { assert(1) }", "function assert(c, m) { } BEGIN { }"] {
+        Command::cargo_bin("zawk").unwrap().arg(prog).assert().code(1);
+    }
+}
+
+#[test]
 fn redirect_truncates_existing_file() {
     for backend_arg in BACKEND_ARGS {
         let tmp = tempdir().unwrap();

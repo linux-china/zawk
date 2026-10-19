@@ -245,7 +245,7 @@ BaseStmt: &'a Stmt<'a, 'a, &'a str> = {
 }
 
 LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
-    <e: Expr> => arena.alloc(Stmt::Expr(e)),
+    <l:@L> <e: Expr> =>? crate::parsing::expr_stmt(e, l, arena),
     "delete" <i: IndexBase> =>
         arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Delete), arena.alloc_slice(&[i.0, i.1]))))),
     "delete" <b: LeafTerm> =>

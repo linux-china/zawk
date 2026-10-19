@@ -5,7 +5,7 @@ lalrpop_mod!(pub syntax);
 use crate::arena::Arena;
 use crate::ast::{expr_key, uninit_var, Binop, Expr, Pattern, Prog, Stmt};
 use crate::builtins::{Function, Variable};
-use crate::common::{fatal_message, CompileError, Either, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
+use crate::common::{fatal_message, CompileError, Either, FileSpec, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
 use crate::lexer::{self, Loc, Tok};
 use lalrpop_util::ParseError;
 
@@ -134,6 +134,28 @@ fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a,
 }
 
 /// The `local` statement made of the declarations `decls`, which must declare different names.
+/// An expression statement. `assert(cond, msg)` is desugared here to
+/// `if (cond) ; else { print msg > "/dev/stderr"; exit 2 }`, so that `cond` is tested as by `if`.
+pub(crate) fn expr_stmt<'a>(
+    e: &'a Expr<'a, 'a, &'a str>,
+    loc: Loc,
+    arena: &'a Arena,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    let &Expr::Call(Either::Left("assert"), args) = e else {
+        return Ok(arena.alloc(Stmt::Expr(e)));
+    };
+    let &[cond, msg] = args else {
+        return user_error(loc, format!("assert expects 2 arguments (condition, message), got {}", args.len()));
+    };
+    let stderr: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::StrLit(b"/dev/stderr"));
+    let print: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Print(arena.alloc_slice(&[msg]), Some((stderr, FileSpec::Trunc))));
+    let code: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::ILit(2));
+    let exit: &'a Stmt<'a, 'a, &'a str> =
+        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Exit), arena.alloc_slice(&[code])))));
+    let fail = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[print, exit])));
+    Ok(arena.alloc(Stmt::If(cond, arena.alloc(Stmt::Block(arena.new_vec())), Some(fail))))
+}
+
 pub(crate) fn local_stmt<'a>(
     decls: Vec<LocalDecl<'a>>,
     arena: &'a Arena,
