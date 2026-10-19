@@ -107,6 +107,9 @@ fn stmt(s: &ast::Stmt<&str>) -> String {
         DoWhile(c, b) => format!("do {} while({:?})", stmt(b), c),
         While(top, c, b) => format!("while{}({:?}) {}", top, c, stmt(b)),
         ForEach(v, a, b) => format!("for({} in {:?}) {}", v, a, stmt(b)),
+        ForRange(v, s, e, inclusive, b) => {
+            format!("for({} in {:?}{}{:?}) {}", v, s, if *inclusive { "..=" } else { ".." }, e, stmt(b))
+        }
         Switch(e, cases) => {
             let cases: Vec<String> = cases.iter().map(|(l, b)| format!("{:?}: {}", l, stmt(b))).collect();
             format!("switch({:?}) {{{}}}", e, cases.join("; "))

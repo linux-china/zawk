@@ -396,6 +396,15 @@ where
                 self.expr(arr, params);
                 self.stmt(body, params);
             }
+            ForRange(v, start, end, _, body) => {
+                // The loop variable is only assigned integers.
+                if self.global(v, params) {
+                    self.assigned_vars.insert(v.clone());
+                }
+                self.expr(start, params);
+                self.expr(end, params);
+                self.stmt(body, params);
+            }
             Abort(e) => self.expr(e, params),
             Return(e) => {
                 let cur_fn = self.cur_fn.clone();

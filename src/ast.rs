@@ -728,6 +728,15 @@ pub enum Stmt<'a, 'b, I> {
         &'a Stmt<'a, 'b, I>,
     ),
     ForEach(I, &'a Expr<'a, 'b, I>, &'a Stmt<'a, 'b, I>),
+    // `for (i in start..end) body` (`start..=end` when inclusive): `i` takes the integers from
+    // `int(start)` up to `int(end)`, both evaluated once before the loop.
+    ForRange(
+        I,
+        &'a Expr<'a, 'b, I>,
+        &'a Expr<'a, 'b, I>,
+        /*inclusive*/ bool,
+        &'a Stmt<'a, 'b, I>,
+    ),
     // gawk's `switch (e) { case v: ... default: ... }`. Each case has a label (a numeric, string
     // or regex literal, or `None` for `default`) and a body; bodies fall through to the next case
     // unless they `break`.

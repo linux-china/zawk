@@ -723,6 +723,39 @@ fn foreach_key_value() {
 }
 
 #[test]
+fn for_range() {
+    // (program, expected stdout)
+    let cases: &[(&str, &str)] = &[
+        (r#"BEGIN { for (i in 1..4) printf "%d ", i; print "" }"#, "1 2 3 \n"),
+        (r#"BEGIN { for (i in 1..=4) printf "%d ", i; print "" }"#, "1 2 3 4 \n"),
+        (r#"BEGIN { for (i in -3..0) printf "%d ", i; for (i in -12..=-10) printf "%d ", i; print "" }"#, "-3 -2 -1 -12 -11 -10 \n"),
+        (r#"BEGIN { for (i in 3..1) print "no"; for (i in 2..2) print "no"; for (i in 2..=2) print i }"#, "2\n"),
+        // Bounds are strnums truncated to integers.
+        (r#"BEGIN { for (i in 2.9..=4.7) printf "%d ", i; for (i in "2x".."4") printf "%d ", i; print "" }"#, "2 3 4 2 3 \n"),
+        (r#"NR == 1 { for (i in 1..=NF) printf "%s|", $i; for (i in $2..$3) printf "%d ", i; print "" }"#, "a|1|3|1 2 \n"),
+        // The end is evaluated once, and assigning the loop variable does not change the iterations.
+        (r#"END { n = 3; for (i in 1..=n++) printf "%d ", i; print n }"#, "1 2 3 4\n"),
+        (r#"END { for (i in 1..=9) { if (i % 2) continue; if (i > 6) break; i = i * 10; printf "%d ", i } print i }"#, "20 40 60 8\n"),
+        (r#"function sum(n,   i, s) { for (i in 1..=n) s += i; return s } END { print sum(100) }"#, "5050\n"),
+        (r#"END { for (i in 1..=3) for (j in i..=3) printf "%d%d ", i, j; print "" }"#, "11 12 13 22 23 33 \n"),
+        (r#"END { print 1. "x", 1.5 }"#, "1x 1.5\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("a 1 3\nb 2\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+    Command::cargo_bin("zawk").unwrap().arg("BEGIN { for (ARGV in 1..3) print }").assert().code(1);
+}
+
+#[test]
 fn not_in_operator() {
     // (program, expected stdout)
     let cases: &[(&str, &str)] = &[

@@ -1260,6 +1260,61 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
 
                 footer
             }
+            ForRange(v, start, end, inclusive, body) => {
+                // Both bounds are truncated to integers and evaluated once, before the loop. The
+                // loop counts with a hidden variable, so assigning `v` in the body does not change
+                // the iterations.
+                let v_id = self.get_identifier(v);
+                let (next, start_val) = self.convert_val(start, current_open)?;
+                let start_val = self.snapshot_before(start_val, &[end], next)?;
+                let (next, end_val) = self.convert_val(end, next)?;
+                current_open = next;
+                // The counter is assigned in the loop, so it needs phi nodes.
+                let counter = self.fresh_local();
+                self.ctx.may_rename.push(counter);
+                self.add_stmt(
+                    current_open,
+                    PrimStmt::AsgnVar(counter, PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![start_val])),
+                )?;
+                let limit = self.fresh_local();
+                self.add_stmt(
+                    current_open,
+                    PrimStmt::AsgnVar(limit, PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![end_val])),
+                )?;
+
+                // The header checks the counter against the limit.
+                let cmp = if *inclusive { ast::Binop::LTE } else { ast::Binop::LT };
+                let cond = PrimExpr::CallBuiltin(
+                    builtins::Function::Binop(cmp),
+                    smallvec![PrimVal::Var(counter), PrimVal::Var(limit)],
+                );
+                let cond_block = self.f.cfg.add_node(Default::default());
+                let cond_v = self.to_val(cond, cond_block)?;
+                self.f.cfg.add_edge(current_open, cond_block, Transition::null());
+
+                // `continue` jumps to the update, which increments the counter.
+                let footer = self.f.cfg.add_node(Default::default());
+                let update = self.f.cfg.add_node(Default::default());
+                let incr = PrimExpr::CallBuiltin(
+                    builtins::Function::Binop(ast::Binop::Plus),
+                    smallvec![PrimVal::Var(counter), PrimVal::ILit(1)],
+                );
+                self.add_stmt(update, PrimStmt::AsgnVar(counter, incr))?;
+                self.f.cfg.add_edge(update, cond_block, Transition::null());
+                self.f.loop_ctx.push((cond_block, footer, Some(update), false));
+
+                let body_start = self.f.cfg.add_node(Default::default());
+                self.add_stmt(body_start, PrimStmt::AsgnVar(v_id, PrimExpr::Val(PrimVal::Var(counter))))?;
+                self.mark_assigned(&ast::Expr::Var(v.clone()), None, body_start)?;
+                let body_end = self.convert_stmt(body, body_start)?;
+                self.f.cfg.add_edge(cond_block, body_start, Transition::new(cond_v));
+                self.f.cfg.add_edge(cond_block, footer, Transition::null());
+                self.f.cfg.add_edge(body_end, update, Transition::null());
+
+                self.f.loop_ctx.pop().unwrap();
+
+                footer
+            }
             Switch(e, cases) => self.do_switch(e, cases, current_open)?,
             Break => self.do_break_continue(current_open, /*is_break*/ true)?,
             Continue => self.do_break_continue(current_open, /*is_break*/ false)?,

@@ -122,6 +122,22 @@ pub(crate) fn foreach<'a>(
     Ok(arena.alloc(Stmt::ForEach(local_name(k, prog), arr, body)))
 }
 
+/// `for (i in start..end) body`, or `start..=end` when `inclusive`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn for_range<'a>(
+    i: &'a str,
+    start: &'a Expr<'a, 'a, &'a str>,
+    end: &'a Expr<'a, 'a, &'a str>,
+    inclusive: bool,
+    body: &'a Stmt<'a, 'a, &'a str>,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    check_loop_var(i, loc)?;
+    Ok(arena.alloc(Stmt::ForRange(local_name(i, prog), start, end, inclusive, body)))
+}
+
 /// A for-in loop assigns scalars to its variables, so they cannot be builtin arrays such as ARGV.
 fn check_loop_var<'a>(name: &'a str, loc: Loc) -> ParseResult<'a, ()> {
     match Variable::try_from(name) {

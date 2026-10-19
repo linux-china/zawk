@@ -121,6 +121,8 @@ OpenStmt: &'a Stmt<'a,'a,&'a str> = {
         crate::parsing::foreach(id, arr, body, l, arena, prog),
     <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:OpenStmt> =>?
         crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
+    <l:@L> "for" "(" <id:"IDENT"> "in" <start:Expr> <r:RangeOp> <end:Expr> Rparen <body:OpenStmt> =>?
+        crate::parsing::for_range(id, start, end, r, body, l, arena, prog),
 }
 
 ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
@@ -139,6 +141,8 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
         crate::parsing::foreach(id, arr, body, l, arena, prog),
     <l:@L> "for" "(" <k:"IDENT"> "," <v:"IDENT"> "in" <arr:Expr> Rparen <body:ClosedStmt> =>?
         crate::parsing::foreach_kv(k, v, arr, body, l, arena, prog),
+    <l:@L> "for" "(" <id:"IDENT"> "in" <start:Expr> <r:RangeOp> <end:Expr> Rparen <body:ClosedStmt> =>?
+        crate::parsing::for_range(id, start, end, r, body, l, arena, prog),
 
 
     Do <body:BaseStmt> "while" "(" <cond:Expr> ")" Sep => arena.alloc(Stmt::DoWhile(cond, body)),
@@ -147,6 +151,12 @@ ClosedStmt: &'a Stmt<'a,'a,&'a str> = {
         let cases: Vec<_> = cases.into_iter().map(|(_, label, body)| (label, body)).collect();
         Ok(arena.alloc(Stmt::Switch(e, arena.alloc_slice(&cases[..]))))
     },
+}
+
+// The `..` (exclusive) or `..=` (inclusive) of a range in `for (i in start..end)`.
+RangeOp: bool = {
+    ".." => false,
+    "..=" => true,
 }
 
 // A case of a switch statement, whose body runs until the next case label.
@@ -721,6 +731,8 @@ extern {
       "delete" => Tok::Delete,
       "in" => Tok::In,
       "!in" => Tok::NotIn,
+      ".." => Tok::DotDot,
+      "..=" => Tok::DotDotEq,
       "return" => Tok::Return,
       "local" => Tok::Local,
   }

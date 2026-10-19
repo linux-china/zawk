@@ -622,6 +622,12 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.stmt(body);
                 self.keys.pop();
             }
+            ForRange(v, start, end, _, body) => {
+                self.set(v, SetKind::Other, None);
+                self.expr(start);
+                self.expr(end);
+                self.stmt(body);
+            }
             Switch(e, cases) => {
                 self.expr(e);
                 for (label, body) in cases.iter() {

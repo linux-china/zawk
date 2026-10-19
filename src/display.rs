@@ -524,6 +524,8 @@ impl<'a> Display for lexer::Tok<'a> {
             Comma => ",",
             In => "in",
             NotIn => "!in",
+            DotDot => "..",
+            DotDotEq => "..=",
             Delete => "delete",
             Return => "return",
             Local => "local",

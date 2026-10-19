@@ -122,6 +122,9 @@ pub enum Tok<'a> {
     Comma,
     In,
     NotIn,
+    // `..` and `..=` of a range in `for (i in 1..=NF)`.
+    DotDot,
+    DotDotEq,
     Delete,
     Return,
     Local,
@@ -220,6 +223,8 @@ keyword_map!(
     [b",", Tok::Comma],
     [b"in", Tok::In],
     [b"!in", Tok::NotIn],
+    [b"..", Tok::DotDot],
+    [b"..=", Tok::DotDotEq],
     [b"!", Tok::Not],
     [b"&&", Tok::AND],
     [b"||", Tok::OR],
@@ -663,7 +668,12 @@ impl<'a> Tokenizer<'a> {
         if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {
             let is = i.as_str();
             return Some((Tok::HexLit(is), is.len()));
-        } else if let Some(f) = FLOAT_PATTERN.captures(text).and_then(|c| c.get(0)) {
+        } else if let Some(f) = FLOAT_PATTERN
+            .captures(text)
+            .and_then(|c| c.get(0))
+            // `1..5` is the integer `1` followed by `..`, not `1.` followed by `.5`.
+            .filter(|f| !(f.as_str().ends_with('.') && text[f.end()..].starts_with('.')))
+        {
             let fs = f.as_str();
             Some((Tok::FLit(fs), fs.len()))
         } else if let Some(i) = INT_PATTERN.captures(text).and_then(|c| c.get(0)) {
