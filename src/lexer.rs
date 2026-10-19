@@ -130,6 +130,9 @@ pub enum Tok<'a> {
     StrLit(&'a str),
     /// An f-string literal `f"Hello, {name}"`; the text between the quotes.
     FStrLit(&'a str),
+    /// A raw string literal `r"C:\dir"` or `r#"say "hi""#`; the text between the delimiters,
+    /// taken verbatim: backslashes are not escapes.
+    RawStrLit(&'a str),
     PatLit(&'a str),
     CallStart(&'a str),
     FunDec(&'a str),
@@ -417,6 +420,12 @@ fn push_char(buf: &mut Vec<u8>, c: char) {
     let start = buf.len();
     buf.resize_with(start + c.len_utf8(), Default::default);
     c.encode_utf8(&mut buf[start..]);
+}
+
+/// Whether the text after an `r` opens a raw string literal: `"` or `#`s followed by `"`.
+fn is_raw_string_start(rest: &[u8]) -> bool {
+    let hashes = rest.iter().take_while(|&&b| b == b'#').count();
+    rest.get(hashes) == Some(&b'"')
 }
 
 pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec<u8>) -> &'a [u8] {
@@ -730,6 +739,22 @@ impl<'a> Tokenizer<'a> {
         self.literal('"', "incomplete string literal")
     }
 
+    /// Lexes a raw string literal `r"..."` or `r#"..."#` (any number of `#`s, as in Rust), with
+    /// `self.cur` just past the `r`. Returns its contents and the index just past it.
+    fn raw_string_lit(&self) -> Result<(&'a str, usize /* new start */), Error> {
+        let text = &self.text[self.cur..];
+        let hashes = text.bytes().take_while(|&b| b == b'#').count();
+        let body = self.cur + hashes + 1;
+        let close = format!("\"{}", "#".repeat(hashes));
+        match self.text[body..].find(&close) {
+            Some(end) => Ok((&self.text[body..body + end], body + end + close.len())),
+            None => Err(Error {
+                location: self.index_to_loc(self.cur),
+                desc: "incomplete raw string literal".into(),
+            }),
+        }
+    }
+
     fn consume_comment(&mut self) {
         let mut iter = self.text[self.cur..].char_indices();
         if let Some((_, '#')) = iter.next() {
@@ -790,6 +815,7 @@ impl<'a> Tokenizer<'a> {
             Some(Tok::Ident(_))
                 | Some(Tok::StrLit(_))
                 | Some(Tok::FStrLit(_))
+                | Some(Tok::RawStrLit(_))
                 | Some(Tok::PatLit(_))
                 | Some(Tok::ILit(_))
                 | Some(Tok::HexLit(_))
@@ -913,6 +939,12 @@ impl<'a> Iterator for Tokenizer<'a> {
                     let (s, new_start) = try_tok!(self.string_lit());
                     self.cur = new_start;
                     self.spanned(ix, new_start, Tok::FStrLit(s))
+                }
+                'r' if is_raw_string_start(&self.text.as_bytes()[ix + 1..]) => {
+                    self.cur += 1;
+                    let (s, new_start) = try_tok!(self.raw_string_lit());
+                    self.cur = new_start;
+                    self.spanned(ix, new_start, Tok::RawStrLit(s))
                 }
                 c => {
                     if let Some((tok, len)) = self.fundec() {
@@ -1148,6 +1180,17 @@ and the third"#;
         assert_eq!(toks("max (x)"), vec![Ident("max"), LParen, Ident("x"), RParen]);
         let err = Tokenizer::new("toupper = 1").find_map(|t| t.err()).unwrap();
         assert!(err.desc.contains("toupper"));
+    }
+
+    #[test]
+    fn raw_string_literals() {
+        use Tok::*;
+        let toks = |s| lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
+        assert_eq!(toks(r#"x=r"C:\a\b""#), vec![Ident("x"), Assign, RawStrLit(r"C:\a\b"), Newline]);
+        assert_eq!(toks(r###"r#"say "hi""# r##"a"#b"##"###), vec![RawStrLit(r#"say "hi""#), RawStrLit(r##"a"#b"##), Newline]);
+        assert_eq!(toks(r#"r"\" / 2"#), vec![RawStrLit(r"\"), Div, ILit("2"), Newline]);
+        assert_eq!(toks(r#"r "x" r#x"#)[..2], [Ident("r"), StrLit("x")]);
+        assert!(Tokenizer::new(r#"r#"x""#).any(|t| t.is_err()));
     }
 
     #[test]

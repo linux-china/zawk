@@ -176,6 +176,11 @@ CaseValue: &'a Expr<'a,'a,&'a str> = {
       prog.locs.insert(expr_key(e), l);
       e
   },
+    <l:@L> <s:"RAWSTRLIT"> => {
+      let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::StrLit(arena.alloc_bytes(s.as_bytes())));
+      prog.locs.insert(expr_key(e), l);
+      e
+  },
     "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
 }
 
@@ -576,6 +581,11 @@ StrLit: &'a Expr<'a,'a,&'a str> = {
       e
   },
   <l:@L> <s:"FSTRLIT"> =>? crate::parsing::parse_fstring_literal(s, l, arena, buf, prog),
+  <l:@L> <s:"RAWSTRLIT"> => {
+      let e: &'a Expr<'a,'a,&'a str> = arena.alloc(Expr::StrLit(arena.alloc_bytes(s.as_bytes())));
+      prog.locs.insert(expr_key(e), l);
+      e
+  },
 }
 
 Index: &'a Expr<'a,'a,&'a str> = {
@@ -638,6 +648,7 @@ extern {
       "IDENT" => Tok::Ident(<&'a str>),
       "STRLIT" => Tok::StrLit(<&'a str>),
       "FSTRLIT" => Tok::FStrLit(<&'a str>),
+      "RAWSTRLIT" => Tok::RawStrLit(<&'a str>),
       "PATLIT" => Tok::PatLit(<&'a str>),
       "CALLSTART" => Tok::CallStart(<&'a str>),
       "FUNDEC" => Tok::FunDec(<&'a str>),

@@ -268,6 +268,7 @@ fn is_operand(tok: &Tok) -> bool {
         Tok::Ident(_)
             | Tok::StrLit(_)
             | Tok::FStrLit(_)
+            | Tok::RawStrLit(_)
             | Tok::PatLit(_)
             | Tok::ILit(_)
             | Tok::HexLit(_)
