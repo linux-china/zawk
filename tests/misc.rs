@@ -3492,3 +3492,26 @@ END {
             .stdout("2\n1,integer\nO'Brien\nx'); drop table u; --\n2\n");
     }
 }
+
+#[test]
+fn udf_array_params_shared_instance() {
+    // several call sites passing untyped variables to the same function must all become maps
+    let cases: &[(&str, &str)] = &[
+        (r#"function add(arr, k) { arr[k]++ } { add(cnt, $1); add(tot, $2) } END { print length(cnt), length(tot) }"#, "2 3\n"),
+        (r#"function f(x) { x["k"] = 1 } BEGIN { f(y); f(z); print length(y), length(z) }"#, "1 1\n"),
+        (r#"function inner(a) { a["k"] = 1 } function outer(b) { inner(b) } BEGIN { outer(p); outer(q); print length(p), length(q) }"#, "1 1\n"),
+        (r#"function f(x) { x["k"] = 1 } function g(  a, b) { f(a); f(b); print length(a), length(b) } BEGIN { g() }"#, "1 1\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .write_stdin("a 1\nb 2\na 3\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}

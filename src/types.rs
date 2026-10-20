@@ -1194,8 +1194,20 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         };
 
         // Check if we have already created the function
-        if let Some(ix) = self.funcs.get(&key) {
-            return *ix;
+        if let Some(ix) = self.funcs.get(&key).cloned() {
+            // The instance is shared with earlier call sites, but this call's arguments still
+            // need to flow into the parameters; otherwise constraints inferred for the parameters
+            // (e.g. "is a map") never reach these arguments.
+            let mut view = View {
+                tc: self,
+                frame_id: *ident,
+                frame_args: key.args,
+            };
+            for (cfg::Arg { id, .. }, arg_node) in args.iter().zip(arg_nodes.iter().cloned()) {
+                let param_ix = view.ident_node(id);
+                view.nw.add_dep(arg_node, param_ix, Constraint::Flows(()));
+            }
+            return ix;
         }
         // Just return a new node for the return value. We will infer return types by looking up
         // this node later and adding dependencies when we encounter a `Return` stmt.

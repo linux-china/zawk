@@ -21,7 +21,7 @@ _Binary operators:_
 * Default value: `l ?? r` is `r` when `l` is "empty", and `l` otherwise. `l` is evaluated once.
   * Empty means uninitialized, `""`, or a number that is zero. A string counts as a number when it
     looks like one (as a strnum does), so `"0"`, `"0.0"`, `"+0"` and `" -0 "` are empty too, even as
-    string constants (unlike `if ("0.0")`, which is true). A field holding `0` is therefore replaced:
+    string constants (unlike `if ("0.0")`, which is false). A field holding `0` is therefore replaced:
     for a numeric column where `0` is valid data, write `($3 == "" ? 0 : $3)` instead.
   * An array element on the left is only read when it exists, as with `k in a`: `a[k] ?? "none"`
     does not create `a[k]`.
