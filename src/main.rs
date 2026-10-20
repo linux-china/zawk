@@ -1674,7 +1674,13 @@ fn real_main() {
             }
         };
     }
-    match matches.get_one::<String>("backend").map(|s| s.as_str()) {
+    // `-O -1` forces the bytecode interpreter.
+    let backend = match (matches.get_one::<String>("backend").map(|s| s.as_str()), opt_level) {
+        (Some("cranelift"), -1) => fail!("`-O -1` forces the bytecode interpreter and conflicts with `-B cranelift`"),
+        (None, -1) => Some("interp"),
+        (b, _) => b,
+    };
+    match backend {
         Some("interp") => {
             with_io!(|inp, oup| run_interp_with_context(ctx, inp, oup, num_workers))
         }

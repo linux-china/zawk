@@ -739,6 +739,8 @@ fn for_range() {
         (r#"function sum(n,   i, s) { for (i in 1..=n) s += i; return s } END { print sum(100) }"#, "5050\n"),
         (r#"END { for (i in 1..=3) for (j in i..=3) printf "%d%d ", i, j; print "" }"#, "11 12 13 22 23 33 \n"),
         (r#"END { print 1. "x", 1.5 }"#, "1x 1.5\n"),
+        // An inclusive end of INT64_MAX stops without overflowing the counter.
+        (r#"END { for (i in 9223372036854775807..=9223372036854775807) { if (++c > 3) break; continue } print c }"#, "1\n"),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -3551,4 +3553,25 @@ fn udf_array_params_shared_instance() {
                 .stdout(String::from(*out));
         }
     }
+}
+
+// `-O -1` runs the bytecode interpreter, so it cannot be combined with `-B cranelift`.
+#[test]
+fn opt_level_minus_one_forces_interp() {
+    for args in [&["-O", "-1"][..], &["-O", "-1", "-B", "interp"][..]] {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .arg("BEGIN{for(i=0;i<10;i++) s+=i; print s}")
+            .assert()
+            .success()
+            .stdout("45\n");
+    }
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-O", "-1", "-B", "cranelift", "BEGIN{print 1}"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("conflicts with `-B cranelift`"));
 }

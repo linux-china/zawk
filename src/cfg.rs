@@ -1295,12 +1295,27 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // `continue` jumps to the update, which increments the counter.
                 let footer = self.f.cfg.add_node(Default::default());
                 let update = self.f.cfg.add_node(Default::default());
+                // For `..=`, leave before incrementing once the counter reaches the limit, so an
+                // upper bound of INT64_MAX does not overflow the counter.
+                let incr_block = if *inclusive {
+                    let done = PrimExpr::CallBuiltin(
+                        builtins::Function::Binop(ast::Binop::EQ),
+                        smallvec![PrimVal::Var(counter), PrimVal::Var(limit)],
+                    );
+                    let done_v = self.to_val(done, update)?;
+                    let incr_block = self.f.cfg.add_node(Default::default());
+                    self.f.cfg.add_edge(update, footer, Transition::new(done_v));
+                    self.f.cfg.add_edge(update, incr_block, Transition::null());
+                    incr_block
+                } else {
+                    update
+                };
                 let incr = PrimExpr::CallBuiltin(
                     builtins::Function::Binop(ast::Binop::Plus),
                     smallvec![PrimVal::Var(counter), PrimVal::ILit(1)],
                 );
-                self.add_stmt(update, PrimStmt::AsgnVar(counter, incr))?;
-                self.f.cfg.add_edge(update, cond_block, Transition::null());
+                self.add_stmt(incr_block, PrimStmt::AsgnVar(counter, incr))?;
+                self.f.cfg.add_edge(incr_block, cond_block, Transition::null());
                 self.f.loop_ctx.push((cond_block, footer, Some(update), false));
 
                 let body_start = self.f.cfg.add_node(Default::default());
