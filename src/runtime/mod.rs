@@ -808,32 +808,24 @@ impl RegexCache {
         })
     }
 
-    /// `match(s, re, arr)` with an integer-keyed `arr`: `arr[n]` is the text of group `n`.
-    pub(crate) fn regex_match_intmap<'a>(
-        &mut self,
-        vars: &mut Variables,
-        pat: &Str<'a>,
-        s: &Str<'a>,
-        m: &IntMap<Str<'a>>,
-    ) -> Result<Int> {
-        m.clear();
-        self.regex_match_captures(vars, pat, s, |i, text, _, _| m.insert(i, text))
-    }
-
-    /// `match(s, re, arr)` with a string-keyed `arr`: as gawk, `arr[n]` is the text of group `n`,
-    /// and `arr[n, "start"]` and `arr[n, "length"]` its position.
+    /// `match(s, re, arr)`: as gawk, `arr[n]` is the text of group `n`, and `arr[n, "start"]` and
+    /// `arr[n, "length"]` (joined with `subsep`, the current SUBSEP) its position.
     pub(crate) fn regex_match_strmap<'a>(
         &mut self,
         vars: &mut Variables,
         pat: &Str<'a>,
         s: &Str<'a>,
         m: &StrMap<'a, Str<'a>>,
+        subsep: &Str<'a>,
     ) -> Result<Int> {
         m.clear();
+        let start_key = Str::concat(subsep.clone(), Str::from("start"));
+        let length_key = Str::concat(subsep.clone(), Str::from("length"));
         self.regex_match_captures(vars, pat, s, |i, text, start, len| {
-            m.insert(Str::from(i), text);
-            m.insert(Str::from(format!("{}\x1cstart", i)), Str::from(start));
-            m.insert(Str::from(format!("{}\x1clength", i)), Str::from(len));
+            let n = Str::from(i);
+            m.insert(n.clone(), text);
+            m.insert(Str::concat(n.clone(), start_key.clone()), Str::from(start));
+            m.insert(Str::concat(n, length_key.clone()), Str::from(len));
         })
     }
 

@@ -1644,19 +1644,13 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(if conv_tys[2] == Ty::MapIntStr {
-                    LL::MatchArrInt(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                        conv_regs[2].into(),
-                    )
-                } else if conv_tys[2] == Ty::MapStrStr {
+                self.pushl(if conv_tys[2] == Ty::MapStrStr {
                     LL::MatchArrStr(
                         res_reg.into(),
                         conv_regs[0].into(),
                         conv_regs[1].into(),
                         conv_regs[2].into(),
+                        conv_regs[3].into(),
                     )
                 } else {
                     return err!("invalid input types to match: {:?}", &conv_tys[..]);

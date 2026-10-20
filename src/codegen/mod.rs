@@ -1853,22 +1853,16 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(func, &mut [rt, tsv, arrv, patv, sepsv])?;
                 self.bind_val(res.reflect(), resv)
             }
-            MatchArrInt(res, s, pat, arr) => {
+            MatchArrStr(res, s, pat, arr, subsep) => {
                 let rt = self.runtime_val();
                 let sv = self.get_val(s.reflect())?;
                 let patv = self.get_val(pat.reflect())?;
                 let arrv = self.get_val(arr.reflect())?;
-                let resv =
-                    self.call_intrinsic(intrinsic!(match_arr_int), &mut [rt, sv, patv, arrv])?;
-                self.bind_val(res.reflect(), resv)
-            }
-            MatchArrStr(res, s, pat, arr) => {
-                let rt = self.runtime_val();
-                let sv = self.get_val(s.reflect())?;
-                let patv = self.get_val(pat.reflect())?;
-                let arrv = self.get_val(arr.reflect())?;
-                let resv =
-                    self.call_intrinsic(intrinsic!(match_arr_str), &mut [rt, sv, patv, arrv])?;
+                let subsepv = self.get_val(subsep.reflect())?;
+                let resv = self.call_intrinsic(
+                    intrinsic!(match_arr_str),
+                    &mut [rt, sv, patv, arrv, subsepv],
+                )?;
                 self.bind_val(res.reflect(), resv)
             }
             SplitStr(flds, to_split, arr, pat) => {

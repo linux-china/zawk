@@ -2323,21 +2323,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         )?;
                         *self.get_mut(*res) = n;
                     }
-                    MatchArrInt(res, s, pat, arr) => {
-                        let s = index(&self.strs, s);
-                        let pat = index(&self.strs, pat);
-                        let arr = index(&self.maps_int_str, arr);
-                        let core = &mut self.core;
-                        *index_mut(&mut self.ints, res) =
-                            core.regexes.regex_match_intmap(&mut core.vars, pat, s, arr)?;
-                    }
-                    MatchArrStr(res, s, pat, arr) => {
+                    MatchArrStr(res, s, pat, arr, subsep) => {
                         let s = index(&self.strs, s);
                         let pat = index(&self.strs, pat);
                         let arr = index(&self.maps_str_str, arr);
+                        let subsep = index(&self.strs, subsep);
                         let core = &mut self.core;
                         *index_mut(&mut self.ints, res) =
-                            core.regexes.regex_match_strmap(&mut core.vars, pat, s, arr)?;
+                            core.regexes.regex_match_strmap(&mut core.vars, pat, s, arr, subsep)?;
                     }
                     SplitStr(flds, to_split, arr, pat) => {
                         // Very similar to above

@@ -3070,8 +3070,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if bi == builtins::Function::PatSplit && args.len() == 3 {
                     prim_args.push(PrimVal::Var(self.fresh_local()));
                 }
-                // match(s, re, arr) => gawk's capturing form
-                if bi == builtins::Function::Match && args.len() == 3 {
+                // match(s, re, arr, SUBSEP) => gawk's capturing form (the parser adds SUBSEP)
+                if bi == builtins::Function::Match && args.len() == 4 {
                     bi = builtins::Function::MatchArr;
                 }
 
@@ -3457,7 +3457,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // error at the call.
                 if let Some(arity) = bi.arity() {
                     if prim_args.len() != arity {
-                        return Err(builtins::arity_error(&call_name(fname), args.len(), arity));
+                        // Not counting the SUBSEP the parser adds to match(s, re, arr, ...).
+                        let implicit = matches!(bi, builtins::Function::Match | builtins::Function::MatchArr)
+                            && args.len() >= 4;
+                        let got = args.len() - implicit as usize;
+                        return Err(builtins::arity_error(&call_name(fname), got, arity));
                     }
                 }
                 return Ok((open, PrimExpr::CallBuiltin(bi, prim_args)));

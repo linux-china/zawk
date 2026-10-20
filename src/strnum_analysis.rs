@@ -132,8 +132,7 @@ impl StrnumAnalysis {
                 self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::MAYBE);
                 self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);
             }
-            MatchArrInt(_, _, _, map) => self.add_map_vals(map),
-            MatchArrStr(_, _, _, map) => self.add_map_vals(map),
+            MatchArrStr(_, _, _, map, _) => self.add_map_vals(map),
             CmpStr { l, r, .. } => {
                 self.dfa.add_query(l);
                 self.dfa.add_query(r);

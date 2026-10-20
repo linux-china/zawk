@@ -475,18 +475,13 @@ pub(crate) enum Instr<'a> {
         // The constant-folded regex for `pat`, if any. `pat` still holds the pattern text.
         re: Option<Arc<AwkRegex>>,
     },
-    // match(s, re, arr)
-    MatchArrInt(
-        Reg<Int>,
-        Reg<Str<'a>>,
-        Reg<Str<'a>>,
-        Reg<runtime::IntMap<Str<'a>>>,
-    ),
+    // match(s, re, arr, SUBSEP)
     MatchArrStr(
         Reg<Int>,
         Reg<Str<'a>>,
         Reg<Str<'a>>,
         Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
     ),
     // `strnum[i]` is set when the string argument `args[i]` may be a strnum (see
     // strnum_analysis), so that e.g. `%c` formats it as a number when it looks like one.
@@ -1839,17 +1834,12 @@ impl<'a> Instr<'a> {
                 pat.accum(&mut f);
                 f(*seps, *seps_ty);
             }
-            MatchArrInt(res, s, pat, arr) => {
+            MatchArrStr(res, s, pat, arr, subsep) => {
                 res.accum(&mut f);
                 s.accum(&mut f);
                 pat.accum(&mut f);
                 arr.accum(&mut f);
-            }
-            MatchArrStr(res, s, pat, arr) => {
-                res.accum(&mut f);
-                s.accum(&mut f);
-                pat.accum(&mut f);
-                arr.accum(&mut f);
+                subsep.accum(&mut f);
             }
             Sprintf { dst, fmt, args, .. } => {
                 dst.accum(&mut f);

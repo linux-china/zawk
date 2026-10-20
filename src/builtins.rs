@@ -744,10 +744,11 @@ impl Function {
                 );
                 ctx.nw.add_dep(map, args[2], Constraint::Flows(()));
             }
+            // `arr[n, "start"]` and `arr[n, "length"]` are string keys.
             Function::MatchArr => {
                 let arg2 = ctx.constant(
                     Map {
-                        key: BaseTy::Int,
+                        key: BaseTy::Str,
                         val: BaseTy::Str,
                     }
                         .abs(),
@@ -1093,10 +1094,10 @@ impl Function {
             CharAt => (smallvec![Str, Int], Str),
             Chars => (smallvec![Str], MapIntStr),
             Match => (smallvec![Str, Str], Int),
-            // Like split, the array can be a map of either type
+            // match(s, re, arr, SUBSEP)
             MatchArr => {
-                if let MapIntStr | MapStrStr = incoming[2] {
-                    (smallvec![Str, Str, incoming[2]], Int)
+                if let MapStrStr = incoming[2] {
+                    (smallvec![Str, Str, MapStrStr, Str], Int)
                 } else {
                     return err!("invalid input spec for match: {:?}", incoming);
                 }
@@ -1139,7 +1140,7 @@ impl Function {
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
             SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
-            MatchArr => 3,
+            MatchArr => 4,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Eval => 2,
             DefaultIfEmpty => 2,

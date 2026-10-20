@@ -17,7 +17,6 @@
 use std::io::Read;
 use std::mem;
 use std::sync::atomic::AtomicUsize;
-use std::str;
 
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
@@ -613,12 +612,9 @@ impl<'a> Stepper<'a> {
                             continue;
                         }
                         x => {
-                            let buf = &[x];
-                            let s: Str<'static> = Str::concat(
-                                "\\".into(),
-                                Str::from(str::from_utf8_unchecked(buf)).unmoor(),
-                            );
-                            self.append(s);
+                            // Unknown escape: keep the backslash and the raw byte. Build from
+                            // bytes, since `x` may not be valid UTF-8 on its own.
+                            self.append(Buf::read_from_bytes(&[b'\\', x]).into_str());
                         }
                     }
                     self.prev_ix += 1;

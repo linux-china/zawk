@@ -868,19 +868,12 @@ pub(crate) mod boilerplate {
                     f(Key::MapVal(map, map_ty), Some(pat.into()));
                 }
             }
-            MatchArrInt(res, s, pat, arr) => {
-                f(res.into(), Some(s.into()));
-                f(res.into(), Some(pat.into()));
-                let (arr_reg, arr_ty) = arr.reflect();
-                debug_assert!(arr_ty.is_array());
-                f(Key::MapVal(arr_reg, arr_ty), Some(s.into()));
-                f(Key::MapVal(arr_reg, arr_ty), Some(pat.into()));
-            }
-            MatchArrStr(res, s, pat, arr) => {
+            MatchArrStr(res, s, pat, arr, subsep) => {
                 f(res.into(), Some(s.into()));
                 f(res.into(), Some(pat.into()));
                 f(arr.into(), Some(s.into()));
                 f(arr.into(), Some(pat.into()));
+                f(arr.into(), Some(subsep.into()));
             }
             Sprintf { dst, fmt, args, .. } => {
                 f(dst.into(), Some(fmt.into()));

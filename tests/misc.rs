@@ -1207,6 +1207,28 @@ fn match_with_array() {
 }
 
 #[test]
+fn match_with_array_subsep() {
+    // The "start"/"length" keys are joined with the current SUBSEP, and are written even when the
+    // array is only ever indexed by numbers.
+    let cases: &[(&str, &str)] = &[
+        (r#"BEGIN { SUBSEP = ":"; match("foo123", /[0-9]+/, m); print m[0, "start"], m["0:length"] }"#, "4 3\n"),
+        (r#"BEGIN { print match("ab", /(a)(b)/, m), length(m), m[1], m[2] }"#, "1 9 a b\n"),
+        (r#"BEGIN { match("xab", /(a)(b)/, m); for (i = 0; i < 3; i++) printf "%s ", m[i]; print "" }"#, "ab a b \n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}
+
+#[test]
 fn redirect_open_failure_is_fatal() {
     // As in gawk, an output file that cannot be opened stops the program with an error, after
     // the output printed so far.
@@ -3257,6 +3279,21 @@ fn tsv_escapes_round_trip() {
             .assert()
             .success()
             .stdout("[lit\\n][tab\there][nl\nx][cr\ry][bs\\]\n[x\\\\y][q\\][tail]\n");
+    }
+}
+
+#[test]
+fn tsv_unknown_escape_keeps_raw_bytes() {
+    // An unknown escape keeps the backslash and the next byte as is, even a non-UTF-8 byte.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "tsv", r#"{ printf "[%s][%s]\n", $1, $2 }"#])
+            .write_stdin(&b"a\\q\tb\\\xe9c\n"[..])
+            .assert()
+            .success()
+            .stdout(&b"[a\\q][b\\\xe9c]\n"[..]);
     }
 }
 
