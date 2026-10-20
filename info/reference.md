@@ -34,7 +34,7 @@ _Binary operators:_
 * Default assignment: `l ??= r` is `l ?? (l = r)`, like `??=` in JavaScript and C#: when `l` is empty (as for
   `??`), `r` is evaluated and assigned to `l`; otherwise `r` is not evaluated and `l` is unchanged. Its value is
   the new value of `l`. It has the precedence of `=` (`r` can be any expression), and the subscript of an array
-  element is evaluated once: `{ OFS ??= ","; total[$1] ??= 0 }`, `seen[i++] ??= NR`.
+  element is evaluated once: `{ sep ??= ","; total[$1] ??= 0 }`, `seen[i++] ??= NR`.
 
 _Unary Operators:_
 
