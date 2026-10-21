@@ -358,4 +358,7 @@ run-sugar:
   cargo run --package zawk --bin zawk -- '$1' demo.txt
 
 run-parquet-output:
-  cargo urn --package zawk --bin zawk -- -o parquet --out-file demo.parquet 'BEGIN {print "id:int32","name"} { print $2, $1 }' demo.txt
+  cargo run --package zawk --bin zawk -- -o parquet --out-file demo.parquet 'BEGIN {print "id:int32","name"} { print $2, $1 }' demo.txt
+
+run-include:
+  cargo run --package zawk --bin zawk -- --include tests/hello.awk 'BEGIN { print hello("Jackie") }'
