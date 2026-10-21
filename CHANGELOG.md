@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.6.3 (2026-10-21)
+
 * Add raw string literals, like Rust's: `r"C:\Program Files\Rust"` is taken verbatim, backslashes are not escapes (no more `"\\d+"` in dynamic regexes: `$0 ~ r"\d+"`). To include `"`, put the same number of `#`s around the quotes: `r#"say "hi""#`, `r##"a"#b"##`. A raw string can span lines. **Behavior change**: `r"..."` (no space) is now a raw string, not the variable `r` concatenated with a string; write `r "..."` for the latter
 * Add the `??=` operator: `l ??= r` is `l ?? (l = r)`, so `r` is evaluated and assigned only when `l` is uninitialized, empty or zero (as for `??`); the subscript of an array element is evaluated once. E.g. `{ OFS ??= ","; total[$1] ??= 0 }`
 * Add the `!in` operator, like Kotlin's `!in` (Python's `not in`): `k !in arr` is `!(k in arr)`, e.g. `$1 !in seen { seen[$1]; print }`; multi-dimensional keys work too: `(i, j) !in arr`
