@@ -274,14 +274,18 @@ pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
 }
 
 /// Ciphertext formats, all with PBKDF2-HMAC-SHA256 derived keys except legacy:
-/// - `v3:` + base64(salt + IV/nonce + ciphertext), with a random 16 bytes salt
+/// - `v4:` + base64(salt + IV + ciphertext + HMAC-SHA256 tag), CBC only: encrypt-then-MAC, the tag covers
+///   salt + IV + ciphertext, encryption and MAC keys are both derived from the PBKDF2 key by HMAC-SHA256
+/// - `v3:` + base64(salt + IV/nonce + ciphertext), with a random 16 bytes salt (GCM, CBC decrypt only)
 /// - `v2:` + base64(IV/nonce + ciphertext), with the fixed salt `PBKDF2_V2_SALT` (decrypt only)
 /// - no prefix: legacy format, key is the password truncated or zero padded (decrypt only)
+const ENCRYPT_V4_PREFIX: &str = "v4:";
 const ENCRYPT_V3_PREFIX: &str = "v3:";
 const ENCRYPT_V2_PREFIX: &str = "v2:";
 const PBKDF2_V2_SALT: &[u8] = b"zawk-encrypt-v2";
 const SALT_LEN: usize = 16;
 const PBKDF2_ITERATIONS: u32 = 100_000;
+const CBC_TAG_LEN: usize = 32;
 
 /// derived keys by (password, salt, key length), because derivation is slow by design
 static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, Vec<u8>, usize), Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -328,6 +332,24 @@ fn encrypt_salt(key_pass: &str, key_len: usize) -> Option<[u8; SALT_LEN]> {
     let salt = random_bytes::<SALT_LEN>()?;
     salts.insert(entry, salt);
     Some(salt)
+}
+
+/// (encryption key, MAC key) of the `v4:` CBC format, both derived from the PBKDF2 key
+fn cbc_v4_keys(key: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let subkey = |label: &[u8]| {
+        let mut mac = HmacSha256::new_from_slice(key).unwrap();
+        mac.update(label);
+        mac.finalize().into_bytes().to_vec()
+    };
+    let mut enc_key = subkey(b"zawk-encrypt-v4-enc");
+    enc_key.truncate(key.len());
+    (enc_key, subkey(b"zawk-encrypt-v4-mac"))
+}
+
+fn cbc_v4_mac(mac_key: &[u8], data: &[u8]) -> HmacSha256 {
+    let mut mac = HmacSha256::new_from_slice(mac_key).unwrap();
+    mac.update(data);
+    mac
 }
 
 /// legacy key: password bytes truncated or zero padded to key length
@@ -431,7 +453,8 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// Encrypt text with a random salt and IV/nonce, output is `v3:` + base64(salt + IV/nonce + ciphertext).
+/// Encrypt text with a random salt and IV/nonce, output is `v3:` + base64(salt + nonce + ciphertext) for GCM,
+/// `v4:` + base64(salt + IV + ciphertext + HMAC tag) for CBC.
 /// Key is derived from key_pass by PBKDF2-HMAC-SHA256. Returns empty string on failure.
 pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
     // Using a random IV(Initialization vector) / nonce for GCM has been specified as an official recommendation
@@ -444,19 +467,48 @@ pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
         return String::new();
     };
     let key = derive_key(key_pass, &salt, key_len);
-    match encrypt_bytes(&key, gcm, plaintext) {
-        Some(bytes) => format!("{}{}", ENCRYPT_V3_PREFIX, STANDARD.encode([salt.as_slice(), &bytes].concat())),
+    if gcm {
+        return match encrypt_bytes(&key, true, plaintext) {
+            Some(bytes) => format!("{}{}", ENCRYPT_V3_PREFIX, STANDARD.encode([salt.as_slice(), &bytes].concat())),
+            None => String::new(),
+        };
+    }
+    let (enc_key, mac_key) = cbc_v4_keys(&key);
+    match encrypt_bytes(&enc_key, false, plaintext) {
+        Some(bytes) => {
+            let data = [salt.as_slice(), &bytes].concat();
+            let tag = cbc_v4_mac(&mac_key, &data).finalize().into_bytes();
+            format!("{}{}", ENCRYPT_V4_PREFIX, STANDARD.encode([data.as_slice(), &tag].concat()))
+        }
         None => String::new(),
     }
 }
 
-/// Decrypt text produced by `encrypt`, `v3:`, `v2:` and legacy formats are supported.
+/// Decrypt text produced by `encrypt`, `v4:`, `v3:`, `v2:` and legacy formats are supported.
 /// Returns the plaintext bytes, or none if the text is malformed or the key is wrong.
 pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
     let Some((key_len, gcm)) = parse_cipher_mode(mode) else {
         unsupported_mode("decrypt", mode);
         return vec![];
     };
+    if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V4_PREFIX) {
+        if gcm {
+            return vec![];
+        }
+        // the tag is verified (in constant time) before any decryption: no padding oracle
+        return STANDARD.decode(encoded.trim()).ok()
+            .filter(|data| data.len() > SALT_LEN + CBC_TAG_LEN)
+            .and_then(|data| {
+                let (data, tag) = data.split_at(data.len() - CBC_TAG_LEN);
+                let (enc_key, mac_key) = cbc_v4_keys(&derive_key(key_pass, &data[..SALT_LEN], key_len));
+                cbc_v4_mac(&mac_key, data).verify_slice(tag).ok()?;
+                decrypt_bytes(&enc_key, false, &data[SALT_LEN..])
+            })
+            .unwrap_or_default();
+    }
+    if !gcm && !encrypted_text.trim().is_empty() {
+        crate::runtime::stdlib_notice("decrypt", "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it");
+    }
     if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
         return STANDARD.decode(encoded.trim()).ok()
             .filter(|data| data.len() > SALT_LEN)
@@ -714,7 +766,7 @@ mod tests {
         let key_pass = "密码密码密码密码密码密码密码密码"; // multi-byte chars across byte 16/32
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let encrypted_text = encrypt(mode, long_text.as_bytes(), key_pass);
-            assert!(encrypted_text.starts_with("v3:"));
+            assert!(encrypted_text.starts_with(if mode.ends_with("gcm") { "v3:" } else { "v4:" }));
             assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text.as_bytes());
             assert!(decrypt(mode, &encrypted_text, "wrong").is_empty());
             assert!(decrypt(mode, "", key_pass).is_empty());
@@ -731,6 +783,36 @@ mod tests {
             let (key_len, gcm) = parse_cipher_mode(mode).unwrap();
             let bytes = encrypt_bytes(&legacy_key(key_pass, key_len), gcm, b"Hello World").unwrap();
             assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), b"Hello World");
+        }
+    }
+
+    #[test]
+    fn test_cbc_v4_tamper() {
+        for mode in ["aes-128-cbc", "aes-256-cbc"] {
+            let text = encrypt(mode, b"Hello World", "pass");
+            let data = STANDARD.decode(text.strip_prefix("v4:").unwrap()).unwrap();
+            assert_eq!(data.len(), SALT_LEN + 16 + 16 + CBC_TAG_LEN);
+            // flipping any byte (salt, IV, ciphertext or tag) fails the MAC check
+            for i in 0..data.len() {
+                let mut tampered = data.clone();
+                tampered[i] ^= 1;
+                assert!(decrypt(mode, &format!("v4:{}", STANDARD.encode(&tampered)), "pass").is_empty(), "{mode} byte {i}");
+            }
+            // truncated tag, or a v4 ciphertext with a GCM mode
+            assert!(decrypt(mode, &format!("v4:{}", STANDARD.encode(&data[..data.len() - 1])), "pass").is_empty());
+            assert!(decrypt("aes-256-gcm", &text, "pass").is_empty());
+        }
+    }
+
+    #[test]
+    fn test_decrypt_cbc_v3() {
+        // CBC ciphertext from versions before `v4:` still decrypts
+        let salt = [3u8; SALT_LEN];
+        for mode in ["aes-128-cbc", "aes-256-cbc"] {
+            let (key_len, _) = parse_cipher_mode(mode).unwrap();
+            let bytes = encrypt_bytes(&derive_key("pass", &salt, key_len), false, b"Hello World").unwrap();
+            let text = format!("v3:{}", STANDARD.encode([salt.as_slice(), &bytes].concat()));
+            assert_eq!(decrypt(mode, &text, "pass"), b"Hello World");
         }
     }
 

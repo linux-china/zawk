@@ -364,7 +364,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("hmac", CRYPTO, "hmac(algorithm: str, key: str, s: str) -> str", "HMAC signature: HmacSHA256, HmacSHA512.",
       r#"hmac("HmacSHA256", "secret", "hello")"#),
     d("encrypt", CRYPTO, "encrypt(mode: str, plaintext: str, key: str) -> str",
-      "Encrypt with aes-128-gcm, aes-256-gcm (recommended), aes-128-cbc or aes-256-cbc; output `v3:` + base64(salt + nonce + ciphertext).",
+      "Encrypt with aes-128-gcm, aes-256-gcm (recommended), aes-128-cbc or aes-256-cbc; output `v3:` + base64(salt + nonce + ciphertext), CBC `v4:` with an HMAC-SHA256 tag.",
       r#"encrypt("aes-256-gcm", "Secret Text", "pass")"#),
     d("decrypt", CRYPTO, "decrypt(mode: str, ciphertext: str, key: str) -> str",
       "Decrypt the output of encrypt, empty on failure.", r#"decrypt("aes-256-gcm", s, "pass")"#),
