@@ -80,21 +80,37 @@ mod redis_kv {
     use super::{split_name, KvResult, REDIS_CONNECTIONS};
     use redis::Commands;
 
+    fn connect(conn_url: &str) -> KvResult<redis::Connection> {
+        redis::Client::open(conn_url)
+            .and_then(|client| client.get_connection())
+            .map_err(|e| format!("failed to connect to {}: {}", conn_url, e))
+    }
+
     /// Run `f` with a (pooled) connection, and the name of the hash in the namespace URL.
+    /// If a reused connection fails with an IO error (server restart, idle timeout), it is
+    /// dropped and `f` is retried once with a new connection.
     fn with_conn<T>(
         url_text: &str,
-        f: impl FnOnce(&mut redis::Connection, &str) -> redis::RedisResult<T>,
+        f: impl Fn(&mut redis::Connection, &str) -> redis::RedisResult<T>,
     ) -> KvResult<T> {
         let (conn_url, hash_key) = split_name(url_text)?;
         let mut pool = REDIS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        if !pool.contains_key(conn_url) {
-            let conn = redis::Client::open(conn_url)
-                .and_then(|client| client.get_connection())
-                .map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
-            pool.insert(conn_url.to_string(), conn);
+        let reused = pool.contains_key(conn_url);
+        if !reused {
+            pool.insert(conn_url.to_string(), connect(conn_url)?);
         }
         let conn = pool.get_mut(conn_url).unwrap();
-        f(conn, hash_key).map_err(|e| e.to_string())
+        match f(conn, hash_key) {
+            Ok(v) => Ok(v),
+            Err(e) if reused && (e.is_io_error() || e.is_connection_dropped() || e.is_unrecoverable_error()) => {
+                pool.remove(conn_url);
+                let mut conn = connect(conn_url).map_err(|reconnect| format!("{} ({})", e, reconnect))?;
+                let result = f(&mut conn, hash_key).map_err(|e| e.to_string());
+                pool.insert(conn_url.to_string(), conn);
+                result
+            }
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {

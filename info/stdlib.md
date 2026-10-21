@@ -809,7 +809,7 @@ Algorithms:
 
 ### crypto
 
-- hmac: `hmac("HmacSHA256","your-secret-key", $1)` or `hmac("HmacSHA512","your-secret-key", $1)`
+- hmac: `hmac("HmacSHA256","your-secret-key", $1)`, `hmac("HmacSHA384", ...)` or `hmac("HmacSHA512", ...)`. Algorithm names are case-insensitive and the `Hmac` prefix is optional (`sha256`). Unsupported algorithms print a warning and return an empty string.
 - encrypt:  `encrypt("aes-128-cbc", "Secret Text", "your_pass_key")`,
   `encrypt("aes-256-gcm", "Secret Text", "your_pass_key")`
 - decrypt:  `decrypt("aes-128-cbc", encrypted_text, "your_pass_key")`
@@ -975,6 +975,11 @@ Placeholders: `?` or `?1` for SQLite/libSQL, `?` for MySQL, `$1`, `$2`... for Po
 Parameters are passed as text: SQLite/libSQL/MySQL convert them by column type, PostgreSQL converts them
 to the inferred parameter type (bool, integers, floats, numeric, json, uuid, inet, bytea, date/time types;
 empty value is NULL for non-text types). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
+
+Connections are cached per URL for the whole run. A PostgreSQL or Redis (`kv_*`) connection that was closed
+(server restart, idle timeout, network failure) is reconnected once on the next call, so long-running input
+such as `tail -f` keeps working. In parallel mode (`-p r`/`-p f`), calls to the same kind of database share one
+lock and are run one at a time, so heavy database work does not speed up with more workers.
 
 ### SQLite
 

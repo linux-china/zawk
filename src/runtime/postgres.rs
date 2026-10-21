@@ -46,12 +46,27 @@ fn error_text(e: postgres::Error) -> String {
     }
 }
 
-/// The cached client for `db_url`, connecting on first use.
-fn client<'p>(pools: &'p mut HashMap<String, Client>, db_url: &str) -> Result<&'p mut Client, String> {
-    if !pools.contains_key(db_url) {
+/// Run `f` with the cached client for `db_url`, connecting on first use. If a reused client
+/// fails because its connection was closed (server restart, idle timeout), it is dropped and
+/// `f` is retried once with a new connection.
+fn with_client<T>(db_url: &str, mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>) -> Result<T, String> {
+    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    let reused = pools.contains_key(db_url);
+    if !reused {
         pools.insert(db_url.to_string(), connect(db_url)?);
     }
-    Ok(pools.get_mut(db_url).unwrap())
+    let client = pools.get_mut(db_url).unwrap();
+    match f(client) {
+        Ok(v) => Ok(v),
+        Err(e) if reused && client.is_closed() => {
+            pools.remove(db_url);
+            let mut client = connect(db_url).map_err(|reconnect| format!("{} (reconnect failed: {})", error_text(e), reconnect))?;
+            let result = f(&mut client).map_err(error_text);
+            pools.insert(db_url.to_string(), client);
+            result
+        }
+        Err(e) => Err(error_text(e)),
+    }
 }
 
 /// A positional parameter given as text, converted to the type the server inferred for it.
@@ -138,8 +153,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     let map: IntMap<Str> = IntMap::default();
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    let rows = match client(&mut pools, db_url).and_then(|client| client.query(sql, &params).map_err(error_text)) {
+    let rows = match with_client(db_url, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("pg_query", e);
@@ -163,8 +177,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
 pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    match client(&mut pools, db_url).and_then(|client| client.execute(sql, &params).map_err(error_text)) {
+    match with_client(db_url, |client| client.execute(sql, &params)) {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("pg_execute", e);
