@@ -38,6 +38,27 @@ pub(crate) fn input_warning(count: &AtomicUsize, loc: impl FnOnce() -> String, m
     }
 }
 
+/// Makes the column names of a header unique as DuckDB does: a repeated name gets the first free
+/// `_1`, `_2`, ... suffix (`a`, `a` -> `a`, `a_1`), so no two JSON keys of a row collide.
+pub(crate) fn unique_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out = Vec::new();
+    for name in names {
+        push_unique_name(&mut out, name);
+    }
+    out
+}
+
+/// Appends `name` to `names`, with a suffix if it is already taken (see [unique_names]).
+pub(crate) fn push_unique_name(names: &mut Vec<String>, name: &str) {
+    let mut unique = name.to_string();
+    let mut n = 0;
+    while names.contains(&unique) {
+        n += 1;
+        unique = format!("{}_{}", name, n);
+    }
+    names.push(unique);
+}
+
 /// The file name to show in a warning: stdin is `-`.
 fn display_name(name: &str) -> &str {
     if name.is_empty() { "-" } else { name }

@@ -1929,6 +1929,33 @@ fn parquet_output() {
 }
 
 #[test]
+fn parquet_duplicate_columns() {
+    // Repeated column names are renamed as DuckDB does (`a`, `a_1`, ...) by -i parquet, so each
+    // column keeps its own values, and by -o jsonl, so no JSON key is repeated.
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("dup.parquet");
+    let out = out.to_str().unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-oparquet", "--out-file", out])
+        .arg(r#"BEGIN { print "a:INT64", "b", "a", "a_1"; print 1, "x", 10, "y" }"#)
+        .assert()
+        .success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-iparquet", r#"{ print; print $1, $3, $4, NF, FI["a_1_1"] }"#, out])
+        .assert()
+        .success()
+        .stdout(concat!(r#"{"a":1,"b":"x","a_1":"10","a_1_1":"y"}"#, "\n", "1 10 y 4 4\n"));
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-ojsonl", r#"BEGIN { print "a", "a"; print 1, 2 }"#])
+        .assert()
+        .success()
+        .stdout(concat!(r#"{"a":"1","a_1":"2"}"#, "\n"));
+}
+
+#[test]
 fn strftime_arguments() {
     // strftime(format, timestamp, utc), as in gawk, in both backends: the timestamp defaults to
     // the current time, negative timestamps are dates before 1970, the third argument formats in

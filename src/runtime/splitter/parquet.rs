@@ -16,14 +16,18 @@
 
 use std::fs::File;
 use std::io::{self, Read};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use ::parquet::basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType};
 use ::parquet::data_type::Decimal;
-use ::parquet::file::reader::{FileReader, SerializedFileReader};
+use ::parquet::bloom_filter::Sbbf;
+use ::parquet::column::page::PageReader;
+use ::parquet::file::metadata::{ColumnChunkMetaData, FileMetaData, ParquetMetaData, RowGroupMetaData};
+use ::parquet::file::reader::{FileReader, RowGroupReader, SerializedFileReader};
 use ::parquet::record::reader::RowIter;
 use ::parquet::record::Field;
-use ::parquet::schema::types::{Type, TypePtr};
+use ::parquet::schema::types::{SchemaDescriptor, Type, TypePtr};
 
 use crate::inspect::Cell;
 
@@ -131,7 +135,7 @@ impl ParquetJson {
     }
 
     fn open(&self) -> io::Result<Rows> {
-        let reader: Box<dyn FileReader> = match &self.source {
+        let mut reader: Box<dyn FileReader> = match &self.source {
             Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
                 // Parquet needs random access: read the whole object into memory.
                 let data = crate::runtime::s3::read_object_bytes(path).map_err(|e| self.error(e))?;
@@ -151,6 +155,13 @@ impl ParquetJson {
                 Box::new(SerializedFileReader::new(Bytes::from(data)).map_err(|e| self.error(e))?)
             }
         };
+        // Repeated top-level names (`a`, `a`) are renamed as DuckDB does (`a`, `a_1`): as JSON keys
+        // they would collide, and the record API would read the last such column for all of them.
+        let fields = reader.metadata().file_metadata().schema().get_fields();
+        let names = super::unique_names(fields.iter().map(|f| f.name()));
+        if fields.iter().zip(&names).any(|(f, name)| f.name() != name) {
+            reader = Box::new(RenamedReader::new(reader, &names).map_err(|e| self.error(e))?);
+        }
         let root = reader.metadata().file_metadata().schema_descr_ptr();
         let columns: Vec<TypePtr> = root.root_schema().get_fields().to_vec();
         let formats = columns.iter().map(|c| column_format(c)).collect();
@@ -226,6 +237,123 @@ impl ParquetJson {
             self.buf.extend_from_slice(line.as_bytes());
         }
         Ok(())
+    }
+}
+
+/// A file reader whose top-level columns are renamed. The record API maps each leaf column to its
+/// column chunk by path, so the schema and the column chunk metadata both use the new names; the
+/// pages are still read by the wrapped reader.
+struct RenamedReader {
+    inner: Box<dyn FileReader>,
+    metadata: ParquetMetaData,
+}
+
+impl RenamedReader {
+    fn new(inner: Box<dyn FileReader>, names: &[String]) -> ::parquet::errors::Result<RenamedReader> {
+        let file = inner.metadata().file_metadata();
+        let schema = file.schema();
+        let mut fields = Vec::with_capacity(names.len());
+        for (field, name) in schema.get_fields().iter().zip(names) {
+            fields.push(Arc::new(renamed(field, name)?));
+        }
+        let schema = Type::group_type_builder(schema.name()).with_fields(fields).build()?;
+        let descr = Arc::new(SchemaDescriptor::new(Arc::new(schema)));
+        let mut row_groups = Vec::with_capacity(inner.num_row_groups());
+        for row_group in inner.metadata().row_groups() {
+            let mut columns = Vec::with_capacity(row_group.num_columns());
+            for (i, c) in row_group.columns().iter().enumerate() {
+                let column = ColumnChunkMetaData::builder(descr.column(i))
+                    .set_encodings(c.encodings().collect())
+                    .set_num_values(c.num_values())
+                    .set_compression(c.compression())
+                    .set_total_compressed_size(c.compressed_size())
+                    .set_total_uncompressed_size(c.uncompressed_size())
+                    .set_data_page_offset(c.data_page_offset())
+                    .set_dictionary_page_offset(c.dictionary_page_offset())
+                    .set_index_page_offset(c.index_page_offset())
+                    .build()?;
+                columns.push(column);
+            }
+            let row_group = RowGroupMetaData::builder(descr.clone())
+                .set_num_rows(row_group.num_rows())
+                .set_total_byte_size(row_group.total_byte_size())
+                .set_column_metadata(columns)
+                .build()?;
+            row_groups.push(row_group);
+        }
+        let file = FileMetaData::new(
+            file.version(),
+            file.num_rows(),
+            file.created_by().map(str::to_string),
+            file.key_value_metadata().cloned(),
+            descr,
+            file.column_orders().cloned(),
+        );
+        Ok(RenamedReader { inner, metadata: ParquetMetaData::new(file, row_groups) })
+    }
+}
+
+/// `t` with the name `name`.
+fn renamed(t: &Type, name: &str) -> ::parquet::errors::Result<Type> {
+    let info = t.get_basic_info();
+    let id = if info.has_id() { Some(info.id()) } else { None };
+    match t {
+        Type::PrimitiveType { physical_type, type_length, scale, precision, .. } => {
+            Type::primitive_type_builder(name, *physical_type)
+                .with_repetition(info.repetition())
+                .with_converted_type(info.converted_type())
+                .with_logical_type(info.logical_type_ref().cloned())
+                .with_length(*type_length)
+                .with_precision(*precision)
+                .with_scale(*scale)
+                .with_id(id)
+                .build()
+        }
+        Type::GroupType { fields, .. } => Type::group_type_builder(name)
+            .with_repetition(info.repetition())
+            .with_converted_type(info.converted_type())
+            .with_logical_type(info.logical_type_ref().cloned())
+            .with_fields(fields.clone())
+            .with_id(id)
+            .build(),
+    }
+}
+
+impl FileReader for RenamedReader {
+    fn metadata(&self) -> &ParquetMetaData {
+        &self.metadata
+    }
+    fn num_row_groups(&self) -> usize {
+        self.inner.num_row_groups()
+    }
+    fn get_row_group(&self, i: usize) -> ::parquet::errors::Result<Box<dyn RowGroupReader + '_>> {
+        Ok(Box::new(RenamedRowGroup { inner: self.inner.get_row_group(i)?, metadata: &self.metadata.row_groups()[i] }))
+    }
+    fn get_row_iter(&self, projection: Option<Type>) -> ::parquet::errors::Result<RowIter<'_>> {
+        RowIter::from_file(projection, self)
+    }
+}
+
+struct RenamedRowGroup<'a> {
+    inner: Box<dyn RowGroupReader + 'a>,
+    metadata: &'a RowGroupMetaData,
+}
+
+impl RowGroupReader for RenamedRowGroup<'_> {
+    fn metadata(&self) -> &RowGroupMetaData {
+        self.metadata
+    }
+    fn num_columns(&self) -> usize {
+        self.inner.num_columns()
+    }
+    fn get_column_page_reader(&self, i: usize) -> ::parquet::errors::Result<Box<dyn PageReader>> {
+        self.inner.get_column_page_reader(i)
+    }
+    fn get_column_bloom_filter(&self, i: usize) -> Option<&Sbbf> {
+        self.inner.get_column_bloom_filter(i)
+    }
+    fn get_row_iter(&self, projection: Option<Type>) -> ::parquet::errors::Result<RowIter<'_>> {
+        RowIter::from_row_group(projection, self)
     }
 }
 

@@ -828,6 +828,8 @@ pub struct JsonlWriter<W: io::Write> {
     pending: Vec<u8>,
     /// The JSON-encoded column names and their types, once the header has been read.
     columns: Option<Vec<(String, JsonType)>>,
+    /// The column names before JSON encoding, made unique (`a`, `a_1`) as for `-i parquet`.
+    names: Vec<String>,
     /// Per column, the number of cells that were not valid for its type and were written as null.
     invalid: Vec<u64>,
 }
@@ -838,6 +840,7 @@ impl<W: io::Write> JsonlWriter<W> {
             inner,
             pending: Vec::new(),
             columns: None,
+            names: Vec::new(),
             invalid: Vec::new(),
         }
     }
@@ -847,14 +850,21 @@ impl<W: io::Write> JsonlWriter<W> {
         let cells: Vec<String> = line.split(|b| *b == b'\t').map(unescape_tsv).collect();
         let columns = match &mut self.columns {
             None => {
-                self.columns = Some(cells.iter().map(|c| json_column(c)).collect());
+                let mut columns = Vec::with_capacity(cells.len());
+                for cell in &cells {
+                    let (name, ty) = json_column(cell);
+                    crate::runtime::splitter::push_unique_name(&mut self.names, name);
+                    columns.push((json_string(self.names.last().unwrap()), ty));
+                }
+                self.columns = Some(columns);
                 return Ok(());
             }
             Some(columns) => columns,
         };
         // Extra cells get positional names, as `$N` would number them.
         for i in columns.len()..cells.len() {
-            columns.push((json_string(&format!("column{}", i + 1)), JsonType::String));
+            crate::runtime::splitter::push_unique_name(&mut self.names, &format!("column{}", i + 1));
+            columns.push((json_string(self.names.last().unwrap()), JsonType::String));
         }
         let mut row = String::with_capacity(line.len() * 2 + 16);
         row.push('{');
@@ -892,7 +902,7 @@ fn json_string(s: &str) -> String {
 
 /// Splits a header cell into the JSON-encoded key and the type of the column. A suffix that is
 /// not a known type is part of the name (`host:port` is a string column named "host:port").
-fn json_column(header: &str) -> (String, JsonType) {
+fn json_column(header: &str) -> (&str, JsonType) {
     if let Some((name, ty)) = header.rsplit_once(':') {
         let ty = match ty.trim().to_ascii_lowercase().as_str() {
             "number" => Some(JsonType::Number),
@@ -901,10 +911,10 @@ fn json_column(header: &str) -> (String, JsonType) {
             _ => None,
         };
         if let Some(ty) = ty {
-            return (json_string(name), ty);
+            return (name, ty);
         }
     }
-    (json_string(header), JsonType::String)
+    (header, JsonType::String)
 }
 
 /// Appends `cell` as a JSON value of type `ty`, returning false if it was not valid for the type.
@@ -998,6 +1008,21 @@ mod jsonl_tests {
                 r#"{"name":"Gus","age":2,"ok":false,"host:port":null,"column5":null}"#, "\n",
                 r#"{"name":"Eve\tX","age":null,"ok":null,"host:port":null,"column5":null}"#, "\n",
             )
+        );
+    }
+
+    #[test]
+    fn jsonl_duplicate_names() {
+        let mut out = Vec::new();
+        {
+            let mut w = JsonlWriter::new(&mut out);
+            w.write_all(b"a	a:number	a_1	column5
+1	2	3	4	5	6
+").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            concat!(r#"{"a":"1","a_1":2,"a_1_1":"3","column5":"4","column5_1":"5","column6":"6"}"#, "\n"),
         );
     }
 }
