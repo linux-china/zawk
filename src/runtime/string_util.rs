@@ -82,20 +82,24 @@ pub fn write_all(path: &str, content: &str) {
 pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let is_url_query = pair_sep == "&" && kv_sep == "=";
     let mut map = crate::runtime::HashMap::default();
-    text.trim_matches(|c| c == '"' || c == '\'')
-        .split(pair_sep)
-        .for_each(|pair| {
-            let kv: Vec<&str> = pair.split(kv_sep).collect();
-            if kv.len() == 2 && !kv[1].is_empty() {
-                let mut value = kv[1].to_string();
-                if is_url_query {
-                    if let Ok(param_value) = urlencoding::decode(kv[1]) {
-                        value = param_value.to_string();
-                    }
-                }
-                map.insert(Str::from(kv[0].to_string()), Str::from(value));
+    let text = text.trim_matches(|c| c == '"' || c == '\'');
+    if is_url_query {
+        // form_urlencoded decodes both key and value, and treats '+' as space
+        for (key, value) in url::form_urlencoded::parse(text.as_bytes()) {
+            if !value.is_empty() {
+                map.insert(Str::from(key.into_owned()), Str::from(value.into_owned()));
             }
-        });
+        }
+    } else {
+        for pair in text.split(pair_sep) {
+            // split on the first kv_sep only, so values may contain kv_sep (e.g. base64 "abc==")
+            if let Some((key, value)) = pair.split_once(kv_sep) {
+                if !value.is_empty() {
+                    map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+                }
+            }
+        }
+    }
     SharedMap::from(map)
 }
 
@@ -652,6 +656,17 @@ mod tests {
         let text = "name=hello;age=12";
         let map = pairs(text, ";", "=");
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_pairs_kv_sep_in_value() {
+        let m = pairs("a=1&t=abc==&b=&q=a+b&n%20k=v", "&", "=");
+        assert_eq!(m.get(&Str::from("t")).as_str(), "abc==");
+        assert_eq!(m.get(&Str::from("q")).as_str(), "a b");
+        assert_eq!(m.get(&Str::from("n k")).as_str(), "v");
+        assert!(!m.contains(&Str::from("b")));
+        let m = pairs("a:1;t:x:y", ";", ":");
+        assert_eq!(m.get(&Str::from("t")).as_str(), "x:y");
     }
 
     #[test]

@@ -150,14 +150,25 @@ pub(crate) static NATS_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::ne
 // todo graceful shutdown
 static NATS_CONNECTIONS: LazyLock<Mutex<HashMap<String, async_nats::Client>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// The pooled NATS client of `conn_url` (`host:port`, `nats://host:port` or `tls://host:port`), connected if needed.
+/// The pooled NATS client of `conn_url` (`nats://[user:password@]host[:port]` or `tls://...`), connected if needed.
 pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
     let mut pool = NATS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
     if let Some(client) = pool.get(conn_url) {
         return Ok(client.clone());
     }
+    let mut options = async_nats::ConnectOptions::new().connection_timeout(Duration::from_secs(10));
+    // async_nats ignores the userinfo of the server URL: pass `user:password@` / `token@` explicitly
+    if let Ok(url) = Url::parse(conn_url) {
+        let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
+        if !url.username().is_empty() {
+            options = match url.password() {
+                Some(password) => options.user_and_password(decode(url.username()), decode(password)),
+                None => options.token(decode(url.username())),
+            };
+        }
+    }
     let client = NATS_RUNTIME
-        .block_on(async_nats::ConnectOptions::new().connection_timeout(Duration::from_secs(10)).connect(conn_url))
+        .block_on(options.connect(conn_url))
         .map_err(|e| format!("failed to connect to {}: {}", redact_url(conn_url), e))?;
     pool.insert(conn_url.to_string(), client.clone());
     Ok(client)
@@ -175,13 +186,12 @@ pub(crate) fn publish(namespace: &str, body: &str) {
 fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
         let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
-        let host = url.host().ok_or_else(|| format!("missing host in {:?}", redact_url(namespace)))?;
+        if url.host().is_none() {
+            return Err(format!("missing host in {:?}", redact_url(namespace)));
+        }
         let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
-        let conn_url = if url.scheme().contains("tls") {
-            format!("tls://{}:{}", host, url.port().unwrap_or(4443))
-        } else {
-            format!("{}:{}", host, url.port().unwrap_or(4222))
-        };
+        // keep the userinfo (user:password@ / token@) and let async_nats default the port, same as `kv_*`
+        let conn_url = url[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
         // publish only queues the message: flush so it is not lost when the script exits right after
         NATS_RUNTIME.block_on(async {
