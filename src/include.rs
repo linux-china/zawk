@@ -8,8 +8,11 @@
 //!
 //! The program is split into pieces at the `@include` lines, so that each piece remembers the
 //! line of its file it starts at, and errors are reported as `file:line:column` of that file.
+//! A line inside a multi-line string, raw string or regex literal is part of that literal, not
+//! a directive.
 
 use crate::common;
+use crate::lexer::Tokenizer;
 use crate::lint::Source;
 use std::path::{Component, Path, PathBuf};
 
@@ -32,10 +35,23 @@ impl Includer {
         let lines: Vec<&str> = text.split('\n').collect();
         let mut start = 0;
         let mut expanded = false;
+        // The text with the directives found so far blanked out, for the lexer to tell whether a
+        // later line starts inside a literal.
+        let mut masked = String::new();
+        let mut offset = 0;
         for (i, line) in lines.iter().enumerate() {
+            let line_start = offset;
+            offset += line.len() + 1;
             let Some(file) = include_directive(line) else {
                 continue;
             };
+            if masked.is_empty() {
+                masked = text.to_string();
+            }
+            if inside_token(&masked, line_start) {
+                continue;
+            }
+            masked.replace_range(line_start..line_start + line.len(), &" ".repeat(line.len()));
             self.push(&name, &lines, start, i, expanded);
             expanded = true;
             start = i + 1;
@@ -104,6 +120,24 @@ fn include_directive(line: &str) -> Option<&str> {
     (tail.is_empty() || tail.starts_with('#')).then(|| &rest[..end])
 }
 
+/// Whether the byte `offset` of `text` is inside a token (a string, raw string or regex literal
+/// spanning lines), as lexed from the start. A lexing error before `offset` counts as outside:
+/// the program is then reported as wrong by the parser anyway.
+fn inside_token(text: &str, offset: usize) -> bool {
+    for tok in Tokenizer::new(text) {
+        let Ok((start, _, end)) = tok else {
+            return false;
+        };
+        if start.offset() >= offset {
+            return false;
+        }
+        if end.offset() > offset {
+            return true;
+        }
+    }
+    false
+}
+
 /// Where `file` is: a file name with a root as is, otherwise the first match in `AWKPATH`.
 fn resolve(file: &str) -> Result<PathBuf, String> {
     let not_found = || format!("can't open source file `{}' for reading: No such file or directory", file);
@@ -156,6 +190,17 @@ mod tests {
         assert_eq!(include_directive(r#"@include "lib.awk" BEGIN {}"#), None);
         assert_eq!(include_directive(r#"@includes "lib.awk""#), None);
         assert_eq!(include_directive(r#"print "@include""#), None);
+    }
+
+    #[test]
+    fn directive_inside_literal() {
+        let raw = "BEGIN { s = r#\"a\n@include \"lib.awk\"\nb\"#; print s }";
+        assert!(inside_token(raw, raw.find('@').unwrap()));
+        assert!(!inside_token("BEGIN { x = 1 }\n@include \"lib.awk\"", 16));
+        let mut inc = Includer::default();
+        inc.add_source(None, raw, None).unwrap();
+        assert_eq!(inc.pieces.len(), 1);
+        assert_eq!(inc.pieces[0].text, raw);
     }
 
     #[test]
