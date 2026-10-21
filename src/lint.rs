@@ -500,6 +500,9 @@ struct Facts<'a, 'p> {
     /// Calls of `index` with a regex literal as the first argument (`index(/re/, s)`, where
     /// `/re/` means `$0 ~ /re/`): the location.
     index_regexes: Vec<Option<Loc>>,
+    /// Bounds of `for (i in start..end)` that are strings, not numbers (`"a".."c"`): how the
+    /// bound is written and the location.
+    string_range_bounds: Vec<(String, Option<Loc>)>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -639,6 +642,8 @@ impl<'a, 'p> Facts<'a, 'p> {
             }
             ForRange(v, start, end, _, body) => {
                 self.set(v, SetKind::Other, None);
+                self.check_range_bound(start);
+                self.check_range_bound(end);
                 self.expr(start);
                 self.expr(end);
                 self.stmt(body);
@@ -716,6 +721,20 @@ impl<'a, 'p> Facts<'a, 'p> {
             };
             self.numeric_redirects.push((redirect, name, self.loc(e)));
         }
+    }
+
+    /// Records a bound of `for (i in start..end)` that is a string (`"a"`, `x "y"`, `/re/`): it
+    /// becomes an integer, 0 unless it starts with a number, so `"a".."c"` runs no iteration.
+    fn check_range_bound(&mut self, e: &'a AstExpr<'a>) {
+        let what = match e {
+            ast::Expr::StrLit(s) if !starts_numeric(s) => {
+                format!("the string \"{}\"", String::from_utf8_lossy(s))
+            }
+            ast::Expr::Binop(ast::Binop::Concat, _, _) => "a concatenation, a string,".to_string(),
+            ast::Expr::PatLit(_) => "a regex literal (`$0 ~ /re/`, 0 or 1)".to_string(),
+            _ => return,
+        };
+        self.string_range_bounds.push((what, self.loc(e)));
     }
 
     /// Walks a condition, recording assignments (`if (x = 1)`) and string literals
@@ -1102,6 +1121,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         numeric_redirects: Vec::new(),
         cond_assigns: Vec::new(),
         index_regexes: Vec::new(),
+        string_range_bounds: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1211,6 +1231,18 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             "W115",
             format!(
                 "{} in a condition: the condition is the assigned value, not a comparison; use `==` to compare, or if the assignment is meant, compare its value explicitly, e.g. `if ((x = f()) != \"\")`",
+                what
+            ),
+            *loc,
+        ));
+    }
+
+    // `for (i in "a".."c")`: range bounds are integers, a string is 0 unless it starts with a number.
+    for (what, loc) in &facts.string_range_bounds {
+        diags.push(warning(
+            "W208",
+            format!(
+                "a bound of `for (i in start..end)` is {}: bounds are integers and a string becomes 0 unless it starts with a number, so the loop may run no iteration; use numbers, e.g. `for (i in 1..n)`",
                 what
             ),
             *loc,
@@ -1457,6 +1489,14 @@ impl Splitter {
 /// Whether awk reads `s`, a field, as a number (a "strnum"), by the rules of the runtime.
 fn looks_numeric(s: &str) -> bool {
     crate::runtime::compare::looks_numeric(s.as_bytes()).is_some()
+}
+
+/// Whether `s` starts with a number (after blanks and a sign), so it is not 0 as an integer.
+fn starts_numeric(s: &[u8]) -> bool {
+    let s = s.trim_ascii_start();
+    let s = s.strip_prefix(b"-").or_else(|| s.strip_prefix(b"+")).unwrap_or(s);
+    let s = s.strip_prefix(b".").unwrap_or(s);
+    s.first().is_some_and(u8::is_ascii_digit)
 }
 
 /// The edit distance between two strings.
@@ -2178,6 +2218,17 @@ mod tests {
         assert!(codes(&run("{ print $1 > \"10\" }")).is_empty());
         assert!(codes(&run("{ print $1 > ($2 \".txt\") }")).is_empty());
         assert!(codes(&run("{ print $1 | 10 }")).is_empty());
+    }
+
+    #[test]
+    fn string_range_bounds() {
+        let v = run("BEGIN { for (i in \"a\"..\"c\") print i }");
+        assert_eq!(codes(&v), ["W208", "W208"]);
+        assert!(message(&v, 0).contains("the string \"a\""));
+        assert_eq!(codes(&run("BEGIN { x = \"1\"; for (i in x \"0\"..=20) print i }")), ["W208"]);
+        assert!(codes(&run("BEGIN { for (i in 1..=3) print i }")).is_empty());
+        assert!(codes(&run("BEGIN { for (i in \"1\"..\"3\") print i }")).is_empty());
+        assert!(codes(&run("BEGIN { n = 3; for (i in 0..n + 1) print i }")).is_empty());
     }
 
     #[test]

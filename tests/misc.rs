@@ -810,6 +810,9 @@ fn for_range() {
         (r#"function sum(n,   i, s) { for (i in 1..=n) s += i; return s } END { print sum(100) }"#, "5050\n"),
         (r#"END { for (i in 1..=3) for (j in i..=3) printf "%d%d ", i, j; print "" }"#, "11 12 13 22 23 33 \n"),
         (r#"END { print 1. "x", 1.5 }"#, "1x 1.5\n"),
+        // Outside a `for (i in ...)` header `..` is not an operator: `1..3` is `1.` `.3`, as in POSIX awk.
+        (r#"END { print 1..3; x = 2..5; print x; for (i in a) print 1..2 }"#, "10.3\n20.5\n"),
+        (r#"END { for (i in length("ab")..=4) printf "%d ", i; print 1..2 }"#, "2 3 4 10.2\n"),
         // An inclusive end of INT64_MAX stops without overflowing the counter.
         (r#"END { for (i in 9223372036854775807..=9223372036854775807) { if (++c > 3) break; continue } print c }"#, "1\n"),
     ];

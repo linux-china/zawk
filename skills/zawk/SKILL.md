@@ -111,6 +111,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W205 | `index(/re/, s)`: a regex literal there means `$0 ~ /re/` (use a string, or `match`) |
 | W206 | variable set but never read (the other side of a typo: `totl += $1` ... `print total`) |
 | W207 | function defined but never called (not reported for a program of only functions) |
+| W208 | string bound in `for (i in start..end)` (`"a".."c"`): bounds are integers, a string is 0, so the loop may run no iteration |
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 

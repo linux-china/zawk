@@ -254,6 +254,12 @@ pub struct Tokenizer<'a> {
     cur: usize,
     prev_tok: Option<Tok<'a>>,
     lines: Vec<usize>,
+    /// How much of a `for (IDENT in` header the last tokens are: 1 after `for`, 2 after `(`, 3
+    /// after the identifier.
+    for_in: u8,
+    /// Inside the header of `for (IDENT in ...)`, the depth of the open parentheses: only there
+    /// `..` and `..=` are range operators. Elsewhere `1..3` is `1.` and `.3`, as in POSIX awk.
+    range_depth: Option<usize>,
 }
 
 /// Scans the body of a regex literal (just after its opening '/'), and returns the index of the
@@ -674,6 +680,9 @@ impl<'a> Tokenizer<'a> {
             }
             let text = &self.text.as_bytes()[start..start + len];
             if let Some(tok) = ks.get(text) {
+                if matches!(tok, Tok::DotDot | Tok::DotDotEq) && self.range_depth.is_none() {
+                    continue;
+                }
                 // A word keyword must end at an identifier boundary: `nextval` and `break_x` are
                 // identifiers, while `break}`, `getline<` and `print"x"` start with a keyword.
                 let ends_word = text.last().is_some_and(|c| is_id_body(*c as char));
@@ -701,8 +710,10 @@ impl<'a> Tokenizer<'a> {
         } else if let Some(f) = FLOAT_PATTERN
             .captures(text)
             .and_then(|c| c.get(0))
-            // `1..5` is the integer `1` followed by `..`, not `1.` followed by `.5`.
-            .filter(|f| !(f.as_str().ends_with('.') && text[f.end()..].starts_with('.')))
+            // In a range, `1..5` is the integer `1` followed by `..`, not `1.` followed by `.5`.
+            .filter(|f| {
+                self.range_depth.is_none() || !(f.as_str().ends_with('.') && text[f.end()..].starts_with('.'))
+            })
         {
             let fs = f.as_str();
             Some((Tok::FLit(fs), fs.len()))
@@ -849,6 +860,29 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// Follows `for (IDENT in ...)` headers, where `..` and `..=` are range operators.
+    fn track_for_in(&mut self, tok: &Tok<'a>) {
+        if let Some(depth) = self.range_depth {
+            self.range_depth = match tok {
+                Tok::LParen | Tok::CallStart(_) => Some(depth + 1),
+                Tok::RParen if depth == 0 => None,
+                Tok::RParen => Some(depth - 1),
+                Tok::Newline | Tok::Semi | Tok::LBrace | Tok::RBrace => None,
+                _ => Some(depth),
+            };
+        }
+        self.for_in = match (self.for_in, tok) {
+            (_, Tok::For) => 1,
+            (1, Tok::LParen) => 2,
+            (2, Tok::Ident(_)) => 3,
+            (3, Tok::In) => {
+                self.range_depth = Some(0);
+                0
+            }
+            _ => 0,
+        };
+    }
+
     fn potential_re(&self) -> bool {
         !matches!(
             &self.prev_tok,
@@ -891,6 +925,8 @@ impl<'a> Tokenizer<'a> {
             text: text.trim_end_matches('\n'),
             cur: 0,
             prev_tok: None,
+            for_in: 0,
+            range_depth: None,
             lines: text
                 .as_bytes()
                 .iter()
@@ -1068,6 +1104,7 @@ impl<'a> Iterator for Tokenizer<'a> {
         } else {
             self.spanned(self.cur, self.cur, Tok::Newline)
         };
+        self.track_for_in(&span.1);
         self.prev_tok = Some(span.1.clone());
         Some(Ok(span))
     }

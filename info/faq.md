@@ -60,6 +60,9 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - `f"..."` is an f-string and `r"..."` / `r#"..."#` a raw string, never a variable `f` or `r` concatenated
   with a string: with `r = 5`, gawk prints `5x` for `print r"x"` while zawk prints `x`. Write `r "x"` (with a
   space) or `(r) "x"`, or better rename the variable; `zawk lint` reports `f` and `r` used as names (W103)
+- `..` and `..=` are range operators only in a `for (i in start..end)` header: elsewhere `1..3` is
+  `1.` and `.3` concatenated (`10.3`), as in gawk. Range bounds are integers: a string bound such as
+  `"a".."c"` is 0, so the loop runs no iteration; `zawk lint` reports string bounds (W208)
 - With the default `FS`, `\r` separates fields (in the main input, `getline`, `$0 = ...` and `split()` alike), so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?
