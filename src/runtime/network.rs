@@ -9,6 +9,25 @@ use serde::Serialize;
 use url::Url;
 use crate::runtime::{set_errno, stdlib_warning, Str, StrMap};
 
+/// `url` with the password in its userinfo replaced by `***`, for error messages and logs:
+/// `redis://user:secret@host/x` becomes `redis://user:***@host/x`. A userinfo without `:` (such
+/// as a token in `nats://token@host`) is replaced as a whole.
+pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
+    let start = url.find("://").map_or(0, |i| i + 3);
+    let end = url[start..].find(['/', '?', '#']).map_or(url.len(), |i| start + i);
+    match url[start..end].rfind('@') {
+        Some(at) => {
+            let userinfo = &url[start..start + at];
+            let shown = match userinfo.split_once(':') {
+                Some((user, _)) => format!("{}:***", user),
+                None => "***".to_owned(),
+            };
+            format!("{}{}{}", &url[..start], shown, &url[start + at..]).into()
+        }
+        None => url.into(),
+    }
+}
+
 pub fn local_ip() -> String {
     if let Ok(my_ip) = local_ip_address::local_ip() {
         return my_ip.to_string();
@@ -139,7 +158,7 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
     }
     let client = NATS_RUNTIME
         .block_on(async_nats::ConnectOptions::new().connection_timeout(Duration::from_secs(10)).connect(conn_url))
-        .map_err(|e| format!("failed to connect to {}: {}", conn_url, e))?;
+        .map_err(|e| format!("failed to connect to {}: {}", redact_url(conn_url), e))?;
     pool.insert(conn_url.to_string(), client.clone());
     Ok(client)
 }
@@ -155,8 +174,8 @@ pub(crate) fn publish(namespace: &str, body: &str) {
 
 fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
-        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", namespace, e))?;
-        let host = url.host().ok_or_else(|| format!("missing host in {:?}", namespace))?;
+        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
+        let host = url.host().ok_or_else(|| format!("missing host in {:?}", redact_url(namespace)))?;
         let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
         let conn_url = if url.scheme().contains("tls") {
             format!("tls://{}:{}", host, url.port().unwrap_or(4443))
@@ -170,10 +189,10 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             client.flush().await.map_err(|e| format!("failed to flush: {}", e))
         })
     } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
-        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", namespace, e))?;
+        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
         let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
         if topic.is_empty() {
-            return Err(format!("missing topic in {:?}", namespace));
+            return Err(format!("missing topic in {:?}", redact_url(namespace)));
         }
         let mut pool = MQTT_CONNECTIONS.lock().map_err(|e| e.to_string())?;
         let reused = pool.contains_key(namespace);
@@ -242,7 +261,7 @@ impl MqttClient {
 
 fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     let tls = url.scheme() == "mqtts";
-    let host = match url.host().ok_or_else(|| format!("missing host in {:?}", url.as_str()))? {
+    let host = match url.host().ok_or_else(|| format!("missing host in {:?}", redact_url(url.as_str())))? {
         url::Host::Domain(domain) => domain.to_string(),
         url::Host::Ipv4(ip) => ip.to_string(),
         url::Host::Ipv6(ip) => ip.to_string(),
@@ -336,11 +355,7 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     if env::var("DRY_RUN").is_ok() {
         println!("====DRY_RUN MODE====");
         // Do not print SMTP credentials: smtps://user:password@host:465
-        let shown = match (api_url.find("://"), api_url.rfind('@')) {
-            (Some(i), Some(j)) if j > i => format!("{}{}", &api_url[..i + 3], &api_url[j + 1..]),
-            _ => api_url.clone(),
-        };
-        println!("API URL: {}", shown);
+        println!("API URL: {}", redact_url(&api_url));
         return Ok(());
     }
     if api_url.starts_with("smtp://") || api_url.starts_with("smtps://") {
@@ -367,11 +382,11 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
         };
         builder = builder.json(&req);
     }
-    let resp = builder.send().map_err(|e| format!("failed to send mail via {}: {}", api_url, e))?;
+    let resp = builder.send().map_err(|e| format!("failed to send mail via {}: {}", redact_url(&api_url), e))?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().unwrap_or_default();
-        return Err(format!("failed to send mail via {}: HTTP {} {}", api_url, status, body));
+        return Err(format!("failed to send mail via {}: HTTP {} {}", redact_url(&api_url), status, body));
     }
     Ok(())
 }
@@ -399,6 +414,16 @@ fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> 
 mod tests {
     use local_ip_address::local_ip;
     use super::*;
+
+    #[test]
+    fn test_redact_url() {
+        assert_eq!(redact_url("redis://user:s3cret@127.0.0.1:1/h"), "redis://user:***@127.0.0.1:1/h");
+        assert_eq!(redact_url("redis://:s3cret@127.0.0.1"), "redis://:***@127.0.0.1");
+        assert_eq!(redact_url("nats://token@127.0.0.1:4222"), "nats://***@127.0.0.1:4222");
+        assert_eq!(redact_url("smtps://u%40x.com:p@ss@smtp.x.com:465"), "smtps://u%40x.com:***@smtp.x.com:465");
+        assert_eq!(redact_url("http://127.0.0.1/a@b?x=@"), "http://127.0.0.1/a@b?x=@");
+        assert_eq!(redact_url("127.0.0.1:4222"), "127.0.0.1:4222");
+    }
 
     #[test]
     fn test_local_ip() {

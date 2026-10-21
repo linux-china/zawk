@@ -25,7 +25,7 @@ fn client() -> io::Result<&'static reqwest::blocking::Client> {
 }
 
 fn open_error(url: &str, e: impl std::fmt::Display) -> io::Error {
-    let msg = format!("cannot open file `{}' for reading: {}", url, e);
+    let msg = format!("cannot open file `{}' for reading: {}", crate::runtime::network::redact_url(url), e);
     io::Error::other(crate::common::InputOpenError(msg))
 }
 

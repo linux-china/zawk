@@ -72,7 +72,7 @@ fn split_name(url_text: &str) -> KvResult<(&str, &str)> {
         Some((host, name)) if !host.is_empty() && !name.is_empty() => {
             Ok((&url_text[..url_text.len() - name.len() - 1], name))
         }
-        _ => Err(format!("invalid namespace {:?}, expected scheme://host/name", url_text)),
+        _ => Err(format!("invalid namespace {:?}, expected scheme://host/name", crate::runtime::network::redact_url(url_text))),
     }
 }
 
@@ -83,7 +83,7 @@ mod redis_kv {
     fn connect(conn_url: &str) -> KvResult<redis::Connection> {
         redis::Client::open(conn_url)
             .and_then(|client| client.get_connection())
-            .map_err(|e| format!("failed to connect to {}: {}", conn_url, e))
+            .map_err(|e| format!("failed to connect to {}: {}", crate::runtime::network::redact_url(conn_url), e))
     }
 
     /// Run `f` with a (pooled) connection, and the name of the hash in the namespace URL.
