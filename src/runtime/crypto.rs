@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, Mutex};
-use sha2::{Sha256, Sha512, Digest};
+use sha2::{Sha256, Sha384, Sha512, Digest};
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Number, Value};
 use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
@@ -13,6 +13,7 @@ use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
 use crate::runtime::{stdlib_warning, SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
+type HmacSha384 = Hmac<Sha384>;
 type HmacSha512 = Hmac<Sha512>;
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128Enc>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256Enc>;
@@ -51,17 +52,28 @@ pub fn digest(algorithm: &str, text: &[u8]) -> String {
     String::new()
 }
 
-/// HMAC(Hash-based message authentication code) with HmacSHA256 and HmacSHA512
+/// HMAC(Hash-based message authentication code) with HmacSHA256, HmacSHA384 and HmacSHA512.
+/// Algorithm names are case-insensitive and the `Hmac` prefix is optional (`sha256`, `HmacSHA256`).
+/// Returns an empty string (with a warning) for an unsupported algorithm.
 pub fn hmac(algorithm: &str, key: &[u8], text: &[u8]) -> String {
-    if algorithm == "HmacSHA512" {
-        let mut mac = HmacSha512::new_from_slice(key).unwrap();
-        mac.update(text);
-        hex::encode(mac.finalize().into_bytes())
-    } else {
-        let mut mac = HmacSha256::new_from_slice(key).unwrap();
-        mac.update(text);
-        hex::encode(mac.finalize().into_bytes())
+    let name = algorithm.to_ascii_lowercase();
+    let name = name.strip_prefix("hmac").unwrap_or(&name);
+    let name = name.strip_prefix('-').unwrap_or(name);
+    match name {
+        "sha256" | "sha-256" => hmac_hex::<HmacSha256>(key, text),
+        "sha384" | "sha-384" => hmac_hex::<HmacSha384>(key, text),
+        "sha512" | "sha-512" => hmac_hex::<HmacSha512>(key, text),
+        _ => {
+            stdlib_warning("hmac", format!("unsupported algorithm {:?}", algorithm));
+            String::new()
+        }
     }
+}
+
+fn hmac_hex<M: Mac + KeyInit>(key: &[u8], text: &[u8]) -> String {
+    let mut mac = <M as KeyInit>::new_from_slice(key).unwrap();
+    mac.update(text);
+    hex::encode(mac.finalize().into_bytes())
 }
 
 /// Create a JWT signed with `key`. Returns an empty string (with a warning) if the algorithm, the
@@ -511,6 +523,24 @@ mod tests {
     fn test_hmac_sha_256() {
         let signature = hmac("HmacSha256", b"7f4ebc75-7476-453e-b8d2-bebe17352b0a", b"hello");
         println!("{}", signature);
+    }
+
+    #[test]
+    fn test_hmac_algorithms() {
+        // RFC 4231 test case 2
+        let (key, text) = (b"Jefe".as_slice(), b"what do ya want for nothing?".as_slice());
+        let sha256 = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
+        let sha384 = "af45d2e376484031617f78d2b58a6b1b9c7ef464f5a01b47e42ec3736322445e8e2240ca5e69e2c78b3239ecfab21649";
+        let sha512 = "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737";
+        for name in ["HmacSHA256", "hmacsha256", "sha256", "SHA-256", "hmac-sha256"] {
+            assert_eq!(hmac(name, key, text), sha256, "{name}");
+        }
+        assert_eq!(hmac("HmacSHA384", key, text), sha384);
+        assert_eq!(hmac("sha384", key, text), sha384);
+        assert_eq!(hmac("HmacSHA512", key, text), sha512);
+        assert_eq!(hmac("sha512", key, text), sha512);
+        assert_eq!(hmac("HmacMD5", key, text), "");
+        assert_eq!(hmac("", key, text), "");
     }
 
     #[test]
