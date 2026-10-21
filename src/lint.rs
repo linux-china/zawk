@@ -1710,31 +1710,35 @@ const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
     ("FUNCTAB", "indirect function calls are not supported"),
 ];
 
-/// Reports what the token stream shows on its own: gawk variables zawk ignores and `f` used as a
-/// name. Lexer errors are left to the parser.
+/// Reports what the token stream shows on its own: gawk variables zawk ignores and `f`/`r` used as
+/// names. Lexer errors are left to the parser.
 fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
     let toks: Vec<_> = lexer::Tokenizer::new(prog).map_while(Result::ok).collect();
     let mut diags = Vec::new();
     let mut reported: Vec<&str> = Vec::new();
-    // `f` as a name clashes with f-strings: `f"x"` is an f-string, not `f` followed by "x".
-    let (mut f_var, mut f_fun) = (false, false);
+    // `f` and `r` as names clash with f-strings and raw strings: `f"x"` is an f-string and `r"x"`
+    // (or `r#"x"#`) a raw string, not the name followed by "x". Reported once per name and kind.
+    let mut names_reported: Vec<(&str, &str)> = Vec::new();
     for (loc, tok, _) in &toks {
-        let kind = match tok {
-            Tok::Ident("f") if !f_var => {
-                f_var = true;
-                "variable"
-            }
-            Tok::FunDec("f") | Tok::CallStart("f") if !f_fun => {
-                f_fun = true;
-                "function"
-            }
+        let (name, kind) = match tok {
+            Tok::Ident(n @ ("f" | "r")) => (*n, "variable"),
+            Tok::FunDec(n @ ("f" | "r")) | Tok::CallStart(n @ ("f" | "r")) => (*n, "function"),
             _ => continue,
+        };
+        if names_reported.contains(&(name, kind)) {
+            continue;
+        }
+        names_reported.push((name, kind));
+        let (what, example) = if name == "f" {
+            ("f-strings", "`f\"...\"` is an f-string")
+        } else {
+            ("raw strings", "`r\"...\"` and `r#\"...\"#` are raw strings")
         };
         diags.push(warning(
             "W103",
             format!(
-                "`f` should not be used as a {} name: it clashes with f-strings (`f\"...\"` is an f-string, not `f` followed by a string); rename it",
-                kind
+                "`{}` should not be used as a {} name: it clashes with {} ({}, not `{}` followed by a string); rename it",
+                name, kind, what, example, name
             ),
             Some(*loc),
         ));
@@ -1961,6 +1965,21 @@ mod tests {
         assert_eq!(v["diagnostics"][1]["line"], 3);
         assert_eq!(v["diagnostics"][1]["column"], 9);
         assert!(codes(&run("BEGIN { x = fx = xf = 1; print f\"{x}\", fx, xf }")).is_empty());
+    }
+
+    #[test]
+    fn r_name() {
+        let v = run("BEGIN {\n  r = 5; print r\"x\", r\n}");
+        assert_eq!(codes(&v), ["W103"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("raw strings"));
+        assert_eq!(v["diagnostics"][0]["line"], 2);
+        assert_eq!(v["diagnostics"][0]["column"], 3);
+        let v = run("function r(x) { return x }\nBEGIN { print r(1), r(2) }");
+        assert_eq!(codes(&v), ["W103"]);
+        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("function"));
+        // Both names in one program: one warning per name and kind.
+        assert_eq!(codes(&run("BEGIN { f = r = 1; print f, r }")), ["W103", "W103"]);
+        assert!(codes(&run("BEGIN { rx = xr = 1; print r\"\\d\", r#\"a\"b\"#, rx, xr }")).is_empty());
     }
 
     fn run_with(prog: &str, opts: &Options) -> Value {
@@ -2193,7 +2212,7 @@ mod tests {
         // After `getline`, or outside BEGIN, there is a record.
         assert!(codes(&run("BEGIN { getline; print $1, NF }")).is_empty());
         assert!(codes(&run("BEGIN { while ((getline < \"f\") > 0) print $0 }")).is_empty());
-        assert!(codes(&run("function r() { return getline } BEGIN { r(); print $0 }")).is_empty());
+        assert!(codes(&run("function rd() { return getline } BEGIN { rd(); print $0 }")).is_empty());
         assert!(codes(&run("{ print $1, NF, FILENAME } END { print $0, NF }")).is_empty());
     }
 

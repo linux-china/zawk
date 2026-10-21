@@ -97,7 +97,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E306 | assigning to something that is not a variable, array element or field: `substr(s, 1) = "a"`, `gsub(re, r, substr(s, 1))`, `x++` on a literal |
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
-| W103 | `f` used as a variable or function name (clashes with f-strings `f"..."`)        |
+| W103 | `f` or `r` used as a variable or function name (clashes with f-strings `f"..."` and raw strings `r"..."`/`r#"..."#`) |
 | W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
 | W116 | `$NF-1` is the last field minus 1, not `$(NF-1)`                              |
 | W117 | field compared with a numeric string (`$3 > "100"`): a string comparison         |
@@ -333,7 +333,8 @@ one warning to stderr and return an empty value (`0` for an HTTP status). The fa
   `break`). Not supported: `BEGINFILE`/`ENDFILE`, `@include`, co-processes `|&`.
   Sort with `asort(arr)` (values), `asorti(arr, keys)` (indices) or pipe the output to `sort`.
 - `f"..."` is always an f-string, never the variable `f` concatenated with a string: write `f "-"` (with a space)
-  or `(f) "-"` to concatenate a variable named `f`.
+  or `(f) "-"` to concatenate a variable named `f`. Likewise `r"..."` and `r#"..."#` are raw strings: with `r = 5`,
+  `print r"x"` prints `x` (gawk: `5x`); write `r "x"` or rename the variable.
 - Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time
   with "command potentially containing interpolated user input". Pass `-A` only when the input is trusted.
 - Missing elements of numeric arrays print `0`, not an empty string, and referencing them creates them: test with

@@ -57,6 +57,9 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
   `a["x"]` elsewhere in the program) it compares strings, as gawk always does. Write `k+0 > 9` for a
   numeric comparison and `k "" > "9"` for a string comparison
 - Hexadecimal numbers are recognized, in source and input data, wherever a string becomes a number (arithmetic, comparisons such as `$1 == 16`, printf, sorting): `0x10` is 16 and `-0x10` is -16; a leading zero is decimal: `010` is 10; there are no `0o`/`0b` prefixes
+- `f"..."` is an f-string and `r"..."` / `r#"..."#` a raw string, never a variable `f` or `r` concatenated
+  with a string: with `r = 5`, gawk prints `5x` for `print r"x"` while zawk prints `x`. Write `r "x"` (with a
+  space) or `(r) "x"`, or better rename the variable; `zawk lint` reports `f` and `r` used as names (W103)
 - With the default `FS`, `\r` separates fields (in the main input, `getline`, `$0 = ...` and `split()` alike), so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?
