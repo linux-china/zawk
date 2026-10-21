@@ -42,6 +42,10 @@ pub trait ChunkProducer {
     fn wait(&self) -> bool {
         true
     }
+    // Like `wait`, but give up early once `signal` is cancelled (e.g. by `exit`).
+    fn wait_cancellable(&self, _signal: &CancelSignal) -> bool {
+        self.wait()
+    }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool /*done*/>;
     fn next_file(&mut self) -> Result<bool /*new file available*/>;
 }
@@ -223,6 +227,9 @@ impl<C: Chunk> ChunkProducer for Box<dyn ChunkProducer<Chunk = C>> {
     }
     fn wait(&self) -> bool {
         (**self).wait()
+    }
+    fn wait_cancellable(&self, signal: &CancelSignal) -> bool {
+        (**self).wait_cancellable(signal)
     }
     fn next_file(&mut self) -> Result<bool> {
         (**self).next_file()
@@ -596,6 +603,23 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             .recv_timeout(std::time::Duration::from_secs(2))
             .is_ok()
     }
+    fn wait_cancellable(&self, signal: &CancelSignal) -> bool {
+        use crossbeam_channel::RecvTimeoutError;
+        use std::time::{Duration, Instant};
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !signal.cancelled() {
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            match self.start.recv_timeout((deadline - now).min(Duration::from_millis(20))) {
+                Ok(()) => return true,
+                Err(RecvTimeoutError::Disconnected) => return false,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        }
+        false
+    }
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
         if let Ok(mut new_chunk) = self.incoming.recv() {
             mem::swap(chunk, &mut new_chunk);
@@ -725,7 +749,7 @@ impl<P: ChunkProducer + 'static> ChunkProducer for CancellableChunkProducer<P> {
     }
 
     fn wait(&self) -> bool {
-        self.prod.wait()
+        self.prod.wait_cancellable(&self.signal)
     }
 
     fn next_file(&mut self) -> Result<bool> {

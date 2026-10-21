@@ -535,6 +535,7 @@ impl<'a, I> ProgramContext<'a, I>
             conds: Default::default(),
             esc,
             exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
+            par_exit: matches!(p.stage, Stage::Par { .. }),
             uninit: Default::default(),
             uses: Default::default(),
             params: p.decs.iter().map(|d| d.params).collect(),
@@ -770,6 +771,10 @@ struct GlobalContext<I> {
     // Whether `exit` outside of the END block has to run the END block first (POSIX): true for
     // serial programs with an END block.
     exit_to_end: bool,
+    // Whether the program runs in parallel stages (BEGIN, the main loop and END are separate
+    // functions): `exit` records its code and returns, and the driver runs END after the workers
+    // finish.
+    par_exit: bool,
     // Numeric variables and arrays whose uninitialized value may be read as a string.
     uninit: uninit::Uninit<I>,
     uses: UseLocs,
@@ -2561,15 +2566,23 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         } else if self.f.name.is_main() {
             Ok(self.end_entry())
         } else {
-            let node = self.f.cfg.add_node(Default::default());
+            self.return_node()
+        }
+    }
+
+    /// A node that returns from the current function: how `exit` leaves each stage of a parallel
+    /// program (and the functions it calls).
+    fn return_node(&mut self) -> Result<NodeIx> {
+        let node = self.f.cfg.add_node(Default::default());
+        if matches!(self.f.name, FunctionName::Named(_)) {
             self.add_stmt(
                 node,
                 PrimStmt::AsgnVar(self.f.ret, PrimExpr::Val(PrimVal::Var(Ident::unused()))),
             )?;
-            self.f.cfg.add_edge(node, self.f.exit, Transition::null());
-            self.seal(node);
-            Ok(node)
         }
+        self.f.cfg.add_edge(node, self.f.exit, Transition::null());
+        self.seal(node);
+        Ok(node)
     }
 
     /// `exit [code]`. When the END block must run first (POSIX), record the exit code and jump
@@ -2583,6 +2596,22 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             None => (current_open, None),
         };
+        if self.ctx.par_exit {
+            // `exit` without a code keeps the code of an earlier `exit` (when called from END).
+            let (code_v, keep) = match code_v {
+                Some(v) => (v, 0),
+                None => (PrimVal::ILit(0), 1),
+            };
+            self.add_stmt(
+                current_open,
+                PrimStmt::AsgnVar(
+                    Ident::unused(),
+                    PrimExpr::CallBuiltin(builtins::Function::SetExit, smallvec![code_v, PrimVal::ILit(keep)]),
+                ),
+            )?;
+            let target = self.return_node()?;
+            return self.jump_to(current_open, target);
+        }
         if !self.ctx.exit_to_end {
             let code_v = code_v.unwrap_or(PrimVal::ILit(0));
             self.add_stmt(
@@ -2685,8 +2714,16 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     fn after_udf_call(&mut self, call: PrimExpr<'b>, current_open: NodeIx) -> Result<(NodeIx, PrimExpr<'b>)> {
         let res = self.fresh_local();
         self.add_stmt(current_open, PrimStmt::AsgnVar(res, call))?;
-        let (exiting, _) = self.exit_vars();
-        let target = self.exit_target()?;
+        let (exiting, target) = if self.ctx.par_exit {
+            let exiting = self.fresh_local();
+            self.add_stmt(
+                current_open,
+                PrimStmt::AsgnVar(exiting, PrimExpr::CallBuiltin(builtins::Function::Exiting, smallvec![])),
+            )?;
+            (exiting, self.return_node()?)
+        } else {
+            (self.exit_vars().0, self.exit_target()?)
+        };
         let next = self.f.cfg.add_node(Default::default());
         self.f.cfg.add_edge(current_open, target, Transition::new(PrimVal::Var(exiting)));
         self.f.cfg.add_edge(current_open, next, Transition::null());
@@ -3055,7 +3092,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // are filled with nulls instead.
                     prim_args.truncate(self.ctx.params[*i as usize]);
                     let call = PrimExpr::CallUDF(*i, prim_args);
-                    if self.ctx.exit_to_end {
+                    if self.ctx.exit_to_end || self.ctx.par_exit {
                         // `exit` inside the callee returns early with the exiting flag set.
                         self.after_udf_call(call, open)
                     } else {

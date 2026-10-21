@@ -2863,6 +2863,38 @@ fn parallel_begin_values_counted_once() {
 }
 
 #[test]
+fn parallel_exit_runs_end() {
+    // `exit` in BEGIN or the main loop of a parallel program still runs END, and the program exits
+    // with the code of `exit` (or of a later `exit code` in END), as in serial mode.
+    let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
+    let cases = [
+        (r#"$1 == 100 { exit } END { print (NR >= 100), "end" }"#, "1 end\n", 0),
+        (r#"$1 == 100 { exit 3 } END { print "end" }"#, "end\n", 3),
+        (r#"$1 == 100 { exit 3 } END { print "end"; exit }"#, "end\n", 3),
+        (r#"$1 == 100 { exit 3 } END { print "end"; exit 5; print "no" }"#, "end\n", 5),
+        (r#"/^5000$/ { found = 1; exit 1 } END { print found }"#, "1\n", 1),
+        (r#"function f() { exit 4; print "no" } $1 == 100 { f(); print "no" } END { print "end" }"#, "end\n", 4),
+        (r#"function f() { exit 6 } END { print "end"; f(); print "no" }"#, "end\n", 6),
+        (r#"BEGIN { exit 2 } { print "no" } END { print "end" }"#, "end\n", 2),
+        (r#"$1 == 100 { exit 7 }"#, "", 7),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected, rc) in cases {
+            for jobs in ["-j1", "-j4"] {
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .arg(backend_arg)
+                    .args(["-pr", jobs, "--chunk-size", "1024", prog])
+                    .write_stdin(input.clone())
+                    .assert()
+                    .stdout(expected.to_string())
+                    .code(rc);
+            }
+        }
+    }
+}
+
+#[test]
 fn lint_before_run() {
     // Errors: the report goes to stderr and the program does not run.
     let out = Command::cargo_bin("zawk")

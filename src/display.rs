@@ -353,6 +353,8 @@ impl Display for Function {
             ToUpper => write!(f, "toupper"),
             IncMap => write!(f, "inc_map"),
             Exit => write!(f, "exit"),
+            SetExit => write!(f, "set_exit"),
+            Exiting => write!(f, "exiting"),
         }
     }
 }

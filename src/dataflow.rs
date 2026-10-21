@@ -210,6 +210,7 @@ pub(crate) mod boilerplate {
             }
             LocalIp(dst) => f(dst.into(), None),
             Systime(dst) => f(dst.into(), None),
+            Exiting(dst) => f(dst.into(), None),
             Encode(dst, format, text) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
@@ -999,6 +1000,7 @@ pub(crate) mod boilerplate {
             | NextFile()
             | SetColumn(_, _)
             | AllocMap(_, _)
+            | SetExit(_, _)
             | Exit(_) => {}
         }
     }

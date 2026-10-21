@@ -1,6 +1,6 @@
 use crate::builtins::Variable;
 use crate::bytecode::{Get, Instr, Label, Reg};
-use crate::common::{CompileError, NumTy, Result, Stage};
+use crate::common::{CancelSignal, CompileError, NumTy, Result, Stage};
 use crate::compile::{self, Ty};
 use crate::pushdown::FieldSet;
 use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
@@ -32,6 +32,11 @@ pub(crate) struct Core<'a> {
     pub rng: StdRng,
     pub current_seed: u64,
     pub slots: Slots,
+    // `exit` in a parallel program (see `builtins::Function::SetExit`): whether it was called in
+    // the current stage, the pending exit code, and the signal that stops the other workers.
+    pub exiting: bool,
+    pub exit_code: Int,
+    pub cancel_signal: CancelSignal,
 }
 
 impl<'a> Drop for Core<'a> {
@@ -113,6 +118,8 @@ pub(crate) struct StageResult {
     // from the initial thread.
     nr: Int,
     rc: i32,
+    // The code of the worker's `exit`, if it called it.
+    exit: Option<Int>,
 }
 
 impl Slots {
@@ -184,6 +191,7 @@ impl<'a> Core<'a> {
         let environ = self.vars.environ.shuttle();
         let procinfo = self.vars.procinfo.shuttle();
         let slots = self.slots.clone();
+        let cancel_signal = self.cancel_signal.clone();
         move || {
             let mut vars = Variables {
                 fs: fs.into_str(),
@@ -221,6 +229,9 @@ impl<'a> Core<'a> {
                 rng: rand::rngs::StdRng::seed_from_u64(seed),
                 current_seed: seed,
                 slots,
+                exiting: false,
+                exit_code: 0,
+                cancel_signal,
             }
         }
     }
@@ -234,6 +245,9 @@ impl<'a> Core<'a> {
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             current_seed: seed,
             slots: Default::default(),
+            exiting: false,
+            exit_code: 0,
+            cancel_signal: Default::default(),
         }
     }
 
@@ -248,14 +262,29 @@ impl<'a> Core<'a> {
             slots: mem::take(&mut self.slots),
             nr: self.vars.nr,
             rc,
+            exit: self.exiting.then_some(self.exit_code),
         }
+    }
+
+    /// `exit` in a parallel program: record the exit code (unless `keep`, for `exit` without a
+    /// code) and tell the other workers to stop reading input.
+    pub fn set_exit(&mut self, code: Int, keep: bool) {
+        if !keep {
+            self.exit_code = code;
+        }
+        self.exiting = true;
+        self.cancel_signal.cancel(self.exit_code as i32);
     }
 
     /// Add the result of a worker; `base` is a copy of the slots taken before the workers started
     /// (after `BEGIN`), see [`Core::base_slots`].
-    pub fn combine(&mut self, StageResult { slots, nr, rc: _ }: StageResult, base: &Slots) {
+    pub fn combine(&mut self, StageResult { slots, nr, rc: _, exit }: StageResult, base: &Slots) {
         self.slots.combine(slots, base);
         self.vars.nr = self.vars.nr.agg(nr, None);
+        if let (Some(code), false) = (exit, self.exiting) {
+            self.exiting = true;
+            self.exit_code = code;
+        }
     }
 
     pub fn reseed(&mut self, seed: u64) -> u64 /* old seed */ {
@@ -496,6 +525,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         self.core.vars.uses_procinfo = uses_procinfo;
     }
 
+    pub(crate) fn set_cancel_signal(&mut self, cancel_signal: CancelSignal) {
+        self.core.cancel_signal = cancel_signal;
+    }
+
     pub(crate) fn new(
         instrs: Vec<Vec<Instr<'a>>>,
         main_func: Stage<usize>,
@@ -563,14 +596,34 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         self.core.vars.filename = self.read_files.stdin_filename().upcast();
     }
 
+    /// Run END (if any) after the other stages of a parallel program, then return the exit code:
+    /// that of `exit`, if BEGIN, the main loop or END called it.
+    fn run_end(&mut self, end: Option<usize>) -> Result<i32> {
+        self.core.exiting = false;
+        if let Some(end) = end {
+            let rc = self.run_at(end)?;
+            if rc != 0 {
+                return Ok(rc);
+            }
+        }
+        Ok(self.core.exit_code as i32)
+    }
+
+    /// The stages of a parallel program, run on this thread. `exit` in BEGIN skips the main loop.
+    fn run_stages_serial(&mut self, begin: Option<usize>, main_loop: Option<usize>, end: Option<usize>) -> Result<i32> {
+        for off in begin.into_iter().chain(main_loop) {
+            if self.core.exiting {
+                break;
+            }
+            let rc = self.run_at(off)?;
+            if rc != 0 {
+                return Ok(rc);
+            }
+        }
+        self.run_end(end)
+    }
+
     pub(crate) fn run_parallel(&mut self) -> Result<i32> {
-        if self.num_workers <= 1 {
-            return self.run_serial();
-        }
-        let handles = self.read_files.try_resize(self.num_workers - 1);
-        if handles.is_empty() {
-            return self.run_serial();
-        }
         let (begin, middle, end) = match self.main_func {
             Stage::Par {
                 begin,
@@ -581,15 +634,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 return err!("unexpected Main-only configuration for parallel execution");
             }
         };
-        let main_loop = if let Some(main_loop) = middle {
-            main_loop
-        } else {
-            return self.run_serial();
-        };
+        if self.num_workers <= 1 || middle.is_none() {
+            return self.run_stages_serial(begin, middle, end);
+        }
+        let handles = self.read_files.try_resize(self.num_workers - 1);
+        if handles.is_empty() {
+            return self.run_stages_serial(begin, middle, end);
+        }
+        let main_loop = middle.unwrap();
         if let Some(off) = begin {
             let rc = self.run_at(off)?;
             if rc != 0 {
                 return Ok(rc);
+            }
+            if self.core.exiting {
+                return self.run_end(end);
             }
         }
         if self.core.write_files.flush_stdout().is_err() {
@@ -676,12 +735,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         if rc != 0 {
             return Ok(rc);
         }
-        if let Some(end) = end {
+        if end.is_some() {
             mem::swap(&mut self.read_files.inputs, &mut old_read_files);
-            Ok(self.run_at(end)?)
-        } else {
-            Ok(0)
         }
+        self.run_end(end)
     }
 
     pub(crate) fn run_serial(&mut self) -> Result<i32> {
@@ -2435,6 +2492,15 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(dst) = res;
                     }
                     Exit(code) => return Ok(*index(&self.ints, code) as i32),
+                    SetExit(code, keep) => {
+                        let code = *index(&self.ints, code);
+                        let keep = *index(&self.ints, keep) != 0;
+                        self.core.set_exit(code, keep);
+                    }
+                    Exiting(dst) => {
+                        let exiting = self.core.exiting as Int;
+                        *index_mut(&mut self.ints, dst) = exiting;
+                    }
                     Lookup {
                         map_ty,
                         dst,

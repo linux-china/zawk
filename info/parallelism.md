@@ -98,6 +98,18 @@ in _parallel mode_. In this mode, the zawk program is broken into three "stages"
    copied from each worker thread and _aggregated_ before being accessed by the
    thread executing the `END` block.
 
+`exit` works as in serial mode: `exit` in `BEGIN` skips the main loop, and
+`exit` in the main loop stops every worker. In both cases the `END` block still
+runs (on the aggregated results), and the program then exits with the code of
+`exit` (or of a later `exit code` in `END`). Workers stop at the next chunk of
+input, not the next record, so records after the one that called `exit` may
+still have been processed, and `NR` in `END` counts them:
+
+```awk
+/ERROR/ { found = 1; exit 1 }
+END { print found ? "error found" : "ok" }
+```
+
 Here is a simple "select" script written in zawk that extracts the 2nd column
 of an input source:
 ```awk

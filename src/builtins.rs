@@ -238,6 +238,12 @@ pub enum Function {
     ToLower,
     IncMap,
     Exit,
+    // `exit` in a parallel program: record the exit code (unless the second argument is non-zero)
+    // and stop reading input; the caller then returns.
+    SetExit,
+    // Whether `exit` was called (in a parallel program), checked after calls to user-defined
+    // functions.
+    Exiting,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -1103,6 +1109,8 @@ impl Function {
                 }
             }
             Exit => (smallvec![Int], Null),
+            SetExit => (smallvec![Int, Int], Int),
+            Exiting => (smallvec![], Int),
             // Split's second input can be a map of either type
             Split => {
                 if let MapIntStr | MapStrStr = incoming[1] {
@@ -1134,12 +1142,12 @@ impl Function {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
             UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
-            | ReadLineStdinFused => 0,
+            | ReadLineStdinFused | Exiting => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | System | System2 | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
-            SetFI | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
+            SetFI | SetExit | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             MatchArr => 4,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Eval => 2,
@@ -1250,7 +1258,7 @@ impl Function {
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
-            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting => Ok(Scalar(BaseTy::Int).abs()),
             ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),
             ArrayTop => Ok(Map {
                 key: BaseTy::Int,
@@ -1421,7 +1429,7 @@ impl Function {
             },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
-            Exit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),
+            Exit | SetExit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),
             Close | Fflush => Ok(Scalar(BaseTy::Int).abs()),
             KvGet => Ok(Scalar(BaseTy::Str).abs()),
             ReadAll => Ok(Scalar(BaseTy::Str).abs()),

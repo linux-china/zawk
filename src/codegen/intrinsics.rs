@@ -164,6 +164,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         reseed_rng(rt_ty) -> int_ty;
 
         exit(rt_ty, int_ty);
+        set_exit(rt_ty, int_ty, int_ty);
+        exiting(rt_ty) -> int_ty;
         check_stack(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
         run_cmd2(str_ref_ty) -> map_ty;
@@ -768,13 +770,15 @@ macro_rules! impl_into_runtime {
                 named_columns: Option<Vec<&[u8]>>,
                 cancel_signal: CancelSignal,
             ) -> Runtime<'a> {
+                let mut core = crate::interp::Core::new(ff);
+                core.cancel_signal = cancel_signal.clone();
                 Runtime {
                     concurrent: false,
                     input_data: InputData::$var((
                         Default::default(),
                         FileRead::new(self, used_fields.clone(), named_columns),
                     )),
-                    core: crate::interp::Core::new(ff),
+                    core,
                     cleanup: Cleanup::null(),
                     cancel_signal,
                 }
@@ -826,6 +830,16 @@ pub(crate) unsafe extern "C" fn exit(runtime: *mut c_void, code: Int) {
     guard_panic(stringify!(exit), || {
         exit!(runtime, code as i32);
     })
+}
+
+pub(crate) unsafe extern "C" fn set_exit(runtime: *mut c_void, code: Int, keep: Int) {
+    let runtime = &mut *(runtime as *mut Runtime);
+    runtime.core.set_exit(code, keep != 0);
+}
+
+pub(crate) unsafe extern "C" fn exiting(runtime: *mut c_void) -> Int {
+    let runtime = &*(runtime as *const Runtime);
+    runtime.core.exiting as Int
 }
 
 /// Called before each call of a user-defined function: fail instead of overflowing the stack.

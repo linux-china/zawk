@@ -183,10 +183,14 @@ unsafe fn run_stage(
     let main_loop_fn = match main_loop {
         Some(m) if num_workers > 1 && !reads.is_empty() => m,
         _ => {
-            // execute serially.
-            for main in begin.into_iter().chain(main_loop).chain(end) {
+            // execute serially. `exit` in BEGIN skips the main loop.
+            for main in begin.into_iter().chain(main_loop) {
+                if rt.core.exiting {
+                    break;
+                }
                 main.invoke(&mut rt);
             }
+            run_end(rt, end);
             return Ok(());
         }
     };
@@ -202,6 +206,10 @@ unsafe fn run_stage(
     }
     if let Some(begin) = begin {
         begin.invoke(&mut rt);
+        if rt.core.exiting {
+            run_end(rt, end);
+            return Ok(());
+        }
     }
     if rt.core.write_files.flush_stdout().is_err() {
         return Ok(());
@@ -259,20 +267,35 @@ unsafe fn run_stage(
         while let Ok(res) = receiver.recv() {
             rt.core.combine(res, &base_slots);
         }
-        if let Some(rc) = cancel_signal.get_code() {
+        // Cancelled other than by `exit` (a worker failed to write its output): stop now.
+        if let (Some(rc), false) = (cancel_signal.get_code(), rt.core.exiting) {
             mem::drop(rt);
             std::process::exit(runtime::writers::exit_code(rc));
         }
         rt.concurrent = false;
-        if let Some(end) = end {
+        if end.is_some() {
             *rt.input_data.inputs_mut() = old_read_files;
-            end.invoke(&mut rt);
         }
+        run_end(rt, end);
     });
     if scope_res.is_err() {
         return err!("failed to execute parallel script");
     }
     Ok(())
+}
+
+/// Run END (if any) after the other stages of a parallel program, then exit with the code of
+/// `exit`, if BEGIN, the main loop or END called it.
+unsafe fn run_end(mut rt: Runtime, end: Option<MainFunction>) {
+    rt.core.exiting = false;
+    if let Some(end) = end {
+        end.invoke(&mut rt);
+    }
+    let code = rt.core.exit_code;
+    if code != 0 {
+        mem::drop(rt);
+        std::process::exit(runtime::writers::exit_code(code as i32));
+    }
 }
 
 /// Handles to ensure the liveness of rust objects passed by pointer into generated code.
@@ -1911,6 +1934,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let codev = self.get_val(code.reflect())?;
                 self.call_void(external!(exit), &mut [rt, codev])?;
                 Ok(())
+            }
+            SetExit(code, keep) => {
+                let rt = self.runtime_val();
+                let codev = self.get_val(code.reflect())?;
+                let keepv = self.get_val(keep.reflect())?;
+                self.call_void(external!(set_exit), &mut [rt, codev, keepv])?;
+                Ok(())
+            }
+            Exiting(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(exiting), &mut [rt])?;
+                self.bind_val(dst.reflect(), resv)
             }
             ReadErr(dst, file, is_file) => {
                 let rt = self.runtime_val();

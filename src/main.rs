@@ -355,12 +355,14 @@ fn run_interp_with_context<'a>(
     stdin: impl LineReader,
     ff: impl runtime::writers::FileFactory,
     num_workers: usize,
+    signal: CancelSignal,
 ) {
     let rc = {
         let mut interp = match compile::bytecode(&mut ctx, stdin, ff, num_workers) {
             Ok(ctx) => ctx,
             Err(e) => fatal!("{}", parsing::render_error(&e)),
         };
+        interp.set_cancel_signal(signal);
         let res = interp.run();
         // Dropping the interpreter flushes pending output, which `fail!` (exiting the process)
         // would otherwise lose.
@@ -1682,7 +1684,7 @@ fn real_main() {
     };
     match backend {
         Some("interp") => {
-            with_io!(|inp, oup| run_interp_with_context(ctx, inp, oup, num_workers))
+            with_io!(|inp, oup| run_interp_with_context(ctx, inp, oup, num_workers, signal))
         }
         None | Some("cranelift") => {
             with_io!(|inp, oup| run_cranelift_with_context(

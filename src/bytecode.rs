@@ -508,6 +508,9 @@ pub(crate) enum Instr<'a> {
     RunCmd(Reg<Int>, Reg<Str<'a>>),
     RunCmd2(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Exit(Reg<Int>),
+    // See `builtins::Function::SetExit`: (code, keep the earlier code).
+    SetExit(Reg<Int>, Reg<Int>),
+    Exiting(Reg<Int>),
 
     // Map operations
     Lookup {
@@ -1880,6 +1883,11 @@ impl<'a> Instr<'a> {
                 cmd.accum(&mut f);
             }
             Exit(code) => code.accum(&mut f),
+            SetExit(code, keep) => {
+                code.accum(&mut f);
+                keep.accum(&mut f);
+            }
+            Exiting(dst) => dst.accum(&mut f),
             Lookup {
                 map_ty,
                 dst,
