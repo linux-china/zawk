@@ -20,9 +20,7 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str, params: &In
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
         let (url, auth_token) = remote_url(db_path);
-        if !(url.starts_with("libsql://")
-            || url.starts_with("http://")
-            || url.starts_with("https://")) {
+        if !is_remote(&url) {
             // local database: use rusqlite to avoid linking a second bundled SQLite
             drop(pool);
             return crate::runtime::sqlite::sqlite_query(url.as_str(), sql, params);
@@ -44,23 +42,37 @@ pub(crate) async fn libsql_query_async<'a>(db_path: &str, sql: &str, params: &In
     map
 }
 
+/// Splits a libSQL url into the connection url (query string removed) and the auth token.
+/// The token comes from the `authToken` query parameter, or a bare `?<token>` query,
+/// falling back to the `LIBSQL_AUTH_TOKEN` environment variable.
 fn remote_url(db_path: &str) -> (String, String) {
-    let mut url = db_path.to_string();
-    let mut auth_token = env::var("LIBSQL_AUTH_TOKEN").unwrap_or("".to_owned());
-    if let Some(offset) = db_path.find('?') {
-        url = db_path[0..offset].to_string();
-        if let Some(pos) = db_path.find("authToken=") {
-            auth_token = db_path[pos + 10..].to_string();
-        } else {
-            auth_token = db_path[offset + 1..].to_string();
-        }
-    }
-    if url.starts_with("ws://") {
-        url = url.replace("ws://", "http://").to_string();
-    } else if url.starts_with("wss://") {
-        url = url.replace("wss://", "https://").to_string();
+    let env_token = || env::var("LIBSQL_AUTH_TOKEN").unwrap_or_default();
+    let parsed = match url::Url::parse(db_path) {
+        Ok(url) if url.has_host() => url,
+        // local database path: keep it as is
+        _ => return (db_path.to_string(), env_token()),
+    };
+    let pairs: Vec<(String, String)> = parsed.query_pairs().into_owned().collect();
+    let auth_token = pairs.iter()
+        .find(|(k, _)| k == "authToken")
+        .map(|(_, v)| v.clone())
+        .or_else(|| match pairs.as_slice() {
+            // legacy form: `libsql://host?<token>`
+            [(k, v)] if v.is_empty() && !k.is_empty() => Some(k.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(env_token);
+    let mut url = db_path.split(['?', '#']).next().unwrap_or(db_path).to_string();
+    if let Some(rest) = url.strip_prefix("ws://") {
+        url = format!("http://{rest}");
+    } else if let Some(rest) = url.strip_prefix("wss://") {
+        url = format!("https://{rest}");
     }
     (url, auth_token)
+}
+
+fn is_remote(url: &str) -> bool {
+    url.starts_with("libsql://") || url.starts_with("http://") || url.starts_with("https://")
 }
 
 async fn connect(url: String, auth_token: String) -> libsql::Result<libsql::Connection> {
@@ -117,7 +129,12 @@ pub(crate) fn libsql_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> 
 pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str, params: &IntMap<Str<'_>>) -> Int {
     let mut pool = LIBSQL_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     if !pool.contains_key(db_path) {
-        match connect(db_path.to_string(), "".to_string()).await {
+        let (url, auth_token) = remote_url(db_path);
+        if !is_remote(&url) {
+            drop(pool);
+            return crate::runtime::sqlite::sqlite_execute(url.as_str(), sql, params);
+        }
+        match connect(url, auth_token).await {
             Ok(connection) => {
                 pool.insert(db_path.to_string(), connection);
             }
@@ -139,6 +156,23 @@ pub(crate) async fn libsql_execute_async(db_path: &str, sql: &str, params: &IntM
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_remote_url() {
+        let (url, token) = remote_url("libsql://db.turso.io?authToken=abc.def&foo=bar");
+        assert_eq!(url, "libsql://db.turso.io");
+        assert_eq!(token, "abc.def");
+        let (url, token) = remote_url("libsql://db.turso.io?foo=bar&authToken=a%2Bb");
+        assert_eq!(url, "libsql://db.turso.io");
+        assert_eq!(token, "a+b");
+        let (url, token) = remote_url("wss://db.turso.io:443/path?eyJhbGciOi.xyz");
+        assert_eq!(url, "https://db.turso.io:443/path");
+        assert_eq!(token, "eyJhbGciOi.xyz");
+        let (url, _) = remote_url("ws://127.0.0.1:8080");
+        assert_eq!(url, "http://127.0.0.1:8080");
+        let (url, _) = remote_url("./demo.db");
+        assert_eq!(url, "./demo.db");
+    }
 
     #[tokio::test]
     #[ignore]
