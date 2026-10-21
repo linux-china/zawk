@@ -291,7 +291,8 @@ pub(crate) fn tsid() -> String {
 /// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
 /// octal one (`strtonum("017")` is 15), unless the digits continue with `8`, `9`, `.` or an
 /// exponent, which make it decimal (`"018"` is 18, `"017.5"` is 17.5). Leading blanks or a sign
-/// also make it decimal.
+/// also make it decimal, except before `0x`: `strtonum(" -0x10")` is -16, the same as for a field,
+/// since zawk reads hexadecimal input as a number everywhere.
 pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
     use crate::runtime::float_parse::strtod;
     if strnum {
@@ -303,8 +304,18 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
         start.map_or(0.0, |i| strtod(&bs[i..]))
     };
+    let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+    let trimmed = start.map_or(&bs[bs.len()..], |i| &bs[i..]);
+    let (negative, unsigned) = match trimmed {
+        [b'-', rest @ ..] => (true, rest),
+        [b'+', rest @ ..] => (false, rest),
+        _ => (false, trimmed),
+    };
+    if let [b'0', b'x' | b'X', rest @ ..] = unsigned {
+        let n = crate::runtime::float_parse::hex_digits(rest).0;
+        return if negative && n != 0.0 { -n } else { n };
+    }
     match bs {
-        [b'0', b'x' | b'X', rest @ ..] => crate::runtime::float_parse::hex_digits(rest).0,
         [b'0', rest @ ..] => {
             let mut n = 0.0;
             for b in rest {
@@ -757,6 +768,14 @@ mod tests {
         assert_eq!(n("12abc"), 12.0);
         assert_eq!(n("abc"), 0.0);
         assert_eq!(n(""), 0.0);
+        // A sign or leading blanks before `0x` keep it hexadecimal, as for a strnum.
+        assert_eq!(n("-0x10"), -16.0);
+        assert_eq!(n("+0x10"), 16.0);
+        assert_eq!(n(" 0x10"), 16.0);
+        assert_eq!(n(" -0x10 "), -16.0);
+        assert_eq!(n("-0x"), 0.0);
+        assert_eq!(awk_strtonum(b"-0x10", true), -16.0);
+        assert_eq!(awk_strtonum(b"-0x1g", true), -1.0);
         // A strnum that looks like a number is that number; other strnums follow the rules above.
         assert_eq!(awk_strtonum(b"017", true), 17.0);
         // Hexadecimal input is a number too (as everywhere in zawk).
