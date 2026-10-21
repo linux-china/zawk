@@ -705,21 +705,36 @@ impl<'a> Str<'a> {
         self.clone()
     }
 
+    /// Shell single-quote: `'` + self + `'`, with each inner `'` written as `'\''`.
     pub fn quote(&self) -> Str<'a> {
-        self.wrap(b'\'')
-    }
-
-    pub fn double_quote(&self) -> Str<'a> {
-        self.wrap(b'"')
-    }
-
-    /// `q` + self + `q`, unless self is already wrapped in `q`.
-    fn wrap(&self, q: u8) -> Str<'a> {
         self.with_bytes(|bs| {
-            if bs.len() >= 2 && bs[0] == q && bs[bs.len() - 1] == q {
-                return self.clone();
+            let mut out = Vec::with_capacity(bs.len() + 2);
+            out.push(b'\'');
+            for &b in bs {
+                if b == b'\'' {
+                    out.extend_from_slice(b"'\\''");
+                } else {
+                    out.push(b);
+                }
             }
-            Buf::read_from_bytes(&[&[q], bs, &[q]].concat()).into_str()
+            out.push(b'\'');
+            Buf::read_from_bytes(&out).into_str()
+        })
+    }
+
+    /// `"` + self + `"`, with inner `"` and `\` escaped by a backslash.
+    pub fn double_quote(&self) -> Str<'a> {
+        self.with_bytes(|bs| {
+            let mut out = Vec::with_capacity(bs.len() + 2);
+            out.push(b'"');
+            for &b in bs {
+                if b == b'"' || b == b'\\' {
+                    out.push(b'\\');
+                }
+                out.push(b);
+            }
+            out.push(b'"');
+            Buf::read_from_bytes(&out).into_str()
         })
     }
 
@@ -2201,6 +2216,19 @@ mod tests {
             assert_eq!(Str::from_text(text.into_owned()).with_bytes(|out| out.to_vec()), bs);
         }
         assert!(matches!(Str::from("café").as_text(), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn quote_escapes() {
+        let q = |s: &str| Str::from(s).quote().as_str().to_string();
+        let dq = |s: &str| Str::from(s).double_quote().as_str().to_string();
+        assert_eq!(q("hello world"), "'hello world'");
+        assert_eq!(q("a'b"), r"'a'\''b'");
+        assert_eq!(q("'x'"), r"''\''x'\'''");
+        assert_eq!(q(""), "''");
+        assert_eq!(dq("hello world"), r#""hello world""#);
+        assert_eq!(dq(r#"a"b\c"#), r#""a\"b\\c""#);
+        assert_eq!(dq(r#""x""#), r#""\"x\"""#);
     }
 
     #[test]

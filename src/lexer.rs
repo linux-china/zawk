@@ -305,14 +305,55 @@ fn regex_lit_end(bs: &[u8]) -> Option<usize> {
 /// (as in `print (a) (b)`) or a membership test (as in `print (a, b) in arr`).
 fn paren_arg_list(rest: &str) -> Option<usize> {
     let bs = rest.as_bytes();
-    let mut i = 0;
-    while i < bs.len() && matches!(bs[i], b' ' | b'\t') {
-        i += 1;
-    }
-    if i == 0 || bs.get(i) != Some(&b'(') {
+    let open = bs.iter().take_while(|b| matches!(b, b' ' | b'\t')).count();
+    if open == 0 {
         return None;
     }
-    let open = i;
+    let (i, comma) = paren_list_end(bs, open)?;
+    if !comma {
+        return None;
+    }
+    // `(a, b) in arr` and `(a, b) !in arr` are membership tests.
+    let mut j = i + 1;
+    while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+        j += 1;
+    }
+    if bs[j..].starts_with(b"!") {
+        j += 1;
+    }
+    if bs[j..].starts_with(b"in") && !bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
+        return None;
+    }
+    Some(open + 1)
+}
+
+/// After `print(` or `printf(` (with `rest` starting at the `(`): whether the parentheses are a
+/// grouping that the expression continues past, as in `print(1)(2)` or `print(k) in arr`,
+/// rather than the whole argument list, as in `print(a)` or `print(a) > "file"`.
+fn paren_grouping(rest: &str) -> bool {
+    let bs = rest.as_bytes();
+    let Some((i, false)) = paren_list_end(bs, 0) else {
+        return false;
+    };
+    let mut j = i + 1;
+    while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+        j += 1;
+    }
+    match bs.get(j) {
+        None | Some(b';' | b'}' | b'\n' | b'\r' | b'#' | b'\\' | b'>') => false,
+        // `print(a) | "cmd"` pipes, while `print(a) || b` continues the expression.
+        Some(b'|') => bs.get(j + 1) == Some(&b'|'),
+        Some(_) => true,
+    }
+}
+
+/// Scans the parenthesized list opening at `bs[open]`; returns the index of its closing `)` and
+/// whether it has a top-level comma.
+fn paren_list_end(bs: &[u8], open: usize) -> Option<(usize, bool)> {
+    if bs.get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut i = open;
     let (mut parens, mut brackets) = (0usize, 0usize);
     let mut comma = false;
     // The last byte that was not a blank, to tell regex literals from division.
@@ -362,21 +403,10 @@ fn paren_arg_list(rest: &str) -> Option<usize> {
         }
         i += 1;
     }
-    if !comma || i >= bs.len() {
+    if i >= bs.len() {
         return None;
     }
-    // `(a, b) in arr` and `(a, b) !in arr` are membership tests.
-    let mut j = i + 1;
-    while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
-        j += 1;
-    }
-    if bs[j..].starts_with(b"!") {
-        j += 1;
-    }
-    if bs[j..].starts_with(b"in") && !bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
-        return None;
-    }
-    Some(open + 1)
+    Some((i, comma))
 }
 
 pub fn is_ident(s: &str) -> bool {
@@ -971,6 +1001,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                                     None => (tok, len),
                                 }
                             }
+                            // `print(1)(2)`: the parentheses only group the first operand.
+                            Tok::PrintLP | Tok::PrintfLP if paren_grouping(&self.text[self.cur + len - 1..]) => {
+                                (if matches!(tok, Tok::PrintLP) { Tok::Print } else { Tok::Printf }, len - 1)
+                            }
                             tok => (tok, len),
                         };
                         self.cur += len;
@@ -1265,6 +1299,24 @@ and the third"#;
         assert!(unknown_escapes("x\\\ny\\\r\nz").is_empty());
         assert_eq!(paren_arg_list(" (/a\\\r\nb/, \"c\\\r\nd\")"), Some(2));
         assert_eq!(paren_arg_list(" (1, # ) \"\n 2) > \"f\""), Some(2));
+    }
+
+    #[test]
+    fn print_paren_grouping() {
+        use Tok::*;
+        let toks = |s| lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
+        // `print(1)(2)` concatenates: the parentheses only group the first operand.
+        assert_eq!(toks("print(1)(2)")[..2], [Print, LParen]);
+        assert_eq!(toks("printf(\"%s\")(x)")[..2], [Printf, LParen]);
+        assert_eq!(toks("print(k) in a")[..2], [Print, LParen]);
+        assert_eq!(toks("print(1) || 0")[..2], [Print, LParen]);
+        // The whole argument list, maybe redirected.
+        assert_eq!(toks("print(1)")[0], PrintLP);
+        assert_eq!(toks("print(1); x")[0], PrintLP);
+        assert_eq!(toks("print(1) > \"f\"")[0], PrintLP);
+        assert_eq!(toks("print(1) | \"cat\"")[0], PrintLP);
+        assert_eq!(toks("print(1, 2)(3)")[0], PrintLP);
+        assert_eq!(toks("print()")[0], PrintLP);
     }
 
     #[test]

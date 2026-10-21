@@ -266,10 +266,10 @@ Add suffix/prefix if missing/present
 
 ### quote/double_quote
 
-quote/double text if not quoted/double quoted.
+Always wrap text in quotes and escape what is inside, so the result is safe to embed in a shell command or a quoted literal.
 
-- `quote("hello world") # 'hello world'`
-- `double_quote("hello world") # "hello world"`
+- `quote`: shell single-quote, inner `'` becomes `'\''` - `quote("it's") # 'it'\''s'`, e.g. `system("ls " quote(f))`
+- `double_quote`: inner `"` and `\` are escaped with a backslash - `double_quote("say \"hi\"") # "say \"hi\""`
 
 ### parse/rparse
 
