@@ -295,6 +295,15 @@ fn include_files() {
     };
     let err = stderr(Some("lib"), "bad.awk", 1);
     assert!(err.contains("syntax error at bad.awk:3:12"), "{}", err);
+    // An included file must hold complete rules and functions: a missing `}` is reported at its
+    // end, not in the program that includes it.
+    std::fs::write(dir.join("open.awk"), "function lf() { return \"lib\"\n").unwrap();
+    std::fs::write(dir.join("use-open.awk"), "@include \"open.awk\"\nBEGIN { print 1 }\n").unwrap();
+    let err = stderr(Some("."), "use-open.awk", 1);
+    assert!(err.contains("syntax error at ./open.awk:1:29: unexpected end of file: missing `}`"), "{}", err);
+    std::fs::write(dir.join("inside.awk"), "BEGIN {\n@include \"lib/base.awk\"\n}\n").unwrap();
+    let err = stderr(Some("."), "inside.awk", 1);
+    assert!(err.contains("syntax error at inside.awk:2:1: unexpected `@include` inside a rule or function"), "{}", err);
     let err = stderr(None, "main.awk", 2);
     assert!(err.contains("main.awk:1: can't open source file `util.awk' for reading"), "{}", err);
 }

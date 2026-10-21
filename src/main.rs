@@ -89,6 +89,15 @@ macro_rules! fatal {
     }}
 }
 
+/// Exits on an error splicing in the program sources: a source that is not complete is a syntax
+/// error, as the parser reports them; a file that cannot be read is fatal.
+fn include_failed(e: &str) -> ! {
+    if e.starts_with("syntax error") {
+        fail!("{}", e)
+    }
+    fatal!("{}", e)
+}
+
 #[derive(Clone)]
 struct PreludeScalars {
     taint_check: bool,
@@ -1289,13 +1298,13 @@ fn real_main() {
                 }
             };
             if let Err(e) = res {
-                fatal!("{}", e);
+                include_failed(&e);
             }
         }
     } else if let Some(p) = matches.get_one::<String>("program") {
         for (_, _, file) in sources {
             if let Err(e) = includer.include(file) {
-                fatal!("{}", e);
+                include_failed(&e);
             }
         }
         // Sugar syntax only applies to programs given on the command line, not to `-f` files.
@@ -1305,7 +1314,7 @@ fn real_main() {
             awk_util::sugar_syntax_convert(String::from(p.trim()))
         };
         if let Err(e) = includer.add_source(None, &p, None) {
-            fatal!("{}", e);
+            include_failed(&e);
         }
     } else {
         fail!("must specify program at command line, with -e, or in a file via -f");

@@ -10,9 +10,13 @@
 //! line of its file it starts at, and errors are reported as `file:line:column` of that file.
 //! A line inside a multi-line string, raw string or regex literal is part of that literal, not
 //! a directive.
+//!
+//! As in gawk, each file must hold complete rules and functions: a file ending inside a `{`, a
+//! `(` or a literal is an error at the end of that file, rather than swallowing the text that
+//! follows it. The same goes for the text before an `@include` line.
 
 use crate::common;
-use crate::lexer::Tokenizer;
+use crate::lexer::{Tok, Tokenizer};
 use crate::lint::Source;
 use std::path::{Component, Path, PathBuf};
 
@@ -29,6 +33,12 @@ impl Includer {
     /// `@include` lines. `path` is the local file it was read from, if any, so that including it
     /// again does nothing.
     pub fn add_source(&mut self, name: Option<String>, text: &str, path: Option<&Path>) -> Result<(), String> {
+        self.add(name, text, path, false)
+    }
+
+    /// `add_source`, `included` telling whether the source is an included file, which must end
+    /// outside of any rule, function or literal.
+    fn add(&mut self, name: Option<String>, text: &str, path: Option<&Path>, included: bool) -> Result<(), String> {
         if let Some(path) = path {
             self.seen.insert(canonical(path));
         }
@@ -52,7 +62,7 @@ impl Includer {
                 continue;
             }
             masked.replace_range(line_start..line_start + line.len(), &" ".repeat(line.len()));
-            self.push(&name, &lines, start, i, expanded);
+            self.push(&name, &lines, start, i, expanded, Check::BeforeInclude)?;
             expanded = true;
             start = i + 1;
             // Errors in the included file have their own location.
@@ -61,17 +71,17 @@ impl Includer {
                 None => format!("line {}: {}", i + 1, e),
             })?;
             if let Some((path, text)) = loaded {
-                self.add_source(Some(path.to_string_lossy().into_owned()), &text, Some(&path))?;
+                self.add(Some(path.to_string_lossy().into_owned()), &text, Some(&path), true)?;
             }
         }
-        self.push(&name, &lines, start, lines.len(), expanded);
-        Ok(())
+        let check = if included { Check::EndOfFile } else { Check::None };
+        self.push(&name, &lines, start, lines.len(), expanded, check)
     }
 
     /// Splices in the file `file`, unless it was loaded already (`--include file`).
     pub fn include(&mut self, file: &str) -> Result<(), String> {
         match self.load(file)? {
-            Some((path, text)) => self.add_source(Some(path.to_string_lossy().into_owned()), &text, Some(&path)),
+            Some((path, text)) => self.add(Some(path.to_string_lossy().into_owned()), &text, Some(&path), true),
             None => Ok(()),
         }
     }
@@ -91,17 +101,41 @@ impl Includer {
         Ok(Some((path, text)))
     }
 
-    /// Adds the lines `start..end` of a source as a piece. Once the source had an include, empty
-    /// pieces are left out: without includes, the source is kept exactly as it is.
-    fn push(&mut self, name: &Option<String>, lines: &[&str], start: usize, end: usize, expanded: bool) {
+    /// Adds the lines `start..end` of a source as a piece, checking that it is complete as `check`
+    /// asks. Once the source had an include, empty pieces are left out: without includes, the source
+    /// is kept exactly as it is.
+    fn push(
+        &mut self,
+        name: &Option<String>,
+        lines: &[&str],
+        start: usize,
+        end: usize,
+        expanded: bool,
+        check: Check,
+    ) -> Result<(), String> {
         if expanded && start >= end {
-            return;
+            return Ok(());
+        }
+        let text = lines[start..end].join("\n");
+        if check != Check::None {
+            if let Some((mut line, mut col, mut desc)) = incomplete(&text, start) {
+                if check == Check::BeforeInclude {
+                    // The rule or function goes on after the included file.
+                    desc = desc.replace("end of file", "`@include` inside a rule or function");
+                    (line, col) = (end + 1, 1);
+                }
+                return Err(match name {
+                    Some(name) => format!("syntax error at {}:{}:{}: {}", name, line, col, desc),
+                    None => format!("syntax error at line {}, column {}: {}", line, col, desc),
+                });
+            }
         }
         self.pieces.push(Source {
             name: name.clone(),
-            text: lines[start..end].join("\n"),
+            text,
             line: start,
         });
+        Ok(())
     }
 }
 
@@ -118,6 +152,55 @@ fn include_directive(line: &str) -> Option<&str> {
     let tail = tail.strip_prefix(';').unwrap_or(tail).trim_start();
     let tail = tail.trim_end_matches('\r');
     (tail.is_empty() || tail.starts_with('#')).then(|| &rest[..end])
+}
+
+/// Whether a piece must hold complete rules and functions: at the end of an included file, or
+/// before an `@include` line.
+#[derive(Clone, Copy, PartialEq)]
+enum Check {
+    None,
+    EndOfFile,
+    BeforeInclude,
+}
+
+/// Where (1-based line and column of its file, the text starting at line `first_line`) and why
+/// `text` does not hold complete rules and functions: it ends inside a `{`, a `(` or a literal.
+/// Unbalanced closing brackets and other errors are left to the parser, which reports them where
+/// they are.
+fn incomplete(text: &str, first_line: usize) -> Option<(usize, usize, String)> {
+    // Columns count characters, as in `SourceMap::describe`.
+    let pos = |line: usize, col: usize| {
+        let text = text.split('\n').nth(line).unwrap_or("");
+        (first_line + line + 1, text.get(..col).unwrap_or(text).chars().count() + 1)
+    };
+    let mut open = Vec::new();
+    for tok in Tokenizer::new(text) {
+        match tok {
+            Ok((l, Tok::LBrace, _)) => open.push((l, '}')),
+            Ok((l, Tok::LParen, _)) => open.push((l, ')')),
+            Ok((_, tok @ (Tok::RBrace | Tok::RParen), _)) => {
+                let close = if tok == Tok::RBrace { '}' } else { ')' };
+                if open.pop().map(|(_, c)| c) != Some(close) {
+                    return None;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let (line, col) = pos(e.location.line, e.location.col);
+                return Some((line, col, e.desc.into_owned()));
+            }
+        }
+    }
+    let (l, close) = open.pop()?;
+    let (open_line, open_col) = pos(l.line, l.col);
+    let body = text.trim_end_matches('\n');
+    let last = body.rsplit('\n').next().unwrap_or("");
+    let (line, col) = pos(body.matches('\n').count(), last.len());
+    let desc = format!(
+        "unexpected end of file: missing `{}` for the one at line {}, column {}",
+        close, open_line, open_col
+    );
+    Some((line, col, desc))
 }
 
 /// Whether the byte `offset` of `text` is inside a token (a string, raw string or regex literal
@@ -201,6 +284,19 @@ mod tests {
         inc.add_source(None, raw, None).unwrap();
         assert_eq!(inc.pieces.len(), 1);
         assert_eq!(inc.pieces[0].text, raw);
+    }
+
+    #[test]
+    fn incomplete_sources() {
+        assert_eq!(incomplete("function f() { return 1 }\n", 0), None);
+        assert_eq!(
+            incomplete("BEGIN { x = 1\n", 2),
+            Some((3, 14, "unexpected end of file: missing `}` for the one at line 3, column 7".into()))
+        );
+        assert_eq!(incomplete("BEGIN { s = \"a\n", 0).map(|(l, c, _)| (l, c)), Some((1, 14)));
+        // Mismatched or extra closing brackets are reported by the parser, where they are.
+        assert_eq!(incomplete("BEGIN { f(1 }", 0), None);
+        assert_eq!(incomplete("BEGIN { } }", 0), None);
     }
 
     #[test]
