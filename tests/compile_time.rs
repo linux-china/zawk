@@ -1,18 +1,24 @@
 //! Compile time of the cranelift backend must stay roughly linear in the size of the program: a
 //! few hundred lines of awk (reports, log parsing) used to take seconds to JIT.
 use assert_cmd::Command;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const N: usize = 400;
 
-/// Generous enough for slow CI machines; before the fix these programs took 5-11s in release.
+/// Generous enough for slow or loaded CI machines (`cargo test` runs other test binaries' zawk
+/// processes concurrently); before the fix these programs took 5-11s in release.
 fn budget() -> Duration {
     if cfg!(debug_assertions) {
         Duration::from_secs(15)
     } else {
-        Duration::from_secs(1)
+        Duration::from_secs(3)
     }
 }
+
+/// The cases run one at a time so that each one measures its own compile time, not the time spent
+/// competing with the other cases in this binary for CPU.
+static SERIAL: Mutex<()> = Mutex::new(());
 
 fn line(i: usize, src: &str) -> String {
     format!(
@@ -35,6 +41,7 @@ fn run(prog: &str, backend: &str) -> (String, Duration) {
 }
 
 fn check(prog: &str, expected: &str) {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (interp, _) = run(prog, "-Binterp");
     assert_eq!(interp, expected);
     let (cranelift, elapsed) = run(prog, "-Bcranelift");
