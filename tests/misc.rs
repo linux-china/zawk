@@ -504,7 +504,9 @@ fn multi_rc() {
     );
     eprintln!("data={:?}", data);
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("zawk")
+        // `exit 2` stops the workers, then END runs (on what the workers aggregated) before the
+        // program exits with 2.
+        let res = Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
             .arg("-pf")
@@ -514,9 +516,12 @@ fn multi_rc() {
             .arg(fname_to_string(&data))
             .arg(fname_to_string(&data))
             .arg(fname_to_string(&data))
-            .assert()
-            .stdout("hi\n")
-            .code(2);
+            .output()
+            .unwrap();
+        assert_eq!(res.status.code(), Some(2));
+        let stdout = String::from_utf8(res.stdout).unwrap();
+        assert!(stdout.starts_with("hi\n"), "{}", stdout);
+        assert!(!stdout.contains("\n2 "), "{}", stdout);
         assert_eq!(read_to_string(&out).unwrap(), "should flush\n");
     }
 }
