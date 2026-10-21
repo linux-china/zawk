@@ -25,6 +25,7 @@ mod inspect;
 mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
+mod include;
 mod lint;
 #[allow(unused_parens)] // Warnings appear in generated code
 #[allow(clippy::all)]
@@ -205,6 +206,40 @@ fn github_raw_url(gh_path: &str) -> Option<String> {
     let repo = parts.next().filter(|s| !s.is_empty())?;
     let file = parts.next().map(|s| s.trim_start_matches('/')).filter(|s| !s.is_empty())?;
     Some(format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"))
+}
+
+/// The text of the `-f` file `prog_file`, a local file, a URL or `gh:<user>/<repo>/<path>`, with
+/// the local path it was read from.
+fn read_program_file(prog_file: &str) -> (String, Option<&std::path::Path>) {
+    let remote_url = if let Some(gh_path) = prog_file.strip_prefix("gh:") {
+        match github_raw_url(gh_path) {
+            Some(url) => Some(url),
+            None => fatal!(
+                "can't open source file `{}' for reading: expected `gh:<user>/<repo>/<awk_file_path>'",
+                prog_file
+            ),
+        }
+    } else if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
+        Some(prog_file.to_string())
+    } else {
+        None
+    };
+    if let Some(url) = remote_url {
+        // Error pages (404, proxy errors, ...) must not be run as programs.
+        match runtime::network::fetch_text(&url) {
+            Ok(p) => (p, None),
+            Err(e) => fatal!("can't open source file `{}' for reading: {}", prog_file, e),
+        }
+    } else {
+        match std::fs::read_to_string(prog_file) {
+            Ok(p) => (p, Some(std::path::Path::new(prog_file))),
+            Err(e) => fatal!(
+                "can't open source file `{}' for reading: {}",
+                prog_file,
+                common::io_error_reason(&e)
+            ),
+        }
+    }
 }
 
 fn chained<LR: LineReader>(lr: LR) -> ChainedReader<LR> {
@@ -411,7 +446,7 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
     // Short options that take a value, either attached (`-F,`) or as the next argument.
     const SHORT_WITH_VALUE: &str = "efEOvFBoipj";
     const LONG_WITH_VALUE: &[&str] = &[
-        "--source", "--program-file", "--exec", "--opt-level", "--out-file", "--input-format",
+        "--source", "--program-file", "--exec", "--include", "--opt-level", "--out-file", "--input-format",
         "--field-separator", "--backend", "--output-format", "--chunk-size",
     ];
     let mut i = 1;
@@ -529,19 +564,32 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
     })
 }
 
+/// A program source given on the command line.
+#[derive(Clone, Copy, PartialEq)]
+enum SourceKind {
+    /// `-f` or `-E`: a program file.
+    File,
+    /// `-e`: a program text.
+    Inline,
+    /// `--include`: a library file, spliced in as `@include` does.
+    Include,
+}
+
 /// `zawk lint`: prints the JSON report and exits with 1 if the program has errors (or warnings,
 /// with `--deny-warnings`) or a program file cannot be read.
 fn run_lint(matches: &clap::ArgMatches) -> ! {
-    let mut sources: Vec<(usize, lint::Source)> = Vec::new();
+    // The sources, with whether each is a local file (`-f`), a program text (`-e`) or an
+    // `--include` file (whose name is the text).
+    let mut sources: Vec<(usize, lint::Source, SourceKind)> = Vec::new();
     if let (Some(idx), Some(vals)) = (matches.indices_of("program-file"), matches.get_many::<String>("program-file")) {
         for (i, file) in idx.zip(vals) {
-            let text = if file == "-" {
-                io::read_to_string(io::stdin())
+            let (text, kind) = if file == "-" {
+                (io::read_to_string(io::stdin()), SourceKind::Inline)
             } else {
-                std::fs::read_to_string(file)
+                (std::fs::read_to_string(file), SourceKind::File)
             };
             match text {
-                Ok(text) => sources.push((i, lint::Source { name: Some(file.clone()), text })),
+                Ok(text) => sources.push((i, lint::Source { name: Some(file.clone()), text, line: 0 }, kind)),
                 Err(e) => {
                     println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
                     std::process::exit(1)
@@ -550,14 +598,22 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         }
     }
     if let (Some(idx), Some(vals)) = (matches.indices_of("source"), matches.get_many::<String>("source")) {
-        sources.extend(idx.zip(vals).map(|(i, text)| (i, lint::Source { name: None, text: text.clone() })));
+        sources.extend(idx.zip(vals).map(|(i, text)| {
+            (i, lint::Source { name: None, text: text.clone(), line: 0 }, SourceKind::Inline)
+        }));
     }
-    sources.sort_by_key(|(i, _)| *i);
-    let mut sources: Vec<lint::Source> = sources.into_iter().map(|(_, s)| s).collect();
+    if let (Some(idx), Some(vals)) = (matches.indices_of("include"), matches.get_many::<String>("include")) {
+        sources.extend(idx.zip(vals).map(|(i, file)| {
+            (i, lint::Source { name: None, text: file.clone(), line: 0 }, SourceKind::Include)
+        }));
+    }
+    sources.sort_by_key(|(i, _, _)| *i);
+    let mut sources: Vec<(lint::Source, SourceKind)> = sources.into_iter().map(|(_, s, k)| (s, k)).collect();
+    let program_sources = sources.iter().filter(|(_, k)| *k != SourceKind::Include).count();
     // As for a run, `-e` sources are named `-e#N` when the program has more than one source.
-    if sources.len() > 1 {
+    if program_sources > 1 {
         let mut inline_count = 0;
-        for src in sources.iter_mut().filter(|s| s.name.is_none()) {
+        for (src, _) in sources.iter_mut().filter(|(s, k)| s.name.is_none() && *k != SourceKind::Include) {
             inline_count += 1;
             src.name = Some(parsing::inline_source_name(inline_count));
         }
@@ -566,7 +622,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         .get_many::<String>("input-files")
         .map(|x| x.cloned().collect())
         .unwrap_or_default();
-    if !sources.is_empty() {
+    if program_sources > 0 {
         // As for a run, with -f or -e the program operand is the first input file.
         if let Some(p) = matches.get_one::<String>("program") {
             input_files.insert(0, p.clone());
@@ -577,14 +633,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     {
         // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` file is read as -f.
         match std::fs::read_to_string(file) {
-            Ok(text) => sources.push(lint::Source { name: Some(file.clone()), text }),
+            Ok(text) => sources.push((lint::Source { name: Some(file.clone()), text, line: 0 }, SourceKind::File)),
             Err(e) => {
                 println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
                 std::process::exit(1)
             }
         }
     }
-    if sources.is_empty() {
+    if sources.iter().all(|(_, k)| *k == SourceKind::Include) {
         let text = match matches.get_one::<String>("program") {
             // As for a run, sugar syntax only applies to a program operand.
             Some(p) if matches.get_flag("posix") => p.clone(),
@@ -594,8 +650,25 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
                 Err(e) => fatal!("can't read program from stdin: {}", e),
             },
         };
-        sources.push(lint::Source { name: None, text });
+        sources.push((lint::Source { name: None, text, line: 0 }, SourceKind::Inline));
     }
+    // Splice in the included files, as for a run.
+    let mut includer = include::Includer::default();
+    for (src, kind) in sources {
+        let res = match kind {
+            SourceKind::Include => includer.include(&src.text),
+            SourceKind::File => {
+                let path = src.name.as_deref().map(std::path::Path::new);
+                includer.add_source(src.name.clone(), &src.text, path)
+            }
+            SourceKind::Inline => includer.add_source(src.name, &src.text, None),
+        };
+        if let Err(e) = res {
+            println!("{}", lint::include_error(&e));
+            std::process::exit(1)
+        }
+    }
+    let sources = includer.pieces;
     let format = input_format(matches, &input_files);
     let format = format.as_deref();
     let mut opts = lint_options(matches, format);
@@ -770,6 +843,12 @@ fn real_main() {
             .num_args(1)
             .action(clap::ArgAction::Append)
             .help("Lint this program text (can be repeated, combined with -f in order)"))
+        .arg(Arg::new("include")
+            .long("include")
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .value_name("file")
+            .help("Include this awk library file, as `@include \"file\"` does (can be repeated)"))
         .arg(Arg::new("taint-check")
             .long("taint-check")
             .num_args(0)
@@ -910,6 +989,12 @@ fn real_main() {
             .num_args(1)
             .value_name("file")
             .help("Like '-f', but this is the last option processed: all following arguments are input files. Intended for `#!/usr/bin/env -S zawk -E` scripts"))
+        .arg(Arg::new("include")
+            .long("include")
+            .num_args(1)
+            .action(clap::ArgAction::Append)
+            .value_name("file")
+            .help("Load the awk library file before the program, as `@include \"file\"` does: searched in AWKPATH (default `.:/usr/local/share/awk`), loaded once. Multiple '--include' options may be used"))
         .arg(Arg::new("characters-as-bytes")
             .long("characters-as-bytes")
             .short('b')
@@ -1162,99 +1247,79 @@ fn real_main() {
         .map(|x| x.map(String::from).collect())
         .unwrap_or_else(Vec::new);
     // get awk program code
-    // `-f`, `-E` and `-e` sources, in command-line order.
-    let mut sources: Vec<(usize, bool, &String)> = Vec::new();
-    for (id, is_file) in [("program-file", true), ("exec", true), ("source", false)] {
+    // `-f`, `-E`, `-e` and `--include` sources, in command-line order.
+    let mut sources: Vec<(usize, SourceKind, &String)> = Vec::new();
+    for (id, kind) in [
+        ("program-file", SourceKind::File),
+        ("exec", SourceKind::File),
+        ("source", SourceKind::Inline),
+        ("include", SourceKind::Include),
+    ] {
         if let (Some(idx), Some(vals)) = (matches.indices_of(id), matches.get_many::<String>(id)) {
-            sources.extend(idx.zip(vals).map(|(i, v)| (i, is_file, v)));
+            sources.extend(idx.zip(vals).map(|(i, v)| (i, kind, v)));
         }
     }
     sources.sort_by_key(|(i, _, _)| *i);
-    // Where each source starts in the program, to report errors as `file:line:column`.
-    let mut source_map = parsing::SourceMap::default();
-    // The same sources, for `--lint`.
-    let mut lint_sources: Vec<lint::Source> = Vec::new();
-    let program_code = {
-        if !sources.is_empty() {
-            // We specified the program with options, so the "program" will be
-            // interpreted as another input file.
-            if let Some(p) = matches.get_one::<String>("program") {
-                input_files.insert(0, p.into());
-            }
-            let mut prog = String::new();
-            // A lone `-e` is reported as `line 1, column 7`; with other sources, each `-e` is
-            // named `-e#N` so that its lines are not taken for lines of another source.
-            let named = sources.len() > 1;
-            let mut inline_count = 0;
-            for (_, is_file, prog_file) in sources {
-                let name = if is_file {
-                    Some(prog_file.clone())
-                } else {
+    // The program sources spliced with the files they include, in pieces that remember where in
+    // their file they start; also the sources for `--lint`.
+    let mut includer = include::Includer::default();
+    // `--include` files are libraries: alone, they do not replace the program operand.
+    let program_sources = sources.iter().filter(|(_, kind, _)| *kind != SourceKind::Include).count();
+    if program_sources > 0 {
+        // We specified the program with options, so the "program" will be
+        // interpreted as another input file.
+        if let Some(p) = matches.get_one::<String>("program") {
+            input_files.insert(0, p.into());
+        }
+        // A lone `-e` is reported as `line 1, column 7`; with other sources, each `-e` is
+        // named `-e#N` so that its lines are not taken for lines of another source.
+        let named = program_sources > 1;
+        let mut inline_count = 0;
+        for (_, kind, prog_file) in sources {
+            let res = match kind {
+                SourceKind::Include => includer.include(prog_file),
+                SourceKind::Inline => {
                     inline_count += 1;
-                    named.then(|| parsing::inline_source_name(inline_count))
-                };
-                source_map.push(name.clone(), prog.matches('\n').count());
-                if !is_file {
-                    lint_sources.push(lint::Source { name, text: prog_file.clone() });
-                    prog.push_str(prog_file);
-                    prog.push('\n');
-                    continue;
+                    let name = named.then(|| parsing::inline_source_name(inline_count));
+                    includer.add_source(name, prog_file, None)
                 }
-                let remote_url = if let Some(gh_path) = prog_file.strip_prefix("gh:") {
-                    match github_raw_url(gh_path) {
-                        Some(url) => Some(url),
-                        None => fatal!(
-                            "can't open source file `{}' for reading: expected `gh:<user>/<repo>/<awk_file_path>'",
-                            prog_file
-                        ),
-                    }
-                } else if prog_file.starts_with("https://") || prog_file.starts_with("http://") {
-                    Some(prog_file.clone())
-                } else {
-                    None
-                };
-                if let Some(url) = remote_url {
-                    // Error pages (404, proxy errors, ...) must not be run as programs.
-                    match runtime::network::fetch_text(&url) {
-                        Ok(p) => {
-                            prog.push_str(p.as_str());
-                            prog.push('\n');
-                            lint_sources.push(lint::Source { name, text: p });
-                        }
-                        Err(e) => fatal!("can't open source file `{}' for reading: {}", prog_file, e),
-                    }
-                } else {
-                    match std::fs::read_to_string(prog_file) {
-                        Ok(p) => {
-                            prog.push_str(p.as_str());
-                            prog.push('\n');
-                            lint_sources.push(lint::Source { name, text: p });
-                        }
-                        Err(e) => fatal!(
-                            "can't open source file `{}' for reading: {}",
-                            prog_file,
-                            common::io_error_reason(&e)
-                        ),
-                    }
+                SourceKind::File => {
+                    let (text, path) = read_program_file(prog_file);
+                    includer.add_source(Some(prog_file.clone()), &text, path)
                 }
+            };
+            if let Err(e) = res {
+                fatal!("{}", e);
             }
-            prog
-        } else if let Some(p) = matches.get_one::<String>("program") {
-            // Sugar syntax only applies to programs given on the command line, not to `-f` files.
-            if matches.get_flag("posix") {
-                p.clone()
-            } else {
-                awk_util::sugar_syntax_convert(String::from(p.trim()))
+        }
+    } else if let Some(p) = matches.get_one::<String>("program") {
+        for (_, _, file) in sources {
+            if let Err(e) = includer.include(file) {
+                fatal!("{}", e);
             }
+        }
+        // Sugar syntax only applies to programs given on the command line, not to `-f` files.
+        let p = if matches.get_flag("posix") {
+            p.clone()
         } else {
-            fail!("must specify program at command line, with -e, or in a file via -f");
+            awk_util::sugar_syntax_convert(String::from(p.trim()))
+        };
+        if let Err(e) = includer.add_source(None, &p, None) {
+            fatal!("{}", e);
         }
-    };
+    } else {
+        fail!("must specify program at command line, with -e, or in a file via -f");
+    }
+    // Where each piece starts in the program, to report errors as `file:line:column`.
+    let mut source_map = parsing::SourceMap::default();
+    let mut program_code = String::new();
+    for piece in &includer.pieces {
+        source_map.push(piece.name.clone(), program_code.matches('\n').count(), piece.line);
+        program_code.push_str(&piece.text);
+        program_code.push('\n');
+    }
     if matches.get_flag("lint") || matches.get_flag("deny-warnings") {
-        if lint_sources.is_empty() {
-            lint_sources.push(lint::Source { name: None, text: program_code.clone() });
-        }
-        lint_before_run(&lint_sources, &matches, input_format(&matches, &input_files).as_deref());
+        lint_before_run(&includer.pieces, &matches, input_format(&matches, &input_files).as_deref());
     }
     parsing::set_program(&program_code, source_map);
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap

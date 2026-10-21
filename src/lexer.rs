@@ -1051,8 +1051,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                         // would silently drop the rest of the program.
                         return Some(Err(Error {
                             location: self.index_to_loc(ix),
-                            desc: if c == '@' {
-                                "unsupported '@' syntax (@include, @load, @namespace and indirect function calls are not supported)"
+                            desc: if c == '@' && self.text[ix..].starts_with("@include") {
+                                "unsupported `@include` syntax: expected a quoted file name, alone on its line: @include \"file.awk\""
+                            } else if c == '@' {
+                                "unsupported '@' syntax (@load, @namespace and indirect function calls are not supported)"
                             } else {
                                 "unexpected character"
                             }

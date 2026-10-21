@@ -243,6 +243,63 @@ fn source_and_program_file() {
 }
 
 #[test]
+fn include_files() {
+    let tmpdir = tempdir().unwrap();
+    let dir = tmpdir.path();
+    std::fs::create_dir(dir.join("lib")).unwrap();
+    // `base` includes `util` back: each file is loaded once, which also ends the cycle.
+    std::fs::write(dir.join("lib/util.awk"), "@include \"base\"\nfunction twice(x) { return 2 * x }\n").unwrap();
+    std::fs::write(dir.join("lib/base.awk"), "@include \"util.awk\"\nfunction inc(x) { return x + 1 }\n").unwrap();
+    std::fs::write(
+        dir.join("main.awk"),
+        "@include \"util.awk\"\nBEGIN { printf \"a\" }\n@include \"util\"  # again\nBEGIN { print twice(inc(3)) }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("bad.awk"), "@include \"util\"\nBEGIN {\n  print 1 +\n}\n").unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .current_dir(dir)
+            .env("AWKPATH", ".:lib")
+            .args([backend_arg, "-f", "main.awk"])
+            .assert()
+            .stdout("a8\n");
+        // `--include` is loaded once too, and keeps the program operand.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .current_dir(dir)
+            .env("AWKPATH", "lib")
+            .args([backend_arg, "--include", "util", "--include", "base.awk", "BEGIN { print twice(5) }"])
+            .assert()
+            .stdout("10\n");
+        // A file name with a root is not searched.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .current_dir(dir)
+            .env("AWKPATH", "lib")
+            .arg(backend_arg)
+            .arg(format!("@include \"{}\"\nBEGIN {{ print inc(1) }}", dir.join("lib/base.awk").display()))
+            .assert()
+            .stdout("2\n");
+    }
+    // Errors are reported at the line of the file they are in.
+    let stderr = |awkpath: Option<&str>, prog: &str, code: i32| {
+        let mut cmd = Command::cargo_bin("zawk").unwrap();
+        cmd.current_dir(dir).args(["-f", prog]);
+        match awkpath {
+            Some(p) => cmd.env("AWKPATH", p),
+            None => cmd.env_remove("AWKPATH"),
+        };
+        let out = cmd.assert().code(code).get_output().stderr.clone();
+        String::from_utf8(out).unwrap()
+    };
+    let err = stderr(Some("lib"), "bad.awk", 1);
+    assert!(err.contains("syntax error at bad.awk:3:12"), "{}", err);
+    let err = stderr(None, "main.awk", 2);
+    assert!(err.contains("main.awk:1: can't open source file `util.awk' for reading"), "{}", err);
+}
+
+#[test]
 fn exec_ends_options() {
     let tmpdir = tempdir().unwrap();
     let prog_fname = tmpdir.path().join("prog.awk");

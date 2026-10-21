@@ -85,7 +85,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E001 | a program file cannot be read                                                    |
 | E101 | syntax error: unexpected token or end of program                                 |
 | E102 | invalid token: unterminated string, bad regex literal, unexpected character, ... |
-| E201 | unsupported syntax: `@include`, `@load`, `@namespace`, indirect calls, `$$1`/`$++i` (use `$($1)`) |
+| E201 | unsupported syntax: `@include` not alone on its line, `@load`, `@namespace`, indirect calls, `$$1`/`$++i` (use `$($1)`) |
 | E202 | unsupported feature: arrays of arrays `a[i][j]` (use `a[i,j]`)                   |
 | E203 | gawk function not available in zawk (e.g. `patsplit`)                           |
 | E300 | other compile error                                                              |
@@ -128,6 +128,7 @@ zawk [options] -f script.awk [file ...]
 | `-F fs` | Field separator, as in awk (`-F,`, `-F'\t'`) |
 | `-v var=value` | Set a variable before BEGIN (repeatable) |
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
+| `--include lib` / `@include "lib"` | Load an awk library file once, searched in `AWKPATH` (default `.:/usr/local/share/awk`), `lib` then `lib.awk`; remote files are not supported |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
 | `-i csv\|tsv\|jsonl\|parquet\|markdown` | Input format (NOT gawk's `-i include`). jsonl, parquet and markdown imply `-H` |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |

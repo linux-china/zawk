@@ -35,11 +35,15 @@ use lalrpop_util::ParseError;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::{json, Value};
 
-/// A part of the program: a `-f` file, a `-e` string or the program operand.
+/// A part of the program: a `-f` file, a `-e` string or the program operand, or a piece of one
+/// of them between `@include` lines (see `include`).
+#[derive(Debug, Default, Clone)]
 pub struct Source {
     /// The file name, or `None` for a program given on the command line.
     pub name: Option<String>,
     pub text: String,
+    /// The line of its file the text starts at (0-based): not 0 for a piece after an `@include`.
+    pub line: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -130,6 +134,16 @@ pub fn file_error(file: &str, reason: &str) -> String {
     report(1, 0, &[d])
 }
 
+/// The report for an `@include` (or `--include`) file that cannot be loaded.
+pub fn include_error(message: &str) -> String {
+    let d = Object(vec![
+        ("code", json!("E001")),
+        ("severity", json!("error")),
+        ("message", json!(message)),
+    ]);
+    report(1, 0, &[d])
+}
+
 /// The report for an input file that cannot be read.
 pub fn input_error(file: &str, reason: &str) -> String {
     let d = Object(vec![
@@ -197,9 +211,10 @@ fn to_json(d: &Diagnostic, lines: &[&str], sources: &[Source], starts: &[usize])
         .chain(std::iter::once('^'))
         .collect();
     let file = sources.get(idx).and_then(|s| s.name.as_ref());
+    let first_line = sources.get(idx).map_or(0, |s| s.line);
     v.0.extend([
         ("file", json!(file)),
-        ("line", json!(loc.line - starts.get(idx).copied().unwrap_or(0) + 1)),
+        ("line", json!(loc.line - starts.get(idx).copied().unwrap_or(0) + first_line + 1)),
         ("column", json!(column)),
         ("source", json!(line_text)),
         ("caret", json!(caret)),
@@ -1775,6 +1790,7 @@ mod tests {
         let src = Source {
             name: None,
             text: prog.to_string(),
+            line: 0,
         };
         serde_json::from_str(&lint(&[src], &Options::default()).2).unwrap()
     }
@@ -1811,7 +1827,7 @@ mod tests {
     #[test]
     fn lexer_errors() {
         assert_eq!(codes(&run("BEGIN { x = \"abc }")), ["E102"]);
-        assert_eq!(codes(&run("@include \"x.awk\"")), ["E201"]);
+        assert_eq!(codes(&run("@include x.awk")), ["E201"]);
     }
 
     #[test]
@@ -1951,6 +1967,7 @@ mod tests {
         let src = Source {
             name: None,
             text: prog.to_string(),
+            line: 0,
         };
         serde_json::from_str(&lint(&[src], opts).2).unwrap()
     }
@@ -2212,10 +2229,12 @@ mod tests {
             Source {
                 name: Some("a.awk".into()),
                 text: "function g(x) { return x }".into(),
+                line: 0,
             },
             Source {
                 name: Some("b.awk".into()),
                 text: "BEGIN {\n  print g(1\n}".into(),
+                line: 0,
             },
         ];
         let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).2).unwrap();
@@ -2231,10 +2250,12 @@ mod tests {
             Source {
                 name: Some("a.awk".into()),
                 text: "BEGIN { x = 1 }".into(),
+                line: 0,
             },
             Source {
                 name: Some(parsing::inline_source_name(1)),
                 text: "BEGIN {\n  print 1 +\n}".into(),
+                line: 0,
             },
         ];
         let v: Value = serde_json::from_str(&lint(&srcs, &Options::default()).2).unwrap();

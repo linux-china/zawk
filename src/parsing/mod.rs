@@ -594,31 +594,33 @@ pub fn inline_source_name(n: usize) -> String {
     format!("-e#{}", n)
 }
 
-/// The parts of the program text: `-f` files, `-e` strings or the program operand, concatenated
-/// with a newline after each, as `main` does. Used to report locations as `file:line:column`.
+/// The parts of the program text: `-f` files, `-e` strings or the program operand (or pieces of
+/// them between `@include` lines), concatenated with a newline after each, as `main` does. Used to
+/// report locations as `file:line:column`.
 #[derive(Debug, Default, Clone)]
 pub struct SourceMap {
-    /// The file name (`None` for a program given on the command line) and the line of the
-    /// program text each part starts at.
-    parts: Vec<(Option<String>, usize)>,
+    /// The file name (`None` for a program given on the command line), the line of the program
+    /// text each part starts at, and the line of its file the part starts at.
+    parts: Vec<(Option<String>, usize, usize)>,
 }
 
 impl SourceMap {
-    /// Adds a part starting at line `start_line` (0-based) of the program text.
-    pub fn push(&mut self, name: Option<String>, start_line: usize) {
-        self.parts.push((name, start_line));
+    /// Adds a part starting at line `start_line` of the program text and at line `first_line` of
+    /// its file (both 0-based).
+    pub fn push(&mut self, name: Option<String>, start_line: usize, first_line: usize) {
+        self.parts.push((name, start_line, first_line));
     }
 
     /// `loc` in `prog` for messages: `file.awk:3:5` in a file, `line 3, column 5` otherwise.
     /// Lines count from the start of the part, columns count characters; both start at 1.
     pub fn describe(&self, prog: &str, loc: Loc) -> String {
-        let (name, start) = self
+        let (name, start, first) = self
             .parts
             .iter()
             .rev()
-            .find(|(_, start)| *start <= loc.line)
-            .map_or((None, 0), |(name, start)| (name.as_deref(), *start));
-        let line = loc.line - start + 1;
+            .find(|(_, start, _)| *start <= loc.line)
+            .map_or((None, 0, 0), |(name, start, first)| (name.as_deref(), *start, *first));
+        let line = loc.line - start + first + 1;
         let col = match prog.lines().nth(loc.line) {
             Some(text) => text.get(..loc.col).unwrap_or(text).chars().count() + 1,
             None => loc.col + 1,

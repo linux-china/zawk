@@ -1,0 +1,191 @@
+//! `@include "file"` and `--include file`: other awk source files spliced into the program
+//! before it is parsed, as in gawk.
+//!
+//! A relative file name is looked up in the directories of `AWKPATH` (`.:/usr/local/share/awk`
+//! by default), trying `name` then `name.awk`; a file name with a root (`/lib.awk`, or
+//! `C:\lib.awk` on Windows) is used as is. Each file is loaded once: including it again (or
+//! including a `-f` file) does nothing, which also stops include cycles.
+//!
+//! The program is split into pieces at the `@include` lines, so that each piece remembers the
+//! line of its file it starts at, and errors are reported as `file:line:column` of that file.
+
+use crate::common;
+use crate::lint::Source;
+use std::path::{Component, Path, PathBuf};
+
+/// Expands the includes of the program sources into a list of pieces, in program order.
+#[derive(Default)]
+pub struct Includer {
+    /// The canonical paths of the files loaded so far.
+    seen: hashbrown::HashSet<PathBuf>,
+    pub pieces: Vec<Source>,
+}
+
+impl Includer {
+    /// Adds a source named `name` (`None` for a program given on the command line), expanding its
+    /// `@include` lines. `path` is the local file it was read from, if any, so that including it
+    /// again does nothing.
+    pub fn add_source(&mut self, name: Option<String>, text: &str, path: Option<&Path>) -> Result<(), String> {
+        if let Some(path) = path {
+            self.seen.insert(canonical(path));
+        }
+        let lines: Vec<&str> = text.split('\n').collect();
+        let mut start = 0;
+        let mut expanded = false;
+        for (i, line) in lines.iter().enumerate() {
+            let Some(file) = include_directive(line) else {
+                continue;
+            };
+            self.push(&name, &lines, start, i, expanded);
+            expanded = true;
+            start = i + 1;
+            // Errors in the included file have their own location.
+            let loaded = self.load(file).map_err(|e| match &name {
+                Some(name) => format!("{}:{}: {}", name, i + 1, e),
+                None => format!("line {}: {}", i + 1, e),
+            })?;
+            if let Some((path, text)) = loaded {
+                self.add_source(Some(path.to_string_lossy().into_owned()), &text, Some(&path))?;
+            }
+        }
+        self.push(&name, &lines, start, lines.len(), expanded);
+        Ok(())
+    }
+
+    /// Splices in the file `file`, unless it was loaded already (`--include file`).
+    pub fn include(&mut self, file: &str) -> Result<(), String> {
+        match self.load(file)? {
+            Some((path, text)) => self.add_source(Some(path.to_string_lossy().into_owned()), &text, Some(&path)),
+            None => Ok(()),
+        }
+    }
+
+    /// The path and text of the file `file`, or `None` if it was loaded already.
+    fn load(&self, file: &str) -> Result<Option<(PathBuf, String)>, String> {
+        if file.starts_with("http://") || file.starts_with("https://") || file.starts_with("gh:") {
+            return Err(format!("can't include remote source file `{}': not supported", file));
+        }
+        let path = resolve(file)?;
+        if self.seen.contains(&canonical(&path)) {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            format!("can't open source file `{}' for reading: {}", file, common::io_error_reason(&e))
+        })?;
+        Ok(Some((path, text)))
+    }
+
+    /// Adds the lines `start..end` of a source as a piece. Once the source had an include, empty
+    /// pieces are left out: without includes, the source is kept exactly as it is.
+    fn push(&mut self, name: &Option<String>, lines: &[&str], start: usize, end: usize, expanded: bool) {
+        if expanded && start >= end {
+            return;
+        }
+        self.pieces.push(Source {
+            name: name.clone(),
+            text: lines[start..end].join("\n"),
+            line: start,
+        });
+    }
+}
+
+/// The file name of an `@include "file"` line: the directive alone on its line, optionally
+/// followed by `;` and a comment.
+fn include_directive(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix("@include")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let rest = rest.trim_start().strip_prefix('"')?;
+    let end = rest.find('"')?;
+    let tail = rest[end + 1..].trim_start();
+    let tail = tail.strip_prefix(';').unwrap_or(tail).trim_start();
+    let tail = tail.trim_end_matches('\r');
+    (tail.is_empty() || tail.starts_with('#')).then(|| &rest[..end])
+}
+
+/// Where `file` is: a file name with a root as is, otherwise the first match in `AWKPATH`.
+fn resolve(file: &str) -> Result<PathBuf, String> {
+    let not_found = || format!("can't open source file `{}' for reading: No such file or directory", file);
+    if file.is_empty() {
+        return Err(not_found());
+    }
+    let path = Path::new(file);
+    let rooted = path.has_root() || matches!(path.components().next(), Some(Component::Prefix(_)));
+    let candidates = |p: &Path| {
+        let mut v = vec![p.to_path_buf()];
+        if !file.ends_with(".awk") {
+            v.push(PathBuf::from(format!("{}.awk", p.display())));
+        }
+        v
+    };
+    if rooted {
+        return candidates(path).into_iter().find(|p| p.is_file()).ok_or_else(not_found);
+    }
+    search_path()
+        .into_iter()
+        .flat_map(|dir| candidates(&dir.join(file)))
+        .find(|p| p.is_file())
+        .ok_or_else(not_found)
+}
+
+/// The directories of `AWKPATH`, an empty entry being the current directory.
+fn search_path() -> Vec<PathBuf> {
+    let default = if cfg!(windows) { "." } else { ".:/usr/local/share/awk" };
+    let awkpath = std::env::var_os("AWKPATH").filter(|p| !p.is_empty());
+    let awkpath = awkpath.unwrap_or_else(|| default.into());
+    std::env::split_paths(&awkpath)
+        .map(|dir| if dir.as_os_str().is_empty() { PathBuf::from(".") } else { dir })
+        .collect()
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directive() {
+        assert_eq!(include_directive(r#"@include "lib.awk""#), Some("lib.awk"));
+        assert_eq!(include_directive(r#"  @include	"a b.awk" ;  # lib"#), Some("a b.awk"));
+        assert_eq!(include_directive("@include \"lib\"\r"), Some("lib"));
+        assert_eq!(include_directive(r#"# @include "lib.awk""#), None);
+        assert_eq!(include_directive(r#"@include "lib.awk" BEGIN {}"#), None);
+        assert_eq!(include_directive(r#"@includes "lib.awk""#), None);
+        assert_eq!(include_directive(r#"print "@include""#), None);
+    }
+
+    #[test]
+    fn pieces_keep_file_lines() {
+        let dir = std::env::temp_dir().join(format!("zawk-include-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = dir.join("lib.awk");
+        std::fs::write(&lib, "function f() { return 1 }\n").unwrap();
+        let main = format!(
+            "BEGIN {{ x = 1 }}\n@include \"{0}\"\n@include \"{0}\"\nBEGIN {{ print f() }}",
+            lib.display()
+        );
+        let mut inc = Includer::default();
+        inc.add_source(Some("main.awk".into()), &main, None).unwrap();
+        let pieces: Vec<(Option<&str>, &str, usize)> = inc
+            .pieces
+            .iter()
+            .map(|p| (p.name.as_deref(), p.text.as_str(), p.line))
+            .collect();
+        let lib_name = lib.to_string_lossy();
+        assert_eq!(
+            pieces,
+            vec![
+                (Some("main.awk"), "BEGIN { x = 1 }", 0),
+                (Some(&*lib_name), "function f() { return 1 }\n", 0),
+                (Some("main.awk"), "BEGIN { print f() }", 3),
+            ]
+        );
+        let err = inc.add_source(None, "@include \"no-such-lib-zawk\"", None).unwrap_err();
+        assert!(err.starts_with("line 1: can't open source file `no-such-lib-zawk'"), "{}", err);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
