@@ -4,7 +4,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use lettre::Transport;
 use reqwest::blocking::Response;
-use reqwest::header::{HeaderMap, HeaderName};
+use reqwest::header::{HeaderMap, HeaderName, CONTENT_TYPE};
 use serde::Serialize;
 use url::Url;
 use crate::runtime::{set_errno, stdlib_warning, Str, StrMap};
@@ -79,17 +79,20 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
 pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str) -> StrMap<'a, Str<'a>> {
     let resp_obj: StrMap<Str> = StrMap::default();
     let mut builder = HTTP_CLIENT.post(url);
-    if headers.len() > 0 {
-        builder = builder.headers(convert_to_http_headers(headers));
+    // HeaderMap keys are case-insensitive, so `content-type` from the user counts as set
+    let request_headers = convert_to_http_headers(headers);
+    let has_content_type = request_headers.contains_key(CONTENT_TYPE);
+    if !request_headers.is_empty() {
+        builder = builder.headers(request_headers);
     }
     let body_text = body.to_string();
     if !body_text.is_empty() {
-        if !headers.contains(&Str::from("Content-Type")) {
+        if !has_content_type {
             if (body_text.starts_with('{') && body_text.ends_with('}'))
                 || (body_text.starts_with('[') && body_text.ends_with(']')) {
-                builder = builder.header("Content-Type", "application/json");
+                builder = builder.header(CONTENT_TYPE, "application/json");
             } else {
-                builder = builder.header("Content-Type", "text/plain");
+                builder = builder.header(CONTENT_TYPE, "text/plain");
             }
         }
         builder = builder.body(body_text);
