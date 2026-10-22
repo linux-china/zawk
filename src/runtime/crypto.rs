@@ -708,6 +708,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_jwks_url() {
         // cd tests/jwt-keys && python3 -m http.server
         let full_http_url = "http://localhost:8000/jwks.json#ec-1";
