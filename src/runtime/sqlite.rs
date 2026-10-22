@@ -79,21 +79,39 @@ pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> 
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_query() {
-        let sql = "SELECT nick, email, age FROM user";
-        let db_path = "sqlite.db";
-        let rows = sqlite_query(db_path, sql, &IntMap::default());
-        for key in rows.to_vec() {
-            let value = rows.get(&key);
-            println!("{}: {}", key, value.to_string());
+    fn params(values: &[&str]) -> IntMap<Str<'static>> {
+        let map = IntMap::default();
+        for (i, v) in values.iter().enumerate() {
+            map.insert(i as Int + 1, Str::from(v.to_string()));
         }
+        map
     }
 
     #[test]
-    fn test_create_db() {
+    fn test_execute_and_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db_path = db_path.to_str().unwrap();
+        let none = IntMap::default();
+
         let sql = "CREATE TABLE IF NOT EXISTS user (nick VARCHAR UNIQUE, email VARCHAR, age INT)";
-        let db_path = "sqlite.db";
-        let _ = sqlite_execute(db_path, sql, &IntMap::default());
+        assert_eq!(sqlite_execute(db_path, sql, &none), 0);
+        let insert = "INSERT INTO user (nick, email, age) VALUES (?, ?, ?)";
+        assert_eq!(sqlite_execute(db_path, insert, &params(&["jackie", "jackie@example.com", "30"])), 1);
+        assert_eq!(sqlite_execute(db_path, insert, &params(&["linux", "linux@example.com", "42"])), 1);
+        // the UNIQUE constraint fails: a warning, no row inserted
+        assert_eq!(sqlite_execute(db_path, insert, &params(&["linux", "dup@example.com", "1"])), 0);
+
+        let rows = sqlite_query(db_path, "SELECT nick, email, age FROM user ORDER BY age", &none);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.get(&1).to_string(), "jackie,jackie@example.com,30");
+        assert_eq!(rows.get(&2).to_string(), "linux,linux@example.com,42");
+
+        let rows = sqlite_query(db_path, "SELECT nick FROM user WHERE age > ?", &params(&["35"]));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.get(&1).to_string(), "linux");
+
+        let rows = sqlite_query(db_path, "SELECT nick FROM no_such_table", &none);
+        assert_eq!(rows.len(), 0);
     }
 }
