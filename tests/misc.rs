@@ -3708,3 +3708,27 @@ fn opt_level_minus_one_forces_interp() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("conflicts with `-B cranelift`"));
 }
+
+// Structured output (`-o ...`) ignores a user-set OFS/ORS: CSV/TSV escaping and the
+// jsonl/markdown/table/parquet writers depend on the format's own separators.
+#[test]
+fn output_format_ignores_ofs_ors() {
+    let cases: &[(&[&str], &str, &str)] = &[
+        (&["-o", "csv"], r#"BEGIN{OFS=";"; ORS="|"; print "a;b","c,d"}"#, "a;b,\"c,d\"\n"),
+        (&["-o", "tsv"], r#"BEGIN{OFS=","; print "a","b"}"#, "a\tb\n"),
+        (&["-o", "jsonl"], r#"BEGIN{OFS=","; print "a","b"; print 1,2}"#, "{\"a\":\"1\",\"b\":\"2\"}\n"),
+        (&["-v", "OFS=,", "-o", "jsonl"], r#"BEGIN{print "a","b"; print 1,2}"#, "{\"a\":\"1\",\"b\":\"2\"}\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, out) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .arg(*prog)
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}

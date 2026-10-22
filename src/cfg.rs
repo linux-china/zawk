@@ -1067,7 +1067,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 current_open
             }
             Print(vs, out) => {
-                let ors = {
+                // Structured output (`-o csv/tsv/...`) always uses the format's own separators:
+                // the escaping is fixed to CSV/TSV, and the jsonl/markdown/table/parquet writers
+                // split records on tabs, so a user-set OFS/ORS would corrupt the output.
+                let format_seps: Option<(&'static [u8], &'static [u8])> = match self.ctx.esc {
+                    Escaper::CSV => Some((b",", b"\n")),
+                    Escaper::TSV => Some((b"\t", b"\n")),
+                    Escaper::Identity => None,
+                };
+                let ors = if let Some((_, ors)) = format_seps {
+                    PrimVal::StrLit(ors)
+                } else {
                     let ors = self.fresh_local();
                     self.add_stmt(
                         current_open,
@@ -1104,7 +1114,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     )?;
                     return Ok(current_open);
                 }
-                let fs = if vs.len() > 1 {
+                let fs = if let Some((fs, _)) = format_seps {
+                    PrimVal::StrLit(fs)
+                } else if vs.len() > 1 {
                     let fs = self.fresh_local();
                     self.add_stmt(
                         current_open,
