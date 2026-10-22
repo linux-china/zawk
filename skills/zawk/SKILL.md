@@ -304,7 +304,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | HTML | `html_value` (CSS selector), `html_query` |
 | Encoding | `encode`, `decode` (hex, base32, base58, base62, base64, base64url, url, ...) |
 | Crypto | `digest`, `hash`, `hmac`, `encrypt`, `decrypt`, `jwt`, `dejwt` |
-| KV | `kv_get`, `kv_put`, `kv_delete`, `kv_clear` (SQLite, `redis://`, `nats://`) |
+| KV | `kv_get`, `kv_put`, `kv_delete`, `kv_clear` (SQLite, `redis://`, `rediss://`, `nats://`) |
 | Network | `http_get`, `http_post`, `send_mail` (REST API or SMTP), `s3_get`, `s3_put`, `publish` (NATS/MQTT), `local_ip` |
 | Database | `sqlite_query`, `sqlite_execute`, `pg_query`, `pg_execute`, `mysql_query`, `mysql_execute` |
 | OS | `whoami`, `os`, `os_family`, `arch`, `pwd`, `user_home`, `getenv`, `system`, `system2` |

@@ -883,6 +883,10 @@ examples: `kv_get("namespace1", "nick")`.
 
 namespace is Redis URL: `redis://localhost:6379/namespace`, or `redis://localhost:6379/0/namespace`
 namespace is key name for Hash data structure.
+For TLS, use `rediss://host:6380/namespace` (`redis+tls://` is an alias).
+
+A namespace with an unsupported `scheme://` (e.g. `mongodb://...`) is reported as a warning,
+and is not stored in the local SQLite database.
 
 `kv_get("redis://user:password@host:6379/db/namespace")`
 

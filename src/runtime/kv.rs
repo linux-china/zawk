@@ -17,6 +17,8 @@ pub(crate) fn kv_get(namespace: &str, key: &str) -> String {
         redis_kv::kv_get(namespace, key)
     } else if is_nats_url(namespace) {
         nats_kv::kv_get(namespace, key)
+    } else if let Some(err) = unknown_scheme(namespace) {
+        Err(err)
     } else {
         sqlite_kv::kv_get(namespace, key)
     })
@@ -27,6 +29,8 @@ pub(crate) fn kv_put(namespace: &str, key: &str, value: &str) {
         redis_kv::kv_put(namespace, key, value)
     } else if is_nats_url(namespace) {
         nats_kv::kv_put(namespace, key, value)
+    } else if let Some(err) = unknown_scheme(namespace) {
+        Err(err)
     } else {
         sqlite_kv::kv_put(namespace, key, value)
     })
@@ -37,6 +41,8 @@ pub(crate) fn kv_delete(namespace: &str, key: &str) {
         redis_kv::kv_delete(namespace, key)
     } else if is_nats_url(namespace) {
         nats_kv::kv_delete(namespace, key)
+    } else if let Some(err) = unknown_scheme(namespace) {
+        Err(err)
     } else {
         sqlite_kv::kv_delete(namespace, key)
     })
@@ -47,6 +53,8 @@ pub(crate) fn kv_clear(namespace: &str) {
         redis_kv::kv_clear(namespace)
     } else if is_nats_url(namespace) {
         nats_kv::kv_clear(namespace)
+    } else if let Some(err) = unknown_scheme(namespace) {
+        Err(err)
     } else {
         sqlite_kv::kv_clear(namespace)
     })
@@ -57,11 +65,23 @@ static REDIS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, redis::Connection>>
 static NATS_STORES: LazyLock<Mutex<HashMap<String, async_nats::jetstream::kv::Store>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn is_redis_url(namespace: &str) -> bool {
-    namespace.starts_with("redis://") || namespace.starts_with("redis+tls://")
+    ["redis://", "rediss://", "redis+tls://"].iter().any(|scheme| namespace.starts_with(scheme))
 }
 
 fn is_nats_url(namespace: &str) -> bool {
     namespace.starts_with("nats://") || namespace.starts_with("nats+tls://")
+}
+
+/// A `scheme://...` namespace of an unsupported scheme is an error: storing it as a SQLite
+/// namespace would silently write the data to the local database.
+fn unknown_scheme(namespace: &str) -> Option<String> {
+    let (scheme, _) = namespace.split_once("://")?;
+    let is_scheme = !scheme.is_empty()
+        && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    is_scheme.then(|| format!(
+        "unsupported namespace scheme {:?}, expected redis://, rediss://, redis+tls://, nats://, nats+tls:// or a SQLite name",
+        scheme,
+    ))
 }
 
 /// Split `scheme://host/name` into the connection URL and the last path segment (the hash key
@@ -81,7 +101,10 @@ mod redis_kv {
     use redis::Commands;
 
     fn connect(conn_url: &str) -> KvResult<redis::Connection> {
-        redis::Client::open(conn_url)
+        crate::runtime::tls::install_default_provider();
+        // `redis+tls://` is an alias of `rediss://`, the only TLS scheme the redis crate parses
+        let conn_url = &conn_url.replacen("redis+tls://", "rediss://", 1);
+        redis::Client::open(conn_url.as_str())
             .and_then(|client| client.get_connection())
             .map_err(|e| format!("failed to connect to {}: {}", crate::runtime::network::redact_url(conn_url), e))
     }
@@ -319,6 +342,22 @@ mod tests {
         kv_put("redis://127.0.0.1:1/demo", "nick", "Jackie");
         assert_eq!(kv_get("nats://127.0.0.1:1/bucket", "nick"), "");
         assert_eq!(kv_get("redis://no-hash-key", "nick"), "");
+        assert_eq!(kv_get("rediss://127.0.0.1:1/demo", "nick"), "");
+        assert_eq!(kv_get("redis+tls://127.0.0.1:1/demo", "nick"), "");
+    }
+
+    #[test]
+    fn test_namespace_routing() {
+        for url in ["redis://h/x", "rediss://h/x", "redis+tls://h/x"] {
+            assert!(is_redis_url(url), "{}", url);
+        }
+        assert!(unknown_scheme("redis+ssl://h/x").is_some());
+        assert!(unknown_scheme("mongodb://h/x").is_some());
+        assert!(unknown_scheme("demo").is_none());
+        assert!(unknown_scheme("a b://c").is_none());
+        // an unknown scheme is not written to the local SQLite database
+        kv_put("zawk-unknown://h/x", "k", "v");
+        assert_eq!(sqlite_kv::kv_get("zawk-unknown://h/x", "k").unwrap(), "");
     }
 
     #[test]

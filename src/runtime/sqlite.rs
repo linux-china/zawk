@@ -26,7 +26,7 @@ pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -
 fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
     let mut pool = SQLITE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     let conn = open_connection(&mut pool, db_path)?;
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare_cached(sql)?;
     let colum_count = stmt.column_count();
     let mut index = 1;
     let mut rows = stmt.query(params_from_iter(params))?;

@@ -376,7 +376,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       r#"dejwt("secret", token)["sub"]"#),
     // KV
     d("kv_get", KV, "kv_get(namespace: str, key: str) -> str",
-      "Get a value; namespace is a SQLite db name, redis:// or nats:// URL.", r#"kv_get("ns1", "nick")"#),
+      "Get a value; namespace is a SQLite db name, redis://, rediss:// or nats:// URL.", r#"kv_get("ns1", "nick")"#),
     d("kv_put", KV, "kv_put(namespace: str, key: str, value: str) -> void", "Put a value.",
       r#"kv_put("ns1", "nick", "jackie")"#),
     d("kv_delete", KV, "kv_delete(namespace: str, key: str) -> void", "Delete a key.", r#"kv_delete("ns1", "nick")"#),
