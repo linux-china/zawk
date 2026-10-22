@@ -255,6 +255,7 @@ fn include_files() {
         "@include \"util.awk\"\nBEGIN { printf \"a\" }\n@include \"util\"  # again\nBEGIN { print twice(inc(3)) }\n",
     )
     .unwrap();
+    std::fs::write(dir.join("lib/leaf.awk"), "function leaf() { return 2 }\n").unwrap();
     std::fs::write(dir.join("bad.awk"), "@include \"util\"\nBEGIN {\n  print 1 +\n}\n").unwrap();
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -281,6 +282,17 @@ fn include_files() {
             .arg(format!("@include \"{}\"\nBEGIN {{ print inc(1) }}", dir.join("lib/base.awk").display()))
             .assert()
             .stdout("2\n");
+        // A relative path with a separator is found from the current directory before `AWKPATH`.
+        for file in ["lib/leaf.awk", "./lib/leaf", "lib/../lib/leaf.awk"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .current_dir(dir)
+                .env("AWKPATH", "/nonexistent")
+                .arg(backend_arg)
+                .arg(format!("@include \"{}\"\nBEGIN {{ print leaf() }}", file))
+                .assert()
+                .stdout("2\n");
+        }
     }
     // Errors are reported at the line of the file they are in.
     let stderr = |awkpath: Option<&str>, prog: &str, code: i32| {

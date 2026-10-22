@@ -221,7 +221,9 @@ fn inside_token(text: &str, offset: usize) -> bool {
     false
 }
 
-/// Where `file` is: a file name with a root as is, otherwise the first match in `AWKPATH`.
+/// Where `file` is: a file name with a root as is; a relative path with a directory separator
+/// (`./lib.awk`, `lib/x.awk`) first from the current directory, then like a plain file name, the
+/// first match in `AWKPATH` (as gawk does).
 fn resolve(file: &str) -> Result<PathBuf, String> {
     let not_found = || format!("can't open source file `{}' for reading: No such file or directory", file);
     if file.is_empty() {
@@ -239,9 +241,11 @@ fn resolve(file: &str) -> Result<PathBuf, String> {
     if rooted {
         return candidates(path).into_iter().find(|p| p.is_file()).ok_or_else(not_found);
     }
-    search_path()
+    let has_separator = file.contains('/') || (cfg!(windows) && file.contains('\\'));
+    let local = if has_separator { candidates(path) } else { Vec::new() };
+    local
         .into_iter()
-        .flat_map(|dir| candidates(&dir.join(file)))
+        .chain(search_path().into_iter().flat_map(|dir| candidates(&dir.join(file))))
         .find(|p| p.is_file())
         .ok_or_else(not_found)
 }
