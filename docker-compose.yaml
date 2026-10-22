@@ -2,10 +2,22 @@ services:
   local-s3:
     image: linuxchina/local-s3:native-2.5.0-SNAPSHOT
     ports:
-      - "39090:29090"
+      - "19090:29090"
     environment:
       AWS_BUCKETS: "bucket1,mj-artifacts"
   mqtt:
     image: eclipse-mosquitto:2.1.2-alpine
     ports:
       - "1883:1883"
+  nats:
+    image: nats:2.15.0-alpine
+    ports:
+      - "14222:4222"
+  postgresql:
+    image: postgres:18.4-alpine3.22
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_DB: demo_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
