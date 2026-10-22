@@ -378,7 +378,7 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     let mut builder = HTTP_CLIENT.post(&api_url)
         .header("Authorization", format!("Bearer {}", api_key));
     if api_url.starts_with("https://api.resend.com") {
-        let receivers: Vec<String> = to.split(',').map(|s| s.to_string()).collect();
+        let receivers: Vec<String> = to.split(',').map(|s| s.trim().to_string()).collect();
         let req = ResendRequest {
             from: from.to_string(),
             to: receivers,
