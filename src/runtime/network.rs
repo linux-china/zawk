@@ -279,14 +279,15 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     let port = url.port().unwrap_or(if tls { 8883 } else { 1883 });
     // MQTT 3.1.1 limits client ids to 23 characters
     let client_id = format!("zawk-{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
-    // username + password, or a token (JWT style) as the password only
+    // username + password, or a token (JWT style) as the password only; userinfo is percent-encoded in the URL
+    let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
     let user_name = url.username();
     let credentials = if user_name.is_empty() {
         None
     } else if let Some(password) = url.password() {
-        Some((user_name.to_string(), password.to_string()))
+        Some((decode(user_name), decode(password)))
     } else {
-        Some((String::new(), user_name.to_string()))
+        Some((String::new(), decode(user_name)))
     };
     let is_v5 = !url.query_pairs().any(|(key, version)| key == "version" && version.contains("3.1"));
     let transport = if tls { rumqttc::Transport::tls_with_config(crate::runtime::tls::client_config()?.into()) } else { rumqttc::Transport::tcp() };
