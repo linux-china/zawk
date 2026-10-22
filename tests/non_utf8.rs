@@ -100,7 +100,7 @@ const EXEMPT: &[&str] = &[
     "json_value", "json_query", "json_has", "json_get", "json_set", "json_del", "from_csv", "xml_value", "xml_query", "html_value", "html_query",
     "jwt", "dejwt", "kv_get", "kv_put", "kv_delete", "kv_clear", "http_get", "http_post",
     "send_mail", "send_email", "smtp_send", "s3_get", "s3_put", "publish", "sqlite_query",
-    "sqlite_execute", "libsql_query", "libsql_execute", "pg_query", "pg_execute", "mysql_query",
+    "sqlite_execute", "pg_query", "pg_execute", "mysql_query",
     "mysql_execute", "getenv", "system", "system2", "read_all", "write_all", "read_config",
     "close", "fflush", "log_debug", "log_info", "log_warn", "log_error", "assert",
 ];

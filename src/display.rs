@@ -260,8 +260,6 @@ impl Display for Function {
             LogError => write!(f, "log_error"),
             SqliteQuery => write!(f, "sqlite_query"),
             SqliteExecute => write!(f, "sqlite_execute"),
-            LibsqlQuery => write!(f, "libsql_query"),
-            LibsqlExecute => write!(f, "libsql_execute"),
             MysqlQuery => write!(f, "mysql_query"),
             MysqlExecute => write!(f, "mysql_execute"),
             PgQuery => write!(f, "pg_query"),

@@ -1,5 +1,7 @@
 # Unreleased
 
+* **Behavior change**: remove libSQL support: `libsql_query` and `libsql_execute` and the `libsql` crate are removed; use `sqlite_query`/`sqlite_execute` for local databases
+
 # Version 0.6.3 (2026-10-21)
 
 * Add raw string literals, like Rust's: `r"C:\Program Files\Rust"` is taken verbatim, backslashes are not escapes (no more `"\\d+"` in dynamic regexes: `$0 ~ r"\d+"`). To include `"`, put the same number of `#`s around the quotes: `r#"say "hi""#`, `r##"a"#b"##`. A raw string can span lines. **Behavior change**: `r"..."` (no space) is now a raw string, not the variable `r` concatenated with a string; write `r "..."` for the latter

@@ -578,16 +578,6 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(sql.into()));
                 f(dst.into(), Some(params.into()));
             }
-            LibsqlQuery(dst, db_path, sql, params) => {
-                f(dst.into(), Some(db_path.into()));
-                f(dst.into(), Some(sql.into()));
-                f(dst.into(), Some(params.into()));
-            }
-            LibsqlExecute(dst, db_path, sql, params) => {
-                f(dst.into(), Some(db_path.into()));
-                f(dst.into(), Some(sql.into()));
-                f(dst.into(), Some(params.into()));
-            }
             MysqlQuery(dst, db_url, sql, params) => {
                 f(dst.into(), Some(db_url.into()));
                 f(dst.into(), Some(sql.into()));

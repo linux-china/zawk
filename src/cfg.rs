@@ -3392,7 +3392,6 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // fresh local that `Function::feedback` types as a map; the same for the other
                     // database functions.
                     builtins::Function::SqliteQuery | builtins::Function::SqliteExecute
-                    | builtins::Function::LibsqlQuery | builtins::Function::LibsqlExecute
                     | builtins::Function::MysqlQuery | builtins::Function::MysqlExecute
                     | builtins::Function::PgQuery | builtins::Function::PgExecute
                         if args_len == 2 =>

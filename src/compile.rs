@@ -2741,18 +2741,6 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
             }
-            LibsqlQuery => {
-                if res_reg == UNUSED {
-                    res_reg = self.regs.stats.reg_of_ty(res_ty);
-                }
-                self.pushl(LL::LibsqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
-            }
-            LibsqlExecute => {
-                if res_reg == UNUSED {
-                    res_reg = self.regs.stats.reg_of_ty(res_ty);
-                }
-                self.pushl(LL::LibsqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
-            }
             MysqlQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);

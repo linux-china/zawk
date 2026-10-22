@@ -972,8 +972,8 @@ and untrusted input cannot inject SQL. **Do not build SQL by concatenating field
 }
 ```
 
-Placeholders: `?` or `?1` for SQLite/libSQL, `?` for MySQL, `$1`, `$2`... for PostgreSQL.
-Parameters are passed as text: SQLite/libSQL/MySQL convert them by column type, PostgreSQL converts them
+Placeholders: `?` or `?1` for SQLite, `?` for MySQL, `$1`, `$2`... for PostgreSQL.
+Parameters are passed as text: SQLite/MySQL convert them by column type, PostgreSQL converts them
 to the inferred parameter type (bool, integers, floats, numeric, json, uuid, inet, bytea, date/time types;
 empty value is NULL for non-text types). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
 
@@ -990,16 +990,6 @@ url: `sqlite.db` db path
   `sqlite_query("sqlite.db", "select nick,email,age from user")[1]`
 - `sqlite_execute("sqlite.db", "update users set nick ='demo' where id = 1")`
 - `split("demo,1", p, ","); sqlite_execute("sqlite.db", "update users set nick = ? where id = ?", p)`
-
-### libSQL
-
-libSQL url: `./demo.db`, `http://127.0.0.1:8080` or `libsql://db-name-your-name.turso.io?authToken=xxxx`.
-
-- `libsql_query(url, "select id, email from users")`,
-- `libsql_execute(url,"update users set nick ='demo' where id = 1")`
-
-**Tip**: If you don't want to put `authToken` in url, for example `libsql://db-name-your-name.turso.io`,
-you can set up `LIBSQL_AUTH_TOKEN` environment variable.
 
 ### PostgreSQL
 

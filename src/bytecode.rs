@@ -333,8 +333,6 @@ pub(crate) enum Instr<'a> {
     LogError(Reg<Str<'a>>),
     SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    LibsqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    LibsqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     PgQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
@@ -1023,18 +1021,6 @@ impl<'a> Instr<'a> {
                 params.accum(&mut f);
             }
             SqliteExecute(dst, db_path, sql, params) => {
-                dst.accum(&mut f);
-                db_path.accum(&mut f);
-                sql.accum(&mut f);
-                params.accum(&mut f);
-            }
-            LibsqlQuery(dst, db_path, sql, params) => {
-                dst.accum(&mut f);
-                db_path.accum(&mut f);
-                sql.accum(&mut f);
-                params.accum(&mut f);
-            }
-            LibsqlExecute(dst, db_path, sql, params) => {
                 dst.accum(&mut f);
                 db_path.accum(&mut f);
                 sql.accum(&mut f);

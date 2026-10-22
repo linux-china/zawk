@@ -159,8 +159,6 @@ pub enum Function {
     KvClear,
     SqliteQuery,
     SqliteExecute,
-    LibsqlQuery,
-    LibsqlExecute,
     MysqlQuery,
     MysqlExecute,
     PgQuery,
@@ -489,8 +487,6 @@ static_map!(
     ["kv_clear", Function::KvClear],
     ["sqlite_query", Function::SqliteQuery],
     ["sqlite_execute", Function::SqliteExecute],
-    ["libsql_query", Function::LibsqlQuery],
-    ["libsql_execute", Function::LibsqlExecute],
     ["mysql_query", Function::MysqlQuery],
     ["mysql_execute", Function::MysqlExecute],
     ["pg_query", Function::PgQuery],
@@ -739,7 +735,7 @@ impl Function {
                 ctx.nw.add_dep(map, args[args.len() - 1], Constraint::Flows(()));
             }
             // the positional parameters of the database functions
-            Function::SqliteQuery | Function::SqliteExecute | Function::LibsqlQuery | Function::LibsqlExecute
+            Function::SqliteQuery | Function::SqliteExecute
             | Function::MysqlQuery | Function::MysqlExecute | Function::PgQuery | Function::PgExecute => {
                 let map = ctx.constant(
                     Map {
@@ -1005,8 +1001,8 @@ impl Function {
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             LogDebug | LogInfo | LogWarn | LogError => (smallvec![Str], Null),
-            SqliteQuery | LibsqlQuery | MysqlQuery | PgQuery => (smallvec![Str, Str, MapIntStr], MapIntStr),
-            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => (smallvec![Str, Str, MapIntStr], Int),
+            SqliteQuery | MysqlQuery | PgQuery => (smallvec![Str, Str, MapIntStr], MapIntStr),
+            SqliteExecute | MysqlExecute | PgExecute => (smallvec![Str, Str, MapIntStr], Int),
             Publish => (smallvec![Str, Str], Null),
             FromJson => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
@@ -1205,7 +1201,7 @@ impl Function {
             KvGet | KvDelete => 2,
             KvPut => 3,
             KvClear => 1,
-            SqliteQuery | SqliteExecute | LibsqlQuery | LibsqlExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 3,
+            SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 3,
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
             IsInt | IsNum => 1,
@@ -1375,13 +1371,13 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
-            SqliteQuery | MysqlQuery | LibsqlQuery | PgQuery  => {
+            SqliteQuery | MysqlQuery | PgQuery  => {
                 Ok(Map {
                     key: BaseTy::Int,
                     val: BaseTy::Str,
                 }.abs())
             }
-            SqliteExecute | LibsqlExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
+            SqliteExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
             ToFloat => Ok(Scalar(BaseTy::Float).abs()),
             OfmtStr => Ok(Scalar(BaseTy::Str).abs()),

@@ -1287,20 +1287,6 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(sqlite_execute), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            LibsqlQuery(dst,db_path,sql,params) => {
-                let db_path = self.get_val(db_path.reflect())?;
-                let sql = self.get_val(sql.reflect())?;
-                let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(libsql_query), &mut [db_path, sql, params])?;
-                self.bind_val(dst.reflect(), resv)
-            }
-            LibsqlExecute(dst,db_path,sql,params) => {
-                let db_path = self.get_val(db_path.reflect())?;
-                let sql = self.get_val(sql.reflect())?;
-                let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(libsql_execute), &mut [db_path, sql, params])?;
-                self.bind_val(dst.reflect(), resv)
-            }
             MysqlQuery(dst,db_url,sql,params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;

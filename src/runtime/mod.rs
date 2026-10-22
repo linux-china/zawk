@@ -45,7 +45,6 @@ pub mod decompress;
 pub mod os_util;
 pub mod csv;
 pub mod sqlite;
-pub mod libsql;
 pub mod mysql;
 pub mod postgres;
 pub mod logging;
@@ -59,15 +58,6 @@ pub mod jev_functions;
 
 use crate::pushdown::FieldSet;
 use splitter::regex::RegexSplitter;
-
-/// Shared tokio runtime for blocking on async builtins (s3, libsql, ...),
-/// so per-record calls don't rebuild a runtime each time.
-pub(crate) static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to build tokio runtime")
-});
 
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
