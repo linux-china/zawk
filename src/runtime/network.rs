@@ -123,12 +123,12 @@ fn convert_to_http_headers<'a>(headers: &StrMap<'a, Str<'a>>) -> HeaderMap {
 
 fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     let status = resp.status();
-    resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
     let response_headers = resp.headers();
     for (name, value) in response_headers.into_iter() {
         // header values are not necessarily ASCII
         resp_obj.insert(Str::from(name.to_string()), Str::from(String::from_utf8_lossy(value.as_bytes()).into_owned()));
     }
+    resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
     if let Ok(body) = resp.text() {
         if !body.is_empty() {
             resp_obj.insert(Str::from("text"), Str::from(body.clone()));
