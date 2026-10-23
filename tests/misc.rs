@@ -2233,7 +2233,7 @@ fn extension_functions_reject_invalid_args_without_panic() {
         (r#"BEGIN{print truncate("abcdef", 1, "...")}"#, "a\n"),
         (r#"BEGIN{print truncate("abcdef", 5, "..")}"#, "abc..\n"),
         (r#"BEGIN{print "[" repeat("a", -1) "]"}"#, "[]\n"),
-        (r#"BEGIN{print "[" pad("a", -5, "*") "]"}"#, "[]\n"),
+        (r#"BEGIN{print "[" pad("a", -5, "*") "]"}"#, "[a]\n"),
         (r#"BEGIN{print "[" mkpass(-1) "]"}"#, "[]\n"),
     ];
     for backend_arg in BACKEND_ARGS {

@@ -15,14 +15,14 @@ pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
 }
 
 /// Pad `text` to `len` characters with the first char of `pad` (space if `pad` is empty);
-/// text longer than `len` characters is truncated. Lengths are counted in chars, not bytes; a
+/// text already `len` characters or longer is returned unchanged (use `truncate` to shorten). Lengths are counted in chars, not bytes; a
 /// negative `len` is treated as 0, and one above [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) is an error.
 fn pad_text(func: &str, text: &str, len: Int, pad: &str, alignment: Alignment) -> Result<String> {
     check_result_len(func, "length", len as Float)?;
     let len = len.max(0) as usize;
     let char_count = text.chars().count();
     if char_count >= len {
-        return Ok(text.chars().take(len).collect());
+        return Ok(text.to_string());
     }
     let pad_char = pad.chars().next().unwrap_or(' ');
     let fill = len - char_count;
@@ -607,9 +607,10 @@ mod tests {
 
     #[test]
     fn test_pad_multibyte_and_empty_pad() {
-        assert_eq!(pad_left("你好世界", 2, "*").unwrap(), "你好");
-        assert_eq!(pad_right("你好世界", 3, "*").unwrap(), "你好世");
-        assert_eq!(pad_both("你好世界", 1, "*").unwrap(), "你");
+        assert_eq!(pad_left("你好世界", 2, "*").unwrap(), "你好世界");
+        assert_eq!(pad_right("abcdef", 2, "*").unwrap(), "abcdef");
+        assert_eq!(pad_both("ab", 1, "*").unwrap(), "ab");
+        assert_eq!(pad_right("ab", 5, "xy").unwrap(), "xxxab");
         assert_eq!(pad_left("你好", 4, "*").unwrap(), "你好**");
         assert_eq!(pad_right("你好", 4, "中").unwrap(), "中中你好");
         assert_eq!(pad_both("ab", 5, "*").unwrap(), "**ab*");

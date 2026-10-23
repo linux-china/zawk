@@ -231,7 +231,9 @@ Most libraries include these functions, and I don't want AWK stdlib weird.
 ### pad
 
 - pad:  `pad($1, 10, "*")` to `***hello**`, `pad_start($1, 10, "*")` to `***hello`, `pad_end($1, 10, "**")`
-  to `hello***`,
+  to `hello***`
+- Only the first char of fill is used: `pad_start("ab", 5, "xy")` to `xxxab`.
+- Text already `len` characters or longer is returned unchanged, e.g. `pad_start("abcdef", 2)` to `abcdef`; use `truncate()` to shorten.
 
 ### strcmp:
 

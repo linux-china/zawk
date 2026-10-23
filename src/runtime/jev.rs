@@ -685,6 +685,7 @@ impl TypeSafeClient {
     }
 
     fn build(key: Option<String>) -> Result<Self, TypeSafeError> {
+        crate::runtime::tls::install_default_provider();
         let client = Client::builder().build()?;
         Ok(Self {
             key,
