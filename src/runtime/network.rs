@@ -395,7 +395,9 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
         };
         builder = builder.json(&req);
     } else {
-        let receivers = to.split(',').map(|email| MailAddress::new(email)).collect();
+        let receivers = to.split(',')
+            .filter(|s| !s.trim().is_empty())
+            .map(|email| MailAddress::new(email.trim())).collect();
         let req = MailerSendRequest {
             from: MailAddress::new(from),
             to: receivers,
