@@ -7,6 +7,22 @@ use crate::runtime::{stdlib_warning, CostModel, Int, Str, StrLru, StrMap, IntMap
 use crate::runtime::str_escape::escape_json;
 
 
+/// Encode int-keyed entries: a JSON array when the keys are exactly `1..n` (or empty),
+/// otherwise a JSON object with keys in numeric order, so `from_json` keeps the keys.
+fn int_entries_to_json<T: miniserde::Serialize>(mut entries: Vec<(Int, T)>) -> String {
+    entries.sort_by_key(|(key, _)| *key);
+    let is_list = entries.iter().enumerate().all(|(i, (key, _))| *key == i as Int + 1);
+    if is_list {
+        let items: Vec<T> = entries.into_iter().map(|(_, value)| value).collect();
+        return json::to_string(&items);
+    }
+    let fields: Vec<String> = entries
+        .iter()
+        .map(|(key, value)| format!("\"{}\":{}", key, json::to_string(value)))
+        .collect();
+    format!("{{{}}}", fields.join(","))
+}
+
 pub(crate) fn map_int_int_to_json(arr: &IntMap<Int>) -> String {
     let mut entries: Vec<(Int, Int)> = vec![];
     arr.iter(|map| {
@@ -14,9 +30,7 @@ pub(crate) fn map_int_int_to_json(arr: &IntMap<Int>) -> String {
             entries.push((*key, *value));
         }
     });
-    entries.sort_by_key(|(key, _)| *key);
-    let items: Vec<Int> = entries.into_iter().map(|(_, value)| value).collect();
-    json::to_string(&items)
+    int_entries_to_json(entries)
 }
 
 pub(crate) fn map_int_float_to_json(arr: &IntMap<Float>) -> String {
@@ -26,9 +40,7 @@ pub(crate) fn map_int_float_to_json(arr: &IntMap<Float>) -> String {
             entries.push((*key, *value));
         }
     });
-    entries.sort_by_key(|(key, _)| *key);
-    let items: Vec<Float> = entries.into_iter().map(|(_, value)| value).collect();
-    json::to_string(&items)
+    int_entries_to_json(entries)
 }
 
 pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
@@ -38,9 +50,7 @@ pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
             entries.push((*key, value.to_string()));
         }
     });
-    entries.sort_by_key(|(key, _)| *key);
-    let items: Vec<String> = entries.into_iter().map(|(_, value)| value).collect();
-    json::to_string(&items)
+    int_entries_to_json(entries)
 }
 
 pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
@@ -276,6 +286,15 @@ mod tests {
         println!("size: {}", json_array.len());
         let text = json::to_string(&json_array);
         println!("{}", text);
+    }
+
+    #[test]
+    fn test_int_entries_to_json() {
+        assert_eq!(int_entries_to_json::<Int>(vec![]), "[]");
+        assert_eq!(int_entries_to_json(vec![(2, 20), (1, 10)]), "[10,20]");
+        assert_eq!(int_entries_to_json(vec![(1, 1), (3, 3)]), r#"{"1":1,"3":3}"#);
+        assert_eq!(int_entries_to_json(vec![(10, 1), (2, 2)]), r#"{"2":2,"10":1}"#);
+        assert_eq!(int_entries_to_json(vec![(0, "a".to_string()), (-1, "b".to_string())]), r#"{"-1":"b","0":"a"}"#);
     }
 
     #[test]

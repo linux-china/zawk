@@ -455,7 +455,15 @@ ID specs:
 
 ### uniq
 
-`uniq(arr)`: IntMap<Str> -> IntMap<Str>, `uniq` command compatible
+Unique values of arr, indexed from 1:
+
+`uniq(arr[, how])`: IntMap<Str> -> IntMap<Str>
+
+- `how` is `""` or `"asc"` (default): sorted as `asort()` sorts them, numeric-looking values first in numeric order, then the other strings in string order
+- `"desc"`: the reverse of the default order
+- `"keep"`: the order in which values first appear (by ascending index)
+
+Example: `split("b 10 a b 9", arr); u = uniq(arr)` gives `9 10 a b`; `uniq(arr, "keep")` gives `b 10 a 9`.
 
 ### asort
 
@@ -657,7 +665,7 @@ units: `sec, secs`, `min, minute, minutes`, `hour, h`, `day, d`, `week, wk`, `mo
 
 Convert between hex and rgb.
 
-- `hex2rgb("#FF0000") # [255,0,0]`: result is array `[r,g,b]`
+- `hex2rgb("#FF0000") # [255,0,0]`: result is array `[r,g,b]`. `#rgb`/`#rgba` shorthand is expanded (`#fff` → `[255,255,255]`), alpha of `#rgba`/`#rrggbbaa` is ignored, other lengths give a warning and an empty array
 - `rgb2hex(255,0,0) # #FF0000`
 
 # Fake
@@ -702,8 +710,9 @@ Strings are decoded, `true`/`false` become `1`/`0`, `null` becomes `""`, nested 
 
 ### to_json
 
-`to_json(array)`: arrays with integer keys become JSON arrays (ordered by key), other arrays become JSON objects
-with keys sorted, so the output is stable across runs. Empty values are kept. Values follow the array's inferred type:
+`to_json(array)`: arrays whose keys are exactly the integers `1..n` become JSON arrays (ordered by key), other arrays
+become JSON objects with keys sorted (integer keys in numeric order), so the output is stable across runs and
+`from_json` reads the same keys back, e.g. `b[1]=1; b[3]=3` → `{"1":1,"3":3}`. Empty values are kept. Values follow the array's inferred type:
 a string-valued array (e.g. `a["n"]=1; a["s"]="x"`) encodes every value as a JSON string (`{"n":"1","s":"x"}`).
 
 ### json_value

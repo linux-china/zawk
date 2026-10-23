@@ -373,20 +373,37 @@ pub(crate) fn is_str_num(text: &str) -> bool {
     }
 }
 
-pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, _param: &str) -> IntMap<Str<'a>> {
-    //todo uniq implement logic with param
-    let mut items: Vec<String> = vec![];
-    let mut keys = obj.to_vec().clone();
-    keys.sort();
-    for index in keys {
-        items.push(obj.get(&index).to_string());
+/// `uniq(arr[, how])`: the distinct values of `arr`, indexed from 1. By default (`how` is `""` or
+/// `"asc"`) they are sorted as `asort()` sorts them: numeric-looking values first in numeric
+/// order, then the other strings in string order. `"desc"` reverses that order, and `"keep"`
+/// keeps the order in which values first appear (by ascending index).
+pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
+    let mut keys = obj.to_vec();
+    keys.sort_unstable();
+    let mut seen = hashbrown::HashSet::new();
+    let mut items: Vec<Str<'a>> = Vec::with_capacity(keys.len());
+    for key in keys {
+        let item = obj.get(&key);
+        if seen.insert(item.clone()) {
+            items.push(item);
+        }
     }
-    items.dedup();
+    match how {
+        "keep" => {}
+        "" | "asc" | "desc" => {
+            Str::asort_sort(&mut items, true);
+            if how == "desc" {
+                items.reverse();
+            }
+        }
+        _ => {
+            stdlib_warning("uniq", format!("unknown order {:?}, expected \"asc\", \"desc\" or \"keep\"", how));
+            Str::asort_sort(&mut items, true);
+        }
+    }
     let result: IntMap<Str> = IntMap::default();
-    let mut index: i64 = 1;
-    for item in items {
-        result.insert(index, Str::from(item));
-        index = index + 1;
+    for (i, item) in items.into_iter().enumerate() {
+        result.insert(i as Int + 1, item);
     }
     result
 }
@@ -582,7 +599,6 @@ pub fn to_bytes(text: &str) -> i64 {
     (size * UNIT.powi(index as i32)) as i64
 }
 
-#[allow(unused_assignments)]
 pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
     let result: IntMap<Int> = IntMap::default();
     // convert hex str to decimal
@@ -591,23 +607,19 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
         stdlib_warning("hex2rgb", format!("invalid hex color {:?}", text));
         return result;
     }
-    let text_len = hex_text.len();
-    let mut red = 0;
-    let mut green = 0;
-    let mut blue = 0;
-    if text_len < 6 {
-        let hex_text = format!("{:0<6}", hex_text);
-        red = i64::from_str_radix(&hex_text[0..2], 16).unwrap_or(0);
-        green = i64::from_str_radix(&hex_text[2..4], 16).unwrap_or(0);
-        blue = i64::from_str_radix(&hex_text[4..6], 16).unwrap_or(0);
-    } else {
-        red = i64::from_str_radix(&hex_text[0..2], 16).unwrap_or(0);
-        green = i64::from_str_radix(&hex_text[2..4], 16).unwrap_or(0);
-        blue = i64::from_str_radix(&hex_text[4..6], 16).unwrap_or(0);
+    // #rgb / #rgba shorthand: repeat each digit once; #rrggbb / #rrggbbaa as is; alpha is ignored
+    let hex_text = match hex_text.len() {
+        3 | 4 => hex_text.chars().flat_map(|c| [c, c]).collect::<String>(),
+        6 | 8 => hex_text.to_string(),
+        _ => {
+            stdlib_warning("hex2rgb", format!("invalid hex color {:?}, expected 3, 4, 6 or 8 hex digits", text));
+            return result;
+        }
+    };
+    for (i, key) in (1..=3).enumerate() {
+        let value = i64::from_str_radix(&hex_text[i * 2..i * 2 + 2], 16).unwrap_or(0);
+        result.insert(key, value);
     }
-    result.insert(1, red);
-    result.insert(2, green);
-    result.insert(3, blue);
     result
 }
 
@@ -866,9 +878,34 @@ mod tests {
 
     #[test]
     fn test_hex2rgb() {
-        let text = "#FFaa5";
-        let rgb = hex2rgb(text);
-        println!("{:?}", rgb);
+        let rgb_of = |text: &str| {
+            let rgb = hex2rgb(text);
+            (1..=3).map(|i| rgb.get(&i)).collect::<Vec<_>>()
+        };
+        assert_eq!(rgb_of("#FFaa55"), vec![255, 170, 85]);
+        assert_eq!(rgb_of("#fff"), vec![255, 255, 255]);
+        assert_eq!(rgb_of("f0a"), vec![255, 0, 170]);
+        assert_eq!(rgb_of("#f0a8"), vec![255, 0, 170]);
+        assert_eq!(rgb_of("#FF000080"), vec![255, 0, 0]);
+        assert_eq!(hex2rgb("#FFaa5").len(), 0);
+        assert_eq!(hex2rgb("#").len(), 0);
+        assert_eq!(hex2rgb("#FFaa5566a").len(), 0);
+    }
+
+    #[test]
+    fn test_uniq() {
+        let arr: IntMap<Str> = IntMap::default();
+        for (i, v) in ["b", "10", "a", "b", "9", "10"].iter().enumerate() {
+            arr.insert(i as Int + 1, Str::from(*v));
+        }
+        let values = |how: &str| {
+            let u = uniq(&arr, how);
+            (1..=u.len() as Int).map(|i| u.get(&i).to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(values(""), ["9", "10", "a", "b"]);
+        assert_eq!(values("asc"), ["9", "10", "a", "b"]);
+        assert_eq!(values("desc"), ["b", "a", "10", "9"]);
+        assert_eq!(values("keep"), ["b", "10", "a", "9"]);
     }
     #[test]
     fn test_rgb2hex() {

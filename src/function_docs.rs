@@ -213,7 +213,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("seq", ARRAY, "seq(a: num[, b: num[, c: num]]) -> map[int]float",
       "Number sequence like the seq command: seq(end) from 0, seq(start, end), seq(start, step, end).",
       "seq(1, 2, 9)"),
-    d("uniq", ARRAY, "uniq(arr: map[int]str) -> map[int]str", "Sorted unique values of arr.",
+    d("uniq", ARRAY, "uniq(arr: map[int]str, how?: str) -> map[int]str", "Unique values of arr, indexed from 1: sorted like asort() by default (or \"asc\"), reversed with \"desc\", in first-appearance order with \"keep\".",
       r#"split("b a b", arr); u = uniq(arr)"#),
     d("asort", ARRAY, "asort(src: array[, dest: array[, how: str]]) -> int",
       "Sort the values of src into dest (default in place) indexed from 1, in the order how (a predefined PROCINFO[\"sorted_in\"] order such as \"@val_num_desc\"; default: numbers before strings, ascending); returns the length.",
