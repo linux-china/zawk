@@ -910,8 +910,9 @@ you can ignore headers if not required.
 response array:
 
 - status: such as `200`,`404`. `0` means network error.
-- text: response as text
-- HTTP header names: response headers, such as `Content-Type`
+- text: response as text, `""` for an empty body
+- HTTP header names: response headers in lower case, such as `content-type`. The values of a repeated header
+  are joined with `, `, and with `\n` for `set-cookie`. A response header named `status` or `text` is overridden.
 
 **Attention**: If body is json text that starts with `{` or `[` and ends with `{` or `[`,
 and `Content-Type = application/json` will be added as HTTP header by default.
