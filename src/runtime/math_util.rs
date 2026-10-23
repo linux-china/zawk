@@ -238,22 +238,29 @@ pub(crate) fn mkbool(text: &str) -> i64 {
 }
 
 /// The array `[start, start + step, ...]` of the numbers up to `end`; empty if `start > end`. A
-/// non-positive step (which would never reach `end`) or more than
-/// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) elements is an error.
+/// non-positive step (which would never reach `end`), a step too small to change `start`, or more
+/// than [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) elements is an error.
+///
+/// The element count is computed up front, with a small tolerance so that rounding in
+/// `(end - start) / step` does not drop the end point (`seq(0, 0.1, 0.3)` has 4 elements), and
+/// element `i` is `start + i * step` rather than a running sum, so errors do not accumulate. An
+/// element that rounding pushes just past `end` is clamped to `end`.
 pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Result<IntMap<Float>> {
-    if start <= end {
-        if !(step > 0.0) {
-            return err!("seq: step {} must be positive", step);
-        }
-        crate::runtime::check_result_len("seq", "element count", ((end - start) / step).floor() + 1.0)?;
-    }
     let result: IntMap<Float> = IntMap::default();
-    let mut ir = start;
-    let mut index = 1;
-    while ir <= end {
-        result.insert(index, ir);
-        ir += step;
-        index += 1;
+    if !(start <= end) {
+        return Ok(result);
+    }
+    if !(step > 0.0) {
+        return err!("seq: step {} must be positive", step);
+    }
+    let q = (end - start) / step;
+    let count = (q + 1e-9 + q.abs() * 4.0 * Float::EPSILON).floor() + 1.0;
+    crate::runtime::check_result_len("seq", "element count", count)?;
+    if count > 1.0 && start + step == start {
+        return err!("seq: step {} is too small to change start {}", step, start);
+    }
+    for i in 0..count as Int {
+        result.insert(i + 1, (start + i as Float * step).min(end));
     }
     Ok(result)
 }

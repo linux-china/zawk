@@ -2576,6 +2576,16 @@ fn stdlib_result_size_limits() {
     assert_fatal(r#"BEGIN { x = pad("a", 1e12, "*") }"#, "pad: length");
     assert_fatal(r#"BEGIN { a = seq(1, 1, 1e12) }"#, "seq: element count 1000000000000 is too large");
     assert_fatal(r#"BEGIN { a = seq(1, 0, 10) }"#, "seq: step 0 must be positive");
+    assert_fatal(r#"BEGIN { a = seq(1e17, 1, 1e17+10) }"#, "seq: step 1 is too small to change start");
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"BEGIN { a = seq(0, 0.1, 0.3); b = seq(0, 0.1, 1); c = seq(1e308, 1e308); printf "%d %.17g %d %.17g %d\n", length(a), a[4], length(b), b[11], length(c) }"#)
+            .assert()
+            .success()
+            .stdout("4 0.29999999999999999 11 1 1\n");
+    }
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
