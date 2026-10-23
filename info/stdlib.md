@@ -606,7 +606,7 @@ Please refer https://github.com/printfn/fend for more.
 
 the return value is `0` or `1` for `mkbool(s)`.
 
-**hint**: `false`, `no`, `n`, `𐄂`, `0` returns 0.
+**hint**: `false`, `no`, `n`, `𐄂`, `off`, `0` returns 0.
 
 examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`,
 `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,
