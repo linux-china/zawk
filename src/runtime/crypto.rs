@@ -20,36 +20,27 @@ type Aes256CbcEnc = cbc::Encryptor<aes::Aes256Enc>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128Dec>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256Dec>;
 
-/// Message Digest with md5, sha256, sha512
+/// Message Digest with md5, sha256, sha384, sha512, blake3, crc32, adler32, murmur3, xxh32, xxh64 and bcrypt.
+/// Algorithm names are case-insensitive (`sha256`, `SHA-256`).
+/// Returns an empty string (with a warning) for an unsupported algorithm.
 pub fn digest(algorithm: &str, text: &[u8]) -> String {
-    if algorithm == "md5" || algorithm == "md-5" {
-        return format!("{:x}", md5::compute(text));
-    } else if algorithm == "adler32" {
-        return adler::adler32(BufReader::new(text)).unwrap().to_string();
-    } else if algorithm == "crc32" {
-        return crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text).to_string();
-    } else if algorithm == "blake3" {
-        return blake3::hash(text).to_string();
-    } else if algorithm == "sha256" || algorithm == "sha-256" {
-        let mut hasher = Sha256::default();
-        hasher.update(text);
-        return hex::encode(hasher.finalize());
-    } else if algorithm == "sha512" || algorithm == "sha-512" {
-        let mut hasher = Sha512::default();
-        hasher.update(text);
-        return hex::encode(hasher.finalize());
-    } else if algorithm == "bcrypt" {
-        return bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default();
-    } else if algorithm == "murmur3" {
-        let hashcode = murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap();
-        return hashcode.to_string();
-    } else if algorithm == "xxh32" {
-        return xxhash_rust::xxh32::xxh32(text, 0).to_string();
-    } else if algorithm == "xxh64" {
-        return xxhash_rust::xxh64::xxh64(text, 0).to_string();
+    match algorithm.to_ascii_lowercase().as_str() {
+        "md5" | "md-5" => format!("{:x}", md5::compute(text)),
+        "adler32" => adler::adler32(BufReader::new(text)).unwrap().to_string(),
+        "crc32" => crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text).to_string(),
+        "blake3" => blake3::hash(text).to_string(),
+        "sha256" | "sha-256" => hex::encode(Sha256::digest(text)),
+        "sha384" | "sha-384" => hex::encode(Sha384::digest(text)),
+        "sha512" | "sha-512" => hex::encode(Sha512::digest(text)),
+        "bcrypt" => bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default(),
+        "murmur3" => murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap().to_string(),
+        "xxh32" => xxhash_rust::xxh32::xxh32(text, 0).to_string(),
+        "xxh64" => xxhash_rust::xxh64::xxh64(text, 0).to_string(),
+        _ => {
+            stdlib_warning("digest", format!("unsupported algorithm {:?}", algorithm));
+            String::new()
+        }
     }
-    crate::runtime::stdlib_warning("digest", format!("unsupported algorithm {:?}", algorithm));
-    String::new()
 }
 
 /// HMAC(Hash-based message authentication code) with HmacSHA256, HmacSHA384 and HmacSHA512.
@@ -563,6 +554,19 @@ mod tests {
     fn test_sha_256() {
         let digest_message = digest("sha256", b"hello");
         println!("{}", digest_message);
+    }
+
+    #[test]
+    fn test_digest_case_insensitive() {
+        let sha256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        assert_eq!(digest("sha256", b"hello"), sha256);
+        assert_eq!(digest("SHA256", b"hello"), sha256);
+        assert_eq!(digest("SHA-256", b"hello"), sha256);
+        let sha384 = "59e1748777448c69de6b800d7a33bbfb9ff1b463e44354c3553bcdb9c666fa90125a3c79f90397bdf5f6a13de828684f";
+        assert_eq!(digest("sha384", b"hello"), sha384);
+        assert_eq!(digest("SHA-384", b"hello"), sha384);
+        assert_eq!(digest("MD5", b"hello"), "5d41402abc4b2a76b9719d911017c592");
+        assert_eq!(digest("unknown", b"hello"), "");
     }
 
     #[test]

@@ -3744,3 +3744,34 @@ fn output_format_ignores_ofs_ors() {
         }
     }
 }
+
+#[test]
+fn invalid_constant_regex_in_unreachable_code() {
+    let cases: &[(&str, &str)] = &[
+        (r#"BEGIN{print "x"; if (0) { print "(a" ~ "(a" } else print "fine"}"#, "x\nfine\n"),
+        (
+            r#"function f(){ return "(a" ~ "(a" } BEGIN{print "x"; if (ARGC > 5) print f(); print "ok"}"#,
+            "x\nok\n",
+        ),
+        (r#"BEGIN{s="x"; if (0) { sub("(a", "b", s); gsub("[", "b", s) } print s}"#, "x\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, out) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(*prog)
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+        // Still a fatal error once the pattern is actually used.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"BEGIN{print "x"; print "(a" ~ "(a"}"#)
+            .assert()
+            .failure()
+            .stdout("x\n");
+    }
+}

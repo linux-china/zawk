@@ -3,7 +3,7 @@ use crate::bytecode;
 use crate::cfg::{self, is_unused, Function, Ident, PrimExpr, PrimStmt, PrimVal, ProgramContext};
 use crate::codegen;
 use crate::common::{
-    CancelSignal, CompileError, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList,
+    CancelSignal, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList,
 };
 use crate::cross_stage;
 use crate::input_taint::TaintedStringAnalysis;
@@ -871,7 +871,6 @@ impl<'a> Typer<'a> {
                     }
                     let inst = &self.frames[frame].cfg.node_weight(NodeIx::new(bb)).unwrap().insts
                         [stmt];
-                    let is_match = matches!(inst, Either::Left(LL::IsMatch(..) | LL::Match(..)));
                     // split() treats an empty separator, " " and single characters specially
                     // rather than as regexes (see `RegexCache::split_internal`).
                     let is_split = matches!(
@@ -882,23 +881,18 @@ impl<'a> Typer<'a> {
                                 | LL::SplitSeps { patsplit: false, .. }
                         )
                     );
-                    let text = match std::str::from_utf8(&strs[0]) {
-                        Ok(text) => text,
-                        Err(e) if is_match => {
-                            return Err(CompileError::new(format!(
-                                "regex patterns must be valid UTF-8: {}",
-                                e
-                            )));
-                        }
-                        // Leave these to the runtime, which reports errors when it runs them.
-                        Err(_) => continue,
+                    // Invalid patterns are left to the runtime, which reports errors only if
+                    // the instruction actually executes (it may be in unreachable code).
+                    let Ok(text) = std::str::from_utf8(&strs[0]) else {
+                        continue;
                     };
                     if is_split && text.chars().count() <= 1 {
                         continue;
                     }
-                    let re = Arc::new(runtime::awk_regex::compile(text).map_err(|err| {
-                        CompileError::new(runtime::awk_regex::compile_error(text, &err))
-                    })?);
+                    let Ok(re) = runtime::awk_regex::compile(text) else {
+                        continue;
+                    };
+                    let re = Arc::new(re);
                     // extract_anchored_literal parses the pattern in the syntax of `regex`.
                     // It compiled above, so it translates.
                     let text = runtime::awk_regex::translate(text).unwrap();

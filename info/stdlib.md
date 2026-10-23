@@ -799,6 +799,7 @@ Algorithms:
 
 - `md5`
 - `sha256`,
+- `sha384`,
 - `sha512`,
 - `bcrypt`,
 - `murmur3`,
@@ -806,6 +807,8 @@ Algorithms:
 - `blake3`
 - `crc32`: checksum
 - `adler32`: checksum
+
+Algorithm names are case-insensitive (`SHA256`, `sha-256`). Unsupported algorithms print a warning and return an empty string.
 
 ### crypto
 
