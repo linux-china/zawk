@@ -126,17 +126,25 @@ fn convert_to_http_headers<'a>(headers: &StrMap<'a, Str<'a>>) -> HeaderMap {
 
 fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
     let status = resp.status();
-    let response_headers = resp.headers();
-    for (name, value) in response_headers.into_iter() {
-        // header values are not necessarily ASCII
-        resp_obj.insert(Str::from(name.to_string()), Str::from(String::from_utf8_lossy(value.as_bytes()).into_owned()));
+    for (name, value) in merge_headers(resp.headers()) {
+        resp_obj.insert(Str::from(name), Str::from(value));
     }
+    // set after the headers, and even for an empty body, so a header named `status`/`text` cannot take their place
     resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
-    if let Ok(body) = resp.text() {
-        if !body.is_empty() {
-            resp_obj.insert(Str::from("text"), Str::from(body.clone()));
-        }
-    }
+    resp_obj.insert(Str::from("text"), Str::from(resp.text().unwrap_or_default()));
+}
+
+/// Response headers by name: the values of a repeated header are joined with `, `, or with `\n`
+/// for `Set-Cookie`, whose values may contain commas.
+fn merge_headers(headers: &HeaderMap) -> Vec<(String, String)> {
+    headers.keys().map(|name| {
+        let separator = if name == reqwest::header::SET_COOKIE { "\n" } else { ", " };
+        // header values are not necessarily ASCII
+        let values: Vec<String> = headers.get_all(name).iter()
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+            .collect();
+        (name.to_string(), values.join(separator))
+    }).collect()
 }
 
 /// All NATS requests run on this runtime. Its worker thread keeps driving the connections (PING/PONG,
@@ -428,6 +436,20 @@ fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> 
 mod tests {
     use local_ip_address::local_ip;
     use super::*;
+
+    #[test]
+    fn test_merge_headers() {
+        let mut headers = HeaderMap::new();
+        headers.append("set-cookie", "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+        headers.append("set-cookie", "b=2".parse().unwrap());
+        headers.append("vary", "Accept".parse().unwrap());
+        headers.append("vary", "Origin".parse().unwrap());
+        headers.append("content-type", "text/plain".parse().unwrap());
+        let merged: HashMap<String, String> = merge_headers(&headers).into_iter().collect();
+        assert_eq!(merged["set-cookie"], "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nb=2");
+        assert_eq!(merged["vary"], "Accept, Origin");
+        assert_eq!(merged["content-type"], "text/plain");
+    }
 
     #[test]
     fn test_redact_url() {
