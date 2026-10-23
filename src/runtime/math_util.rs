@@ -225,16 +225,16 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
 }
 
 
-const NO: &'static [&'static str] = &["false", "no", "𐄂", "0", "0.0", "0.00", "00.0",
+const NO: &'static [&'static str] = &["false", "no", "n", "𐄂", "0", "0.0", "0.00", "00.0",
     "0x0", "0x00", "0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00", "0B0", "0B00"];
 
 pub(crate) fn mkbool(text: &str) -> i64 {
     let text = text.trim().to_lowercase();
-    return if text.is_empty() || NO.contains(&text.as_str()) {
+    if text.is_empty() || NO.contains(&text.as_str()) {
         0
     } else {
         1
-    };
+    }
 }
 
 /// The array `[start, start + step, ...]` of the numbers up to `end`; empty if `start > end`. A
@@ -555,11 +555,10 @@ pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
 
 pub(crate) fn flags<'a>(text: &str) -> StrMap<'a, Int> {
     let flags_obj: StrMap<Int> = StrMap::default();
-    if text.contains('{') {
-        let text = text.trim();
-        let parts = text[0..text.len() - 1].split(',');
-        for part in parts {
-            flags_obj.insert(Str::from(part.trim().to_string()), 1);
+    let text = text.trim();
+    if let Some(inner) = text.strip_prefix('{').and_then(|t| t.strip_suffix('}')) {
+        for part in inner.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            flags_obj.insert(Str::from(part.to_string()), 1);
         }
     }
     flags_obj
@@ -713,6 +712,18 @@ fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_flags() {
+        let m = flags(" {vip, top20,,} ");
+        assert_eq!(m.len(), 2);
+        assert_eq!(m.get(&Str::from("vip")), 1);
+        assert_eq!(m.get(&Str::from("top20")), 1);
+        assert_eq!(flags("{好,a}").get(&Str::from("好")), 1);
+        assert_eq!(flags("{a,好").len(), 0);
+        assert_eq!(flags("x{a}").len(), 0);
+        assert_eq!(flags("{}").len(), 0);
+    }
 
     #[test]
     fn test_min_max() {
