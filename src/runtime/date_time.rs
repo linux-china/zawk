@@ -261,7 +261,9 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result.insert(Str::from("monthday"), local_now.day() as Int);
     result.insert(Str::from("month"), local_now.month() as Int);
     result.insert(Str::from("year"), local_now.year() as Int);
-    result.insert(Str::from("weekday"), local_now.weekday() as Int);
+    // Sunday is 0, Monday is 1
+    let weekday = local_now.weekday() as Int;
+    result.insert(Str::from("weekday"), weekday);
     result.insert(Str::from("yearday"), local_now.ordinal() as Int);
     result
 }
@@ -386,7 +388,9 @@ mod tests {
             );
         }
         // date time text without offset is parsed as local time
-        assert_eq!(datetime("2021-05-20 10:11:12").get(&Str::from("hour")), 10);
+        let datetime_info = datetime("2021-10-25 10:11:12");
+        assert_eq!(datetime_info.get(&Str::from("hour")), 10);
+        assert_eq!(datetime_info.get(&Str::from("weekday")),0);
     }
 
     #[test]
