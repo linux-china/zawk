@@ -1,6 +1,6 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
@@ -189,13 +189,14 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
     {
         return Some(timestamp.timestamp());
     }
-    if let Ok(date_time) = dateparser::parse_with_timezone(date_time_text, tz) {
+    // date-only text means midnight: dateparser would otherwise fill in the current time
+    if let Ok(date_time) = dateparser::parse_with(date_time_text, tz, NaiveTime::MIN) {
         return Some(date_time.timestamp());
     }
     // fend date format: Thursday, 20 May 2021
     if let Some(space) = date_time_text.find(' ').filter(|_| is_fend_date(date_time_text)) {
         let adjusted_dt_text = &date_time_text[space + 1..];
-        if let Ok(date_time) = dateparser::parse_with_timezone(adjusted_dt_text, tz) {
+        if let Ok(date_time) = dateparser::parse_with(adjusted_dt_text, tz, NaiveTime::MIN) {
             return Some(date_time.timestamp());
         }
     }
@@ -448,6 +449,16 @@ mod tests {
     fn test_datetime() {
         let result = datetime("1575043680");
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_mktime_date_only_is_midnight() {
+        // 2024-01-15 00:00:00 UTC, independent of the time of day the test runs
+        assert_eq!(mktime("2024/01/15", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
+        assert_eq!(mktime("2024-01-15", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
+        assert_eq!(mktime("Monday, 15 January 2024", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
+        assert_eq!(mktime("2024/01/15", false, 8), 1705276800 - 8 * 3600);
+        assert_eq!(datetime2(mktime("2024/01/15", false, MKTIME_LOCAL_TIMEZONE)).get(&Str::from("hour")), 0);
     }
 
     #[test]
