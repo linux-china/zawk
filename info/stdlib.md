@@ -606,7 +606,9 @@ Please refer https://github.com/printfn/fend for more.
 
 the return value is `0` or `1` for `mkbool(s)`.
 
-**hint**: `false`, `no`, `n`, `𐄂`, `off`, `0` returns 0.
+**hint**: the words `false`, `f`, `no`, `n`, `off`, `𐄂` (any case), an empty or blank string, and a string that
+looks like a number equal to zero (`0`, `0.0`, `-0`, `0x0`) return 0; the words `true`, `t`, `yes`, `y`, `on`, `✓`
+and any other string return 1. The same rules apply to `:boolean` columns of `-o jsonl` and `-o parquet`.
 
 examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`,
 `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,

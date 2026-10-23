@@ -939,7 +939,7 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
             }
         },
         JsonType::Boolean => {
-            let truthy = crate::runtime::parquet_writer::parse_bool(cell);
+            let truthy = crate::runtime::math_util::parse_bool(cell);
             out.push_str(if truthy { "true" } else { "false" });
         }
     }

@@ -278,7 +278,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       "Evaluate an arithmetic/boolean expression, with variables from context.", r#"eval("a + 2", ctx)"#),
     d("fend", MATH, "fend(expr: str) -> str", "Evaluate with the fend calculator (units supported).",
       r#"fend("1+2")"#),
-    d("mkbool", MATH, "mkbool(s: str) -> bool", "Parse a boolean: true/yes/y/1/✓ are 1.", r#"mkbool("Yes")"#),
+    d("mkbool", MATH, "mkbool(s: str) -> bool", "Parse a boolean: false/f/no/n/off/𐄂, empty and numeric zero are 0; true/t/yes/y/on/✓ and anything else are 1.", r#"mkbool("Yes")"#),
     // Bitwise
     d("and", BITWISE, "and(a: int, b: int) -> int", "Bitwise and.", "and(6, 3)"),
     d("or", BITWISE, "or(a: int, b: int) -> int", "Bitwise or.", "or(6, 3)"),

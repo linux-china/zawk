@@ -168,7 +168,7 @@ impl Column {
                 true
             }
             (Values::Bool(v), _) => {
-                v.push(parse_bool(&text));
+                v.push(crate::runtime::math_util::parse_bool(&text));
                 true
             }
             _ if text.trim().is_empty() => {
@@ -256,19 +256,6 @@ fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Owned(text) => {
             crate::runtime::str_escape::unescape_tsv(&text).into_owned().into()
         }
-    }
-}
-
-/// The value of a `boolean` cell under `-o jsonl` and `-o parquet`: the words true/t/yes/y/on and
-/// false/f/no/n/off (in any case), and otherwise the truth value of the cell as an input field in
-/// a condition, as in `if ($1)`: false when it is empty or looks like a number equal to zero
-/// (`"0"`, `"0.0"`, `"0x0"`, `" -0 "`), true otherwise (`"2"`, `"abc"`).
-pub(crate) fn parse_bool(s: &str) -> bool {
-    let t = s.trim();
-    match t.to_ascii_lowercase().as_str() {
-        "false" | "f" | "no" | "n" | "off" => false,
-        "true" | "t" | "yes" | "y" | "on" => true,
-        _ => !crate::runtime::compare::str_is_false(t.as_bytes(), true),
     }
 }
 
@@ -634,6 +621,7 @@ mod tests {
 
     #[test]
     fn conversions() {
+        use crate::runtime::math_util::parse_bool;
         assert!(parse_bool("yes") && parse_bool("2") && !parse_bool("0.0") && !parse_bool("FALSE"));
         assert!(!parse_bool("0x0") && !parse_bool(" ") && !parse_bool(" -0 ") && parse_bool("abc"));
         assert_eq!(parse_time("01:00"), Some(3600 * MICROS_PER_SEC));

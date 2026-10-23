@@ -225,16 +225,22 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
 }
 
 
-const NO: &'static [&'static str] = &["false", "off", "no", "n", "𐄂", "0", "0.0", "0.00", "00.0",
-    "0x0", "0x00", "0X0", "0X00", "0o0", "0o00", "0O0", "0O00", "0b0", "0b00", "0B0", "0B00"];
+/// The truth value of a string, shared by `mkbool` and the `boolean` columns of `-o jsonl` and
+/// `-o parquet`: the words true/t/yes/y/on/✓ and false/f/no/n/off/𐄂 (in any case, with surrounding
+/// blanks ignored), and otherwise the truth value of the string as an input field in a condition,
+/// as in `if ($1)`: false when it is empty or looks like a number equal to zero (`"0"`, `"0.0"`,
+/// `"0x0"`, `" -0 "`), true otherwise (`"2"`, `"abc"`).
+pub(crate) fn parse_bool(s: &str) -> bool {
+    let t = s.trim();
+    match t.to_ascii_lowercase().as_str() {
+        "false" | "f" | "no" | "n" | "off" | "𐄂" => false,
+        "true" | "t" | "yes" | "y" | "on" | "✓" => true,
+        _ => !crate::runtime::compare::str_is_false(t.as_bytes(), true),
+    }
+}
 
 pub(crate) fn mkbool(text: &str) -> i64 {
-    let text = text.trim().to_lowercase();
-    if text.is_empty() || NO.contains(&text.as_str()) {
-        0
-    } else {
-        1
-    }
+    parse_bool(text) as i64
 }
 
 /// The array `[start, start + step, ...]` of the numbers up to `end`; empty if `start > end`. A
@@ -758,6 +764,13 @@ mod tests {
         assert_eq!(mkbool("yes"), 1);
         assert_eq!(mkbool(""), 0);
         assert_eq!(mkbool("✓"), 1);
+        assert_eq!(mkbool("𐄂"), 0);
+        for no in ["off", "n", "F", "-0", "0.000", " 0x0 ", "No"] {
+            assert_eq!(mkbool(no), 0, "{no}");
+        }
+        for yes in ["on", "t", "2", "abc", "0o0", "0b0"] {
+            assert_eq!(mkbool(yes), 1, "{yes}");
+        }
     }
 
     #[test]
