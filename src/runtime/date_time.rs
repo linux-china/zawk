@@ -390,6 +390,7 @@ mod tests {
         // date time text without offset is parsed as local time
         let datetime_info = datetime("2021-10-25 10:11:12");
         assert_eq!(datetime_info.get(&Str::from("hour")), 10);
+        // Sunday should be 0
         assert_eq!(datetime_info.get(&Str::from("weekday")),0);
     }
 
