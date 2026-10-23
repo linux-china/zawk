@@ -315,8 +315,8 @@ as `var_dump(semver("1.2.3-alpha.1+zstd.1.5.0"))`.
 `url(url_text)` to parse url and return array with following fields:
 
 - schema
-- user
-- password
+- user: percent-decoded, e.g. `p%40ss` -> `p@ss`
+- password: percent-decoded
 - host
 - port
 - path

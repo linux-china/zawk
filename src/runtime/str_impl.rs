@@ -560,14 +560,16 @@ impl<'a> Str<'a> {
             url_text = url_text.replace("jdbc:", "jdbc+");
         }
         if let Ok(url) = &Url::parse(&url_text) {
+            // userinfo is percent-encoded in the URL, decode it as MQTT/NATS connections do
+            let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
             if url.scheme() != "" {
                 map.insert(Str::from("schema"), Str::from(url.scheme().to_string()));
             }
             if url.username() != "" {
-                map.insert(Str::from("user"), Str::from(url.username().to_string()));
+                map.insert(Str::from("user"), Str::from(decode(url.username())));
             }
             if let Some(password) = url.password() {
-                map.insert(Str::from("password"), Str::from(password.to_string()));
+                map.insert(Str::from("password"), Str::from(decode(password)));
             }
             if let Some(host) = url.host_str() {
                 map.insert(Str::from("host"), Str::from(host.to_string()));
@@ -2196,6 +2198,14 @@ mod tests {
     use super::*;
     use regex::bytes::Regex;
     use crate::runtime::awk_regex::AwkRegex;
+
+    #[test]
+    fn test_url_decodes_userinfo() {
+        let map = Str::from("mqtt://us%20er:p%40ss@localhost:1883/topic").url();
+        assert_eq!(map.get(&Str::from("user")), Str::from("us er"));
+        assert_eq!(map.get(&Str::from("password")), Str::from("p@ss"));
+        assert_eq!(map.get(&Str::from("host")), Str::from("localhost"));
+    }
 
     #[test]
     fn as_text_round_trip() {
