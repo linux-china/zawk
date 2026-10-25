@@ -735,7 +735,7 @@ impl<W: io::Write> TableWriter<W> {
         let text = String::from_utf8_lossy(&buf);
         let records: Vec<Vec<String>> = text
             .lines()
-            .map(|line| line.split('\t').map(String::from).collect())
+            .map(|line| line.split('\t').map(|c| unescape_tsv(c.as_bytes())).collect())
             .collect();
         self.inner.write_all(crate::inspect::boxed_table(records).as_bytes())?;
         if self.summary {
@@ -788,6 +788,23 @@ mod table_tests {
              │ Bob   │   5 │\n\
              │ Carol │     │\n\
              └───────┴─────┘\n"
+        );
+    }
+
+    #[test]
+    fn boxed_table_unescapes_tsv() {
+        let mut out = Vec::new();
+        {
+            let mut w = TableWriter::new(&mut out, false);
+            w.write_all(b"a\nC:\\\\dir\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "┌────────┐\n\
+             │ a      │\n\
+             ├────────┤\n\
+             │ C:\\dir │\n\
+             └────────┘\n"
         );
     }
 }
