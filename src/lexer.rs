@@ -312,15 +312,69 @@ fn regex_lit_end(bs: &[u8]) -> Option<usize> {
 
 /// Whether `match` followed by `bs[lparen..]` (after blanks) starts a `match subject { ... }`
 /// expression rather than a call of the `match` builtin: it is not followed by `(`, or by a
-/// parenthesized subject without a top-level comma and then `{`, as in `match ($2) {`.
+/// parenthesized subject without a top-level comma and then `{`, as in `match ($2) {`, or by a
+/// membership test `(a, b) in arr` and then a `{` block with match arms (`=>`), as in
+/// `match (a, b) in arr { true => ... }`.
 fn is_match_expr(bs: &[u8], lparen: usize) -> bool {
     if bs.get(lparen) != Some(&b'(') {
         return true;
     }
+    let skip_blanks = |mut j: usize| {
+        while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+            j += 1;
+        }
+        j
+    };
     match paren_list_end(bs, lparen) {
-        Some((end, false)) => bs[end + 1..].iter().find(|b| !matches!(b, b' ' | b'\t')) == Some(&b'{'),
-        _ => false,
+        Some((end, false)) => bs.get(skip_blanks(end + 1)) == Some(&b'{'),
+        Some((end, true)) => {
+            // `match(s, re) in arr { ... }` is still a builtin call in a pattern, unless the
+            // block holds match arms.
+            let mut j = skip_blanks(end + 1);
+            if bs.get(j) == Some(&b'!') {
+                j += 1;
+            }
+            if !bs[j..].starts_with(b"in") || bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
+                return false;
+            }
+            j = skip_blanks(j + 2);
+            let id_start = j;
+            while j < bs.len() && is_id_body(bs[j] as char) {
+                j += 1;
+            }
+            j = skip_blanks(j);
+            j > id_start && bs.get(j) == Some(&b'{') && has_match_arm(&bs[j + 1..])
+        }
+        None => false,
     }
+}
+
+/// Whether the block body `bs` (just after its `{`) has a top-level `=>` before its closing `}`.
+fn has_match_arm(bs: &[u8]) -> bool {
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < bs.len() {
+        match bs[i] {
+            b'"' => {
+                i += 1;
+                while i < bs.len() && bs[i] != b'"' {
+                    i += if bs[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'#' => {
+                while i + 1 < bs.len() && bs[i + 1] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'{' | b'(' | b'[' => depth += 1,
+            b'}' if depth == 0 => return false,
+            b'}' | b')' | b']' => depth = depth.saturating_sub(1),
+            b'=' if depth == 0 && bs.get(i + 1) == Some(&b'>') => return true,
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 /// After `print` or `printf`: if `rest` is blanks followed by a parenthesized list with a
@@ -1282,6 +1336,11 @@ and the third"#;
         assert_eq!(toks("length ($1)")[0], CallStart("length"));
         // User-defined and stdlib extension functions still need `(` right after the name.
         assert_eq!(toks("max (x)"), vec![Ident("max"), LParen, Ident("x"), RParen]);
+        // `match (a, b) in arr { ... => ... }` is a match expression; without arms it's a call.
+        assert!(is_match_expr(b"(1, 2) in a { _ => 1 }", 0));
+        assert!(is_match_expr(b"(1, 2) !in a {\n  \"}\" => 1 }", 0));
+        assert!(!is_match_expr(b"($0, \"b\") in arr { print }", 0));
+        assert!(!is_match_expr(b"($0, \"b\")", 0));
         let err = Tokenizer::new("toupper = 1").find_map(|t| t.err()).unwrap();
         assert!(err.desc.contains("toupper"));
     }
