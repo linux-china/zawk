@@ -2543,16 +2543,19 @@ fn deep_recursion() {
             .success()
             .stdout("1000000\n");
     }
-    let output = Command::cargo_bin("zawk")
-        .unwrap()
-        .arg("-Bcranelift")
-        .arg(format!(r#"{} BEGIN {{ print "start"; print rec(100000000) }}"#, rec))
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("function call nesting too deep"), "{}", stderr);
+    // The interpreter keeps its call stack on the heap; it has a depth limit instead.
+    for backend_arg in ["-Bcranelift", "-Binterp"] {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(format!(r#"{} BEGIN {{ print "start"; print rec(100000000) }}"#, rec))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{}", backend_arg);
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("function call nesting too deep"), "{}", stderr);
+    }
 }
 
 #[test]

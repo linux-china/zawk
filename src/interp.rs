@@ -2703,6 +2703,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Push(ty, reg) => self.push_reg(*ty, *reg),
                     Pop(ty, reg) => self.pop_reg(*ty, *reg),
                     Call(func) => {
+                        if self.stack.len() >= MAX_CALL_DEPTH {
+                            return err!("function call nesting too deep");
+                        }
                         self.stack.push((cur_fn, Label(cur + 1)));
                         cur_fn = *func;
                         instrs = &mut self.instrs[*func];
@@ -3073,6 +3076,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         }
     }
 }
+
+/// Maximum nesting of user-defined function calls in the interpreter. Its call stack and
+/// registers live on the heap, so without a limit runaway recursion would exhaust memory instead
+/// of failing like the cranelift backend does (see `check_stack`).
+const MAX_CALL_DEPTH: usize = 1 << 22;
 
 // TODO: Add a pass that does checking of indexes once.
 // That could justify no checking during interpretation.
