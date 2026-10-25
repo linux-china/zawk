@@ -244,10 +244,17 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
             .as_secs() as i64;
         return datetime2(seconds);
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
+        // all-digit text is a Unix timestamp, so "20240115" is not 2024-01-15
         datetime2(timestamp)
     } else {
-        let timestamp = mktime(date_time_text, false, MKTIME_LOCAL_TIMEZONE);
-        datetime2(timestamp)
+        // mktime()'s -1 is also a valid timestamp, so parse here to tell failure apart
+        match mktime_tz(date_time_text, &Local) {
+            Some(timestamp) => datetime2(timestamp),
+            None => {
+                runtime::stdlib_warning("datetime", format!("invalid date time {:?}", date_time_text));
+                runtime::StrMap::default()
+            }
+        }
     }
 }
 
@@ -452,6 +459,12 @@ mod tests {
     fn test_datetime() {
         let result = datetime("1575043680");
         println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_datetime_invalid_text_is_empty() {
+        assert_eq!(datetime("not a date").len(), 0);
+        assert!(datetime("2024-01-15").len() > 0);
     }
 
     #[test]

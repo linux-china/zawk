@@ -1050,7 +1050,12 @@ functions:
 
 ### Date time parse
 
-Parse date time text to array: `datatime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
+Parse date time text to array: `datetime()`, `datetime(1621530000)["year"]`, `datetime("2020-02-02")["year"]`
+
+- no argument or `""`: current time
+- all-digit text is a Unix timestamp: `datetime("20240115")` is 1970-08-23, use `datetime("2024-01-15")` for a date
+- unparsable text returns an empty array, with a warning and `ERRNO` set
+
 datetime text format:
 
 - systemd.time: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html
