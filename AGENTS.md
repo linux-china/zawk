@@ -40,6 +40,7 @@ All configuration are in the `.env`, and you can read it if necessary.
 - mqtt: `mqtt://127.0.0.1:1883/topic1`
 - smtp url: `smtp://127.0.0.1:3535`
 - s3 objects: `s3://mj-artifacts/demo.csv`
+- http testing: use `http://127.0.0.1:18080` httpbin service
 - mysql: `mysql://root:123456@127.0.0.1:3306/test`
 - postgresql: `postgres://postgres:123456@127.0.0.1:15432/demo_db`
 
