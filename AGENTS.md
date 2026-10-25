@@ -33,12 +33,16 @@ Security:
 
 Development environment:
 
+All configuration are in the `.env`, and you can read it if necessary.
+
 - redis: `redis://127.0.0.1:6379`
 - nats: `nats://127.0.0.1:14222/topic1`
 - mqtt: `mqtt://127.0.0.1:1883/topic1`
+- smtp url: `smtp://127.0.0.1:3535`
+- s3 objects: `s3://mj-artifacts/demo.csv`
 - mysql: `mysql://root:123456@127.0.0.1:3306/test`
 - postgresql: `postgres://postgres:123456@127.0.0.1:15432/demo_db`
-- smtp url: `smtp://127.0.0.1:3535`
+
 
 database schema for mysql and postgresql:
 
