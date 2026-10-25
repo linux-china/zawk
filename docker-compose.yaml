@@ -21,3 +21,12 @@ services:
       POSTGRES_DB: demo_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 123456
+  mailtrap-local:
+    image: mailtrap/mailtrap-local:latest
+    ports:
+      - "3535:3535"
+      - "3550:3550"
+  httpbin:
+    image: kennethreitz/httpbin:latest
+    ports:
+      - "18080:80"
