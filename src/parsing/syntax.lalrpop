@@ -305,10 +305,8 @@ BaseStmt: &'a Stmt<'a, 'a, &'a str> = {
 
 LeafStmt: &'a Stmt<'a, 'a, &'a str> = {
     <l:@L> <e: Expr> =>? crate::parsing::expr_stmt(e, l, arena),
-    "delete" <i: IndexBase> =>
-        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Delete), arena.alloc_slice(&[i.0, i.1]))))),
-    "delete" <b: LeafTerm> =>
-        arena.alloc(Stmt::Expr(arena.alloc(Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[b]))))),
+    <l:@L> "delete" <i: IndexBase> =>? crate::parsing::delete(i.0, Some(i.1), l, arena, prog),
+    <l:@L> "delete" <b: LeafTerm> =>? crate::parsing::delete(b, None, l, arena, prog),
     "print" <pa:PrintArgs?> <re:Redirect?> =>
         arena.alloc(Stmt::Print(arena.alloc_slice(pa.unwrap_or_else(Vec::new).as_slice()), re)),
     "print(" "\n"* <pa:(<Args?>)> ")" <re:Redirect?> =>

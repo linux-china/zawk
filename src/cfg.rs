@@ -748,6 +748,8 @@ pub(crate) struct UseLocs {
     pub array: HashMap<NumTy, Loc>,
     /// A call of a builtin, keyed by its name (`builtins::Function::awk_name`).
     pub builtin_calls: HashMap<&'static str, Loc>,
+    /// The first call of each user-defined function, keyed by its id.
+    pub udf_calls: HashMap<NumTy, Loc>,
 }
 
 #[derive(Debug)]
@@ -1437,6 +1439,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     };
                     if let Some(name) = bi.and_then(|bi| bi.awk_name()) {
                         self.ctx.uses.builtin_calls.entry(name).or_insert(loc);
+                    }
+                    if let Either::Left(name) = f {
+                        if let Some(id) = self.func_table.get(&FunctionName::Named(name.clone())) {
+                            self.ctx.uses.udf_calls.entry(*id).or_insert(loc);
+                        }
                     }
                 }
                 for a in args.iter() {

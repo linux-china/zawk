@@ -795,6 +795,14 @@ impl Function {
                 }));
                 ctx.nw.add_dep(is_map, args[0], Constraint::Flows(()));
             }
+            // An untyped argument of `_join` becomes an (empty) array with integer keys.
+            Function::IntMapJoin => {
+                let is_map = ctx.constant(Some(Map {
+                    key: Some(BaseTy::Int),
+                    val: None,
+                }));
+                ctx.nw.add_dep(is_map, args[0], Constraint::Flows(()));
+            }
             Function::Contains => {
                 let arr = args[0];
                 let query = args[1];
@@ -897,15 +905,11 @@ impl Function {
             Binop(Mult) => (smallvec![Float; 2], Float),
             Binop(Plus) | Binop(Minus) | Binop(Mod) => arith_sig(incoming[0], incoming[1]),
             Binop(Pow) | Binop(Div) => (smallvec![Float;2], Float),
-            Contains => match incoming[0] {
+            // A scalar where an array is expected is reported by type inference, which knows
+            // where it comes from.
+            Contains | Delete => match incoming[0] {
                 MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Int], Int),
-                MapStrInt | MapStrStr | MapStrFloat => (smallvec![incoming[0], Str], Int),
-                _ => return err!("invalid input spec for Contains: {:?}", incoming),
-            },
-            Delete => match incoming[0] {
-                MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Int], Int),
-                MapStrInt | MapStrStr | MapStrFloat => (smallvec![incoming[0], Str], Int),
-                _ => return err!("invalid input spec for Delete: {:?}", incoming),
+                _ => (smallvec![if incoming[0].is_array() { incoming[0] } else { MapStrStr }, Str], Int),
             },
             IncMap => {
                 let map = incoming[0];
@@ -922,13 +926,7 @@ impl Function {
                     res,
                 )
             }
-            Clear => {
-                if incoming.len() == 1 && incoming[0].is_array() {
-                    (smallvec![incoming[0]], Int)
-                } else {
-                    return err!("invalid input spec for delete (of a map): {:?}", incoming);
-                }
-            }
+            Clear => (smallvec![if incoming[0].is_array() { incoming[0] } else { MapStrStr }], Int),
             Srand => (smallvec![Int], Int),
             System | HexToInt => (smallvec![Str], Int),
             System2 => (smallvec![Str], MapStrStr),
@@ -1074,7 +1072,11 @@ impl Function {
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
             IsFormat => (smallvec![Str, Str], Int),
-            IntMapJoin => (smallvec![incoming[0], Str], Str),
+            // Only arrays with integer keys can be joined.
+            IntMapJoin => match incoming[0] {
+                MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Str], Str),
+                _ => (smallvec![MapIntStr, Str], Str),
+            },
             // map[int]int and map[int]float have fast paths; any other array is computed by
             // runtime::array_stats (values converted to numbers), as is the mean of map[int]int.
             ArrayMax | ArrayMin | ArraySum | ArrayMean => match incoming[0] {

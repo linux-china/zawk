@@ -1331,6 +1331,11 @@ impl<'a, 'b> View<'a, 'b> {
                 if dst.is_array() && !src.is_array() {
                     return err!("attempt to use a scalar value as an array");
                 }
+                // Normally reported during type inference, e.g. as arrays of different types
+                // passed to the same function parameter.
+                if dst.is_array() && src.is_array() {
+                    return err!("cannot use an array of type {:?} where an array of type {:?} is expected", src, dst);
+                }
                 return err!(
                     "invalid attempt to convert or move dst={:?} src={:?}",
                     dst,
@@ -3212,10 +3217,9 @@ impl<'a, 'b> View<'a, 'b> {
                         }
                         _ => {
                             return err!(
-                                "_join only support IntMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
+                                "_join: argument 1 must be an array with integer keys, got {:?}",
+                                conv_tys[0]
+                            );
                         }
                     }
                 }

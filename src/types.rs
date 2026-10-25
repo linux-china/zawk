@@ -420,6 +420,9 @@ impl Constraint<State> {
                 f.step(&arg_state[..])
             }
             Constraint::CallUDF(nix, args, f) => {
+                if !tc.allow_null_args && args.iter().any(|ix| tc.nw.read(*ix).is_none()) {
+                    return Ok(None);
+                }
                 let ret_ix = tc.get_function(&tc.func_table[*f as usize], args.clone(), *nix);
                 Ok(*tc.nw.read(ret_ix))
             }
@@ -667,6 +670,11 @@ pub(crate) struct TypeContext<'a, 'b> {
     // Names of global variables, for error messages.
     global_names: HashMap<NumTy, &'b str>,
     use_locs: &'a crate::cfg::UseLocs,
+    // Whether a user-defined function may be instantiated for a call with untyped arguments.
+    // Such an instance is shared by every call whose arguments are untyped at the time, which
+    // unifies their types (e.g. arrays with int and str keys), so these calls wait for their
+    // arguments to be typed first; calls whose arguments stay untyped are handled afterwards.
+    allow_null_args: bool,
 }
 
 struct View<'a, 'b, 'c> {
@@ -719,6 +727,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             udf_nodes: Default::default(),
             global_names: pc.global_names(),
             use_locs: pc.use_locs(),
+            allow_null_args: false,
         };
         tc.udf_nodes = (0..pc.funcs.len())
             .map(|_| tc.nw.add_rule(Rule::AlwaysNotify))
@@ -735,12 +744,29 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             tc.get_function(main, /*arg_nodes=*/ Default::default(), main_base);
         }
 
-        if let Err(e) = tc.solve() {
+        let mut res = tc.solve();
+        if res.is_ok() {
+            tc.allow_null_args = true;
+            let calls: Vec<NodeIx> = tc
+                .nw
+                .graph
+                .raw_edges()
+                .iter()
+                .filter(|e| matches!(e.weight.constraint, Constraint::CallUDF(..)))
+                .map(|e| e.target())
+                .collect();
+            for c in calls {
+                tc.nw.wl.insert(c);
+            }
+            res = tc.solve();
+        }
+        if let Err(e) = res {
             // A scalar local used as an array may make another value conflict first.
             tc.check_scalar_locals()?;
             return Err(e);
         }
         tc.check_builtin_args()?;
+        tc.check_udf_array_args()?;
         tc.check_scalar_locals()?;
         tc.check_ssa_kinds()?;
         let mut var_tys = HashMap::new();
@@ -935,17 +961,88 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 tys.push(flatten(concrete(*self.nw.read(*a)))?);
             }
             // Other errors in the signature are reported when the call is compiled.
-            let Ok((expected, _)) = f.type_sig(&tys[..]) else {
+            let Ok((expected, ret)) = f.type_sig(&tys[..]) else {
                 continue;
             };
+            // An array result is not converted either: it must keep the type of the builtin.
+            let res_ty = flatten(concrete(*self.nw.read(edge.target())))?;
+            if ret.is_array() && res_ty.is_array() && ret != res_ty {
+                let name = f.awk_name().unwrap_or("builtin");
+                let msg = format!(
+                    "the array returned by `{}()` has type {}, but it is used as an array of type {} \
+                     (e.g. passed to a function parameter that also receives arrays of another type)",
+                    name,
+                    array_ty_name(ret),
+                    array_ty_name(res_ty),
+                );
+                let err = common::CompileError::new(msg);
+                return Err(match self.use_locs.builtin_calls.get(name) {
+                    Some(loc) => err.with_loc(*loc),
+                    None => err,
+                });
+            }
             for (i, ((arg, ty), exp)) in args.iter().zip(tys.iter()).zip(expected.iter()).enumerate() {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
-                    return Err(self.kind_error(*arg, !ty.is_array()));
+                    let err = self.kind_error(*arg, !ty.is_array());
+                    // E.g. a literal: report the call instead.
+                    let loc = f.awk_name().and_then(|name| self.use_locs.builtin_calls.get(name));
+                    return Err(match (err.1, loc) {
+                        (None, Some(loc)) => err.with_loc(*loc),
+                        _ => err,
+                    });
                 }
                 // Arrays are not converted between key and value types.
                 if ty.is_array() && ty != exp {
                     return Err(self.array_arg_error(f, i, *arg, *ty, *exp));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check that an array passed to a user-defined function has the type of the parameter it is
+    /// passed to: arrays are passed by reference, so they are never converted. This fails when a
+    /// parameter receives arrays of different types (e.g. with int and str keys) from different
+    /// calls whose types could not be told apart.
+    fn check_udf_array_args(&self) -> Result<()> {
+        for edge in self.nw.graph.raw_edges() {
+            let Constraint::CallUDF(_, arg_nodes, f) = &edge.weight.constraint else {
+                continue;
+            };
+            // The instance of the function for the final types of the arguments, as in
+            // `get_function` (missing arguments are null).
+            let func = &self.func_table[*f as usize];
+            let mut args: SmallVec<State> = arg_nodes.iter().map(|ix| *self.nw.read(*ix)).collect();
+            args.resize(func.args.len(), None);
+            if !self.funcs.contains_key(&Args { id: *f, func_id: None, args: args.clone() }) {
+                continue;
+            }
+            for (param, arg) in func.args.iter().zip(args.iter()) {
+                let key = Args {
+                    id: param.id,
+                    func_id: Some(*f),
+                    args: args.clone(),
+                };
+                let Some(ix) = self.env.get(&key) else { continue };
+                let arg_ty = flatten(concrete(*arg))?;
+                let param_ty = flatten(concrete(*self.nw.read(*ix)))?;
+                if !arg_ty.is_array() || !param_ty.is_array() || arg_ty == param_ty {
+                    continue;
+                }
+                let msg = format!(
+                    "parameter `{}` of function `{}` receives arrays of different types ({} and {}); \
+                     zawk requires the arrays passed to a parameter to have the same key and value types, \
+                     e.g. use separate functions, or copy the array into one with string keys",
+                    ast::source_name(&param.name.to_string()),
+                    func.name,
+                    array_ty_name(arg_ty),
+                    array_ty_name(param_ty),
+                );
+                let err = common::CompileError::new(msg);
+                return Err(match self.use_locs.udf_calls.get(f) {
+                    Some(loc) => err.with_loc(*loc),
+                    None => err,
+                });
             }
         }
         Ok(())

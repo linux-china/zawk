@@ -2728,6 +2728,41 @@ fn builtin_variable_and_array_argument_errors_are_located() {
 }
 
 #[test]
+fn udf_array_params_of_different_types() {
+    // Each call gets its own instance of `dump`, even when the arrays come from builtins whose
+    // results are typed only while inferring types.
+    let prog = r#"function dump(arr, k) { for (k in arr) print k } BEGIN { dump(from_json("{\"q\":1}")); dump(lines("a")) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).assert().stdout("q\n1\n");
+    }
+    let prog = r#"function fill(a) { a[1] = "x" } BEGIN { fill(m); for (k in m) print k, m[k] }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).assert().stdout("1 x\n");
+    }
+    // An untyped variable passed to `_join` is an empty array.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(r#"BEGIN { print "[" _join(e) "]" }"#).assert().stdout("[]\n");
+    }
+    assert_fatal("BEGIN { print _join(5) }", "line 1, column 15: attempt to use a scalar value as an array");
+    assert_fatal(
+        r#"BEGIN { x["a"] = 1; print _join(x) }"#,
+        "line 1, column 27: _join: argument 1 must be an array with integer keys",
+    );
+    // A literal used as an array: reported as a syntax error.
+    for (prog, what) in [
+        ("BEGIN { delete 5 }", "`delete`"),
+        ("BEGIN { delete 5[1] }", "`delete`"),
+        ("BEGIN { for (k in 5) print k }", "`for (k in arr)`"),
+    ] {
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{}: {}", prog, stderr);
+        let expected = format!("line 1, column 9: attempt to use a scalar value as an array: {} expects an array", what);
+        assert!(stderr.contains(&expected), "{}: {}", prog, stderr);
+    }
+}
+
+#[test]
 fn functions_subcommand_lists_builtins() {
     let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
     assert!(out.status.success());

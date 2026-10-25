@@ -273,7 +273,42 @@ pub(crate) fn foreach<'a>(
     prog: &Prog<'a, 'a, &'a str>,
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
     check_loop_var(k, loc)?;
+    check_array_operand(arr, "for (k in arr)", loc, prog)?;
     Ok(arena.alloc(Stmt::ForEach(local_name(k, prog), arr, body)))
+}
+
+/// `delete arr`, or `delete arr[key]` when `key` is given.
+pub(crate) fn delete<'a>(
+    arr: &'a Expr<'a, 'a, &'a str>,
+    key: Option<&'a Expr<'a, 'a, &'a str>>,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    check_array_operand(arr, "delete", loc, prog)?;
+    let call = match key {
+        Some(key) => Expr::Call(Either::Right(Function::Delete), arena.alloc_slice(&[arr, key])),
+        None => Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[arr])),
+    };
+    Ok(arena.alloc(Stmt::Expr(arena.alloc(call))))
+}
+
+/// Reject a literal or an operator expression (always a scalar) used as the array of `what`,
+/// located at `arr` if it has a location, otherwise at `loc`.
+fn check_array_operand<'a>(
+    arr: &'a Expr<'a, 'a, &'a str>,
+    what: &str,
+    loc: Loc,
+    prog: &Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, ()> {
+    use Expr::*;
+    match arr {
+        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Unop(..) | Binop(..) | And(..) | Or(..) | Nullish(..) => {
+            let loc = prog.locs.get(&expr_key(arr)).copied().unwrap_or(loc);
+            user_error(loc, format!("attempt to use a scalar value as an array: `{}` expects an array", what))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// `for (i in start..end) body`, or `start..=end` when `inclusive`.
