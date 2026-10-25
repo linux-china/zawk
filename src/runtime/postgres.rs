@@ -440,10 +440,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_query() {
-        let sql = "SELECT name FROM city";
-        let db_url = "postgres://postgres:postgres@localhost/demo";
+        let sql = "SELECT name FROM people";
+        let db_url = "postgres://postgres:123456@127.0.0.1:15432/demo_db";
         let rows = pg_query(db_url, sql, &IntMap::default());
         for key in rows.to_vec() {
             let value = rows.get(&key);
@@ -452,10 +451,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_delete_row() {
-        let sql = "delete from blogs where id = 2";
-        let db_url = "postgresql://postgres:postgres@localhost/demo";
+        let sql = "delete from people where id = 11";
+        let db_url = "postgres://postgres:123456@127.0.0.1:15432/demo_db";
         let _ = pg_execute(db_url, sql, &IntMap::default());
     }
 }

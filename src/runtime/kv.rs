@@ -315,9 +315,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_redis_operations() {
-        let namespace = "redis://localhost:6379/demo1";
+        let namespace = "redis://127.0.0.1:6379/demo1";
         let key = "nick";
         redis_kv::kv_put(namespace, key, "Jackie").unwrap();
         let mut value = redis_kv::kv_get(namespace, key).unwrap();

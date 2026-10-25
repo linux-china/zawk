@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_http_get() {
-        let url = "https://httpbin.org/ip";
+        let url = "http://127.0.0.1:18080/ip";
         let headers: StrMap<Str> = StrMap::default();
         let resp = http_get(url, &headers);
         println!("{}", resp.get(&Str::from("text")));
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_http_post() {
-        let url = "https://httpbin.org/post";
+        let url = "http1://127.0.0.1:18080/post";
         let headers: StrMap<Str> = StrMap::default();
         let body = Str::from(r#"{"status": "ok"}"#);
         let resp = http_post(url, &headers, &body);
@@ -487,21 +487,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_publish_nats() {
-        let url = "nats://localhost:4222/topic1";
+        let url = "nats://127.0.0.1:14222/topic1";
         publish(url, "Hello World!");
     }
 
     #[test]
-    #[ignore]
     fn test_publish_mqtt() {
-        let url = "mqtt://localhost:1883/topic1";
+        let url = "mqtt://127.0.0.1:1883/topic1";
         publish(url, "Hello World!");
     }
 
     #[test]
-    #[ignore]
     fn test_send_email() {
         dotenvy::dotenv().ok();
         let from = "support@trial-3zxk54v3ykzgjy6v.mlsender.net";
@@ -512,10 +509,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_send_smtp() {
         dotenvy::dotenv().ok();
         let smtp_url = env::var("SMTP_URL").unwrap();
+        println!("SMTP_URL: {}", smtp_url);
         let from = "libing.chen@example";
         let to = "linux_china@example.com";
         let subject = "demo.csv processed successfully by zawk";

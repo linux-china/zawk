@@ -130,10 +130,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_query() {
         let sql = "SELECT id, name FROM people";
-        let db_url = "mysql://root:123456@localhost:3306/test";
+        let db_url = "mysql://root:123456@127.0.0.1:3306/test";
         let rows = mysql_query(db_url, sql, &IntMap::default());
         for key in rows.to_vec() {
             let value = rows.get(&key);
@@ -142,10 +141,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_delete_row() {
-        let sql = "delete from people where id ='2'";
-        let db_url = "mysql://root:123456@localhost:3306/test";
+        let sql = "delete from people where id ='11'";
+        let db_url = "mysql://root:123456@127.0.0.1:3306/test";
         let _ = mysql_execute(db_url, sql, &IntMap::default());
     }
 }
