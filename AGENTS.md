@@ -27,6 +27,37 @@ Please ignore the following differences with gawk：
 -  `$$1`, `$++i` not support
 -  `@/re/` 
 
+Security:
+
+- http is allowed 
+
+Development environment:
+
+- redis: `redis://127.0.0.1:6379`
+- nats: `nats://127.0.0.1:14222/topic1`
+- mqtt: `mqtt://127.0.0.1:1883/topic1`
+- mysql: `mysql://root:123456@127.0.0.1:3306/test`
+- postgresql: `postgres://postgres:123456@127.0.0.1:15432/demo_db`
+- smtp url: `smtp://127.0.0.1:3535`
+
+database schema for mysql and postgresql:
+
+```sql
+create table people
+(
+    id   int,
+    name varchar(255),
+    age int
+);
+
+insert into people(id, name, age) values (1, 'Jackie', 48);
+insert into people(id, name, age) values (2, 'Love', 48);
+insert into people(id, name, age) values (3, 'Leo', 24);
+insert into people(id, name, age) values (4, 'Lucas', 10);
+insert into people(id, name, age) values (5, 'Laura', 8);
+insert into people(id, name, age) values (11, 'test', 18);
+```
+
 Notes:
 
 - `Z` is the alias of `target/release/zawk`
