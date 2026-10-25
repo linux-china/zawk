@@ -448,6 +448,13 @@ impl<'a> Stepper<'a> {
         self.line.promote();
     }
 
+    // Whether the record ending at the line end `ix` is empty (or a lone `\r` of a `\r\n`).
+    unsafe fn is_blank_line(&self, bs: &[u8], line_start: usize, ix: usize) -> bool {
+        self.line.len == 0
+            && self.line.fields.is_empty()
+            && (ix == line_start || (ix == line_start + 1 && *bs.get_unchecked(line_start) == b'\r'))
+    }
+
     fn get(&mut self, line_start: usize, j: usize, cur: usize) -> usize {
         self.off.rel.start = cur;
         if self.field_set.get(0) {
@@ -498,7 +505,9 @@ impl<'a> Stepper<'a> {
                                 b'\r' | b'\\' => {}
                                 b'\n' => {
                                     self.prev_ix = ix + 1;
-                                    self.promote_null();
+                                    if !self.is_blank_line(bs, line_start, ix) {
+                                        self.promote_null();
+                                    }
                                     self.st = State::Done;
                                     return self.get(line_start, ix, cur);
                                 }
@@ -523,7 +532,10 @@ impl<'a> Stepper<'a> {
                         }
                         b'\n' => {
                             self.push_past(ix);
-                            self.promote();
+                            // A blank line has no fields (NF == 0), like with the default FS.
+                            if !self.is_blank_line(bs, line_start, ix) {
+                                self.promote();
+                            }
                             self.st = State::Done;
                             return self.get(line_start, ix, cur);
                         }
@@ -2296,6 +2308,13 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
     }
 
     #[test]
+    fn csv_blank_lines_have_no_fields() {
+        let got = csv_read_all("a,b\n\n\r\n\"\"\n,\nc,d\n", 512);
+        let expected: &[&[&str]] = &[&["a", "b"], &[], &[], &[""], &["", ""], &["c", "d"]];
+        assert_eq!(got, expected);
+    }
+
+    #[test]
     fn csv_quotes_inside_fields() {
         // Like gawk: only a quote at the start of a field opens a quoted field, and a quote inside
         // one that is not followed by a quote, a separator or a line end is literal.
@@ -2356,6 +2375,10 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         let expected: Vec<Vec<Str<'static>>> = corpus
             .split(rs as char)
             .map(|line| {
+                // Blank lines have no fields.
+                if line.is_empty() {
+                    return Vec::new();
+                }
                 line.split(fs as char)
                     .map(|x| Str::from(x).unmoor())
                     .collect()
