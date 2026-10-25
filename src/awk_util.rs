@@ -255,7 +255,7 @@ mod tests {
 # @meta default-subcommand
 # @var nick user name
 # @var email user email
-# @env DB_NAME db name
+# @env S3_ENDPOINT s3 endpoint
 
 "#;
         let tags = parse_comment_tags(awk_code);
