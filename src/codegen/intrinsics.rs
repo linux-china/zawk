@@ -226,6 +226,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] kebab_case(str_ref_ty) -> str_ty;
         [ReadOnly] snake_case(str_ref_ty) -> str_ty;
         [ReadOnly] title_case(str_ref_ty) -> str_ty;
+        [ReadOnly] pascal_case(str_ref_ty) -> str_ty;
         [ReadOnly] figlet(str_ref_ty) -> str_ty;
         [ReadOnly] mask(str_ref_ty) -> str_ty;
         [ReadOnly] repeat(str_ref_ty, int_ty) -> str_ty;
@@ -1506,6 +1507,14 @@ pub(crate) unsafe extern "C" fn title_case(text: *mut U128) -> U128 {
     guard_panic(stringify!(title_case), || {
         let text = &*(text as *mut Str);
         let res = text.title_case();
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn pascal_case(text: *mut U128) -> U128 {
+    guard_panic(stringify!(pascal_case), || {
+        let text = &*(text as *mut Str);
+        let res = text.pascal_case();
         mem::transmute::<Str, U128>(res)
     })
 }

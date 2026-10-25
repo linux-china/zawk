@@ -2362,6 +2362,14 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            PascalCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::PascalCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                    ))
+                }
+            }
             Figlet => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Figlet(

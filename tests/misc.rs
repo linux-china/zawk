@@ -359,6 +359,19 @@ fn characters_as_bytes() {
 }
 
 #[test]
+fn pascal_case_has_no_spaces() {
+    let prog = r#"BEGIN { print pascal_case("hello_world"), pascal_case("hello world"), title_case("hello world") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("HelloWorld HelloWorld Hello World\n");
+    }
+}
+
+#[test]
 fn posix_disables_sugar_syntax() {
     Command::cargo_bin("zawk")
         .unwrap()

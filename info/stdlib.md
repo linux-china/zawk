@@ -185,9 +185,15 @@ Trim text with chars with `trim($1, "[]()")`
 
 `snake_case("hello world") # hello_world`
 
-### pascal_case/title_case: Component
+### pascal_case: types/class/component names
+
+`pascal_case("hello_world") # HelloWorld`
+
+### title_case: headlines
 
 `title_case("hello world") # Hello World`
+
+Note: case boundaries also split words, so runs of capitals are split letter by letter: `title_case("hello wORLD") # Hello W O R L D`.
 
 ### isint
 

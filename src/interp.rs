@@ -1661,6 +1661,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dt_text = index(&self.strs, text).title_case();
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
+                    PascalCase(dst, text) => {
+                        let dt_text = index(&self.strs, text).pascal_case();
+                        *index_mut(&mut self.strs, dst) = dt_text;
+                    }
                     Figlet(dst, text) => {
                         let text = index(&self.strs, text);
                         let art_text = runtime::string_util::figlet(&*text.as_str());

@@ -764,6 +764,12 @@ impl<'a> Str<'a> {
         Str::from_text(result)
     }
 
+    pub fn pascal_case<'b>(&self) -> Str<'b> {
+        let src = self.as_text();
+        let result = inflector::cases::pascalcase::to_pascal_case(&src);
+        Str::from_text(result)
+    }
+
     /// Substring of up to `r` chars starting at char `l` (0-based). The result shares the
     /// underlying buffer. Each invalid UTF-8 sequence counts as one char (as in [`Str::len`]) and
     /// is preserved as-is. Non-ASCII scans stop at char `l + r` and resume from the last position
