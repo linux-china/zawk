@@ -186,6 +186,37 @@ lto = true
 opt-level = 3
 codegen-units = 1
 
+[profile.release.package]
+parquet = { opt-level = "s" }
+async-nats = { opt-level = "s" }
+rumqttc = { opt-level = "s" }
+redis = { opt-level = "s" }
+mysql = { opt-level = "s" }
+mysql_common = { opt-level = "s" }
+tokio-postgres = { opt-level = "s" }
+postgres-protocol = { opt-level = "s" }
+opendal-core = { opt-level = "s" }
+opendal-service-s3 = { opt-level = "s" }
+reqsign-core = { opt-level = "s" }
+reqsign-aws-core = { opt-level = "s" }
+reqsign-aws-v4 = { opt-level = "s" }
+quick-xml = { opt-level = "s" }
+lettre = { opt-level = "s" }
+jsonwebtoken = { opt-level = "s" }
+rsa = { opt-level = "s" }
+fend-core = { opt-level = "s" }
+evalexpr = { opt-level = "s" }
+fake = { opt-level = "s" }
+sxd-document = { opt-level = "s" }
+sxd-xpath = { opt-level = "s" }
+tl = { opt-level = "s" }
+pulldown-cmark = { opt-level = "s" }
+notify-rust = { opt-level = "s" }
+figlet-rs = { opt-level = "s" }
+clap_builder = { opt-level = "s" }
+# cc 会读取 cargo 的 OPT_LEVEL，所以 bundled SQLite 的 C 代码也会用 -Os 编译
+libsqlite3-sys = { opt-level = "s" }
+
 # The profile that 'cargo dist' will build with
 [profile.dist]
 inherits = "release"
