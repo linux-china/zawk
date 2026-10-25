@@ -45,7 +45,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("starts_with", "starts_with($0, \"caf\")", Some(b"1")),
     ("ends_with", "ends_with($0, substr($0, 4))", Some(b"1")),
     ("contains", "contains($0, char_at($0, 4))", Some(b"1")),
-    ("mask", "mask($0)", Some(b"*af\xe9x")),
+    ("mask", "mask($0)", Some(b"c***x")),
     ("pad", "pad($0, 7, \"*\")", Some(b"*caf\xe9x*")),
     ("pad_start", "pad_start($0, 7, \"*\")", Some(b"**caf\xe9x")),
     ("pad_end", "pad_end($0, 7, \"*\")", Some(b"caf\xe9x**")),

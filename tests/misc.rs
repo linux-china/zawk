@@ -2228,7 +2228,12 @@ fn gensub_unmatched_and_missing_groups() {
 fn extension_functions_reject_invalid_args_without_panic() {
     let cases = [
         (r#"BEGIN{print mask("é")}"#, "*\n"),
-        (r#"BEGIN{print mask("中文")}"#, "中*\n"),
+        (r#"BEGIN{print mask("中文")}"#, "**\n"),
+        (r#"BEGIN{print mask("1234")}"#, "****\n"),
+        (r#"BEGIN{print mask("secret")}"#, "s****t\n"),
+        (r#"BEGIN{print mask("13800138000")}"#, "13*******00\n"),
+        (r#"BEGIN{print mask("abc@example.com")}"#, "abc*********com\n"),
+        (r#"BEGIN{print mask("中文字符串")}"#, "中***串\n"),
         (r#"BEGIN{print truncate("中文字符串", 4, "..")}"#, "中文..\n"),
         (r#"BEGIN{print truncate("abcdef", 1, "...")}"#, "a\n"),
         (r#"BEGIN{print truncate("abcdef", 5, "..")}"#, "abc..\n"),

@@ -818,29 +818,17 @@ impl<'a> Str<'a> {
     }
 
     /// Mask the middle of the string with `*`. Lengths are counted in chars, not bytes.
+    /// Text of 4 chars or fewer is fully masked; otherwise `len / 4` chars (at most 3) are kept
+    /// at each end, so at least half of the text is always masked.
     pub fn mask<'b>(&self) -> Str<'b> {
         let src = self.as_text();
         let src_len = src.chars().count();
-        if src_len == 0 {
-            return Str::from("".to_string());
-        } else if src_len == 1 {
-            return Str::from("*");
-        } else if src_len <= 3 {
-            let first = src.chars().next().unwrap();
-            let result = format!("{}{}", first, "*".repeat(src_len - 1));
-            return Str::from_text(result);
-        }
-        let mask_len = src_len / 3;
-        let prefix_len = if mask_len > 2 { 2 } else { 0 };
-        let mut result = String::new();
-        // for loop for src with index and char
-        for (i, c) in src.chars().enumerate() {
-            if i < prefix_len || i >= prefix_len + mask_len {
-                result.push(c);
-            } else {
-                result.push('*');
-            }
-        }
+        let keep = if src_len <= 4 { 0 } else { (src_len / 4).min(3) };
+        let result: String = src
+            .chars()
+            .enumerate()
+            .map(|(i, c)| if i < keep || i >= src_len - keep { c } else { '*' })
+            .collect();
         Str::from_text(result)
     }
 

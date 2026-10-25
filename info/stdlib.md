@@ -228,6 +228,10 @@ Most libraries include these functions, and I don't want AWK stdlib weird.
 
 `mask("abc@example.com")`, `mask("186612347")`
 
+- Text of 4 chars or fewer is fully masked: `mask("1234")` to `****`.
+- Otherwise `len / 4` chars (at most 3) are kept at each end, so at least half is masked:
+  `mask("secret")` to `s****t`, `mask("13800138000")` to `13*******00`, `mask("abc@example.com")` to `abc*********com`.
+
 ### pad
 
 - pad:  `pad($1, 10, "*")` to `***hello**`, `pad_start($1, 10, "*")` to `***hello`, `pad_end($1, 10, "**")`
