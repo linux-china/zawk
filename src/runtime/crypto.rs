@@ -27,7 +27,7 @@ pub fn digest(algorithm: &str, text: &[u8]) -> String {
     match algorithm.to_ascii_lowercase().as_str() {
         "md5" | "md-5" => format!("{:x}", md5::compute(text)),
         "adler32" => adler::adler32(BufReader::new(text)).unwrap().to_string(),
-        "crc32" => crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(text).to_string(),
+        "crc32" => crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC).checksum(text).to_string(),
         "blake3" => blake3::hash(text).to_string(),
         "sha256" | "sha-256" => hex::encode(Sha256::digest(text)),
         "sha384" | "sha-384" => hex::encode(Sha384::digest(text)),
@@ -662,8 +662,10 @@ mod tests {
 
     #[test]
     fn test_crc32() {
-        let result = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM).checksum(b"123456789");
-        println!("{}", result);
+        // CRC-32/ISO-HDLC, same as zlib.crc32 / Java CRC32 / MySQL CRC32()
+        assert_eq!(digest("crc32", b"123456789"), "3421780262");
+        assert_eq!(digest("crc32", b"abc"), "891568578");
+        assert_eq!(digest("crc32", b""), "0");
     }
 
     #[test]

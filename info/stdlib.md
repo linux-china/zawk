@@ -824,7 +824,7 @@ Algorithms:
 - `murmur3`,
 - `xxh32` or `xxh64`
 - `blake3`
-- `crc32`: checksum
+- `crc32`: CRC-32/ISO-HDLC checksum, same as zlib/gzip, Python `zlib.crc32`, Java `CRC32`, MySQL `CRC32()`
 - `adler32`: checksum
 
 Algorithm names are case-insensitive (`SHA256`, `sha-256`). Unsupported algorithms print a warning and return an empty string.
