@@ -1,6 +1,6 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike, Utc};
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
@@ -178,10 +178,7 @@ pub fn mktime(date_time_text: &str, utc: bool, timezone: i64) -> i64 {
 fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
     // gawk format first, so that the lenient parsers below cannot misread it
     if let Some(naive) = parse_gawk_date_time(date_time_text) {
-        return tz
-            .from_local_datetime(&naive)
-            .earliest()
-            .map(|dt| dt.timestamp());
+        return local_timestamp(tz, &naive);
     }
     if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone())
         .ok()
@@ -201,6 +198,34 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
         }
     }
     None
+}
+
+/// Unix timestamp of a local date time in `tz`. An ambiguous time (DST fall back) takes the
+/// earlier instant; a nonexistent time (in the DST spring forward gap) uses the UTC offset in
+/// effect before the transition, as C's `mktime` does, e.g. 02:30 EST on the day New York
+/// springs forward.
+fn local_timestamp<Tz: TimeZone>(tz: &Tz, naive: &NaiveDateTime) -> Option<i64> {
+    // The offsets a day before and after bracket any transition, since zones never shift twice
+    // within a day. They are resolved here rather than by `from_local_datetime`, because chrono's
+    // `Local` does not report fall back times as ambiguous and returns the later instant.
+    let offset_at = |days: i64| {
+        let local = naive.checked_add_signed(chrono::TimeDelta::days(days))?;
+        Some(tz.offset_from_local_datetime(&local).earliest()?.fix())
+    };
+    let before = offset_at(-1);
+    let after = offset_at(1);
+    // timestamp of `naive` read with `offset`, if `tz` really has that offset at that instant
+    let valid = |offset: FixedOffset| {
+        let utc = *naive - offset;
+        (tz.offset_from_utc_datetime(&utc).fix() == offset).then(|| utc.and_utc().timestamp())
+    };
+    let candidates = [before, after, tz.offset_from_local_datetime(naive).earliest().map(|o| o.fix())];
+    candidates
+        .into_iter()
+        .flatten()
+        .filter_map(valid)
+        .min()
+        .or_else(|| before.map(|offset| (*naive - offset).and_utc().timestamp()))
 }
 
 /// gawk's `"YYYY MM DD HH MM SS [DST]"`: 6 or 7 integers separated by whitespace. Out-of-range

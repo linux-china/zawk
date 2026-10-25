@@ -3790,3 +3790,23 @@ fn invalid_constant_regex_in_unreachable_code() {
             .stdout("x\n");
     }
 }
+
+#[test]
+fn mktime_dst_gap_and_overlap() {
+    // 02:30 does not exist on 2024-03-10 in New York: use EST (the offset before the jump), as
+    // C's mktime; 01:30 on 2024-11-03 occurs twice: the earlier (EDT) instant
+    let prog = r#"BEGIN {
+        print mktime("2024 3 10 2 30 0"), mktime("2024 3 10 1 30 0"), mktime("2024 3 10 3 30 0")
+        print mktime("2024 11 3 1 30 0")
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("TZ", "America/New_York")
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("1710055800 1710052200 1710055800\n1730611800\n");
+    }
+}
