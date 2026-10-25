@@ -362,3 +362,7 @@ run-parquet-output:
 
 run-include:
   cargo run --package zawk --bin zawk -- --include tests/hello.awk 'BEGIN { print hello("Jackie") }'
+
+run-match:
+  cargo run --package zawk --bin zawk -- 'BEGIN { print match "fatal" { "info" => 1, "error" | "fatal" => 3, 3 => 3, /^W/ => 2, _ => 0 } }'
+  cargo run --package zawk --bin zawk -- 'BEGIN { local level = match "fatal" { "info" => 1, "error" | "fatal" => 3, 3 => 3, /^W/ => 2, _ => 0 };  print level }'
