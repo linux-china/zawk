@@ -88,12 +88,13 @@ pub(crate) fn str_to_json(text: &str) -> String {
 }
 
 pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
-    if json_text.starts_with('[') {
-        return from_json_array(json_text);
+    let new_json_text = json_text.trim();
+    if new_json_text.starts_with('[') {
+        return from_json_array(new_json_text);
     }
     let mut map = crate::runtime::HashMap::default();
-    if !json_text.is_empty() {
-        if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(json_text) {
+    if !new_json_text.is_empty() {
+        if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(new_json_text) {
             for (key, value) in json_obj {
                 match value {
                     Value::Bool(b) => {
