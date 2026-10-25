@@ -1,6 +1,9 @@
 # Unreleased
 
+# Version 0.6.4 (2026-10-25)
+
 * **Behavior change**: remove libSQL support: `libsql_query` and `libsql_execute` and the `libsql` crate are removed; use `sqlite_query`/`sqlite_execute` for local databases
+* Fix some bugs
 
 # Version 0.6.3 (2026-10-21)
 
