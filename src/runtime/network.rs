@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_http_post() {
-        let url = "http1://127.0.0.1:18080/post";
+        let url = "http://127.0.0.1:18080/post";
         let headers: StrMap<Str> = StrMap::default();
         let body = Str::from(r#"{"status": "ok"}"#);
         let resp = http_post(url, &headers, &body);
