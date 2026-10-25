@@ -27,6 +27,8 @@ Features:
 * awk file help support
 * gawk's `switch` statement: `switch ($1) { case 1: ...; break; case /^a/: ...; break; default: ... }`
 * local variable: `{ local a = 0; ... }`
+* `match` expression: `level = match $3 { /^E/ => "error", "warn" | "W" => "warn", /(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok", _ => "info" }`;
+  numbers compare as numbers (`3 => ...` matches `3.0`), `_` is the default, and no match without `_` gives `""`.
 * String interpolation with f-strings: `f"SELECT * FROM {table} WHERE id = {$1}"`. A placeholder is any expression
   (`{NR+1}`, `{toupper($2)}`, `{a[\"k\"]}`), optionally with a Python-style format spec: `{price:.2f}`, `{name:>10}`,
   `{n:05d}`, `{s:*^9}`, `{ratio:.1%}`, `{total:,}`, `{amount:_.2f}`; `{{` and `}}` are literal braces.

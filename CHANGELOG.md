@@ -1,5 +1,7 @@
 # Unreleased
 
+* Add the `match` expression: `match subject { pat => value, ... }` returns the value of the first arm whose pattern matches, e.g. `level = match $2 { "info" => 1, "error" | "fatal" => 3, /^W/ => 2, _ => 0 }`. A pattern is a string, a number or a regex literal, or several joined with `|`; numbers compare as numbers with a strnum subject, as in gawk's `switch` (so `3 => ...` matches `3.0`). `/re/ as m => value` binds the groups of the match to the array `m`, visible only in `value` (`/(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok"`). `_` matches anything and must be the last arm; without it, the value is `""` when nothing matches. The subject is evaluated once; arms are separated by commas or newlines. `match(s, re)` is still the builtin; `match (x) {` starts a match expression
+
 # Version 0.6.4 (2026-10-25)
 
 * Add `@include` support

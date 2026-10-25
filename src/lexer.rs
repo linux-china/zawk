@@ -128,6 +128,10 @@ pub enum Tok<'a> {
     Delete,
     Return,
     Local,
+    // `match subject { pat => value, ... }`; `match` not followed by a call's `(`.
+    MatchKw,
+    // `=>` between the patterns and the value of a `match` arm.
+    FatArrow,
 
     Ident(&'a str),
     StrLit(&'a str),
@@ -231,6 +235,7 @@ keyword_map!(
     [b"?", Tok::QUESTION],
     [b"??", Tok::Nullish],
     [b"??=", Tok::NullishAssign],
+    [b"=>", Tok::FatArrow],
     [b":", Tok::COLON],
     [b"delete", Tok::Delete],
     [b"return", Tok::Return],
@@ -303,6 +308,19 @@ fn regex_lit_end(bs: &[u8]) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// Whether `match` followed by `bs[lparen..]` (after blanks) starts a `match subject { ... }`
+/// expression rather than a call of the `match` builtin: it is not followed by `(`, or by a
+/// parenthesized subject without a top-level comma and then `{`, as in `match ($2) {`.
+fn is_match_expr(bs: &[u8], lparen: usize) -> bool {
+    if bs.get(lparen) != Some(&b'(') {
+        return true;
+    }
+    match paren_list_end(bs, lparen) {
+        Some((end, false)) => bs[end + 1..].iter().find(|b| !matches!(b, b' ' | b'\t')) == Some(&b'{'),
+        _ => false,
+    }
 }
 
 /// After `print` or `printf`: if `rest` is blanks followed by a parenthesized list with a
@@ -1069,7 +1087,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                         } else {
                             new_start
                         };
-                        if lparen < bs.len() && bs[lparen] == b'(' {
+                        if s == "match" && is_match_expr(bs, lparen) {
+                            self.cur = new_start;
+                            self.spanned(ix, self.cur, Tok::MatchKw)
+                        } else if lparen < bs.len() && bs[lparen] == b'(' {
                             self.cur = lparen + 1;
                             self.spanned(ix, self.cur, Tok::CallStart(s))
                         } else if is_builtin && s != "length" {

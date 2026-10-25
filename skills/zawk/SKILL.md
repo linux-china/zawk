@@ -208,6 +208,18 @@ zawk '{ n = cnt[$1] ?? -1 }'              # an array element is not created by ?
 - `-u ?? 5` is `-(u ?? 5)`; `1 + u ?? 5` is `1 + (u ?? 5)`. Parenthesize a compound right side: `u ?? (a + 1)`.
 - A field holding `0` counts as empty and is replaced: for numeric columns use `($3 == "" ? 0 : $3)`.
 
+## Pattern matching: `match`
+
+```shell
+zawk '{ print match $2 { "info" => 1, "error" | "fatal" => 3, 3 => 3, /^W/ => 2, _ => 0 } }'
+zawk '{ print match $NF { /(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok", _ => "-" } }'
+```
+
+- Patterns are string, number or regex literals, joined with `|`; the first matching arm wins.
+- Numbers compare numerically with a field (strnum): `3 =>` matches `3.0`. `_` (last arm) is the default; with no
+  match and no `_` the value is `""`. `/re/ as m` fills the array `m` (`m[0]` whole match, `m[1]` first group).
+- Arms are separated by `,` or newlines. `match(s, re)` is still the builtin function.
+
 ## Syntax extensions
 
 ```shell

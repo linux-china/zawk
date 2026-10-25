@@ -3664,6 +3664,72 @@ fn local_variables() {
 }
 
 #[test]
+fn match_expression() {
+    let input = "x info 20ms\nx 3.0 1500ms\nx Eek 5ms\nx danger W\nx zzz -\n";
+    let cases: &[(&str, &str)] = &[
+        // Strings, numbers (compared as numbers with a strnum subject), regexes and alternatives.
+        (
+            r#"{ local level = match $2 {
+"info"             => 1,
+"warn"             => 2,
+3                  => 3,
+/^E/               => 3,
+"fatal" | "danger" => 4,
+
+_                  => 0
+}
+print level }"#,
+            "1\n3\n3\n4\n0\n",
+        ),
+        // `/re/ as m` binds the groups of the match in the value of the arm.
+        (
+            r#"{ print match $3 { /^W/ => "warn", /(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok", _ => "info" } }"#,
+            "ok\nslow\nok\nwarn\ninfo\n",
+        ),
+        // Without `_`, no match is "". Arms may be separated by newlines.
+        ("{ print \"[\" match $2 {\n  \"info\" => \"I\"\n  /^E/ => \"E\"\n} \"]\" }", "[I]\n[]\n[E]\n[]\n[]\n"),
+        // The subject is evaluated once; a parenthesized subject is not a call of match().
+        ("{ n = 0; r = match (++n) { 2 => \"a\", 1 => \"b\" }; print r, n }", "b 1\nb 1\nb 1\nb 1\nb 1\n"),
+        ("NR == 1 { print match $2 { _ => \"d\" }, match $2 {} \"|\" }", "d |\n"),
+        // `m` is local to its arm, and match() is still the builtin.
+        (
+            r#"NR == 1 { m = "keep"; print match $0 { /(i)nfo/ as m => m[1] }, m, match($0, /info/) }"#,
+            "i keep 3\n",
+        ),
+        // Nested matches, and a match in a pattern and in a recursive function.
+        ("NR <= 2 { print match $2 { \"info\" => match NR { 1 => \"one\" }, _ => \"other\" } }", "one\nother\n"),
+        ("match $2 { /^[0-9]/ => 1 } { print $2 }", "3.0\n"),
+        (
+            r#"function f(s) { return match s { /^d(.*)/ as g => g[1], "" => "-", _ => f(substr(s, 2)) } } NR == 4 { print f("xxdz"), f("xx") }"#,
+            "z -\n",
+        ),
+    ];
+    for (prog, expected) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg(prog)
+                .write_stdin(input)
+                .assert()
+                .stdout(expected.to_string());
+        }
+    }
+    let errors = [
+        ("BEGIN { print match 1 { _ => 1, 2 => 3 } }", "`_' must be the last arm of a match expression"),
+        ("BEGIN { print match 1 { x => 1 } }", "a match pattern is a number, a string, a regex or `_', got `x'"),
+        ("BEGIN { print match 1 { /a/ ass m => 1 } }", "expected `as` after the regex of a match arm, got `ass'"),
+        ("BEGIN { print match 1 { /a/ as NR => 1 } }", "cannot bind the special variable `NR' in a match arm"),
+    ];
+    for (prog, expected) in errors {
+        let out = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        assert!(!out.status.success(), "{}", prog);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(expected), "{}: {}", prog, stderr);
+    }
+}
+
+#[test]
 fn sqlite_positional_params() {
     // values with quotes or SQL in them are bound as data, not spliced into the statement
     let input = "1,O'Brien\n2,x'); drop table u; --\n";

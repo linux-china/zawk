@@ -528,6 +528,8 @@ impl<'a> Display for lexer::Tok<'a> {
             DotDotEq => "..=",
             Delete => "delete",
             Return => "return",
+            MatchKw => "match",
+            FatArrow => "=>",
             Local => "local",
 
             Ident(s) => return write!(fmt, "identifier({})", s),

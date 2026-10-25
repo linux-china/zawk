@@ -194,6 +194,46 @@ CaseValue: &'a Expr<'a,'a,&'a str> = {
     "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
 }
 
+// `match subject { pat => value, ... }`, see `parsing::match_expr`. Arms are separated by commas,
+// semicolons or newlines.
+MatchExpr: &'a Expr<'a,'a,&'a str> = {
+    "match" <s:Expr> "{" MatchSep? "}" =>? crate::parsing::match_expr(s, Vec::new(), arena, prog),
+    "match" <s:Expr> "{" MatchSep? <arms:MatchArms> MatchSep? "}" =>?
+        crate::parsing::match_expr(s, arms, arena, prog),
+}
+
+MatchSep: () = {
+    MatchSepTok,
+    MatchSep MatchSepTok,
+}
+
+MatchSepTok: () = { ",", ";", "\n" }
+
+MatchArms: Vec<crate::parsing::MatchArm<'a>> = {
+    <MatchArm> => vec![<>],
+    <v:MatchArms> MatchSep <a:MatchArm> => { let mut v = v; v.push(a); v },
+}
+
+MatchArm: crate::parsing::MatchArm<'a> = {
+    // `"a" | 1 | /re/ => value`: the same literals as switch case labels.
+    <l:@L> <p:MatchPats> "=>" "\n"* <v:Expr> => (l, crate::parsing::MatchPat::Lits(p), v),
+    // `/re/ as m => value`: `m` is a local array holding the groups of the match in `value`.
+    <l:@L> <b:MatchBind> "=>" "\n"* <v:Expr> => crate::parsing::end_match_bind(b, v, l, prog),
+    // `_ => value`.
+    <l:@L> <i:"IDENT"> "=>" "\n"* <v:Expr> =>? crate::parsing::match_default(i, v, l),
+}
+
+MatchPats: Vec<&'a Expr<'a,'a,&'a str>> = {
+    <CaseValue> => vec![<>],
+    <v:MatchPats> "|" "\n"* <c:CaseValue> => { let mut v = v; v.push(c); v },
+}
+
+// `/re/ as m`, declaring `m` before the value of the arm is parsed.
+MatchBind: crate::parsing::MatchBind<'a> = {
+    <re:"PATLIT"> <kw:"IDENT"> <l:@L> <name:"IDENT"> =>?
+        crate::parsing::match_bind(lexer::parse_regex_literal(re, &arena, buf), kw, name, l, arena, prog),
+}
+
 CaseNum: &'a Expr<'a,'a,&'a str> = {
   "INT" => arena.alloc(exact_int_literal(parse_int_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
   "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
@@ -625,6 +665,7 @@ LeafTerm: &'a Expr<'a,'a, &'a str> = {
   "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
   "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
+  MatchExpr,
   // TODO: not Rparen for these next two?
   <l:@L> <i:CallStart> <args:Args?> ")" => {
         let mut args = args.unwrap_or_else(Vec::new);
@@ -740,5 +781,7 @@ extern {
       "..=" => Tok::DotDotEq,
       "return" => Tok::Return,
       "local" => Tok::Local,
+      "match" => Tok::MatchKw,
+      "=>" => Tok::FatArrow,
   }
 }

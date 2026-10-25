@@ -61,6 +61,160 @@ pub(crate) fn check_switch_cases<'a>(
 
 type ParseResult<'a, T> = Result<T, ParseError<Loc, Tok<'a>, lexer::Error>>;
 
+/// The pattern of an arm of a `match` expression.
+pub(crate) enum MatchPat<'a> {
+    /// `"a" | 1 | /re/`: numeric, string or regex literals, as switch case labels; any of them may
+    /// match.
+    Lits(Vec<&'a Expr<'a, 'a, &'a str>>),
+    /// `/re/ as m`: the regex and the new name of the local array `m`.
+    Bind(&'a [u8], &'a str),
+    /// `_`, which matches anything.
+    Default,
+}
+
+/// An arm of a `match` expression: where it is, its pattern and its value.
+pub(crate) type MatchArm<'a> = (Loc, MatchPat<'a>, &'a Expr<'a, 'a, &'a str>);
+
+/// `/re/ as m` before the value of its arm is parsed: the regex, the new name of `m`, `m`, and the
+/// variable `m` named before, which is visible again after the arm.
+pub(crate) type MatchBind<'a> = (&'a [u8], &'a str, &'a str, Option<&'a str>);
+
+/// Declares the local array `name` of `/re/ as name`, visible in the value of the arm.
+pub(crate) fn match_bind<'a>(
+    re: &'a [u8],
+    kw: &'a str,
+    name: &'a str,
+    loc: Loc,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, MatchBind<'a>> {
+    if kw != "as" {
+        return user_error(loc, format!("expected `as` after the regex of a match arm, got `{}'", kw));
+    }
+    if Variable::try_from(name).is_ok() || name == "length" || name == "SUBSEP" {
+        return user_error(loc, format!("cannot bind the special variable `{}' in a match arm", name));
+    }
+    prog.locals.count += 1;
+    let new: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
+    let prev = prog.locals.names.insert(name, new);
+    // Not a statement at the top of the rule, so the rule starts by emptying it.
+    prog.locals.decls.push((new, true, 0));
+    prog.locals.declared.push((name, loc));
+    Ok((re, new, name, prev))
+}
+
+/// The arm `/re/ as m => value`, which ends the scope of `m`.
+pub(crate) fn end_match_bind<'a>(
+    (re, new, name, prev): MatchBind<'a>,
+    value: &'a Expr<'a, 'a, &'a str>,
+    loc: Loc,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> MatchArm<'a> {
+    match prev {
+        Some(prev) => prog.locals.names.insert(name, prev),
+        None => prog.locals.names.remove(name),
+    };
+    (loc, MatchPat::Bind(re, new), value)
+}
+
+/// The arm `_ => value`.
+pub(crate) fn match_default<'a>(
+    ident: &'a str,
+    value: &'a Expr<'a, 'a, &'a str>,
+    loc: Loc,
+) -> ParseResult<'a, MatchArm<'a>> {
+    if ident != "_" {
+        return user_error(
+            loc,
+            format!("a match pattern is a number, a string, a regex or `_', got `{}'", ident),
+        );
+    }
+    Ok((loc, MatchPat::Default, value))
+}
+
+/// `match subject { pat => value, ... }`, desugared to a chain of `?:` over a hidden local `t`:
+///
+///   match $2 { "a" | 3 => x, /(\d+)ms/ as m => m[1], _ => y }
+///
+/// is `((t = $2) == "a" || t == 3) ? x : match(t, /(\d+)ms/, m) ? m[1] : y`. The subject is
+/// evaluated once, and `t` keeps its strnum value, so `3` matches "3.0" as in switch. Without a `_`
+/// arm the value is "" when nothing matches.
+pub(crate) fn match_expr<'a>(
+    subject: &'a Expr<'a, 'a, &'a str>,
+    arms: Vec<MatchArm<'a>>,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Expr<'a, 'a, &'a str>> {
+    if let Some((loc, _, _)) = arms
+        .iter()
+        .rev()
+        .skip(1)
+        .find(|(_, p, _)| matches!(p, MatchPat::Default))
+    {
+        return user_error(*loc, "`_' must be the last arm of a match expression".into());
+    }
+    let num_tests: usize = arms
+        .iter()
+        .map(|(_, p, _)| match p {
+            MatchPat::Lits(lits) => lits.len(),
+            MatchPat::Bind(..) => 1,
+            MatchPat::Default => 0,
+        })
+        .sum();
+    // The first test assigns the subject to `t`; a single test uses it directly.
+    let (mut subj, tmp_var) = if num_tests > 1 {
+        prog.locals.count += 1;
+        let tmp: &'a str = arena.alloc_str(&format!("match@{}", prog.locals.count));
+        prog.locals.decls.push((tmp, false, 0));
+        let tmp_var: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(tmp));
+        (Some(&*arena.alloc(Expr::Assign(tmp_var, subject))), tmp_var)
+    } else {
+        (Some(subject), subject)
+    };
+    let mut next_subj = || subj.take().unwrap_or(tmp_var);
+    let mut tests = Vec::with_capacity(arms.len());
+    let mut res: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::StrLit(b""));
+    for (_, pat, value) in arms.iter() {
+        let test = match pat {
+            MatchPat::Default => {
+                res = value;
+                break;
+            }
+            MatchPat::Lits(lits) => {
+                let mut test: Option<&'a Expr<'a, 'a, &'a str>> = None;
+                for lit in lits.iter() {
+                    let op = if matches!(lit, Expr::PatLit(_)) { Binop::IsMatch } else { Binop::EQ };
+                    let t: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Binop(op, next_subj(), lit));
+                    test = Some(match test {
+                        None => t,
+                        Some(prev) => arena.alloc(Expr::Or(prev, t)),
+                    });
+                }
+                test.unwrap()
+            }
+            MatchPat::Bind(re, arr) => {
+                let args = [
+                    next_subj(),
+                    &*arena.alloc(Expr::PatLit(re)),
+                    &*arena.alloc(Expr::Var(*arr)),
+                    &*arena.alloc(Expr::Var("SUBSEP")),
+                ];
+                &*arena.alloc(Expr::Call(Either::Left("match"), arena.alloc_slice(&args)))
+            }
+        };
+        tests.push((test, *value));
+    }
+    // With only a `_` arm (or none), the subject is still evaluated.
+    if let Some(subject) = subj {
+        let always: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Or(subject, arena.alloc(Expr::ILit(1))));
+        return Ok(arena.alloc(Expr::ITE(always, res, arena.alloc(Expr::StrLit(b"")))));
+    }
+    for (test, value) in tests.into_iter().rev() {
+        res = arena.alloc(Expr::ITE(test, value, res));
+    }
+    Ok(res)
+}
+
 /// The variable `name` as written at `loc`: the local variable of that name, if one is visible.
 pub(crate) fn var<'a>(
     name: &'a str,
