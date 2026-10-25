@@ -371,12 +371,12 @@ pub(crate) fn is_str_int(text: &str) -> bool {
     }
 }
 
+/// Whether `text` is numeric text, by the same rules that make input a strnum
+/// ([`looks_numeric`](crate::runtime::compare::looks_numeric)): `isnum(x)` is true exactly when
+/// `x + 0` takes the value `x` spells, so a bare `"inf"` or `"nan"` (which convert to 0) is not a
+/// number, while a signed `"+inf"` or `"-nan"` is.
 pub(crate) fn is_str_num(text: &str) -> bool {
-    let text = text.trim();
-    match hex_digits_of(text) {
-        Some(h) => !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit()),
-        None => text.parse::<f64>().is_ok(),
-    }
+    crate::runtime::compare::looks_numeric(text.as_bytes()).is_some()
 }
 
 /// `uniq(arr[, how])`: the distinct values of `arr`, indexed from 1. By default (`how` is `""` or
@@ -851,6 +851,13 @@ mod tests {
         assert!(!is_str_num("0x"));
         assert!(!is_str_num("0o17"));
         assert!(!is_str_num("u11.1"));
+        assert!(is_str_num(" 1e5 "));
+        assert!(is_str_num("-inf"));
+        assert!(is_str_num("+nan"));
+        assert!(!is_str_num("inf"));
+        assert!(!is_str_num("nan"));
+        assert!(!is_str_num("infinity"));
+        assert!(!is_str_num(""));
     }
 
     #[test]

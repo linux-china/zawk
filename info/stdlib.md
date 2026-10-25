@@ -203,6 +203,10 @@ Note: case boundaries also split words, so runs of capitals are split letter by 
 
 `isnum("1234.01")`
 
+`isnum(x)` uses the same rules as strnum conversion, so it is true exactly when `x + 0` gives the number `x` spells:
+decimal (with optional exponent) or `0x` hex, with optional sign and surrounding blanks. A bare `inf`/`nan` converts to 0, so
+`isnum("inf")` is 0, while the signed forms `+inf`, `-nan` are numbers.
+
 ### is(format,txt)
 
 Validate text format, such as: `is("email", "demo@example.com")`. Format list:

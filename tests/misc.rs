@@ -372,6 +372,20 @@ fn pascal_case_has_no_spaces() {
 }
 
 #[test]
+fn isnum_matches_strnum_conversion() {
+    // `isnum(x)` holds exactly when `x + 0` takes the value `x` spells: a bare "inf"/"nan" is 0.
+    let prog = r#"BEGIN { print isnum("inf"), isnum("nan"), isnum("-inf"), isnum("+nan"), isnum(" 0x11 "), isnum("1e5"), isnum("1e"), "inf" + 0 }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("0 0 1 1 1 1 0 0\n");
+    }
+}
+
+#[test]
 fn posix_disables_sugar_syntax() {
     Command::cargo_bin("zawk")
         .unwrap()
