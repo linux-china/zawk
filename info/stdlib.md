@@ -869,6 +869,10 @@ JWK: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`,
 a PEM key only accepts `RS*`/`PS*`/`ES*`/`EdDSA`, a plain secret only accepts `HS*`,
 and a JWK only accepts algorithms matching its key type and `alg`. An empty map is returned if verification fails.
 
+**Claim types** (`jwt`): `exp`, `nbf` and `iat` must be seconds since the epoch and are written as JSON numbers.
+Other values become JSON numbers only when written in canonical form (`42`, `-7`, `1.5`);
+number-like strings such as `"007"`, `"+8613800000000"`, `"1e3"` or `"1.50"` are kept as JSON strings.
+
 **Claims**: `exp` and `nbf` are optional, and checked when present (with 60 seconds leeway):
 an expired token, or one not valid yet, is rejected; a token without `exp` never expires.
 

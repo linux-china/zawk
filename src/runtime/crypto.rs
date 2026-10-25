@@ -90,13 +90,8 @@ fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Res
                     }
                     Err(_) => bad_claim = Some(format!("invalid `{}` claim {:?}, expected seconds since the epoch", key, value)),
                 }
-            } else if let Ok(value) = value.parse::<i64>() {
-                claims.insert(key, Value::Number(Number::from(value)));
-            } else if let Some(number) = value.parse::<f64>().ok().and_then(Number::from_f64) {
-                claims.insert(key, Value::Number(number));
             } else {
-                // also NaN and infinity, which are not JSON numbers
-                claims.insert(key, Value::String(value));
+                claims.insert(key, claim_value(value));
             }
         }
     });
@@ -120,6 +115,25 @@ fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Res
     };
     let header = Header::new(jwt_algorithm);
     jsonwebtoken::encode(&header, &claims, &encoding_key).map_err(|e| e.to_string())
+}
+
+/// A claim becomes a JSON number only if it is written in canonical form, i.e. formatting the
+/// parsed number gives back the same text. Number-like strings such as `"007"`, `"+86138..."`,
+/// `"1e3"` or `"1.50"` (IDs, zip codes, phone numbers) are kept as strings.
+fn claim_value(value: String) -> Value {
+    if let Ok(n) = value.parse::<i64>() {
+        if n.to_string() == value {
+            return Value::Number(Number::from(n));
+        }
+    } else if let Ok(f) = value.parse::<f64>() {
+        // also rejects NaN and infinity, which are not JSON numbers
+        if f.is_finite() && f.to_string() == value {
+            if let Some(number) = Number::from_f64(f) {
+                return Value::Number(number);
+            }
+        }
+    }
+    Value::String(value)
 }
 
 const HMAC_ALGORITHMS: &[Algorithm] = &[Algorithm::HS256, Algorithm::HS384, Algorithm::HS512];
@@ -542,6 +556,27 @@ mod tests {
         assert!(!jwt("HS256", "key", &claims).is_empty());
         claims.insert(Str::from("exp"), Str::from("tomorrow"));
         assert_eq!(jwt("HS256", "key", &claims), "");
+    }
+
+    #[test]
+    fn test_jwt_claim_types() {
+        // only canonical numbers become JSON numbers; number-like strings are kept verbatim
+        for text in ["42", "-7", "0", "1.5", "-0.25"] {
+            assert!(claim_value(text.to_string()).is_number(), "{text}");
+        }
+        for text in ["007", "+8613800000000", "1e3", "1.50", "1.0", "-0", ".5", "nan", "inf", " 1", "abc"] {
+            assert_eq!(claim_value(text.to_string()), Value::String(text.to_string()), "{text}");
+        }
+        let claims: StrMap<Str> = StrMap::default();
+        claims.insert(Str::from("sub"), Str::from("007"));
+        claims.insert(Str::from("zip"), Str::from("1e3"));
+        claims.insert(Str::from("phone"), Str::from("+8613800000000"));
+        claims.insert(Str::from("age"), Str::from("48"));
+        claims.insert(Str::from("exp"), Str::from("4102444800"));
+        let token = jwt("HS256", "key", &claims);
+        let payload = token.split('.').nth(1).unwrap();
+        let payload = String::from_utf8(crate::runtime::encoding::decode("base64url", payload)).unwrap();
+        assert_eq!(payload, r#"{"age":48,"exp":4102444800,"phone":"+8613800000000","sub":"007","zip":"1e3"}"#);
     }
 
     #[test]
