@@ -292,7 +292,7 @@ mod tests {
     fn test_s3_reader_parts() {
         use std::io::Read;
         dotenvy::dotenv().ok();
-        let body: String = (0..1_500_000).map(|i| format!("{}\n", i)).collect();
+        let body: String = (0..1_500).map(|i| format!("{}\n", i)).collect();
         assert!(body.len() as u64 > PART_SIZE);
         put_object("bucket1", "parts.txt", &body).unwrap();
         let mut text = String::new();
@@ -301,7 +301,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_s3_get() {
         dotenvy::dotenv().ok();
         let text = get_object(BUCKET, OBJECT_NAME).unwrap();
@@ -309,7 +308,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_s3_put() {
         dotenvy::dotenv().ok();
         let _ = put_object(BUCKET, OBJECT_NAME, BODY).unwrap();
