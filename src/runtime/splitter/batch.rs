@@ -561,6 +561,18 @@ impl<'a> Stepper<'a> {
                             self.st = State::QuoteInQuote;
                             continue;
                         }
+                        // Line ends inside a quoted field are only reported by
+                        // `find_indexes_csv_lenient`, after a literal quote: the record ends here.
+                        b'\r' => {
+                            self.push_past(ix);
+                            continue;
+                        }
+                        b'\n' => {
+                            self.push_past(ix);
+                            self.promote();
+                            self.st = State::Done;
+                            return self.get(line_start, ix, cur);
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -733,7 +745,8 @@ pub fn get_find_indexes(
 /// Follows gawk: only a `"` at the start of a field opens a quoted field, and inside one a `"`
 /// followed by anything other than `"`, `,`, `\n` or `\r\n` is a literal quote. Literal quotes
 /// are not reported, so the [Stepper] copies them as field data; the offsets are otherwise the
-/// same as the SIMD pass would produce.
+/// same as the SIMD pass would produce. After a literal quote, a newline outside quotes (by
+/// parity) ends the field and the record, as gawk does.
 fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
     offsets.clear();
     let fields = &mut offsets.rel.fields;
@@ -753,27 +766,54 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
             b'"' if field_start => {
                 fields.push(i as u64);
                 i += 1;
+                // Once a literal quote shows up, records end as in gawk: at a newline outside
+                // quotes by parity, counting every quote. Without this, a single malformed field
+                // would swallow the rest of the input.
+                let mut outside = false;
                 loop {
-                    let Some(j) = memchr::memchr(b'"', &buf[i..]) else {
+                    let found = if outside {
+                        memchr::memchr2(b'"', b'\n', &buf[i..])
+                    } else {
+                        memchr::memchr(b'"', &buf[i..])
+                    };
+                    let Some(j) = found else {
                         // Unterminated: the rest of the buffer is inside the quotes.
                         return;
                     };
                     let q = i + j;
+                    if buf[q] == b'\n' {
+                        // End the field and the record here; the [Stepper] sees the line end
+                        // while still inside the quoted field.
+                        if q > 0 && buf[q - 1] == b'\r' {
+                            fields.push(q as u64 - 1);
+                        }
+                        fields.push(q as u64);
+                        field_start = true;
+                        i = q + 1;
+                        break;
+                    }
                     i = q + 1;
                     match buf.get(q + 1) {
                         Some(b'"') => {
                             fields.extend_from_slice(&[q as u64, q as u64 + 1]);
                             i = q + 2;
                         }
-                        None | Some(b',' | b'\n') => break,
-                        Some(b'\r') if matches!(buf.get(q + 2), None | Some(b'\n')) => break,
+                        None | Some(b',' | b'\n') => {
+                            // The closing quote; the separator or line end after it is handled
+                            // next.
+                            fields.push(q as u64);
+                            field_start = false;
+                            break;
+                        }
+                        Some(b'\r') if matches!(buf.get(q + 2), None | Some(b'\n')) => {
+                            fields.push(q as u64);
+                            field_start = false;
+                            break;
+                        }
                         // A literal quote inside the quoted field.
-                        Some(_) => {}
+                        Some(_) => outside = !outside,
                     }
                 }
-                // The closing quote; the separator or line end after it is handled next.
-                fields.push(i as u64 - 1);
-                field_start = false;
                 continue;
             }
             _ => field_start = false,
@@ -2267,6 +2307,11 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             ("\"{\\\"a\\\":1}\",x\n", &[&["{\\\"a\\\":1}", "x"]]),
             ("\"a\"\"b\",\"\"\r\nx\"y,\"z\"\n", &[&["a\"b", ""], &["x\"y", "z"]]),
             ("\"a\nb\",c\"\nd,\"e\"", &[&["a\nb", "c\""], &["d", "e"]]),
+            // After a literal quote, a newline outside quotes (by parity) ends the record.
+            ("\"a\"b,c\nnext,line\nthird,x\n", &[&["a\"b,c"], &["next", "line"], &["third", "x"]]),
+            ("\"a\"b\r\nx,y\n", &[&["a\"b"], &["x", "y"]]),
+            ("\"a\"b \"x\ny\" z\nq,r\n", &[&["a\"b \"x\ny\" z"], &["q", "r"]]),
+            ("\"a\"b,\"c\",d\r\nlast,1\n", &[&["a\"b,\"c", "d"], &["last", "1"]]),
         ];
         for (input, expected) in cases {
             let expected: Vec<Vec<String>> = expected
@@ -2283,6 +2328,14 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         assert_eq!(got.len(), 500);
         for fields in got {
             assert_eq!(fields, ["id\"1", "a, \"b\"", "x\"y", "z\""]);
+        }
+
+        // A malformed record repeated across chunk boundaries does not swallow what follows.
+        let corpus = "\"a\"b,c\nx,y\n".repeat(500);
+        let got = csv_read_all(&corpus, 1024);
+        assert_eq!(got.len(), 1000);
+        for pair in got.chunks(2) {
+            assert_eq!(pair, [vec!["a\"b,c".to_string()], vec!["x".to_string(), "y".to_string()]]);
         }
     }
 
