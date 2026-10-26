@@ -269,11 +269,12 @@ impl std::fmt::Display for InputOpenError {
 
 impl std::error::Error for InputOpenError {}
 
-/// Whether error messages include the location in the zawk sources where they were raised: in
-/// debug builds, or when the `ZAWK_DEBUG` environment variable is set.
+/// Whether error messages include the location in the zawk sources where they were raised: only
+/// when the `ZAWK_DEBUG` environment variable is set, so that debug and release builds report
+/// errors identically (and the test suite passes under both).
 pub fn debug_errors() -> bool {
     static DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *DEBUG.get_or_init(|| cfg!(debug_assertions) || std::env::var_os("ZAWK_DEBUG").is_some())
+    *DEBUG.get_or_init(|| std::env::var_os("ZAWK_DEBUG").is_some())
 }
 
 impl CompileError {
