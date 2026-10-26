@@ -200,3 +200,30 @@ and use the network functions of the standard library. So:
 - Only use URLs you trust, and prefer `https://` (plain `http://` can be modified in transit).
 - The content behind a URL can change; for reproducible runs, pin a version (e.g. a tag or
   commit in the URL) or download the program, review it, and run the local file.
+
+# Ask an LLM to write a zawk program
+
+`zawk llm` prints a prompt for an LLM: the command line of the run and its options, sample lines, the schema and
+summary of the input files, the zawk language notes and builtin functions, and your question.
+Pipe it to an LLM tool to get a zawk program that answers the question.
+
+With [llm](https://llm.datasette.io/): `llm -x` extracts the first code block of the answer, and the program is
+then run by zawk:
+
+```shell
+zawk -i csv -H "$(zawk llm -i csv -H tests/demo.csv 'how many adults?' | llm -x)" tests/demo.csv
+```
+
+With an AI agent such as [Claude Code](https://claude.com/claude-code) or Qoder CLI (`qodercli`),
+the agent writes the program, checks it with `zawk lint`, runs it and answers the question:
+
+```shell
+# Qoder CLI
+zawk llm -i csv -H tests/demo.csv 'how many adults?' | qodercli -p --dangerously-skip-permissions
+
+# Claude Code
+zawk llm -i csv -H tests/demo.csv 'what is average age for adults?' | claude -p --dangerously-skip-permissions
+```
+
+`--dangerously-skip-permissions` lets the agent run commands without asking, so only use it with data and
+questions you trust.
