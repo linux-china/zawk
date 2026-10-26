@@ -124,6 +124,24 @@ fn fi_header_per_file() {
     }
 }
 
+// A name repeated in the header gets the first free `_1`, `_2`, ... suffix in FI, as for JSON
+// and Parquet input, also when the header of every input file is read.
+#[test]
+fn csv_header_duplicate_names() {
+    let tmpdir = tempdir().unwrap();
+    let dup = tmpdir.path().join("dup.csv");
+    std::fs::write(&dup, "a,a,b,a_1\n1,2,3,4\n").unwrap();
+    let prog = r#"{print $FI["a"], $FI["a_1"], $FI["b"], $FI["a_1_1"]}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", "-H", prog])
+            .args([&dup, &dup])
+            .assert()
+            .stdout("1 2 3 4\n1 2 3 4\n");
+    }
+}
+
 // `var=value` operands run when the main loop reaches the next input file (or before END), unlike
 // `-v`, which runs before BEGIN. A file named like an assignment is still read as a file.
 #[test]

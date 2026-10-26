@@ -211,6 +211,7 @@ impl<'a> Core<'a> {
                 argc: 0,
                 argv: argv.into(),
                 fi: fi.into(),
+                fi_header: Default::default(),
                 environ: environ.into(),
                 procinfo: procinfo.into(),
                 // NATS input is never read in parallel.
@@ -2698,7 +2699,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             &self.core.vars.ofs,
                             &mut self.core.regexes,
                         )?;
-                        self.core.vars.fi.insert(col, val);
+                        self.core.vars.set_fi(col, val);
                     }
                     JmpIf(cond, lbl) => {
                         let cond = *cond;

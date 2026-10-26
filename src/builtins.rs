@@ -1506,6 +1506,8 @@ pub(crate) struct Variables<'a> {
     pub rlength: Int,
     pub pid: Int,
     pub fi: StrMap<'a, Int>,
+    // The column names of the header being read into FI, see `set_fi`.
+    pub fi_header: hashbrown::HashSet<Vec<u8>>,
     pub environ: StrMap<'a, Str<'a>>,
     pub procinfo: StrMap<'a, Str<'a>>,
     // Whether the program references PROCINFO (set by the compiler). When it does not,
@@ -1541,6 +1543,7 @@ impl<'a> Default for Variables<'a> {
             pid: 0,
             rlength: 0,
             fi: Default::default(),
+            fi_header: Default::default(),
             environ: load_env_variables(),
             procinfo: load_procinfo_variables(),
             uses_procinfo: true,
@@ -1598,6 +1601,28 @@ fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
 }
 
 impl<'a> Variables<'a> {
+    /// Sets `FI[name] = col` for column `col` of a header (`-H`). A name repeated in the header
+    /// gets the first free `_1`, `_2`, ... suffix (`a,a,b` -> `a`, `a_1`, `b`), as for JSON and
+    /// Parquet input (see `splitter::unique_names`), so every column can be reached by name.
+    pub fn set_fi(&mut self, name: Str<'a>, col: Int) {
+        if col == 1 {
+            self.fi_header.clear();
+        }
+        let base = name.with_bytes(|bs| bs.to_vec());
+        let mut unique = name.clone();
+        let mut key = base.clone();
+        let mut n = 0;
+        while self.fi_header.contains(&key) {
+            n += 1;
+            let suffix = format!("_{}", n);
+            key.truncate(base.len());
+            key.extend_from_slice(suffix.as_bytes());
+            unique = Str::concat(name.clone(), suffix.into());
+        }
+        self.fi_header.insert(key);
+        self.fi.insert(unique, col);
+    }
+
     /// Load the NATS message being read (if any) into MSG_SUBJECT, MSG_HEADERS and MSG_BODY. Each
     /// message is an input file of its own: this runs when the input file changes.
     pub(crate) fn load_message(&mut self) {

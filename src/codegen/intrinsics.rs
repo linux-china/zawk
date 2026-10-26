@@ -1022,10 +1022,9 @@ pub(crate) unsafe extern "C" fn update_used_fields(runtime: *mut c_void) {
 
 pub(crate) unsafe extern "C" fn set_fi_entry(runtime: *mut c_void, key: Int, val: Int) {
     guard_panic(stringify!(set_fi_entry), || {
-        let rt = &mut *(runtime as *mut Runtime);
-        let fi = &rt.core.vars.fi;
         let k = mem::transmute::<U128, Str>(get_col(runtime, key));
-        fi.insert(k, val);
+        let rt = &mut *(runtime as *mut Runtime);
+        rt.core.vars.set_fi(k, val);
     })
 }
 
