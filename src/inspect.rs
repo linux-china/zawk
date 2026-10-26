@@ -18,6 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Cursor, Read};
+use std::sync::{Arc, Mutex};
 
 use unicode_width::UnicodeWidthChar;
 
@@ -101,7 +102,7 @@ pub struct Options {
 
 /// Inspect `path` and return the report.
 pub fn inspect(path: &str, opts: &Options) -> io::Result<String> {
-    let (ins, format, limited) = read(path, opts)?;
+    let (ins, format, limited) = read(path, opts, None)?;
     Ok(ins.report(path, format, limited, opts.style))
 }
 
@@ -114,27 +115,92 @@ pub struct Sections {
     pub sample: String,
     pub summary: String,
     pub notes: Vec<String>,
+    /// The first `raw_lines` lines of the (decompressed) text, read from the same stream as the
+    /// rows, so a remote input is fetched once; empty for Parquet.
+    pub lines: Vec<String>,
 }
 
-pub fn sections(path: &str, opts: &Options) -> io::Result<Sections> {
-    let (ins, format, limited) = read(path, opts)?;
+pub fn sections(path: &str, opts: &Options, raw_lines: usize) -> io::Result<Sections> {
+    let tap = LineTap::new(raw_lines);
+    let (ins, format, limited) = read(path, opts, Some(&tap))?;
     let [schema, sample, summary] = ins.tables().map(|t| t.markdown());
-    Ok(Sections { rows: ins.rows, limited, schema, sample, summary, notes: ins.notes(format) })
+    Ok(Sections { rows: ins.rows, limited, schema, sample, summary, notes: ins.notes(format), lines: tap.lines() })
+}
+
+/// Keeps a copy of the first lines read through the readers it wraps.
+struct LineTap {
+    buf: Arc<Mutex<Vec<u8>>>,
+    max_lines: usize,
+}
+
+impl LineTap {
+    fn new(max_lines: usize) -> LineTap {
+        LineTap { buf: Arc::default(), max_lines }
+    }
+
+    fn wrap(&self, input: Box<dyn Read + Send>) -> Box<dyn Read + Send> {
+        Box::new(Tapped { inner: input, buf: self.buf.clone(), max_lines: self.max_lines })
+    }
+
+    fn lines(&self) -> Vec<String> {
+        let buf = self.buf.lock().unwrap();
+        let buf = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if buf.is_empty() {
+            return Vec::new();
+        }
+        buf.split(|b| *b == b'\n')
+            .take(self.max_lines)
+            .map(|l| String::from_utf8_lossy(trim_eol(l)).into_owned())
+            .collect()
+    }
+}
+
+struct Tapped {
+    inner: Box<dyn Read + Send>,
+    buf: Arc<Mutex<Vec<u8>>>,
+    max_lines: usize,
+}
+
+impl Read for Tapped {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(out)?;
+        let mut buf = self.buf.lock().unwrap();
+        let mut newlines = buf.iter().filter(|b| **b == b'\n').count();
+        for &b in &out[..n] {
+            if newlines >= self.max_lines {
+                break;
+            }
+            buf.push(b);
+            newlines += usize::from(b == b'\n');
+        }
+        Ok(n)
+    }
 }
 
 /// Reads `path` into an inspector; returns it with the format and whether reading stopped at
-/// `max_rows`.
-fn read(path: &str, opts: &Options) -> io::Result<(Inspector, Format, bool)> {
+/// `max_rows`. A text input is read through `tap`, when given.
+fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspector, Format, bool)> {
     let mut ins = Inspector::new(opts.sample_rows);
+    let open = |path: &str| -> io::Result<Box<dyn Read + Send>> {
+        let input = open_input(path)?;
+        Ok(match tap {
+            Some(tap) => tap.wrap(input),
+            None => input,
+        })
+    };
     let (format, limited) = match opts.format {
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
-        Some(format) => (format, read_text(open_format(path, format)?, format, opts, &mut ins)?),
+        Some(format) => {
+            let input = open(path)?;
+            let input = if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input };
+            (format, read_text(input, format, opts, &mut ins)?)
+        }
         None => {
             if path != "-" && extension_format(path) == Some(Format::Parquet) {
                 (Format::Parquet, read_parquet(path, opts, &mut ins)?)
             } else {
                 // Sniff the content, then read it (the peeked bytes are put back in front).
-                let mut input = open_input(path)?;
+                let mut input = open(path)?;
                 let mut prefix = Vec::new();
                 (&mut input).take(8 << 10).read_to_end(&mut prefix)?;
                 let format = match extension_format(path) {
@@ -145,6 +211,10 @@ fn read(path: &str, opts: &Options) -> io::Result<(Inspector, Format, bool)> {
                 if format == Format::Parquet {
                     if path == "-" {
                         return Err(io::Error::other("Parquet on standard input: use `-i parquet`"));
+                    }
+                    if let Some(tap) = tap {
+                        // The sniffed bytes are binary, not lines.
+                        tap.buf.lock().unwrap().clear();
                     }
                     (format, read_parquet(path, opts, &mut ins)?)
                 } else {

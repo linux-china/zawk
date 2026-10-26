@@ -158,11 +158,31 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
             ));
         }
     }
+    // With a header, the header line and `sample_rows` data lines.
+    let raw_lines = opts.sample_rows + usize::from(header && format != Some("markdown"));
+    // A structured input is read once: its sections keep the first raw lines too (a remote input
+    // is not fetched twice).
+    let sections = match structured {
+        Some(structured) => Some(inspect::sections(
+            file,
+            &inspect::Options {
+                format: Some(structured),
+                style: inspect::Style::Markdown,
+                sample_rows: opts.sample_rows,
+                max_rows: opts.max_rows,
+                header,
+            },
+            raw_lines,
+        )?),
+        None => None,
+    };
     if structured != Some(Format::Parquet) {
-        // With a header, the header line and `sample_rows` data lines.
-        let lines = match inspect::sample(file, None, header && format != Some("markdown"), opts.sample_rows)? {
-            Sample::Lines(lines) => lines,
-            Sample::Fields { .. } => Vec::new(),
+        let lines = match &sections {
+            Some(sections) => sections.lines.clone(),
+            None => match inspect::sample(file, None, header && format != Some("markdown"), opts.sample_rows)? {
+                Sample::Lines(lines) => lines,
+                Sample::Fields { .. } => Vec::new(),
+            },
         };
         out.push_str(&format!("First {} lines (the raw text of the file):\n\n", lines.len()));
         out.push_str(&fence("text", &lines.iter().map(|l| truncate(l)).collect::<Vec<_>>().join("\n")));
@@ -172,19 +192,9 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
             }
         }
     }
-    let Some(structured) = structured else {
+    let (Some(structured), Some(sections)) = (structured, sections) else {
         return Ok(out);
     };
-    let sections = inspect::sections(
-        file,
-        &inspect::Options {
-            format: Some(structured),
-            style: inspect::Style::Markdown,
-            sample_rows: opts.sample_rows,
-            max_rows: opts.max_rows,
-            header,
-        },
-    )?;
     let rows = if sections.limited {
         format!("at least {} (only the first {} rows were read for the summary)", sections.rows, sections.rows)
     } else {
