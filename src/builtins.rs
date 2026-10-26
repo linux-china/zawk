@@ -795,8 +795,8 @@ impl Function {
                 }));
                 ctx.nw.add_dep(is_map, args[0], Constraint::Flows(()));
             }
-            // An untyped argument of `_join` becomes an (empty) array with integer keys.
-            Function::IntMapJoin => {
+            // An untyped argument of `_join` or `to_csv` becomes an (empty) array with integer keys.
+            Function::IntMapJoin | Function::ToCsv => {
                 let is_map = ctx.constant(Some(Map {
                     key: Some(BaseTy::Int),
                     val: None,
@@ -1019,7 +1019,11 @@ impl Function {
             WriteAll => (smallvec![Str, Str], Null),
             ReadConfig => (smallvec![Str], MapStrStr),
             FromCsv => (smallvec![Str], MapIntStr),
-            ToCsv => (smallvec![incoming[0]], Str),
+            // Only arrays with integer keys can be converted to CSV.
+            ToCsv => match incoming[0] {
+                MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0]], Str),
+                _ => (smallvec![MapIntStr], Str),
+            },
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum | AwkStrtonum => (smallvec![Str], Float),

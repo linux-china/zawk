@@ -276,7 +276,7 @@ fn output_notes(format: Option<&str>) -> String {
 /// one-character FS.
 fn fields_per_line(lines: &[String], fs: Option<&str>) -> Option<String> {
     let counts: Vec<usize> = match fs {
-        None | Some(" ") => lines.iter().map(|l| l.split_whitespace().count()).collect(),
+        None | Some(" ") => lines.iter().map(|l| l.split([' ', '\t']).filter(|s| !s.is_empty()).count()).collect(),
         Some(fs) if fs.chars().count() == 1 => {
             lines.iter().map(|l| if l.is_empty() { 0 } else { l.split(fs).count() }).collect()
         }

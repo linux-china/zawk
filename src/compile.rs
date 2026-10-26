@@ -2939,11 +2939,7 @@ impl<'a, 'b> View<'a, 'b> {
                             self.pushl(LL::MapIntStrToCsv(res_reg.into(), conv_regs[0].into()))
                         }
                         _ => {
-                            return err!(
-                                "ToCSV only support intIntMap, intFloatMap, intStrMap called with malformed types: {:?} => {:?}",
-                                &conv_tys[..],
-                                dst_ty
-                             );
+                            return err!("to_csv: argument 1 must be an array with integer keys, got {:?}", conv_tys[0]);
                         }
                     }
                 }

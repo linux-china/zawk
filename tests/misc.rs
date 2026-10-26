@@ -2355,6 +2355,12 @@ fn error_messages_are_gawk_style() {
             2,
             &["zawk: fatal: line 1, column 13: `assert` is a statement, it can't be used in an expression"],
         ),
+        // Only arrays with integer keys can be converted to CSV.
+        (
+            r#"BEGIN { a["k"] = "v"; print to_csv(a) }"#,
+            2,
+            &["zawk: fatal: line 1, column 29: to_csv: argument 1 must be an array with integer keys (a[1], a[2], ...)"],
+        ),
         (
             r#"BEGIN { x = -1; $x = 1 }"#,
             2,

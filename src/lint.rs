@@ -1897,6 +1897,10 @@ mod tests {
         assert_eq!(codes(&v), ["E301"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 9);
+        // Converting an array with string keys to CSV is caught with its location.
+        let v = run("BEGIN { a[\"k\"] = 1; print to_csv(a) }");
+        assert_eq!(codes(&v), ["E300"]);
+        assert_eq!(v["diagnostics"][0]["column"], 27);
         let v = run("BEGIN { dcgettext(\"a\") }");
         assert_eq!(codes(&v), ["E203"]);
         assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("internationalization"));
