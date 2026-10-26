@@ -513,6 +513,9 @@ const READ_ONLY_VARIABLES: &[(&str, &str)] = &[
     ("NR", "it counts the records read"),
     ("NF", "it is the number of fields of the current record"),
     ("FI", "it maps the column names of the header to field indexes"),
+    ("MSG_SUBJECT", "it is the subject of the NATS message being read"),
+    ("MSG_HEADERS", "it holds the headers of the NATS message being read"),
+    ("MSG_BODY", "it is the payload of the NATS message being read"),
 ];
 
 /// A field read with a literal number or column name.

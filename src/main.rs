@@ -51,6 +51,7 @@ use runtime::{
         json::JsonRecords,
         jsonl::JsonlReader,
         markdown::MarkdownCsv,
+        nats::{self, NatsReader},
         parquet::ParquetJson,
         regex::RegexSplitter,
     },
@@ -104,6 +105,7 @@ struct PreludeScalars {
     fold_regexes: bool,
     parse_header: bool,
     header_per_file: bool,
+    header_in_main: bool,
     escaper: Escaper,
     stage: Stage<()>,
 }
@@ -377,6 +379,7 @@ fn get_context<'a>(
             prog.output_record_sep = prelude.output_record_sep;
             prog.parse_header = prelude.scalars.parse_header;
             prog.header_per_file = prelude.scalars.header_per_file;
+            prog.header_in_main = prelude.scalars.header_in_main;
             a.alloc(prog)
         }
         Err(e) => {
@@ -1371,9 +1374,23 @@ fn real_main() {
     // FI is always populated from the first record (the column names for Parquet and Markdown
     // tables).
     let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown;
+    // A NATS subject: each message is an input file of its own, read until Ctrl+C.
+    let nats_url = input_files.iter().find(|f| nats::is_nats_url(f)).cloned();
+    if nats_url.is_some() {
+        if input_files.len() > 1 {
+            fail!("a nats:// subject must be the only input");
+        }
+        if parquet || markdown {
+            fail!("-i {} is not supported for NATS messages", input_format.as_deref().unwrap_or_default());
+        }
+        exec_strategy = ExecutionStrategy::Serial;
+        num_workers = 1;
+    }
     // Every input file starts with a header line (JSON and Parquet records are mapped by key).
-    let header_per_file = parse_header && !json && !jsonl && !parquet;
-    let multi_file_headers = header_per_file && input_files.len() > 1;
+    // Every NATS message is read by a reader of its own, which starts with the header (the keys
+    // of a JSON message).
+    let header_per_file = parse_header && ((!json && !jsonl && !parquet) || nats_url.is_some());
+    let multi_file_headers = header_per_file && (input_files.len() > 1 || nats_url.is_some());
     if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
         // The workers cannot tell which record is the header of a file.
         eprintln!("zawk: warning: -H with several input files: running serially");
@@ -1404,6 +1421,7 @@ fn real_main() {
             stage: exec_strategy.stage(),
             parse_header,
             header_per_file,
+            header_in_main: nats_url.is_some(),
         },
         output_record_sep,
         argv,
@@ -1436,6 +1454,14 @@ fn real_main() {
             fatal!("{}", e);
         }
     }
+    let mut nats_input = nats_url.map(|url| match nats::Subscription::new(&url) {
+        Ok(subscription) => {
+            // the output of each message is written as soon as it is printed
+            runtime::writers::set_line_buffered();
+            subscription
+        }
+        Err(e) => fatal!("{}", e),
+    });
     runtime::set_multi_file_headers(multi_file_headers);
     let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();
@@ -1445,7 +1471,46 @@ fn real_main() {
     // this up here.
     macro_rules! with_inp {
         ($analysis:expr, $inp:ident, $body:expr) => {{
-            if markdown {
+            if let Some(subscription) = nats_input.take() {
+                // Each message is read with a reader of the input format of its own.
+                if json || jsonl {
+                    let fi_names = awk_util::fi_constant_keys(&program_code);
+                    let signal = signal.clone();
+                    let $inp = NatsReader::new(subscription, json, check_utf8, move |payload, subject| {
+                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
+                        let reader = JsonlReader::new(
+                            once((nats::payload_reader(payload), subject)),
+                            fi_names.clone(),
+                            chunk_size,
+                            false,
+                            ExecutionStrategy::Serial,
+                            signal.clone(),
+                        );
+                        if json { reader.scalar_text() } else { reader }
+                    });
+                    $body
+                } else if let Some(ifmt) = ifmt {
+                    let signal = signal.clone();
+                    let $inp = NatsReader::new(subscription, false, check_utf8, move |payload, subject| {
+                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
+                        CSVReader::new(
+                            once((nats::payload_reader(payload), subject)),
+                            ifmt,
+                            chunk_size,
+                            false,
+                            ExecutionStrategy::Serial,
+                            signal.clone(),
+                        )
+                    });
+                    $body
+                } else {
+                    let $inp = NatsReader::new(subscription, false, check_utf8, move |payload, subject| {
+                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
+                        RegexSplitter::new(nats::payload_reader(payload), chunk_size, subject, false)
+                    });
+                    $body
+                }
+            } else if markdown {
                 // The first table of a Markdown file is read as CSV with a header line.
                 let sources: Vec<(MarkdownCsv, String)> = if input_files.len() == 0 {
                     vec![(MarkdownCsv::stdin(), String::from("-"))]

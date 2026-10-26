@@ -990,6 +990,25 @@ Input files can be read from S3 directly: `zawk -i csv '{print $1}' s3://bucket1
 
 Publish events to NATS: `publish("nats://host:4222/topic", body)`
 
+Read the messages of a NATS subject as input: `zawk 'MSG_SUBJECT ~ /demo/ { print }' 'nats://localhost:4222/logs.>'`.
+The subject may contain wildcards: `orders.*.created` (one token) or `orders.>` (one or more tokens).
+zawk reads messages until it receives SIGINT (Ctrl+C), then runs `END` and exits; the output of each message
+is written at once. A `nats://` subject must be the only input file (JetStream and request/reply are not supported).
+
+- `MSG_SUBJECT`: the subject of the message
+- `MSG_HEADERS`: the headers of the message, e.g. `MSG_HEADERS["content-type"]` (repeated headers are joined with `, `)
+- `MSG_BODY`: the payload of the message
+
+Each message is read as an input file of its own, in the input format given by `-i`: `FNR` restarts at 1 and
+`FILENAME` is the subject.
+
+- text (default): one record per line of the payload, split with `FS`
+- `-i json`/`-i jsonl`: `$FI["name"]`, as for files
+- `-i csv`/`-i tsv`: `$1`, `$2`, ...; with `-H`, the first line of each payload is its header and `$FI["name"]` works
+
+A payload that cannot be parsed (invalid JSON for `-i json`, invalid UTF-8 with `--utf8`) is reported as a warning
+and in `ERRNO`, which is cleared when a new message starts.
+
 ### MQTT
 
 Publish events to MQTT: `publish("mqtt://servername:1883/topic", body)`

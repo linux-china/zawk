@@ -1448,7 +1448,7 @@ impl Function {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 // We may relax this in the future, but these names are all-caps here to match
 // their names in Awk.
-#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms, non_camel_case_types)]
 pub(crate) enum Variable {
     ARGC = 0,
     ARGV = 1,
@@ -1470,18 +1470,21 @@ pub(crate) enum Variable {
     OFMT = 17,
     IGNORECASE = 18,
     ERRNO = 19,
+    // The subject, headers and payload of the NATS message being read (`nats://` input).
+    MSG_SUBJECT = 20,
+    MSG_HEADERS = 21,
+    MSG_BODY = 22,
 }
 
 impl From<Variable> for compile::Ty {
     fn from(v: Variable) -> compile::Ty {
         use Variable::*;
         match v {
-            FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT | ERRNO => compile::Ty::Str,
+            FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => compile::Ty::Str,
             PID | ARGC | NF | NR | FNR | RSTART | RLENGTH | IGNORECASE => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
-            ENVIRON => compile::Ty::MapStrStr,
-            PROCINFO => compile::Ty::MapStrStr,
+            ENVIRON | PROCINFO | MSG_HEADERS => compile::Ty::MapStrStr,
         }
     }
 }
@@ -1512,6 +1515,10 @@ pub(crate) struct Variables<'a> {
     pub ofmt: Str<'a>,
     // gawk's IGNORECASE: regex matching ignores case when it is nonzero.
     pub ignorecase: Int,
+    // The NATS message being read, see `splitter::nats`.
+    pub msg_subject: Str<'a>,
+    pub msg_headers: StrMap<'a, Str<'a>>,
+    pub msg_body: Str<'a>,
 }
 
 impl<'a> Default for Variables<'a> {
@@ -1538,6 +1545,9 @@ impl<'a> Default for Variables<'a> {
             procinfo: load_procinfo_variables(),
             uses_procinfo: true,
             ignorecase: 0,
+            msg_subject: Default::default(),
+            msg_headers: Default::default(),
+            msg_body: Default::default(),
         }
     }
 }
@@ -1588,6 +1598,19 @@ fn load_procinfo_variables<'a>() -> StrMap<'a, Str<'a>> {
 }
 
 impl<'a> Variables<'a> {
+    /// Load the NATS message being read (if any) into MSG_SUBJECT, MSG_HEADERS and MSG_BODY. Each
+    /// message is an input file of its own: this runs when the input file changes.
+    pub(crate) fn load_message(&mut self) {
+        let Some(msg) = crate::runtime::splitter::nats::current_message() else { return };
+        self.msg_subject = msg.subject.clone().into();
+        self.msg_body = msg.body.clone().into();
+        let headers = StrMap::default();
+        for (k, v) in msg.headers.iter() {
+            headers.insert(k.clone().into(), v.clone().into());
+        }
+        self.msg_headers = headers;
+    }
+
     /// The order of `for (k in a)`, from `PROCINFO["sorted_in"]`.
     pub(crate) fn sorted_in(&self) -> Result<crate::runtime::sorted_in::SortedIn> {
         if !self.uses_procinfo {
@@ -1607,7 +1630,7 @@ impl<'a> Variables<'a> {
             RLENGTH => self.rlength,
             PID => self.pid,
             IGNORECASE => self.ignorecase,
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         })
     }
 
@@ -1625,7 +1648,7 @@ impl<'a> Variables<'a> {
                 crate::runtime::awk_regex::set_ignore_case(i != 0);
                 self.ignorecase = i;
             }
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
         }
         Ok(())
     }
@@ -1641,7 +1664,9 @@ impl<'a> Variables<'a> {
             CONVFMT => self.convfmt.clone(),
             OFMT => self.ofmt.clone(),
             ERRNO => crate::runtime::errno().into(),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            MSG_SUBJECT => self.msg_subject.clone(),
+            MSG_BODY => self.msg_body.clone(),
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE | MSG_HEADERS => {
                 return err!("var {} not a string", var);
             }
         })
@@ -1684,7 +1709,9 @@ impl<'a> Variables<'a> {
                 self.ofmt = s;
             }
             ERRNO => crate::runtime::set_errno(s.as_str().to_string()),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            MSG_SUBJECT => self.msg_subject = s,
+            MSG_BODY => self.msg_body = s,
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE | MSG_HEADERS => {
                 return err!("var {} not a string", var);
             }
         };
@@ -1695,7 +1722,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1708,7 +1735,7 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1718,7 +1745,7 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1732,7 +1759,7 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1744,7 +1771,8 @@ impl<'a> Variables<'a> {
         match var {
             ENVIRON => Ok(self.environ.clone()),
             PROCINFO => Ok(self.procinfo.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | FI
+            MSG_HEADERS => Ok(self.msg_headers.clone()),
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1763,7 +1791,11 @@ impl<'a> Variables<'a> {
                 self.procinfo = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | RSTART | FI
+            MSG_HEADERS => {
+                self.msg_headers = m;
+                Ok(())
+            }
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1813,11 +1845,11 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Int,
             },
-            ENVIRON | PROCINFO => types::TVar::Map {
+            ENVIRON | PROCINFO | MSG_HEADERS => types::TVar::Map {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Str,
             },
-            ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO => types::TVar::Scalar(types::BaseTy::Str),
+            ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => types::TVar::Scalar(types::BaseTy::Str),
         }
     }
 }
@@ -1859,6 +1891,9 @@ impl TryFrom<usize> for Variable {
             17 => Ok(OFMT),
             18 => Ok(IGNORECASE),
             19 => Ok(ERRNO),
+            20 => Ok(MSG_SUBJECT),
+            21 => Ok(MSG_HEADERS),
+            22 => Ok(MSG_BODY),
             _ => Err(()),
         }
     }
@@ -1885,5 +1920,8 @@ static_map!(
     ["CONVFMT", Variable::CONVFMT],
     ["OFMT", Variable::OFMT],
     ["IGNORECASE", Variable::IGNORECASE],
-    ["ERRNO", Variable::ERRNO]
+    ["ERRNO", Variable::ERRNO],
+    ["MSG_SUBJECT", Variable::MSG_SUBJECT],
+    ["MSG_HEADERS", Variable::MSG_HEADERS],
+    ["MSG_BODY", Variable::MSG_BODY]
 );

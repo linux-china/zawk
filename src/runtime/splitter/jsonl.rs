@@ -343,7 +343,9 @@ impl JsonlReader {
                 Some(n) => format!("{}:{}", display_name(&name.to_string()), n),
                 None => display_name(&name.to_string()).to_string(),
             };
-            input_warning(&INVALID, loc, "invalid JSON");
+            let loc = loc();
+            crate::runtime::set_errno(format!("{}: invalid JSON", loc));
+            input_warning(&INVALID, || loc, "invalid JSON");
         }
     }
 }

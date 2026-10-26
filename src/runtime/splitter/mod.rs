@@ -10,6 +10,7 @@ pub mod chunk;
 pub mod json;
 pub mod jsonl;
 pub mod markdown;
+pub mod nats;
 pub mod parquet;
 pub mod regex;
 

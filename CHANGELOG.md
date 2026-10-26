@@ -1,5 +1,6 @@
 # Unreleased
 
+* Add NATS subjects as input: `zawk 'MSG_SUBJECT ~ /demo/ { print }' 'nats://localhost:4222/logs.>'` reads the messages of the subject (wildcards `*` and `>` allowed) until Ctrl+C, then runs `END` and exits. Each message is read as an input file of its own in the input format (`-i json`, `-i jsonl`, `-i csv -H`, ...; text split by `FS` by default), with `MSG_SUBJECT`, `MSG_HEADERS` (e.g. `MSG_HEADERS["content-type"]`) and `MSG_BODY`; its output is written at once. A payload that cannot be parsed sets `ERRNO`
 * Add the `match` expression: `match subject { pat => value, ... }` returns the value of the first arm whose pattern matches, e.g. `level = match $2 { "info" => 1, "error" | "fatal" => 3, /^W/ => 2, _ => 0 }`. A pattern is a string, a number or a regex literal, or several joined with `|`; numbers compare as numbers with a strnum subject, as in gawk's `switch` (so `3 => ...` matches `3.0`). `/re/ as m => value` binds the groups of the match to the array `m`, visible only in `value` (`/(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok"`). `_` matches anything and must be the last arm; without it, the value is `""` when nothing matches. The subject is evaluated once; arms are separated by commas or newlines. `match(s, re)` is still the builtin; `match (x) {` starts a match expression
 
 # Version 0.6.4 (2026-10-25)

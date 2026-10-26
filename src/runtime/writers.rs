@@ -82,6 +82,15 @@ pub fn set_output_failed() {
     OUTPUT_FAILED.store(true, Ordering::Release);
 }
 
+/// Set when stdout is line buffered even if it is not a terminal; see `set_line_buffered`.
+static LINE_BUFFERED: AtomicBool = AtomicBool::new(false);
+
+/// Write each line printed to stdout at once, as for a terminal: the output of a NATS message is
+/// not held back until more messages arrive.
+pub fn set_line_buffered() {
+    LINE_BUFFERED.store(true, Ordering::Relaxed);
+}
+
 /// Set when writing to stdout failed because its reader went away (e.g. `zawk ... | head`).
 static STDOUT_BROKEN_PIPE: AtomicBool = AtomicBool::new(false);
 
@@ -1140,7 +1149,7 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
             open: open.clone(),
             evicted,
         }),
-        line_buffer: is_stdout && io::stdout().is_terminal(),
+        line_buffer: is_stdout && (io::stdout().is_terminal() || LINE_BUFFERED.load(Ordering::Relaxed)),
         status,
         open,
     }

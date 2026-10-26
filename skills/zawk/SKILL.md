@@ -140,7 +140,9 @@ zawk [options] -f script.awk [file ...]
 | `--posix` | Disable zawk's command line sugar |
 
 Input files may be local paths, `-` (stdin), `https://...` URLs or `s3://bucket/key`; compressed input is detected
-and decompressed automatically. `.env` in the current directory is loaded as environment variables.
+and decompressed automatically. A NATS subject (`'nats://host:4222/logs.>'`, wildcards allowed) as the only input
+reads its messages until Ctrl+C, then runs END: each message is an input file (`-i`/`-H` apply to its payload), with
+`MSG_SUBJECT`, `MSG_HEADERS["name"]` and `MSG_BODY`. `.env` in the current directory is loaded as environment variables.
 
 Command line sugar (not in `--posix` mode): `zawk '$1,$3' file` prints fields 1 and 3, `zawk '/re/' file` prints
 matching lines.

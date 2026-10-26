@@ -385,6 +385,9 @@ impl Display for Variable {
                 OFMT => "OFMT",
                 IGNORECASE => "IGNORECASE",
                 ERRNO => "ERRNO",
+                MSG_SUBJECT => "MSG_SUBJECT",
+                MSG_HEADERS => "MSG_HEADERS",
+                MSG_BODY => "MSG_BODY",
             }
         )
     }

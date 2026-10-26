@@ -10,6 +10,7 @@ use crate::runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
         jsonl::JsonlReader,
+        nats::NatsReader,
         chunk::{ChunkProducer, OffsetChunk},
         regex::RegexSplitter,
     },
@@ -656,6 +657,9 @@ macro_rules! with_input {
             $crate::codegen::intrinsics::InputData::V3($p) => $body,
             $crate::codegen::intrinsics::InputData::V4($p) => $body,
             $crate::codegen::intrinsics::InputData::V5($p) => $body,
+            $crate::codegen::intrinsics::InputData::V6($p) => $body,
+            $crate::codegen::intrinsics::InputData::V7($p) => $body,
+            $crate::codegen::intrinsics::InputData::V8($p) => $body,
         }
     };
 }
@@ -728,6 +732,9 @@ pub(crate) enum InputData {
     V3(InputTuple<ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>),
     V4(InputTuple<ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
     V5(InputTuple<JsonlReader>),
+    V6(InputTuple<NatsReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
+    V7(InputTuple<NatsReader<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>>),
+    V8(InputTuple<NatsReader<JsonlReader>>),
 }
 
 /// A deferred constructor for a worker thread's input, see [`InputData::worker_inputs`].
@@ -800,6 +807,9 @@ impl_into_runtime!(
 impl_into_runtime!(ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>, V3);
 impl_into_runtime!(ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>, V4);
 impl_into_runtime!(JsonlReader, V5);
+impl_into_runtime!(NatsReader<RegexSplitter<Box<dyn io::Read + Send>>>, V6);
+impl_into_runtime!(NatsReader<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>, V7);
+impl_into_runtime!(NatsReader<JsonlReader>, V8);
 
 pub(crate) struct Runtime<'a> {
     pub(crate) core: crate::interp::Core<'a>,
@@ -816,6 +826,7 @@ impl<'a> Runtime<'a> {
         self.core.vars.filename = with_input!(&mut self.input_data, |(_, read_files)| {
             read_files.stdin_filename().upcast()
         });
+        self.core.vars.load_message();
     }
 }
 

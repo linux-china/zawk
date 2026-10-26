@@ -85,6 +85,9 @@ pub struct Prog<'a, 'b, I> {
     // Each input file starts with its own header line (-H, but not for JSON Lines or Parquet,
     // whose FI comes from the record keys).
     pub header_per_file: bool,
+    // The header of every input file, including the first one, is read by the main loop rather
+    // than in BEGIN: the input files are NATS messages, which BEGIN must not wait for.
+    pub header_in_main: bool,
     // Where calls and variable references start in the program text, for error messages: see
     // `expr_key`.
     pub locs: ExprLocs,
@@ -395,6 +398,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             operand_files: Vec::new(),
             parse_header: false,
             header_per_file: false,
+            header_in_main: false,
             stage,
             locs: Default::default(),
             locals: Default::default(),
@@ -420,7 +424,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
         }
 
         // for -H
-        if self.parse_header {
+        if self.parse_header && !self.header_in_main {
             parse_header(arena, &mut begin);
         }
 

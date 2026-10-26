@@ -213,6 +213,10 @@ impl<'a> Core<'a> {
                 fi: fi.into(),
                 environ: environ.into(),
                 procinfo: procinfo.into(),
+                // NATS input is never read in parallel.
+                msg_subject: Default::default(),
+                msg_headers: Default::default(),
+                msg_body: Default::default(),
                 uses_procinfo,
                 ignorecase,
             };
@@ -594,6 +598,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     fn reset_file_vars(&mut self) {
         self.core.vars.fnr = 0;
         self.core.vars.filename = self.read_files.stdin_filename().upcast();
+        self.core.vars.load_message();
     }
 
     /// Run END (if any) after the other stages of a parallel program, then return the exit code:
