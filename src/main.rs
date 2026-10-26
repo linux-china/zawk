@@ -91,11 +91,29 @@ macro_rules! fatal {
     }}
 }
 
+/// The program operand when it names an existing `.awk` (or Markdown) file: `zawk lint` reads it
+/// as `-f`, and a run that fails to parse it suggests `-f`.
+fn program_operand_file(p: &str) -> bool {
+    (p.ends_with(".awk") || awk_util::is_markdown_file(p)) && std::path::Path::new(p).is_file()
+}
+
+/// A program operand naming a file (see `program_operand_file`), for the hint of a syntax error.
+static PROGRAM_OPERAND_FILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Exits on the syntax error `msg`, suggesting `-f` when the program operand names a file.
+fn syntax_failed(msg: &str) -> ! {
+    if let Some(file) = PROGRAM_OPERAND_FILE.get() {
+        eprintln_ignore!("zawk: {}", msg.strip_prefix("zawk: ").unwrap_or(msg));
+        fail!("did you mean `-f {}`?", file)
+    }
+    fail!("{}", msg)
+}
+
 /// Exits on an error splicing in the program sources: a source that is not complete is a syntax
 /// error, as the parser reports them; a file that cannot be read is fatal.
 fn include_failed(e: &str) -> ! {
     if e.starts_with("syntax error") {
-        fail!("{}", e)
+        syntax_failed(e)
     }
     fatal!("{}", e)
 }
@@ -407,9 +425,7 @@ fn get_context<'a>(
             prog.header_in_main = prelude.scalars.header_in_main;
             a.alloc(prog)
         }
-        Err(e) => {
-            fail!("{}", parsing::syntax_error(text, &e));
-        }
+        Err(e) => syntax_failed(&parsing::syntax_error(text, &e)),
     };
     match cfg::ProgramContext::from_prog(a, stmt, prelude.scalars.escaper) {
         Ok(mut ctx) => {
@@ -417,7 +433,7 @@ fn get_context<'a>(
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
-        Err(e) if e.is_syntax() => fail!("{}", parsing::render_error(&e)),
+        Err(e) if e.is_syntax() => syntax_failed(&parsing::render_error(&e)),
         Err(e) => fatal!("{}", parsing::render_error(&e)),
     }
 }
@@ -709,7 +725,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         }
     } else if let Some(file) = matches
         .get_one::<String>("program")
-        .filter(|p| (p.ends_with(".awk") || awk_util::is_markdown_file(p)) && std::path::Path::new(p.as_str()).is_file())
+        .filter(|p| program_operand_file(p))
     {
         // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` (or Markdown) file is
         // read as -f.
@@ -1427,6 +1443,9 @@ fn real_main() {
             }
         }
     } else if let Some(p) = matches.get_one::<String>("program") {
+        if program_operand_file(p) {
+            let _ = PROGRAM_OPERAND_FILE.set(p.clone());
+        }
         for (_, _, file) in sources {
             if let Err(e) = includer.include(file) {
                 include_failed(&e);
