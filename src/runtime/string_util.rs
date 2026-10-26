@@ -531,7 +531,12 @@ pub fn is_format(format: &str, text: &str) -> Int {
 /// Longest password `mkpass` generates; longer requests are errors rather than huge allocations.
 const MAX_PASSWORD_LEN: usize = 4096;
 
-pub fn generate_password(len: usize) -> Result<String> {
+pub fn generate_password(len: i64) -> Result<String> {
+    if len <= 0 {
+        stdlib_warning("mkpass", format!("length must be positive, got {}", len));
+        return Ok(String::new());
+    }
+    let len = len as usize;
     if len > MAX_PASSWORD_LEN {
         return err!("mkpass: length {} is too large (maximum {})", len, MAX_PASSWORD_LEN);
     }

@@ -961,7 +961,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     MkPassword(dst, len) => {
                         let len: i64 = *self.get(*len);
-                        let password = runtime::string_util::generate_password(len.max(0) as usize)?;
+                        let password = runtime::string_util::generate_password(len)?;
                         *index_mut(&mut self.strs, dst) = password.into();
                     }
                     Fend(dst, src) => {
