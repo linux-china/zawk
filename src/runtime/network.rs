@@ -441,7 +441,9 @@ fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> 
     };
     let mut builder = lettre::Message::builder().from(address(from)?).subject(subject);
     for email_address in to.split(",") {
-        builder = builder.to(address(email_address)?);
+        if email_address.contains('@') {
+            builder = builder.to(address(email_address.trim())?);
+        }
     }
     let email = builder
         .header(lettre::message::header::ContentType::TEXT_PLAIN)
