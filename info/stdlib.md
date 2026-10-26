@@ -996,6 +996,14 @@ The subject may contain wildcards: `orders.*.created` (one token) or `orders.>` 
 zawk reads messages until it receives SIGINT (Ctrl+C), then runs `END` and exits; the output of each message
 is written at once. A `nats://` subject must be the only input file (JetStream and request/reply are not supported).
 
+- Ctrl+C is handled while zawk waits for the next message: if `BEGIN` or a rule is still busy (a long loop,
+  a slow `http_post`), zawk prints a notice and runs `END` once the current message is processed.
+  A second Ctrl+C exits at once (status 130) without running `END`.
+- `?queue=name`: subscribe as a member of the queue group `name`, e.g. `nats://localhost:4222/orders.>?queue=workers`;
+  each message goes to one member of the group only. Other query parameters are rejected.
+- If the program cannot keep up with the subject, the client buffer fills up and NATS drops messages:
+  zawk warns at the 1st, 10th, 100th, ... dropped message.
+
 - `MSG_SUBJECT`: the subject of the message
 - `MSG_HEADERS`: the headers of the message, e.g. `MSG_HEADERS["content-type"]` (repeated headers are joined with `, `)
 - `MSG_BODY`: the payload of the message

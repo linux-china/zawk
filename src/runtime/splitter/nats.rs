@@ -5,7 +5,11 @@
 //! and with `-H` every CSV/TSV payload starts with its header (the header of a JSON payload comes
 //! from its keys). `MSG_SUBJECT`, `MSG_HEADERS` and `MSG_BODY` hold the message being read.
 //!
-//! The input never ends by itself: SIGINT (Ctrl+C) ends it, then END runs and zawk exits.
+//! The input never ends by itself: SIGINT (Ctrl+C) ends it, then END runs and zawk exits. The
+//! SIGINT is only seen while waiting for a message: BEGIN or a rule that is busy keeps running
+//! until it is done, and a second Ctrl+C exits at once, without END.
+//!
+//! `?queue=name` subscribes as a member of the queue group `name`: each message goes to one member.
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,13 +47,22 @@ pub(crate) fn current_message() -> Option<Arc<Message>> {
 }
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+// Waiting for a message: a SIGINT ends the input at once.
+static WAITING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(unix)]
 extern "C" fn on_sigint(_: libc::c_int) {
-    // A second Ctrl+C exits at once, e.g. when END does not finish.
+    // A second Ctrl+C exits at once, e.g. when BEGIN, a rule or END does not finish.
     if INTERRUPTED.swap(true, Ordering::SeqCst) {
         unsafe { libc::_exit(130) };
     }
+    if WAITING.load(Ordering::SeqCst) {
+        return;
+    }
+    // only async-signal-safe calls here: tell why nothing happens while the program is busy
+    const HINT: &[u8] =
+        b"zawk: interrupted: END runs once the current message is processed (Ctrl+C again to exit now)\n";
+    unsafe { libc::write(libc::STDERR_FILENO, HINT.as_ptr().cast(), HINT.len()) };
 }
 
 /// Make SIGINT end the input rather than the process.
@@ -60,7 +73,7 @@ fn catch_sigint() {
     }
 }
 
-/// A subscription to the subject of a `nats://[user:password@]host[:port]/subject` URL.
+/// A subscription to the subject of a `nats://[user:password@]host[:port]/subject[?queue=name]` URL.
 pub struct Subscription {
     // Only None once dropped.
     subscriber: Option<async_nats::Subscriber>,
@@ -86,12 +99,20 @@ impl Subscription {
         if subject.is_empty() {
             return Err(format!("missing subject in {:?}", redact_url(url)));
         }
+        let mut queue = None;
+        for (name, value) in parsed.query_pairs() {
+            match &*name {
+                "queue" if !value.is_empty() => queue = Some(value.into_owned()),
+                _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
+            }
+        }
         let conn_url = parsed[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
         let subscriber = NATS_RUNTIME.block_on(async {
-            let subscriber = client
-                .subscribe(subject.clone())
-                .await
+            let subscriber = match queue {
+                Some(queue) => client.queue_subscribe(subject.clone(), queue).await,
+                None => client.subscribe(subject.clone()).await,
+            }
                 .map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
             // the server knows about the subscription once the SUB is flushed
             client.flush().await.map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
@@ -108,8 +129,10 @@ impl Subscription {
                 return None;
             }
             let subscriber = self.subscriber.as_mut()?;
+            WAITING.store(true, Ordering::SeqCst);
             let next = NATS_RUNTIME
                 .block_on(async { tokio::time::timeout(Duration::from_millis(100), subscriber.next()).await });
+            WAITING.store(false, Ordering::SeqCst);
             match next {
                 Ok(Some(msg)) => return Some(msg),
                 Ok(None) => {
@@ -303,6 +326,14 @@ mod tests {
     fn test_missing_subject() {
         assert!(Subscription::new("nats://127.0.0.1:14222").err().unwrap().contains("missing subject"));
         assert!(Subscription::new("nats://127.0.0.1:14222/").err().unwrap().contains("missing subject"));
+    }
+
+    #[test]
+    fn test_unsupported_query() {
+        let err = Subscription::new("nats://127.0.0.1:14222/logs?group=a").err().unwrap();
+        assert!(err.contains("unsupported query parameter \"group\""), "{}", err);
+        let err = Subscription::new("nats://127.0.0.1:14222/logs?queue=").err().unwrap();
+        assert!(err.contains("unsupported query parameter \"queue\""), "{}", err);
     }
 
     #[test]

@@ -167,7 +167,26 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
     if let Some(client) = pool.get(conn_url) {
         return Ok(client.clone());
     }
-    let mut options = async_nats::ConnectOptions::new().connection_timeout(Duration::from_secs(10));
+    let mut options = async_nats::ConnectOptions::new()
+        .connection_timeout(Duration::from_secs(10))
+        .event_callback(|event| async move {
+            // a subscriber that cannot keep up: its buffer is full and the message is dropped
+            if let async_nats::Event::SlowConsumer(_) = event {
+                static DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let dropped = DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                // at 1, 10, 100, ... dropped messages: do not flood stderr
+                let mut n = dropped;
+                while n.is_multiple_of(10) {
+                    n /= 10;
+                }
+                if n == 1 {
+                    eprintln_ignore!(
+                        "zawk: warning: NATS messages dropped ({} so far): the program cannot keep up with the subject",
+                        dropped
+                    );
+                }
+            }
+        });
     // async_nats ignores the userinfo of the server URL: pass `user:password@` / `token@` explicitly
     if let Ok(url) = Url::parse(conn_url) {
         let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
