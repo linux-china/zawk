@@ -37,48 +37,39 @@ pub fn user_home() -> String {
 pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
     let path_buf = PathBuf::from(text);
-    if path_buf.exists() {
-        map.insert(Str::from("exists"), Str::from("1"));
-        if let Ok(full_path) = path_buf.canonicalize() {
-            if let Some(full_path_text) = full_path.to_str() {
-                map.insert(
-                    Str::from("full_path"),
-                    Str::from(full_path_text.to_string()),
-                );
-            }
-            if let Some(parent_path) = full_path.parent() {
-                if let Some(parent_path_text) = parent_path.to_str() {
-                    map.insert(Str::from("parent"), Str::from(parent_path_text.to_string()));
-                }
-            }
+    let mut insert = |key: &str, value: &std::ffi::OsStr| {
+        if let Some(value_text) = value.to_str() {
+            map.insert(Str::from(key.to_string()), Str::from(value_text.to_string()));
         }
-        if let Some(file_name) = path_buf.file_name() {
-            if let Some(file_name_text) = file_name.to_str() {
-                map.insert(
-                    Str::from("file_name"),
-                    Str::from(file_name_text.to_string()),
-                );
-            }
-        }
-        if let Some(file_stem) = path_buf.file_stem() {
-            if let Some(file_stem_text) = file_stem.to_str() {
-                map.insert(
-                    Str::from("file_stem"),
-                    Str::from(file_stem_text.to_string()),
-                );
-            }
-        }
-        if let Some(name_extension) = path_buf.extension() {
-            if let Some(file_ext_text) = name_extension.to_str() {
-                map.insert(Str::from("file_ext"), Str::from(file_ext_text.to_string()));
-                let content_type = mime_guess::from_ext(file_ext_text)
-                    .first_or_octet_stream()
-                    .to_string();
-                map.insert(Str::from("content_type"), Str::from(content_type));
-            }
-        }
+    };
+    // full_path needs canonicalize, so it is only available for existing paths;
+    // the other fields are parsed literally, e.g. for output files to be created
+    let full_path = if path_buf.exists() {
+        path_buf.canonicalize().ok()
     } else {
-        map.insert(Str::from("exists"), Str::from("0"));
+        None
+    };
+    insert("exists", if path_buf.exists() { "1" } else { "0" }.as_ref());
+    if let Some(full_path) = &full_path {
+        insert("full_path", full_path.as_os_str());
+    }
+    if let Some(parent_path) = full_path.as_deref().unwrap_or(&path_buf).parent() {
+        insert("parent", parent_path.as_os_str());
+    }
+    if let Some(file_name) = path_buf.file_name() {
+        insert("file_name", file_name);
+    }
+    if let Some(file_stem) = path_buf.file_stem() {
+        insert("file_stem", file_stem);
+    }
+    if let Some(name_extension) = path_buf.extension() {
+        insert("file_ext", name_extension);
+        if let Some(file_ext_text) = name_extension.to_str() {
+            let content_type = mime_guess::from_ext(file_ext_text)
+                .first_or_octet_stream()
+                .to_string();
+            map.insert(Str::from("content_type"), Str::from(content_type));
+        }
     }
     SharedMap::from(map)
 }
@@ -129,6 +120,18 @@ mod tests {
             assert_eq!(map.get(&Str::from("file_stem")).to_string(), stem);
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_path_not_exists() {
+        let map = path("/zawk_not_exists/b/c.tar.gz");
+        assert_eq!(map.get(&Str::from("exists")).to_string(), "0");
+        assert_eq!(map.get(&Str::from("full_path")).to_string(), "");
+        assert_eq!(map.get(&Str::from("parent")).to_string(), "/zawk_not_exists/b");
+        assert_eq!(map.get(&Str::from("file_name")).to_string(), "c.tar.gz");
+        assert_eq!(map.get(&Str::from("file_stem")).to_string(), "c.tar");
+        assert_eq!(map.get(&Str::from("file_ext")).to_string(), "gz");
+        assert_eq!(map.get(&Str::from("content_type")).to_string(), "application/gzip");
     }
 
     #[test]

@@ -365,8 +365,8 @@ examples: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306
 `path("./demo.txt")`
 
 - exists: `0` or `1`
-- full_path
-- parent
+- full_path: canonical absolute path, only available when the path exists
+- parent: parent of `full_path` when the path exists, otherwise the literal parent of the given path
 - file_name
 - file_stem
 - file_ext
