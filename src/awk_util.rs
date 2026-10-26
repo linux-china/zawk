@@ -302,14 +302,24 @@ pub fn extract_awk_block(markdown: &str) -> Option<String> {
     None
 }
 
-/// A program given as text (the program operand or `-e`): the first awk code block when the text
-/// is Markdown, such as the answer of an LLM, else the text itself.
-pub fn program_text(text: &str) -> Option<String> {
-    if text.contains("```") || text.contains("~~~") {
-        extract_awk_block(text)
-    } else {
-        None
+/// Whether `text` looks like Markdown with fenced code blocks: a line starts (after at most three
+/// spaces) with a ```` ``` ```` or `~~~` fence.
+fn has_code_fence(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.strip_prefix("   ").or_else(|| line.strip_prefix("  ")).or_else(|| line.strip_prefix(' ')).unwrap_or(line);
+        line.starts_with("```") || line.starts_with("~~~")
+    })
+}
+
+/// A program given as text (the program operand or `-e`): `Ok(Some(block))` with the first awk
+/// code block when the text is Markdown, such as the answer of an LLM, `Ok(None)` when it is not
+/// Markdown (the text is the program itself), and an error when it is Markdown without an awk
+/// code block.
+pub fn program_text(text: &str) -> Result<Option<String>, String> {
+    if !has_code_fence(text) {
+        return Ok(None);
     }
+    extract_awk_block(text).map(Some).ok_or_else(|| "no ```awk code block in the Markdown text".to_string())
 }
 
 #[cfg(test)]
@@ -364,8 +374,11 @@ mod tests {
 
     #[test]
     fn test_program_text() {
-        assert_eq!(program_text("BEGIN { print \"```\" }"), None);
-        assert_eq!(program_text("Answer:\n```awk\nBEGIN {}\n```").unwrap(), "\n\nBEGIN {}\n");
+        assert_eq!(program_text("BEGIN { print \"```\" }"), Ok(None));
+        assert_eq!(program_text("BEGIN { s = \"~~~\" }\n{ print s }"), Ok(None));
+        assert_eq!(program_text("Answer:\n```awk\nBEGIN {}\n```"), Ok(Some("\n\nBEGIN {}\n".to_string())));
+        assert_eq!(program_text("Answer:\n  ~~~ zawk\nBEGIN {}\n  ~~~"), Ok(Some("\n\nBEGIN {}\n".to_string())));
+        assert!(program_text("Answer:\n```bash\nzawk 'BEGIN{print 1}'\n```\n").is_err());
     }
 
     #[test]

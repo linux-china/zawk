@@ -220,6 +220,13 @@ fn github_raw_url(gh_path: &str) -> Option<String> {
     Some(format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"))
 }
 
+/// The program given as text (the program operand or `-e`): the first awk code block of
+/// Markdown text, such as the answer of an LLM (`None` when the text is not Markdown). Markdown
+/// without an awk code block is a fatal error, as for a Markdown `-f` file.
+fn inline_program(text: &str) -> Option<String> {
+    awk_util::program_text(text).unwrap_or_else(|e| fatal!("can't read program: {}", e))
+}
+
 /// The program in the text of the file `name`: the first awk code block of a Markdown file, else
 /// the whole text.
 fn program_in_file(name: &str, text: String) -> Result<String, String> {
@@ -671,7 +678,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     }
     if let (Some(idx), Some(vals)) = (matches.indices_of("source"), matches.get_many::<String>("source")) {
         sources.extend(idx.zip(vals).map(|(i, text)| {
-            let text = awk_util::program_text(text).unwrap_or_else(|| text.clone());
+            let text = inline_program(text).unwrap_or_else(|| text.clone());
             (i, lint::Source { name: None, text, line: 0 }, SourceKind::Inline)
         }));
     }
@@ -717,14 +724,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     if sources.iter().all(|(_, k)| *k == SourceKind::Include) {
         let text = match matches.get_one::<String>("program") {
             // As for a run, sugar syntax only applies to a program operand.
-            Some(p) => match awk_util::program_text(p) {
+            Some(p) => match inline_program(p) {
                 Some(code) if matches.get_flag("posix") => code,
                 Some(code) => awk_util::sugar_syntax_convert(code),
                 None if matches.get_flag("posix") => p.clone(),
                 None => awk_util::sugar_syntax_convert(p.trim().to_string()),
             },
             None => match io::read_to_string(io::stdin()) {
-                Ok(text) => awk_util::program_text(&text).unwrap_or(text),
+                Ok(text) => inline_program(&text).unwrap_or(text),
                 Err(e) => fatal!("can't read program from stdin: {}", e),
             },
         };
@@ -1405,7 +1412,7 @@ fn real_main() {
                 SourceKind::Inline => {
                     inline_count += 1;
                     let name = named.then(|| parsing::inline_source_name(inline_count));
-                    let text = awk_util::program_text(prog_file);
+                    let text = inline_program(prog_file);
                     includer.add_source(name, text.as_deref().unwrap_or(prog_file), None)
                 }
                 SourceKind::File => {
@@ -1426,7 +1433,7 @@ fn real_main() {
         // Sugar syntax only applies to programs given on the command line, not to `-f` files.
         // A Markdown program (e.g. the answer of an LLM) is its first awk code block, whose lines
         // keep their numbers in the Markdown text.
-        let p = match awk_util::program_text(p) {
+        let p = match inline_program(p) {
             Some(code) if matches.get_flag("posix") => code,
             Some(code) => awk_util::sugar_syntax_convert(code),
             None if matches.get_flag("posix") => p.clone(),
