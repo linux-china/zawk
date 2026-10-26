@@ -25,11 +25,15 @@ Please ignore the following differences with gawk：
 - ignore f-string difference
 - readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
 -  `$$1`, `$++i` not support
--  `@/re/` 
+-  `@/re/`
 
 Security:
 
 - http is allowed 
+
+Architecture: 
+
+- BLOB in Database: not support now, and treated as empty string
 
 Development environment:
 
