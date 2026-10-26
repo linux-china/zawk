@@ -581,6 +581,11 @@ pub const PROGRAM_STACK_SIZE: usize = 1 << 30;
 /// one more user-defined function frame plus the runtime functions it calls.
 const STACK_RESERVE: usize = 16 << 20;
 
+/// Memory that user-defined function calls may use before failing with "function call nesting
+/// too deep": the native stack of the cranelift backend, and the heap-allocated call stack and
+/// saved registers of the interpreter.
+pub const CALL_STACK_BUDGET: usize = PROGRAM_STACK_SIZE - STACK_RESERVE;
+
 thread_local! {
     /// Lowest stack address that user-defined function calls may reach; 0 means no limit.
     static STACK_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -596,7 +601,7 @@ fn stack_pointer() -> usize {
 /// `PROGRAM_STACK_SIZE` bytes (see [`spawn_with_program_stack`]).
 #[inline(never)]
 pub fn init_stack_limit() {
-    let limit = stack_pointer().saturating_sub(PROGRAM_STACK_SIZE - STACK_RESERVE);
+    let limit = stack_pointer().saturating_sub(CALL_STACK_BUDGET);
     STACK_LIMIT.with(|l| l.set(limit));
 }
 

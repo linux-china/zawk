@@ -2713,7 +2713,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Push(ty, reg) => self.push_reg(*ty, *reg),
                     Pop(ty, reg) => self.pop_reg(*ty, *reg),
                     Call(func) => {
-                        if self.stack.len() >= MAX_CALL_DEPTH {
+                        if self.stack.len().is_multiple_of(CALL_STACK_CHECK_INTERVAL)
+                            && self.call_stack_bytes() >= crate::common::CALL_STACK_BUDGET
+                        {
                             return err!("function call nesting too deep");
                         }
                         self.stack.push((cur_fn, Label(cur + 1)));
@@ -3041,6 +3043,26 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             Ty::Null | Ty::IterInt | Ty::IterStr => panic!("unsupported slot type: {:?}", ty),
         }
     }
+    /// Bytes used by the interpreter's call stack and saved registers. They live on the heap, so
+    /// recursion is bounded by this size rather than by the native stack: it is checked against
+    /// the same budget the cranelift backend gets (see `check_stack`), so both backends allow
+    /// recursion of a similar depth.
+    fn call_stack_bytes(&self) -> usize {
+        fn bytes<T>(s: &Storage<T>) -> usize {
+            s.stack.len() * std::mem::size_of::<T>()
+        }
+        self.stack.len() * std::mem::size_of::<(usize, Label)>()
+            + bytes(&self.ints)
+            + bytes(&self.floats)
+            + bytes(&self.strs)
+            + bytes(&self.maps_int_int)
+            + bytes(&self.maps_int_float)
+            + bytes(&self.maps_int_str)
+            + bytes(&self.maps_str_int)
+            + bytes(&self.maps_str_float)
+            + bytes(&self.maps_str_str)
+    }
+
     fn push_reg(&mut self, ty: Ty, src: NumTy) {
         match ty {
             Ty::Int => push(&mut self.ints, &src.into()),
@@ -3087,10 +3109,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     }
 }
 
-/// Maximum nesting of user-defined function calls in the interpreter. Its call stack and
-/// registers live on the heap, so without a limit runaway recursion would exhaust memory instead
-/// of failing like the cranelift backend does (see `check_stack`).
-const MAX_CALL_DEPTH: usize = 1 << 22;
+/// How often (in call depth) the interpreter measures its call stacks against
+/// `CALL_STACK_BUDGET`; measuring on every call would slow down calls for no benefit.
+const CALL_STACK_CHECK_INTERVAL: usize = 1 << 10;
 
 // TODO: Add a pass that does checking of indexes once.
 // That could justify no checking during interpretation.

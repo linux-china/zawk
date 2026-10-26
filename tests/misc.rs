@@ -2639,7 +2639,7 @@ fn deep_recursion() {
             .success()
             .stdout("1000000\n");
     }
-    // The interpreter keeps its call stack on the heap; it has a depth limit instead.
+    // The interpreter keeps its call stack on the heap, limited to the same memory budget.
     for backend_arg in ["-Bcranelift", "-Binterp"] {
         let output = Command::cargo_bin("zawk")
             .unwrap()
