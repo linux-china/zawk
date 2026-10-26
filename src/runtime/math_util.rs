@@ -243,9 +243,10 @@ pub(crate) fn mkbool(text: &str) -> i64 {
     parse_bool(text) as i64
 }
 
-/// The array `[start, start + step, ...]` of the numbers up to `end`; empty if `start > end`. A
-/// non-positive step (which would never reach `end`), a step too small to change `start`, or more
-/// than [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) elements is an error.
+/// The array `[start, start + step, ...]` of the numbers up to `end` (down to `end` for a negative
+/// `step`), like the `seq` command; empty if `end` lies on the other side of `start`. A zero or
+/// NaN step, a step too small to change `start`, or more than
+/// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) elements is an error.
 ///
 /// The element count is computed up front, with a small tolerance so that rounding in
 /// `(end - start) / step` does not drop the end point (`seq(0, 0.1, 0.3)` has 4 elements), and
@@ -253,11 +254,12 @@ pub(crate) fn mkbool(text: &str) -> i64 {
 /// element that rounding pushes just past `end` is clamped to `end`.
 pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Result<IntMap<Float>> {
     let result: IntMap<Float> = IntMap::default();
-    if !(start <= end) {
-        return Ok(result);
+    if step == 0.0 || step.is_nan() {
+        return err!("seq: step must not be zero, got {}", step);
     }
-    if !(step > 0.0) {
-        return err!("seq: step {} must be positive", step);
+    let ascending = step > 0.0;
+    if !(if ascending { start <= end } else { start >= end }) {
+        return Ok(result);
     }
     let q = (end - start) / step;
     let count = (q + 1e-9 + q.abs() * 4.0 * Float::EPSILON).floor() + 1.0;
@@ -266,7 +268,8 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Resul
         return err!("seq: step {} is too small to change start {}", step, start);
     }
     for i in 0..count as Int {
-        result.insert(i + 1, (start + i as Float * step).min(end));
+        let v = start + i as Float * step;
+        result.insert(i + 1, if ascending { v.min(end) } else { v.max(end) });
     }
     Ok(result)
 }
@@ -785,8 +788,17 @@ mod tests {
 
     #[test]
     fn test_seq() {
-        let result = seq(1.0, 1.0, 10.0).unwrap();
-        println!("{:?}", result);
+        let values = |start, step, end| {
+            let arr = seq(start, step, end).unwrap();
+            (1..=arr.len() as Int).map(|i| arr.get(&i)).collect::<Vec<Float>>()
+        };
+        assert_eq!(values(1.0, 1.0, 5.0), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(values(3.0, -1.0, 1.0), vec![3.0, 2.0, 1.0]);
+        assert_eq!(values(1.0, -0.5, 0.0), vec![1.0, 0.5, 0.0]);
+        assert!(values(1.0, 1.0, 0.0).is_empty());
+        assert!(values(1.0, -1.0, 2.0).is_empty());
+        assert!(seq(1.0, 0.0, 1.0).is_err());
+        assert!(seq(1.0, Float::NAN, 1.0).is_err());
     }
 
     #[test]

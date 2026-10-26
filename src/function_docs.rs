@@ -211,7 +211,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       "64-bit Snowflake ID; machine_id defaults to 1, max 65535.", "snowflake(2)"),
     // Array
     d("seq", ARRAY, "seq(a: num[, b: num[, c: num]]) -> map[int]float",
-      "Number sequence like the seq command: seq(end) from 0, seq(start, end), seq(start, step, end).",
+      "Number sequence like the seq command: seq(end) from 1, seq(start, end), seq(start, step, end); a negative step counts down.",
       "seq(1, 2, 9)"),
     d("uniq", ARRAY, "uniq(arr: map[int]str, how?: str) -> map[int]str", "Unique values of arr, indexed from 1: sorted like asort() by default (or \"asc\"), reversed with \"desc\", in first-appearance order with \"keep\".",
       r#"split("b a b", arr); u = uniq(arr)"#),

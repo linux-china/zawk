@@ -3363,14 +3363,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     builtins::Function::Max if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b""));
                     }
-                    // seq(10) => seq(1,1 10);
+                    // seq(10) => seq(1, 1, 10);
                     builtins::Function::Seq if args_len == 1 => {
                         let max = prim_args.pop().unwrap();
-                        prim_args.push(PrimVal::ILit(0));
+                        prim_args.push(PrimVal::ILit(1));
                         prim_args.push(PrimVal::ILit(1));
                         prim_args.push(max);
                     }
-                    // seq(1, 10) => seq(1,1 10);
+                    // seq(1, 10) => seq(1, 1, 10);
                     builtins::Function::Seq if args_len == 2 => {
                         let max = prim_args.pop().unwrap();
                         prim_args.push(PrimVal::ILit(1));

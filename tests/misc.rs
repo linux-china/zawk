@@ -372,6 +372,46 @@ fn pascal_case_has_no_spaces() {
 }
 
 #[test]
+fn case_conversions_agree_on_acronyms() {
+    let prog = r#"BEGIN { s = "HTTPServer"; print camel_case(s), pascal_case(s), snake_case(s), kebab_case(s), camel_case("über straße");
+                 print title_case("hello wORLD"), title_case("NASA launch, don't stop") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("httpServer HttpServer http_server http-server überStraße\nHello WORLD NASA Launch Don't Stop\n");
+    }
+}
+
+#[test]
+fn empty_prefix_and_substring_match() {
+    let prog = r#"BEGIN { print starts_with("abc", ""), ends_with("abc", ""), contains("abc", ""), contains("", ""), starts_with("", "a"), contains("abc", "d") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1 1 1 1 0 0\n");
+    }
+}
+
+#[test]
+fn seq_like_seq_command() {
+    let prog = r#"BEGIN { print _join(seq(5), ","), _join(seq(2, 4), ","), _join(seq(3, -1, 1), ","), _join(seq(1, -0.5, 0), ","), length(seq(0)), length(seq(1, -1, 2)) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1,2,3,4,5 2,3,4 3,2,1 1,0.5,0 0 0\n");
+    }
+}
+
+#[test]
 fn isnum_matches_strnum_conversion() {
     // `isnum(x)` holds exactly when `x + 0` takes the value `x` spells: a bare "inf"/"nan" is 0.
     let prog = r#"BEGIN { print isnum("inf"), isnum("nan"), isnum("-inf"), isnum("+nan"), isnum(" 0x11 "), isnum("1e5"), isnum("1e"), "inf" + 0 }"#;
@@ -2610,7 +2650,7 @@ fn stdlib_result_size_limits() {
     assert_fatal(r#"BEGIN { x = pad_start("a", 1e12, "*") }"#, "pad_start: length");
     assert_fatal(r#"BEGIN { x = pad("a", 1e12, "*") }"#, "pad: length");
     assert_fatal(r#"BEGIN { a = seq(1, 1, 1e12) }"#, "seq: element count 1000000000000 is too large");
-    assert_fatal(r#"BEGIN { a = seq(1, 0, 10) }"#, "seq: step 0 must be positive");
+    assert_fatal(r#"BEGIN { a = seq(1, 0, 10) }"#, "seq: step must not be zero, got 0");
     assert_fatal(r#"BEGIN { a = seq(1e17, 1, 1e17+10) }"#, "seq: step 1 is too small to change start");
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -2625,7 +2665,7 @@ fn stdlib_result_size_limits() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
-            .arg(r#"BEGIN { a = seq(10, 0, 1); print length(repeat("ab", 3)), pad_end("a", 3, "*"), length(a) }"#)
+            .arg(r#"BEGIN { a = seq(10, 1, 1); print length(repeat("ab", 3)), pad_end("a", 3, "*"), length(a) }"#)
             .assert()
             .success()
             .stdout("6 a** 0\n");

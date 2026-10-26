@@ -662,19 +662,19 @@ impl<'a> Str<'a> {
         self.clone()
     }
 
-    /// Byte-wise `starts_with`; false when either string is empty.
+    /// Byte-wise `starts_with`; true for an empty prefix, as in Python, JS and Rust.
     pub fn has_prefix(&self, prefix: &Str) -> bool {
-        self.with_bytes(|t| prefix.with_bytes(|p| !t.is_empty() && !p.is_empty() && t.starts_with(p)))
+        self.with_bytes(|t| prefix.with_bytes(|p| t.starts_with(p)))
     }
 
-    /// Byte-wise `ends_with`; false when either string is empty.
+    /// Byte-wise `ends_with`; true for an empty suffix.
     pub fn has_suffix(&self, suffix: &Str) -> bool {
-        self.with_bytes(|t| suffix.with_bytes(|p| !t.is_empty() && !p.is_empty() && t.ends_with(p)))
+        self.with_bytes(|t| suffix.with_bytes(|p| t.ends_with(p)))
     }
 
-    /// Byte-wise substring test; false when either string is empty.
+    /// Byte-wise substring test; true for an empty `child`, as `index(s, "")` is 1.
     pub fn has_substr(&self, child: &Str) -> bool {
-        self.with_bytes(|t| child.with_bytes(|c| !t.is_empty() && !c.is_empty() && memchr::memmem::find(t, c).is_some()))
+        self.with_bytes(|t| child.with_bytes(|c| memchr::memmem::find(t, c).is_some()))
     }
 
     pub fn append_if_missing(&self, suffix: &Str<'a>) -> Str<'a> {
@@ -740,33 +740,52 @@ impl<'a> Str<'a> {
         })
     }
 
+    /// `helloWorld`: the words of [`ident_words`], the first lowercased, the rest capitalized.
     pub fn camel_case<'b>(&self) -> Str<'b> {
-        let src = self.as_text();
-        let result = inflector::cases::camelcase::to_camel_case(&src);
+        let mut result = String::new();
+        for (i, word) in ident_words(&self.as_text()).into_iter().enumerate() {
+            if i == 0 {
+                result.push_str(&word.to_lowercase());
+            } else {
+                push_capitalized(&mut result, word);
+            }
+        }
         Str::from_text(result)
     }
 
+    /// `hello-world`: the lowercased words of [`ident_words`] joined by `-`.
     pub fn kebab_case<'b>(&self) -> Str<'b> {
-        let src = self.as_text();
-        let result = inflector::cases::kebabcase::to_kebab_case(&src);
-        Str::from_text(result)
+        Str::from_text(lower_words(&self.as_text(), "-"))
     }
 
+    /// `hello_world`: the lowercased words of [`ident_words`] joined by `_`.
     pub fn snake_case<'b>(&self) -> Str<'b> {
-        let src = self.as_text();
-        let result = inflector::cases::snakecase::to_snake_case(&src);
-        Str::from_text(result)
+        Str::from_text(lower_words(&self.as_text(), "_"))
     }
 
+    /// `Hello World`: the words of [`title_words`] joined by a space, each with its first char
+    /// uppercased and the rest kept as is (`NASA`, `iPhone` -> `IPhone`).
     pub fn title_case<'b>(&self) -> Str<'b> {
-        let src = self.as_text();
-        let result = inflector::cases::titlecase::to_title_case(&src);
+        let mut result = String::new();
+        for word in title_words(&self.as_text()) {
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            let mut chars = word.chars();
+            if let Some(first) = chars.next() {
+                result.extend(first.to_uppercase());
+                result.push_str(chars.as_str());
+            }
+        }
         Str::from_text(result)
     }
 
+    /// `HelloWorld`: the words of [`ident_words`], each capitalized.
     pub fn pascal_case<'b>(&self) -> Str<'b> {
-        let src = self.as_text();
-        let result = inflector::cases::pascalcase::to_pascal_case(&src);
+        let mut result = String::new();
+        for word in ident_words(&self.as_text()) {
+            push_capitalized(&mut result, word);
+        }
         Str::from_text(result)
     }
 
@@ -1584,6 +1603,77 @@ impl<'a> Str<'a> {
 /// lossless.
 const ESCAPE_BASE: u32 = 0x10FF00;
 const ESCAPE_LEAD: u8 = 0xF4;
+
+/// The words of an identifier-like string: runs of letters and digits, also split before an
+/// uppercase letter that follows a lowercase letter or a digit (`helloWorld`, `v2Api`), and before
+/// the last capital of a run followed by a lowercase letter (`HTTP|Server`).
+fn ident_words(text: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = None;
+    let mut prev: Option<char> = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if !c.is_alphanumeric() {
+            if let Some(s) = start.take() {
+                words.push(&text[s..i]);
+            }
+            prev = None;
+            continue;
+        }
+        if let (Some(s), Some(p)) = (start, prev) {
+            let next_lower = chars.peek().is_some_and(|&(_, n)| n.is_lowercase());
+            let boundary = c.is_uppercase()
+                && (p.is_lowercase() || p.is_numeric() || (p.is_uppercase() && next_lower));
+            if boundary {
+                words.push(&text[s..i]);
+                start = Some(i);
+            }
+        }
+        start.get_or_insert(i);
+        prev = Some(c);
+    }
+    if let Some(s) = start {
+        words.push(&text[s..]);
+    }
+    words
+}
+
+/// The words of a headline: runs of letters and digits, keeping an apostrophe between two of
+/// them (`don't`). Unlike [`ident_words`], case changes do not split words.
+fn title_words(text: &str) -> Vec<&str> {
+    let is_apostrophe = |c: char| c == '\'' || c == '\u{2019}';
+    let mut words = Vec::new();
+    let mut start = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let in_word = c.is_alphanumeric()
+            || (is_apostrophe(c) && start.is_some() && chars.peek().is_some_and(|&(_, n)| n.is_alphanumeric()));
+        if in_word {
+            start.get_or_insert(i);
+        } else if let Some(s) = start.take() {
+            words.push(&text[s..i]);
+        }
+    }
+    if let Some(s) = start {
+        words.push(&text[s..]);
+    }
+    words
+}
+
+/// The lowercased words of [`ident_words`] joined by `sep`.
+fn lower_words(text: &str, sep: &str) -> String {
+    let words: Vec<String> = ident_words(text).iter().map(|w| w.to_lowercase()).collect();
+    words.join(sep)
+}
+
+/// Appends `word` with its first char uppercased and the rest lowercased.
+fn push_capitalized(out: &mut String, word: &str) {
+    let mut chars = word.chars();
+    if let Some(first) = chars.next() {
+        out.extend(first.to_uppercase());
+        out.push_str(&chars.as_str().to_lowercase());
+    }
+}
 
 fn escape_byte(b: u8) -> char {
     char::from_u32(ESCAPE_BASE + b as u32).unwrap()

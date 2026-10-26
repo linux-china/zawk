@@ -193,7 +193,13 @@ Trim text with chars with `trim($1, "[]()")`
 
 `title_case("hello world") # Hello World`
 
-Note: case boundaries also split words, so runs of capitals are split letter by letter: `title_case("hello wORLD") # Hello W O R L D`.
+Note: words are split only by whitespace and punctuation (an apostrophe inside a word is kept: `title_case("don't stop") # Don't Stop`),
+then the first letter of each word is uppercased and the rest kept as is, so acronyms and inner capitals survive:
+`title_case("NASA launch") # NASA Launch`, `title_case("hello wORLD") # Hello WORLD`.
+
+**Word boundaries** for `camel_case`, `pascal_case`, `snake_case` and `kebab_case`: any non-letter/digit character, a lowercase
+letter or digit followed by an uppercase letter, and the last capital of an acronym followed by a lowercase letter, so all four
+agree on `HTTPServer`: `httpServer`, `HttpServer`, `http_server`, `http-server`.
 
 ### isint
 
@@ -218,7 +224,8 @@ Validate text format, such as: `is("email", "demo@example.com")`. Format list:
 
 ### starts_with/ends_with/contains
 
-The return value is `1` or `0`.
+The return value is `1` or `0`. An empty prefix, suffix or substring always matches (returns `1`), as in Python/JS/Rust
+and like `index(s, "")` being `1`.
 
 - `starts_with($1, "https://")`
 - `ends_with($1, ".com")`
@@ -467,7 +474,15 @@ ID specs:
 
 ### seq
 
-`seq(start, end, step)`: `seq` command compatible
+`seq` command compatible, returns an array indexed from 1:
+
+- `seq(end)`: `1, 2, ..., end`
+- `seq(start, end)`: `start, start + 1, ..., end`
+- `seq(start, step, end)`: `start, start + step, ...` up to `end`; a negative step counts down, e.g. `seq(3, -1, 1)` is `3, 2, 1`
+
+The result is empty when `end` lies on the other side of `start` (e.g. `seq(0)`, or `seq(1, -1, 2)`); a zero step is an error.
+
+Note: `seq(n)` starts from 1 like the `seq` command (it started from 0 before).
 
 ### uniq
 
