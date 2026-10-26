@@ -10,47 +10,43 @@ pub struct CommentTag {
     pub description: Option<String>,
 }
 
+static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\\s+").unwrap());
+
 fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
     let mut tags: Vec<CommentTag> = vec![];
     for line in awk_code.lines() {
-        if line.starts_with("# @") {
-            let tag_declare = &line[3..];
-            let parts: Vec<&str> = tag_declare.splitn(2, ' ').collect();
-            let tag_name = *parts.get(0).unwrap();
-            if tag_name == "desc" {
-                let comment_tag = CommentTag {
-                    type_name: "desc".to_owned(),
-                    value1: "".to_owned(),
-                    value2: None,
-                    description: parts.get(1).map(|item| item.trim().to_string()),
-                };
-                tags.push(comment_tag);
-            } else if (tag_name == "var" || tag_name == "env") && parts.len() >= 2 {
-                let re = Regex::new("\\s+").unwrap();
-                let comment_parts: Vec<&str> = re.splitn(parts.get(1).unwrap().trim(), 2).collect();
-                let var_name = *comment_parts.get(0).unwrap();
-                let comment_tag = CommentTag {
-                    type_name: tag_name.to_string(),
-                    value1: var_name.to_string(),
-                    value2: None,
-                    description: comment_parts.get(1).map(|item| item.trim().to_string()),
-                };
-                tags.push(comment_tag);
-            } else if tag_name == "meta" {
-                let re = Regex::new("\\s+").unwrap();
-                let comment_parts: Vec<&str> = re.splitn(parts.get(1).unwrap().trim(), 3).collect();
-                if parts.len() >= 1 {
-                    let key = *comment_parts.get(0).unwrap();
-                    let value = comment_parts.get(1).map(|item| item.trim().to_string());
-                    let comment_tag = CommentTag {
-                        type_name: "meta".to_owned(),
-                        value1: key.to_string(),
-                        value2: value,
-                        description: comment_parts.get(2).map(|item| item.trim().to_string()),
-                    };
-                    tags.push(comment_tag);
-                }
-            }
+        let Some(tag_declare) = line.strip_prefix("# @") else { continue };
+        let (tag_name, rest) = match tag_declare.split_once(' ') {
+            Some((name, rest)) => (name, Some(rest.trim())),
+            None => (tag_declare, None),
+        };
+        if tag_name == "desc" {
+            tags.push(CommentTag {
+                type_name: "desc".to_owned(),
+                value1: "".to_owned(),
+                value2: None,
+                description: rest.map(str::to_string),
+            });
+            continue;
+        }
+        // `var`, `env` and `meta` need a name, e.g. `# @meta version 1.0`
+        let Some(rest) = rest.filter(|rest| !rest.is_empty()) else { continue };
+        if tag_name == "var" || tag_name == "env" {
+            let comment_parts: Vec<&str> = WHITESPACE.splitn(rest, 2).collect();
+            tags.push(CommentTag {
+                type_name: tag_name.to_string(),
+                value1: comment_parts[0].to_string(),
+                value2: None,
+                description: comment_parts.get(1).map(|item| item.trim().to_string()),
+            });
+        } else if tag_name == "meta" {
+            let comment_parts: Vec<&str> = WHITESPACE.splitn(rest, 3).collect();
+            tags.push(CommentTag {
+                type_name: "meta".to_owned(),
+                value1: comment_parts[0].to_string(),
+                value2: comment_parts.get(1).map(|item| item.trim().to_string()),
+                description: comment_parts.get(2).map(|item| item.trim().to_string()),
+            });
         }
     }
     tags
@@ -290,6 +286,18 @@ mod tests {
         assert_eq!(extract_awk_block("```awk\n```\n").unwrap(), "\n");
         assert_eq!(extract_awk_block("```awkward\nx\n```\n"), None);
         assert_eq!(extract_awk_block("no code\n"), None);
+    }
+
+    #[test]
+    fn test_parse_comment_tags() {
+        assert!(parse_comment_tags("# @meta\n# @meta \n# @var\n# @env  \n").is_empty());
+        let tags = parse_comment_tags("# @meta version  1.0 first release\n# @var  name  user name\n# @desc\n");
+        assert_eq!(tags.len(), 3);
+        assert_eq!((tags[0].value1.as_str(), tags[0].value2.as_deref()), ("version", Some("1.0")));
+        assert_eq!(tags[0].description.as_deref(), Some("first release"));
+        assert_eq!((tags[1].type_name.as_str(), tags[1].value1.as_str()), ("var", "name"));
+        assert_eq!(tags[1].description.as_deref(), Some("user name"));
+        assert_eq!((tags[2].type_name.as_str(), tags[2].description.as_deref()), ("desc", None));
     }
 
     #[test]
