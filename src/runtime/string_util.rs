@@ -485,13 +485,21 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
 
 pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    if let Ok(re) = Regex::new(template) {
-        if let Some(caps) = re.captures(text) {
-            for i in 1..caps.len() {
-                // an optional group that did not participate matches the empty string
-                let group = caps.get(i).map_or("", |m| m.as_str());
-                map.insert(i as i64, Str::from(group.to_string()));
-            }
+    let re = match Regex::new(template) {
+        Ok(re) => re,
+        Err(e) => {
+            // the syntax error is a multi-line diagram ending with `error: <reason>`; keep the reason
+            let e = e.to_string();
+            let reason = e.lines().last().unwrap_or_default().trim_start_matches("error: ");
+            stdlib_warning("rparse", format!("invalid regex {:?}: {}", template, reason));
+            return map;
+        }
+    };
+    if let Some(caps) = re.captures(text) {
+        for i in 1..caps.len() {
+            // an optional group that did not participate matches the empty string
+            let group = caps.get(i).map_or("", |m| m.as_str());
+            map.insert(i as i64, Str::from(group.to_string()));
         }
     }
     map
@@ -602,6 +610,13 @@ mod tests {
         let template = r"(\s)(\d+)(\s)";
         let map = rparse(str, template);
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_rparse_invalid_regex_sets_errno() {
+        crate::runtime::set_errno(String::new());
+        assert_eq!(rparse("abc", "([").len(), 0);
+        assert_eq!(crate::runtime::errno(), r#"rparse: invalid regex "([": unclosed character class"#);
     }
 
     #[test]

@@ -559,7 +559,13 @@ impl<'a> Str<'a> {
         if url_text.starts_with("jdbc:") {
             url_text = url_text.replace("jdbc:", "jdbc+");
         }
-        if let Ok(url) = &Url::parse(&url_text) {
+        let parsed = Url::parse(&url_text);
+        if let Err(e) = &parsed {
+            if !url_text.is_empty() {
+                runtime::stdlib_warning("url", format!("invalid URL {:?}: {}", self.to_string(), e));
+            }
+        }
+        if let Ok(url) = &parsed {
             // userinfo is percent-encoded in the URL, decode it as MQTT/NATS connections do
             let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
             if url.scheme() != "" {

@@ -93,70 +93,84 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
         return from_json_array(new_json_text);
     }
     let mut map = crate::runtime::HashMap::default();
-    if !new_json_text.is_empty() {
-        if let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(new_json_text) {
-            for (key, value) in json_obj {
-                match value {
-                    Value::Bool(b) => {
-                        if b {
-                            map.insert(Str::from(key), Str::from("1"));
-                        } else {
-                            map.insert(Str::from(key), Str::from("0"));
-                        }
-                    }
-                    Value::Number(num) => {
-                        map.insert(Str::from(key), Str::from(num.to_string()));
-                    }
-                    Value::String(s) => {
-                        map.insert(Str::from(key), Str::from(s));
-                    }
-                    Value::Array(arr) => {
-                        map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-                    }
-                    Value::Object(obj) => {
-                        map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-                    }
-                    Value::Null => {
-                        map.insert(Str::from(key), Str::default());
-                    }
+    if new_json_text.is_empty() {
+        return StrMap::from(map);
+    }
+    let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(new_json_text) else {
+        stdlib_warning("from_json", format!("not a JSON object or array: {:?}", json_snippet(new_json_text)));
+        return StrMap::from(map);
+    };
+    for (key, value) in json_obj {
+        match value {
+            Value::Bool(b) => {
+                if b {
+                    map.insert(Str::from(key), Str::from("1"));
+                } else {
+                    map.insert(Str::from(key), Str::from("0"));
                 }
+            }
+            Value::Number(num) => {
+                map.insert(Str::from(key), Str::from(num.to_string()));
+            }
+            Value::String(s) => {
+                map.insert(Str::from(key), Str::from(s));
+            }
+            Value::Array(arr) => {
+                map.insert(Str::from(key), Str::from(json::to_string(&arr)));
+            }
+            Value::Object(obj) => {
+                map.insert(Str::from(key), Str::from(json::to_string(&obj)));
+            }
+            Value::Null => {
+                map.insert(Str::from(key), Str::default());
             }
         }
     }
     StrMap::from(map)
 }
 
+/// The start of `text` for a warning, so that a long document does not flood stderr.
+fn json_snippet(text: &str) -> String {
+    const MAX_CHARS: usize = 40;
+    match text.char_indices().nth(MAX_CHARS) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text.to_string(),
+    }
+}
+
 fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
-    if !json_text.is_empty() {
-        let result = json::from_str::<Vec<Value>>(json_text);
-        if let Ok(json_array) = result {
-            for (index, json_value) in json_array.iter().enumerate() {
-                let key = (index + 1).to_string();
-                match json_value {
-                    Value::Bool(b) => {
-                        if *b {
-                            map.insert(Str::from(key), Str::from("1"));
-                        } else {
-                            map.insert(Str::from(key), Str::from("0"));
-                        }
-                    }
-                    Value::Number(num) => {
-                        map.insert(Str::from(key), Str::from(num.to_string()));
-                    }
-                    Value::String(s) => {
-                        map.insert(Str::from(key), Str::from(s.to_string()));
-                    }
-                    Value::Array(arr) => {
-                        map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-                    }
-                    Value::Object(obj) => {
-                        map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-                    }
-                    Value::Null => {
-                        map.insert(Str::from(key), Str::default());
-                    }
+    if json_text.is_empty() {
+        return StrMap::from(map);
+    }
+    let Ok(json_array) = json::from_str::<Vec<Value>>(json_text) else {
+        stdlib_warning("from_json", format!("invalid JSON array: {:?}", json_snippet(json_text)));
+        return StrMap::from(map);
+    };
+    for (index, json_value) in json_array.iter().enumerate() {
+        let key = (index + 1).to_string();
+        match json_value {
+            Value::Bool(b) => {
+                if *b {
+                    map.insert(Str::from(key), Str::from("1"));
+                } else {
+                    map.insert(Str::from(key), Str::from("0"));
                 }
+            }
+            Value::Number(num) => {
+                map.insert(Str::from(key), Str::from(num.to_string()));
+            }
+            Value::String(s) => {
+                map.insert(Str::from(key), Str::from(s.to_string()));
+            }
+            Value::Array(arr) => {
+                map.insert(Str::from(key), Str::from(json::to_string(&arr)));
+            }
+            Value::Object(obj) => {
+                map.insert(Str::from(key), Str::from(json::to_string(&obj)));
+            }
+            Value::Null => {
+                map.insert(Str::from(key), Str::default());
             }
         }
     }

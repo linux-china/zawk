@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-/// escape text by format
+/// escape text by format; an unknown format is a warning and gives an empty string
 pub fn escape(format: &str, text: &str) -> String {
     match format {
         "csv" => escape_csv(text),
@@ -9,7 +9,10 @@ pub fn escape(format: &str, text: &str) -> String {
         "sql" => escape_sql(text),
         "shell" => escape_shell(text),
         "xml" | "html" => escape_xml(text),
-        _ => text.to_string()
+        _ => {
+            crate::runtime::stdlib_warning("escape", format!("unsupported format {:?}", format));
+            String::new()
+        }
     }
 }
 

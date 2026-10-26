@@ -21,6 +21,11 @@ rows = sqlite_query("app.db", "select name from users")
 if (ERRNO != "") { print "query failed: " ERRNO > "/dev/stderr"; exit 1 }
 ```
 
+The same holds for the parse functions. A program error, such as an invalid regex (`rparse`) or an unknown
+format or algorithm (`escape`, `encode`, `is`, ...), gives a warning and an empty result. So does input that cannot
+be parsed (`from_json`, `url`, `semver`, `shlex`, `datetime`, `decode`, ...); empty input is not an error and gives
+an empty array silently.
+
 A user-defined function with the same name as a stdlib function (such as `trim`, `max` or `abs`)
 takes precedence over it in the whole program, so existing AWK programs that define these helpers
 keep working. The builtin functions of POSIX awk and gawk (`length`, `substr`, `split`, `gsub`,
@@ -297,7 +302,8 @@ Always wrap text in quotes and escape what is inside, so the result is safe to e
 ### parse/rparse
 
 - parse: use wild match - `parse("Hello World","{greet} {name}")["greet"]`
-- rparse: use regex group - `rparse("Hello World","(\\w+) (\\w+)")[1]`
+- rparse: use regex group - `rparse("Hello World","(\\w+) (\\w+)")[1]`; an invalid regex gives an empty array with a
+  warning and `ERRNO` set, while text that does not match gives an empty array silently
 
 ### format_bytes/to_bytes
 
@@ -322,7 +328,8 @@ Help you to generate ASCII art text with figlet: `BEGIN { print figlet("Hello za
 
 # Text Escape
 
-- escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`
+- escape: `escape("format", $1)`:  support `json`, `csv`, `tsv`, `xml`, `html`, `sql`, `shell`; any other format
+  gives an empty string with a warning (use `encode("url", s)` for URL encoding)
 - escape_csv(s): Returns s escaped as a CSV column per RFC 4180: adds quotes if s contains `"`, `,`, a line break or
   leading/trailing spaces, and doubles quotes. Line breaks are kept as is inside the quotes.
 - escape_tsv(s): Returns s escaped as a TSV column: backslash, tab, newline and carriage return characters are

@@ -418,7 +418,10 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
 }
 
 pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
-    let args = shlex::split(text).unwrap_or(vec![]);
+    let args = shlex::split(text).unwrap_or_else(|| {
+        stdlib_warning("shlex", format!("unbalanced quotes or trailing backslash in {:?}", text));
+        vec![]
+    });
     let result: IntMap<Str> = IntMap::default();
     let mut index: i64 = 1;
     for item in args {
@@ -528,16 +531,24 @@ pub(crate) fn parse_array<'a>(text: &str) -> IntMap<Str<'a>> {
 
 pub(crate) fn semver<'a>(text: &str) -> StrMap<'a, Str<'a>> {
     let version_obj: StrMap<Str> = StrMap::default();
-    if let Ok(version) = Version::parse(text) {
-        version_obj.insert(Str::from("major"), Str::from(version.major.to_string()));
-        version_obj.insert(Str::from("minor"), Str::from(version.minor.to_string()));
-        version_obj.insert(Str::from("patch"), Str::from(version.patch.to_string()));
-        if !version.pre.is_empty() {
-            version_obj.insert(Str::from("pre"), Str::from(version.pre.to_string()));
+    if text.is_empty() {
+        return version_obj;
+    }
+    let version = match Version::parse(text) {
+        Ok(version) => version,
+        Err(e) => {
+            stdlib_warning("semver", format!("invalid version {:?}: {}", text, e));
+            return version_obj;
         }
-        if !version.build.is_empty() {
-            version_obj.insert(Str::from("build"), Str::from(version.build.to_string()));
-        }
+    };
+    version_obj.insert(Str::from("major"), Str::from(version.major.to_string()));
+    version_obj.insert(Str::from("minor"), Str::from(version.minor.to_string()));
+    version_obj.insert(Str::from("patch"), Str::from(version.patch.to_string()));
+    if !version.pre.is_empty() {
+        version_obj.insert(Str::from("pre"), Str::from(version.pre.to_string()));
+    }
+    if !version.build.is_empty() {
+        version_obj.insert(Str::from("build"), Str::from(version.build.to_string()));
     }
     version_obj
 }
