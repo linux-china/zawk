@@ -296,6 +296,12 @@ impl UsedFieldAnalysis {
                 self.dfa.add_src(Key::Var(Variable::NF), FieldSet::all());
                 self.dfa.add_query(Key::Var(Variable::NF));
             }
+            // Assigning a field rebuilds $0 from all of the fields (CSV/TSV input only splits the
+            // used ones).
+            SetColumn(..) => {
+                self.dfa.add_src(Key::Var(Variable::NF), FieldSet::all());
+                self.dfa.add_query(Key::Var(Variable::NF));
+            }
             // `getline var` reads the whole record from the main input.
             NextLineStdin(dst) => {
                 self.dfa.add_src(dst, FieldSet::all());

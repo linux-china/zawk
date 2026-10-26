@@ -3525,6 +3525,33 @@ fn tsv_unknown_escape_keeps_raw_bytes() {
 }
 
 #[test]
+fn csv_tsv_field_assignment() {
+    // Assigning fields, NF or $0 (including through sub/gsub) works for CSV and TSV input:
+    // fields keep the new value and $0 is rebuilt with OFS.
+    let cases: &[(&str, &str, &str, &str)] = &[
+        ("csv", r#"{ sub(/a/, "X"); print; gsub(/b/, "Y", $2); print $2; print }"#, "a,b\n", "X,b\nY\nX Y\n"),
+        ("tsv", r#"{ $2 = "Y"; print $1, $2; print }"#, "a\tb\n", "a Y\na Y\n"),
+        ("csv", r#"{ $2 = "Y"; print }"#, "a,b,c\n", "a Y c\n"),
+        ("csv", r#"BEGIN { OFS = "," } { NF = 2; print; $5 = "e"; print NF, $0 }"#, "a,b,c\n", "a,b\n5,a,b,,,e\n"),
+        ("csv", r#"{ $0 = "x,\"y,z\",w"; print NF, $2 }"#, "a\n", "3 y,z\n"),
+        ("tsv", r#"{ $0 = "p\\tq\tr"; print NF, $1 }"#, "a\n", "2 p\tq\n"),
+        ("csv", r#"{ gsub(/"/, "", $2); print $2 }"#, "a,\"b\"\"c\",d\n", "bc\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (ifmt, prog, input, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(["-i", ifmt, prog])
+                .write_stdin(*input)
+                .assert()
+                .success()
+                .stdout(*expected);
+        }
+    }
+}
+
+#[test]
 fn unbraced_pattern_terminated_by_semicolon() {
     // POSIX allows `;` as a rule terminator, so `pattern ;` is a complete rule.
     let cases = [

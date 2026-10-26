@@ -211,6 +211,7 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> CSVReader<P> {
     }
 
     fn stepper<'a, 'b: 'a>(&'b mut self, st: State, line: &'a mut Line) -> Stepper<'a> {
+        line.ifmt = self.ifmt;
         Stepper {
             buf: &self.cur_buf,
             buf_len: self.buf_len,
@@ -310,6 +311,9 @@ pub struct Line {
     len: usize,
     fields: Vec<Str<'static>>,
     partial: Str<'static>,
+    ifmt: InputFormat,
+    // A field or NF was assigned since `raw` was last set: `$0` must be rebuilt from the fields.
+    diverged: bool,
 }
 
 impl Line {
@@ -348,10 +352,14 @@ impl<'a> super::Line<'a> for Line {
         &mut self,
         col: super::Int,
         _pat: &Str,
-        _ofs: &Str,
+        ofs: &Str,
         _rc: &mut super::RegexCache,
     ) -> Result<Str<'a>> {
         if col == 0 {
+            if self.diverged {
+                self.raw = ofs.join_slice(&self.fields[..]).unmoor();
+                self.diverged = false;
+            }
             return Ok(self.raw.clone().upcast());
         }
         let col = if col < 0 {
@@ -370,20 +378,106 @@ impl<'a> super::Line<'a> for Line {
             .upcast())
     }
 
-    // Setting columns for CSV doesn't work. We refuse it outright.
     fn set_col(
         &mut self,
-        _col: super::Int,
-        _s: &Str<'a>,
+        col: super::Int,
+        s: &Str<'a>,
         _pat: &Str,
         _rc: &mut super::RegexCache,
     ) -> Result<()> {
+        let col = if col < 0 {
+            match resolve_negative_col(col, self.fields.len()) {
+                Some(c) => c,
+                None => {
+                    return err!(
+                        "attempt to assign field {}; only {} fields",
+                        col,
+                        self.fields.len()
+                    )
+                }
+            }
+        } else {
+            col
+        };
+        if col == 0 {
+            // Assigning `$0` splits it again with the input format.
+            self.raw = s.clone().unmoor();
+            self.fields = self.raw.with_bytes(|bs| split_record(bs, self.ifmt));
+            self.diverged = false;
+            return Ok(());
+        }
+        let col = col as usize - 1;
+        if col >= self.fields.len() {
+            self.fields.resize_with(col + 1, Str::default);
+        }
+        self.fields[col] = s.clone().unmoor();
+        self.diverged = true;
         Ok(())
     }
-    // Likewise for NF.
-    fn set_nf(&mut self, _nf: super::Int, _pat: &Str, _rc: &mut super::RegexCache) -> Result<()> {
+    fn set_nf(&mut self, nf: super::Int, _pat: &Str, _rc: &mut super::RegexCache) -> Result<()> {
+        if nf < 0 {
+            return err!("NF set to negative value {}", nf);
+        }
+        self.fields.resize_with(nf as usize, Str::default);
+        self.diverged = true;
         Ok(())
     }
+}
+
+/// Split a single CSV or TSV record, with the same rules as [Stepper::step].
+fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
+    let bs = match bs {
+        [rest @ .., b'\r', b'\n'] | [rest @ .., b'\n'] => rest,
+        _ => bs,
+    };
+    let mut fields = Vec::new();
+    if bs.is_empty() {
+        return fields;
+    }
+    let sep = ifmt.sep();
+    let mut cur = Vec::new();
+    let mut i = 0;
+    while i < bs.len() {
+        let b = bs[i];
+        i += 1;
+        match (ifmt, b) {
+            _ if b == sep => fields.push(Buf::read_from_bytes(&mem::take(&mut cur)).into_str()),
+            (InputFormat::CSV, b'"') => {
+                // A quoted portion runs to the next lone quote; `""` is an escaped quote.
+                while i < bs.len() {
+                    if bs[i] == b'"' {
+                        if bs.get(i + 1) == Some(&b'"') {
+                            cur.push(b'"');
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    cur.push(bs[i]);
+                    i += 1;
+                }
+            }
+            (InputFormat::TSV, b'\\') => {
+                match bs.get(i) {
+                    Some(b'n') => cur.push(b'\n'),
+                    Some(b't') => cur.push(b'\t'),
+                    Some(b'r') => cur.push(b'\r'),
+                    Some(b'\\') => cur.push(b'\\'),
+                    // A backslash before a separator or at the end is kept as is.
+                    Some(b'\t') | None => {
+                        cur.push(b'\\');
+                        continue;
+                    }
+                    Some(&x) => cur.extend_from_slice(&[b'\\', x]),
+                }
+                i += 1;
+            }
+            _ => cur.push(b),
+        }
+    }
+    fields.push(Buf::read_from_bytes(&cur).into_str());
+    fields
 }
 
 impl Line {
@@ -400,6 +494,7 @@ impl Line {
         self.partial = Str::default();
         self.raw = Str::default();
         self.len = 0;
+        self.diverged = false;
     }
 }
 
@@ -651,8 +746,9 @@ impl<'a> Stepper<'a> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default, Debug)]
 pub enum InputFormat {
+    #[default]
     CSV,
     TSV,
 }
