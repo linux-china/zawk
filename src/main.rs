@@ -1247,10 +1247,12 @@ fn real_main() {
                 let awk_file = matches.get_one::<String>("exec")
                     .or_else(|| matches.get_one::<String>("program-file"))
                     .unwrap();
+                // Remote programs (URL, `gh:`) are fetched like for a run; a read error is fatal.
+                let (awk_code, _) = read_program_file(awk_file);
                 if last_pair.contains("-h") {
-                    awk_util::print_awk_file_help(awk_file);
+                    awk_util::print_awk_file_help(awk_file, &awk_code);
                 } else {
-                    awk_util::print_awk_file_version(awk_file);
+                    awk_util::print_awk_file_version(&awk_code);
                 }
                 return;
             }

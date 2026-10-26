@@ -52,83 +52,72 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
     tags
 }
 
-/// The program of the local file `awk_file`: the first awk code block of a Markdown file.
-fn read_awk_file(awk_file: &str) -> Option<String> {
-    let text = std::fs::read_to_string(awk_file).ok()?;
-    if is_markdown_file(awk_file) { extract_awk_block(&text) } else { Some(text) }
-}
-
-pub fn print_awk_file_help(awk_file: &str) {
-    if let Some(awk_code) = read_awk_file(awk_file) {
-        let tags = parse_comment_tags(&awk_code);
-        let mut awk_file_desc: Option<String> = None;
-        let mut version: Option<String> = None;
-        let mut author: Option<String> = None;
-        for tag in &tags {
-            if tag.type_name == "meta" {
-                if tag.value1 == "version" {
-                    version = tag.value2.clone();
-                } else if tag.value1 == "author" {
-                    author = tag.value2.clone();
-                }
-            }
-            if tag.type_name == "desc" {
-                awk_file_desc = tag.description.clone();
+/// Prints the help of the program `awk_code` read from `awk_file`, from its comment tags.
+pub fn print_awk_file_help(awk_file: &str, awk_code: &str) {
+    let tags = parse_comment_tags(awk_code);
+    let mut awk_file_desc: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut author: Option<String> = None;
+    for tag in &tags {
+        if tag.type_name == "meta" {
+            if tag.value1 == "version" {
+                version = tag.value2.clone();
+            } else if tag.value1 == "author" {
+                author = tag.value2.clone();
             }
         }
-        let var_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "var").collect();
-        let env_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "env").collect();
-        println!("{awk_file} {}", version.unwrap_or("".to_string()));
-        if let Some(author_name) = &author {
-            println!("{author_name}");
-        }
-        if let Some(desc) = &awk_file_desc {
-            println!("{desc}");
-        }
-        if !var_tags.is_empty() {
-            let params = var_tags
-                .iter()
-                .map(|tag| format!("-v {}=[value]", tag.value1))
-                .join(" ");
-            println!();
-            println!("USAGE: {awk_file} {} <input-file>", params);
-            println!();
-            println!("ARGS:");
-            for var_tag in var_tags {
-                println!(
-                    "  [{}]  {}",
-                    var_tag.value1,
-                    var_tag.description.clone().unwrap_or("".to_string())
-                )
-            }
-            println!();
-        }
-
-        if !env_tags.is_empty() {
-            println!("Environment Variables:");
-            for env_tag in env_tags {
-                println!(
-                    "  [{}]  {}",
-                    env_tag.value1,
-                    env_tag.description.clone().unwrap_or("".to_string())
-                )
-            }
+        if tag.type_name == "desc" {
+            awk_file_desc = tag.description.clone();
         }
     }
-}
-
-pub fn print_awk_file_version(awk_file: &str) {
-    if let Some(awk_code) = read_awk_file(awk_file) {
-        let tags = parse_comment_tags(&awk_code);
-        let version = tags
+    let var_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "var").collect();
+    let env_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "env").collect();
+    println!("{awk_file} {}", version.unwrap_or("".to_string()));
+    if let Some(author_name) = &author {
+        println!("{author_name}");
+    }
+    if let Some(desc) = &awk_file_desc {
+        println!("{desc}");
+    }
+    if !var_tags.is_empty() {
+        let params = var_tags
             .iter()
-            .find(|tag| tag.type_name == "meta" && tag.value1 == "version")
-            .map(|tag| tag.value2.clone().unwrap_or("No version found".to_string()))
-            .unwrap_or("No version found".to_owned());
-        println!("{version}");
-    } else {
-        eprintln!("Failed to read {} file", awk_file);
+            .map(|tag| format!("-v {}=[value]", tag.value1))
+            .join(" ");
+        println!();
+        println!("USAGE: {awk_file} {} <input-file>", params);
+        println!();
+        println!("ARGS:");
+        for var_tag in var_tags {
+            println!(
+                "  [{}]  {}",
+                var_tag.value1,
+                var_tag.description.clone().unwrap_or("".to_string())
+            )
+        }
+        println!();
     }
+
+    if !env_tags.is_empty() {
+        println!("Environment Variables:");
+        for env_tag in env_tags {
+            println!(
+                "  [{}]  {}",
+                env_tag.value1,
+                env_tag.description.clone().unwrap_or("".to_string())
+            )
+        }
+    }
+}
+
+/// Prints the `# @meta version` of the program `awk_code`.
+pub fn print_awk_file_version(awk_code: &str) {
+    let version = parse_comment_tags(awk_code)
+        .into_iter()
+        .find(|tag| tag.type_name == "meta" && tag.value1 == "version")
+        .and_then(|tag| tag.value2)
+        .unwrap_or("No version found".to_owned());
+    println!("{version}");
 }
 
 /// Column names referenced as string constants through `FI`, e.g. `$FI["name"]`. With `-i jsonl`
@@ -390,7 +379,8 @@ mod tests {
 
     #[test]
     fn test_print_awk_file_help() {
-        print_awk_file_help("demo.awk");
+        let awk_code = std::fs::read_to_string("demo.awk").unwrap();
+        print_awk_file_help("demo.awk", &awk_code);
     }
 
     #[test]
