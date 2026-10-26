@@ -60,7 +60,7 @@ impl Format {
         })
     }
 
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Format::Csv => "csv",
             Format::Tsv => "tsv",
@@ -95,10 +95,36 @@ pub struct Options {
     pub sample_rows: usize,
     /// Stop reading after this many rows.
     pub max_rows: Option<u64>,
+    /// The first CSV/TSV line is the header (`-H`); otherwise the columns are `c1`, `c2`...
+    pub header: bool,
 }
 
 /// Inspect `path` and return the report.
 pub fn inspect(path: &str, opts: &Options) -> io::Result<String> {
+    let (ins, format, limited) = read(path, opts)?;
+    Ok(ins.report(path, format, limited, opts.style))
+}
+
+/// The parts of the report of `path`, in Markdown, for `zawk llm`.
+pub struct Sections {
+    pub rows: u64,
+    /// Reading stopped at `max_rows`.
+    pub limited: bool,
+    pub schema: String,
+    pub sample: String,
+    pub summary: String,
+    pub notes: Vec<String>,
+}
+
+pub fn sections(path: &str, opts: &Options) -> io::Result<Sections> {
+    let (ins, format, limited) = read(path, opts)?;
+    let [schema, sample, summary] = ins.tables().map(|t| t.markdown());
+    Ok(Sections { rows: ins.rows, limited, schema, sample, summary, notes: ins.notes(format) })
+}
+
+/// Reads `path` into an inspector; returns it with the format and whether reading stopped at
+/// `max_rows`.
+fn read(path: &str, opts: &Options) -> io::Result<(Inspector, Format, bool)> {
     let mut ins = Inspector::new(opts.sample_rows);
     let (format, limited) = match opts.format {
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
@@ -129,11 +155,11 @@ pub fn inspect(path: &str, opts: &Options) -> io::Result<String> {
             }
         }
     };
-    Ok(ins.report(path, format, limited, opts.style))
+    Ok((ins, format, limited))
 }
 
 /// The format named by the extension of `path` (after a compression extension).
-fn extension_format(path: &str) -> Option<Format> {
+pub fn extension_format(path: &str) -> Option<Format> {
     let path = path.split(['?', '#']).next().unwrap_or(path).to_ascii_lowercase();
     let mut path = path.as_str();
     for ext in [".gz", ".zst", ".zstd", ".bz2", ".xz", ".lz4"] {
@@ -219,7 +245,7 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                 .flexible(true)
                 .from_reader(input);
             let mut record = csv::ByteRecord::new();
-            let mut header = true;
+            let mut header = opts.header;
             while reader.read_byte_record(&mut record).map_err(io::Error::other)? {
                 let fields = record.iter().map(lossy).collect();
                 if header {
@@ -235,7 +261,7 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
         Format::Tsv => {
             let mut reader = BufReader::new(input);
             let mut line = Vec::new();
-            let mut header = true;
+            let mut header = opts.header;
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -515,6 +541,30 @@ impl Inspector {
             out.push_str(&format!("Rows:    {}\nColumns: {}\n", rows, self.columns.len()));
         }
 
+        let [schema, sample, summary] = self.tables();
+        let sample_title = format!("Sample (first {} rows)", self.samples.len());
+        for (title, table) in [("Schema", &schema), (sample_title.as_str(), &sample), ("Summary", &summary)] {
+            if md {
+                out.push_str(&format!("\n## {}\n\n", title));
+                out.push_str(&table.markdown());
+            } else {
+                out.push_str(&format!("\n{}:\n", title));
+                out.push_str(&table.boxed());
+            }
+        }
+
+        let notes = self.notes(format);
+        if !notes.is_empty() {
+            out.push_str(if md { "\n## Notes\n\n" } else { "\nNotes:\n" });
+            for note in notes {
+                out.push_str(&format!("- {}\n", note));
+            }
+        }
+        out
+    }
+
+    /// The schema, sample and summary tables.
+    fn tables(&self) -> [Table; 3] {
         let types: Vec<String> = self.columns.iter().map(|c| c.data_type()).collect();
         let schema = Table {
             headers: vec!["field".into(), "name".into(), "type".into()],
@@ -547,25 +597,7 @@ impl Inspector {
             rows: self.columns.iter().zip(&types).map(|(c, ty)| c.stats.summary(&c.name, ty, self.rows)).collect(),
         };
 
-        let sample_title = format!("Sample (first {} rows)", self.samples.len());
-        for (title, table) in [("Schema", &schema), (sample_title.as_str(), &sample), ("Summary", &summary)] {
-            if md {
-                out.push_str(&format!("\n## {}\n\n", title));
-                out.push_str(&table.markdown());
-            } else {
-                out.push_str(&format!("\n{}:\n", title));
-                out.push_str(&table.boxed());
-            }
-        }
-
-        let notes = self.notes(format);
-        if !notes.is_empty() {
-            out.push_str(if md { "\n## Notes\n\n" } else { "\nNotes:\n" });
-            for note in notes {
-                out.push_str(&format!("- {}\n", note));
-            }
-        }
-        out
+        [schema, sample, summary]
     }
 
     fn notes(&self, format: Format) -> Vec<String> {

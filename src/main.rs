@@ -22,6 +22,7 @@ mod function_docs;
 pub mod harness;
 mod input_taint;
 mod inspect;
+mod llm;
 mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
@@ -502,6 +503,44 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+/// `zawk llm`: prints the prompt. Exits with 2 if an input file can't be read.
+fn run_llm(matches: &clap::ArgMatches) -> ! {
+    let mut files: Vec<String> = matches.get_many::<String>("args").unwrap().cloned().collect();
+    let question = files.pop().unwrap();
+    if question.trim().is_empty() {
+        eprintln!("zawk: the question (the last argument) is empty");
+        std::process::exit(2);
+    }
+    // `-F` with escapes processed as for a run.
+    let field_sep = matches.get_one::<String>("field-separator").map(|fs| {
+        let a = Arena::default();
+        let mut buf = Vec::new();
+        (fs.clone(), String::from_utf8_lossy(lexer::parse_string_literal(fs, &a, &mut buf)).into_owned())
+    });
+    let opts = llm::Options {
+        input_format: matches.get_one::<String>("input-format").cloned(),
+        header: matches.get_flag("parse-header"),
+        field_sep,
+        output_format: matches.get_one::<String>("output-format").cloned(),
+        sample_rows: *matches.get_one::<usize>("rows").unwrap(),
+        max_rows: matches.get_one::<u64>("max-rows").copied(),
+        files,
+        question,
+    };
+    match llm::prompt(&opts) {
+        Ok(prompt) => {
+            // The prompt is often piped: a closed pipe is not an error.
+            let mut out = io::stdout().lock();
+            let _ = out.write_all(prompt.as_bytes()).and_then(|_| out.flush());
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("zawk: {}", e);
+            std::process::exit(2);
+        }
+    }
+}
+
 /// `zawk fmt`: prints the formatted programs, writes them back with `-w`, or with `--check` exits
 /// with 1 if a program is not formatted. Exits with 2 if a program can't be read or has a syntax
 /// error.
@@ -972,6 +1011,46 @@ fn real_main() {
             .num_args(1..)
             .required(true)
             .help("Files, URLs or S3 objects to inspect (`-` for standard input)"));
+    let llm_cmd = Command::new("llm")
+        .about("Print a prompt asking an LLM to write a zawk program that answers a question about the input files, e.g. `zawk llm -i csv -H family.csv 'how many adults?' | llm`")
+        .arg(Arg::new("input-format")
+            .short('i')
+            .long("input-format")
+            .conflicts_with("field-separator")
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"])
+            .help("The input format of the run; text lines split by FS when not given (json when every input file ends with .json)"))
+        .arg(Arg::new("parse-header")
+            .short('H')
+            .long("parse-header")
+            .num_args(0)
+            .help("The run uses -H: the first line is the header, and `FI` maps column names to field numbers"))
+        .arg(Arg::new("field-separator")
+            .short('F')
+            .long("field-separator")
+            .num_args(1)
+            .value_name("FS")
+            .help("The field separator of the run"))
+        .arg(Arg::new("output-format")
+            .short('o')
+            .long("output-format")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"])
+            .help("The output format of the run"))
+        .arg(Arg::new("rows")
+            .short('n')
+            .long("rows")
+            .value_parser(clap::value_parser!(usize))
+            .default_value("10")
+            .help("The number of sample lines of each input file"))
+        .arg(Arg::new("max-rows")
+            .long("max-rows")
+            .value_parser(clap::value_parser!(u64))
+            .default_value("100000")
+            .help("Only read the first MAX-ROWS rows of each input file for the summary"))
+        .arg(Arg::new("args")
+            .num_args(1..)
+            .required(true)
+            .value_name("FILES... QUESTION")
+            .help("The input files (files, URLs or S3 objects), then the question as the last argument"));
     let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")
@@ -982,6 +1061,7 @@ fn real_main() {
         .subcommand(lint_cmd)
         .subcommand(inspect_cmd)
         .subcommand(fmt_cmd)
+        .subcommand(llm_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
             .short('f')
@@ -1180,6 +1260,7 @@ fn real_main() {
             },
             sample_rows: *matches.get_one::<usize>("rows").unwrap(),
             max_rows: matches.get_one::<u64>("max-rows").copied(),
+            header: true,
         };
         for (i, file) in matches.get_many::<String>("files").unwrap().enumerate() {
             match inspect::inspect(file, &opts) {
@@ -1196,6 +1277,10 @@ fn real_main() {
             }
         }
         return;
+    }
+    // llm sub command
+    if let Some(matches) = matches.subcommand_matches("llm") {
+        run_llm(matches);
     }
     // init sub command
     if let Some(matches) = matches.subcommand_matches("init") {

@@ -3228,6 +3228,45 @@ fn inspect_files() {
 }
 
 #[test]
+fn llm_prompt() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let llm = |args: &[&str]| {
+        let out = Command::cargo_bin("zawk").unwrap().current_dir(&dir).arg("llm").args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // CSV with -H: the run and lint command lines, the raw lines, the schema and the summary,
+    // the function reference, and the question last.
+    let prompt = llm(&["-i", "csv", "-H", "demo.csv", "how many adults?"]);
+    assert!(prompt.contains("```sh\nzawk -i csv -H '<PROGRAM>' demo.csv\n```"), "{}", prompt);
+    assert!(prompt.contains("```sh\nzawk lint -i csv -H '<PROGRAM>' demo.csv\n```"), "{}", prompt);
+    assert!(prompt.contains("- Header: `-H`: the first line is the header"), "{}", prompt);
+    assert!(prompt.contains("```text\nid,name,age\n1,Jackie,48\n"), "{}", prompt);
+    assert!(prompt.contains("| $3 | age | INT64 |"), "{}", prompt);
+    assert!(prompt.contains("| age | INT64 | 8 | 49 | 5 | 27.8 |"), "{}", prompt);
+    assert!(prompt.contains("## Text\nlength([x: any]) -> int\n"), "{}", prompt);
+    assert!(prompt.ends_with("# Question\n\nhow many adults?\n"), "{}", prompt);
+
+    // Parquet: the rows as awk sees them, as there are no text lines.
+    let prompt = llm(&["-i", "parquet", "demo.parquet", "average age"]);
+    assert!(prompt.contains("- Header: implied by `-i parquet`"), "{}", prompt);
+    assert!(prompt.contains("First 5 rows, as awk sees the fields:\n\n| id | name | age |"), "{}", prompt);
+    assert!(!prompt.contains("raw text of the file"), "{}", prompt);
+
+    // Text: the field separator and the number of fields; no summary.
+    let prompt = llm(&["-F", ",", "-o", "jsonl", "-n", "2", "demo.csv", "names"]);
+    assert!(prompt.contains("zawk -F , -o jsonl '<PROGRAM>' demo.csv"), "{}", prompt);
+    assert!(prompt.contains("```text\nid,name,age\n1,Jackie,48\n```"), "{}", prompt);
+    assert!(prompt.contains("Fields per line (NF) with this FS in these lines: 3."), "{}", prompt);
+    assert!(prompt.contains("- Output format: `-o jsonl`"), "{}", prompt);
+    assert!(!prompt.contains("Summary of the columns"), "{}", prompt);
+
+    // The question is required, and the input files must be readable.
+    Command::cargo_bin("zawk").unwrap().args(["llm", "demo.csv", " "]).assert().code(2);
+    Command::cargo_bin("zawk").unwrap().args(["llm", "missing.csv", "q"]).assert().code(2);
+}
+
+#[test]
 fn nullish_coalescing() {
     // `??` takes the right side when the left one is uninitialized, empty or zero, and binds
     // tighter than concatenation; the left side is evaluated once.

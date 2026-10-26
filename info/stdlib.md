@@ -1236,6 +1236,12 @@ Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
   the first rows (10 by default) and a summary of each column like DuckDB's `SUMMARIZE` (min, max, approx_unique, avg, std, q25, q50, q75,
   count, null_percentage). The format comes from `-i`, the file extension or the content; compressed files, URLs and S3 objects are supported.
   `-o markdown` prints Markdown tables, handy for AI agents.
+- `zawk llm [-i FORMAT] [-H] [-F FS] [-o FORMAT] [-n ROWS] [--max-rows N] [FILE...] QUESTION`: print a prompt asking an LLM to write
+  a zawk program that answers `QUESTION` (the last argument) about the input files, to be piped to an LLM tool, e.g.
+  `zawk llm -i csv -H family.csv 'how many adults?' | llm -x`. The prompt has the command line of the run and what its options mean
+  (input format, FS, header, output format), the first lines of every input file (10 by default; the first rows of a Parquet file),
+  the schema and the summary of `zawk inspect` for CSV, TSV, JSON, JSON Lines and Parquet input, the zawk language notes and builtin
+  functions, how to check the program with `zawk lint`, and the question. The summary reads the first 100,000 rows (`--max-rows`).
 
 # Credits
 
