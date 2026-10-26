@@ -234,9 +234,14 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         if topic.is_empty() {
             return Err(format!("missing topic in {:?}", redact_url(namespace)));
         }
+        // one connection per broker (scheme://userinfo@host:port) and protocol options (query), shared by all topics
+        let key = match url.query() {
+            Some(query) => format!("{}?{}", &url[..url::Position::BeforePath], query),
+            None => url[..url::Position::BeforePath].to_string(),
+        };
         let mut pool = MQTT_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        let reused = pool.contains_key(namespace);
-        let mut cli = match pool.remove(namespace) {
+        let reused = pool.contains_key(&key);
+        let mut cli = match pool.remove(&key) {
             Some(cli) => cli,
             None => mqtt_connect(&url)?,
         };
@@ -247,7 +252,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             result = cli.publish(&topic, body);
         }
         if result.is_ok() {
-            pool.insert(namespace.to_string(), cli);
+            pool.insert(key, cli);
         }
         result
     } else {
