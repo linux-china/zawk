@@ -220,9 +220,26 @@ fn github_raw_url(gh_path: &str) -> Option<String> {
     Some(format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"))
 }
 
+/// The program in the text of the file `name`: the first awk code block of a Markdown file, else
+/// the whole text.
+fn program_in_file(name: &str, text: String) -> Result<String, String> {
+    if !awk_util::is_markdown_file(name) {
+        return Ok(text);
+    }
+    awk_util::extract_awk_block(&text).ok_or_else(|| "no ```awk code block in the Markdown file".to_string())
+}
+
 /// The text of the `-f` file `prog_file`, a local file, a URL or `gh:<user>/<repo>/<path>`, with
-/// the local path it was read from.
+/// the local path it was read from. For a Markdown file, it is its first awk code block.
 fn read_program_file(prog_file: &str) -> (String, Option<&std::path::Path>) {
+    let (text, path) = read_program_source(prog_file);
+    match program_in_file(prog_file, text) {
+        Ok(text) => (text, path),
+        Err(e) => fatal!("can't read program from `{}': {}", prog_file, e),
+    }
+}
+
+fn read_program_source(prog_file: &str) -> (String, Option<&std::path::Path>) {
     let remote_url = if let Some(gh_path) = prog_file.strip_prefix("gh:") {
         match github_raw_url(gh_path) {
             Some(url) => Some(url),
@@ -564,6 +581,10 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
             .map(|x| x.cloned().collect())
             .unwrap_or_else(|| vec!["-".to_string()]);
         for file in files {
+            if awk_util::is_markdown_file(&file) {
+                eprintln!("zawk: {}: formatting Markdown files is not supported", file);
+                std::process::exit(2)
+            }
             let text = if file == "-" {
                 io::read_to_string(io::stdin())
             } else {
@@ -639,10 +660,10 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
             } else {
                 (std::fs::read_to_string(file), SourceKind::File)
             };
-            match text {
+            match text.map_err(|e| common::io_error_reason(&e)).and_then(|text| program_in_file(file, text)) {
                 Ok(text) => sources.push((i, lint::Source { name: Some(file.clone()), text, line: 0 }, kind)),
                 Err(e) => {
-                    println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
+                    println!("{}", lint::file_error(file, &e));
                     std::process::exit(1)
                 }
             }
@@ -650,7 +671,8 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     }
     if let (Some(idx), Some(vals)) = (matches.indices_of("source"), matches.get_many::<String>("source")) {
         sources.extend(idx.zip(vals).map(|(i, text)| {
-            (i, lint::Source { name: None, text: text.clone(), line: 0 }, SourceKind::Inline)
+            let text = awk_util::program_text(text).unwrap_or_else(|| text.clone());
+            (i, lint::Source { name: None, text, line: 0 }, SourceKind::Inline)
         }));
     }
     if let (Some(idx), Some(vals)) = (matches.indices_of("include"), matches.get_many::<String>("include")) {
@@ -680,13 +702,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         }
     } else if let Some(file) = matches
         .get_one::<String>("program")
-        .filter(|p| p.ends_with(".awk") && std::path::Path::new(p.as_str()).is_file())
+        .filter(|p| (p.ends_with(".awk") || awk_util::is_markdown_file(p)) && std::path::Path::new(p.as_str()).is_file())
     {
-        // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` file is read as -f.
-        match std::fs::read_to_string(file) {
+        // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` (or Markdown) file is
+        // read as -f.
+        match std::fs::read_to_string(file).map_err(|e| common::io_error_reason(&e)).and_then(|text| program_in_file(file, text)) {
             Ok(text) => sources.push((lint::Source { name: Some(file.clone()), text, line: 0 }, SourceKind::File)),
             Err(e) => {
-                println!("{}", lint::file_error(file, &common::io_error_reason(&e)));
+                println!("{}", lint::file_error(file, &e));
                 std::process::exit(1)
             }
         }
@@ -694,10 +717,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     if sources.iter().all(|(_, k)| *k == SourceKind::Include) {
         let text = match matches.get_one::<String>("program") {
             // As for a run, sugar syntax only applies to a program operand.
-            Some(p) if matches.get_flag("posix") => p.clone(),
-            Some(p) => awk_util::sugar_syntax_convert(p.trim().to_string()),
+            Some(p) => match awk_util::program_text(p) {
+                Some(code) if matches.get_flag("posix") => code,
+                Some(code) => awk_util::sugar_syntax_convert(code),
+                None if matches.get_flag("posix") => p.clone(),
+                None => awk_util::sugar_syntax_convert(p.trim().to_string()),
+            },
             None => match io::read_to_string(io::stdin()) {
-                Ok(text) => text,
+                Ok(text) => awk_util::program_text(&text).unwrap_or(text),
                 Err(e) => fatal!("can't read program from stdin: {}", e),
             },
         };
@@ -1378,7 +1405,8 @@ fn real_main() {
                 SourceKind::Inline => {
                     inline_count += 1;
                     let name = named.then(|| parsing::inline_source_name(inline_count));
-                    includer.add_source(name, prog_file, None)
+                    let text = awk_util::program_text(prog_file);
+                    includer.add_source(name, text.as_deref().unwrap_or(prog_file), None)
                 }
                 SourceKind::File => {
                     let (text, path) = read_program_file(prog_file);
@@ -1396,10 +1424,13 @@ fn real_main() {
             }
         }
         // Sugar syntax only applies to programs given on the command line, not to `-f` files.
-        let p = if matches.get_flag("posix") {
-            p.clone()
-        } else {
-            awk_util::sugar_syntax_convert(String::from(p.trim()))
+        // A Markdown program (e.g. the answer of an LLM) is its first awk code block, whose lines
+        // keep their numbers in the Markdown text.
+        let p = match awk_util::program_text(p) {
+            Some(code) if matches.get_flag("posix") => code,
+            Some(code) => awk_util::sugar_syntax_convert(code),
+            None if matches.get_flag("posix") => p.clone(),
+            None => awk_util::sugar_syntax_convert(String::from(p.trim())),
         };
         if let Err(e) = includer.add_source(None, &p, None) {
             include_failed(&e);

@@ -56,8 +56,14 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
     tags
 }
 
+/// The program of the local file `awk_file`: the first awk code block of a Markdown file.
+fn read_awk_file(awk_file: &str) -> Option<String> {
+    let text = std::fs::read_to_string(awk_file).ok()?;
+    if is_markdown_file(awk_file) { extract_awk_block(&text) } else { Some(text) }
+}
+
 pub fn print_awk_file_help(awk_file: &str) {
-    if let Ok(awk_code) = std::fs::read_to_string(awk_file) {
+    if let Some(awk_code) = read_awk_file(awk_file) {
         let tags = parse_comment_tags(&awk_code);
         let mut awk_file_desc: Option<String> = None;
         let mut version: Option<String> = None;
@@ -116,7 +122,7 @@ pub fn print_awk_file_help(awk_file: &str) {
 }
 
 pub fn print_awk_file_version(awk_file: &str) {
-    if let Ok(awk_code) = std::fs::read_to_string(awk_file) {
+    if let Some(awk_code) = read_awk_file(awk_file) {
         let tags = parse_comment_tags(&awk_code);
         let version = tags
             .iter()
@@ -220,9 +226,84 @@ pub fn sugar_syntax_convert(awk_code: String) -> String {
     awk_code
 }
 
+/// Whether the program file `name` (a local path or a URL) is a Markdown file, by its extension.
+pub fn is_markdown_file(name: &str) -> bool {
+    let path = name.split(['?', '#']).next().unwrap_or(name).to_ascii_lowercase();
+    path.ends_with(".md") || path.ends_with(".markdown")
+}
+
+/// The first fenced code block of `markdown` whose info string starts with `awk`, `zawk` or
+/// `gawk`, with the lines before it blanked out, so that errors are reported at the lines of the
+/// Markdown text. `None` when there is no such block.
+pub fn extract_awk_block(markdown: &str) -> Option<String> {
+    use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+    let mut events = Parser::new(markdown).into_offset_iter();
+    while let Some((event, range)) = events.next() {
+        let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event else {
+            continue;
+        };
+        let lang = info.split(|c: char| c.is_whitespace() || c == '{' || c == ',').next().unwrap_or("");
+        if !["awk", "zawk", "gawk"].iter().any(|l| lang.eq_ignore_ascii_case(l)) {
+            continue;
+        }
+        // The line after the opening fence, for an empty block.
+        let mut first_line = markdown[..range.start].matches('\n').count() + 1;
+        let mut code = String::new();
+        for (event, range) in events.by_ref() {
+            match event {
+                Event::Text(text) => {
+                    if code.is_empty() {
+                        first_line = markdown[..range.start].matches('\n').count();
+                    }
+                    code.push_str(&text);
+                }
+                Event::End(TagEnd::CodeBlock) => break,
+                _ => {}
+            }
+        }
+        return Some("\n".repeat(first_line) + &code);
+    }
+    None
+}
+
+/// A program given as text (the program operand or `-e`): the first awk code block when the text
+/// is Markdown, such as the answer of an LLM, else the text itself.
+pub fn program_text(text: &str) -> Option<String> {
+    if text.contains("```") || text.contains("~~~") {
+        extract_awk_block(text)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_awk_block() {
+        let md = "Intro\n\n```sh\nzawk 'x'\n```\n\n```awk\nBEGIN { print 1 }\n```\n\n```awk\nBEGIN { print 2 }\n```\n";
+        assert_eq!(extract_awk_block(md).unwrap(), "\n".repeat(7) + "BEGIN { print 1 }\n");
+        assert_eq!(extract_awk_block("~~~ZAWK\n{ print }\n~~~\n").unwrap(), "\n{ print }\n");
+        assert_eq!(extract_awk_block("````gawk {.x}\nBEGIN { s = \"```\" }\n````\n").unwrap(), "\nBEGIN { s = \"```\" }\n");
+        assert_eq!(extract_awk_block("* item\n\n  ```awk\n  { print $1 }\n  ```\n").unwrap(), "\n\n\n{ print $1 }\n");
+        assert_eq!(extract_awk_block("```awk\n```\n").unwrap(), "\n");
+        assert_eq!(extract_awk_block("```awkward\nx\n```\n"), None);
+        assert_eq!(extract_awk_block("no code\n"), None);
+    }
+
+    #[test]
+    fn test_program_text() {
+        assert_eq!(program_text("BEGIN { print \"```\" }"), None);
+        assert_eq!(program_text("Answer:\n```awk\nBEGIN {}\n```").unwrap(), "\n\nBEGIN {}\n");
+    }
+
+    #[test]
+    fn test_is_markdown_file() {
+        assert!(is_markdown_file("tests/demo.awk.md"));
+        assert!(is_markdown_file("https://host/README.MD?raw=1"));
+        assert!(!is_markdown_file("demo.awk"));
+    }
 
     #[test]
     fn test_print_awk_file_help() {

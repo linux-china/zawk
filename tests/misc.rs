@@ -4065,3 +4065,39 @@ fn mktime_dst_gap_and_overlap() {
             .stdout("1710055800 1710052200 1710055800\n1730611800\n");
     }
 }
+
+#[test]
+fn markdown_program() {
+    let tmpdir = tempdir().unwrap();
+    let md = tmpdir.path().join("prog.awk.md");
+    // The first awk block is the program; its lines keep their numbers in errors.
+    let text = "Swap the fields:\n\n```sh\nzawk '$2,$1'\n```\n\n```awk\n{ print $2, $1 }\n```\n\n```awk\n{ print }\n```\n";
+    File::create(&md).unwrap().write_all(text.as_bytes()).unwrap();
+    for backend_arg in BACKEND_ARGS {
+        for args in [vec!["-f", md.to_str().unwrap()], vec![text], vec!["-e", text]] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(&args)
+                .write_stdin("a b\n")
+                .assert()
+                .success()
+                .stdout("b a\n");
+        }
+    }
+    let bad = tmpdir.path().join("bad.md");
+    File::create(&bad).unwrap().write_all(b"x\n\n```zawk\nBEGIN { print (1 }\n```\n").unwrap();
+    let out = Command::cargo_bin("zawk").unwrap().arg("-f").arg(&bad).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stderr).contains("bad.md:4:18"));
+    let none = tmpdir.path().join("none.md");
+    File::create(&none).unwrap().write_all(b"no code\n").unwrap();
+    Command::cargo_bin("zawk").unwrap().arg("-f").arg(&none).assert().failure();
+    Command::cargo_bin("zawk").unwrap().args(["fmt", md.to_str().unwrap()]).assert().code(2);
+    // Programs that are not Markdown are left alone.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("BEGIN { print \"```awk\" }")
+        .assert()
+        .success()
+        .stdout("```awk\n");
+}
