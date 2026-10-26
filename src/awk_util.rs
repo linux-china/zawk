@@ -151,46 +151,86 @@ pub fn declared_vars(awk_code: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn validate_awk_code(awk_code: &str, var_decs: &[String]) -> bool {
-    let mut satisfied = true;
-    // check metadata requirements
-    if awk_code.contains("\n# @") {
-        // detect comment tag
-        let var_names: Vec<String> = var_decs
-            .iter()
-            .map(|s| s.split('=').next().unwrap().to_string())
-            .collect();
-        let tags = parse_comment_tags(awk_code);
-        if !tags.is_empty() {
-            let missed_var_tags: Vec<&CommentTag> = tags
-                .iter()
-                .filter(|tag| tag.type_name == "var")
-                .filter(|tag| !var_names.contains(&tag.value1) && !tag.value1.ends_with('?'))
-                .collect();
-            let missed_env_tags: Vec<&CommentTag> = tags
-                .iter()
-                .filter(|tag| tag.type_name == "env")
-                .filter(|tag| std::env::var(&tag.value1).is_err() && !tag.value1.ends_with('?'))
-                .collect();
-            satisfied = missed_var_tags.is_empty() && missed_env_tags.is_empty();
-            if !satisfied {
-                eprintln!("Errors:");
-                if !missed_var_tags.is_empty() {
-                    eprintln!("Required variables were not provided: ");
-                    for tag in missed_var_tags {
-                        eprintln!("  - {}", tag.value1);
-                    }
-                }
-                if !missed_env_tags.is_empty() {
-                    eprintln!("Required environment variables were not provided: ");
-                    for tag in missed_env_tags {
-                        eprintln!("  - {}", tag.value1);
-                    }
-                }
+/// Checks the `# @var` / `# @env` requirements of a program. Variables count as provided when
+/// they are set with `-v` (`var_decs`) or with `var=value` operands (`operand_vars`); the latter
+/// are only assigned once input reading starts, so a warning is printed for those that the
+/// program seems to use in `BEGIN`.
+pub fn validate_awk_code(awk_code: &str, var_decs: &[String], operand_vars: &[String]) -> bool {
+    let tags = parse_comment_tags(awk_code);
+    if tags.is_empty() {
+        return true;
+    }
+    let var_names: Vec<&str> = var_decs
+        .iter()
+        .chain(operand_vars)
+        .map(|s| s.split('=').next().unwrap())
+        .collect();
+    let missed_var_tags: Vec<&CommentTag> = tags
+        .iter()
+        .filter(|tag| tag.type_name == "var")
+        .filter(|tag| !var_names.contains(&tag.value1.as_str()) && !tag.value1.ends_with('?'))
+        .collect();
+    let missed_env_tags: Vec<&CommentTag> = tags
+        .iter()
+        .filter(|tag| tag.type_name == "env")
+        .filter(|tag| std::env::var(&tag.value1).is_err() && !tag.value1.ends_with('?'))
+        .collect();
+    let satisfied = missed_var_tags.is_empty() && missed_env_tags.is_empty();
+    if !satisfied {
+        eprintln!("Errors:");
+        if !missed_var_tags.is_empty() {
+            eprintln!("Required variables were not provided: ");
+            for tag in missed_var_tags {
+                eprintln!("  - {}", tag.value1);
             }
         }
+        if !missed_env_tags.is_empty() {
+            eprintln!("Required environment variables were not provided: ");
+            for tag in missed_env_tags {
+                eprintln!("  - {}", tag.value1);
+            }
+        }
+        return false;
     }
-    satisfied
+    for name in operand_only_vars_in_begin(awk_code, &tags, var_decs, operand_vars) {
+        eprintln!(
+            "Warning: variable `{name}` is assigned by a `{name}=value` operand, which is not visible in BEGIN; use `-v {name}=value` instead"
+        );
+    }
+    true
+}
+
+/// Declared variables provided only by operands, which the program refers to in a `BEGIN` block.
+/// The check is textual: the program has a `BEGIN` block and the name occurs in its code.
+fn operand_only_vars_in_begin(
+    awk_code: &str,
+    tags: &[CommentTag],
+    var_decs: &[String],
+    operand_vars: &[String],
+) -> Vec<String> {
+    static BEGIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bBEGIN\s*\{").unwrap());
+    if operand_vars.is_empty() || !BEGIN.is_match(awk_code) {
+        return Vec::new();
+    }
+    let code: String = awk_code
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let provided_by = |decs: &[String], name: &str| {
+        decs.iter().any(|s| s.split('=').next() == Some(name))
+    };
+    tags.iter()
+        .filter(|tag| tag.type_name == "var")
+        .map(|tag| tag.value1.trim_end_matches('?'))
+        .filter(|name| provided_by(operand_vars, name) && !provided_by(var_decs, name))
+        .filter(|name| {
+            Regex::new(&format!(r"\b{}\b", regex::escape(name)))
+                .map(|re| re.is_match(&code))
+                .unwrap_or(false)
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 /// Field references accepted by the column sugar: `$1`, `$NF`, `$(NF-1)`, and comma separated
@@ -277,6 +317,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_validate_first_line_and_operand_vars() {
+        let code = "# @var name the name\nBEGIN { print name }\n";
+        assert!(!validate_awk_code(code, &[], &[]));
+        assert!(validate_awk_code(code, &["name=bob".to_string()], &[]));
+        assert!(validate_awk_code(code, &[], &["name=bob".to_string()]));
+        assert!(validate_awk_code("# @var name?\n{ print }\n", &[], &[]));
+        assert!(validate_awk_code("{ print }\n", &[], &[]));
+    }
+
+    #[test]
+    fn test_operand_only_vars_in_begin() {
+        let operands = ["name=bob".to_string()];
+        let code = "# @var name the name\nBEGIN { print name }\n";
+        let tags = parse_comment_tags(code);
+        assert_eq!(operand_only_vars_in_begin(code, &tags, &[], &operands), vec!["name"]);
+        assert!(operand_only_vars_in_begin(code, &tags, &operands, &operands).is_empty());
+        let code = "# @var name the name\n{ print name }\n";
+        let tags = parse_comment_tags(code);
+        assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+    }
+
+    #[test]
     fn test_extract_awk_block() {
         let md = "Intro\n\n```sh\nzawk 'x'\n```\n\n```awk\nBEGIN { print 1 }\n```\n\n```awk\nBEGIN { print 2 }\n```\n";
         assert_eq!(extract_awk_block(md).unwrap(), "\n".repeat(7) + "BEGIN { print 1 }\n");
@@ -331,7 +393,7 @@ mod tests {
 
 "#;
         let var_decs = vec!["nick".to_owned()];
-        validate_awk_code(awk_code, &var_decs);
+        validate_awk_code(awk_code, &var_decs, &[]);
     }
 
     #[test]

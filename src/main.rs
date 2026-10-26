@@ -1870,7 +1870,11 @@ fn real_main() {
     }
 
     // validate AWK code by comment tags
-    let passed = awk_util::validate_awk_code(&program_code, &raw.var_decs);
+    let passed = awk_util::validate_awk_code(
+        &program_code,
+        &raw.var_decs,
+        &raw.operand_assigns.concat(),
+    );
     if !passed {
         std::process::exit(1);
     }

@@ -177,7 +177,10 @@ fn incomplete(text: &str, first_line: usize) -> Option<(usize, usize, String)> {
     for tok in Tokenizer::new(text) {
         match tok {
             Ok((l, Tok::LBrace, _)) => open.push((l, '}')),
-            Ok((l, Tok::LParen, _)) => open.push((l, ')')),
+            // The lexer folds `(` into calls, `print(`, `printf(` and `exit(`.
+            Ok((l, Tok::LParen | Tok::CallStart(_) | Tok::PrintLP | Tok::PrintfLP | Tok::ExitLP, _)) => {
+                open.push((l, ')'))
+            }
             Ok((_, tok @ (Tok::RBrace | Tok::RParen), _)) => {
                 let close = if tok == Tok::RBrace { '}' } else { ')' };
                 if open.pop().map(|(_, c)| c) != Some(close) {
@@ -301,6 +304,14 @@ mod tests {
         // Mismatched or extra closing brackets are reported by the parser, where they are.
         assert_eq!(incomplete("BEGIN { f(1 }", 0), None);
         assert_eq!(incomplete("BEGIN { } }", 0), None);
+        // Parentheses folded into call, `print(`, `printf(` and `exit(` tokens are matched too.
+        assert_eq!(incomplete("function f(x) { return toupper(x) }\n", 0), None);
+        assert_eq!(incomplete("BEGIN { print(1); printf(\"%s\", 2); exit(0) }\n", 0), None);
+        assert_eq!(
+            incomplete("function f(x) {\n  return toupper(x)\n", 0),
+            Some((2, 20, "unexpected end of file: missing `}` for the one at line 1, column 15".into()))
+        );
+        assert_eq!(incomplete("BEGIN { print(f(1)\n", 0).map(|(l, c, _)| (l, c)), Some((1, 19)));
     }
 
     #[test]
