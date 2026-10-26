@@ -367,5 +367,10 @@ run-match:
   cargo run --package zawk --bin zawk -- 'BEGIN { print match "fatal" { "info" => 1, "error" | "fatal" => 3, 3 => 3, /^W/ => 2, _ => 0 } }'
   cargo run --package zawk --bin zawk -- 'BEGIN { local level = match "fatal" { "info" => 1, "error" | "fatal" => 3, 3 => 3, /^W/ => 2, _ => 0 };  print level }'
 
+# test NATS text format: nats pub logs.demo "hello world"
 run-nats:
    cargo run --package zawk --bin zawk -- '{ print MSG_SUBJECT, MSG_BODY, ",",  $1} END {print "bye!"}' 'nats://localhost:4222/logs.>'
+
+# test NATS json format: nats pub topic1-json '{"name":"Jackie"}'
+run-nats-json:
+   cargo run --package zawk --bin zawk -- -i json '{ print "Hello", $FI["name"] }' 'nats://localhost:4222/topic1-json'
