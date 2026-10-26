@@ -160,14 +160,18 @@ fn max_open_files() -> usize {
     })
 }
 
-/// Report that a writer thread could not be started. Write errors otherwise end the program
-/// silently, but this one is worth a message (printed once).
+/// Report that a writer thread could not be started or has died (see `WriterSlot::send`). Write
+/// errors otherwise end the program silently, but this one is worth a message (printed once).
 fn report_spawn_error(e: &io::Error) -> CompileError {
     static REPORTED: Once = Once::new();
-    let err = CompileError::new(format!(
-        "too many open outputs: cannot start a writer thread: {}",
-        e
-    ));
+    let err = if e.kind() == io::ErrorKind::BrokenPipe {
+        CompileError::new(format!("{}", e))
+    } else {
+        CompileError::new(format!(
+            "too many open outputs: cannot start a writer thread: {}",
+            e
+        ))
+    };
     REPORTED.call_once(|| {
         set_output_failed();
         eprintln!("zawk: fatal: {}", err);
@@ -1176,7 +1180,7 @@ struct WriterSlot {
 
 impl WriterSlot {
     /// Send `req` to the writer thread, starting it for a write if it is not running. Fails if
-    /// the thread cannot be started; `req` is then answered with an error.
+    /// the thread cannot be started or has died; `req` is then answered with an error.
     fn send(self: &Arc<Self>, req: Request) -> io::Result<()> {
         let mut sender = self.sender.lock().unwrap();
         if sender.is_none() {
@@ -1207,7 +1211,14 @@ impl WriterSlot {
                 }
             }
         }
-        sender.as_ref().unwrap().send(req).unwrap();
+        if let Err(e) = sender.as_ref().unwrap().send(req) {
+            // The writer thread died (e.g. it panicked): fail the request like an I/O error.
+            e.0.set_code(ErrorCode::set_error);
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "output writer thread exited unexpectedly",
+            ));
+        }
         Ok(())
     }
 
