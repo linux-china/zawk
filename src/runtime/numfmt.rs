@@ -171,6 +171,30 @@ pub(crate) fn with_number_bytes<R>(f: Float, output: bool, k: impl FnOnce(&[u8])
     k(&bytes)
 }
 
+/// Text of a float read from an external source (e.g. a database column): integral values below
+/// 1e18 as integers, other finite values in their shortest round-trip form (`0.30000000000000004`,
+/// `1e301`, `1e-7`), so no precision is lost and huge values stay short; infinities and NaNs as
+/// in awk ("+inf", "-inf", "+nan", "-nan").
+pub(crate) fn float_to_text(f: f64) -> String {
+    if !f.is_finite() || (f == f.trunc() && f.abs() < 1e18) {
+        return with_number_bytes(f, false, |bs| String::from_utf8_lossy(bs).into_owned());
+    }
+    let mut buf = ryu::Buffer::new();
+    let text = buf.format_finite(f);
+    text.strip_suffix(".0").unwrap_or(text).to_string()
+}
+
+/// `float_to_text` of a single precision float, in the shortest form of the `f32` (`1.1`, not
+/// `1.100000023841858`).
+pub(crate) fn f32_to_text(f: f32) -> String {
+    if !f.is_finite() || (f == f.trunc() && f.abs() < 1e18) {
+        return float_to_text(f as f64);
+    }
+    let mut buf = ryu::Buffer::new();
+    let text = buf.format_finite(f);
+    text.strip_suffix(".0").unwrap_or(text).to_string()
+}
+
 /// Convert a number to a string (e.g. for concatenation or array subscripts), using CONVFMT.
 #[cfg(test)]
 pub(crate) fn number_to_string(f: Float) -> String {
@@ -216,5 +240,22 @@ mod tests {
         set_convfmt(b"%s");
         assert_eq!(number_to_string(3.14159), "3.14159");
         set_convfmt(b"%.6g");
+    }
+
+    #[test]
+    fn float_texts() {
+        assert_eq!(float_to_text(0.1 + 0.2), "0.30000000000000004");
+        assert_eq!(float_to_text(1e301), "1e301");
+        assert_eq!(float_to_text(1e-7), "1e-7");
+        assert_eq!(float_to_text(42.0), "42");
+        assert_eq!(float_to_text(-0.0), "0");
+        assert_eq!(float_to_text(1e17), "100000000000000000");
+        assert_eq!(float_to_text(1e18), "1e18");
+        assert_eq!(float_to_text(-2.5), "-2.5");
+        assert_eq!(float_to_text(f64::INFINITY), "+inf");
+        assert_eq!(float_to_text(f64::NAN), "+nan");
+        assert_eq!(f32_to_text(1.1), "1.1");
+        assert_eq!(f32_to_text(3.0), "3");
+        assert_eq!(f32_to_text(1e30), "1e30");
     }
 }

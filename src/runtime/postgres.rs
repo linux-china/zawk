@@ -5,6 +5,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use chrono::Utc;
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use bytes::BytesMut;
 use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
 use postgres::Client;
@@ -70,12 +71,30 @@ fn with_client<T>(db_url: &str, mut f: impl FnMut(&mut Client) -> Result<T, post
 }
 
 /// A positional parameter given as text, converted to the type the server inferred for it.
+/// `position` is its 1-based `$n` placeholder number.
 #[derive(Debug)]
-struct PgParam(String);
+struct PgParam {
+    position: usize,
+    text: String,
+}
 
 impl ToSql for PgParam {
     fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        let text = self.0.as_str();
+        // the driver reports a 0-based index without the value: name the `$n`, value and type
+        self.encode(ty, out)
+            .map_err(|e| format!("${}: {:?} is not a valid {}: {}", self.position, self.text, ty, e).into())
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+
+    to_sql_checked!();
+}
+
+impl PgParam {
+    fn encode(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        let text = self.text.as_str();
         if <&str as ToSql>::accepts(ty) || matches!(ty.kind(), Kind::Enum(_)) {
             // text-like types and enum labels are sent as is
             return text.to_sql(ty, out);
@@ -92,10 +111,10 @@ impl ToSql for PgParam {
                 _ => Err(format!("invalid boolean: {}", text).into()),
             },
             Type::CHAR => (value.bytes().next().unwrap_or(0) as i8).to_sql(ty, out),
-            Type::INT2 => value.parse::<i16>()?.to_sql(ty, out),
-            Type::INT4 => value.parse::<i32>()?.to_sql(ty, out),
-            Type::INT8 => value.parse::<i64>()?.to_sql(ty, out),
-            Type::OID => value.parse::<u32>()?.to_sql(ty, out),
+            Type::INT2 => i16::try_from(parse_integer(value)?)?.to_sql(ty, out),
+            Type::INT4 => i32::try_from(parse_integer(value)?)?.to_sql(ty, out),
+            Type::INT8 => parse_integer(value)?.to_sql(ty, out),
+            Type::OID => u32::try_from(parse_integer(value)?)?.to_sql(ty, out),
             Type::FLOAT4 => value.parse::<f32>()?.to_sql(ty, out),
             Type::FLOAT8 => value.parse::<f64>()?.to_sql(ty, out),
             Type::NUMERIC => match encode_numeric(value) {
@@ -123,15 +142,23 @@ impl ToSql for PgParam {
                 Ok(dt) => dt.with_timezone(&Utc).to_sql(ty, out),
                 Err(_) => parse_timestamp(value)?.and_utc().to_sql(ty, out),
             },
-            _ => Err(format!("unsupported parameter type {}: cast it in SQL, e.g. `$1::text::{}`", ty, ty).into()),
+            _ => Err(format!("unsupported parameter type, cast it in SQL, e.g. `${}::text::{}`", self.position, ty).into()),
         }
     }
+}
 
-    fn accepts(_: &Type) -> bool {
-        true
+/// Parse an integer, also accepting the integral float forms awk produces, such as `5.0` or `1e3`.
+fn parse_integer(value: &str) -> Result<i64, Box<dyn Error + Sync + Send>> {
+    if let Ok(n) = value.parse::<i64>() {
+        return Ok(n);
     }
-
-    to_sql_checked!();
+    let f = value.parse::<f64>().map_err(|_| "not a number")?;
+    // 2^63 is exactly representable, so `f < 2^63` keeps the cast in range
+    if f.fract() == 0.0 && f >= i64::MIN as f64 && f < -(i64::MIN as f64) {
+        Ok(f as i64)
+    } else {
+        Err("not an integer".into())
+    }
 }
 
 fn parse_time(text: &str) -> Result<chrono::NaiveTime, chrono::ParseError> {
@@ -146,7 +173,11 @@ fn parse_timestamp(text: &str) -> Result<chrono::NaiveDateTime, chrono::ParseErr
 }
 
 fn positional_params(params: &IntMap<Str>) -> Vec<PgParam> {
-    crate::runtime::sqlite::positional_params(params).into_iter().map(PgParam).collect()
+    crate::runtime::sqlite::positional_params(params)
+        .into_iter()
+        .enumerate()
+        .map(|(i, text)| PgParam { position: i + 1, text })
+        .collect()
 }
 
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
@@ -336,11 +367,11 @@ fn reflective_get(row: &postgres::Row, index: usize) -> String {
         }
         "float4" | "real" => {
             let v: Option<f32> = row.get(index);
-            v.map(|v| v.to_string())
+            v.map(|v| f32_to_text(v))
         }
         "float8" | "double precision" => {
             let v: Option<f64> = row.get(index);
-            v.map(|v| v.to_string())
+            v.map(|v| float_to_text(v))
         }
         "date" => {
             let v: Option<time::Date> = row.get(index);

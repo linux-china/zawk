@@ -4,6 +4,7 @@ use rusqlite::{params_from_iter, Connection};
 use rusqlite::types::{Value};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::numfmt::float_to_text;
 
 static SQLITE_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, rusqlite::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
@@ -38,7 +39,7 @@ fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<S
             let text_value = match value {
                 Value::Null => { "".to_owned() }
                 Value::Integer(num) => { num.to_string() }
-                Value::Real(num) => { num.to_string() }
+                Value::Real(num) => { float_to_text(num) }
                 Value::Text(text) => { text.to_string() }
                 Value::Blob(_) => { "".to_owned() }
             };

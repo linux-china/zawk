@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use mysql::*;
 use mysql::prelude::*;
 use mysql::consts::ColumnType;
@@ -42,8 +43,8 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
                 Value::Bytes(bytes) => { String::from_utf8(bytes).unwrap_or("".to_owned()) }
                 Value::Int(num) => { num.to_string() }
                 Value::UInt(num) => { num.to_string() }
-                Value::Float(num) => { num.to_string() }
-                Value::Double(num) => { num.to_string() }
+                Value::Float(num) => { f32_to_text(num) }
+                Value::Double(num) => { float_to_text(num) }
                 Value::Date(year, month, day, hour, minutes, seconds, micro_seconds) => {
                     let date_only = row.columns_ref()[i].column_type() == ColumnType::MYSQL_TYPE_DATE;
                     format_mysql_date(year, month, day, hour, minutes, seconds, micro_seconds, date_only)
