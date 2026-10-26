@@ -451,7 +451,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("log_error", MISC, "log_error(msg: str) -> void", "Log at error level to stderr.", r#"log_error("failed")"#),
     d("version", MISC, "version() -> str", "zawk version.", "version()"),
     d("assert", MISC, "assert(cond: bool, msg: str) -> void",
-      "If cond is false (tested as by if), print msg to stderr and exit with code 2.",
+      "A statement, not usable in an expression: if cond is false (tested as by if), print msg to stderr and exit with code 2.",
       "assert(NF == 5, f\"line {NR}: expect 5 fields, got {NF}\")"),
     d("exit", MISC, "exit([code: int]) -> void", "Exit with code (default 0), running END actions.", "exit(1)"),
 ];

@@ -2351,6 +2351,11 @@ fn error_messages_are_gawk_style() {
             ],
         ),
         (
+            r#"BEGIN { x = assert(1, "m") }"#,
+            2,
+            &["zawk: fatal: line 1, column 13: `assert` is a statement, it can't be used in an expression"],
+        ),
+        (
             r#"BEGIN { x = -1; $x = 1 }"#,
             2,
             &["zawk: fatal: attempt to assign field -1"],

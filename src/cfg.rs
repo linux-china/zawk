@@ -3117,6 +3117,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     } else {
                         Ok((open, call))
                     }
+                } else if fname.to_string() == "assert" {
+                    // The parser desugars `assert` only in statement position.
+                    err!("`assert` is a statement, it can't be used in an expression")
                 } else {
                     err!("Call to unknown function \"{}\"", fname)
                 };
