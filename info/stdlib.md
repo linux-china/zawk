@@ -860,7 +860,8 @@ for CBC (the tag is checked before decryption); a random IV/nonce is used for ev
 and the random salt is generated once per password per run (so PBKDF2 runs once, not for every record).
 `decrypt` also accepts older formats: CBC `v3:` (no MAC, a warning is printed), `v2:` (PBKDF2 with a fixed salt) and legacy ciphertext without prefix
 (key = password bytes truncated/zero padded to 16 or 32 bytes, deprecated: a warning is printed, please re-encrypt it).
-`decrypt` returns an empty string when the input is malformed, the key is wrong or the plaintext is not valid UTF-8.
+`decrypt` returns an empty string when the input is malformed or the key is wrong, prints a warning and sets `ERRNO`
+(e.g. `decrypt: invalid base64 ciphertext`, `decrypt: authentication failed (wrong key or corrupted ciphertext)`); an empty input decrypts to an empty string.
 
 ### JWT
 

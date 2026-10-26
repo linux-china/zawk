@@ -490,51 +490,61 @@ pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
 }
 
 /// Decrypt text produced by `encrypt`, `v4:`, `v3:`, `v2:` and legacy formats are supported.
-/// Returns the plaintext bytes, or none if the text is malformed or the key is wrong.
+/// Returns the plaintext bytes, or empty (with a warning and `ERRNO` set) if the text is malformed or the key is wrong.
 pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
     let Some((key_len, gcm)) = parse_cipher_mode(mode) else {
         unsupported_mode("decrypt", mode);
         return vec![];
     };
+    decrypt_text(key_len, gcm, encrypted_text, key_pass).unwrap_or_else(|reason| {
+        crate::runtime::stdlib_warning("decrypt", reason);
+        vec![]
+    })
+}
+
+const DECRYPT_INVALID_BASE64: &str = "invalid base64 ciphertext";
+const DECRYPT_TOO_SHORT: &str = "ciphertext is too short";
+const DECRYPT_FAILED: &str = "authentication failed (wrong key or corrupted ciphertext)";
+
+fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str) -> Result<Vec<u8>, &'static str> {
     if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V4_PREFIX) {
         if gcm {
-            return vec![];
+            return Err("`v4:` ciphertext requires a CBC mode");
+        }
+        let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+        if data.len() <= SALT_LEN + CBC_TAG_LEN {
+            return Err(DECRYPT_TOO_SHORT);
         }
         // the tag is verified (in constant time) before any decryption: no padding oracle
-        return STANDARD.decode(encoded.trim()).ok()
-            .filter(|data| data.len() > SALT_LEN + CBC_TAG_LEN)
-            .and_then(|data| {
-                let (data, tag) = data.split_at(data.len() - CBC_TAG_LEN);
-                let (enc_key, mac_key) = cbc_v4_keys(&derive_key(key_pass, &data[..SALT_LEN], key_len));
-                cbc_v4_mac(&mac_key, data).verify_slice(tag).ok()?;
-                decrypt_bytes(&enc_key, false, &data[SALT_LEN..])
-            })
-            .unwrap_or_default();
+        let (data, tag) = data.split_at(data.len() - CBC_TAG_LEN);
+        let (enc_key, mac_key) = cbc_v4_keys(&derive_key(key_pass, &data[..SALT_LEN], key_len));
+        cbc_v4_mac(&mac_key, data).verify_slice(tag).map_err(|_| DECRYPT_FAILED)?;
+        return decrypt_bytes(&enc_key, false, &data[SALT_LEN..]).ok_or(DECRYPT_FAILED);
     }
-    if !gcm && !encrypted_text.trim().is_empty() {
+    if encrypted_text.trim().is_empty() {
+        // an empty field decrypts to an empty string, like `encrypt` of nothing
+        return Ok(vec![]);
+    }
+    if !gcm {
         crate::runtime::stdlib_notice("decrypt", "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it");
     }
     if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
-        return STANDARD.decode(encoded.trim()).ok()
-            .filter(|data| data.len() > SALT_LEN)
-            .and_then(|data| {
-                let (salt, data) = data.split_at(SALT_LEN);
-                decrypt_bytes(&derive_key(key_pass, salt, key_len), gcm, data)
-            })
-            .unwrap_or_default();
+        let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+        if data.len() <= SALT_LEN {
+            return Err(DECRYPT_TOO_SHORT);
+        }
+        let (salt, data) = data.split_at(SALT_LEN);
+        return decrypt_bytes(&derive_key(key_pass, salt, key_len), gcm, data).ok_or(DECRYPT_FAILED);
     }
     let (key, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX) {
         Some(encoded) => (derive_key(key_pass, PBKDF2_V2_SALT, key_len), encoded),
         None => {
-            if !encrypted_text.trim().is_empty() {
-                crate::runtime::stdlib_notice("decrypt", "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it");
-            }
+            crate::runtime::stdlib_notice("decrypt", "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it");
             (legacy_key(key_pass, key_len), encrypted_text)
         }
     };
-    STANDARD.decode(encoded.trim()).ok()
-        .and_then(|data| decrypt_bytes(&key, gcm, &data))
-        .unwrap_or_default()
+    let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+    decrypt_bytes(&key, gcm, &data).ok_or(DECRYPT_FAILED)
 }
 
 #[cfg(test)]
@@ -816,6 +826,30 @@ mod tests {
             assert!(decrypt(mode, "v3:AAAA", key_pass).is_empty());
             assert!(decrypt(mode, "not base64!", key_pass).is_empty());
         }
+    }
+
+    #[test]
+    fn test_decrypt_failure_sets_errno() {
+        use crate::runtime::{errno, set_errno};
+        let check = |mode: &str, text: &str, key_pass: &str, reason: &str| {
+            set_errno(String::new());
+            assert!(decrypt(mode, text, key_pass).is_empty());
+            assert_eq!(errno(), format!("decrypt: {}", reason), "{mode} {text}");
+        };
+        for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
+            let text = encrypt(mode, b"hello", "k1");
+            check(mode, &text, "k2", DECRYPT_FAILED);
+            check(mode, "garbage", "k1", DECRYPT_INVALID_BASE64);
+            check(mode, "v3:AAAA", "k1", DECRYPT_TOO_SHORT);
+        }
+        let text = encrypt("aes-128-cbc", b"hello", "k1");
+        check("aes-128-gcm", &text, "k1", "`v4:` ciphertext requires a CBC mode");
+        check("aes-128-cbc", "v4:!!", "k1", DECRYPT_INVALID_BASE64);
+        check("aes-128-cbc", "v4:AAAA", "k1", DECRYPT_TOO_SHORT);
+        // empty input is not an error
+        set_errno(String::new());
+        assert!(decrypt("aes-128-gcm", "", "k1").is_empty());
+        assert_eq!(errno(), "");
     }
 
     #[test]
