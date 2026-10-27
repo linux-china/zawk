@@ -290,6 +290,16 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 `repeat("*",3) # ***`
 
+### wrap
+
+Word-wrap text into lines of at most `width` chars: `wrap(s, width)`.
+
+- `width <= 0` uses the default 80, and a float `width` is truncated to an integer
+- text of at most `width` chars is returned as is
+- lines break at whitespace and existing newlines are kept; a word longer than `width` is split
+
+`wrap("hello world", 5) # hello\nworld`
+
 ### default_if_empty
 
 Return default value if text is empty or not exist.

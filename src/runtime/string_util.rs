@@ -595,10 +595,66 @@ pub fn figlet(text: &str) -> String {
     }
 }
 
+/// Word-wrap `text` into lines of at most `width` chars; a `width <= 0` means 80. Lines break
+/// at whitespace (runs of it collapse to a line break or one space), existing newlines are kept,
+/// and a word longer than `width` (e.g. CJK text without spaces) is split. Text of at most
+/// `width` chars is returned as is.
+pub fn wrap(text: &str, width: Int) -> String {
+    let width = if width <= 0 { 80 } else { usize::try_from(width).unwrap_or(usize::MAX) };
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + text.len() / width + 1);
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let mut line_len = 0;
+        for word in line.split_whitespace() {
+            let mut chars: Vec<char> = word.chars().collect();
+            if line_len > 0 && line_len + 1 + chars.len() <= width {
+                out.push(' ');
+                line_len += 1;
+            } else if line_len > 0 {
+                out.push('\n');
+                line_len = 0;
+            }
+            while line_len + chars.len() > width {
+                let rest = chars.split_off(width - line_len);
+                out.extend(chars);
+                out.push('\n');
+                line_len = 0;
+                chars = rest;
+            }
+            line_len += chars.len();
+            out.extend(chars);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use unicode_segmentation::UnicodeSegmentation;
+
+    #[test]
+    fn test_wrap() {
+        assert_eq!(wrap("hello world", 5), "hello\nworld");
+        assert_eq!(wrap("the quick brown fox", 10), "the quick\nbrown fox");
+        assert_eq!(wrap("a  b   c d", 3), "a b\nc d");
+        // Text that fits is returned as is, even with extra whitespace.
+        assert_eq!(wrap("  hi  ", 10), "  hi  ");
+        // Existing newlines are kept.
+        assert_eq!(wrap("aa bb\ncc dd", 4), "aa\nbb\ncc\ndd");
+        // Long words are split.
+        assert_eq!(wrap("abcdefgh", 3), "abc\ndef\ngh");
+        assert_eq!(wrap("你好世界你好", 4), "你好世界\n你好");
+        // A non-positive width means 80.
+        let long = "word ".repeat(30);
+        assert_eq!(wrap(&long, 0), wrap(&long, 80));
+        assert_eq!(wrap(&long, -5).lines().map(|l| l.chars().count()).max(), Some(79));
+    }
 
     #[test]
     fn test_substr() {

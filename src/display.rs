@@ -212,6 +212,7 @@ impl Display for Function {
             Similar => write!(f, "similar"),
             Mask => write!(f, "mask"),
             Repeat => write!(f, "repeat"),
+            Wrap => write!(f, "wrap"),
             DefaultIfEmpty => write!(f, "default_if_empty"),
             AppendIfMissing => write!(f, "append_if_missing"),
             PrependIfMissing => write!(f, "prepend_if_missing"),

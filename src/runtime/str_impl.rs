@@ -871,6 +871,11 @@ impl<'a> Str<'a> {
         Ok(self.with_bytes(|bs| Buf::read_from_bytes(&bs.repeat(n as usize)).into_str()))
     }
 
+    /// Word-wrap the string into lines of at most `width` chars, see [`wrap`](crate::runtime::string_util::wrap).
+    pub fn wrap<'b>(&self, width: Int) -> Str<'b> {
+        Str::from_text(crate::runtime::string_util::wrap(&self.as_text(), width))
+    }
+
     pub fn escape<'b>(&self, format: &Str<'b>) -> Str<'b> {
         Str::from_text(escape(&format.as_str(), &self.as_text()))
     }

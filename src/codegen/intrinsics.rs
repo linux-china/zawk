@@ -231,6 +231,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] figlet(str_ref_ty) -> str_ty;
         [ReadOnly] mask(str_ref_ty) -> str_ty;
         [ReadOnly] repeat(str_ref_ty, int_ty) -> str_ty;
+        [ReadOnly] wrap(str_ref_ty, int_ty) -> str_ty;
         [ReadOnly] default_if_empty(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] append_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] prepend_if_missing(str_ref_ty, str_ref_ty) -> str_ty;
@@ -1593,6 +1594,14 @@ pub(crate) unsafe extern "C" fn repeat(text: *mut U128, n: Int) -> U128 {
     guard_panic(stringify!(repeat), || {
         let text = &*(text as *mut Str);
         let res = or_fail(text.repeat(n));
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn wrap(text: *mut U128, width: Int) -> U128 {
+    guard_panic(stringify!(wrap), || {
+        let text = &*(text as *mut Str);
+        let res = text.wrap(width);
         mem::transmute::<Str, U128>(res)
     })
 }

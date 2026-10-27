@@ -493,7 +493,7 @@ pub(crate) mod boilerplate {
             Mask(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }
-            Repeat(dst, text, n) => {
+            Repeat(dst, text, n) | Wrap(dst, text, n) => {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(n.into()));
             }

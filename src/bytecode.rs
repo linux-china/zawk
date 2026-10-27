@@ -420,6 +420,7 @@ pub(crate) enum Instr<'a> {
     Similar(Reg<Float>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mask(Reg<Str<'a>>, Reg<Str<'a>>),
     Repeat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
+    Wrap(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     DefaultIfEmpty(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     AppendIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     PrependIfMissing(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1414,7 +1415,7 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            Repeat(dst, text, n ) => {
+            Repeat(dst, text, n ) | Wrap(dst, text, n) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 n.accum(&mut f);

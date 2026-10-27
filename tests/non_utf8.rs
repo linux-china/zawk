@@ -54,6 +54,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("lines", "lines($0)[1]", Some(b"caf\xe9x")),
     ("words", "words(\"a \" $0)[1]", Some(b"a")),
     ("repeat", "repeat($0, 2)", Some(b"caf\xe9xcaf\xe9x")),
+    ("wrap", "wrap($0 \" \" $0, 5)", Some(b"caf\xe9x\ncaf\xe9x")),
     ("default_if_empty", "default_if_empty($0, \"d\")", Some(b"caf\xe9x")),
     ("append_if_missing", "append_if_missing($0, \"!\")", Some(b"caf\xe9x!")),
     ("prepend_if_missing", "prepend_if_missing($0, \"!\")", Some(b"!caf\xe9x")),
