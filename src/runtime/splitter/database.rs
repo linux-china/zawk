@@ -66,24 +66,9 @@ pub fn is_db_url(name: &str) -> bool {
     kind(name).is_some()
 }
 
-/// `url` with the password replaced by `***`, for messages.
-pub fn display_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
-    };
-    let authority_end = rest.find(['/', '#', '?']).unwrap_or(rest.len());
-    match rest[..authority_end].rfind('@') {
-        Some(at) => match rest[..at].find(':') {
-            Some(colon) => format!("{}://{}:***{}", scheme, &rest[..colon], &rest[at..]),
-            None => url.to_string(),
-        },
-        None => url.to_string(),
-    }
-}
-
 /// An error reading `url`, reported as an input that cannot be opened.
 fn read_error(url: &str, e: impl std::fmt::Display) -> io::Error {
-    let msg = format!("cannot read `{}': {}", display_url(url), e);
+    let msg = format!("cannot read `{}': {}", crate::runtime::network::redact_url(url), e);
     io::Error::other(crate::common::InputOpenError(msg))
 }
 
@@ -533,13 +518,6 @@ mod tests {
         assert!(!is_db_url("data.csv"));
         assert!(!is_db_url("https://example.com/a.csv"));
         assert!(is_db_url("postgres://h/db#t"));
-    }
-
-    #[test]
-    fn test_display_url() {
-        assert_eq!(display_url("mysql://root:123456@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
-        assert_eq!(display_url("postgres://u@h/db#t"), "postgres://u@h/db#t");
-        assert_eq!(display_url("sqlite://./a.db#select * from t where e = 'a@b'"), "sqlite://./a.db#select * from t where e = 'a@b'");
     }
 
     #[test]

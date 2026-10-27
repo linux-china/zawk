@@ -783,9 +783,9 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         let rows = *matches.get_one::<usize>("sample-rows").unwrap();
         match inspect::sample(file, format.and_then(inspect::Format::parse), opts.header, rows) {
             // a database password is not shown in the diagnostics
-            Ok(sample) => opts.data = Some(lint::Data { file: database::display_url(file), sample }),
+            Ok(sample) => opts.data = Some(lint::Data { file: runtime::network::redact_url(file).into_owned(), sample }),
             Err(e) => {
-                println!("{}", lint::input_error(&database::display_url(file), &common::io_error_reason(&e)));
+                println!("{}", lint::input_error(&runtime::network::redact_url(file), &common::io_error_reason(&e)));
                 std::process::exit(1)
             }
         }

@@ -124,6 +124,49 @@ fn fi_header_per_file() {
     }
 }
 
+// The header is read after `-v` and BEGIN, so the FS set there applies to it, and a BEGIN-only
+// program reads no input at all.
+#[test]
+fn fi_header_after_begin() {
+    let tmpdir = tempdir().unwrap();
+    let h = tmpdir.path().join("h.csv");
+    std::fs::write(&h, "a,b\n1,2\n").unwrap();
+    let cases: &[(&[&str], &str, &str)] = &[
+        (&["-v", "FS=,"], r#"{print $FI["b"]}"#, "2\n"),
+        (&[], r#"BEGIN{FS=","} {print $FI["b"]}"#, "2\n"),
+        (&["-F,"], r#"{print $FI["b"]}"#, "2\n"),
+        (&["-F,"], r#"END{print FI["b"], NR}"#, "2 1\n"),
+        (&["-F,"], r#"BEGIN{exit} END{print length(FI), NR}"#, "0 0\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, out) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .arg("-H")
+                .args(*args)
+                .arg(prog)
+                .arg(&h)
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+        // Without a main rule or END, stdin is not read: an open stdin does not block.
+        for args in [&["-H"][..], &["-i", "csv", "-H"][..]] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .args(args)
+                .arg("BEGIN{print 1}")
+                .timeout(std::time::Duration::from_secs(10))
+                .write_stdin("a,b\n1,2\n")
+                .assert()
+                .success()
+                .stdout("1\n");
+        }
+    }
+}
+
 // A name repeated in the header gets the first free `_1`, `_2`, ... suffix in FI, as for JSON
 // and Parquet input, also when the header of every input file is read.
 #[test]

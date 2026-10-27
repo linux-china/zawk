@@ -149,7 +149,7 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
 
 /// The section of an input file.
 fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) -> io::Result<String> {
-    let mut out = format!("## `{}`\n\n", crate::runtime::splitter::database::display_url(file));
+    let mut out = format!("## `{}`\n\n", crate::runtime::network::redact_url(file));
     if file == "-" {
         out.push_str("Standard input: its content is unknown.\n\n");
         return Ok(out);

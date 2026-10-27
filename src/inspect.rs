@@ -692,7 +692,7 @@ impl Inspector {
         let md = style == Style::Markdown;
         let mut out = String::new();
         let rows = if limited { format!("{} (stopped at --max-rows)", self.rows) } else { self.rows.to_string() };
-        let path = database::display_url(path);
+        let path = crate::runtime::network::redact_url(path);
         let reader = match format.zawk_options() {
             "" => format!("zawk '...' '{}'", path),
             options => format!("zawk {} '...' {}", options, path),

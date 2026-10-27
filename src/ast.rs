@@ -233,7 +233,7 @@ fn parse_header<'a, 'b, I: From<&'b str> + Clone>(
 }
 
 // With -H, every input file starts with a header line, not just the first one. The header of
-// the first file is read in BEGIN (see `parse_header`); the main loop consumes the header of each
+// the first file is read after BEGIN (see `parse_header`); the main loop consumes the header of each
 // following file and rebuilds FI from it, as the columns may be in a different order.
 //
 // FNR is 0 for the first record of a file. To tell the header of a new file apart from the first
@@ -423,11 +423,6 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             )))));
         }
 
-        // for -H
-        if self.parse_header && !self.header_in_main {
-            parse_header(arena, &mut begin);
-        }
-
         // Support "output csv/tsv" mode
         if let Some(sep) = self.output_sep {
             begin.push(arena.alloc(Expr(arena.alloc(Assign(
@@ -583,7 +578,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 arena.alloc(Block(inner)),
             ));
             let main_portion = if per_file_header {
-                // FNR = -1: the header of the first file was read in BEGIN. After the loop, a
+                // FNR = -1: the header of the first file was read after BEGIN. After the loop, a
                 // trailing header (a file without records) must not leave FNR at -1 for END.
                 let fnr = arena.alloc(Var("FNR".into()));
                 let set_fnr = |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
@@ -607,6 +602,11 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 block.extend(self.prepare.iter().cloned());
                 arena.alloc(Block(block))
             });
+        }
+        // for -H: the header is read after BEGIN, so that FS, ARGV etc. set by `-v` or BEGIN apply to
+        // it, and only when input is read at all: a BEGIN-only program does not read its input.
+        if self.parse_header && !self.header_in_main && (main_loop.is_some() || !self.end.is_empty()) {
+            parse_header(arena, &mut begin);
         }
         if !self.end.is_empty() {
             let end_block = if has_operand_assigns {

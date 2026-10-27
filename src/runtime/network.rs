@@ -9,23 +9,53 @@ use serde::Serialize;
 use url::Url;
 use crate::runtime::{stdlib_warning, Str, StrMap};
 
-/// `url` with the password in its userinfo replaced by `***`, for error messages and logs:
+/// Query parameters whose values are credentials, such as libpq's `?password=...`.
+const SECRET_PARAMS: &[&str] =
+    &["password", "passwd", "pwd", "sslpassword", "token", "access_token", "secret", "api_key", "apikey"];
+
+/// `url` with its credentials replaced by `***`, for error messages and logs:
 /// `redis://user:secret@host/x` becomes `redis://user:***@host/x`. A userinfo without `:` (such
-/// as a token in `nats://token@host`) is replaced as a whole.
+/// as a token in `nats://token@host`) is replaced as a whole, and so are the values of query
+/// parameters named in `SECRET_PARAMS` (`postgres://h/db?password=secret#t` becomes
+/// `postgres://h/db?password=***#t`). The fragment (a table or query of a database URL) is kept.
 pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
     let start = url.find("://").map_or(0, |i| i + 3);
     let end = url[start..].find(['/', '?', '#']).map_or(url.len(), |i| start + i);
-    match url[start..end].rfind('@') {
-        Some(at) => {
-            let userinfo = &url[start..start + at];
-            let shown = match userinfo.split_once(':') {
-                Some((user, _)) => format!("{}:***", user),
-                None => "***".to_owned(),
-            };
-            format!("{}{}{}", &url[..start], shown, &url[start + at..]).into()
+    let mut out = String::new();
+    let mut copied = 0;
+    if let Some(at) = url[start..end].rfind('@') {
+        let userinfo = &url[start..start + at];
+        out.push_str(&url[..start]);
+        match userinfo.split_once(':') {
+            Some((user, _)) => {
+                out.push_str(user);
+                out.push_str(":***");
+            }
+            None => out.push_str("***"),
         }
-        None => url.into(),
+        copied = start + at;
     }
+    let fragment = url[end..].find('#').map_or(url.len(), |i| end + i);
+    if let Some(q) = url[end..fragment].find('?') {
+        let query_start = end + q + 1;
+        let mut pos = query_start;
+        for param in url[query_start..fragment].split('&') {
+            if let Some((name, value)) = param.split_once('=') {
+                if !value.is_empty() && SECRET_PARAMS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
+                    let value_start = pos + name.len() + 1;
+                    out.push_str(&url[copied..value_start]);
+                    out.push_str("***");
+                    copied = value_start + value.len();
+                }
+            }
+            pos += param.len() + 1;
+        }
+    }
+    if copied == 0 {
+        return url.into();
+    }
+    out.push_str(&url[copied..]);
+    out.into()
 }
 
 pub fn local_ip() -> String {
@@ -500,6 +530,20 @@ mod tests {
         assert_eq!(redact_url("smtps://u%40x.com:p@ss@smtp.x.com:465"), "smtps://u%40x.com:***@smtp.x.com:465");
         assert_eq!(redact_url("http://127.0.0.1/a@b?x=@"), "http://127.0.0.1/a@b?x=@");
         assert_eq!(redact_url("127.0.0.1:4222"), "127.0.0.1:4222");
+        assert_eq!(
+            redact_url("postgres://127.0.0.1:1/db?user=u&password=secret#people"),
+            "postgres://127.0.0.1:1/db?user=u&password=***#people"
+        );
+        assert_eq!(
+            redact_url("postgres://u:p@h/db?sslmode=disable&PWD=x&token=t&secret=#t"),
+            "postgres://u:***@h/db?sslmode=disable&PWD=***&token=***&secret=#t"
+        );
+        assert_eq!(redact_url("http://h/x?passwords=a&key=b"), "http://h/x?passwords=a&key=b");
+        assert_eq!(redact_url("mysql://root:123456@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
+        assert_eq!(
+            redact_url("sqlite://./a.db#select * from t where e = 'a@b' and q = '?password=1'"),
+            "sqlite://./a.db#select * from t where e = 'a@b' and q = '?password=1'"
+        );
     }
 
     #[test]
