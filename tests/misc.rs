@@ -3602,8 +3602,21 @@ fn try_else_errors() {
     for prog in ["BEGIN { x = try f() }", "BEGIN { try += 1 }"] {
         Command::cargo_bin("zawk").unwrap().arg(prog).assert().failure();
     }
+    // `++`/`--` and a regex starting with `=` can still start the expression of `try`.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("BEGIN { i = 1; print try ++i else 0; print try --i else 0; print try /=/ ? 1 : 0 else 2 }")
+        .assert()
+        .success()
+        .stdout("2\n1\n0\n");
     for (args, msg) in [
         (&["BEGIN { try = 1 }"][..], "`try` is a keyword"),
+        (&["BEGIN { try /= 2 }"], "`try` is a keyword"),
+        (&["BEGIN { try++ }"], "`try` is a keyword"),
+        (&["BEGIN { try[1] = 1 }"], "`try` is a keyword"),
+        (&["function f(try) { } BEGIN { }"], "`try` is a keyword"),
+        (&["BEGIN { print try }"], "`try` is a keyword"),
+        (&["BEGIN { f(try, 1) }"], "`try` is a keyword"),
         (&["-v", "try=1", "BEGIN { }"], "reserved word"),
         (&["BEGIN { }", "try=1"], "reserved word"),
     ] {

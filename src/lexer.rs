@@ -507,14 +507,23 @@ pub fn is_keyword(s: &str) -> bool {
     KEYWORDS.get(s.as_bytes()).is_some()
 }
 
-/// Whether `rest`, the text after the keyword `try`, starts with an assignment operator, as in
-/// `try = 1`: a script using `try` as a variable name.
-fn starts_assignment(rest: &str) -> bool {
+/// Whether `rest`, the text after the keyword `try`, shows a script using `try` as a variable
+/// name (`try = 1`, `try++`, `try[1]`, `print try`, `function f(try)`): what follows cannot start
+/// the expression of `try E else F`.
+fn try_used_as_name(rest: &str) -> bool {
     let rest = rest.trim_start_matches([' ', '\t']).as_bytes();
     match rest {
+        [] | [b'\n' | b'\r' | b';' | b'}' | b')' | b',' | b'[' | b'#', ..] => true,
         [b'=', next, ..] => *next != b'=',
         [b'='] => true,
         [b'+' | b'-' | b'*' | b'%' | b'^', b'=', ..] => true,
+        // `try++` but not `try ++i else 0`.
+        [b'+', b'+', tail @ ..] | [b'-', b'-', tail @ ..] => {
+            let tail = tail.trim_ascii_start();
+            !matches!(tail.first(), Some(&c) if c == b'$' || c == b'(' || c == b'_' || c.is_ascii_alphabetic() || c >= 0x80)
+        }
+        // `try /= 2`, but not a regex starting with `=` such as `try /=/ ...`.
+        [b'/', b'=', tail @ ..] => !tail.iter().take_while(|&&c| c != b'\n').any(|&c| c == b'/'),
         _ => false,
     }
 }
@@ -1119,10 +1128,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.keyword() {
-                        if matches!(tok, Tok::Try) && starts_assignment(&self.text[self.cur + len..]) {
+                        if matches!(tok, Tok::Try) && try_used_as_name(&self.text[self.cur + len..]) {
                             return Some(Err(Error {
                                 location: self.index_to_loc(ix),
-                                desc: "`try` is a keyword (`try E else F`) and cannot be used as a variable".into(),
+                                desc: "`try` is a keyword (`try E else F`) and cannot be used as a variable or parameter name".into(),
                             }));
                         }
                         // `print (a, b) > "file"`: a parenthesized argument list after a space,
