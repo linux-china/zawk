@@ -343,6 +343,8 @@ bytes. Input that is not valid UTF-8 (GBK, Latin-1, binary) is kept byte for byt
 Functions using external services (network, KV, databases, crypto keys) don't stop the program on failure: they print
 one warning to stderr and return an empty value (`0` for an HTTP status). The failure sets `ERRNO` (e.g.
 `sqlite_query: no such table: users`), which is never cleared by a success: `ERRNO = ""; r = f(...); if (ERRNO != "") ...`.
+Shorter: `r = try f(...) else fallback(ERRNO)` clears `ERRNO`, evaluates `f(...)` without printing warnings, and
+gives `fallback(ERRNO)` on failure (`else` is required; `try` is a keyword).
 
 ## Pitfalls (differences from gawk)
 

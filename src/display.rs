@@ -356,6 +356,7 @@ impl Display for Function {
             Exit => write!(f, "exit"),
             SetExit => write!(f, "set_exit"),
             Exiting => write!(f, "exiting"),
+            TryDepth => write!(f, "try_depth"),
         }
     }
 }
@@ -537,6 +538,7 @@ impl<'a> Display for lexer::Tok<'a> {
             MatchKw => "match",
             FatArrow => "=>",
             Local => "local",
+            Try => "try",
 
             Ident(s) => return write!(fmt, "identifier({})", s),
             StrLit(s) => return write!(fmt, "{:?}", s),

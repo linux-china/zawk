@@ -866,7 +866,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(l);
                 self.expr(r);
             }
-            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) => {
                 self.expr(l);
                 self.expr(r);
             }
@@ -987,7 +987,7 @@ fn has_field(e: &AstExpr) -> bool {
     match e {
         Unop(ast::Unop::Column, _) => true,
         Unop(_, x) => has_field(x),
-        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Index(l, r) => has_field(l) || has_field(r),
+        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r) => has_field(l) || has_field(r),
         ITE(c, t, f) => has_field(c) || has_field(t) || has_field(f),
         Call(_, args) => args.iter().any(|a| has_field(a)),
         _ => false,

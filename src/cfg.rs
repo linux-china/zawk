@@ -1724,6 +1724,44 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.f.cfg.add_edge(fend, join, Transition::null());
                 return Ok((join, PrimExpr::Val(PrimVal::Var(res))));
             }
+            Try(e, f) => {
+                // old = ERRNO; ERRNO = ""; try_depth(1); res = e; try_depth(-1);
+                // if (ERRNO == "") ERRNO = old; else res = f
+                use builtins::{Function, Variable::ERRNO};
+                let old = self.fresh_local();
+                self.add_stmt(current_open, PrimStmt::AsgnVar(old, PrimExpr::LoadBuiltin(ERRNO)))?;
+                self.add_stmt(current_open, PrimStmt::SetBuiltin(ERRNO, PrimExpr::Val(PrimVal::StrLit(b""))))?;
+                let depth = self.fresh_local();
+                let try_depth = |delta| PrimExpr::CallBuiltin(Function::TryDepth, smallvec![PrimVal::ILit(delta)]);
+                self.add_stmt(current_open, PrimStmt::AsgnVar(depth, try_depth(1)))?;
+                let (next, ev) = self.convert_expr_inner(e, current_open, /*in_cond=*/ false)?;
+                let res = self.fresh_local();
+                self.ctx.may_rename.push(res);
+                self.add_stmt(next, PrimStmt::AsgnVar(res, ev))?;
+                self.add_stmt(next, PrimStmt::AsgnVar(depth, try_depth(-1)))?;
+                let errno = self.to_val(PrimExpr::LoadBuiltin(ERRNO), next)?;
+                let ok = self.fresh_local();
+                self.add_stmt(
+                    next,
+                    PrimStmt::AsgnVar(
+                        ok,
+                        PrimExpr::CallBuiltin(
+                            Function::Binop(ast::Binop::EQ),
+                            smallvec![errno, PrimVal::StrLit(b"")],
+                        ),
+                    ),
+                )?;
+                let t_node = self.f.cfg.add_node(Default::default());
+                self.add_stmt(t_node, PrimStmt::SetBuiltin(ERRNO, PrimExpr::Val(PrimVal::Var(old))))?;
+                let (fstart, fend, fe) = self.standalone_expr(f, in_cond)?;
+                self.add_stmt(fend, PrimStmt::AsgnVar(res, fe))?;
+                let join = self.f.cfg.add_node(Default::default());
+                self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(ok)));
+                self.f.cfg.add_edge(next, fstart, Transition::null());
+                self.f.cfg.add_edge(t_node, join, Transition::null());
+                self.f.cfg.add_edge(fend, join, Transition::null());
+                return Ok((join, PrimExpr::Val(PrimVal::Var(res))));
+            }
             Var(id) => {
                 if let Ok(bi) = builtins::Variable::try_from(id.clone()) {
                     // To maximize compatibility with other scripts, we don't have FI in scope as a
@@ -2999,6 +3037,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.may_assign(l) || self.may_assign(r)
             }
             ITE(c, t, f) => self.may_assign(c) || self.may_assign(t) || self.may_assign(f),
+            // Assigns ERRNO.
+            Try(..) => true,
             Assign(..) | AssignOp(..) | Inc { .. } | Getline { .. } | ReadStdin => true,
             Call(f, args) => {
                 let assigns = match f {

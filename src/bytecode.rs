@@ -512,6 +512,7 @@ pub(crate) enum Instr<'a> {
     // See `builtins::Function::SetExit`: (code, keep the earlier code).
     SetExit(Reg<Int>, Reg<Int>),
     Exiting(Reg<Int>),
+    TryDepth(/* new depth */ Reg<Int>, /* delta */ Reg<Int>),
 
     // Map operations
     Lookup {
@@ -1886,6 +1887,10 @@ impl<'a> Instr<'a> {
                 keep.accum(&mut f);
             }
             Exiting(dst) => dst.accum(&mut f),
+            TryDepth(dst, delta) => {
+                dst.accum(&mut f);
+                delta.accum(&mut f);
+            }
             Lookup {
                 map_ty,
                 dst,

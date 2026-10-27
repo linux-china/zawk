@@ -3452,6 +3452,51 @@ END { print total["a"], total["b"] }"#;
 }
 
 #[test]
+fn try_else() {
+    // `try E else F` clears ERRNO and evaluates E: the result is E if ERRNO is still empty (and
+    // ERRNO gets back its previous value), F otherwise, which reads ERRNO. Stdlib warnings are
+    // not printed inside E; F extends to the end of an assignment and may follow a newline.
+    let prog = r#"function fail() { return digest("NOPE", "x") }
+function ok() { return 42 }
+function noret(s) { x = s }
+function handler(e) { print "handled: " e; return -1 }
+BEGIN {
+    ERRNO = "outer"
+    a = try ok() else "fb"; print a, ERRNO
+    b = try fail() else "fb"; print b, ERRNO
+    n = try fail() else handler(ERRNO); print n
+    try noret(1) else handler(ERRNO); print x
+    c = try fail() else 10 + 1; print c
+    print "a" (try fail() else "B"), try ok() + 1 else 0
+    y = try fail() else
+        "nl"; print y
+    if (1) z = try fail() else "zz"; else z = "no"
+    print z
+    for (i = try ok() else 0; i < 43; i++) print "i=" i
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout(
+                "42 outer\nfb digest: unsupported algorithm \"NOPE\"\nhandled: digest: unsupported algorithm \"NOPE\"\n-1\n\
+                 1\n11\naB 43\nnl\nzz\ni=42\n",
+            )
+            .stderr("");
+    }
+}
+
+#[test]
+fn try_else_errors() {
+    // `try` needs `else`, and is a keyword.
+    for prog in ["BEGIN { x = try f() }", "BEGIN { try = 1 }"] {
+        Command::cargo_bin("zawk").unwrap().arg(prog).assert().failure();
+    }
+}
+
+#[test]
 fn hex_strings_are_numbers_everywhere() {
     // One string-to-number conversion: arithmetic, comparisons, truth values, printf and sorting
     // all read `0x` prefixed input (with an optional sign) as hexadecimal; there are no `0o`/`0b`

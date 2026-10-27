@@ -21,6 +21,13 @@ rows = sqlite_query("app.db", "select name from users")
 if (ERRNO != "") { print "query failed: " ERRNO > "/dev/stderr"; exit 1 }
 ```
 
+`try E else F` does the same in one expression, without printing the warning: the result is `F` when `E`
+fails, and `F` can read `ERRNO` (see the reference):
+
+```awk
+rows = try sqlite_query("app.db", "select name from users") else fail("query failed: " ERRNO)
+```
+
 The same holds for the parse functions. A program error, such as an invalid regex (`rparse`) or an unknown
 format or algorithm (`escape`, `encode`, `is`, ...), gives a warning and an empty result. So does input that cannot
 be parsed (`from_json`, `url`, `semver`, `shlex`, `datetime`, `decode`, ...); empty input is not an error and gives
@@ -940,8 +947,7 @@ an expired token, or one not valid yet, is rejected; a token without `exp` never
 `dejwt` prints a warning on stderr and sets `ERRNO`, e.g. `dejwt: invalid token: ExpiredSignature`:
 
 ```awk
-ERRNO = ""; claims = dejwt("secret", token)
-if (ERRNO != "") print "invalid JWT: " ERRNO
+claims = try dejwt("secret", token) else invalid_jwt(ERRNO)
 ```
 
 **Tips**: you can use https://jwkset.com/generate to generate JWK json and keys PEM text.

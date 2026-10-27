@@ -174,7 +174,7 @@ where
             Binop(op, _, _) => !matches!(op, crate::ast::Binop::Concat),
             Assign(_, e) => self.is_num(e, params),
             ITE(_, t, f) => self.is_num(t, params) && self.is_num(f, params),
-            Nullish(l, r) => self.is_num(l, params) && self.is_num(r, params),
+            Nullish(l, r) | Try(l, r) => self.is_num(l, params) && self.is_num(r, params),
             // The value of `local x`.
             Var(i) if crate::ast::is_uninit_var(&i.to_string()) => true,
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
@@ -249,7 +249,7 @@ where
                 self.expr(arr, params);
                 self.expr(ix, params);
             }
-            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) => {
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) => {
                 self.expr(l, params);
                 self.expr(r, params);
             }

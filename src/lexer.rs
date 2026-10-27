@@ -128,6 +128,8 @@ pub enum Tok<'a> {
     Delete,
     Return,
     Local,
+    // `try E else F`, see `Expr::Try`.
+    Try,
     // `match subject { pat => value, ... }`; `match` not followed by a call's `(`.
     MatchKw,
     // `=>` between the patterns and the value of a `match` arm.
@@ -240,6 +242,7 @@ keyword_map!(
     [b"delete", Tok::Delete],
     [b"return", Tok::Return],
     [b"local", Tok::Local],
+    [b"try", Tok::Try],
     [b"$", Tok::Dollar]
 );
 

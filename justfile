@@ -390,3 +390,7 @@ run-excel:
    cargo run --package zawk --bin zawk -- '{ print $1 }' tests/demo.xlsx
    cargo run --package zawk --bin zawk -- -i xlsx '{ print $1 }' tests/demo.xlsx#sheet2
    cargo run --package zawk --bin zawk --  -H '{ print $FI["name"], $FI["age"] }' tests/demo.xlsx
+
+run-try:
+   cargo run --package zawk --bin zawk --  'BEGIN { body = try http_get("https://httpbin.org/ip") else NONE; if(body["text"] !="") { print body["text"] } }'
+   cargo run --package zawk --bin zawk --  'BEGIN { body = try http_get("https://httpbin222.org/ip") else NONE; if(body["text"] =="") { print "error" } }'

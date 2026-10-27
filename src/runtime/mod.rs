@@ -1590,7 +1590,10 @@ impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
 /// failure from an empty result with `ERRNO = ""; r = f(...); if (ERRNO != "") ...`.
 pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
     let msg = format!("{}: {}", func, msg);
-    warn_once(&msg);
+    // Inside `try E else F` the script handles the failure: only ERRNO is set.
+    if TRY_DEPTH.with(Cell::get) == 0 {
+        warn_once(&msg);
+    }
     set_errno(msg);
 }
 
@@ -1661,6 +1664,18 @@ thread_local! {
     // `stdlib_warning`). It is not cleared when a later call succeeds. Each worker of a parallel
     // program has its own.
     static ERRNO: RefCell<String> = const { RefCell::new(String::new()) };
+    // How many `try E else F` expressions are evaluating their `E`.
+    static TRY_DEPTH: Cell<Int> = const { Cell::new(0) };
+}
+
+/// Add `delta` (1 when entering the `E` of `try E else F`, -1 when leaving it) to the depth of
+/// `try` expressions, returning the new depth.
+pub(crate) fn add_try_depth(delta: Int) -> Int {
+    TRY_DEPTH.with(|d| {
+        let depth = (d.get() + delta).max(0);
+        d.set(depth);
+        depth
+    })
 }
 
 pub(crate) fn errno() -> String {

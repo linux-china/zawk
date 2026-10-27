@@ -675,6 +675,10 @@ pub enum Expr<'a, 'b, I> {
     /// `l ?? r`: `l` if it is true as a strnum (not uninitialized, empty, or a zero such as `"0.0"`),
     /// `r` otherwise.
     Nullish(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
+    /// `try e else f`: `ERRNO` is cleared and `e` evaluated, with stdlib warnings not printed.
+    /// If `ERRNO` is still empty the result is `e` and `ERRNO` gets back its previous value;
+    /// otherwise the result is `f`, which may read `ERRNO`.
+    Try(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
     ITE(
         &'a Expr<'a, 'b, I>,
         &'a Expr<'a, 'b, I>,

@@ -303,7 +303,7 @@ fn check_array_operand<'a>(
 ) -> ParseResult<'a, ()> {
     use Expr::*;
     match arr {
-        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Unop(..) | Binop(..) | And(..) | Or(..) | Nullish(..) => {
+        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Unop(..) | Binop(..) | And(..) | Or(..) | Nullish(..) | Try(..) => {
             let loc = prog.locs.get(&expr_key(arr)).copied().unwrap_or(loc);
             user_error(loc, format!("attempt to use a scalar value as an array: `{}` expects an array", what))
         }

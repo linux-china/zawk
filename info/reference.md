@@ -35,6 +35,34 @@ _Binary operators:_
   `??`), `r` is evaluated and assigned to `l`; otherwise `r` is not evaluated and `l` is unchanged. Its value is
   the new value of `l`. It has the precedence of `=` (`r` can be any expression), and the subscript of an array
   element is evaluated once: `{ sep ??= ","; total[$1] ??= 0 }`, `seen[i++] ??= NR`.
+* Error handling: `try E else F` clears `ERRNO` and evaluates `E`. If `ERRNO` is still empty, the result is `E`
+  and `ERRNO` gets back its value from before the `try`; otherwise the result is `F`, which can read `ERRNO`
+  (and `ERRNO` keeps the error). Stdlib functions failing inside `E` don't print warnings.
+  ```awk
+  body = try http_get(url)["text"] else ""
+  id   = try json_value(s, "$.id") else error_handler(ERRNO)
+  try save(rec) else log_error(ERRNO)        # as a statement
+  ```
+  * `E` and `F` must both be scalars or both be arrays. `http_get` returns an array (`r["status"]`, `r["text"]`),
+    so a scalar fallback is an error:
+    ```awk
+    r    = try http_get(url) else ""            # error: attempt to use an array in a scalar context
+    body = try http_get(url)["text"] else ""    # scalar: E is the "text" element
+    r    = try http_get(url) else NONE          # array: NONE is never assigned, so it is an empty array
+    if (ERRNO != "") print "failed: " ERRNO
+    ```
+    A variable that is never assigned is an empty array of the type of `E`. As arrays are passed by reference,
+    `r` is then the array `NONE` itself: writing `r["k"]` also changes `NONE`. In a function, declare a fresh
+    empty array instead: `local empty[]; return try http_get(url) else empty`. A parse function such as
+    `from_json("")` also gives an empty array, but of a fixed type (`map[str]str`), which may not be the type of `E`.
+  * `else` is required, and `try` is a keyword (it can't name a variable or function).
+  * `E` is a conditional expression and `F` extends to the end of an assignment: `x = try f() else g() + 1`
+    falls back to `g() + 1`. A newline may follow `else`. As the operand of a concatenation or another
+    operator, `try` needs parentheses: `"id: " (try f() else "none")`.
+  * In `print`, `>` after `F` is still a redirection: `print try f() else "x" > "out.txt"`.
+  * A function without `return` gives an uninitialized value, so `try g(x) else h(ERRNO)` works as a statement.
+  * Nested: in `try (try a() else b()) else c()`, a failure of `a()` leaves `ERRNO` set after `b()`, so `c()`
+    runs too.
 
 _Unary Operators:_
 

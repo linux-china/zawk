@@ -407,6 +407,10 @@ PrecAsgn<G>: &'a Expr<'a,'a,&'a str> = {
     // `l ??= r` is `l ?? (l = r)`: `r` is evaluated and assigned only when `l` is false as a
     // strnum. An array element's subscript is evaluated once (see `Nullish` in cfg.rs).
     <l: PrecIn<G>> "??=" <r: PrecAsgn<G>> => arena.alloc(Expr::Nullish(l, arena.alloc(Expr::Assign(l, r)))),
+    // `try E else F`: E is a conditional expression, F extends to the end of an assignment, so
+    // `x = try f() else g() + 1` falls back to `g() + 1`. A newline may follow `else`. As the
+    // operand of a concatenation or an operator it needs parentheses: `"a" (try f() else "b")`.
+    "try" <e: PrecTern<G>> Else <f: PrecAsgn<G>> => arena.alloc(Expr::Try(e, f)),
     PrecTern<G>,
 }
 
@@ -501,6 +505,7 @@ PrecAsgnNoIn: &'a Expr<'a,'a,&'a str> = {
     <l: PrecMatch<"Gt">> "^=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Pow, r)),
     <l: PrecMatch<"Gt">> "%=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::AssignOp(l, Binop::Mod, r)),
     <l: PrecMatch<"Gt">> "??=" <r: PrecAsgn<"Gt">> => arena.alloc(Expr::Nullish(l, arena.alloc(Expr::Assign(l, r)))),
+    "try" <e: PrecTernNoIn> Else <f: PrecAsgn<"Gt">> => arena.alloc(Expr::Try(e, f)),
     PrecTernNoIn,
 }
 
@@ -779,6 +784,7 @@ extern {
       "..=" => Tok::DotDotEq,
       "return" => Tok::Return,
       "local" => Tok::Local,
+      "try" => Tok::Try,
       "match" => Tok::MatchKw,
       "=>" => Tok::FatArrow,
   }
