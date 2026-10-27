@@ -461,7 +461,7 @@ ID specs:
 
 [Snowflake ID](https://en.wikipedia.org/wiki/Snowflake_ID) is a form of unique identifier used in distributed computing.
 
-`snowflake(machine_id)`, and max value for `machine_id` is `65535`.
+`snowflake(machine_id)`, and `machine_id` is in range `0..=1023`; other values are reduced modulo 1024 with a warning.
 
 ID specs:
 

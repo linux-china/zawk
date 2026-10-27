@@ -815,7 +815,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     SnowFlake(dst, machine_id) => {
                         let machine_id: i64 = *self.get(*machine_id);
-                        let res = runtime::math_util::snowflake(machine_id as u16);
+                        let res = runtime::math_util::snowflake(machine_id);
                         let dst = *dst;
                         *self.get_mut(dst) = res
                     }

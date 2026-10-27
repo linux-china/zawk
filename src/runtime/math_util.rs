@@ -283,14 +283,16 @@ pub(crate) fn uuid(version: &str) -> String {
 
 static SNOWFLAKES: LazyLock<Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-///  machine ID(10 bits) should be less 1024
-pub(crate) fn snowflake(machine_id: u16) -> Int {
+/// Snowflake ID for `machine_id`, which holds the 10 machine/node bits (0..=1023). Other values
+/// are reduced modulo 1024 with a notice, so each machine/node pair has exactly one generator and
+/// IDs never repeat within a millisecond.
+pub(crate) fn snowflake(machine_id: Int) -> Int {
+    let id = machine_id.rem_euclid(1024) as u16;
+    if id as Int != machine_id {
+        crate::runtime::stdlib_notice("snowflake", format!("machine_id {} is out of range 0..=1023, using {}", machine_id, id));
+    }
     let mut pool = SNOWFLAKES.lock().unwrap();
-    let generator = pool.entry(machine_id).or_insert_with(|| {
-        let new_machine_id = (machine_id >> 5) & (32 - 1);
-        let new_node_id = machine_id & (32 - 1);
-        SnowflakeIdGenerator::new(new_machine_id as i32, new_node_id as i32)
-    });
+    let generator = pool.entry(id).or_insert_with(|| SnowflakeIdGenerator::new((id >> 5) as i32, (id & 31) as i32));
     generator.real_time_generate() as Int
 }
 
@@ -885,8 +887,13 @@ mod tests {
 
     #[test]
     fn test_snowflake() {
-        let machine_id: i64 = 1000;
-        println!("{}", snowflake(machine_id as u16));
+        // ids that share the same 10 machine/node bits share one generator, so they never collide
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..2000 {
+            for machine_id in [7, 7 + 1024, 7 - 1024] {
+                assert!(seen.insert(snowflake(machine_id)));
+            }
+        }
     }
 
     #[test]

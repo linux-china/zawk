@@ -208,7 +208,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("ulid", ID, "ulid() -> str", "ULID: Universally Unique Lexicographically Sortable Identifier.", "ulid()"),
     d("tsid", ID, "tsid() -> str", "TSID: time-sorted ID.", "tsid()"),
     d("snowflake", ID, "snowflake([machine_id: int]) -> int",
-      "64-bit Snowflake ID; machine_id defaults to 1, max 65535.", "snowflake(2)"),
+      "64-bit Snowflake ID; machine_id defaults to 1, range 0..=1023 (others are reduced modulo 1024 with a warning).", "snowflake(2)"),
     // Array
     d("seq", ARRAY, "seq(a: num[, b: num[, c: num]]) -> map[int]float",
       "Number sequence like the seq command: seq(end) from 1, seq(start, end), seq(start, step, end); a negative step counts down.",

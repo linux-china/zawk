@@ -1183,7 +1183,7 @@ pub(crate) unsafe extern "C" fn uuid(version: *mut U128) -> U128 {
 
 pub(crate) unsafe extern "C" fn snowflake(machine_id: Int) -> Int {
     guard_panic(stringify!(snowflake), || {
-        math_util::snowflake(machine_id as u16)
+        math_util::snowflake(machine_id)
     })
 }
 
