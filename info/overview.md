@@ -263,9 +263,8 @@ surprised to discover there were bugs in zawk's parser.
   `$1..$NF` are the columns, `FI` maps column names to their index (as with
   `-H`), and for Parquet `$0` is the row as a JSON object. See the
   [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md) for the
-  Parquet value mapping. A JSONL line that is not valid JSON is still read
-  (`$0` keeps the raw text, the fields are what parsed before the error, so
-  `bad` has `NF == 0`) and is reported on stderr as
+  Parquet value mapping. A JSONL line that is not valid JSON is skipped (it is
+  not a record, so it does not count in `NR`) and is reported on stderr as
   `zawk: warning: <file>:<line>: invalid JSON`; blank lines are skipped silently.
   Each kind of input warning is printed at most 5 times per run.
 * zawk has a builtin `join_fields` function that produces a string of a

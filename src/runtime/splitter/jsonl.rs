@@ -15,9 +15,8 @@
 //!
 //! Value mapping: strings are unescaped, numbers keep their source text, `true`/`false` become
 //! `1`/`0`, `null` and missing keys are empty, and nested objects/arrays keep their raw JSON text.
-//! A top-level array is split positionally into `$1..$n`. A line that is not valid JSON keeps the
-//! fields parsed before the error (NF=0 if none) while `$0` still holds the raw text, and is
-//! reported on stderr (blank lines are not).
+//! A top-level array is split positionally into `$1..$n`. Blank lines are skipped, and so is a
+//! line that is not valid JSON, after a warning on stderr: neither becomes a record.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -311,23 +310,14 @@ impl JsonlReader {
                     let fields = &mut out.fields;
                     parse_array(bs, |val| fields.push(val.to_str(&line, bs)))
                 }
-                Some(_) => {
-                    // A bare scalar: accept only a complete JSON string, number or literal.
-                    if let Some((val, end)) = scan_value(bs, start) {
-                        let valid = skip_ws(bs, end) == bs.len()
-                            && match val {
-                                Val::Raw { start, end } => std::str::from_utf8(&bs[start..end])
-                                    .is_ok_and(|s| s.parse::<f64>().is_ok()),
-                                _ => true,
-                            };
-                        if valid {
-                            out.fields.push(val.to_str(&line, bs));
-                            scalar = true;
-                            return true;
-                        }
+                Some(_) => match scan_scalar(bs, start) {
+                    Some(val) => {
+                        out.fields.push(val.to_str(&line, bs));
+                        scalar = true;
+                        true
                     }
-                    false
-                }
+                    None => false,
+                },
                 None => true,
             }
         });
@@ -335,17 +325,50 @@ impl JsonlReader {
         valid
     }
 
-    fn fill_checked(&mut self, line: Str<'static>, out: &mut JsonlLine) {
-        if !self.fill(line, out) {
-            static INVALID: AtomicUsize = AtomicUsize::new(0);
-            let name = self.filename();
-            let loc = || match self.line_no {
-                Some(n) => format!("{}:{}", display_name(&name.to_string()), n),
-                None => display_name(&name.to_string()).to_string(),
+    fn warn_invalid(&self) {
+        static INVALID: AtomicUsize = AtomicUsize::new(0);
+        let name = display_name(&self.filename().to_string()).to_string();
+        let loc = match self.line_no {
+            Some(n) => format!("{}:{}", name, n),
+            None => name,
+        };
+        crate::runtime::set_errno(format!("{}: invalid JSON", loc));
+        input_warning(&INVALID, || loc, "invalid JSON");
+    }
+
+    /// Reads the next line that is not blank, or None at the end of the input. The flag is
+    /// whether a new file was started on the way.
+    fn read_nonblank(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<(bool, Option<Str<'static>>)> {
+        let mut changed = false;
+        loop {
+            let file_changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
+            changed |= file_changed;
+            if self.inner.read_state() != ReaderState::OK as i64 {
+                return Ok((changed, None));
+            }
+            self.line_no = self.line_no.map(|n| if file_changed { 1 } else { n + 1 });
+            let line = trim_cr(self.scratch.line.clone());
+            if !line.with_bytes(|bs| skip_ws(bs, 0) == bs.len()) {
+                return Ok((changed, Some(line)));
+            }
+        }
+    }
+
+    /// Reads the next valid record into `out`, skipping blank lines and (with a warning) lines
+    /// that are not valid JSON. At the end of the input, `out` is left empty.
+    fn next_record(&mut self, pat: &Str, rc: &mut RegexCache, out: &mut JsonlLine) -> Result<bool> {
+        let mut changed = false;
+        loop {
+            let (file_changed, line) = self.read_nonblank(pat, rc)?;
+            changed |= file_changed;
+            let Some(line) = line else {
+                self.fill(Str::default(), out);
+                return Ok(changed);
             };
-            let loc = loc();
-            crate::runtime::set_errno(format!("{}: invalid JSON", loc));
-            input_warning(&INVALID, || loc, "invalid JSON");
+            if self.fill(line, out) {
+                return Ok(changed);
+            }
+            self.warn_invalid();
         }
     }
 }
@@ -398,30 +421,26 @@ impl LineReader for JsonlReader {
     ) -> Result<bool> {
         match std::mem::replace(&mut self.header, Header::Done) {
             Header::Start => {
-                let changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
-                self.line_no = self.line_no.map(|_| 1);
-                let first = trim_cr(self.scratch.line.clone());
-                self.build_schema(&first);
-                self.header_line(old);
-                let pending = if self.inner.read_state() == ReaderState::Eof as i64 {
-                    None
-                } else {
-                    Some(first)
+                // The schema comes from the first valid record.
+                let mut changed = false;
+                let first = loop {
+                    let (file_changed, line) = self.read_nonblank(pat, rc)?;
+                    changed |= file_changed;
+                    match line {
+                        Some(line) if !line.with_bytes(is_valid) => self.warn_invalid(),
+                        line => break line,
+                    }
                 };
-                self.header = Header::Emitted(pending);
+                self.build_schema(first.as_ref().unwrap_or(&Str::default()));
+                self.header_line(old);
+                self.header = Header::Emitted(first);
                 Ok(changed)
             }
             Header::Emitted(Some(first)) => {
-                self.fill_checked(first, old);
+                self.fill(first, old);
                 Ok(false)
             }
-            Header::Emitted(None) | Header::Done => {
-                let changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
-                self.line_no = self.line_no.map(|n| if changed { 1 } else { n + 1 });
-                let line = trim_cr(self.scratch.line.clone());
-                self.fill_checked(line, old);
-                Ok(changed)
-            }
+            Header::Emitted(None) | Header::Done => self.next_record(pat, rc, old),
         }
     }
     fn read_state(&self) -> i64 {
@@ -509,6 +528,28 @@ fn scan_string(bs: &[u8], mut i: usize) -> Option<(usize, bool)> {
         }
     }
     None
+}
+
+// A bare scalar line: only a complete JSON string, number or literal is accepted.
+fn scan_scalar(bs: &[u8], start: usize) -> Option<Val> {
+    let (val, end) = scan_value(bs, start)?;
+    let valid = skip_ws(bs, end) == bs.len()
+        && match val {
+            Val::Raw { start, end } => std::str::from_utf8(&bs[start..end]).is_ok_and(|s| s.parse::<f64>().is_ok()),
+            _ => true,
+        };
+    valid.then_some(val)
+}
+
+// Whether a non-blank line is one record of valid JSON, as `JsonlReader::fill` accepts it.
+fn is_valid(bs: &[u8]) -> bool {
+    let start = skip_ws(bs, 0);
+    match bs.get(start) {
+        Some(b'{') => parse_object(bs, |_, _| {}),
+        Some(b'[') => parse_array(bs, |_| {}),
+        Some(_) => scan_scalar(bs, start).is_some(),
+        None => true,
+    }
 }
 
 fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {

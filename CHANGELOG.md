@@ -1,5 +1,7 @@
 # Unreleased
 
+* **Behavior change**: `-i jsonl`/`-i json`: blank lines and lines that are not valid JSON are skipped instead of read as records (`NF=0` or empty fields) that counted in `NR`; an invalid line is still reported with a warning and sets `ERRNO`, and the schema comes from the first valid record
+
 # Version 0.6.5 (2026-10-26)
 
 * Add `zawk llm [FILE...] QUESTION`: print a prompt asking an LLM to write a zawk program that answers the question (the last argument, easy to edit from the shell history) about the input files, e.g. `zawk llm -i csv -H family.csv 'how many adults?' | llm -x`. The prompt has the command line of the run with the meaning of `-i`, `-F`, `-H` and `-o`, the first 10 lines of every file (`-n`; the first rows for Parquet), the schema and summary of `zawk inspect` for CSV, TSV, JSON, JSON Lines and Parquet input, the zawk language notes and the builtin function reference, and the `zawk lint` command to check the program; a short program is answered with its complete command line too

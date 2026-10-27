@@ -1928,8 +1928,9 @@ fn csv_rfc4180_backslash_and_line_breaks() {
 
 #[test]
 fn malformed_input_warnings() {
-    // Bad JSONL lines and a CSV quote that is never closed are still read, but reported on stderr
-    // (blank JSONL lines are not). A kind of warning is reported at most 5 times.
+    // Bad JSONL lines are skipped with a warning on stderr (blank JSONL lines silently), and a CSV
+    // quote that is never closed is still read, but reported. A kind of warning is reported at
+    // most 5 times.
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -1939,7 +1940,7 @@ fn malformed_input_warnings() {
             .write_stdin("{\"a\":1}\nbad\n\n{\"a\":2\n{}\n[1,2]\n\"x\"\n")
             .assert()
             .success()
-            .stdout("1 1\n2 0\n3 0\n4 1\n5 1\n6 2\n7 1\n")
+            .stdout("1 1\n2 1\n3 2\n4 1\n")
             .stderr("zawk: warning: -:2: invalid JSON\nzawk: warning: -:4: invalid JSON\n");
         let out = Command::cargo_bin("zawk")
             .unwrap()
@@ -1949,7 +1950,7 @@ fn malformed_input_warnings() {
             .write_stdin("bad\n".repeat(8))
             .assert()
             .success()
-            .stdout("8\n")
+            .stdout("0\n")
             .get_output()
             .clone();
         let stderr = String::from_utf8_lossy(&out.stderr);
