@@ -200,7 +200,8 @@ impl Pike {
         let mut caps = self.vm.create_captures();
         self.vm.search(&mut self.cache.borrow_mut(), input, &mut caps);
         caps.is_match().then(|| {
-            Groups((0..caps.group_len()).map(|i| caps.get_group(i).map(|s| (s.start, s.end))).collect())
+            let names = Groups::named(caps.group_info().pattern_names(regex_automata::PatternID::ZERO));
+            Groups((0..caps.group_len()).map(|i| caps.get_group(i).map(|s| (s.start, s.end))).collect(), names)
         })
     }
 }
@@ -610,7 +611,7 @@ impl Search for LiteralSearch<'_> {
     }
 
     fn groups_at(&self, _: &[u8], from: usize, to: usize) -> Option<Groups> {
-        Some(Groups(vec![Some((from, to))]))
+        Some(Groups(vec![Some((from, to))], Vec::new()))
     }
 }
 
@@ -749,10 +750,14 @@ fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
 }
 
 /// The capture groups of a match, as byte ranges of the text; `None` for groups that did not
-/// participate.
-pub(crate) struct Groups(Vec<Option<(usize, usize)>>);
+/// participate. Also the names of the named groups (`(?P<n>...)`), as (group, name), empty for
+/// patterns without any.
+pub(crate) struct Groups(Vec<Option<(usize, usize)>>, Vec<(usize, Box<str>)>);
 
 impl Groups {
+    fn named<'n>(names: impl Iterator<Item = Option<&'n str>>) -> Vec<(usize, Box<str>)> {
+        names.enumerate().filter_map(|(i, n)| n.map(|n| (i, n.into()))).collect()
+    }
     /// The range of group `i` (0 for the whole match).
     pub(crate) fn get(&self, i: usize) -> Option<(usize, usize)> {
         self.0.get(i).copied().flatten()
@@ -763,6 +768,10 @@ impl Groups {
     }
     pub(crate) fn iter(&self) -> impl Iterator<Item = Option<(usize, usize)>> + '_ {
         self.0.iter().copied()
+    }
+    /// The name of group `i`, if it has one.
+    pub(crate) fn name(&self, i: usize) -> Option<&str> {
+        self.1.iter().find(|(g, _)| *g == i).map(|(_, n)| &**n)
     }
 }
 
@@ -804,7 +813,9 @@ impl Search for AwkRegex {
         if let Some(lit) = &self.literal {
             return lit.groups_at(hay, from, to);
         }
-        let groups = |c: Captures| Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect());
+        let groups = |c: Captures| {
+            Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect(), Groups::named(self.re.capture_names()))
+        };
         if let Some(l) = self.longest() {
             let exact = l.exact.get_or_init(|| {
                 RegexBuilder::new(&format!("(?:{})\\z", self.as_str()))

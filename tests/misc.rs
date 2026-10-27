@@ -1442,6 +1442,35 @@ fn match_with_array_subsep() {
 }
 
 #[test]
+fn match_with_named_groups() {
+    // A named group `(?P<n>...)` is stored under its number and under its name, with its position.
+    let cases: &[(&str, &str)] = &[
+        (
+            r#"BEGIN { match("ab12", /(?P<n>\d+)/, m); print m[1], m["n"], m["n", "start"], m["n", "length"], length(m) }"#,
+            "12 12 3 2 9\n",
+        ),
+        // a dynamic regex, and one needing the leftmost-longest match
+        (r#"BEGIN { re = "(?P<k>[a-z]+)=(?P<v>[0-9]*)"; match("x a=17", re, m); print m["k"], m["v"] }"#, "a 17\n"),
+        (r#"BEGIN { match("abcd", /(?P<w>a|ab|abc)(?P<r>d?)/, m); print m["w"], m["r"] }"#, "abc d\n"),
+        // a group that did not participate is absent, as for numbered groups
+        (r#"BEGIN { match("ab", /a(?P<x>z)?b/, m); print ("x" in m), (2 in m), length(m) }"#, "0 0 3\n"),
+        (r#"BEGIN { print match("1.2.3.4 - \"GET /a\"", /(?P<ip>\S+) .* "(?P<method>\w+) (?P<path>\S+)"/, m), m["ip"], m["method"], m["path"] }"#, "1 1.2.3.4 GET /a\n"),
+        (r#"BEGIN { print match "k=v" { /(?P<key>\w+)=(?P<val>\w+)/ as m => m["key"] "|" m["val"], _ => "none" } }"#, "k|v\n"),
+    ];
+    for (prog, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}
+
+#[test]
 fn redirect_open_failure_is_fatal() {
     // As in gawk, an output file that cannot be opened stops the program with an error, after
     // the output printed so far.

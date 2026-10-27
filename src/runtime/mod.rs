@@ -762,30 +762,32 @@ impl RegexCache {
 
     /// gawk's `match(s, re, arr)`: like `match(s, re)`, and also clears `arr` and passes the whole
     /// match (group 0) and each participating capture group to `f` as (group, text, start, len),
-    /// with the start (1-based) and length counted in chars.
+    /// with the start (1-based) and length counted in chars, and the name of the group if it has one.
     fn regex_match_captures<'a>(
         &mut self,
         vars: &mut Variables,
         pat: &Str<'a>,
         s: &Str<'a>,
-        mut f: impl FnMut(Int, Str<'a>, Int, Int),
+        mut f: impl FnMut(Int, Option<&str>, Str<'a>, Int, Int),
     ) -> Result<Int> {
         self.with_search_fallible(pat, s, |re| {
-            let groups: Vec<(Int, usize, usize)> = s.with_bytes(|bs| match awk_regex::find_at(re, bs, 0)
-                .and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
-            {
+            let caps = s.with_bytes(|bs| {
+                awk_regex::find_at(re, bs, 0).and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
+            });
+            let groups: Vec<(usize, usize, usize)> = match &caps {
                 Some(caps) => caps
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, m)| m.map(|(from, to)| (i as Int, from, to)))
+                    .filter_map(|(i, m)| m.map(|(from, to)| (i, from, to)))
                     .collect(),
                 None => Vec::new(),
-            });
+            };
             let (start, len) = s.with_bytes(|bs| {
                 for &(i, from, to) in groups.iter() {
                     let start = s.chars_before(bs, from) as Int + 1;
                     let len = str_impl::char_count(&bs[from..to]) as Int;
-                    f(i, s.slice(from, to), start, len);
+                    let name = caps.as_ref().and_then(|c| c.name(i));
+                    f(i as Int, name, s.slice(from, to), start, len);
                 }
                 match groups.first() {
                     Some(&(_, from, to)) => (
@@ -803,7 +805,8 @@ impl RegexCache {
     }
 
     /// `match(s, re, arr)`: as gawk, `arr[n]` is the text of group `n`, and `arr[n, "start"]` and
-    /// `arr[n, "length"]` (joined with `subsep`, the current SUBSEP) its position.
+    /// `arr[n, "length"]` (joined with `subsep`, the current SUBSEP) its position. A named group
+    /// (`(?P<name>...)`) is also stored under its name: `arr["name"]`, `arr["name", "start"]`, ...
     pub(crate) fn regex_match_strmap<'a>(
         &mut self,
         vars: &mut Variables,
@@ -815,11 +818,13 @@ impl RegexCache {
         m.clear();
         let start_key = Str::concat(subsep.clone(), Str::from("start"));
         let length_key = Str::concat(subsep.clone(), Str::from("length"));
-        self.regex_match_captures(vars, pat, s, |i, text, start, len| {
-            let n = Str::from(i);
-            m.insert(n.clone(), text);
-            m.insert(Str::concat(n.clone(), start_key.clone()), Str::from(start));
-            m.insert(Str::concat(n, length_key.clone()), Str::from(len));
+        self.regex_match_captures(vars, pat, s, |i, name, text, start, len| {
+            let keys = std::iter::once(Str::from(i)).chain(name.map(|n| Str::from(n.to_string())));
+            for n in keys {
+                m.insert(n.clone(), text.clone());
+                m.insert(Str::concat(n.clone(), start_key.clone()), Str::from(start));
+                m.insert(Str::concat(n, length_key.clone()), Str::from(len));
+            }
         })
     }
 

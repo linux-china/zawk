@@ -69,7 +69,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("chars", TEXT, "chars(s: str) -> map[int]str", "Characters of s as an array, starting from 1.",
       r#"chars("abc")"#),
     d("match", TEXT, "match(s: str, re: str[, arr: array]) -> int",
-      "Position of the first match of re in s (0 if none); sets RSTART/RLENGTH, and the groups into arr.",
+      "Position of the first match of re in s (0 if none); sets RSTART/RLENGTH, and the groups into arr (named groups `(?P<n>...)` also as arr[\"n\"]).",
       r#"match("foo123", /[0-9]+/)"#),
     d("substr", TEXT, "substr(s: str, i: int[, n: int]) -> str",
       "Substring of s starting at 1-based character i, n characters or to the end.",
