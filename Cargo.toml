@@ -114,7 +114,7 @@ whoami = "2.1"
 shlex = "2.0"
 shell-escape = "0.1.5"
 pad = "0.1.6"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 mysql = { version = "28.0", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 postgres = { version = "0.19", features = [
     "with-chrono-0_4",

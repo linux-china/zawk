@@ -1,11 +1,12 @@
-//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines or Parquet file before writing a
-//! program for it.
+//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines or Parquet file, or a database
+//! table or query (`sqlite://app.db#user`), before writing a program for it.
 //!
 //! The report has three parts:
 //!
 //! * the schema: the field number (`$1`), name and type of each column. A CSV/TSV header of
 //!   `name:TYPE` declares the type of the column (as for `-o parquet`); other column types are
-//!   inferred from the values (Parquet columns have the type of the file schema);
+//!   inferred from the values (Parquet columns have the type of the file schema, and database
+//!   columns their type in the database);
 //! * a sample: the first rows (10 by default), with values as awk sees them;
 //! * a summary of every column, like DuckDB's `SUMMARIZE`: min, max, approx_unique, avg, std,
 //!   q25, q50, q75, count and null_percentage.
@@ -22,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::runtime::splitter::{json, jsonl, parquet::ParquetJson};
+use crate::runtime::splitter::{database, json, jsonl, parquet::ParquetJson};
 use crate::runtime::{decompress, http, s3};
 
 /// A value of a column.
@@ -47,6 +48,8 @@ pub enum Format {
     Json,
     Jsonl,
     Parquet,
+    /// A database table or query (`sqlite://app.db#user`), read as CSV with a header line.
+    Database,
 }
 
 impl Format {
@@ -57,6 +60,7 @@ impl Format {
             "json" => Format::Json,
             "jsonl" | "ndjson" => Format::Jsonl,
             "parquet" => Format::Parquet,
+            "database" => Format::Database,
             _ => return None,
         })
     }
@@ -68,6 +72,7 @@ impl Format {
             Format::Json => "json",
             Format::Jsonl => "jsonl",
             Format::Parquet => "parquet",
+            Format::Database => "database",
         }
     }
 
@@ -79,6 +84,8 @@ impl Format {
             Format::Json => "-i json",
             Format::Jsonl => "-i jsonl",
             Format::Parquet => "-i parquet",
+            // implied by the URL
+            Format::Database => "",
         }
     }
 }
@@ -189,6 +196,8 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
         })
     };
     let (format, limited) = match opts.format {
+        None | Some(Format::Database) if database::is_db_url(path) => (Format::Database, read_database(path, opts, &mut ins)?),
+        Some(Format::Database) => return Err(io::Error::other(format!("`{}' is not a database URL", path))),
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
         Some(format) => {
             let input = open(path)?;
@@ -271,6 +280,9 @@ fn open_format(path: &str, format: Format) -> io::Result<Box<dyn Read + Send>> {
 /// Opens a file, URL, S3 object or standard input (`-`), decompressing it if needed. A JSONPath
 /// after the file (`file.json#$.data`) is ignored.
 fn open_input(path: &str) -> io::Result<Box<dyn Read + Send>> {
+    if database::is_db_url(path) {
+        return Ok(Box::new(database::DbCsv::new(path.to_string())));
+    }
     let path = json::split_path(path).0;
     if path == "-" {
         decompress::maybe_decompress(path, io::stdin())
@@ -302,6 +314,29 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
         ins.add_row(row?);
     }
     Ok(false)
+}
+
+/// Reads the rows of a database table or query; returns whether reading stopped at `--max-rows`.
+fn read_database(url: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+    let mut table = database::DbTable::open(url)?;
+    for (i, c) in table.columns().iter().enumerate() {
+        ins.add_column(c.name.clone(), c.name.clone(), c.db_type.clone(), Some(i + 1));
+    }
+    while let Some(row) = table.next_row() {
+        if ins.full(opts.max_rows) {
+            return Ok(true);
+        }
+        ins.add_row(row?.into_iter().map(db_cell).collect());
+    }
+    Ok(false)
+}
+
+fn db_cell(value: database::DbValue) -> Cell {
+    match value {
+        database::DbValue::Null => Cell::Null,
+        database::DbValue::Num(s) => Cell::Num(s),
+        database::DbValue::Text(s) => Cell::Str(s),
+    }
 }
 
 /// Reads the rows of a CSV, TSV, JSON or JSON Lines input; returns whether reading stopped at
@@ -370,7 +405,7 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                 }
             }
         }
-        Format::Parquet => unreachable!(),
+        Format::Parquet | Format::Database => unreachable!(),
     }
     Ok(false)
 }
@@ -444,6 +479,18 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                 rows.push(row);
             }
             return Ok(Sample::Fields { header: Some(keys.unwrap_or_default()), rows });
+        }
+        Some(Format::Database) => {
+            let mut table = database::DbTable::open(path)?;
+            let header = table.columns().iter().map(|c| c.name.clone()).collect();
+            let mut rows = Vec::new();
+            while rows.len() < max_records {
+                match table.next_row() {
+                    Some(row) => rows.push(row?.iter().map(|v| v.text().to_string()).collect()),
+                    None => break,
+                }
+            }
+            return Ok(Sample::Fields { header: Some(header), rows });
         }
         Some(Format::Parquet) => {
             if path != "-" {
@@ -600,7 +647,11 @@ impl Inspector {
         let md = style == Style::Markdown;
         let mut out = String::new();
         let rows = if limited { format!("{} (stopped at --max-rows)", self.rows) } else { self.rows.to_string() };
-        let reader = format!("zawk {} '...' {}", format.zawk_options(), path);
+        let path = database::display_url(path);
+        let reader = match format.zawk_options() {
+            "" => format!("zawk '...' '{}'", path),
+            options => format!("zawk {} '...' {}", options, path),
+        };
         if md {
             out.push_str(&format!("# Inspect `{}`\n\n", path));
             out.push_str(&format!("- Format: {} (read with `{}`)\n", format.name(), reader));
@@ -682,6 +733,9 @@ impl Inspector {
         }
         if self.columns.iter().any(|c| c.field.is_none()) {
             notes.push("Columns without a field number are missing from the first record: read them with a constant key, e.g. `$FI[\"key\"]`.".to_string());
+        }
+        if format == Format::Database {
+            notes.push("Database rows are read as CSV with a header line of the column names: `$FI[\"name\"]` or the field number; BLOB values are the empty string.".to_string());
         }
         if self.non_objects > 0 {
             let lines = if self.non_objects == 1 { "1 line is".to_string() } else { format!("{} lines are", self.non_objects) };

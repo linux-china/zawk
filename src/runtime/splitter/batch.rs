@@ -761,7 +761,7 @@ impl<'a> Stepper<'a> {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
 pub enum InputFormat {
     #[default]
     CSV,

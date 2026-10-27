@@ -17,7 +17,7 @@ static PG_POOLS: LazyLock<ConnPool<Client>> = LazyLock::new(ConnPool::new);
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
 /// `verify-ca`/`verify-full` also verify the certificate, `disable` uses plain TCP.
-fn connect(db_url: &str) -> Result<Client, String> {
+pub(crate) fn connect(db_url: &str) -> Result<Client, String> {
     let mut conn_str = if db_url.starts_with("postgres://") {
         db_url.replacen("postgres://", "postgresql://", 1)
     } else {
@@ -40,7 +40,7 @@ fn connect(db_url: &str) -> Result<Client, String> {
 }
 
 /// `postgres::Error` displays only its kind, such as "db error": append the cause.
-fn error_text(e: postgres::Error) -> String {
+pub(crate) fn error_text(e: postgres::Error) -> String {
     match e.source() {
         Some(cause) => format!("{}: {}", e, cause),
         None => e.to_string(),
@@ -344,7 +344,7 @@ fn decode_numeric(raw: &[u8]) -> Option<String> {
     Some(text)
 }
 
-fn reflective_get(row: &postgres::Row, index: usize) -> String {
+pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
     let column_type = row.columns().get(index).map(|c| c.type_().name()).unwrap();
     // see https://docs.rs/sqlx/0.8.2/sqlx/postgres/types/index.html
     let value = match column_type {

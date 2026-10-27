@@ -4211,3 +4211,62 @@ fn markdown_program() {
         .success()
         .stdout("```awk\n");
 }
+
+#[test]
+fn database_input_sqlite() {
+    // A database URL is read like `-i csv -H`: `FI` maps the column names; after `#` is a table, or
+    // SQL when it contains whitespace. NULL and BLOB values are empty.
+    let tmp = tempdir().unwrap();
+    let db = tmp.path().join("demo.db");
+    let db = db.to_str().unwrap();
+    let setup = format!(
+        r#"BEGIN {{
+        sqlite_execute("{db}", "CREATE TABLE user (nick VARCHAR, age INT, note TEXT, avatar BLOB)")
+        sqlite_execute("{db}", "INSERT INTO user VALUES ('jackie', 30, 'a,b', x'0102'), ('linux', 42, NULL, NULL)")
+    }}"#
+    );
+    Command::cargo_bin("zawk").unwrap().arg(setup).assert().success();
+    let table = format!("sqlite://{}#user", db);
+    let query = format!("sqlite://{}#select nick, age * 2 as a2 from user where age > 35", db);
+    let cases: &[(&str, &str, &str)] = &[
+        (r#"{ print NR, NF, $FI["nick"], $FI["age"] + 1, "[" $3 "]", "[" $4 "]" }"#, &table, "1 4 jackie 31 [a,b] []\n2 4 linux 43 [] []\n"),
+        (r#"{ print $0 }"#, &table, "jackie,30,\"a,b\",\nlinux,42,,\n"),
+        (r#"{ print $FI["nick"], $FI["a2"] }"#, &query, "linux 84\n"),
+    ];
+    for (prog, input, out) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(String::from(*prog))
+                .arg(String::from(*input))
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+
+    let run = |args: &[&str]| {
+        let out = Command::cargo_bin("zawk").unwrap().args(args).output().unwrap();
+        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+
+    // --summary
+    let (ok, summary, err) = run(&["-o", "markdown", "--summary", r#"NR == 1 { print "nick", "age" } { print $1, $2 }"#, &table]);
+    assert!(ok, "{}", err);
+    assert!(summary.contains("| age | number | 2 | 2 | 30 | 42 | 72 | 36 |"), "{}", summary);
+
+    // inspect: the column types of the database
+    let (ok, report, err) = run(&["inspect", "-o", "md", &table]);
+    assert!(ok, "{}", err);
+    assert!(report.contains("- Format: database"), "{}", report);
+    assert!(report.contains("| $2 | age | INT |"), "{}", report);
+    assert!(report.contains("| $4 | avatar | BLOB |"), "{}", report);
+    assert!(report.contains("| jackie | 30 | a,b |  |"), "{}", report);
+
+    // a missing table, or a URL without `#`, is fatal
+    for bad in [format!("sqlite://{}#nosuch", db), format!("sqlite://{}", db)] {
+        let (ok, _, err) = run(&["{ print }", &bad]);
+        assert!(!ok && err.contains("cannot read `sqlite://"), "{}", err);
+    }
+}

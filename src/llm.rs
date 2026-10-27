@@ -40,7 +40,11 @@ const MAX_LINE: usize = 500;
 /// Returns the prompt.
 pub fn prompt(opts: &Options) -> io::Result<String> {
     // As for a run, JSON input is the default when every input file ends with `.json`.
+    // Database tables and queries (`sqlite://app.db#user`) are read as CSV with a header line.
     let input_format = opts.input_format.clone().or_else(|| {
+        if opts.files.iter().any(|f| crate::runtime::splitter::database::is_db_url(f)) {
+            return Some("database".to_string());
+        }
         let json = !opts.files.is_empty()
             && opts.files.iter().all(|f| f.split('#').next().unwrap_or(f).ends_with(".json"));
         json.then(|| "json".to_string())
@@ -50,7 +54,7 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         "md" => "markdown",
         f => f,
     });
-    let implied_header = matches!(format, Some("json" | "jsonl" | "parquet" | "markdown"));
+    let implied_header = matches!(format, Some("json" | "jsonl" | "parquet" | "markdown" | "database"));
     let header = opts.header || implied_header;
 
     let mut options = Vec::new();
@@ -142,7 +146,7 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
 
 /// The section of an input file.
 fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) -> io::Result<String> {
-    let mut out = format!("## `{}`\n\n", file);
+    let mut out = format!("## `{}`\n\n", crate::runtime::splitter::database::display_url(file));
     if file == "-" {
         out.push_str("Standard input: its content is unknown.\n\n");
         return Ok(out);
@@ -176,7 +180,7 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
         )?),
         None => None,
     };
-    if structured != Some(Format::Parquet) {
+    if !matches!(structured, Some(Format::Parquet | Format::Database)) {
         let lines = match &sections {
             Some(sections) => sections.lines.clone(),
             None => match inspect::sample(file, None, header && format != Some("markdown"), opts.sample_rows)? {
@@ -203,7 +207,7 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
     out.push_str(&format!("Rows: {}\n\n", rows));
     out.push_str("Schema (the field number, the column name and its type):\n\n");
     out.push_str(&sections.schema);
-    if structured == Format::Parquet {
+    if matches!(structured, Format::Parquet | Format::Database) {
         out.push_str(&format!("\nFirst {} rows, as awk sees the fields:\n\n", sections.sample.lines().count().saturating_sub(2)));
         out.push_str(&sections.sample);
     }
@@ -226,6 +230,7 @@ fn input_notes(format: Option<&str>, by_default: bool) -> String {
         Some("jsonl") => "JSON Lines (`-i jsonl`): every line is a JSON object and a record; its values are the fields, in the order the keys are first seen (a key first seen in a later record is appended, and NF grows from that record on); $0 is the JSON line",
         Some("parquet") => "Parquet (`-i parquet`): every row is a record, the columns are the fields; $0 is the row as a JSON object",
         Some("markdown") => "Markdown (`-i markdown`): the first table of the file is read as CSV rows; the header row gives the column names (without `:TYPE` suffixes)",
+        Some("database") => "a database table or query (`sqlite://app.db#user`, `mysql://...#select ...`): every row is a record, read as CSV with a header line of the column names (FI); NULL and BLOB values are empty",
         Some(f) => return format!("`{}`", f),
     };
     if by_default {

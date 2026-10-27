@@ -49,6 +49,7 @@ use common::{CancelSignal, ExecutionStrategy, Stage};
 use runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
+        database,
         json::JsonRecords,
         jsonl::JsonlReader,
         markdown::MarkdownCsv,
@@ -179,8 +180,8 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
     }
 
     // A local file, an object of `s3://bucket/key` or an HTTP(S) URL streamed as it downloads
-    // (all transparently decompressed), standard input (the `-` operand), or nothing (skipped
-    // operands).
+    // (all transparently decompressed), a database table or query as CSV, standard input (the `-`
+    // operand), or nothing (skipped operands).
     enum Source {
         File(Box<dyn io::Read + Send>),
         Http(Box<dyn io::Read + Send>),
@@ -212,6 +213,9 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
             name if runtime::http::is_http_url(name) => runtime::http::open(name)
                 .and_then(|resp| runtime::decompress::maybe_decompress(name, resp))
                 .map(Source::Http),
+            name if database::is_db_url(name) => {
+                Ok(Source::File(Box::new(database::DbCsv::new(name.to_string()))))
+            }
             name => {
                 if std::fs::metadata(name).map_or(false, |m| m.is_dir()) {
                     eprintln_ignore!(
@@ -777,9 +781,10 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     if let Some(file) = input_files.first().filter(|_| !matches!(format, Some("markdown" | "md"))) {
         let rows = *matches.get_one::<usize>("sample-rows").unwrap();
         match inspect::sample(file, format.and_then(inspect::Format::parse), opts.header, rows) {
-            Ok(sample) => opts.data = Some(lint::Data { file: file.clone(), sample }),
+            // a database password is not shown in the diagnostics
+            Ok(sample) => opts.data = Some(lint::Data { file: database::display_url(file), sample }),
             Err(e) => {
-                println!("{}", lint::input_error(file, &common::io_error_reason(&e)));
+                println!("{}", lint::input_error(&database::display_url(file), &common::io_error_reason(&e)));
                 std::process::exit(1)
             }
         }
@@ -818,6 +823,10 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
             .flatten()
             .any(|v| v.trim_start().starts_with("FS="));
     let files: Vec<&String> = input_files.iter().filter(|f| !is_operand_assignment(f)).collect();
+    // Database tables and queries are read as CSV with a header line.
+    if files.iter().any(|f| database::is_db_url(f)) {
+        return Some(String::from("database"));
+    }
     (!field_sep && !files.is_empty() && files.iter().all(|f| {
         runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
     }))
@@ -827,9 +836,9 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
 /// The lint options given by the `--taint-check`, `-p`, `-v` and `-H` arguments of `zawk lint` or
 /// of a run, and its input `format`.
 fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
-    // As for a run, JSON, JSON Lines, Parquet and Markdown input imply -H.
+    // As for a run, JSON, JSON Lines, Parquet, Markdown and database input imply -H.
     let header = matches.get_flag("parse-header")
-        || matches!(format, Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md"));
+        || matches!(format, Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md" | "database"));
     let vars = || matches.get_many::<String>("var").into_iter().flatten();
     // `-F`, or `-v FS=...`, with escapes processed as for a run.
     let field_sep = matches
@@ -1035,7 +1044,7 @@ fn real_main() {
             .num_args(1..)
             .help("The program files to format (`-` for standard input); read from stdin when no file is given"));
     let inspect_cmd = Command::new("inspect")
-        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file")
+        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file, or of a database table or query (`sqlite://app.db#user`)")
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
@@ -1225,7 +1234,7 @@ fn real_main() {
         .arg(Arg::new("input-files")
             .index(2)
             .num_args(1..)
-            .help("Input files to be read by zawk program"))
+            .help("Input files to be read by zawk program: local paths, `-` (stdin), http(s):// URLs, s3://bucket/key, a nats:// subject, or a database table or query read as CSV with a header line (`sqlite://PATH#table`, `mysql://...#table`, `postgresql://...#select ...`; SQL when the text after `#` contains whitespace)"))
         .arg(Arg::new("parallel-strategy")
             .short('p')
             .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files")
@@ -1514,10 +1523,16 @@ fn real_main() {
     let jsonl = matches!(input_format.as_deref(), Some("jsonl") | Some("ndjson"));
     let parquet = matches!(input_format.as_deref(), Some("parquet"));
     let markdown = matches!(input_format.as_deref(), Some("markdown") | Some("md"));
-    // JSON documents, JSON Lines records, Parquet files and Markdown tables are self-describing, so
-    // FI is always populated from the first record (the column names for Parquet and Markdown
-    // tables).
-    let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown;
+    // Database tables and queries are read as CSV, the column names on the header line.
+    let database = matches!(input_format.as_deref(), Some("database"));
+    if input_files.iter().any(|f| database::is_db_url(f)) && !(database || ifmt == Some(InputFormat::CSV)) {
+        fail!("database input is read as CSV: -i {} is not supported", input_format.as_deref().unwrap_or_default());
+    }
+    let ifmt = if database { Some(InputFormat::CSV) } else { ifmt };
+    // JSON documents, JSON Lines records, Parquet files, Markdown tables and database tables are
+    // self-describing, so FI is always populated from the first record (the column names for
+    // Parquet, Markdown and database tables).
+    let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown || database;
     // A NATS subject: each message is an input file of its own, read until Ctrl+C.
     let nats_url = input_files.iter().find(|f| nats::is_nats_url(f)).cloned();
     if nats_url.is_some() {

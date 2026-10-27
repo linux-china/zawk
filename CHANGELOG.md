@@ -1,5 +1,7 @@
 # Unreleased
 
+* Add database tables and queries as input: `zawk '{ print $FI["name"] }' 'mysql://root:123456@127.0.0.1:3306/test#people'`. The URL is `sqlite://PATH`, `mysql://...` or `postgresql://...` (`postgres://`), followed by `#` and a table name, or a SQL query when the text contains whitespace (`'sqlite://./demo.db#select nick, age from user where age > 30'`). Rows are streamed and read like `-i csv -H`: `FI` maps the column names, NULL and BLOB (BYTEA, binary) values are empty. Works with `-o table --summary`, `zawk lint` and `zawk llm`; `zawk inspect URL` shows the schema with the database column types, sample rows and the summary. Passwords are masked in messages
+
 * **Behavior change**: `-i jsonl`/`-i json`: blank lines and lines that are not valid JSON are skipped instead of read as records (`NF=0` or empty fields) that counted in `NR`; an invalid line is still reported with a warning and sets `ERRNO`, and the schema comes from the first valid record
 
 # Version 0.6.5 (2026-10-26)
