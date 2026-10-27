@@ -781,6 +781,10 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
         }
         for (Args { id, func_id, args }, ix) in tc.env.iter() {
+            // The placeholder variable has no register (see `ident_node`).
+            if is_unused(*id) {
+                continue;
+            }
             let mut flat_args = SmallVec::new();
             for a in args.iter().cloned() {
                 flat_args.push(flatten(concrete(a))?);
@@ -1528,7 +1532,10 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
     }
 
     fn ident_node(&mut self, id: &Ident) -> NodeIx {
-        let is_global = self.is_global(id);
+        // The placeholder variable receives discarded values (e.g. of `r = f()` in a function
+        // body) of every kind. Its SSA versions are numbered per function, so keying it globally
+        // would merge unrelated versions from different functions into one node.
+        let is_global = self.is_global(id) && !is_unused(*id);
         let key = Args {
             id: *id,
             func_id: if is_global { None } else { Some(self.frame_id) },

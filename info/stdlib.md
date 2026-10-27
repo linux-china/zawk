@@ -12,7 +12,7 @@ an empty value (an empty string or array, or `0` for an HTTP status). Each disti
 once (at most 1024 of them), and the number of warnings not shown is printed when the program exits.
 
 The failure also sets `ERRNO` to the message without the `zawk: warning: ` prefix (for `http_get`/`http_post`,
-a network error that makes the status `0`), so a script can tell a failure from an empty result.
+a network error or a cut-off response body, which makes the status `0`; an HTTP error status such as `404` is not a failure), so a script can tell a failure from an empty result.
 `ERRNO` is not cleared when a call succeeds, so clear it first:
 
 ```awk

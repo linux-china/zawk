@@ -7,7 +7,7 @@ use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderName, CONTENT_TYPE};
 use serde::Serialize;
 use url::Url;
-use crate::runtime::{set_errno, stdlib_warning, Str, StrMap};
+use crate::runtime::{stdlib_warning, Str, StrMap};
 
 /// `url` with the password in its userinfo replaced by `***`, for error messages and logs:
 /// `redis://user:secret@host/x` becomes `redis://user:***@host/x`. A userinfo without `:` (such
@@ -67,9 +67,9 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
     match builder.send() {
         Ok(resp) => fill_response("http_get", url, resp, &resp_obj),
         Err(e) => {
-            // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
+            // status 0 tells the failure; a warning and ERRNO tell why, as for other stdlib functions
             // reqwest errors carry the full URL, credentials included: report it redacted
-            set_errno(format!("http_get: {}: {}", redact_url(url), e.without_url()));
+            stdlib_warning("http_get", format!("{}: {}", redact_url(url), e.without_url()));
             resp_obj.insert(Str::from("status"), Str::from("0"));
         }
     }
@@ -101,9 +101,9 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
     match builder.send() {
         Ok(resp) => fill_response("http_post", url, resp, &resp_obj),
         Err(e) => {
-            // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
+            // status 0 tells the failure; a warning and ERRNO tell why, as for other stdlib functions
             // reqwest errors carry the full URL, credentials included: report it redacted
-            set_errno(format!("http_post: {}: {}", redact_url(url), e.without_url()));
+            stdlib_warning("http_post", format!("{}: {}", redact_url(url), e.without_url()));
             resp_obj.insert(Str::from("status"), Str::from("0"));
         }
     }
@@ -139,8 +139,8 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
         }
         Err(e) => {
             // a body cut off by the timeout or a reset connection is a failure, not an empty success:
-            // status 0 and ERRNO as for a failed send
-            set_errno(format!("{}: {}: failed to read response body: {}", func, redact_url(url), e.without_url()));
+            // status 0, a warning and ERRNO as for a failed send
+            stdlib_warning(func, format!("{}: failed to read response body: {}", redact_url(url), e.without_url()));
             resp_obj.insert(Str::from("status"), Str::from("0"));
             resp_obj.insert(Str::from("text"), Str::from(""));
         }

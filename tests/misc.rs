@@ -2956,7 +2956,7 @@ fn builtins_as_statements() {
     }
 }
 
-// A response body cut off after the headers is a failure (status 0, ERRNO set), not an empty success.
+// A response body cut off after the headers is a failure (status 0, a warning, ERRNO set), not an empty success.
 #[test]
 fn http_truncated_body_sets_errno() {
     use std::io::Read;
@@ -2970,18 +2970,43 @@ fn http_truncated_body_sets_errno() {
     });
     let prog = format!(
         r#"BEGIN {{
-        r = http_get("{url}"); print r["status"], "[" r["text"] "]", (ERRNO ~ /^http_get: failed to read response body/)
-        ERRNO = ""; p = http_post("{url}", "x"); print p["status"], (ERRNO ~ /^http_post: failed to read response body/)
+        r = http_get("{url}"); print r["status"], "[" r["text"] "]", (ERRNO ~ /^http_get: .*failed to read response body/)
+        ERRNO = ""; p = http_post("{url}", "x"); print p["status"], (ERRNO ~ /^http_post: .*failed to read response body/)
     }}"#
     );
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("zawk")
+        let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(*backend_arg)
             .arg(&prog)
             .assert()
             .success()
-            .stdout("0 [] 1\n0 1\n");
+            .stdout("0 [] 1\n0 1\n")
+            .get_output()
+            .clone();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("zawk: warning: http_get: "), "{}", stderr);
+        assert!(stderr.contains("zawk: warning: http_post: "), "{}", stderr);
+    }
+}
+
+// An array returned by a builtin can be assigned to a variable inside a function. The discarded
+// value of the assignment used to share a type node with the main program's discarded values.
+#[test]
+fn array_result_assigned_in_function() {
+    let prog = r#"
+        function g() { r = rparse("ab", "(a)"); return r[1] }
+        function h(  r) { r = from_json("{\"a\":1}"); return r["a"] }
+        function k(s) { local empty[]; local r[]; r = try from_json(s) else empty; return length(r) }
+        BEGIN { x = ""; print g(), h(), k("{\"a\":1}"), k("bad") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("a 1 1 0\n");
     }
 }
 
