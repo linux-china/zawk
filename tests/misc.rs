@@ -142,6 +142,29 @@ fn csv_header_duplicate_names() {
     }
 }
 
+// Under `-i csv|tsv`, `getline < file` reads CSV/TSV records like the main input: a quoted field
+// may span lines. A missing file is still -1.
+#[test]
+fn getline_file_csv_records() {
+    let tmpdir = tempdir().unwrap();
+    let a = tmpdir.path().join("a.csv");
+    std::fs::write(&a, "id,name\n1,\"multi\nline\"\n2,\"q\"\"x\"\n").unwrap();
+    let path = a.to_str().unwrap();
+    let prog = format!(
+        r#"BEGIN {{ while ((getline line < "{path}") > 0) print "[" line "]";
+             close("{path}");
+             while ((getline < "{path}") > 0) print NF, $2;
+             print (getline x < "{path}.missing") }}"#
+    );
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", prog.as_str()])
+            .assert()
+            .stdout("[id,name]\n[1,\"multi\nline\"]\n[2,\"q\"\"x\"]\n2 name\n2 multi\nline\n2 q\"x\n-1\n");
+    }
+}
+
 // `var=value` operands run when the main loop reaches the next input file (or before END), unlike
 // `-v`, which runs before BEGIN. A file named like an assignment is still read as a file.
 #[test]

@@ -1,4 +1,4 @@
-use crate::common::{FileSpec, Result};
+use crate::common::{CancelSignal, ExecutionStrategy, FileSpec, Result};
 use command::CommandReader;
 // Fixed-seed hasher: keeps `for (k in a)` order reproducible across runs and backends.
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::FixedState>;
@@ -58,7 +58,10 @@ pub mod jev;
 pub mod jev_functions;
 
 use crate::pushdown::FieldSet;
+use splitter::batch::CSVReader;
+use splitter::chunk::{ChunkProducer, OffsetChunk};
 use splitter::regex::RegexSplitter;
+use splitter::ReaderState;
 
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
@@ -924,7 +927,7 @@ pub const CHUNK_SIZE: usize = 8 << 10;
 
 #[derive(Default)]
 pub(crate) struct Inputs {
-    files: Registry<RegexSplitter<InputFile>>,
+    files: Registry<GetlineFile>,
     commands: Registry<RegexSplitter<CommandReader>>,
 }
 
@@ -1119,21 +1122,69 @@ impl<LR: LineReader> FileRead<LR> {
     fn with_file<R>(
         &mut self,
         path: &Str,
-        f: impl FnMut(&mut RegexSplitter<InputFile>) -> Result<R>,
+        f: impl FnMut(&mut GetlineFile) -> Result<R>,
     ) -> Result<R> {
         let check_utf8 = self.stdin.check_utf8();
+        let ifmt = self.stdin.getline_format();
         self.inputs.files.get_fallible(
             path,
             |s| {
-                Ok(RegexSplitter::new(
-                    InputFile::open(s),
-                    CHUNK_SIZE,
-                    path.clone().unmoor(),
-                    check_utf8,
-                ))
+                let file = InputFile::open(s);
+                Ok(match ifmt {
+                    // A file that failed to open stays a plain reader: its read error is -1.
+                    Some(ifmt) if !matches!(file, InputFile::Failed(..)) => {
+                        GetlineFile::Csv(CSVReader::new(
+                            std::iter::once((file, s.to_string())),
+                            ifmt,
+                            CHUNK_SIZE,
+                            check_utf8,
+                            ExecutionStrategy::Serial,
+                            CancelSignal::default(),
+                        ), None)
+                    }
+                    _ => GetlineFile::Lines(RegexSplitter::new(
+                        file,
+                        CHUNK_SIZE,
+                        path.clone().unmoor(),
+                        check_utf8,
+                    )),
+                })
             },
             f,
         )
+    }
+}
+
+/// The reader of a `getline < file`: records are lines (or separated by RS), or CSV/TSV records
+/// when the main input is read as CSV/TSV (see `LineReader::getline_format`).
+pub(crate) enum GetlineFile {
+    Lines(RegexSplitter<InputFile>),
+    // The read state once a read failed: as for plain lines, getline then returns -1 rather than
+    // failing the program.
+    Csv(CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>, Option<Int>),
+}
+
+impl GetlineFile {
+    fn read_record(&mut self, rs: &Str, rc: &mut RegexCache) -> Result<Str<'static>> {
+        match self {
+            GetlineFile::Lines(r) => r.read_record(rs, rc),
+            GetlineFile::Csv(_, Some(_)) => Ok(Str::default()),
+            GetlineFile::Csv(r, failed) => match r.read_record(rs, rc) {
+                Ok((_, line)) => Ok(line),
+                Err(e) if e.is_fatal() => Err(e),
+                Err(_) => {
+                    *failed = Some(ReaderState::Error as Int);
+                    Ok(Str::default())
+                }
+            },
+        }
+    }
+    fn read_state(&self) -> Int {
+        match self {
+            GetlineFile::Lines(r) => r.read_state(),
+            GetlineFile::Csv(_, Some(state)) => *state,
+            GetlineFile::Csv(r, None) => r.read_state(),
+        }
     }
 }
 

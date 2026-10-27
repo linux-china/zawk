@@ -1674,7 +1674,8 @@ fn real_main() {
                     check_utf8,
                     exec_strategy,
                     signal.clone(),
-                );
+                )
+                .plain_getline();
                 $body
             } else if parquet {
                 // Parquet rows are read as JSON Lines.

@@ -49,6 +49,8 @@ pub struct CSVReader<P> {
     // Number of records read from the current file, for warnings. None for the workers of a
     // parallel run, which do not see whole files.
     record_no: Option<usize>,
+    // The format `getline < file` reads records in (see `LineReader::getline_format`).
+    getline_format: Option<InputFormat>,
 }
 
 impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
@@ -66,6 +68,7 @@ impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         let producers = self.prod.try_dyn_resize(size);
         let mut res = Vec::with_capacity(producers.len());
         let ifmt = self.ifmt;
+        let getline_format = self.getline_format;
         for p_factory in producers.into_iter() {
             let field_set = self.field_set.clone();
             let check_utf8 = self.check_utf8;
@@ -84,6 +87,7 @@ impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
                     field_set,
                     check_utf8,
                     record_no: None,
+                    getline_format,
                 }
             }) as _)
         }
@@ -118,6 +122,9 @@ impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
     }
     fn set_used_fields(&mut self, field_set: &FieldSet) {
         self.field_set = field_set.clone();
+    }
+    fn getline_format(&self) -> Option<InputFormat> {
+        self.getline_format
     }
 }
 
@@ -184,7 +191,15 @@ impl CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             empty_buf,
             check_utf8,
             record_no: Some(0),
+            getline_format: Some(ifmt),
         }
+    }
+
+    /// Reads `getline < file` as plain lines, for an input that is converted to CSV (e.g. a
+    /// Markdown table) rather than given as CSV.
+    pub fn plain_getline(mut self) -> Self {
+        self.getline_format = None;
+        self
     }
 }
 

@@ -136,6 +136,11 @@ pub trait LineReader: Sized {
     // Whether or not this LineReader is configured to check for valid UTF-8. This is used to
     // propagate consistent options across multiple LineReader instances.
     fn check_utf8(&self) -> bool;
+    /// The format `getline < file` reads records in: CSV or TSV when the main input is read as
+    /// one (`-i csv|tsv`), so that quoted fields may span lines; plain lines otherwise.
+    fn getline_format(&self) -> Option<batch::InputFormat> {
+        None
+    }
 }
 
 /// Only a literal negative index counts from the end (`$(-k)` is `$(NF + 1 - k)`); a negative
