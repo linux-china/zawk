@@ -320,10 +320,10 @@ Return default value if text is empty or not exist.
 
 Add suffix/prefix if missing/present
 
-- `append_if_missing("nats://example.com","/") # example.com/`
-- `preappend_if_missing("example.com","https://") # https://example.com`
+- `append_if_missing("nats://example.com","/") # nats://example.com`
+- `prepend_if_missing("example.com","https://") # https://example.com`
 - `remove_if_end("demo.json", ".json") # demo`
-- `remove_if_begin("demo.json", "file://./") # file://./demo.json`
+- `remove_if_begin("demo.json", "file://./") # demo.json`
 
 ### quote/double_quote
 
@@ -344,7 +344,7 @@ Convert bytes to human-readable format, and vice versa. Units(case-insensitive):
 `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`, `kib`, `mib`, `gib`, `tib`, `pib`, `eib`, `zib`, `yib`.
 
 - `format_bytes(1024)`: 1 KB
-- `to_bytes("2 KB")`: 2024
+- `to_bytes("2 KB")`: 2028
 
 ### mkpass
 
