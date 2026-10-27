@@ -4270,3 +4270,52 @@ fn database_input_sqlite() {
         assert!(!ok && err.contains("cannot read `sqlite://"), "{}", err);
     }
 }
+
+#[test]
+fn xlsx_input() {
+    // `.xlsx` files are read as `-i xlsx`: a sheet as CSV, `#name` selects the sheet (ignoring
+    // case), and `-H` makes the first row the header.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let demo = dir.join("demo.xlsx");
+    let demo = demo.to_str().unwrap();
+    let sheet2 = format!("{}#sheet2", demo);
+    let cases: &[(&[&str], &str, &str)] = &[
+        (&[], "{ print $1 }", "name\nJackie\nLove\n"),
+        (&["-i", "xlsx"], "{ print $1 }", "id\n1\n2\n"),
+        (&["-H"], r#"{ print NR, $FI["name"], $FI["age"] + 1 }"#, "1 Jackie 49\n2 Love 50\n"),
+        (&["-H"], r#"{ print $FI["nick"], $FI["status"] }"#, "Jackie 1\nLove 2\n"),
+    ];
+    for (i, (args, prog, out)) in cases.iter().enumerate() {
+        let file = if i == 0 || i == 2 { demo } else { sheet2.as_str() };
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .arg(String::from(*prog))
+                .arg(file)
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+    let run = |args: &[&str]| {
+        let out = Command::cargo_bin("zawk").unwrap().args(args).output().unwrap();
+        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+
+    // --summary
+    let (ok, summary, err) = run(&["-H", "-o", "markdown", "--summary", r#"NR == 1 { print "name", "age" } { print $FI["name"], $FI["age"] }"#, demo]);
+    assert!(ok, "{}", err);
+    assert!(summary.contains("| age | number | 2 | 2 | 48 | 49 | 97 | 48.5 |"), "{}", summary);
+
+    // inspect: the first row is the header
+    let (ok, report, err) = run(&["inspect", "-o", "md", &format!("{}/types.xlsx", dir.display())]);
+    assert!(ok, "{}", err);
+    assert!(report.contains("- Format: xlsx (read with `zawk -i xlsx -H"), "{}", report);
+    assert!(report.contains("| $5 | active | BOOLEAN |"), "{}", report);
+    assert!(report.contains("| Jackie | 1978-01-05 | 08:30:00 | 2024-01-05 13:45:10 | 1 | 1.5 | a,b |"), "{}", report);
+
+    let (ok, _, err) = run(&["{ print }", &format!("{}#nosuch", demo)]);
+    assert!(!ok && err.contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"), "{}", err);
+}

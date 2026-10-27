@@ -14,6 +14,7 @@ pub mod markdown;
 pub mod nats;
 pub mod parquet;
 pub mod regex;
+pub mod xlsx;
 
 use super::str_impl::{Buf, Str, UniqueBuf};
 use super::utf8::{is_utf8, validate_utf8_clipped};

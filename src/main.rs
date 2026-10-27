@@ -56,6 +56,7 @@ use runtime::{
         nats::{self, NatsReader},
         parquet::ParquetJson,
         regex::RegexSplitter,
+        xlsx,
     },
     ChainedReader, LineReader, CHUNK_SIZE,
 };
@@ -827,6 +828,10 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if files.iter().any(|f| database::is_db_url(f)) {
         return Some(String::from("database"));
     }
+    // Excel workbooks (`book.xlsx`, `book.xlsx#Sheet2`) are read as CSV.
+    if !files.is_empty() && files.iter().all(|f| xlsx::is_xlsx_file(f)) {
+        return Some(String::from("xlsx"));
+    }
     (!field_sep && !files.is_empty() && files.iter().all(|f| {
         runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
     }))
@@ -990,8 +995,8 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"])
-            .help("The input format of the run (json for `.json` files when not given); json, jsonl, parquet and markdown imply -H"))
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"])
+            .help("The input format of the run (json for `.json` files and xlsx for `.xlsx` files when not given); json, jsonl, parquet and markdown imply -H"))
         .arg(Arg::new("field-separator")
             .short('F')
             .long("field-separator")
@@ -1044,11 +1049,11 @@ fn real_main() {
             .num_args(1..)
             .help("The program files to format (`-` for standard input); read from stdin when no file is given"));
     let inspect_cmd = Command::new("inspect")
-        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines or Parquet file, or of a database table or query (`sqlite://app.db#user`)")
+        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines, Parquet or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet"])
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "xlsx"])
             .help("The format of the files; by default it is guessed from the file extension, then from the content"))
         .arg(Arg::new("output-format")
             .short('o')
@@ -1076,8 +1081,8 @@ fn real_main() {
             .short('i')
             .long("input-format")
             .conflicts_with("field-separator")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"])
-            .help("The input format of the run; text lines split by FS when not given (json when every input file ends with .json)"))
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"])
+            .help("The input format of the run; text lines split by FS when not given (json when every input file ends with .json, xlsx when every one ends with .xlsx)"))
         .arg(Arg::new("parse-header")
             .short('H')
             .long("parse-header")
@@ -1195,10 +1200,10 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv|json|jsonl|parquet|markdown")
+            .value_name("csv|tsv|json|jsonl|parquet|markdown|xlsx")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md"]))
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods)")
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -1361,7 +1366,7 @@ fn real_main() {
     let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") => None,
+        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") | Some("xlsx") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -1525,6 +1530,8 @@ fn real_main() {
     let markdown = matches!(input_format.as_deref(), Some("markdown") | Some("md"));
     // Database tables and queries are read as CSV, the column names on the header line.
     let database = matches!(input_format.as_deref(), Some("database"));
+    // A sheet of an Excel workbook is read as CSV; with -H, its first row is the header.
+    let xlsx = matches!(input_format.as_deref(), Some("xlsx"));
     if input_files.iter().any(|f| database::is_db_url(f)) && !(database || ifmt == Some(InputFormat::CSV)) {
         fail!("database input is read as CSV: -i {} is not supported", input_format.as_deref().unwrap_or_default());
     }
@@ -1539,7 +1546,7 @@ fn real_main() {
         if input_files.len() > 1 {
             fail!("a nats:// subject must be the only input");
         }
-        if parquet || markdown {
+        if parquet || markdown || xlsx {
             fail!("-i {} is not supported for NATS messages", input_format.as_deref().unwrap_or_default());
         }
         exec_strategy = ExecutionStrategy::Serial;
@@ -1681,6 +1688,23 @@ fn real_main() {
                             _ => (MarkdownCsv::file(file.clone()), file.clone()),
                         })
                         .collect()
+                };
+                let $inp = CSVReader::new(
+                    sources.into_iter(),
+                    InputFormat::CSV,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                )
+                .plain_getline();
+                $body
+            } else if xlsx {
+                // A sheet of an Excel workbook is read as CSV.
+                let sources: Vec<(xlsx::XlsxCsv, String)> = if input_files.len() == 0 {
+                    vec![(xlsx::XlsxCsv::new(String::from("-")), String::from("-"))]
+                } else {
+                    input_files.iter().map(|file| (xlsx::XlsxCsv::new(file.clone()), file.clone())).collect()
                 };
                 let $inp = CSVReader::new(
                     sources.into_iter(),

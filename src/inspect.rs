@@ -1,4 +1,4 @@
-//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines or Parquet file, or a database
+//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines, Parquet or Excel file, or a database
 //! table or query (`sqlite://app.db#user`), before writing a program for it.
 //!
 //! The report has three parts:
@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::runtime::splitter::{database, json, jsonl, parquet::ParquetJson};
+use crate::runtime::splitter::{database, json, jsonl, parquet::ParquetJson, xlsx};
 use crate::runtime::{decompress, http, s3};
 
 /// A value of a column.
@@ -50,6 +50,8 @@ pub enum Format {
     Parquet,
     /// A database table or query (`sqlite://app.db#user`), read as CSV with a header line.
     Database,
+    /// A sheet of an Excel workbook (`book.xlsx#Sheet2`), read as CSV.
+    Xlsx,
 }
 
 impl Format {
@@ -61,6 +63,7 @@ impl Format {
             "jsonl" | "ndjson" => Format::Jsonl,
             "parquet" => Format::Parquet,
             "database" => Format::Database,
+            "xlsx" => Format::Xlsx,
             _ => return None,
         })
     }
@@ -73,6 +76,7 @@ impl Format {
             Format::Jsonl => "jsonl",
             Format::Parquet => "parquet",
             Format::Database => "database",
+            Format::Xlsx => "xlsx",
         }
     }
 
@@ -86,6 +90,7 @@ impl Format {
             Format::Parquet => "-i parquet",
             // implied by the URL
             Format::Database => "",
+            Format::Xlsx => "-i xlsx -H",
         }
     }
 }
@@ -199,6 +204,7 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
         None | Some(Format::Database) if database::is_db_url(path) => (Format::Database, read_database(path, opts, &mut ins)?),
         Some(Format::Database) => return Err(io::Error::other(format!("`{}' is not a database URL", path))),
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
+        Some(Format::Xlsx) => (Format::Xlsx, read_xlsx(path, opts, &mut ins)?),
         Some(format) => {
             let input = open(path)?;
             let input = if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input };
@@ -207,6 +213,8 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
         None => {
             if path != "-" && extension_format(path) == Some(Format::Parquet) {
                 (Format::Parquet, read_parquet(path, opts, &mut ins)?)
+            } else if path != "-" && extension_format(path) == Some(Format::Xlsx) {
+                (Format::Xlsx, read_xlsx(path, opts, &mut ins)?)
             } else {
                 // Sniff the content, then read it (the peeked bytes are put back in front).
                 let mut input = open(path)?;
@@ -254,6 +262,7 @@ pub fn extension_format(path: &str) -> Option<Format> {
         "json" => Format::Json,
         "jsonl" | "ndjson" => Format::Jsonl,
         "parquet" | "pq" => Format::Parquet,
+        "xlsx" | "xlsm" | "xls" | "xlsb" | "ods" => Format::Xlsx,
         _ => return None,
     })
 }
@@ -314,6 +323,36 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
         ins.add_row(row?);
     }
     Ok(false)
+}
+
+/// Reads the rows of a sheet of an Excel workbook; returns whether reading stopped at `--max-rows`.
+fn read_xlsx(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+    let sheet = xlsx::Sheet::open(path)?;
+    let mut rows = sheet.rows.into_iter();
+    if opts.header {
+        if let Some(header) = rows.next() {
+            ins.add_header(header.iter().map(xlsx::cell_text).collect());
+        }
+    }
+    for row in rows {
+        if ins.full(opts.max_rows) {
+            return Ok(true);
+        }
+        ins.add_row(row.into_iter().map(xlsx_cell).collect());
+    }
+    Ok(false)
+}
+
+fn xlsx_cell(cell: calamine::Data) -> Cell {
+    use calamine::Data;
+    match cell {
+        Data::Empty => Cell::Null,
+        Data::Int(n) => Cell::Num(n.to_string()),
+        Data::Float(f) => Cell::Num(crate::runtime::numfmt::float_to_text(f)),
+        Data::Bool(b) => Cell::Bool(b),
+        Data::String(s) => Cell::Str(s),
+        cell => Cell::Str(xlsx::cell_text(&cell)),
+    }
 }
 
 /// Reads the rows of a database table or query; returns whether reading stopped at `--max-rows`.
@@ -405,7 +444,7 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                 }
             }
         }
-        Format::Parquet | Format::Database => unreachable!(),
+        Format::Parquet | Format::Database | Format::Xlsx => unreachable!(),
     }
     Ok(false)
 }
@@ -480,6 +519,12 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
             }
             return Ok(Sample::Fields { header: Some(keys.unwrap_or_default()), rows });
         }
+        Some(Format::Xlsx) => xlsx::Sheet::open(path)?
+            .rows
+            .iter()
+            .take(wanted)
+            .map(|row| row.iter().map(xlsx::cell_text).collect())
+            .collect(),
         Some(Format::Database) => {
             let mut table = database::DbTable::open(path)?;
             let header = table.columns().iter().map(|c| c.name.clone()).collect();
@@ -509,7 +554,7 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
             return Ok(Sample::Fields { header: Some(header), rows });
         }
     };
-    // CSV and TSV: the header line, with `-H`.
+    // CSV, TSV and xlsx: the header line, with `-H`.
     let header_row = (header && !rows.is_empty()).then(|| {
         let mut h = rows.remove(0);
         if let Some(first) = h.first_mut() {

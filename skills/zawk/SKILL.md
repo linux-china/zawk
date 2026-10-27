@@ -131,7 +131,7 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
 | `--include lib` / `@include "lib"` | Load an awk library file once, searched in `AWKPATH` (default `.:/usr/local/share/awk`), `lib` then `lib.awk`; remote files are not supported |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
-| `-i csv\|tsv\|jsonl\|parquet\|markdown` | Input format (NOT gawk's `-i include`). jsonl, parquet and markdown imply `-H` |
+| `-i csv\|tsv\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). jsonl, parquet and markdown imply `-H`; xlsx is the default for `.xlsx` files and needs `-H` for a header row |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|markdown\|parquet` | Output format of `print` to stdout (`md` = markdown) |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet` unless redirected) |
@@ -165,6 +165,13 @@ zawk -i parquet -o csv '{ print $1, $2 }' people.parquet > people.csv
 
 # Markdown table input (first table of the file)
 zawk -i md '{ print $FI["name"] }' README.md
+
+# Excel: a sheet read as CSV from column A (-i xlsx is implied by .xlsx); #name selects the sheet
+# (first sheet by default, name matched ignoring case); -H makes the first row the header.
+# Dates are 2024-01-05 / 2024-01-05 13:45:10, times 08:30:00, booleans 1/0, empty cells "".
+zawk -H '$FI["age"] > 40 { print $FI["name"] }' people.xlsx
+zawk -i xlsx '{ print $1, $2 }' 'book.xlsx#Sheet2'
+zawk inspect book.xlsx#Sheet2                  # schema, sample rows and summary (-o xlsx is not supported)
 
 # Output: the first printed record is the header row
 zawk -i jsonl -o md 'NR==1 { print "name", "age" } $FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.jsonl

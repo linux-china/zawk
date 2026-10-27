@@ -45,6 +45,9 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         if opts.files.iter().any(|f| crate::runtime::splitter::database::is_db_url(f)) {
             return Some("database".to_string());
         }
+        if !opts.files.is_empty() && opts.files.iter().all(|f| crate::runtime::splitter::xlsx::is_xlsx_file(f)) {
+            return Some("xlsx".to_string());
+        }
         let json = !opts.files.is_empty()
             && opts.files.iter().all(|f| f.split('#').next().unwrap_or(f).ends_with(".json"));
         json.then(|| "json".to_string())
@@ -180,7 +183,8 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
         )?),
         None => None,
     };
-    if !matches!(structured, Some(Format::Parquet | Format::Database)) {
+    // A workbook or a database has no lines of text.
+    if !matches!(structured, Some(Format::Parquet | Format::Database | Format::Xlsx)) {
         let lines = match &sections {
             Some(sections) => sections.lines.clone(),
             None => match inspect::sample(file, None, header && format != Some("markdown"), opts.sample_rows)? {
@@ -207,7 +211,7 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
     out.push_str(&format!("Rows: {}\n\n", rows));
     out.push_str("Schema (the field number, the column name and its type):\n\n");
     out.push_str(&sections.schema);
-    if matches!(structured, Format::Parquet | Format::Database) {
+    if matches!(structured, Format::Parquet | Format::Database | Format::Xlsx) {
         out.push_str(&format!("\nFirst {} rows, as awk sees the fields:\n\n", sections.sample.lines().count().saturating_sub(2)));
         out.push_str(&sections.sample);
     }
@@ -231,6 +235,7 @@ fn input_notes(format: Option<&str>, by_default: bool) -> String {
         Some("parquet") => "Parquet (`-i parquet`): every row is a record, the columns are the fields; $0 is the row as a JSON object",
         Some("markdown") => "Markdown (`-i markdown`): the first table of the file is read as CSV rows; the header row gives the column names (without `:TYPE` suffixes)",
         Some("database") => "a database table or query (`sqlite://app.db#user`, `mysql://...#select ...`): every row is a record, read as CSV with a header line of the column names (FI); NULL and BLOB values are empty",
+        Some("xlsx") => "a sheet of an Excel workbook (`-i xlsx`, the default for `.xlsx` files; `book.xlsx#Sheet2` selects a sheet, the first one by default), read as CSV rows from column A; with -H the first row is the header (FI); dates are `2024-01-05`, booleans 1/0, empty cells empty",
         Some(f) => return format!("`{}`", f),
     };
     if by_default {
