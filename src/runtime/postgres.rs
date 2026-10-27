@@ -48,9 +48,10 @@ fn error_text(e: postgres::Error) -> String {
 }
 
 /// Run `f` with the cached client for `db_url`, connecting on first use. If a reused client
-/// fails because its connection was closed (server restart, idle timeout), it is dropped and
-/// `f` is retried once with a new connection.
-fn with_client<T>(db_url: &str, mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>) -> Result<T, String> {
+/// fails because its connection was closed (server restart, idle timeout), it is dropped so the
+/// next call reconnects. With `retry`, `f` is also retried once with a new connection: only safe
+/// for reads, since a write may have been committed before the connection was lost.
+fn with_client<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>) -> Result<T, String> {
     let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
     let reused = pools.contains_key(db_url);
     if !reused {
@@ -59,8 +60,11 @@ fn with_client<T>(db_url: &str, mut f: impl FnMut(&mut Client) -> Result<T, post
     let client = pools.get_mut(db_url).unwrap();
     match f(client) {
         Ok(v) => Ok(v),
-        Err(e) if reused && client.is_closed() => {
+        Err(e) if client.is_closed() => {
             pools.remove(db_url);
+            if !(retry && reused) {
+                return Err(format!("{} (not retried: the statement may already have been applied)", error_text(e)));
+            }
             let mut client = connect(db_url).map_err(|reconnect| format!("{} (reconnect failed: {})", error_text(e), reconnect))?;
             let result = f(&mut client).map_err(error_text);
             pools.insert(db_url.to_string(), client);
@@ -184,7 +188,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     let map: IntMap<Str> = IntMap::default();
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    let rows = match with_client(db_url, |client| client.query(sql, &params)) {
+    let rows = match with_client(db_url, true, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("pg_query", e);
@@ -208,7 +212,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
 pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    match with_client(db_url, |client| client.execute(sql, &params)) {
+    match with_client(db_url, false, |client| client.execute(sql, &params)) {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("pg_execute", e);

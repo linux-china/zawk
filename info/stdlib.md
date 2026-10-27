@@ -1070,7 +1070,9 @@ empty value is NULL for non-text types). For other PostgreSQL types, cast in SQL
 
 Connections are cached per URL for the whole run. A PostgreSQL or Redis (`kv_*`) connection that was closed
 (server restart, idle timeout, network failure) is reconnected once on the next call, so long-running input
-such as `tail -f` keeps working. In parallel mode (`-p r`/`-p f`), calls to the same kind of database share one
+such as `tail -f` keeps working. `pg_query` is then retried on the new connection, but a `pg_execute` that hits a
+closed connection fails (warning and `ERRNO`) without being retried, since the write may already have been applied.
+In parallel mode (`-p r`/`-p f`), calls to the same kind of database share one
 lock and are run one at a time, so heavy database work does not speed up with more workers.
 
 ### SQLite
