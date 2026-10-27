@@ -828,9 +828,11 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if files.iter().any(|f| database::is_db_url(f)) {
         return Some(String::from("database"));
     }
-    // Excel workbooks (`book.xlsx`, `book.xlsx#Sheet2`) are read as CSV.
-    if !files.is_empty() && files.iter().all(|f| xlsx::is_xlsx_file(f)) {
-        return Some(String::from("xlsx"));
+    // Excel workbooks (`book.xlsx`, `book.xlsx#Sheet2`) are read as CSV. Mixed with other files,
+    // the run is `-i csv`: each workbook is converted to CSV and the other files are read as CSV.
+    if files.iter().any(|f| xlsx::is_xlsx_file(f)) {
+        let all = files.iter().all(|f| xlsx::is_xlsx_file(f));
+        return Some(String::from(if all { "xlsx" } else { "csv" }));
     }
     (!field_sep && !files.is_empty() && files.iter().all(|f| {
         runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
@@ -1191,7 +1193,7 @@ fn real_main() {
             .short('i')
             .value_name("csv|tsv|json|jsonl|parquet|markdown|xlsx")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods)")
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
             .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"]))
         .arg(Arg::new("var")
             .short('v')
@@ -1513,7 +1515,8 @@ fn real_main() {
     if input_files.iter().any(|f| database::is_db_url(f)) && !(database || ifmt == Some(InputFormat::CSV)) {
         fail!("database input is read as CSV: -i {} is not supported", input_format.as_deref().unwrap_or_default());
     }
-    let ifmt = if database { Some(InputFormat::CSV) } else { ifmt };
+    // Workbooks mixed with other files are read as CSV (see `input_format`).
+    let ifmt = if database || (ifmt.is_none() && input_format.as_deref() == Some("csv")) { Some(InputFormat::CSV) } else { ifmt };
     // JSON documents, JSON Lines records, Parquet files, Markdown tables and database tables are
     // self-describing, so FI is always populated from the first record (the column names for
     // Parquet, Markdown and database tables).
@@ -1836,10 +1839,21 @@ fn real_main() {
                     }
                 }
             } else if let Some(ifmt) = ifmt {
+                // A workbook is converted to CSV (or TSV) rather than read as raw bytes.
                 let file_handles: Vec<_> = input_files
                     .iter()
                     .cloned()
-                    .map(|file| (open_file_read(file.as_str()), file))
+                    .map(|file| {
+                        let reader: Box<dyn io::Read + Send> = if xlsx::is_xlsx_file(&file) {
+                            Box::new(match ifmt {
+                                InputFormat::TSV => xlsx::XlsxCsv::tsv(file.clone()),
+                                _ => xlsx::XlsxCsv::new(file.clone()),
+                            })
+                        } else {
+                            Box::new(open_file_read(file.as_str()))
+                        };
+                        (reader, file)
+                    })
                     .collect();
                 let $inp = CSVReader::new(
                     file_handles.into_iter(),

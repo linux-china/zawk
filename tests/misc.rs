@@ -4483,4 +4483,20 @@ fn xlsx_input() {
 
     let (ok, _, err) = run(&["{ print }", &format!("{}#nosuch", demo)]);
     assert!(!ok && err.contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"), "{}", err);
+
+    // A workbook mixed with other files, or read with -i csv/tsv, is converted per file rather
+    // than read as raw ZIP bytes; the other files are read as CSV.
+    let tmp = tempdir().unwrap();
+    let csv = tmp.path().join("m.csv");
+    std::fs::write(&csv, "\"a,b\",2\n").unwrap();
+    let csv = csv.to_str().unwrap();
+    let (ok, out, err) = run(&["{ print FNR, $1 }", demo, csv]);
+    assert!(ok, "{}", err);
+    assert_eq!(out, "1 name\n2 Jackie\n3 Love\n1 a,b\n");
+    let (ok, out, err) = run(&["-i", "csv", "{ print $1, $3 }", demo]);
+    assert!(ok, "{}", err);
+    assert_eq!(out, "name age\nJackie 48\nLove 49\n");
+    let (ok, out, err) = run(&["-i", "tsv", "-H", r#"{ print $FI["age"] }"#, demo]);
+    assert!(ok, "{}", err);
+    assert_eq!(out, "48\n49\n");
 }

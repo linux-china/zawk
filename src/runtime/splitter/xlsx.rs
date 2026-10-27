@@ -120,16 +120,23 @@ pub fn cell_text(cell: &Data) -> String {
     }
 }
 
-/// A sheet of a workbook (or of standard input) as CSV. It is read on the first read.
+/// A sheet of a workbook (or of standard input) as CSV, or as TSV for `-i tsv`. It is read on the
+/// first read.
 pub struct XlsxCsv {
     path: String,
+    tsv: bool,
     buf: Option<Vec<u8>>,
     pos: usize,
 }
 
 impl XlsxCsv {
     pub fn new(path: String) -> XlsxCsv {
-        XlsxCsv { path, buf: None, pos: 0 }
+        XlsxCsv { path, tsv: false, buf: None, pos: 0 }
+    }
+
+    /// The sheet as TSV, each cell escaped as `-o tsv` does.
+    pub fn tsv(path: String) -> XlsxCsv {
+        XlsxCsv { path, tsv: true, buf: None, pos: 0 }
     }
 
     fn load(&self) -> io::Result<Vec<u8>> {
@@ -137,8 +144,13 @@ impl XlsxCsv {
         let mut out = Vec::new();
         for row in &sheet.rows {
             let cells: Vec<String> = row.iter().map(cell_text).collect();
-            let cells: Vec<&str> = cells.iter().map(String::as_str).collect();
-            out.extend_from_slice(crate::runtime::csv::vec_to_csv(&cells).as_bytes());
+            if self.tsv {
+                let cells: Vec<String> = cells.iter().map(|c| crate::runtime::str_escape::escape_tsv(c)).collect();
+                out.extend_from_slice(cells.join("\t").as_bytes());
+            } else {
+                let cells: Vec<&str> = cells.iter().map(String::as_str).collect();
+                out.extend_from_slice(crate::runtime::csv::vec_to_csv(&cells).as_bytes());
+            }
             out.push(b'\n');
         }
         Ok(out)
@@ -187,6 +199,14 @@ mod tests {
         assert!(demo("#Sheet2").starts_with("id,nick,status\n"));
         let err = Sheet::open(&format!("{}/tests/demo.xlsx#nosuch", env!("CARGO_MANIFEST_DIR"))).err().unwrap();
         assert!(err.to_string().contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"), "{}", err);
+    }
+
+    #[test]
+    fn test_demo_tsv() {
+        let path = format!("{}/tests/demo.xlsx", env!("CARGO_MANIFEST_DIR"));
+        let mut text = String::new();
+        XlsxCsv::tsv(path).read_to_string(&mut text).unwrap();
+        assert_eq!(text, "name\tgender\tage\nJackie\tM\t48\nLove\tF\t49\n");
     }
 
     #[test]
