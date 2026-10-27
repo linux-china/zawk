@@ -27,6 +27,6 @@ services:
       - "3535:3535"
       - "3550:3550"
   httpbin:
-    image: kennethreitz/httpbin:latest
+    image: mccutchen/go-httpbin:latest
     ports:
-      - "18080:80"
+      - "18080:8080"
