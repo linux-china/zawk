@@ -324,7 +324,9 @@ surprised to discover there were bugs in zawk's parser.
   same as `$(NF + 1 - k)`, so `$(-1)` is `$NF` and `$(-2)` is `$(NF-1)`.
   Reading past the first field (`$(-k)` with `k > NF`) gives the empty string;
   assigning there is a fatal error. Write the index in parentheses: `$-1` is
-  a syntax error.
+  a syntax error. Only a literal index counts from the end: a negative index
+  computed at runtime (e.g. `$(NF-2)` on a one-field record) is a fatal error,
+  as in gawk, instead of silently reading another field.
 * zawk supports `assert(cond, msg)`: when `cond` is false, `msg` is printed to
   stderr and zawk exits at once with code `2`; unlike `exit 2`, the `END` block
   is not run, e.g. `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.

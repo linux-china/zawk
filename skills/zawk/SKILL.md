@@ -232,7 +232,7 @@ zawk '{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }'  # fail fast
 ```
 
 - `for (k, v in arr)` needs an array variable: `for (k, v in f())` is a syntax error; use `a = f(); for (k, v in a)`.
-- Write `$(-1)` with parentheses: `$-1` is a syntax error. `$(-k)` with `k > NF` reads `""`.
+- Write `$(-1)` with parentheses: `$-1` is a syntax error. `$(-k)` with `k > NF` reads `""`. Only a literal `k` counts from the end; a computed negative index (`$(NF-2)` with `NF < 2`) is a fatal error.
 
 ## Recipes
 

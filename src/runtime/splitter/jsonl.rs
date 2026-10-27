@@ -33,7 +33,7 @@ use crate::runtime::{
 use super::{
     batch::ByteReader,
     chunk::{ChunkProducer, OffsetChunk},
-    display_name, input_warning, normalize_join_indexes, resolve_negative_col, DefaultLine, Line, LineReader, ReaderState,
+    display_name, input_warning, field_from_end_offset, normalize_join_indexes, resolve_negative_col, DefaultLine, Line, LineReader, ReaderState,
 };
 
 // NUL never appears in valid JSON text, so the inner reader never splits a record into fields.
@@ -123,7 +123,7 @@ impl<'a> Line<'a> for JsonlLine {
     }
     fn get_col(&mut self, col: Int, _pat: &Str, ofs: &Str, _rc: &mut RegexCache) -> Result<Str<'a>> {
         let col = if col < 0 {
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(col) => col,
                 None => return Ok(Str::default()),
             }
@@ -146,12 +146,12 @@ impl<'a> Line<'a> for JsonlLine {
     }
     fn set_col(&mut self, col: Int, s: &Str<'a>, _pat: &Str, _rc: &mut RegexCache) -> Result<()> {
         let col = if col < 0 {
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(c) => c,
                 None => {
                     return err!(
-                        "attempt to assign field {}; only {} fields",
-                        col,
+                        "attempt to assign field $(-{}); only {} fields",
+                        field_from_end_offset(col),
                         self.fields.len()
                     )
                 }

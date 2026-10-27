@@ -30,7 +30,7 @@ use super::{
         self, CancellableChunkProducer, Chunk, ChunkProducer, OffsetChunk, ParallelChunkProducer,
         ShardedChunkProducer,
     },
-    display_name, input_warning, normalize_join_indexes, resolve_negative_col, DefaultLine, LineReader, ReaderState,
+    display_name, input_warning, field_from_end_offset, normalize_join_indexes, resolve_negative_col, DefaultLine, LineReader, ReaderState,
 };
 
 pub struct CSVReader<P> {
@@ -363,7 +363,7 @@ impl<'a> super::Line<'a> for Line {
             return Ok(self.raw.clone().upcast());
         }
         let col = if col < 0 {
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(col) => col,
                 None => return Ok(Str::default().upcast()),
             }
@@ -386,12 +386,12 @@ impl<'a> super::Line<'a> for Line {
         _rc: &mut super::RegexCache,
     ) -> Result<()> {
         let col = if col < 0 {
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(c) => c,
                 None => {
                     return err!(
-                        "attempt to assign field {}; only {} fields",
-                        col,
+                        "attempt to assign field $(-{}); only {} fields",
+                        field_from_end_offset(col),
                         self.fields.len()
                     )
                 }

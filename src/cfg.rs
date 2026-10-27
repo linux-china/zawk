@@ -1571,6 +1571,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             {
                 return self.column_by_name(fi, ix, current_open);
             }
+            Unop(ast::Unop::Column, e) => {
+                let (next, v) = self.convert_column_index(e, current_open)?;
+                return Ok((
+                    next,
+                    PrimExpr::CallBuiltin(builtins::Function::Unop(ast::Unop::Column), smallvec![v]),
+                ));
+            }
             Unop(op, e) => {
                 let next_cond = in_cond && matches!(op, ast::Unop::Not);
                 let (next, v) = self.convert_val_inner(e, current_open, next_cond)?;
@@ -2117,7 +2124,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             )),
             Unop(ast::Unop::Column, n) => {
                 use {ast::Unop::*, builtins::Function};
-                let (next, v) = self.convert_val(n, current_open)?;
+                let (next, v) = self.convert_column_index(n, current_open)?;
                 let res = PrimExpr::CallBuiltin(Function::Unop(Column), smallvec![v.clone()]);
                 let res_v = self.to_val(res.clone(), next)?;
                 let to_v = self.to_val(to(&res_v), next)?;
@@ -2350,7 +2357,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 (next, present, type_of(v), b"untyped")
             }
             Expr::Unop(Unop::Column, n) => {
-                let (next, n_v) = self.convert_val(n, current_open)?;
+                let (next, n_v) = self.convert_column_index(n, current_open)?;
                 let n_v = self.to_val(PrimExpr::CallBuiltin(ToInt, smallvec![n_v]), next)?;
                 let nf = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NF), next)?;
                 let in_range = PrimExpr::CallBuiltin(
@@ -2530,6 +2537,25 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         match expr {
             Expr::PatLit(s) => Ok((current_open, PrimVal::StrLit(s))),
             _ => self.convert_val(expr, current_open),
+        }
+    }
+
+    /// Converts the index of a field reference. A literal negative index (`$(-k)`) counts from the
+    /// end and is lowered to a column index the runtime recognizes (see
+    /// `runtime::splitter::field_from_end`); a negative index computed at runtime is an error.
+    fn convert_column_index<'c>(
+        &mut self,
+        n: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        let k = match n {
+            Expr::Unop(Unop::Neg, Expr::ILit(k)) => Some(*k),
+            Expr::ILit(k) if *k < 0 => k.checked_neg(),
+            _ => None,
+        };
+        match k.and_then(crate::runtime::splitter::field_from_end) {
+            Some(col) => Ok((current_open, PrimVal::ILit(col))),
+            None => self.convert_val(n, current_open),
         }
     }
 

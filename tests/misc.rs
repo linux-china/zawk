@@ -957,7 +957,6 @@ fn negative_field_index() {
     // (program, expected stdout)
     let cases: &[(&str, &str)] = &[
         (r#"{ print $(-1), $(-2), $(-3) }"#, "c b a\ny x \n"),
-        (r#"{ k = 1; print $(-k) == $NF }"#, "1\n1\n"),
         (r#"{ print "[" $(-4) "]" }"#, "[]\n[]\n"),
         (r#"{ $(-1) = "z"; print; print NF }"#, "a b z\n3\nx z\n2\n"),
     ];
@@ -971,6 +970,24 @@ fn negative_field_index() {
                 .assert()
                 .success()
                 .stdout(String::from(*out));
+        }
+    }
+    // Only a literal negative index counts from the end: a computed one is an error, as in gawk,
+    // instead of silently reading another field (`$(NF-2)` on a one-field record).
+    for prog in [r#"{ print $(NF-2) }"#, r#"{ k = 1; print $(-k) }"#, r#"{ $(NF-3) = "z" }"#] {
+        for backend_arg in BACKEND_ARGS {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin("a\n")
+                .assert()
+                .failure()
+                .get_output()
+                .stderr
+                .clone();
+            let err = String::from_utf8_lossy(&out);
+            assert!(err.contains("attempt to access field -"), "{}: {}", prog, err);
         }
     }
 }
@@ -2364,7 +2381,7 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { x = -1; $x = 1 }"#,
             2,
-            &["zawk: fatal: attempt to assign field -1"],
+            &["zawk: fatal: attempt to access field -1"],
         ),
         (
             r#"BEGIN { a[1][2] = 1 }"#,

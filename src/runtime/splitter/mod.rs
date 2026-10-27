@@ -138,16 +138,38 @@ pub trait LineReader: Sized {
     fn check_utf8(&self) -> bool;
 }
 
-/// Resolves a negative field index the way Python resolves a negative list index: `$(-k)` is
-/// `$(NF + 1 - k)`. Returns `None` when `-k` reaches past the first field.
-fn resolve_negative_col(col: Int, nf: usize) -> Option<Int> {
-    debug_assert!(col < 0);
-    let col = nf as Int + 1 + col;
-    if col >= 1 {
-        Some(col)
+/// Only a literal negative index counts from the end (`$(-k)` is `$(NF + 1 - k)`); a negative
+/// index computed at runtime, like `$(NF-2)` on a one-field record, is an error as in gawk. The
+/// compiler lowers the literal `$(-k)` to the column `FIELD_FROM_END + k`, which a computed
+/// index will not reach in practice.
+const FIELD_FROM_END: Int = Int::MIN;
+const FIELD_FROM_END_LIMIT: Int = 1 << 32;
+
+/// The column index the literal `$(-k)` is lowered to, or `None` when `k` is out of range (the
+/// index is then left as is, and is an error at runtime).
+pub fn field_from_end(k: Int) -> Option<Int> {
+    if (1..FIELD_FROM_END_LIMIT).contains(&k) {
+        Some(FIELD_FROM_END + k)
     } else {
         None
     }
+}
+
+/// The `k` of a column index produced by `field_from_end`.
+fn field_from_end_offset(col: Int) -> Int {
+    col.wrapping_sub(FIELD_FROM_END)
+}
+
+/// Resolves a negative field index: `$(-k)` written as a literal is `$(NF + 1 - k)` (`None` when
+/// it reaches past the first field); any other negative index is an error.
+fn resolve_negative_col(col: Int, nf: usize) -> Result<Option<Int>> {
+    debug_assert!(col < 0);
+    let k = field_from_end_offset(col);
+    if !(1..FIELD_FROM_END_LIMIT).contains(&k) {
+        return err!("attempt to access field {}", col);
+    }
+    let col = nf as Int + 1 - k;
+    Ok(if col >= 1 { Some(col) } else { None })
 }
 
 fn normalize_join_indexes(start: Int, end: Int, nf: usize) -> Result<(usize, usize)> {
@@ -269,7 +291,7 @@ impl<'a> Line<'a> for DefaultLine {
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>> {
         let col = if col < 0 {
             self.split_all_fields(pat, rc)?;
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(col) => col,
                 None => return Ok(Str::default()),
             }
@@ -302,12 +324,12 @@ impl<'a> Line<'a> for DefaultLine {
         }
         let col = if col < 0 {
             self.split_all_fields(pat, rc)?;
-            match resolve_negative_col(col, self.fields.len()) {
+            match resolve_negative_col(col, self.fields.len())? {
                 Some(c) => c,
                 None => {
                     return err!(
-                        "attempt to assign field {}; only {} fields",
-                        col,
+                        "attempt to assign field $(-{}); only {} fields",
+                        field_from_end_offset(col),
                         self.fields.len()
                     )
                 }

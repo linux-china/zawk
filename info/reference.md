@@ -40,7 +40,9 @@ _Unary Operators:_
 
 * `$x`: Get column `x`. A negative index counts from the end: `$(-k)` is `$(NF + 1 - k)`, so `$(-1)` is
   `$NF` and `$(-2)` is `$(NF-1)`. Reading before the first field (`k > NF`) gives `""`, assigning there is a
-  fatal error. The parentheses are required: `$-1` is a syntax error.
+  fatal error. The parentheses are required: `$-1` is a syntax error. Only a literal `k` counts from the end:
+  a negative index computed at runtime (`$(NF-2)` on a one-field record, `$(-k)` with a variable `k`) is a
+  fatal error, as in gawk.
 * `+`, `-`: Unary "positive" and negation.
 * `!`: logical negation.
 
