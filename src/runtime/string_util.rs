@@ -595,39 +595,42 @@ pub fn figlet(text: &str) -> String {
     }
 }
 
-/// Word-wrap `text` into lines of at most `width` chars; a `width <= 0` means 80. Lines break
-/// at whitespace (runs of it collapse to a line break or one space), existing newlines are kept,
-/// and a word longer than `width` (e.g. CJK text without spaces) is split. Text of at most
-/// `width` chars is returned as is.
+/// Word-wrap `text` into lines of at most `width` display columns (CJK and other wide chars
+/// count as 2); a `width <= 0` means 80. Each existing line is handled on its own: a line that
+/// fits is kept as is, otherwise it breaks at whitespace (runs of it collapse to a line break or
+/// one space), and a word wider than `width` (e.g. CJK text without spaces) is split.
 pub fn wrap(text: &str, width: Int) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     let width = if width <= 0 { 80 } else { usize::try_from(width).unwrap_or(usize::MAX) };
-    if text.chars().count() <= width {
-        return text.to_string();
-    }
     let mut out = String::with_capacity(text.len() + text.len() / width + 1);
     for (i, line) in text.split('\n').enumerate() {
         if i > 0 {
             out.push('\n');
         }
-        let mut line_len = 0;
+        if line.width() <= width {
+            out.push_str(line);
+            continue;
+        }
+        let mut line_width = 0;
         for word in line.split_whitespace() {
-            let mut chars: Vec<char> = word.chars().collect();
-            if line_len > 0 && line_len + 1 + chars.len() <= width {
+            let word_width = word.width();
+            if line_width > 0 && line_width + 1 + word_width <= width {
                 out.push(' ');
-                line_len += 1;
-            } else if line_len > 0 {
+                line_width += 1;
+            } else if line_width > 0 {
                 out.push('\n');
-                line_len = 0;
+                line_width = 0;
             }
-            while line_len + chars.len() > width {
-                let rest = chars.split_off(width - line_len);
-                out.extend(chars);
-                out.push('\n');
-                line_len = 0;
-                chars = rest;
+            for c in word.chars() {
+                let w = c.width().unwrap_or(0);
+                // Always place at least one char per line, even if it is wider than `width`.
+                if line_width > 0 && line_width + w > width {
+                    out.push('\n');
+                    line_width = 0;
+                }
+                out.push(c);
+                line_width += w;
             }
-            line_len += chars.len();
-            out.extend(chars);
         }
     }
     out
@@ -649,7 +652,14 @@ mod tests {
         assert_eq!(wrap("aa bb\ncc dd", 4), "aa\nbb\ncc\ndd");
         // Long words are split.
         assert_eq!(wrap("abcdefgh", 3), "abc\ndef\ngh");
-        assert_eq!(wrap("你好世界你好", 4), "你好世界\n你好");
+        // Wide (CJK) chars take 2 columns.
+        assert_eq!(wrap("你好世界你好", 4), "你好\n世界\n你好");
+        assert_eq!(wrap("日本語日本語", 4), "日本\n語日\n本語");
+        assert_eq!(wrap("ab日本", 3), "ab\n日\n本");
+        // A char wider than `width` still goes on its own line.
+        assert_eq!(wrap("日本", 1), "日\n本");
+        // Each line is judged on its own: short lines keep their whitespace.
+        assert_eq!(wrap("  keep  me\naa bb cc dd ee", 10), "  keep  me\naa bb cc\ndd ee");
         // A non-positive width means 80.
         let long = "word ".repeat(30);
         assert_eq!(wrap(&long, 0), wrap(&long, 80));

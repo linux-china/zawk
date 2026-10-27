@@ -447,8 +447,15 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
             // Negative values are written as their two's complement, as in gawk.
             let u = match arg.to_integer() {
                 Ok(i) => i as u64,
-                Err(f) if f.is_finite() && f > 0.0 => f as u64,
-                Err(_) => 0,
+                Err(f) if f > 0.0 && f <= u64::MAX as f64 => f as u64,
+                Err(f) => {
+                    return match special_float(f) {
+                        Some(s) => spec.pad(w, s, s.len()),
+                        // Values beyond the range of a u64 (or negative ones beyond an i64) are
+                        // written with `%g`, as in gawk.
+                        None => snprintf_with(w, &spec.c_format(b"", b'g'), CArg::Double(f)),
+                    };
+                }
             };
             snprintf_with(w, &spec.c_format(b"ll", spec.conv), CArg::ULongLong(u))
         }
@@ -767,6 +774,15 @@ mod tests {
         assert_eq!(sprintf!(b"%.999999999999s", "abc"), "abc");
         assert_eq!(sprintf!(b"%.*s", 1i64 << 40, "abc"), "abc");
         assert_eq!(sprintf!(b"%*d|", 1000, 1).len(), 1001);
+    }
+
+    #[test]
+    fn unsigned_out_of_range() {
+        let (inf, nan) = (f64::INFINITY, f64::NAN);
+        assert_eq!(sprintf!(b"%x|%x|%o|%u", -inf, inf, nan, -inf), "-inf|+inf|+nan|-inf");
+        assert_eq!(sprintf!(b"%x|%u|%x", -1e30, 1e30, -1e19), "-1e+30|1e+30|-1e+19");
+        assert_eq!(sprintf!(b"[%10x][%-6u][%#x]", 1e30, nan, 1e30), "[     1e+30][+nan  ][1.00000e+30]");
+        assert_eq!(sprintf!(b"%x|%x|%x", 1.5e19, -1, 2f64.powi(64)), "d02ab486cedc0000|ffffffffffffffff|ffffffffffffffff");
     }
 
     #[test]

@@ -299,13 +299,16 @@ text to words: `words("hello world? 你好") # ["hello", "world", "你", "好"]`
 
 ### wrap
 
-Word-wrap text into lines of at most `width` chars: `wrap(s, width)`.
+Word-wrap text into lines of at most `width` display columns: `wrap(s, width)`.
 
 - `width <= 0` uses the default 80, and a float `width` is truncated to an integer
-- text of at most `width` chars is returned as is
-- lines break at whitespace and existing newlines are kept; a word longer than `width` is split
+- width is measured in display columns: CJK and other wide chars count as 2
+- existing newlines are kept, and each line is handled on its own: a line that fits is kept as is
+  (including its whitespace); a longer line breaks at whitespace (runs of whitespace collapse), and a word wider than `width` is split
 
 `wrap("hello world", 5) # hello\nworld`
+
+`wrap("日本語日本語", 4) # 日本\n語日\n本語`
 
 ### default_if_empty
 
