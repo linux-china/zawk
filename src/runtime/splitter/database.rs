@@ -84,13 +84,17 @@ struct Source {
 impl Source {
     fn parse(url: &str) -> Result<Source, String> {
         let kind = kind(url).ok_or_else(|| "not a database URL".to_string())?;
-        let (conn, target) = match url.split_once('#') {
-            Some((conn, target)) if !target.trim().is_empty() => (conn, target.trim()),
+        // the `#` after the userinfo: a raw password may have one (`mysql://u:p#w@h/db#t`)
+        let userinfo = crate::runtime::network::userinfo_range(url);
+        let after = userinfo.map_or(0, |(_, at)| at + 1);
+        let (conn, target) = match url[after..].find('#').map(|i| url.split_at(after + i)) {
+            Some((conn, target)) if !target[1..].trim().is_empty() => (conn, target[1..].trim()),
             _ => return Err("expected `#table' or `#select ...' after the database URL".to_string()),
         };
-        let conn = match kind {
+        let conn = match (kind, userinfo) {
             // `sqlite://./data.db`, `sqlite:///abs/data.db`
-            Kind::Sqlite => conn.split_once("://").unwrap().1.to_string(),
+            (Kind::Sqlite, _) => conn.split_once("://").unwrap().1.to_string(),
+            (_, Some((start, at))) => encode_password(conn, start, at),
             _ => conn.to_string(),
         };
         let sql = if target.contains(char::is_whitespace) {
@@ -100,6 +104,26 @@ impl Source {
         };
         Ok(Source { kind, conn, sql })
     }
+}
+
+/// `conn` with `/`, `?`, `#` and `@` percent-encoded in the password of its userinfo
+/// `conn[start..at]`, which the MySQL and PostgreSQL drivers decode: a raw password works.
+fn encode_password(conn: &str, start: usize, at: usize) -> String {
+    let Some(colon) = conn[start..at].find(':').map(|i| start + i) else {
+        return conn.to_string();
+    };
+    let mut out = conn[..=colon].to_string();
+    for c in conn[colon + 1..at].chars() {
+        match c {
+            '/' => out.push_str("%2F"),
+            '?' => out.push_str("%3F"),
+            '#' => out.push_str("%23"),
+            '@' => out.push_str("%40"),
+            _ => out.push(c),
+        }
+    }
+    out.push_str(&conn[at..]);
+    out
 }
 
 /// The table `name` (or `schema.table`) quoted, so that reserved words (`user` in PostgreSQL)
@@ -510,6 +534,16 @@ mod tests {
         let s = Source::parse("mysql://root:123456@127.0.0.1:3306/test#people").unwrap();
         assert_eq!(s.conn, "mysql://root:123456@127.0.0.1:3306/test");
         assert_eq!(s.sql, "SELECT * FROM `people`");
+        // a raw password with reserved characters
+        let s = Source::parse("mysql://u:p#w/x?y@z@h:3306/db#t").unwrap();
+        assert_eq!(s.conn, "mysql://u:p%23w%2Fx%3Fy%40z@h:3306/db");
+        assert_eq!(s.sql, "SELECT * FROM `t`");
+        let s = Source::parse("postgres://u:p%2Fw@h/db#select 'a@b#c'").unwrap();
+        assert_eq!(s.conn, "postgres://u:p%2Fw@h/db");
+        assert_eq!(s.sql, "select 'a@b#c'");
+        let s = Source::parse("sqlite://./a.db#select 'a:b@c'").unwrap();
+        assert_eq!(s.conn, "./a.db");
+        assert_eq!(s.sql, "select 'a:b@c'");
         let s = Source::parse("postgresql://u:p@h/db#Public.People").unwrap();
         assert_eq!(s.kind, Kind::Postgres);
         assert_eq!(s.sql, r#"SELECT * FROM "public"."people""#);

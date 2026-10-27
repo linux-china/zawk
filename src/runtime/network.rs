@@ -13,18 +13,41 @@ use crate::runtime::{stdlib_warning, Str, StrMap};
 const SECRET_PARAMS: &[&str] =
     &["password", "passwd", "pwd", "sslpassword", "token", "access_token", "secret", "api_key", "apikey"];
 
+/// The byte offsets of the userinfo of `url` and of the `@` that ends it: `(3, 13)` for
+/// `s://user:pw@host`. A raw password may contain `/`, `?`, `#` or `@` (`u:p/ss@h/db#t`): when
+/// the authority (up to the first `/`, `?` or `#`) has no `@`, the userinfo ends at the last `@`
+/// before the first `#` that follows an `@`, if it has a `:` and its user part has none of
+/// `/?#` and no whitespace, so that an `@` in a path, query or SQL is not taken for one.
+pub(crate) fn userinfo_range(url: &str) -> Option<(usize, usize)> {
+    let start = url.find("://").map_or(0, |i| i + 3);
+    let rest = &url[start..];
+    let authority = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    if let Some(at) = rest[..authority].rfind('@') {
+        return Some((start, start + at));
+    }
+    let first_at = rest.find('@')?;
+    let region = rest[first_at..].find('#').map_or(rest.len(), |i| first_at + i);
+    let at = rest[..region].rfind('@')?;
+    let userinfo = &rest[..at];
+    let (user, _) = userinfo.split_once(':')?;
+    if user.contains(['/', '?', '#']) || userinfo.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((start, start + at))
+}
+
 /// `url` with its credentials replaced by `***`, for error messages and logs:
 /// `redis://user:secret@host/x` becomes `redis://user:***@host/x`. A userinfo without `:` (such
 /// as a token in `nats://token@host`) is replaced as a whole, and so are the values of query
 /// parameters named in `SECRET_PARAMS` (`postgres://h/db?password=secret#t` becomes
 /// `postgres://h/db?password=***#t`). The fragment (a table or query of a database URL) is kept.
+/// A raw password with `/`, `?`, `#` or `@` is found as `userinfo_range` tells.
 pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
-    let start = url.find("://").map_or(0, |i| i + 3);
-    let end = url[start..].find(['/', '?', '#']).map_or(url.len(), |i| start + i);
     let mut out = String::new();
     let mut copied = 0;
-    if let Some(at) = url[start..end].rfind('@') {
-        let userinfo = &url[start..start + at];
+    let mut end = url.find("://").map_or(0, |i| i + 3);
+    if let Some((start, at)) = userinfo_range(url) {
+        let userinfo = &url[start..at];
         out.push_str(&url[..start]);
         match userinfo.split_once(':') {
             Some((user, _)) => {
@@ -33,8 +56,10 @@ pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
             }
             None => out.push_str("***"),
         }
-        copied = start + at;
+        copied = at;
+        end = at;
     }
+    end = url[end..].find(['/', '?', '#']).map_or(url.len(), |i| end + i);
     let fragment = url[end..].find('#').map_or(url.len(), |i| end + i);
     if let Some(q) = url[end..fragment].find('?') {
         let query_start = end + q + 1;
@@ -530,6 +555,19 @@ mod tests {
         assert_eq!(redact_url("smtps://u%40x.com:p@ss@smtp.x.com:465"), "smtps://u%40x.com:***@smtp.x.com:465");
         assert_eq!(redact_url("http://127.0.0.1/a@b?x=@"), "http://127.0.0.1/a@b?x=@");
         assert_eq!(redact_url("127.0.0.1:4222"), "127.0.0.1:4222");
+        // raw passwords with reserved characters
+        assert_eq!(redact_url("mysql://root:p/ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
+        assert_eq!(redact_url("mysql://root:p?ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
+        assert_eq!(redact_url("mysql://root:p#ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
+        assert_eq!(redact_url("redis://u:a/b?c#d@e@h:6379/0"), "redis://u:***@h:6379/0");
+        assert_eq!(
+            redact_url("mysql://u:p#w@h/db#select * from t where e = 'a@b'"),
+            "mysql://u:***@h/db#select * from t where e = 'a@b'"
+        );
+        assert_eq!(redact_url("postgres://u:p/w@h/db?password=x#t"), "postgres://u:***@h/db?password=***#t");
+        // an `@` in a path or a query is not a userinfo
+        assert_eq!(redact_url("https://registry.npmjs.org/@types/node"), "https://registry.npmjs.org/@types/node");
+        assert_eq!(redact_url("http://h/x?email=a@b.com"), "http://h/x?email=a@b.com");
         assert_eq!(
             redact_url("postgres://127.0.0.1:1/db?user=u&password=secret#people"),
             "postgres://127.0.0.1:1/db?user=u&password=***#people"
