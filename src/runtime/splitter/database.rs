@@ -352,7 +352,8 @@ mod mysql {
     }
 
     pub(super) fn query(source: &Source, sink: &mut Sink) -> Result<(), String> {
-        let mut conn = Conn::new(source.conn.as_str()).map_err(error_text)?;
+        let opts = crate::runtime::mysql::opts(&source.conn).map_err(error_text)?;
+        let mut conn = Conn::new(opts).map_err(error_text)?;
         let mut result = conn.query_iter(&source.sql).map_err(error_text)?;
         let columns: Vec<Column> = result.columns().as_ref().to_vec();
         let db_columns = columns

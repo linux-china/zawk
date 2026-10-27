@@ -99,6 +99,16 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
     }
 }
 
+/// The options of `db_url`, with a connect timeout and TCP keepalive unless the URL sets them
+/// (`tcp_connect_timeout_ms`, `tcp_keepalive_time_ms`). No read timeout is set: a query may
+/// legitimately run for a long time, while keepalive still detects a server that went away.
+pub(crate) fn opts(db_url: &str) -> Result<Opts> {
+    let opts = Opts::from_url(db_url)?;
+    let connect_timeout = opts.get_tcp_connect_timeout().or(Some(crate::runtime::network::CONNECT_TIMEOUT));
+    let keepalive = opts.get_tcp_keepalive_time_ms().or(Some(60_000));
+    Ok(OptsBuilder::from_opts(opts).tcp_connect_timeout(connect_timeout).tcp_keepalive_time_ms(keepalive).into())
+}
+
 /// Runs `f` with a connection from the cached pool for `db_url`, creating the pool on first use.
 /// The global lock is only held to clone the pool: connecting and querying run outside of it.
 fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> Result<T> {
@@ -106,7 +116,7 @@ fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> R
     let pool = match cached {
         Some(pool) => pool,
         None => {
-            let pool = Pool::new(db_url)?;
+            let pool = Pool::new(opts(db_url)?)?;
             // another thread may have created one meanwhile: keep the first
             MYSQL_POOLS.lock().unwrap_or_else(|e| e.into_inner()).entry(db_url.to_string()).or_insert(pool).clone()
         }

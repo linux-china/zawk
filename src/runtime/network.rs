@@ -9,6 +9,12 @@ use serde::Serialize;
 use url::Url;
 use crate::runtime::{stdlib_warning, Str, StrMap};
 
+/// How long connecting to a server (http input, redis, mysql, postgres) may take, so that an
+/// unreachable host fails instead of waiting for the TCP default of several minutes.
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a streaming connection (http input, redis) may stay silent while a reply is expected.
+pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Query parameters whose values are credentials, such as libpq's `?password=...`.
 const SECRET_PARAMS: &[&str] =
     &["password", "passwd", "pwd", "sslpassword", "token", "access_token", "secret", "api_key", "apikey"];

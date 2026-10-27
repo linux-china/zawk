@@ -17,6 +17,7 @@ static PG_POOLS: LazyLock<ConnPool<Client>> = LazyLock::new(ConnPool::new);
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
 /// `verify-ca`/`verify-full` also verify the certificate, `disable` uses plain TCP.
+/// Connecting times out after 30s unless the URL sets `connect_timeout`.
 pub(crate) fn connect(db_url: &str) -> Result<Client, String> {
     let mut conn_str = if db_url.starts_with("postgres://") {
         db_url.replacen("postgres://", "postgresql://", 1)
@@ -36,7 +37,11 @@ pub(crate) fn connect(db_url: &str) -> Result<Client, String> {
     } else {
         crate::runtime::tls::client_config_no_verify()
     };
-    Client::connect(&conn_str, MakeRustlsConnect::new(tls_config?)).map_err(error_text)
+    let mut config: postgres::Config = conn_str.parse().map_err(error_text)?;
+    if config.get_connect_timeout().is_none() {
+        config.connect_timeout(crate::runtime::network::CONNECT_TIMEOUT);
+    }
+    config.connect(MakeRustlsConnect::new(tls_config?)).map_err(error_text)
 }
 
 /// `postgres::Error` displays only its kind, such as "db error": append the cause.

@@ -106,7 +106,13 @@ mod redis_kv {
         // `redis+tls://` is an alias of `rediss://`, the only TLS scheme the redis crate parses
         let conn_url = &conn_url.replacen("redis+tls://", "rediss://", 1);
         redis::Client::open(conn_url.as_str())
-            .and_then(|client| client.get_connection())
+            .and_then(|client| client.get_connection_with_timeout(crate::runtime::network::CONNECT_TIMEOUT))
+            .and_then(|conn| {
+                // the kv commands are all quick: a silent server must not hang the program
+                conn.set_read_timeout(Some(crate::runtime::network::READ_TIMEOUT))?;
+                conn.set_write_timeout(Some(crate::runtime::network::READ_TIMEOUT))?;
+                Ok(conn)
+            })
             .map_err(|e| format!("failed to connect to {}: {}", crate::runtime::network::redact_url(conn_url), e))
     }
 
