@@ -211,7 +211,7 @@ pub(crate) mod boilerplate {
             LocalIp(dst) => f(dst.into(), None),
             Systime(dst) => f(dst.into(), None),
             Exiting(dst) => f(dst.into(), None),
-            TryDepth(dst, _) => f(dst.into(), None),
+            TryScope(dst, _) => f(dst.into(), None),
             Encode(dst, format, text) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));

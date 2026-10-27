@@ -1946,9 +1946,9 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(exiting), &mut [rt])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            TryDepth(dst, delta) => {
-                let deltav = self.get_val(delta.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(try_depth), &mut [deltav])?;
+            TryScope(dst, begin) => {
+                let beginv = self.get_val(begin.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(try_scope), &mut [beginv])?;
                 self.bind_val(dst.reflect(), resv)
             }
             ReadErr(dst, file, is_file) => {

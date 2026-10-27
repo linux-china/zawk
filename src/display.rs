@@ -356,7 +356,7 @@ impl Display for Function {
             Exit => write!(f, "exit"),
             SetExit => write!(f, "set_exit"),
             Exiting => write!(f, "exiting"),
-            TryDepth => write!(f, "try_depth"),
+            TryScope => write!(f, "try_scope"),
         }
     }
 }

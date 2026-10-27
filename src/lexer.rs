@@ -502,6 +502,23 @@ pub fn is_ident(s: &str) -> bool {
     true
 }
 
+/// Whether `s` is a reserved word such as `if` or `try`, which cannot name a variable.
+pub fn is_keyword(s: &str) -> bool {
+    KEYWORDS.get(s.as_bytes()).is_some()
+}
+
+/// Whether `rest`, the text after the keyword `try`, starts with an assignment operator, as in
+/// `try = 1`: a script using `try` as a variable name.
+fn starts_assignment(rest: &str) -> bool {
+    let rest = rest.trim_start_matches([' ', '\t']).as_bytes();
+    match rest {
+        [b'=', next, ..] => *next != b'=',
+        [b'='] => true,
+        [b'+' | b'-' | b'*' | b'%' | b'^', b'=', ..] => true,
+        _ => false,
+    }
+}
+
 /// Describes why `rest` (the text after the `function`/`func` keyword) is not a valid function
 /// header. Function names are restricted to ASCII `[a-zA-Z_][a-zA-Z_0-9]*`.
 fn bad_fundec_desc(kw: &str, rest: &str) -> String {
@@ -1102,6 +1119,12 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.keyword() {
+                        if matches!(tok, Tok::Try) && starts_assignment(&self.text[self.cur + len..]) {
+                            return Some(Err(Error {
+                                location: self.index_to_loc(ix),
+                                desc: "`try` is a keyword (`try E else F`) and cannot be used as a variable".into(),
+                            }));
+                        }
                         // `print (a, b) > "file"`: a parenthesized argument list after a space,
                         // like `print(a, b)`.
                         let (tok, len) = match tok {

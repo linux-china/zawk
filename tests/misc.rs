@@ -3489,10 +3489,59 @@ BEGIN {
 }
 
 #[test]
+fn try_else_handled_failures() {
+    // A failure that an inner `try` handled (in the same expression, or in a function the outer
+    // `E` calls) does not make the outer `try` fail; one in an inner `F` does.
+    let prog = r#"function fail() { return digest("NOPE", "x") }
+function safe() { return try fail() else "default" }
+BEGIN {
+    ERRNO = "old"
+    v = try safe() else "outer"; print v, ERRNO
+    w = try (try fail() else "b") else "c"; print w, ERRNO
+    u = try (try fail() else fail()) else "c"; print u
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("default old\nb old\nc\n")
+            .stderr("");
+    }
+}
+
+#[test]
+fn try_else_exit_in_e() {
+    // `exit` inside `E` leaves the `try`: failures in END are reported again.
+    let prog = r#"function bye() { exit 0 }
+BEGIN { x = try bye() else 1 }
+END { y = digest("NOPE", "x"); print "END ERRNO=" ERRNO }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("END ERRNO=digest: unsupported algorithm \"NOPE\"\n")
+            .stderr("zawk: warning: digest: unsupported algorithm \"NOPE\"\n");
+    }
+}
+
+#[test]
 fn try_else_errors() {
     // `try` needs `else`, and is a keyword.
-    for prog in ["BEGIN { x = try f() }", "BEGIN { try = 1 }"] {
+    for prog in ["BEGIN { x = try f() }", "BEGIN { try += 1 }"] {
         Command::cargo_bin("zawk").unwrap().arg(prog).assert().failure();
+    }
+    for (args, msg) in [
+        (&["BEGIN { try = 1 }"][..], "`try` is a keyword"),
+        (&["-v", "try=1", "BEGIN { }"], "reserved word"),
+        (&["BEGIN { }", "try=1"], "reserved word"),
+    ] {
+        let out = Command::cargo_bin("zawk").unwrap().args(args).assert().failure().get_output().stderr.clone();
+        let err = String::from_utf8(out).unwrap();
+        assert!(err.contains(msg), "{:?}: {}", args, err);
     }
 }
 

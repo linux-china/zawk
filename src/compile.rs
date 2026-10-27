@@ -1675,11 +1675,11 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::Exiting(res_reg.into()))
             }
-            TryDepth => {
+            TryScope => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::TryDepth(res_reg.into(), conv_regs[0].into()))
+                self.pushl(LL::TryScope(res_reg.into(), conv_regs[0].into()))
             }
             ReadErr => {
                 if res_reg != UNUSED {

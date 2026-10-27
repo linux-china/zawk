@@ -676,7 +676,8 @@ pub enum Expr<'a, 'b, I> {
     /// `r` otherwise.
     Nullish(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
     /// `try e else f`: `ERRNO` is cleared and `e` evaluated, with stdlib warnings not printed.
-    /// If `ERRNO` is still empty the result is `e` and `ERRNO` gets back its previous value;
+    /// If nothing failed in `e` (failures an inner `try` handled don't count, see
+    /// `runtime::try_scope`), the result is `e` and `ERRNO` gets back its previous value;
     /// otherwise the result is `f`, which may read `ERRNO`.
     Try(&'a Expr<'a, 'b, I>, &'a Expr<'a, 'b, I>),
     ITE(

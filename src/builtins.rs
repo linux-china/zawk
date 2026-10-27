@@ -245,9 +245,9 @@ pub enum Function {
     // Whether `exit` was called (in a parallel program), checked after calls to user-defined
     // functions.
     Exiting,
-    // `try E else F`: add the argument to the depth of `try` expressions being evaluated (stdlib
-    // warnings are not printed inside one), returning the new depth.
-    TryDepth,
+    // `try E else F`: with 1, enter `E` (returns 0); with 0, leave it, returning 1 if `E`
+    // succeeded; with -1 (`exit`), leave every `try`. See `runtime::try_scope`.
+    TryScope,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -1122,7 +1122,7 @@ impl Function {
             Exit => (smallvec![Int], Null),
             SetExit => (smallvec![Int, Int], Int),
             Exiting => (smallvec![], Int),
-            TryDepth => (smallvec![Int], Int),
+            TryScope => (smallvec![Int], Int),
             // Split's second input can be a map of either type
             Split => {
                 if let MapIntStr | MapStrStr = incoming[1] {
@@ -1156,7 +1156,7 @@ impl Function {
             UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused | Exiting => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
-            Exit | ToUpper | ToLower | Clear | Srand | TryDepth | System | System2 | HexToInt | ToInt | EscapeCSV
+            Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
             | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
             SetFI | SetExit | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
@@ -1271,7 +1271,7 @@ impl Function {
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
-            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryDepth => Ok(Scalar(BaseTy::Int).abs()),
+            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
             ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),
             ArrayTop => Ok(Map {
                 key: BaseTy::Int,

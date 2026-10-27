@@ -35,9 +35,10 @@ _Binary operators:_
   `??`), `r` is evaluated and assigned to `l`; otherwise `r` is not evaluated and `l` is unchanged. Its value is
   the new value of `l`. It has the precedence of `=` (`r` can be any expression), and the subscript of an array
   element is evaluated once: `{ sep ??= ","; total[$1] ??= 0 }`, `seen[i++] ??= NR`.
-* Error handling: `try E else F` clears `ERRNO` and evaluates `E`. If `ERRNO` is still empty, the result is `E`
-  and `ERRNO` gets back its value from before the `try`; otherwise the result is `F`, which can read `ERRNO`
-  (and `ERRNO` keeps the error). Stdlib functions failing inside `E` don't print warnings.
+* Error handling: `try E else F` clears `ERRNO` and evaluates `E`. If nothing failed in `E` (no stdlib function,
+  `getline` or `close` set `ERRNO`), the result is `E` and `ERRNO` gets back its value from before the `try`;
+  otherwise the result is `F`, which can read `ERRNO` (and `ERRNO` keeps the error). Stdlib functions failing
+  inside `E` don't print warnings.
   ```awk
   body = try http_get(url)["text"] else ""
   id   = try json_value(s, "$.id") else error_handler(ERRNO)
@@ -59,10 +60,14 @@ _Binary operators:_
   * `E` is a conditional expression and `F` extends to the end of an assignment: `x = try f() else g() + 1`
     falls back to `g() + 1`. A newline may follow `else`. As the operand of a concatenation or another
     operator, `try` needs parentheses: `"id: " (try f() else "none")`.
-  * In `print`, `>` after `F` is still a redirection: `print try f() else "x" > "out.txt"`.
+  * In `print`, `>` after `F` is still a redirection: `print try f() else "x" > "out.txt"`. For the same reason,
+    `E` can't hold an unparenthesized `>` there: write `print (try a > b else c)`.
   * A function without `return` gives an uninitialized value, so `try g(x) else h(ERRNO)` works as a statement.
-  * Nested: in `try (try a() else b()) else c()`, a failure of `a()` leaves `ERRNO` set after `b()`, so `c()`
-    runs too.
+  * A failure handled by an inner `try` doesn't count for an outer one: with
+    `function safe() { return try a() else "default" }`, `try safe() else "x"` is `"default"`, and in
+    `try (try a() else b()) else c()`, `c()` runs only if `b()` fails.
+  * `try` is not exception handling: fatal errors (division by zero, a result above the length limit of
+    `repeat`/`pad`/`seq`, an array used as a scalar, ...) still end the program.
 
 _Unary Operators:_
 

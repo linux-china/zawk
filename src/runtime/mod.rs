@@ -1591,7 +1591,7 @@ impl<'b, 'a> Convert<&'b Str<'a>, Int> for _Carrier {
 pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
     let msg = format!("{}: {}", func, msg);
     // Inside `try E else F` the script handles the failure: only ERRNO is set.
-    if TRY_DEPTH.with(Cell::get) == 0 {
+    if !in_try() {
         warn_once(&msg);
     }
     set_errno(msg);
@@ -1664,18 +1664,55 @@ thread_local! {
     // `stdlib_warning`). It is not cleared when a later call succeeds. Each worker of a parallel
     // program has its own.
     static ERRNO: RefCell<String> = const { RefCell::new(String::new()) };
-    // How many `try E else F` expressions are evaluating their `E`.
-    static TRY_DEPTH: Cell<Int> = const { Cell::new(0) };
+    // How many failures (non-empty ERRNO assignments) happened so far, see `try_end`.
+    static FAILURES: Cell<u64> = const { Cell::new(0) };
+    // One frame per `try E else F` evaluating its `E`: the ERRNO before the `try` and the value of
+    // FAILURES then.
+    static TRY_STACK: RefCell<Vec<(String, u64)>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Add `delta` (1 when entering the `E` of `try E else F`, -1 when leaving it) to the depth of
-/// `try` expressions, returning the new depth.
-pub(crate) fn add_try_depth(delta: Int) -> Int {
-    TRY_DEPTH.with(|d| {
-        let depth = (d.get() + delta).max(0);
-        d.set(depth);
-        depth
-    })
+/// Whether a `try E else F` is evaluating its `E`: stdlib failures are not reported on stderr.
+fn in_try() -> bool {
+    TRY_STACK.with(|t| !t.borrow().is_empty())
+}
+
+/// Enter the `E` of `try E else F`: save ERRNO (without copying it) and clear it.
+fn try_begin() {
+    let old = ERRNO.with(|e| mem::take(&mut *e.borrow_mut()));
+    TRY_STACK.with(|t| t.borrow_mut().push((old, FAILURES.with(Cell::get))));
+}
+
+/// Leave the `E` of `try E else F`, returning 1 if it succeeded: no failure happened since
+/// [`try_begin`], other than ones an inner `try` handled. ERRNO is then restored; otherwise it
+/// keeps the message of the failure for `F`, and the failure counts as handled.
+fn try_end() -> Int {
+    let frame = TRY_STACK.with(|t| t.borrow_mut().pop());
+    debug_assert!(frame.is_some(), "try_end without try_begin");
+    let Some((old, failures)) = frame else { return 1 };
+    if FAILURES.with(Cell::get) == failures {
+        ERRNO.with(|e| *e.borrow_mut() = old);
+        1
+    } else {
+        FAILURES.with(|f| f.set(failures));
+        0
+    }
+}
+
+/// The `try_scope` builtin: [`try_begin`] (returning 0) if `op` is 1, [`try_end`] if it is 0.
+/// With -1 (`exit`, maybe inside the `E` of a `try` that then never ends), leave every `try`, so
+/// that warnings are reported again (in `END`).
+pub(crate) fn try_scope(op: Int) -> Int {
+    match op {
+        1 => {
+            try_begin();
+            0
+        }
+        0 => try_end(),
+        _ => {
+            TRY_STACK.with(|t| t.borrow_mut().clear());
+            0
+        }
+    }
 }
 
 pub(crate) fn errno() -> String {
@@ -1683,6 +1720,9 @@ pub(crate) fn errno() -> String {
 }
 
 pub(crate) fn set_errno(msg: String) {
+    if !msg.is_empty() {
+        FAILURES.with(|f| f.set(f.get() + 1));
+    }
     ERRNO.with(|e| *e.borrow_mut() = msg);
 }
 

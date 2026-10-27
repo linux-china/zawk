@@ -328,6 +328,9 @@ fn get_vars<'a, 'b>(
                 ident
             );
         }
+        if lexer::is_keyword(ident) {
+            fatal!("cannot assign to `{}` from the command line: it is a reserved word", ident);
+        }
         let str_lit = lexer::parse_string_literal(split_buf[1], a, buf);
         let val = a.alloc(ast::Expr::StrLit(str_lit));
         // -v values of user variables are "strnums", like input. Special variables (FS, RS, ...)

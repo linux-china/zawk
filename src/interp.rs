@@ -2507,9 +2507,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let exiting = self.core.exiting as Int;
                         *index_mut(&mut self.ints, dst) = exiting;
                     }
-                    TryDepth(dst, delta) => {
-                        let depth = runtime::add_try_depth(*index(&self.ints, delta));
-                        *index_mut(&mut self.ints, dst) = depth;
+                    TryScope(dst, begin) => {
+                        let ok = runtime::try_scope(*index(&self.ints, begin));
+                        *index_mut(&mut self.ints, dst) = ok;
                     }
                     Lookup {
                         map_ty,

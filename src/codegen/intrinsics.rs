@@ -167,7 +167,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         exit(rt_ty, int_ty);
         set_exit(rt_ty, int_ty, int_ty);
         exiting(rt_ty) -> int_ty;
-        try_depth(int_ty) -> int_ty;
+        try_scope(int_ty) -> int_ty;
         check_stack(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
         run_cmd2(str_ref_ty) -> map_ty;
@@ -855,8 +855,8 @@ pub(crate) unsafe extern "C" fn exiting(runtime: *mut c_void) -> Int {
     runtime.core.exiting as Int
 }
 
-pub(crate) unsafe extern "C" fn try_depth(delta: Int) -> Int {
-    crate::runtime::add_try_depth(delta)
+pub(crate) unsafe extern "C" fn try_scope(begin: Int) -> Int {
+    crate::runtime::try_scope(begin)
 }
 
 /// Called before each call of a user-defined function: fail instead of overflowing the stack.
