@@ -293,7 +293,7 @@ mod sqlite_kv {
             .map_err(|e| format!("cannot create {}: {}", awk_config_dir.display(), e))?;
         let sqlite_kv_db = awk_config_dir.join("sqlite.db");
         let open = || -> rusqlite::Result<Connection> {
-            let conn = Connection::open(sqlite_kv_db.as_path())?;
+            let conn = crate::runtime::sqlite::open_connection(sqlite_kv_db.as_path())?;
             conn.set_prepared_statement_cache_capacity(128);
             init_schema(&conn)?;
             Ok(conn)

@@ -1,4 +1,5 @@
 use std::sync::LazyLock;
+use std::time::Duration;
 use rusqlite::{params_from_iter, Connection};
 use rusqlite::types::{Value};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
@@ -7,6 +8,17 @@ use crate::runtime::csv::vec_to_csv;
 use crate::runtime::numfmt::float_to_text;
 
 static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnSlots::new);
+
+/// How long a statement waits for a lock held by another connection before failing with
+/// `database is locked`.
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Opens `db_path` with a busy timeout, so concurrent writers wait instead of failing at once.
+pub(crate) fn open_connection<P: AsRef<std::path::Path>>(db_path: P) -> rusqlite::Result<Connection> {
+    let conn = Connection::open(db_path)?;
+    conn.busy_timeout(SQLITE_BUSY_TIMEOUT)?;
+    Ok(conn)
+}
 
 /// Values of `params` ordered by key: the positional parameters (`?`, `?1`, `$1`...) bound to a
 /// prepared statement by the `*_query`/`*_execute` database functions.
@@ -25,7 +37,7 @@ pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -
 }
 
 fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
-    SQLITE_CONNECTIONS.with_conn(db_path, || Connection::open(db_path), |conn| query_into(conn, sql, params, map))
+    SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| query_into(conn, sql, params, map))
 }
 
 fn query_into(conn: &Connection, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
@@ -57,7 +69,7 @@ fn query_into(conn: &Connection, sql: &str, params: &[String], map: &IntMap<Str>
 
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
-    let result = SQLITE_CONNECTIONS.with_conn(db_path, || Connection::open(db_path), |conn| {
+    let result = SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| {
         conn.execute(sql, params_from_iter(&params))
     });
     match result {
@@ -107,5 +119,28 @@ mod tests {
 
         let rows = sqlite_query(db_path, "SELECT nick FROM no_such_table", &none);
         assert_eq!(rows.len(), 0);
+    }
+
+    #[test]
+    fn test_busy_timeout_waits_for_lock() {
+        let dir = std::env::temp_dir().join(format!("zawk-sqlite-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("busy.db");
+        let _ = std::fs::remove_file(&db_path);
+
+        let holder = open_connection(&db_path).unwrap();
+        holder.execute_batch("CREATE TABLE t(v INTEGER); BEGIN IMMEDIATE; INSERT INTO t VALUES (1);").unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            holder.execute_batch("COMMIT").unwrap();
+        });
+
+        // Without a busy timeout this fails at once with `database is locked`.
+        let writer = open_connection(&db_path).unwrap();
+        assert_eq!(writer.execute("INSERT INTO t VALUES (2)", []).unwrap(), 1);
+        releaser.join().unwrap();
+        let count: i64 = writer.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
