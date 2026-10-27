@@ -6316,6 +6316,7 @@ dependencies = [
  "shlex",
  "simdutf8",
  "smallvec",
+ "strsim",
  "sxd-document",
  "sxd-xpath",
  "tempfile",
