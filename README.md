@@ -9,7 +9,7 @@ You might be interested in zawk if you want your scripts to handle escaped CSV/T
 or if you want your scripts to execute faster,
 or if you want a standard AWK library to make life easy.
 
-![AWK Stdlib](https://github.com/linux-china/zawk/blob/master/info/awk-stdlib.png?raw=true)
+![zawk overview](https://raw.githubusercontent.com/linux-china/zawk/refs/heads/master/info/zawk-overview.jpg)
 
 Features:
 
