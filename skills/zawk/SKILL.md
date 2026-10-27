@@ -92,7 +92,6 @@ count characters); `file` is null for program text, and all location fields are 
 | E301 | call to an unknown function                                                      |
 | E302 | wrong number of arguments to a builtin function                                  |
 | E303 | a variable is used both as an array and as a scalar                              |
-| E304 | user input passed to a shell command (allowed with `-A`)                         |
 | E305 | assignment to a read-only variable (`ARGC`, `ARGV`, `FILENAME`, `NR`, `NF`, `FI`) or a field (`$0`, `$1`, `$FI["col"]`) |
 | E306 | assigning to something that is not a variable, array element or field: `substr(s, 1) = "a"`, `gsub(re, r, substr(s, 1))`, `x++` on a literal |
 | E900 | internal compiler error                                                          |
@@ -135,7 +134,6 @@ zawk [options] -f script.awk [file ...]
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|markdown\|parquet` | Output format of `print` to stdout (`md` = markdown) |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet` unless redirected) |
-| `-A` | Allow input data in `system()` and pipe commands (see Pitfalls) |
 | `-p r -j N` | Run in parallel over records with N workers (simple scripts on large files) |
 | `--posix` | Disable zawk's command line sugar |
 
@@ -360,8 +358,6 @@ one warning to stderr and return an empty value (`0` for an HTTP status). The fa
 - `f"..."` is always an f-string, never the variable `f` concatenated with a string: write `f "-"` (with a space)
   or `(f) "-"` to concatenate a variable named `f`. Likewise `r"..."` and `r#"..."#` are raw strings: with `r = 5`,
   `print r"x"` prints `x` (gawk: `5x`); write `r "x"` or rename the variable.
-- Taint check: a `system()` or pipe command built from input data (`system("rm " $1)`) is rejected at compile time
-  with "command potentially containing interpolated user input". Pass `-A` only when the input is trusted.
 - Missing elements of numeric arrays print `0`, not an empty string, and referencing them creates them: test with
   `(k in a)`.
 - `$FI["name"]` for a column that doesn't exist is `$0`: check the header spelling (`zawk -i csv '{ print; exit }' f`).

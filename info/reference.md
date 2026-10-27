@@ -146,5 +146,5 @@ _Unary Operators:_
   array.
 * `system(s)` runs the command contained in the string `s` in a subshell,
   returning the error code, or the integer `1` if an error code was
-  unavailable. The string `s` is subject to taint analysis by default.
+  unavailable.
 

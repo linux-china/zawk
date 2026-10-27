@@ -7,7 +7,7 @@
 //! every string may be a strnum; this analysis finds the operands that cannot be, so that they are
 //! compared as strings. This is what makes e.g. `$1 "" < $2 ""` compare as strings.
 //!
-//! Unlike taint analysis, "strnum-ness" only flows through copies: assignments, phi nodes, array
+//! "Strnum-ness" only flows through copies: assignments, phi nodes, array
 //! stores and loads, global variables, slots, function arguments and returns. Any other operation
 //! produces a plain string. The analysis is conservative where it is imprecise: numbers converted
 //! to strings are assumed to be strnums (such values compare numerically when they look like

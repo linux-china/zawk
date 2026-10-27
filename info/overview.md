@@ -200,8 +200,6 @@ their values stop changing. Primary examples of this in zawk are:
 * Determining [which global
   variables](https://github.com/linux-china/zawk/blob/0cf6bd7554ba14193f32337ea54bd1a8f1401f1f/src/compile.rs#L694)
   are referenced by a function, and the functions that it calls.
-* [Ruling out](https://github.com/linux-china/zawk/blob/master/src/input_taint.rs)
-  potentially insecure invocations of the shell.
 
 These were all implemented with the help of the very useful
 [petgraph](https://github.com/petgraph/petgraph) library.
@@ -415,11 +413,6 @@ if you find that the following are a serious hindrance:
   deprecated [in some
   languages](https://www.python.org/dev/peps/pep-0324/#id14) because they make
   it easy for unsanitized user input to make it into a subshell, potentially
-  doing nefarious or unwanted things with the user's machine. To help mitigate
-  this, zawk implements a [static taint
-  analysis](https://github.com/linux-china/zawk/blob/master/src/input_taint.rs)
-  that substantially limits the set of strings that can be passed to the shell.
-  zawk also provides an escape hatch for cases where the input is trusted or
-  the analysis is too conservative: the `-A` flag opts users out of the taint
-  analysis. I am open to feedback on extensions or modifications to this
-  feature.
+  doing nefarious or unwanted things with the user's machine. As in gawk, zawk
+  does not restrict these commands: run untrusted programs or input inside an
+  operating system sandbox.

@@ -3849,8 +3849,8 @@ fn folded_regex_constants_in_sub_and_split() {
 }
 
 #[test]
-fn taint_check_is_opt_in() {
-    // As in gawk, input may be used in commands by default; --taint-check rejects it.
+fn user_input_in_commands() {
+    // As in gawk, input may be used in commands run by pipes and system().
     let prog = r#"{ cmd = "echo " $1; cmd | getline x; print x; system("echo " $2); print $1 | "cat" }"#;
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -3861,16 +3861,6 @@ fn taint_check_is_opt_in() {
             .assert()
             .success()
             .stdout("a\nb\na\n");
-        Command::cargo_bin("zawk")
-            .unwrap()
-            .arg(backend_arg)
-            .arg("--taint-check")
-            .arg(prog)
-            .write_stdin("a b\n")
-            .assert()
-            .failure();
-        // -A is still accepted, with no effect.
-        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg("-A").arg(prog).write_stdin("a b\n").assert().success();
     }
 }
 

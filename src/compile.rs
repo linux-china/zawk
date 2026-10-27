@@ -6,7 +6,6 @@ use crate::common::{
     CancelSignal, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList,
 };
 use crate::cross_stage;
-use crate::input_taint::TaintedStringAnalysis;
 use crate::strnum_analysis::StrnumAnalysis;
 use crate::pushdown::{FieldSet, UsedFieldAnalysis};
 use crate::runtime::{self, Str};
@@ -130,13 +129,6 @@ fn visit_used_fields(stmt: &Instr, cur_func_id: NumTy, ufa: &mut UsedFieldAnalys
     match stmt {
         Either::Left(l) => ufa.visit_ll(l),
         Either::Right(r) => ufa.visit_hl(cur_func_id, r),
-    }
-}
-
-fn visit_taint_analysis(stmt: &Instr, func_id: NumTy, tsa: &mut TaintedStringAnalysis) {
-    match stmt {
-        Either::Left(ll) => tsa.visit_ll(ll),
-        Either::Right(hl) => tsa.visit_hl(func_id, hl),
     }
 }
 
@@ -307,8 +299,6 @@ pub(crate) struct Typer<'a> {
     // Whether the program loads PROCINFO; if not, `PROCINFO["sorted_in"]` cannot be set and
     // `for (k in a)` skips looking it up.
     uses_procinfo: bool,
-    // For rejecting suspcicious programs with commands.
-    taint_analysis: Option<TaintedStringAnalysis>,
     // For analysis passes that introspect into the set of constant string values that will
     // dynamically be assigned to a register
     string_constants: Option<StringConstantAnalysis>,
@@ -683,9 +673,6 @@ impl<'a> Typer<'a> {
         // and global variables.
 
         let mut generator = Typer::default();
-        if pc.taint_check {
-            generator.taint_analysis = Some(Default::default());
-        }
         if pc.fold_regex_constants || pc.parse_header {
             generator.string_constants = Some(StringConstantAnalysis::from_config(
                 string_constants::Config {
@@ -824,9 +811,6 @@ impl<'a> Typer<'a> {
                         Either::Left(ll) => sna.visit_ll(ll),
                         Either::Right(hl) => sna.visit_hl(frame.cur_ident, hl),
                     }
-                    if let Some(tsa) = &mut self.taint_analysis {
-                        visit_taint_analysis(stmt, frame.cur_ident, tsa)
-                    }
                     if let Some(sca) = &mut self.string_constants {
                         if sca.cfg().query_regex && !sets_ignorecase {
                             if let Either::Left(
@@ -850,14 +834,6 @@ impl<'a> Typer<'a> {
         }
         self.used_fields = ufa.solve();
         self.refine_string_comparisons(&mut sna);
-        if let Some(tsa) = &mut self.taint_analysis {
-            if !tsa.ok() {
-                return err!(concat!(
-                    "command potentially containing interpolated user ",
-                    "input detected.\nIf this is a false positive, run without the --taint-check flag."
-                ));
-            }
-        }
 
         if let Some(sca) = &mut self.string_constants {
             let mut strs = Vec::new();

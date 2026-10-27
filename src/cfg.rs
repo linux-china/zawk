@@ -353,9 +353,6 @@ pub(crate) struct ProgramContext<'a, I> {
     // table at construction time (in the func_table passed to View).
     pub funcs: Vec<Function<'a, I>>,
     main_offset: Stage<usize>,
-    // Reject strings that may contain user input being passed to a subshell (taint analysis).
-    // Off by default, as in gawk.
-    pub taint_check: bool,
     // Lower certain regular expression instructions to direct invocations of a given pattern,
     // rather than dynamic lookups
     pub fold_regex_constants: bool,
@@ -716,7 +713,6 @@ impl<'a, I> ProgramContext<'a, I>
             shared,
             funcs,
             main_offset,
-            taint_check: false,
             fold_regex_constants: false,
             parse_header: p.parse_header,
         })

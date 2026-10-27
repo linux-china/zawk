@@ -20,7 +20,6 @@ mod fmt;
 mod function_docs;
 #[cfg(test)]
 pub mod harness;
-mod input_taint;
 mod inspect;
 mod llm;
 mod strnum_analysis;
@@ -122,7 +121,6 @@ fn include_failed(e: &str) -> ! {
 
 #[derive(Clone)]
 struct PreludeScalars {
-    taint_check: bool,
     fold_regexes: bool,
     parse_header: bool,
     header_per_file: bool,
@@ -434,7 +432,6 @@ fn get_context<'a>(
     };
     match cfg::ProgramContext::from_prog(a, stmt, prelude.scalars.escaper) {
         Ok(mut ctx) => {
-            ctx.taint_check = prelude.scalars.taint_check;
             ctx.fold_regex_constants = prelude.scalars.fold_regexes;
             ctx
         }
@@ -838,7 +835,7 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
         .then(|| String::from("json"))
 }
 
-/// The lint options given by the `--taint-check`, `-p`, `-v` and `-H` arguments of `zawk lint` or
+/// The lint options given by the `-p`, `-v` and `-H` arguments of `zawk lint` or
 /// of a run, and its input `format`.
 fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
     // As for a run, JSON, JSON Lines, Parquet, Markdown and database input imply -H.
@@ -861,7 +858,6 @@ fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Optio
         header,
         field_sep,
         data: None,
-        taint_check: matches.get_flag("taint-check"),
         parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
             Some("f") | Some("file") => Some(lint::Parallel::File),
@@ -964,16 +960,6 @@ fn real_main() {
             .action(clap::ArgAction::Append)
             .value_name("file")
             .help("Include this awk library file, as `@include \"file\"` does (can be repeated)"))
-        .arg(Arg::new("taint-check")
-            .long("taint-check")
-            .num_args(0)
-            .help("Reject user input in commands run by pipes and system(), as with `zawk --taint-check`"))
-        .arg(Arg::new("arbitrary-shell")
-            .short('A')
-            .long("arbitrary-shell")
-            .num_args(0)
-            .hide(true)
-            .help("Deprecated, no effect: user input is allowed in commands by default"))
         .arg(Arg::new("posix")
             .long("posix")
             .num_args(0)
@@ -1248,16 +1234,6 @@ fn real_main() {
             .long("chunk-size")
             .num_args(1)
             .help("Buffer size when reading input. This is present primarily for debugging purposes; it's possible that tuning this will help performance, but it should not be necessary"))
-        .arg(Arg::new("arbitrary-shell")
-            .short('A')
-            .long("arbitrary-shell")
-            .num_args(0)
-            .hide(true)
-            .help("Deprecated, no effect: user input is allowed in commands by default"))
-        .arg(Arg::new("taint-check")
-            .long("taint-check")
-            .num_args(0)
-            .help("Reject programs whose commands run by pipes or the 'system' function may contain user input (off by default, as in gawk)"))
         .arg(Arg::new("jobs")
             .short('j')
             .requires("parallel-strategy")
@@ -1521,7 +1497,6 @@ fn real_main() {
         ),
         None => (Escaper::Identity, None, None),
     };
-    let taint_check = matches.get_flag("taint-check");
     runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
     let input_format = input_format(&matches, &input_files);
     let json = matches!(input_format.as_deref(), Some("json"));
@@ -1582,7 +1557,6 @@ fn real_main() {
         output_sep,
         scalars: PreludeScalars {
             escaper,
-            taint_check,
             fold_regexes: opt_level >= 3,
             stage: exec_strategy.stage(),
             parse_header,

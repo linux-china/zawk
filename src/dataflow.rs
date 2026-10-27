@@ -737,9 +737,6 @@ pub(crate) mod boilerplate {
             }
             StartsWithConst(dst, x, _) => f(dst.into(), Some(x.into())),
 
-            // NB: this assumes that regexes that have been constant-folded are not tainted by
-            // user-input. That is certainly true today, but any kind of dynamic simplification or
-            // inlining could change that.
             MatchConst(dst, x, _) | IsMatchConst(dst, x, _) => f(dst.into(), Some(x.into())),
             IsMatch(dst, x, y) | Match(dst, x, y)
             | SubstrIndex(dst, x, y) | SubstrLastIndex(dst, x, y) => {
