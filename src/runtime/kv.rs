@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
+use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::stdlib_warning;
 
 /// Errors of the kv functions are reported as warnings: kv_get then returns an empty string.
@@ -60,8 +61,8 @@ pub(crate) fn kv_clear(namespace: &str) {
     })
 }
 
-static SQLITE_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, rusqlite::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
-static REDIS_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, redis::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static SQLITE_CONNECTIONS: LazyLock<ConnSlots<rusqlite::Connection>> = LazyLock::new(ConnSlots::new);
+static REDIS_CONNECTIONS: LazyLock<ConnPool<redis::Connection>> = LazyLock::new(ConnPool::new);
 static NATS_STORES: LazyLock<Mutex<HashMap<String, async_nats::jetstream::kv::Store>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn is_redis_url(namespace: &str) -> bool {
@@ -110,6 +111,7 @@ mod redis_kv {
     }
 
     /// Run `f` with a (pooled) connection, and the name of the hash in the namespace URL.
+    /// The connection is taken out of the pool while `f` runs, so no lock is held during I/O.
     /// If a reused connection fails with an IO error (server restart, idle timeout), it is
     /// dropped and `f` is retried once with a new connection.
     fn with_conn<T>(
@@ -117,23 +119,30 @@ mod redis_kv {
         f: impl Fn(&mut redis::Connection, &str) -> redis::RedisResult<T>,
     ) -> KvResult<T> {
         let (conn_url, hash_key) = split_name(url_text)?;
-        let mut pool = REDIS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        let reused = pool.contains_key(conn_url);
-        if !reused {
-            pool.insert(conn_url.to_string(), connect(conn_url)?);
-        }
-        let conn = pool.get_mut(conn_url).unwrap();
-        match f(conn, hash_key) {
-            Ok(v) => Ok(v),
-            Err(e) if reused && (e.is_io_error() || e.is_connection_dropped() || e.is_unrecoverable_error()) => {
-                pool.remove(conn_url);
+        let (mut conn, reused) = match REDIS_CONNECTIONS.take(conn_url) {
+            Some(conn) => (conn, true),
+            None => (connect(conn_url)?, false),
+        };
+        match f(&mut conn, hash_key) {
+            Err(e) if reused && is_broken(&e) => {
+                drop(conn);
                 let mut conn = connect(conn_url).map_err(|reconnect| format!("{} ({})", e, reconnect))?;
-                let result = f(&mut conn, hash_key).map_err(|e| e.to_string());
-                pool.insert(conn_url.to_string(), conn);
-                result
+                let result = f(&mut conn, hash_key);
+                if !matches!(&result, Err(e) if is_broken(e)) {
+                    REDIS_CONNECTIONS.put(conn_url, conn);
+                }
+                result.map_err(|e| e.to_string())
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) if is_broken(&e) => Err(e.to_string()),
+            result => {
+                REDIS_CONNECTIONS.put(conn_url, conn);
+                result.map_err(|e| e.to_string())
+            }
         }
+    }
+
+    fn is_broken(e: &redis::RedisError) -> bool {
+        e.is_io_error() || e.is_connection_dropped() || e.is_unrecoverable_error()
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
@@ -216,11 +225,7 @@ mod sqlite_kv {
 
     /// Run `f` with the local SQLite database (~/.awk/sqlite.db).
     fn with_conn<T>(f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> KvResult<T> {
-        let mut pool = SQLITE_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        if !pool.contains_key("local") {
-            pool.insert("local".to_owned(), create_sqlite_kv_conn()?);
-        }
-        f(&pool["local"]).map_err(|e| e.to_string())
+        SQLITE_CONNECTIONS.with_conn("local", create_sqlite_kv_conn, |conn| f(conn).map_err(|e| e.to_string()))
     }
 
     pub(crate) fn kv_get(namespace: &str, key: &str) -> KvResult<String> {

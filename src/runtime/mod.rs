@@ -44,6 +44,7 @@ pub mod http;
 pub mod decompress;
 pub mod os_util;
 pub mod csv;
+pub(crate) mod conn_pool;
 pub mod sqlite;
 pub mod mysql;
 pub mod postgres;

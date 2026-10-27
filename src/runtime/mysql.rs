@@ -100,12 +100,18 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
 }
 
 /// Runs `f` with a connection from the cached pool for `db_url`, creating the pool on first use.
+/// The global lock is only held to clone the pool: connecting and querying run outside of it.
 fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> Result<T> {
-    let mut pools = MYSQL_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    if !pools.contains_key(db_url) {
-        pools.insert(db_url.to_string(), Pool::new(db_url)?);
-    }
-    let mut conn = pools[db_url].get_conn()?;
+    let cached = MYSQL_POOLS.lock().unwrap_or_else(|e| e.into_inner()).get(db_url).cloned();
+    let pool = match cached {
+        Some(pool) => pool,
+        None => {
+            let pool = Pool::new(db_url)?;
+            // another thread may have created one meanwhile: keep the first
+            MYSQL_POOLS.lock().unwrap_or_else(|e| e.into_inner()).entry(db_url.to_string()).or_insert(pool).clone()
+        }
+    };
+    let mut conn = pool.get_conn()?;
     f(&mut conn)
 }
 

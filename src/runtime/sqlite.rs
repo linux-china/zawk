@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::LazyLock;
 use rusqlite::{params_from_iter, Connection};
 use rusqlite::types::{Value};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
+use crate::runtime::conn_pool::ConnSlots;
 use crate::runtime::csv::vec_to_csv;
 use crate::runtime::numfmt::float_to_text;
 
-static SQLITE_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, rusqlite::Connection>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnSlots::new);
 
 /// Values of `params` ordered by key: the positional parameters (`?`, `?1`, `$1`...) bound to a
 /// prepared statement by the `*_query`/`*_execute` database functions.
@@ -25,8 +25,10 @@ pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -
 }
 
 fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
-    let mut pool = SQLITE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
-    let conn = open_connection(&mut pool, db_path)?;
+    SQLITE_CONNECTIONS.with_conn(db_path, || Connection::open(db_path), |conn| query_into(conn, sql, params, map))
+}
+
+fn query_into(conn: &Connection, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare_cached(sql)?;
     let colum_count = stmt.column_count();
     let mut index = 1;
@@ -53,20 +55,11 @@ fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<S
     Ok(())
 }
 
-fn open_connection<'p>(
-    pool: &'p mut HashMap<String, Connection>,
-    db_path: &str,
-) -> rusqlite::Result<&'p mut Connection> {
-    if !pool.contains_key(db_path) {
-        pool.insert(db_path.to_string(), Connection::open(db_path)?);
-    }
-    Ok(pool.get_mut(db_path).unwrap())
-}
-
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
-    let mut pool = SQLITE_CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
-    let result = open_connection(&mut pool, db_path).and_then(|conn| conn.execute(sql, params_from_iter(&params)));
+    let result = SQLITE_CONNECTIONS.with_conn(db_path, || Connection::open(db_path), |conn| {
+        conn.execute(sql, params_from_iter(&params))
+    });
     match result {
         Ok(n) => n as Int,
         Err(e) => {

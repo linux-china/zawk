@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Write;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::LazyLock;
 use chrono::Utc;
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
+use crate::runtime::conn_pool::ConnPool;
 use crate::runtime::csv::vec_to_csv;
 use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use bytes::BytesMut;
@@ -12,7 +12,7 @@ use postgres::Client;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
-static PG_POOLS: LazyLock<Arc<Mutex<HashMap<String, Client>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static PG_POOLS: LazyLock<ConnPool<Client>> = LazyLock::new(ConnPool::new);
 
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
@@ -47,30 +47,33 @@ fn error_text(e: postgres::Error) -> String {
     }
 }
 
-/// Run `f` with the cached client for `db_url`, connecting on first use. If a reused client
+/// Run `f` with a cached client for `db_url`, connecting when none is idle. The client is taken
+/// out of the cache while `f` runs, so no lock is held during network I/O. If a reused client
 /// fails because its connection was closed (server restart, idle timeout), it is dropped so the
 /// next call reconnects. With `retry`, `f` is also retried once with a new connection: only safe
 /// for reads, since a write may have been committed before the connection was lost.
 fn with_client<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>) -> Result<T, String> {
-    let mut pools = PG_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    let reused = pools.contains_key(db_url);
-    if !reused {
-        pools.insert(db_url.to_string(), connect(db_url)?);
-    }
-    let client = pools.get_mut(db_url).unwrap();
-    match f(client) {
-        Ok(v) => Ok(v),
+    let (mut client, reused) = match PG_POOLS.take(db_url) {
+        Some(client) => (client, true),
+        None => (connect(db_url)?, false),
+    };
+    match f(&mut client) {
         Err(e) if client.is_closed() => {
-            pools.remove(db_url);
+            drop(client);
             if !(retry && reused) {
                 return Err(format!("{} (not retried: the statement may already have been applied)", error_text(e)));
             }
             let mut client = connect(db_url).map_err(|reconnect| format!("{} (reconnect failed: {})", error_text(e), reconnect))?;
             let result = f(&mut client).map_err(error_text);
-            pools.insert(db_url.to_string(), client);
+            if !client.is_closed() {
+                PG_POOLS.put(db_url, client);
+            }
             result
         }
-        Err(e) => Err(error_text(e)),
+        result => {
+            PG_POOLS.put(db_url, client);
+            result.map_err(error_text)
+        }
     }
 }
 
