@@ -65,7 +65,7 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
         builder = builder.headers(convert_to_http_headers(headers));
     }
     match builder.send() {
-        Ok(resp) => fill_response(resp, &resp_obj),
+        Ok(resp) => fill_response("http_get", resp, &resp_obj),
         Err(e) => {
             // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
             set_errno(format!("http_get: {}", e));
@@ -98,7 +98,7 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
         builder = builder.body(body_text);
     }
     match builder.send() {
-        Ok(resp) => fill_response(resp, &resp_obj),
+        Ok(resp) => fill_response("http_post", resp, &resp_obj),
         Err(e) => {
             // status 0 tells the failure; ERRNO tells why, as for other stdlib functions
             set_errno(format!("http_post: {}", e));
@@ -124,14 +124,25 @@ fn convert_to_http_headers<'a>(headers: &StrMap<'a, Str<'a>>) -> HeaderMap {
     request_headers
 }
 
-fn fill_response(resp: Response, resp_obj: &StrMap<Str>) {
+fn fill_response(func: &str, resp: Response, resp_obj: &StrMap<Str>) {
     let status = resp.status();
     for (name, value) in merge_headers(resp.headers()) {
         resp_obj.insert(Str::from(name), Str::from(value));
     }
     // set after the headers, and even for an empty body, so a header named `status`/`text` cannot take their place
-    resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
-    resp_obj.insert(Str::from("text"), Str::from(resp.text().unwrap_or_default()));
+    match resp.text() {
+        Ok(text) => {
+            resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
+            resp_obj.insert(Str::from("text"), Str::from(text));
+        }
+        Err(e) => {
+            // a body cut off by the timeout or a reset connection is a failure, not an empty success:
+            // status 0 and ERRNO as for a failed send
+            set_errno(format!("{}: failed to read response body: {}", func, e));
+            resp_obj.insert(Str::from("status"), Str::from("0"));
+            resp_obj.insert(Str::from("text"), Str::from(""));
+        }
+    }
 }
 
 /// Response headers by name: the values of a repeated header are joined with `, `, or with `\n`
@@ -433,7 +444,7 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     let resp = builder.send().map_err(|e| format!("failed to send mail via {}: {}", redact_url(&api_url), e))?;
     let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().unwrap_or_default();
+        let body = resp.text().unwrap_or_else(|e| format!("(failed to read response body: {})", e));
         return Err(format!("failed to send mail via {}: HTTP {} {}", redact_url(&api_url), status, body));
     }
     Ok(())

@@ -2904,6 +2904,35 @@ fn builtins_as_statements() {
     }
 }
 
+// A response body cut off after the headers is a failure (status 0, ERRNO set), not an empty success.
+#[test]
+fn http_truncated_body_sets_errno() {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let _ = stream.read(&mut [0u8; 65536]);
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial");
+        }
+    });
+    let prog = format!(
+        r#"BEGIN {{
+        r = http_get("{url}"); print r["status"], "[" r["text"] "]", (ERRNO ~ /^http_get: failed to read response body/)
+        ERRNO = ""; p = http_post("{url}", "x"); print p["status"], (ERRNO ~ /^http_post: failed to read response body/)
+    }}"#
+    );
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(&prog)
+            .assert()
+            .success()
+            .stdout("0 [] 1\n0 1\n");
+    }
+}
+
 // Every kind of expression, of every scalar type, compiles when used as a statement.
 #[test]
 fn expressions_as_statements() {
