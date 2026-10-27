@@ -652,6 +652,10 @@ fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
     // Missing arguments are empty strings (as in onetrue awk).
     let default = FormatArg::S(Default::default());
     let missing = std::cell::Cell::new(false);
+    // Whether any conversion (or `*`) took a positional / sequential argument: mixing them is
+    // fatal, as in gawk.
+    let positional = std::cell::Cell::new(false);
+    let sequential = std::cell::Cell::new(false);
     let mut arg_ix = 0;
     let mut i = 0;
     let mut raw_start = 0;
@@ -664,6 +668,8 @@ fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
         // Positional references (`%2$s`, `*2$`) take the given argument and leave the sequential
         // position unchanged.
         let mut next_int = |pos: Option<usize>| {
+            positional.set(positional.get() || pos.is_some());
+            sequential.set(sequential.get() || pos.is_none());
             let arg = match pos {
                 Some(p) => args.get(p),
                 None => {
@@ -681,6 +687,11 @@ fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
                     write_bytes(&mut w, b"%")?;
                 } else {
                     spec.check_limits()?;
+                    positional.set(positional.get() || position.is_some());
+                    sequential.set(sequential.get() || position.is_none());
+                    if positional.get() && sequential.get() {
+                        return err!("must use `count$' on all formats or none");
+                    }
                     let arg = match position {
                         Some(p) => args.get(p),
                         None => {
@@ -767,6 +778,13 @@ mod tests {
         assert_eq!(sprintf!(b"[%1$-5s|%1$05d]", 7), "[7    |00007]");
         // A missing argument is empty; `0$` is not a positional reference.
         assert_eq!(sprintf!(b"[%3$s][%0$s]", "a"), "[][%0$s]");
+        // Mixing positional and sequential arguments is fatal, as in gawk.
+        let mixed = |fmt: &[u8]| printf(Vec::<u8>::new(), fmt, &["a".into(), 5.into()]).is_err();
+        assert!(mixed(b"%1$s %s"));
+        assert!(mixed(b"%s %1$s"));
+        assert!(mixed(b"%*2$s"));
+        assert!(mixed(b"%1$*d"));
+        assert!(!mixed(b"%1$s 100%% %2$d"));
     }
 
     #[test]
