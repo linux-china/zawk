@@ -374,3 +374,9 @@ run-nats:
 # test NATS json format: nats pub topic1-json '{"name":"Jackie"}'
 run-nats-json:
    cargo run --package zawk --bin zawk -- -i json '{ print "Hello", $FI["name"] }' 'nats://localhost:4222/topic1-json'
+
+# run sqlite/mysql/postgresq query
+run-db-query:
+   cargo run --package zawk --bin zawk -- '{print $1, $2}' "sqlite://./tests/demo.sqlite3#user"
+   cargo run --package zawk --bin zawk -- '{print $1, $2}' "mysql://root:123456@127.0.0.1:3306/test#people"
+   cargo run --package zawk --bin zawk -- '{print $1, $2}' "postgresql://postgres:123456@127.0.0.1:15432/demo_db#people"
