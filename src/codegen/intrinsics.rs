@@ -1052,7 +1052,7 @@ pub(crate) unsafe extern "C" fn split_str(
             .regexes
             .split_regex_strmap(pat, to_split, &into_arr)
         {
-            fail!(runtime, "failed to split string: {}", e);
+            fail!(runtime, "{}", e);
         }
         let res = into_arr.len() as Int;
         mem::forget((into_arr, to_split, pat));
@@ -1100,7 +1100,7 @@ pub(crate) unsafe extern "C" fn split_int(
             .regexes
             .split_regex_intmap(pat, to_split, &into_arr)
         {
-            fail!(runtime, "failed to split string: {}", e);
+            fail!(runtime, "{}", e);
         }
         let res = into_arr.len() as Int;
         mem::forget((into_arr, to_split, pat));
@@ -2736,7 +2736,7 @@ macro_rules! split_seps_intrinsics {
                     let pat = &*(pat as *mut Str);
                     let res = match runtime.core.regexes.split_seps_maps(pat, to_split, &arr, &seps, $patsplit) {
                         Ok(n) => n,
-                        Err(e) => fail!(runtime, "failed to split string: {}", e),
+                        Err(e) => fail!(runtime, "{}", e),
                     };
                     mem::forget((arr, seps));
                     res
