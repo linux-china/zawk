@@ -245,6 +245,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] pad_right(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] pad_both(str_ref_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] strcmp(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] similar(str_ref_ty, str_ref_ty) -> float_ty;
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
@@ -1569,6 +1570,14 @@ pub(crate) unsafe extern "C" fn strcmp(text1: *mut U128, text2: *mut U128) -> In
         let text1 = &*(text1 as *mut Str);
         let text2 = &*(text2 as *mut Str);
         text1.with_bytes(|a| text2.with_bytes(|b| string_util::strcmp(a, b)))
+    })
+}
+
+pub(crate) unsafe extern "C" fn similar(text1: *mut U128, text2: *mut U128) -> Float {
+    guard_panic(stringify!(similar), || {
+        let text1 = &*(text1 as *mut Str);
+        let text2 = &*(text2 as *mut Str);
+        text1.with_bytes(|a| text2.with_bytes(|b| string_util::similar(a, b)))
     })
 }
 

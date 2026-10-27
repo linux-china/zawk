@@ -486,6 +486,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text1.into()));
                 f(dst.into(), Some(text2.into()));
             }
+            Similar(dst, text1, text2) => {
+                f(dst.into(), Some(text1.into()));
+                f(dst.into(), Some(text2.into()));
+            }
             Mask(dst, text) => {
                 f(dst.into(), Some(text.into()));
             }

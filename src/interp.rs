@@ -1704,6 +1704,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Similar(dst, text1, text2) => {
+                        let text1 = index(&self.strs, text1);
+                        let text2 = index(&self.strs, text2);
+                        let res = text1.with_bytes(|a| text2.with_bytes(|b| runtime::string_util::similar(a, b)));
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Mask(dst, text) => {
                         let dt_text = index(&self.strs, text).mask();
                         *index_mut(&mut self.strs, dst) = dt_text;

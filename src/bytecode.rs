@@ -417,6 +417,7 @@ pub(crate) enum Instr<'a> {
     PadRight(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     PadBoth(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     StrCmp(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Similar(Reg<Float>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mask(Reg<Str<'a>>, Reg<Str<'a>>),
     Repeat(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>),
     DefaultIfEmpty(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1400,6 +1401,11 @@ impl<'a> Instr<'a> {
                 pad.accum(&mut f);
             }
             StrCmp(dst, text1, text2 ) => {
+                dst.accum(&mut f);
+                text1.accum(&mut f);
+                text2.accum(&mut f);
+            }
+            Similar(dst, text1, text2) => {
                 dst.accum(&mut f);
                 text1.accum(&mut f);
                 text2.accum(&mut f);

@@ -265,6 +265,19 @@ Most libraries include these functions, and I don't want AWK stdlib weird.
 
 text compare `strcmp($1, $2)` return -1, 0, 1
 
+### similar
+
+Similarity of two texts with [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance): `similar(a, b)`, a float from `0` (nothing in common) to `1` (the same text).
+A common prefix counts more, which suits names and typos; characters are compared, not bytes.
+
+```awk
+similar("martha", "marhta")   # 0.961111
+similar("abc", "abc")         # 1
+similar("abc", "xyz")         # 0
+# fuzzy match: records whose first field looks like "apple"
+similar($1, "apple") > 0.8 { print }
+```
+
 ### lines
 
 Split text to none-empty lines: `lines(text)`: array of text.

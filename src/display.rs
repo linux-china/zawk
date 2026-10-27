@@ -209,6 +209,7 @@ impl Display for Function {
             PadRight => write!(f, "pad_right"),
             PadBoth => write!(f, "pad_both"),
             StrCmp => write!(f, "strcmp"),
+            Similar => write!(f, "similar"),
             Mask => write!(f, "mask"),
             Repeat => write!(f, "repeat"),
             DefaultIfEmpty => write!(f, "default_if_empty"),

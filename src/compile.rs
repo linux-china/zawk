@@ -2422,6 +2422,11 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Similar => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Similar(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                }
+            }
             Mask => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Mask(

@@ -375,6 +375,10 @@ run-nats:
 run-nats-json:
    cargo run --package zawk --bin zawk -- -i json '{ print "Hello", $FI["name"] }' 'nats://localhost:4222/topic1-json'
 
+# run similar
+run-similar:
+   cargo run --package zawk --bin zawk -- 'BEGIN {print similar("hello", "helle") }'
+
 # run sqlite/mysql/postgresq query
 run-db-query:
    cargo run --package zawk --bin zawk -- '{print $1, $2}' "sqlite://./tests/demo.sqlite3#user"

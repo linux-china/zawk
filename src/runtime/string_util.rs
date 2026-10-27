@@ -51,6 +51,27 @@ pub fn pad_both(text: &str, len: Int, pad: &str) -> Result<String> {
     pad_text("pad", text, len, pad, Alignment::MiddleRight)
 }
 
+/// The Jaro-Winkler similarity of `text1` and `text2`, from 0.0 (nothing in common) to 1.0 (the
+/// same text); a common prefix counts more, which suits names and typos. Characters are compared;
+/// bytes when a text is not valid UTF-8 (or with `-b`), so distinct invalid bytes stay distinct.
+pub fn similar(text1: &[u8], text2: &[u8]) -> f64 {
+    match (std::str::from_utf8(text1), std::str::from_utf8(text2)) {
+        (Ok(a), Ok(b)) if !crate::runtime::str_impl::characters_as_bytes() => strsim::jaro_winkler(a, b),
+        _ => strsim::generic_jaro_winkler::<ByteSeq, ByteSeq, u8, u8>(&ByteSeq(text1), &ByteSeq(text2)),
+    }
+}
+
+/// The bytes of a text, as `strsim`'s generic functions take them.
+struct ByteSeq<'a>(&'a [u8]);
+
+impl<'a> IntoIterator for &ByteSeq<'a> {
+    type Item = u8;
+    type IntoIter = std::iter::Copied<std::slice::Iter<'a, u8>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter().copied()
+    }
+}
+
 pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
     return if text1 == text2 {
         0
@@ -764,5 +785,21 @@ mod tests {
     #[test]
     fn test_figlet() {
         println!("{}", figlet("Hello").trim_matches('\n'));
+    }
+
+    #[test]
+    fn test_similar() {
+        assert_eq!(similar(b"hello", b"hello"), 1.0);
+        assert_eq!(similar(b"", b""), 1.0);
+        assert_eq!(similar(b"abc", b""), 0.0);
+        assert_eq!(similar(b"abc", b"xyz"), 0.0);
+        assert!((similar(b"martha", b"marhta") - 0.9611).abs() < 1e-4);
+        // a common prefix counts more: jaro-winkler
+        assert!(similar(b"apple", b"applf") > similar(b"apple", b"bpple"));
+        // characters, not bytes
+        assert!((similar("你好世界".as_bytes(), "你好".as_bytes()) - 0.8667).abs() < 1e-4);
+        // invalid UTF-8: the bytes
+        assert_eq!(similar(b"caf\xe9x", b"caf\xe9x"), 1.0);
+        assert!(similar(b"caf\xe9x", b"caf\xe8x") < 1.0);
     }
 }

@@ -50,6 +50,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("pad_start", "pad_start($0, 7, \"*\")", Some(b"**caf\xe9x")),
     ("pad_end", "pad_end($0, 7, \"*\")", Some(b"caf\xe9x**")),
     ("strcmp", "strcmp($0, \"caf\")", Some(b"1")),
+    ("similar", "similar($0, $0) (similar($0, \"caf\\350x\") < 1)", Some(b"11")),
     ("lines", "lines($0)[1]", Some(b"caf\xe9x")),
     ("words", "words(\"a \" $0)[1]", Some(b"a")),
     ("repeat", "repeat($0, 2)", Some(b"caf\xe9xcaf\xe9x")),
