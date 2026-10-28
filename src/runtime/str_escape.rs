@@ -79,6 +79,7 @@ pub fn escape_json(text: &str) -> String {
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
+            c if (c as u32) < 0x20 => result.push_str(&format!("\\u{:04x}", c as u32)),
             _ => result.push(c)
         }
     }
@@ -116,6 +117,8 @@ mod tests {
     fn test_escape_json() {
         let json_text = "{\"id\": \n 1}";
         println!("{}", escape_json(json_text));
+        assert_eq!(escape_json("a\x01b\x1f\x00"), "a\\u0001b\\u001f\\u0000");
+        assert_eq!(escape_json("\"\\\n\t"), "\\\"\\\\\\n\\t");
     }
 
     #[test]
