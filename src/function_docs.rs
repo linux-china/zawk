@@ -328,6 +328,9 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     // JSON
     d("from_json", JSON, "from_json(s: str) -> map[str]str", "Parse JSON text into an array.",
       r#"from_json("{\"id\":1}")["id"]"#),
+    d("json_flatten", JSON, "json_flatten(s: str) -> map[str]str",
+      "Flatten nested JSON into an array keyed by leaf paths like `a.b[1].c` (array indexes from 1).",
+      r#"json_flatten(s)["data.account.name"]"#),
     d("to_json", JSON, "to_json(x: any) -> str", "Encode a value or array as JSON.", "to_json(arr)"),
     d("json_value", JSON, "json_value(json: str, path: str) -> str", "Single value selected by a JSONPath.",
       r#"json_value(s, "$.store.book[0].title")"#),

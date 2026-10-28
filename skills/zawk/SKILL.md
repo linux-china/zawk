@@ -320,7 +320,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Color | `hex2rgb`, `rgb2hex` |
 | Fake | `fake` |
 | Decision | `jev`, `jev_prob`, `jev_choice`, `jev_score` |
-| JSON | `from_json`, `to_json`, `json_value` (JSONPath), `json_query`, `json_has`, `json_get`, `json_set`, `json_del` |
+| JSON | `from_json`, `json_flatten`, `to_json`, `json_value` (JSONPath), `json_query`, `json_has`, `json_get`, `json_set`, `json_del` |
 | CSV | `from_csv`, `to_csv` |
 | XML | `xml_value` (XPath), `xml_query` |
 | HTML | `html_value` (CSS selector), `html_query` |

@@ -1316,6 +1316,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
+            JsonFlatten(dst,src) => self.unop(intrinsic!(json_flatten), dst, src),
             MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
             MapIntFloatToJson(dst,arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),
             MapIntStrToJson(dst,arr) => self.unop(intrinsic!(map_int_str_to_json), dst, arr),

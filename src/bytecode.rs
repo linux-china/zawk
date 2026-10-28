@@ -347,6 +347,7 @@ pub(crate) enum Instr<'a> {
     JevChoice(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     JevScore(Reg<Float>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     FromJson(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
+    JsonFlatten(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     MapIntIntToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Int>>),
     MapIntFloatToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Float>>),
     MapIntStrToJson(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
@@ -1100,7 +1101,7 @@ impl<'a> Instr<'a> {
                 data.accum(&mut f);
                 locale.accum(&mut f);
             }
-            FromJson(dst, src) => {
+            FromJson(dst, src) | JsonFlatten(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }

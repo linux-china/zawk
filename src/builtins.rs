@@ -133,6 +133,7 @@ pub enum Function {
     Hex2Rgb,
     Rgb2Hex,
     FromJson,
+    JsonFlatten,
     ToJson,
     JsonValue,
     JsonQuery,
@@ -499,6 +500,7 @@ static_map!(
     ["pg_execute", Function::PgExecute],
     ["publish", Function::Publish],
     ["from_json", Function::FromJson],
+    ["json_flatten", Function::JsonFlatten],
     ["to_json", Function::ToJson],
     ["json_value", Function::JsonValue],
     ["json_query", Function::JsonQuery],
@@ -1011,7 +1013,7 @@ impl Function {
             SqliteQuery | MysqlQuery | PgQuery => (smallvec![Str, Str, MapIntStr], MapIntStr),
             SqliteExecute | MysqlExecute | PgExecute => (smallvec![Str, Str, MapIntStr], Int),
             Publish => (smallvec![Str, Str], Null),
-            FromJson => (smallvec![Str], MapStrStr),
+            FromJson | JsonFlatten => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
             JsonValue => (smallvec![Str,Str], Str),
             JsonQuery => (smallvec![Str,Str], MapIntStr),
@@ -1158,7 +1160,7 @@ impl Function {
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt | ToInt | EscapeCSV
             | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
+            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | JsonFlatten | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
             SetFI | SetExit | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             MatchArr => 4,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -1412,7 +1414,7 @@ impl Function {
             }
             SmtpSend | SendMail => Ok(None),
             S3Get | S3Put => Ok(Scalar(BaseTy::Str).abs()),
-            FromJson => {
+            FromJson | JsonFlatten => {
                 Ok(Map {
                     key: BaseTy::Str,
                     val: BaseTy::Str,

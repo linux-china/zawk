@@ -307,6 +307,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         jev_choice(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         jev_score(str_ref_ty, str_ref_ty, str_ref_ty) -> float_ty;
         [ReadOnly] from_json(str_ref_ty) -> map_ty;
+        [ReadOnly] json_flatten(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_json(map_ty) -> str_ty;
         [ReadOnly] map_int_str_to_json(map_ty) -> str_ty;
@@ -2370,6 +2371,14 @@ pub(crate) unsafe extern "C" fn from_json(src: *mut U128) -> *mut c_void {
         let json_text = &*(src as *mut Str);
         let json_obj = runtime::json::from_json(&*json_text.as_str());
         mem::transmute::<StrMap<Str>, *mut c_void>(json_obj)
+    })
+}
+
+pub(crate) unsafe extern "C" fn json_flatten(src: *mut U128) -> *mut c_void {
+    guard_panic(stringify!(json_flatten), || {
+        let json_text = &*(src as *mut Str);
+        let flat = runtime::json::json_flatten(&*json_text.as_str());
+        mem::transmute::<StrMap<Str>, *mut c_void>(flat)
     })
 }
 

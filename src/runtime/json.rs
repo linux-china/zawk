@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write;
 use std::sync::{LazyLock, Mutex};
 use miniserde::json;
 use miniserde::json::{Value};
@@ -127,6 +128,49 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
         }
     }
     StrMap::from(map)
+}
+
+/// Flatten a JSON object (or array) into an array keyed by leaf paths: `a.b.c` for object keys
+/// and `a[1]` (1-based) for array items. Leaves are decoded like `from_json`: strings decoded,
+/// `true`/`false` as `1`/`0`, `null` as `""`; empty objects/arrays stay as `{}`/`[]`.
+/// Empty, invalid (with a warning) or scalar JSON text gives an empty array.
+pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
+    let map = StrMap::default();
+    if let Some(json @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) = parse_json("json_flatten", json_text) {
+        flatten_json_value(&json, &mut String::new(), &map);
+    }
+    map
+}
+
+fn flatten_json_value(value: &serde_json::Value, path: &mut String, map: &StrMap<Str>) {
+    let len = path.len();
+    match value {
+        serde_json::Value::Object(obj) if !obj.is_empty() => {
+            for (key, item) in obj {
+                if len > 0 {
+                    path.push('.');
+                }
+                path.push_str(key);
+                flatten_json_value(item, path, map);
+                path.truncate(len);
+            }
+        }
+        serde_json::Value::Array(arr) if !arr.is_empty() => {
+            for (i, item) in arr.iter().enumerate() {
+                let _ = write!(path, "[{}]", i + 1);
+                flatten_json_value(item, path, map);
+                path.truncate(len);
+            }
+        }
+        leaf => {
+            let text = match leaf {
+                serde_json::Value::Bool(true) => "1".to_string(),
+                serde_json::Value::Bool(false) => "0".to_string(),
+                other => json_node_text(other),
+            };
+            map.insert(Str::from(path.clone()), Str::from(text));
+        }
+    }
 }
 
 /// The start of `text` for a warning, so that a long document does not flood stderr.

@@ -4602,3 +4602,35 @@ fn warnings_respect_try_and_dedup() {
             .stderr("");
     }
 }
+
+#[test]
+fn json_flatten_paths() {
+    let prog = r#"BEGIN {
+        s = "{\"data\":{\"account\":{\"name\":\"Jackie\"}},\"status\":\"active\",\"metadata\":[{\"key\":\"x\",\"value\":\"y\"},{\"key\":\"x\",\"value\":\"z\"}]}"
+        r = json_flatten(s); print length(r), r["data.account.name"], r["status"], r["metadata[1].key"], r["metadata[2].value"]
+        r = json_flatten("{\"ok\":true,\"no\":false,\"n\":null,\"tags\":[],\"o\":{},\"m\":[[1,2],[3]],\"f\":1.5}")
+        print r["ok"], r["no"], ("n" in r), length(r["n"]), r["tags"], r["o"], r["m[1][2]"], r["m[2][1]"], r["f"]
+        r = json_flatten("[{\"a\":1},2]"); print length(r), r["[1].a"], r["[2]"]
+        print length(json_flatten("")), length(json_flatten("42")), length(json_flatten("\"abc\""))
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("6 Jackie active x z\n1 0 1 0 [] {} 2 3 1.5\n2 1 2\n0 0 0\n");
+    }
+}
+
+#[test]
+fn json_flatten_invalid_warns() {
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, r#"BEGIN { r = json_flatten("{bad"); print length(r), (ERRNO ~ /^json_flatten: invalid JSON/) }"#])
+            .assert()
+            .success()
+            .stdout("0 1\n");
+    }
+}

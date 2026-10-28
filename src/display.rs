@@ -269,6 +269,7 @@ impl Display for Function {
             PgExecute => write!(f, "pg_execute"),
             Publish => write!(f, "publish"),
             FromJson => write!(f, "from_json"),
+            JsonFlatten => write!(f, "json_flatten"),
             ToJson => write!(f, "to_json"),
             JsonValue => write!(f, "json_value"),
             JsonQuery => write!(f, "json_query"),

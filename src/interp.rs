@@ -1152,6 +1152,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    JsonFlatten(dst, src) => {
+                        let src = index(&self.strs, src);
+                        let res = runtime::json::json_flatten(&*src.as_str());
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     MapIntIntToJson(dst, arr) => {
                         let arr = self.get(*arr);
                         let dst = *dst;

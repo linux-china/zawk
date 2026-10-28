@@ -311,7 +311,7 @@ pub(crate) mod boilerplate {
             }
             Variant(dst, text) => f(dst.into(), Some(text.into())),
             Func(dst, text) => f(dst.into(), Some(text.into())),
-            FromJson(dst, src) => f(dst.into(), Some(src.into())),
+            FromJson(dst, src) | JsonFlatten(dst, src) => f(dst.into(), Some(src.into())),
             MapIntIntToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapIntFloatToJson(dst, arr) => f(dst.into(), Some(arr.into())),
             MapIntStrToJson(dst, arr) => f(dst.into(), Some(arr.into())),
