@@ -51,6 +51,7 @@ impl<R: Read> LineReader for RegexSplitter<R> {
         }
         self.start = false;
         old.diverged = false;
+        old.assigned = false;
         old.fields.clear();
         old.line = self.read_record(pat, rc)?;
         self.take_error()?;
@@ -65,6 +66,7 @@ impl<R: Read> LineReader for RegexSplitter<R> {
             fields: Default::default(),
             used_fields: self.used_fields.clone(),
             diverged: false,
+            assigned: false,
         };
         self.take_error()?;
         Ok((/* file changed */ start, line))

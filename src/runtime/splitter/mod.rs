@@ -92,6 +92,32 @@ pub trait Line<'a>: Default + Clone {
     /// Assign to NF: truncate the fields or extend them with empty fields, and rebuild $0 (with
     /// OFS) the next time it is read, even if the number of fields does not change.
     fn set_nf(&mut self, nf: Int, pat: &Str, rc: &mut RegexCache) -> Result<()>;
+    /// Whether a field or NF was assigned since the record was read or `$0` was assigned.
+    fn fields_assigned(&self) -> bool;
+    /// The record as a row of `-o csv/tsv` output: `$0` as is while no field or NF has been
+    /// assigned (a CSV/TSV record read with the same format is already a valid row), otherwise
+    /// the fields escaped with `trans` and joined with `sep`.
+    fn record<F>(
+        &mut self,
+        sep: &Str<'a>,
+        pat: &Str,
+        ofs: &Str,
+        rc: &mut RegexCache,
+        trans: F,
+    ) -> Result<Str<'a>>
+    where
+        F: FnMut(Str<'static>) -> Str<'static>,
+    {
+        if !self.fields_assigned() {
+            return self.get_col(0, pat, ofs, rc);
+        }
+        self.split_now(pat, rc)?;
+        let nf = self.nf(pat, rc)?;
+        if nf == 0 {
+            return Ok(Str::default());
+        }
+        self.join_cols(1, nf as Int, sep, nf, trans)
+    }
 }
 
 pub trait LineReader: Sized {
@@ -209,6 +235,9 @@ pub struct DefaultLine {
     // After that first line, we set diverged to true, so we know to regenerate $0 when $0 is asked
     // for. This speeds up cases where multiple fields are assigned in a row.
     diverged: bool,
+    // A field or NF was assigned since `line` was read or assigned; unlike `diverged`, this stays
+    // set after `$0` is rebuilt (see `Line::record`).
+    assigned: bool,
 }
 
 impl Default for DefaultLine {
@@ -218,6 +247,7 @@ impl Default for DefaultLine {
             used_fields: FieldSet::all(),
             fields: Vec::new(),
             diverged: false,
+            assigned: false,
         }
     }
 }
@@ -327,6 +357,7 @@ impl<'a> Line<'a> for DefaultLine {
         if col == 0 {
             self.line = s.clone().unmoor();
             self.fields.clear();
+            self.assigned = false;
             return Ok(());
         }
         let col = if col < 0 {
@@ -351,6 +382,7 @@ impl<'a> Line<'a> for DefaultLine {
         }
         self.fields[col] = s.clone().unmoor();
         self.diverged = true;
+        self.assigned = true;
         Ok(())
     }
     fn set_nf(&mut self, nf: Int, pat: &Str, rc: &mut RegexCache) -> Result<()> {
@@ -362,12 +394,17 @@ impl<'a> Line<'a> for DefaultLine {
             self.line = Str::default();
             self.fields.clear();
             self.diverged = false;
+            self.assigned = false;
             return Ok(());
         }
         self.split_all_fields(pat, rc)?;
         self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;
+        self.assigned = true;
         Ok(())
+    }
+    fn fields_assigned(&self) -> bool {
+        self.assigned
     }
 }
 

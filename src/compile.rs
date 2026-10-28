@@ -3260,6 +3260,16 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            RecordCSV => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RecordCSV(res_reg.into()))
+                }
+            }
+            RecordTSV => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::RecordTSV(res_reg.into()))
+                }
+            }
             JoinCols => {
                 if res_reg != UNUSED {
                     self.pushl(LL::JoinColumns(

@@ -2340,6 +2340,24 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             })?
                         };
                     }
+                    RecordCSV(dst) => {
+                        *index_mut(&mut self.strs, dst) = self.line.record(
+                            &",".into(),
+                            &self.core.vars.split_fs,
+                            &self.core.vars.ofs,
+                            &mut self.core.regexes,
+                            |s| runtime::escape_csv(&s),
+                        )?;
+                    }
+                    RecordTSV(dst) => {
+                        *index_mut(&mut self.strs, dst) = self.line.record(
+                            &"\t".into(),
+                            &self.core.vars.split_fs,
+                            &self.core.vars.ofs,
+                            &mut self.core.regexes,
+                            |s| runtime::escape_tsv(&s),
+                        )?;
+                    }
                     JoinColumns(dst, start, end, sep) => {
                         let nf = self.line.nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
                         *index_mut(&mut self.strs, dst) = {

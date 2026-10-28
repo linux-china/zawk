@@ -338,6 +338,8 @@ impl Display for Function {
             EscapeTSV => write!(f, "escape_tsv"),
             JoinCSV => write!(f, "join_csv"),
             JoinTSV => write!(f, "join_tsv"),
+            RecordCSV => write!(f, "record_csv"),
+            RecordTSV => write!(f, "record_tsv"),
             JoinCols => write!(f, "join_fields"),
             Substr => write!(f, "substr"),
             CharAt => write!(f, "char_at"),

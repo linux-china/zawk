@@ -213,6 +213,9 @@ pub enum Function {
     JoinCols,
     JoinCSV,
     JoinTSV,
+    // `print` and `print $0` under `-o csv/tsv` (see `Line::record`); not callable by name.
+    RecordCSV,
+    RecordTSV,
     IntMapJoin,
     Uniq,
     TypeOfVariable,
@@ -1142,6 +1145,7 @@ impl Function {
             }
             JoinCols => (smallvec![Int, Int, Str], Str),
             JoinCSV | JoinTSV => (smallvec![Int, Int], Str),
+            RecordCSV | RecordTSV => (smallvec![], Str),
             SetFI => (smallvec![Int, Int], Int),
         })
     }
@@ -1155,7 +1159,7 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | RecordCSV | RecordTSV | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
             | ReadLineStdinFused | Exiting => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt | ToInt | EscapeCSV
@@ -1283,7 +1287,7 @@ impl Function {
                 key: BaseTy::Str,
                 val: BaseTy::Str,
             }.abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
+            ToUpper | ToLower | JoinCSV | JoinTSV | RecordCSV | RecordTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
             | EscapeCSV | EscapeTSV | Escape
             | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
             | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv | TypeOfVariable | TypeOfUntyped | IntMapJoin => {

@@ -1016,6 +1016,16 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(join_tsv), &mut [rt, startv, endv])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            RecordCSV(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(record_csv), &mut [rt])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            RecordTSV(dst) => {
+                let rt = self.runtime_val();
+                let resv = self.call_intrinsic(intrinsic!(record_tsv), &mut [rt])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Uuid(dst, version) => {
                 let version = self.get_val(version.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(uuid), &mut [version])?;

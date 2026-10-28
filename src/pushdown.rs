@@ -307,6 +307,11 @@ impl UsedFieldAnalysis {
                 self.dfa.add_src(dst, FieldSet::all());
                 self.dfa.add_query(dst);
             }
+            // The whole record: $0 as read, or all of the fields once one was assigned.
+            RecordCSV(dst) | RecordTSV(dst) => {
+                self.dfa.add_src(dst, FieldSet::all());
+                self.dfa.add_query(dst);
+            }
             JoinCSV(dst, start, end)
             | JoinTSV(dst, start, end)
             | JoinColumns(dst, start, end, _) => {

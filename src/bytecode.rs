@@ -229,6 +229,8 @@ pub(crate) enum Instr<'a> {
         Reg<Int>,     /* start col */
         Reg<Int>,     /* end col */
     ),
+    RecordCSV(Reg<Str<'a>>),
+    RecordTSV(Reg<Str<'a>>),
     JoinColumns(
         Reg<Str<'a>>, /* dst */
         Reg<Int>,     /* start col */
@@ -1798,6 +1800,7 @@ impl<'a> Instr<'a> {
                 start.accum(&mut f);
                 end.accum(&mut f);
             }
+            RecordCSV(dst) | RecordTSV(dst) => dst.accum(&mut f),
             JoinColumns(dst, start, end, sep) => {
                 dst.accum(&mut f);
                 start.accum(&mut f);

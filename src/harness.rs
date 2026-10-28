@@ -739,6 +739,25 @@ it has one more line"#
         @input "1,a 2,b 3,c 4,d 5,e"
     );
 
+    // `print` and `print $0` write one CSV row: the record as read until a field is assigned,
+    // then each field escaped (even after `$0` was rebuilt by reading it).
+    test_program!(
+        csv_print_record_after_assign,
+        r#"{ print; print $0; $1 = "X,\"Y"; print; x = $0; print $0; NF = 3; print }"#,
+        concat!(
+            r#""a",b"#, "\n", r#""a",b"#, "\n",
+            r#""X,""Y",b"#, "\n", r#""X,""Y",b"#, "\n", r#""X,""Y",b,"#, "\n"
+        ),
+        @input r#""a",b"#, @types [], @out_fmt Escaper::CSV, @csv Some(InputFormat::CSV)
+    );
+
+    test_program!(
+        tsv_print_record_after_assign,
+        r#"{ $1 = "X\tY"; print; print $0; $0 = "p,q"; print }"#,
+        "X\\tY\tb\nX\\tY\tb\np,q\n",
+        @input "a,b", @types [], @out_fmt Escaper::TSV, @csv Some(InputFormat::CSV)
+    );
+
     test_program!(
         raw_getline,
         r#"{ print "even", $0; getline; print "odd", $0; }"#,

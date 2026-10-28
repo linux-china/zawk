@@ -329,6 +329,9 @@ pub struct Line {
     ifmt: InputFormat,
     // A field or NF was assigned since `raw` was last set: `$0` must be rebuilt from the fields.
     diverged: bool,
+    // A field or NF was assigned since the record was read or `$0` was assigned; unlike
+    // `diverged`, this stays set after `$0` is rebuilt (see `Line::record`).
+    assigned: bool,
 }
 
 impl Line {
@@ -419,6 +422,7 @@ impl<'a> super::Line<'a> for Line {
             self.raw = s.clone().unmoor();
             self.fields = self.raw.with_bytes(|bs| split_record(bs, self.ifmt));
             self.diverged = false;
+            self.assigned = false;
             return Ok(());
         }
         let col = col as usize - 1;
@@ -427,6 +431,7 @@ impl<'a> super::Line<'a> for Line {
         }
         self.fields[col] = s.clone().unmoor();
         self.diverged = true;
+        self.assigned = true;
         Ok(())
     }
     fn set_nf(&mut self, nf: super::Int, _pat: &Str, _rc: &mut super::RegexCache) -> Result<()> {
@@ -435,7 +440,11 @@ impl<'a> super::Line<'a> for Line {
         }
         self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;
+        self.assigned = true;
         Ok(())
+    }
+    fn fields_assigned(&self) -> bool {
+        self.assigned
     }
 }
 
@@ -510,6 +519,7 @@ impl Line {
         self.raw = Str::default();
         self.len = 0;
         self.diverged = false;
+        self.assigned = false;
     }
 }
 
@@ -1972,6 +1982,7 @@ where
     ) -> Result<bool> {
         let start = self.cur_chunk_version() == 0;
         old.diverged = false;
+        old.assigned = false;
         // We use the same protocol as DefaultSplitter, RegexSplitter. See comments for more info.
         if start {
             old.used_fields = self.used_fields.clone();

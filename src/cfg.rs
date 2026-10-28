@@ -1094,18 +1094,29 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 // Why a macro? breaking this out into methods too easily runs afoul of aliasing
                 // rules, a previous version here had to split out several local variables into
                 // parameters of outer functions; it was a lot more code.
-                if vs.is_empty() {
-                    let tmp = self.fresh_local();
-                    self.add_stmt(
-                        current_open,
-                        PrimStmt::AsgnVar(
-                            tmp,
-                            PrimExpr::CallBuiltin(
-                                builtins::Function::Unop(Unop::Column),
-                                smallvec![PrimVal::ILit(0)],
-                            ),
+                //
+                // `print` and `print $0` print the record. Under `-o csv/tsv` that is one row:
+                // `$0` as is, or once a field was assigned, each field escaped (rather than `$0`
+                // rebuilt with OFS, or escaped as a single field).
+                let whole_record = match &vs[..] {
+                    [] => true,
+                    [e] => {
+                        !matches!(self.ctx.esc, Escaper::Identity)
+                            && matches!(e, ast::Expr::Unop(Unop::Column, ast::Expr::ILit(0)))
+                    }
+                    _ => false,
+                };
+                if whole_record {
+                    let record = match self.ctx.esc {
+                        Escaper::CSV => PrimExpr::CallBuiltin(builtins::Function::RecordCSV, smallvec![]),
+                        Escaper::TSV => PrimExpr::CallBuiltin(builtins::Function::RecordTSV, smallvec![]),
+                        Escaper::Identity => PrimExpr::CallBuiltin(
+                            builtins::Function::Unop(Unop::Column),
+                            smallvec![PrimVal::ILit(0)],
                         ),
-                    )?;
+                    };
+                    let tmp = self.fresh_local();
+                    self.add_stmt(current_open, PrimStmt::AsgnVar(tmp, record))?;
                     self.add_stmt(
                         current_open,
                         PrimStmt::PrintAll(smallvec![PrimVal::Var(tmp), ors], out.clone()),

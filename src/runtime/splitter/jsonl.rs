@@ -96,6 +96,9 @@ pub struct JsonlLine {
     fields: Vec<Str<'static>>,
     // A column was assigned, so $0 must be rebuilt from the fields.
     diverged: bool,
+    // A column or NF was assigned since the record was read or `$0` was assigned; unlike
+    // `diverged`, this stays set after `$0` is rebuilt (see `Line::record`).
+    assigned: bool,
 }
 
 impl<'a> Line<'a> for JsonlLine {
@@ -161,6 +164,7 @@ impl<'a> Line<'a> for JsonlLine {
         if col == 0 {
             self.line = s.clone().unmoor();
             self.diverged = false;
+            self.assigned = false;
             return Ok(());
         }
         let col = col as usize - 1;
@@ -169,6 +173,7 @@ impl<'a> Line<'a> for JsonlLine {
         }
         self.fields[col] = s.clone().unmoor();
         self.diverged = true;
+        self.assigned = true;
         Ok(())
     }
     fn set_nf(&mut self, nf: Int, _pat: &Str, _rc: &mut RegexCache) -> Result<()> {
@@ -179,11 +184,16 @@ impl<'a> Line<'a> for JsonlLine {
             self.line = Str::default();
             self.fields.clear();
             self.diverged = false;
+            self.assigned = false;
             return Ok(());
         }
         self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;
+        self.assigned = true;
         Ok(())
+    }
+    fn fields_assigned(&self) -> bool {
+        self.assigned
     }
 }
 
@@ -273,11 +283,13 @@ impl JsonlReader {
             .extend(names.iter().map(|n| Str::from(n.clone()).unmoor()));
         out.line = Str::from(names.join(",")).unmoor();
         out.diverged = false;
+        out.assigned = false;
     }
 
     /// Split `line` into `out`. Returns false if the line is neither blank nor valid JSON.
     fn fill(&mut self, line: Str<'static>, out: &mut JsonlLine) -> bool {
         out.diverged = false;
+        out.assigned = false;
         out.fields.clear();
         let shared = &self.shared;
         let schema = &mut self.schema;

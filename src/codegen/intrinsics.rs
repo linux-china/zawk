@@ -135,6 +135,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] get_col(rt_ty, int_ty) -> str_ty;
         [ReadOnly] join_csv(rt_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] join_tsv(rt_ty, int_ty, int_ty) -> str_ty;
+        [ReadOnly] record_csv(rt_ty) -> str_ty;
+        [ReadOnly] record_tsv(rt_ty) -> str_ty;
         [ReadOnly] join_cols(rt_ty, int_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] to_upper_ascii(str_ref_ty) -> str_ty;
         [ReadOnly] to_lower_ascii(str_ref_ty) -> str_ty;
@@ -1179,6 +1181,37 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
         );
         mem::transmute::<Str, U128>(res)
     })
+}
+
+pub(crate) unsafe extern "C" fn record_csv(runtime: *mut c_void) -> U128 {
+    guard_panic(stringify!(record_csv), || line_record(runtime, ",", |s| runtime::escape_csv(&s)))
+}
+
+pub(crate) unsafe extern "C" fn record_tsv(runtime: *mut c_void) -> U128 {
+    guard_panic(stringify!(record_tsv), || line_record(runtime, "\t", |s| runtime::escape_tsv(&s)))
+}
+
+unsafe fn line_record(
+    runtime: *mut c_void,
+    sep: &'static str,
+    trans: fn(Str<'static>) -> Str<'static>,
+) -> U128 {
+    let sep: Str<'static> = sep.into();
+    let runtime = &mut *(runtime as *mut Runtime);
+    let res = try_abort!(
+        runtime,
+        with_input!(&mut runtime.input_data, |(line, _)| {
+            line.record(
+                &sep,
+                &runtime.core.vars.split_fs,
+                &runtime.core.vars.ofs,
+                &mut runtime.core.regexes,
+                trans,
+            )
+        }),
+        "record:"
+    );
+    mem::transmute::<Str, U128>(res)
 }
 
 pub(crate) unsafe extern "C" fn uuid(version: *mut U128) -> U128 {
