@@ -345,6 +345,9 @@ one warning to stderr and return an empty value (`0` for an HTTP status). The fa
 `sqlite_query: no such table: users`), which is never cleared by a success: `ERRNO = ""; r = f(...); if (ERRNO != "") ...`.
 Shorter: `r = try f(...) else fallback(ERRNO)` clears `ERRNO`, evaluates `f(...)` without printing warnings, and
 gives `fallback(ERRNO)` on failure (`else` is required; `try` is a keyword).
+`http_get`/`http_post` only fail (status `0`, `ERRNO` set) on a network error: a 4xx/5xx response is returned as
+is without `ERRNO`, so check the status (`r = http_get(url); body = r["status"] ~ /^2/ ? r["text"] : ""`) or use
+`body = try read_all(url) else ""`, which fails on an HTTP status >= 400.
 
 ## Pitfalls (differences from gawk)
 
