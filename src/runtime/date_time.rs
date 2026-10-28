@@ -177,7 +177,7 @@ pub fn mktime(date_time_text: &str, utc: bool, timezone: i64) -> i64 {
 
 fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
     // gawk format first, so that the lenient parsers below cannot misread it
-    if let Some(naive) = parse_gawk_date_time(date_time_text) {
+    if let Some(naive) = parse_gawk_date_time(date_time_text).or_else(|| parse_iso_local_date_time(date_time_text)) {
         return local_timestamp(tz, &naive);
     }
     if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone())
@@ -252,6 +252,15 @@ fn parse_gawk_date_time(text: &str) -> Option<NaiveDateTime> {
     NaiveDate::from_ymd_opt(year, month, 1)?
         .and_hms_opt(0, 0, 0)?
         .checked_add_signed(chrono::TimeDelta::try_seconds(seconds)?)
+}
+
+/// ISO 8601 local date time without an offset, e.g. `2021-05-01T01:17:02`, which neither
+/// systemd time nor dateparser accepts: `YYYY-MM-DDTHH:MM[:SS[.fraction]]`.
+fn parse_iso_local_date_time(text: &str) -> Option<NaiveDateTime> {
+    let text = text.trim();
+    ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M"]
+        .iter()
+        .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
 }
 
 fn is_fend_date(text: &str) -> bool {
@@ -490,6 +499,18 @@ mod tests {
     fn test_datetime_invalid_text_is_empty() {
         assert_eq!(datetime("not a date").len(), 0);
         assert!(datetime("2024-01-15").len() > 0);
+    }
+
+    #[test]
+    fn test_mktime_iso_local() {
+        assert_eq!(mktime("2021-05-01T01:17:02", true, MKTIME_LOCAL_TIMEZONE), 1619831822);
+        assert_eq!(mktime("2021-05-01T01:17", true, MKTIME_LOCAL_TIMEZONE), 1619831820);
+        assert_eq!(mktime("2021-05-01T01:17:02.500", true, MKTIME_LOCAL_TIMEZONE), 1619831822);
+        assert_eq!(mktime("2021-05-01T01:17:02", false, 8), 1619831822 - 8 * 3600);
+        assert_ne!(mktime("2021-05-01T01:17:02", false, MKTIME_LOCAL_TIMEZONE), -1);
+        // explicit offsets still win
+        assert_eq!(mktime("2021-05-01T01:17:02Z", false, 8), 1619831822);
+        assert_eq!(mktime("2021-05-01T01:17:02+08:00", true, MKTIME_LOCAL_TIMEZONE), 1619831822 - 8 * 3600);
     }
 
     #[test]
