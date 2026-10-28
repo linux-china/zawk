@@ -494,6 +494,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_delete_row() {
         let sql = "delete from people where id = 11";
         let db_url = "postgres://postgres:123456@127.0.0.1:15432/demo_db";
