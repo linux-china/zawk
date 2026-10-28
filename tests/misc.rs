@@ -3621,6 +3621,41 @@ END { y = digest("NOPE", "x"); print "END ERRNO=" ERRNO }"#;
 }
 
 #[test]
+fn try_else_array_results() {
+    // `E` may return an array: a scalar `F` then gives a new empty array (F is still evaluated),
+    // an array `F` is the result.
+    let prog = r#"function fail(m) { print m; return 0 }
+function g(s) { local empty[]; return try from_json(s) else empty }
+BEGIN {
+    rows = try sqlite_query("tests/demo.sqlite3", "select 1 as a") else ""; print length(rows), rows[1]
+    rows = try sqlite_query("tests/demo.sqlite3", "select * from nope") else fail("query failed: " ERRNO)
+    print length(rows)
+    r = try from_json("[1,2]") else ""; print length(r), r[2]
+    for (i = 0; i < 3; i++) { s = try from_json(i == 1 ? "[" : "[7]") else ""; s["k"] = 1; print i, length(s) }
+    d["x"] = 5; t = try from_json("{") else d; print length(t), t["x"]
+    t = try from_json("{") else NONE; t["k"] = 1; print length(t), length(NONE)
+    print length(g("{")), length(g("[1,2,3]"))
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout(
+                "1 1\nquery failed: sqlite_query: no such table: nope\n0\n2 2\n0 2\n1 1\n2 2\n1 5\n1 0\n0 3\n",
+            )
+            .stderr("");
+    }
+    // A scalar `E` with an array `F` is still an error.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(r#"BEGIN { x = try json_value("{", "$.a") else d; d[1] = 1 }"#)
+        .assert()
+        .failure();
+}
+
+#[test]
 fn try_else_errors() {
     // `try` needs `else`, and is a keyword.
     for prog in ["BEGIN { x = try f() }", "BEGIN { try += 1 }"] {

@@ -2166,8 +2166,21 @@ pub(crate) trait CodeGenerator: Backend {
                 self.iter_getnext((*dst, iter_ty.iter()?), (*iter, *iter_ty))
             }
             Push(_, _) | Pop(_, _) => err!("unexpected explicit push/pop in llvm"),
-            AllocMap(_, _) => {
-                err!("unexpected AllocMap (allocs are handled differently in LLVM)")
+            // Locals are allocated on function entry; this is a new empty array in the middle of
+            // a function (the fallback of `try E else F`).
+            AllocMap(ty, reg) => {
+                use compile::Ty::*;
+                let alloc = match ty {
+                    MapIntInt => intrinsic!(alloc_intint),
+                    MapIntFloat => intrinsic!(alloc_intfloat),
+                    MapIntStr => intrinsic!(alloc_intstr),
+                    MapStrInt => intrinsic!(alloc_strint),
+                    MapStrFloat => intrinsic!(alloc_strfloat),
+                    MapStrStr => intrinsic!(alloc_strstr),
+                    _ => return err!("unexpected AllocMap of non-map type {:?}", ty),
+                };
+                let map = self.call_intrinsic(alloc, &mut [])?;
+                self.bind_val((*reg, *ty), map)
             }
             Ret | Jmp(_) | JmpIf(_, _) | Call(_) => {
                 err!("unexpected bytecode-level control flow")

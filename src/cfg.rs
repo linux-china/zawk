@@ -1736,7 +1736,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 return Ok((join, PrimExpr::Val(PrimVal::Var(res))));
             }
             Try(e, f) => {
-                // try_scope(1); res = e; ok = try_scope(0); if (!ok) res = f
+                // try_scope(1); res = e; ok = try_scope(0); if (!ok) res = try_else(res, f)
                 use builtins::Function::TryScope;
                 let scope = |begin| PrimExpr::CallBuiltin(TryScope, smallvec![PrimVal::ILit(begin)]);
                 let ok = self.fresh_local();
@@ -1747,7 +1747,14 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.add_stmt(next, PrimStmt::AsgnVar(res, ev))?;
                 self.add_stmt(next, PrimStmt::AsgnVar(ok, scope(0)))?;
                 let (fstart, fend, fe) = self.standalone_expr(f, in_cond)?;
-                self.add_stmt(fend, PrimStmt::AsgnVar(res, fe))?;
+                // `try_else` gives an empty array for a scalar `F` when `E` returns an array.
+                let fv = self.fresh_local();
+                self.add_stmt(fend, PrimStmt::AsgnVar(fv, fe))?;
+                let fallback = PrimExpr::CallBuiltin(
+                    builtins::Function::TryElse,
+                    smallvec![PrimVal::Var(res), PrimVal::Var(fv)],
+                );
+                self.add_stmt(fend, PrimStmt::AsgnVar(res, fallback))?;
                 let t_node = self.f.cfg.add_node(Default::default());
                 let join = self.f.cfg.add_node(Default::default());
                 self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(ok)));

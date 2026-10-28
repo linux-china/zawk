@@ -360,6 +360,7 @@ impl Display for Function {
             SetExit => write!(f, "set_exit"),
             Exiting => write!(f, "exiting"),
             TryScope => write!(f, "try_scope"),
+            TryElse => write!(f, "try_else"),
         }
     }
 }

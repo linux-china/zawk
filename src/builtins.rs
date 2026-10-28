@@ -252,6 +252,9 @@ pub enum Function {
     // `try E else F`: with 1, enter `E` (returns 0); with 0, leave it, returning 1 if `E`
     // succeeded; with -1 (`exit`), leave every `try`. See `runtime::try_scope`.
     TryScope,
+    // The result of `try E else F` when `E` fails: `try_else(e, f)` is `f`, unless `E` returns an
+    // array and `f` is a scalar: then it is a new empty array (`f` is only evaluated).
+    TryElse,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -714,6 +717,10 @@ impl Function {
             return;
         }
         match self {
+            // An array `F` gets the type of the result (as with `res = F`).
+            Function::TryElse => {
+                ctx.nw.add_dep(res, args[1], Constraint::FlowsIfMap((), args[1]));
+            }
             Function::Split => {
                 let arg1 = ctx.constant(
                     Map {
@@ -1128,6 +1135,10 @@ impl Function {
             SetExit => (smallvec![Int, Int], Int),
             Exiting => (smallvec![], Int),
             TryScope => (smallvec![Int], Int),
+            TryElse if incoming[0].is_array() && !incoming[1].is_array() => {
+                (smallvec![incoming[0], incoming[1]], incoming[0])
+            }
+            TryElse => (smallvec![incoming[0], incoming[1]], incoming[1]),
             // Split's second input can be a map of either type
             Split => {
                 if let MapIntStr | MapStrStr = incoming[1] {
@@ -1185,7 +1196,7 @@ impl Function {
             MatchArr => 4,
             JoinCSV | JoinTSV | Delete | Contains => 2,
             Eval => 2,
-            DefaultIfEmpty => 2,
+            DefaultIfEmpty | TryElse => 2,
             JsonValue | JsonQuery | HtmlValue | HtmlQuery | XmlValue | XmlQuery => 2,
             JsonHas | JsonGet | JsonDel => 2,
             JsonSet => 3,
@@ -1294,6 +1305,13 @@ impl Function {
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
             | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
             | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
+            // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
+            TryElse => match (&args[0], &args[1]) {
+                (Some(Map { .. }), Some(Map { .. })) => Ok(args[1]),
+                (Some(Map { .. }), _) => Ok(args[0]),
+                (Some(_), _) => Ok(args[1]),
+                (None, _) => Ok(None),
+            },
             ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),
             ArrayTop => Ok(Map {
                 key: BaseTy::Int,

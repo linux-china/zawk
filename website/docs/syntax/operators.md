@@ -60,8 +60,10 @@ How it works:
 Rules worth knowing:
 
 - `else` is required, and `try` is a keyword.
-- `E` and `F` must both be scalars or both be arrays. `http_get` returns an array, so
-  `try http_get(url)["text"] else ""` is fine, while `try http_get(url) else ""` is an error.
+- `E` may return an array (`http_get`, `sqlite_query`, `from_json`, ...): when it fails, a scalar `F` gives an
+  empty array (`F` is still evaluated, e.g. to report the error), and an array `F` is the result. So both
+  `try http_get(url) else ""` and `try http_get(url)["text"] else ""` work. A scalar `E` with an array `F` is an
+  error.
 - `F` extends to the end of the expression: `x = try f() else g() + 1` falls back to `g() + 1`. As an operand of
   another operator, parenthesize: `"id: " (try f() else "none")`.
 - A failure handled by an inner `try` doesn't count for an outer one.

@@ -341,6 +341,8 @@ pub(crate) enum Constraint<T> {
     IterVal(T),
     IterValIn(T),
     Flows(T),
+    // Flows into the given node only if that node is an array (the array fallback of `try`).
+    FlowsIfMap(T, NodeIx),
     // TODO(ezr): have a shared Vec and just store a slice here?
     CallBuiltin(SmallVec<NodeIx>, builtins::Function),
     CallUDF(
@@ -360,6 +362,7 @@ impl<T> Constraint<T> {
             Constraint::IterValIn(_) => Constraint::IterValIn(s),
             Constraint::IterVal(_) => Constraint::IterVal(s),
             Constraint::Flows(_) => Constraint::Flows(s),
+            Constraint::FlowsIfMap(_, to) => Constraint::FlowsIfMap(s, *to),
             Constraint::CallBuiltin(args, f) => Constraint::CallBuiltin(args.clone(), *f),
             Constraint::CallUDF(nix, args, f) => Constraint::CallUDF(*nix, args.clone(), *f),
         }
@@ -415,6 +418,10 @@ impl Constraint<State> {
             ),
 
             Constraint::Flows(s) => Ok(*s),
+            Constraint::FlowsIfMap(s, to) => match tc.nw.read(*to) {
+                Some(TVar::Map { .. }) => Ok(*s),
+                _ => Ok(None),
+            },
             Constraint::CallBuiltin(args, f) => {
                 let arg_state: SmallVec<State> = args.iter().map(|ix| *tc.nw.read(*ix)).collect();
                 f.step(&arg_state[..])

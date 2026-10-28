@@ -44,18 +44,17 @@ _Binary operators:_
   id   = try json_value(s, "$.id") else error_handler(ERRNO)
   try save(rec) else log_error(ERRNO)        # as a statement
   ```
-  * `E` and `F` must both be scalars or both be arrays. `http_get` returns an array (`r["status"]`, `r["text"]`),
-    so a scalar fallback is an error:
+  * `E` may return an array, such as `http_get` (`r["status"]`, `r["text"]`), `sqlite_query` or `from_json`.
+    When it fails and `F` is a scalar, the result is a new empty array of the type of `E` (`F` is still
+    evaluated, e.g. to report the error); when `F` is an array, the result is `F`:
     ```awk
-    r    = try http_get(url) else ""            # error: attempt to use an array in a scalar context
+    r    = try http_get(url) else ""            # array: empty if http_get failed
+    rows = try sqlite_query(db, sql) else fail("query failed: " ERRNO)
     body = try http_get(url)["text"] else ""    # scalar: E is the "text" element
-    r    = try http_get(url) else NONE          # array: NONE is never assigned, so it is an empty array
-    if (ERRNO != "") print "failed: " ERRNO
+    r    = try http_get(url) else defaults      # array: the array `defaults` if http_get failed
     ```
-    A variable that is never assigned is an empty array of the type of `E`. As arrays are passed by reference,
-    `r` is then the array `NONE` itself: writing `r["k"]` also changes `NONE`. In a function, declare a fresh
-    empty array instead: `local empty[]; return try http_get(url) else empty`. A parse function such as
-    `from_json("")` also gives an empty array, but of a fixed type (`map[str]str`), which may not be the type of `E`.
+    As arrays are passed by reference, `r` is then the array `defaults` itself: writing `r["k"]` also changes
+    `defaults`. A scalar `E` with an array `F` is an error.
   * `else` is required, and `try` is a keyword (it can't name a variable or function).
   * `E` is a conditional expression and `F` extends to the end of an assignment: `x = try f() else g() + 1`
     falls back to `g() + 1`. A newline may follow `else`. As the operand of a concatenation or another

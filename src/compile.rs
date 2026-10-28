@@ -1681,6 +1681,12 @@ impl<'a, 'b> View<'a, 'b> {
                 }
                 self.pushl(LL::TryScope(res_reg.into(), conv_regs[0].into()))
             }
+            TryElse if !conv_tys[1].is_array() && res_ty.is_array() => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::AllocMap(res_ty, res_reg))
+                }
+            }
+            TryElse => self.mov(res_reg, conv_regs[1], res_ty)?,
             ReadErr => {
                 if res_reg != UNUSED {
                     self.pushl(LL::ReadErr(
