@@ -98,7 +98,7 @@ tl = { version = "0.7" }
 logos = "0.16.1"
 local-ip-address = "0.6"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
-async-nats = { version = "0.50", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
+async-nats = { version = "0.51", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
 opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry"] }
 # the reqwest transport of opendal without its aws-lc-rs provider: rustls uses ring, as the other dependencies do
@@ -132,7 +132,7 @@ unicode-segmentation = "1.13"
 unicode-width = "0.2"
 fake = "5.1"
 identitycard = "0.1"
-passwords = "3.1.18"
+passwords = "3.1.19"
 prometheus-parse = "0.2"
 figlet-rs = "1.0"
 ini = "2.0"
