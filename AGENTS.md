@@ -30,6 +30,7 @@ Please ignore the following differences with gawk：
 Security:
 
 - http is allowed 
+- No taint check required to execute command, and it is supported by third sandbox tool.
 
 Architecture: 
 
