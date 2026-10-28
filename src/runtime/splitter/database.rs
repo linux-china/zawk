@@ -361,19 +361,36 @@ mod mysql {
             .map(|c| DbColumn { name: c.name_str().into_owned(), db_type: Some(type_name(c).to_string()) })
             .collect();
         if !sink.columns(db_columns) {
+            abandon(result);
             return Ok(());
         }
         // Only the first result set is read.
-        if let Some(set) = result.iter() {
-            for row in set {
+        let mut stopped = false;
+        if let Some(mut set) = result.iter() {
+            while let Some(row) = set.next() {
                 let row = row.map_err(error_text)?;
                 let values = columns.iter().enumerate().map(|(i, c)| value(c, row.as_ref(i))).collect();
                 if !sink.row(values) {
-                    return Ok(());
+                    stopped = true;
+                    break;
                 }
             }
+            if stopped {
+                std::mem::forget(set);
+            }
+        }
+        if stopped {
+            abandon(result);
         }
         Ok(())
+    }
+
+    /// Gives up on the rest of `result` when the reader stops early. Dropping a `QueryResult`
+    /// (or a `ResultSet`) reads every remaining row first, so it is forgotten instead: dropping
+    /// the connection then closes the socket, and the server aborts the query. This leaks the
+    /// small state of the result (column definitions), once per abandoned query.
+    fn abandon<T: mysql::prelude::Protocol>(result: mysql::QueryResult<'_, '_, '_, T>) {
+        std::mem::forget(result);
     }
 
     fn is_binary(c: &Column) -> bool {
@@ -606,6 +623,34 @@ mod tests {
         assert_eq!(types, ["VARBINARY", "VARCHAR", "DECIMAL", "DATE", "VARCHAR"]);
         let err = DbTable::open("mysql://root:wrong@127.0.0.1:3306/test#people").err().unwrap().to_string();
         assert!(err.starts_with("cannot read `mysql://root:***@") && err.contains("ERROR 1045"), "{}", err);
+    }
+
+    #[test]
+    #[ignore = "needs the MySQL server of AGENTS.md"]
+    fn test_mysql_stop_early() {
+        use ::mysql::prelude::Queryable;
+        let url = "mysql://root:123456@127.0.0.1:3306/test";
+        // millions of rows, tagged to be found in the process list
+        let sql = "select 'zawk_stop_early', a.ordinal_position, repeat('x', 200) \
+                   from information_schema.columns a, information_schema.columns b, information_schema.columns c";
+        let mut table = DbTable::open(&format!("{}#{}", url, sql)).unwrap();
+        for _ in 0..3 {
+            table.next_row().unwrap().unwrap();
+        }
+        drop(table);
+        let opts = crate::runtime::mysql::opts(url).unwrap();
+        let mut conn = ::mysql::Conn::new(opts).unwrap();
+        let mut running = || {
+            let rows: Vec<Option<String>> = conn
+                .query("select info from information_schema.processlist where info like '%zawk_stop_early%' and info not like '%processlist%'")
+                .unwrap();
+            !rows.is_empty()
+        };
+        let start = std::time::Instant::now();
+        while running() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(3), "the query still runs");
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
 
     #[test]
