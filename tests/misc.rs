@@ -2900,6 +2900,27 @@ fn builtin_variable_and_array_argument_errors_are_located() {
         "line 1, column 21: sqlite_execute: argument 3 must be an array with integer keys (a[1], a[2], ...) \
          of type map[int]str, but array `k` has type map[str]str",
     );
+    // A scalar passed to an array parameter of a builtin: the message names the argument.
+    assert_fatal(
+        r#"BEGIN { r = sqlite_query("db", "select ?", 30); print r[1] }"#,
+        "line 1, column 13: sqlite_query: argument 3 must be an array, but a scalar value is given",
+    );
+    assert_fatal(
+        r#"BEGIN { x = split("a b", 5) }"#,
+        "line 1, column 13: split: argument 2 must be an array, but a scalar value is given",
+    );
+    assert_fatal(
+        r#"BEGIN { y = 3; x = split("a b", y) }"#,
+        "line 1, column 20: split: argument 2 must be an array, but `y` is a scalar",
+    );
+    assert_fatal(
+        "BEGIN { n = asorti(3, b) }",
+        "line 1, column 13: asorti: argument 1 must be an array, but a scalar value is given",
+    );
+    assert_fatal(
+        r#"function f(a) { return split("a b", a) } BEGIN { print f(1) }"#,
+        "split: argument 2 must be an array, but `a` (parameter of function `f`) is a scalar",
+    );
     // A for-in loop variable cannot be a builtin array: reported as a syntax error.
     for prog in ["BEGIN { x[1] = 1; for (k, ARGV in x) n++ }", "BEGIN { x[1] = 1; for (ENVIRON in x) n++ }"] {
         let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
@@ -2925,7 +2946,10 @@ fn udf_array_params_of_different_types() {
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(r#"BEGIN { print "[" _join(e) "]" }"#).assert().stdout("[]\n");
     }
-    assert_fatal("BEGIN { print _join(5) }", "line 1, column 15: attempt to use a scalar value as an array");
+    assert_fatal(
+        "BEGIN { print _join(5) }",
+        "line 1, column 15: _join: argument 1 must be an array, but a scalar value is given",
+    );
     assert_fatal(
         r#"BEGIN { x["a"] = 1; print _join(x) }"#,
         "line 1, column 27: _join: argument 1 must be an array with integer keys",

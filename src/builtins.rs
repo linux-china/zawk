@@ -1150,6 +1150,22 @@ impl Function {
         })
     }
 
+    /// The (0-based) positions of the parameters that must be arrays, for the builtins called by
+    /// name. Used to report a scalar passed where an array is expected.
+    pub(crate) fn array_params(&self) -> &'static [usize] {
+        use Function::*;
+        match self {
+            Asort | Asorti => &[0, 1],
+            Split | HttpGet => &[1],
+            SplitSeps | PatSplit => &[1, 3],
+            MatchArr | HttpPost | Jwt => &[2],
+            SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => &[2],
+            ArrayStat | ArrayCountDistinct | ArrayTop | ArrayMax | ArrayMin | ArraySum | ArrayMean
+            | IntMapJoin | ToCsv | Uniq => &[0],
+            _ => &[],
+        }
+    }
+
     pub(crate) fn arity(&self) -> Option<usize> {
         use Function::*;
         if let Binop(ast::Binop::Concat) = self {

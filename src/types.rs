@@ -761,10 +761,13 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             res = tc.solve();
         }
         if let Err(e) = res {
-            // A scalar local used as an array may make another value conflict first.
+            // A scalar local used as an array may make another value conflict first, as may a
+            // scalar passed to an array parameter of a builtin.
             tc.check_scalar_locals()?;
+            tc.check_builtin_array_params()?;
             return Err(e);
         }
+        tc.check_builtin_array_params()?;
         tc.check_builtin_args()?;
         tc.check_udf_array_args()?;
         tc.check_scalar_locals()?;
@@ -948,6 +951,46 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
             for c in self.nw.call_deps.get(&ix).iter().flat_map(|c| c.iter()) {
                 self.nw.wl.insert(*c);
+            }
+        }
+        Ok(())
+    }
+
+    /// Check that no scalar is passed to a parameter of a builtin function that must be an array,
+    /// e.g. `split(s, 5)`. Done before reporting other errors: the array flowing into the scalar
+    /// argument makes the conflict show up elsewhere, or only when the call is compiled.
+    fn check_builtin_array_params(&self) -> Result<()> {
+        use petgraph::visit::EdgeRef;
+        for edge in self.nw.graph.raw_edges() {
+            let Constraint::CallBuiltin(args, f) = &edge.weight.constraint else {
+                continue;
+            };
+            let Some(name) = f.awk_name() else { continue };
+            for &i in f.array_params() {
+                let Some(arg) = args.get(i) else { continue };
+                // A variable may already have become an array when the scalar assigned to it
+                // conflicted: check the values flowing into it too.
+                let is_scalar = |ix: NodeIx| {
+                    matches!(self.nw.read(ix), Some(TVar::Scalar(Some(b))) if *b != BaseTy::Null)
+                };
+                let receives_scalar = self
+                    .nw
+                    .graph
+                    .edges_directed(*arg, petgraph::Direction::Incoming)
+                    .any(|e| matches!(e.weight().constraint, Constraint::Flows(_)) && is_scalar(e.source()));
+                if !is_scalar(*arg) && !receives_scalar {
+                    continue;
+                }
+                let what = match self.var_name(*arg) {
+                    Some(d) => format!("{} is a scalar", d),
+                    None => "a scalar value is given".to_string(),
+                };
+                let msg = format!("{}: argument {} must be an array, but {}", name, i + 1, what);
+                let err = common::CompileError::new(msg);
+                return Err(match self.use_locs.builtin_calls.get(name) {
+                    Some(loc) => err.with_loc(*loc),
+                    None => err,
+                });
             }
         }
         Ok(())
