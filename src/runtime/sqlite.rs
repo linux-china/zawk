@@ -28,19 +28,38 @@ pub(crate) fn positional_params(params: &IntMap<Str>) -> Vec<String> {
     keys.iter().map(|k| params.get(k).to_string()).collect()
 }
 
+/// Binds `text` as an INTEGER/REAL when it is exactly the canonical text of that number, so `? > 10`
+/// and columns without affinity compare numerically. Anything else (`007`, `1e3`, `5.0`) stays TEXT.
+fn sqlite_param(text: &str) -> Value {
+    if let Ok(n) = text.parse::<i64>() {
+        if n.to_string() == text {
+            return Value::Integer(n);
+        }
+    } else if let Ok(f) = text.parse::<f64>() {
+        if f.is_finite() && float_to_text(f) == text {
+            return Value::Real(f);
+        }
+    }
+    Value::Text(text.to_owned())
+}
+
+fn sqlite_params(params: &IntMap<Str>) -> Vec<Value> {
+    positional_params(params).iter().map(|s| sqlite_param(s)).collect()
+}
+
 pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    if let Err(e) = sqlite_query_into(db_path, sql, &positional_params(params), &map) {
+    if let Err(e) = sqlite_query_into(db_path, sql, &sqlite_params(params), &map) {
         stdlib_warning("sqlite_query", e);
     }
     map
 }
 
-fn sqlite_query_into(db_path: &str, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
+fn sqlite_query_into(db_path: &str, sql: &str, params: &[Value], map: &IntMap<Str>) -> rusqlite::Result<()> {
     SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| query_into(conn, sql, params, map))
 }
 
-fn query_into(conn: &Connection, sql: &str, params: &[String], map: &IntMap<Str>) -> rusqlite::Result<()> {
+fn query_into(conn: &Connection, sql: &str, params: &[Value], map: &IntMap<Str>) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare_cached(sql)?;
     let colum_count = stmt.column_count();
     let mut index = 1;
@@ -68,7 +87,7 @@ fn query_into(conn: &Connection, sql: &str, params: &[String], map: &IntMap<Str>
 }
 
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
-    let params = positional_params(params);
+    let params = sqlite_params(params);
     let result = SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| {
         conn.execute(sql, params_from_iter(&params))
     });
@@ -119,6 +138,21 @@ mod tests {
 
         let rows = sqlite_query(db_path, "SELECT nick FROM no_such_table", &none);
         assert_eq!(rows.len(), 0);
+    }
+
+    #[test]
+    fn test_numeric_params() {
+        assert_eq!(sqlite_param("5"), Value::Integer(5));
+        assert_eq!(sqlite_param("-12"), Value::Integer(-12));
+        assert_eq!(sqlite_param("1.5"), Value::Real(1.5));
+        for text in ["007", "+5", "5.0", "1e3", ".5", "inf", "nan", "abc", "", " 5"] {
+            assert_eq!(sqlite_param(text), Value::Text(text.to_owned()), "{text}");
+        }
+
+        let rows = sqlite_query(":memory:", "SELECT ? > 10, typeof(?1), typeof(?2), ?2 < 2", &params(&["5", "1.5"]));
+        assert_eq!(rows.get(&1).to_string(), "0,integer,real,1");
+        let rows = sqlite_query(":memory:", "SELECT typeof(?)", &params(&["007"]));
+        assert_eq!(rows.get(&1).to_string(), "text");
     }
 
     #[test]
