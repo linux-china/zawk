@@ -320,7 +320,7 @@ Return default value if text is empty or not exist.
 
 Add suffix/prefix if missing/present
 
-- `append_if_missing("nats://example.com","/") # nats://example.com`
+- `append_if_missing("nats://example.com","/") # nats://example.com/`
 - `prepend_if_missing("example.com","https://") # https://example.com`
 - `remove_if_end("demo.json", ".json") # demo`
 - `remove_if_begin("demo.json", "file://./") # demo.json`
