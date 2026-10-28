@@ -3850,6 +3850,55 @@ fn json_object_functions() {
 }
 
 #[test]
+fn json_functions_invalid_json() {
+    // invalid JSON is a failure (ERRNO, caught by `try`), told apart from a missing value; empty
+    // text is no document, and `json_set`/`json_del` also fail on valid JSON that is not an object
+    let prog = r#"BEGIN {
+        n = split("json_value json_query json_has json_get json_set json_del", names, " ")
+        bad = "<html>Bad Gateway</html>"
+        for (i = 1; i <= n; i++) {
+            f = names[i]
+            ERRNO = ""
+            if (f == "json_value") r = json_value(bad, "$.a")
+            else if (f == "json_query") r = length(json_query(bad, "$.a"))
+            else if (f == "json_has") r = json_has(bad, "a")
+            else if (f == "json_get") r = json_get(bad, "a")
+            else if (f == "json_set") r = json_set(bad, "a", 1)
+            else r = json_del(bad, "a")
+            print f, r, (ERRNO ~ ("^" f ": invalid JSON \"<html>Bad Gateway</html>\": ")) ? "errno" : "[" ERRNO "]"
+        }
+        ERRNO = ""
+        print json_value("", "$.a") "|" json_get("", "a") "|" json_has(" ", "a") "|" json_set("", "a", 1) "|" json_del("", "a") "|" ERRNO
+        print json_value("{\"a\":1}", "$.b") "|" json_get("{\"a\":1}", "b") "|" json_has("[1]", "0") "|" ERRNO
+        print json_set("[1,2]", "a", 1), ERRNO
+        print json_del("3", "a"), ERRNO
+        print try json_value(bad, "$.id") else "fallback"
+        print try json_value("{\"id\":7}", "$.id") else "fallback"
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout(concat!(
+                "json_value  errno\n",
+                "json_query 0 errno\n",
+                "json_has 0 errno\n",
+                "json_get  errno\n",
+                "json_set <html>Bad Gateway</html> errno\n",
+                "json_del <html>Bad Gateway</html> errno\n",
+                "||0|{\"a\":1}||\n",
+                "||0|\n",
+                "[1,2] json_set: not a JSON object: \"[1,2]\"\n",
+                "3 json_del: not a JSON object: \"3\"\n",
+                "fallback\n",
+                "7\n",
+            ));
+    }
+}
+
+#[test]
 fn for_in_order_is_reproducible() {
     let prog = r#"{ a[$1]; b[NR] = $1 } END { for (k in a) printf "%s", k; for (k in b) printf " %s", k; print "" }"#;
     let input = "x\ny\nz\nw\nv\nfoo\nbar\nbaz\n";

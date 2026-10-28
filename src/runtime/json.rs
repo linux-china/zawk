@@ -204,65 +204,85 @@ fn json_node_text(node: &serde_json::Value) -> String {
     }
 }
 
-pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
-    if !json_text.is_empty() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-            let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(json_path) = compiled_json_path(&mut pool, "json_value", json_path) else {
-                return "".to_owned();
-            };
-            if let Some(node) = json_path.query(&json).first() {
-                return json_node_text(node);
-            }
-        }
+/// The JSON document `json_text` for `func`: `None` for empty (or blank) text, which is no
+/// document rather than an error, and for invalid JSON, reported with a warning (and `ERRNO`) so
+/// that it is told apart from a missing value.
+fn parse_json(func: &str, json_text: &str) -> Option<serde_json::Value> {
+    let text = json_text.trim();
+    if text.is_empty() {
+        return None;
     }
-    "".to_owned()
+    serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|e| stdlib_warning(func, format!("invalid JSON {:?}: {}", json_snippet(text), e)))
+        .ok()
+}
+
+pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
+    let Some(json) = parse_json("json_value", json_text) else {
+        return "".to_owned();
+    };
+    let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(json_path) = compiled_json_path(&mut pool, "json_value", json_path) else {
+        return "".to_owned();
+    };
+    json_path.query(&json).first().map(|node| json_node_text(node)).unwrap_or_default()
 }
 
 pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
-    if !json_text.is_empty() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_text) {
-            let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(json_path) = compiled_json_path(&mut pool, "json_query", json_path) else {
-                return map;
-            };
-            for (i, item) in json_path.query(&json).iter().enumerate() {
-                map.insert((i + 1) as i64, Str::from(json_node_text(item)));
-            }
-        }
+    let Some(json) = parse_json("json_query", json_text) else {
+        return map;
+    };
+    let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(json_path) = compiled_json_path(&mut pool, "json_query", json_path) else {
+        return map;
+    };
+    for (i, item) in json_path.query(&json).iter().enumerate() {
+        map.insert((i + 1) as i64, Str::from(json_node_text(item)));
     }
     map
 }
 
-
-/// Top-level JSON object of the text, `None` for empty, invalid or non-object text.
-fn json_object(json_text: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
-    match serde_json::from_str::<serde_json::Value>(json_text) {
-        Ok(serde_json::Value::Object(obj)) => Some(obj),
+/// Top-level JSON object of the text, `None` for empty, invalid (with a warning) or non-object
+/// text: a valid document that is not an object has no keys.
+fn json_object(func: &str, json_text: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    match parse_json(func, json_text)? {
+        serde_json::Value::Object(obj) => Some(obj),
         _ => None,
     }
 }
 
+/// Top-level JSON object of the text to modify; `Err` with the text to return unchanged when it
+/// is invalid JSON or not an object, both reported with a warning. Empty text is a new object.
+fn json_object_to_modify(func: &str, json_text: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    if json_text.trim().is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    match parse_json(func, json_text) {
+        Some(serde_json::Value::Object(obj)) => Ok(obj),
+        Some(_) => {
+            stdlib_warning(func, format!("not a JSON object: {:?}", json_snippet(json_text.trim())));
+            Err(json_text.to_owned())
+        }
+        None => Err(json_text.to_owned()),
+    }
+}
+
 pub(crate) fn json_has(json_text: &str, key: &str) -> Int {
-    json_object(json_text).is_some_and(|obj| obj.contains_key(key)) as Int
+    json_object("json_has", json_text).is_some_and(|obj| obj.contains_key(key)) as Int
 }
 
 pub(crate) fn json_get(json_text: &str, key: &str) -> String {
-    json_object(json_text)
+    json_object("json_get", json_text)
         .and_then(|obj| obj.get(key).map(json_node_text))
         .unwrap_or_default()
 }
 
 /// Value text that is valid JSON (number, true, `"s"`, `[..]`, `{..}`) is stored as is, other text as a JSON string.
 pub(crate) fn json_set(json_text: &str, key: &str, value: &str) -> String {
-    let mut obj = if json_text.trim().is_empty() {
-        serde_json::Map::new()
-    } else {
-        match json_object(json_text) {
-            Some(obj) => obj,
-            None => return json_text.to_owned(),
-        }
+    let mut obj = match json_object_to_modify("json_set", json_text) {
+        Ok(obj) => obj,
+        Err(unchanged) => return unchanged,
     };
     let value = serde_json::from_str::<serde_json::Value>(value)
         .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
@@ -271,12 +291,16 @@ pub(crate) fn json_set(json_text: &str, key: &str, value: &str) -> String {
 }
 
 pub(crate) fn json_del(json_text: &str, key: &str) -> String {
-    if let Some(mut obj) = json_object(json_text) {
-        if obj.shift_remove(key).is_some() {
-            return serde_json::Value::Object(obj).to_string();
-        }
+    if json_text.trim().is_empty() {
+        return json_text.to_owned();
     }
-    json_text.to_owned()
+    match json_object_to_modify("json_del", json_text) {
+        Ok(mut obj) => match obj.shift_remove(key) {
+            Some(_) => serde_json::Value::Object(obj).to_string(),
+            None => json_text.to_owned(),
+        },
+        Err(unchanged) => unchanged,
+    }
 }
 
 
