@@ -1,0 +1,19 @@
+zawk:
+  label: zawk
+  permalink: /zawk
+  description: News and articles about zawk
+
+awk:
+  label: AWK
+  permalink: /awk
+  description: The AWK language
+
+release:
+  label: Release
+  permalink: /release
+  description: zawk releases
+
+ai:
+  label: AI
+  permalink: /ai
+  description: zawk and AI

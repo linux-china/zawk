@@ -1,0 +1,235 @@
+/**
+ * CSS files with the .module.css suffix are treated as CSS modules
+ * and scoped locally.
+ */
+
+.hero {
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(251, 146, 60, 0.18), transparent 60%),
+    var(--zawk-ink);
+  color: var(--zawk-paper);
+  padding: 5rem 0 4.5rem;
+  overflow: hidden;
+}
+
+.heroInner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: center;
+}
+
+.heroText {
+  min-width: 0;
+}
+
+.eyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--zawk-accent);
+  margin-bottom: 1rem;
+}
+
+.title {
+  font-size: clamp(2.2rem, 4.6vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--zawk-paper);
+  margin-bottom: 1.25rem;
+}
+
+.accent {
+  color: var(--zawk-accent);
+}
+
+.subtitle {
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: #d6d3d1;
+  max-width: 36rem;
+  margin-bottom: 2rem;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.primaryButton {
+  background: var(--zawk-accent);
+  color: var(--zawk-ink);
+  border: none;
+}
+
+.primaryButton:hover {
+  background: #fdba74;
+  color: var(--zawk-ink);
+}
+
+.secondaryButton {
+  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+}
+
+.secondaryButton:hover {
+  color: inherit;
+  opacity: 1;
+}
+
+.install {
+  margin-top: 1.75rem;
+  margin-bottom: 0;
+  max-width: 34rem;
+}
+
+.terminal {
+  min-width: 0;
+  background: #0c0a09;
+  border: 1px solid #2e2a27;
+  border-radius: 12px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.terminalBar {
+  display: flex;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2e2a27;
+}
+
+.terminalBar span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #44403c;
+}
+
+.terminalBody {
+  margin: 0;
+  padding: 1.1rem 1.25rem 1.3rem;
+  background: transparent;
+  color: #e7e5e4;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  border-radius: 0;
+}
+
+.prompt {
+  color: var(--zawk-accent);
+  user-select: none;
+}
+
+.out {
+  color: #a8a29e;
+}
+
+/* Sources strip */
+
+.sources {
+  border-bottom: 1px solid var(--zawk-card-border);
+  padding: 1.5rem 0;
+}
+
+.sourcesTitle {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--zawk-muted);
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.sourceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.sourceList li {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--zawk-card-border);
+  border-radius: 999px;
+  margin: 0;
+}
+
+/* Syntax showcase */
+
+.showcase {
+  padding: 4.5rem 0;
+  background: var(--ifm-background-surface-color);
+  border-top: 1px solid var(--zawk-card-border);
+}
+
+.showcaseInner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 3rem;
+  align-items: start;
+}
+
+.showcaseText h2 {
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.showcaseText p {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--zawk-muted);
+}
+
+.showcaseCode {
+  min-width: 0;
+}
+
+/* Call to action */
+
+.cta {
+  padding: 4.5rem 0 5rem;
+  text-align: center;
+  border-top: 1px solid var(--zawk-card-border);
+}
+
+.cta h2 {
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.cta p {
+  color: var(--zawk-muted);
+  margin-bottom: 1.5rem;
+}
+
+.cta .buttons {
+  justify-content: center;
+}
+
+.cta .secondaryButton {
+  color: var(--ifm-font-color-base);
+}
+
+@media screen and (max-width: 996px) {
+  .hero {
+    padding: 3rem 0;
+  }
+
+  .heroInner,
+  .showcaseInner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+}

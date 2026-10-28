@@ -1,0 +1,49 @@
+/**
+ * Global styles. The classic template bundles Infima; its variables are overridden here.
+ */
+
+:root {
+  --ifm-color-primary: #c2410c;
+  --ifm-color-primary-dark: #af3a0b;
+  --ifm-color-primary-darker: #a5370a;
+  --ifm-color-primary-darkest: #882d08;
+  --ifm-color-primary-light: #d5480d;
+  --ifm-color-primary-lighter: #df4b0e;
+  --ifm-color-primary-lightest: #f05a1a;
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  --zawk-ink: #1c1917;
+  --zawk-ink-soft: #292524;
+  --zawk-paper: #fafaf9;
+  --zawk-accent: #fb923c;
+  --zawk-muted: #78716c;
+  --zawk-card-bg: #ffffff;
+  --zawk-card-border: #e7e5e4;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #fb923c;
+  --ifm-color-primary-dark: #fa7f1c;
+  --ifm-color-primary-darker: #fa760c;
+  --ifm-color-primary-darkest: #d65f05;
+  --ifm-color-primary-light: #fca55c;
+  --ifm-color-primary-lighter: #fcae6c;
+  --ifm-color-primary-lightest: #fdc99b;
+  --ifm-background-color: #141210;
+  --ifm-navbar-background-color: #141210;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  --zawk-muted: #a8a29e;
+  --zawk-card-bg: #1c1917;
+  --zawk-card-border: #2e2a27;
+}
+
+.footer--dark {
+  --ifm-footer-background-color: #0f0d0c;
+}
+
+.markdown h1:first-child {
+  letter-spacing: -0.02em;
+}
