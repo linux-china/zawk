@@ -862,15 +862,15 @@ impl FileWrite {
     pub(crate) fn flush_all(&mut self) -> Result<()> {
         self.0.flush_all()
     }
-    /// awk's `fflush(name)`: 0 on success, -1 (with a warning, as in gawk) if `name` is not
-    /// open for output.
+    /// awk's `fflush(name)`: 0 on success, -1 (with a warning, as in gawk, and `ERRNO` set like
+    /// `close`) if `name` is not open for output.
     pub(crate) fn fflush(&mut self, name: &Str) -> Result<Int> {
         if self.0.flush_named(name)? {
             return Ok(0);
         }
-        eprintln_ignore!(
-            "zawk: warning: fflush: `{}' is not an open file or pipe",
-            name.as_str()
+        stdlib_warning(
+            "fflush",
+            format_args!("`{}' is not an open file or pipe", name.as_str()),
         );
         Ok(-1)
     }
@@ -1599,6 +1599,9 @@ pub(crate) fn stdlib_warning(func: &str, msg: impl std::fmt::Display) {
 
 /// Like [`stdlib_warning`], for a notice about a call that still succeeded (`ERRNO` is unchanged).
 pub(crate) fn stdlib_notice(func: &str, msg: impl std::fmt::Display) {
+    if in_try() {
+        return;
+    }
     warn_once(&format!("{}: {}", func, msg));
 }
 

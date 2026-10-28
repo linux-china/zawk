@@ -288,7 +288,15 @@ pub(crate) fn publish(namespace: &str, body: &str) {
 }
 
 fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
-    if namespace.starts_with("nats://") || namespace.starts_with("nats+tls://") {
+    // an unknown scheme or a malformed URL is an error: never fall back to another transport
+    let scheme = match namespace.split_once("://") {
+        Some((scheme, _)) => scheme.to_ascii_lowercase(),
+        None => return Err(format!(
+            "invalid URL {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
+            redact_url(namespace),
+        )),
+    };
+    if scheme == "nats" || scheme == "nats+tls" {
         let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
         if url.host().is_none() {
             return Err(format!("missing host in {:?}", redact_url(namespace)));
@@ -302,7 +310,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             client.publish(topic, body.to_string().into()).await.map_err(|e| format!("failed to publish: {}", e))?;
             client.flush().await.map_err(|e| format!("failed to flush: {}", e))
         })
-    } else if namespace.starts_with("mqtt://") || namespace.starts_with("mqtts://") {
+    } else if scheme == "mqtt" || scheme == "mqtts" {
         let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
         let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
         if topic.is_empty() {
@@ -329,13 +337,21 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             pool.insert(key, cli);
         }
         result
-    } else {
+    } else if scheme == "desktop" {
+        // desktop://title: the title is shown in the notification center, so mask any secret in it
+        let redacted = redact_url(namespace);
+        let title = redacted.split_once("://").map_or("", |(_, title)| title);
         notify_rust::Notification::new()
-            .summary(namespace)
+            .summary(if title.is_empty() { "zawk" } else { title })
             .body(body)
             .show()
             .map(drop)
             .map_err(|e| format!("failed to show notification: {}", e))
+    } else {
+        Err(format!(
+            "unsupported scheme {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
+            scheme,
+        ))
     }
 }
 
@@ -611,6 +627,15 @@ mod tests {
         let body = Str::from(r#"{"status": "ok"}"#);
         let resp = http_post(url, &headers, &body);
         println!("{}", resp.get(&Str::from("text")));
+    }
+
+    #[test]
+    fn test_publish_unknown_scheme() {
+        assert!(try_publish("redis://127.0.0.1:6379/x", "hello").unwrap_err().contains("unsupported scheme \"redis\""));
+        assert!(try_publish("nats//typo", "hello").unwrap_err().contains("invalid URL"));
+        assert!(try_publish("notification", "hello").unwrap_err().contains("invalid URL"));
+        let err = try_publish("ftp://user:secret@host/x", "hello").unwrap_err();
+        assert!(!err.contains("secret"));
     }
 
     #[test]

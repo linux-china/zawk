@@ -3899,6 +3899,28 @@ fn json_functions_invalid_json() {
 }
 
 #[test]
+fn publish_unknown_scheme() {
+    // a URL publish cannot send to is a failure (ERRNO, caught by `try`), never a desktop notification
+    let prog = r#"BEGIN {
+        ERRNO = ""; publish("redis://u:secret@127.0.0.1:6379/x", "hello"); print ERRNO
+        ERRNO = ""; publish("nats//typo", "hello"); print ERRNO
+        print try publish("Notification", "hello") else "caught"
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout(concat!(
+                "publish: unsupported scheme \"redis\", expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://\n",
+                "publish: invalid URL \"nats//typo\", expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://\n",
+                "caught\n",
+            ));
+    }
+}
+
+#[test]
 fn for_in_order_is_reproducible() {
     let prog = r#"{ a[$1]; b[NR] = $1 } END { for (k in a) printf "%s", k; for (k in b) printf " %s", k; print "" }"#;
     let input = "x\ny\nz\nw\nv\nfoo\nbar\nbaz\n";
@@ -4548,4 +4570,35 @@ fn xlsx_input() {
     let (ok, out, err) = run(&["-i", "tsv", "-H", r#"{ print $FI["age"] }"#, demo]);
     assert!(ok, "{}", err);
     assert_eq!(out, "48\n49\n");
+}
+
+#[test]
+fn warnings_respect_try_and_dedup() {
+    // `fflush` of a name not open for output warns once (not once per record), sets ERRNO like
+    // `close`, and is silent inside `try`; so are stdlib notices such as `snowflake`'s.
+    let input = "a\n".repeat(50);
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"{ r = fflush("nope") } END { print r, ERRNO }"#)
+            .write_stdin(input.clone())
+            .assert()
+            .success()
+            .stdout("-1 fflush: `nope' is not an open file or pipe\n")
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8_lossy(&out);
+        assert_eq!(err.matches("is not an open file or pipe").count(), 1, "{err}");
+
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(r#"BEGIN { print try fflush("nope") else "fb"; x = try snowflake(5000) else 0; print (x != 0) }"#)
+            .assert()
+            .success()
+            .stdout("fb\n1\n")
+            .stderr("");
+    }
 }

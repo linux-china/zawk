@@ -1078,6 +1078,13 @@ Publish events to MQTT: `publish("mqtt://servername:1883/topic", body)`
 
 - CloudFlare Pub/Sub: `mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic`
 
+### Desktop notification
+
+Show a desktop notification: `publish("desktop://Job finished", "rows: 180")`, the text after `desktop://` is the title.
+
+`publish` accepts only `nats://`, `nats+tls://`, `mqtt://`, `mqtts://` and `desktop://` (the scheme is matched ignoring case);
+any other URL is reported with a warning and sets `ERRNO`, so `try publish(url, body) else ...` catches a typo.
+
 ### local_ip
 
 `local_ip() # 192.168.1.3`

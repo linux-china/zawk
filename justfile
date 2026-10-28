@@ -151,7 +151,7 @@ run-nats-kv-get:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print kv_get("nats://localhost:4222/bucket1","nick") }' demo.txt
 
 run-publish:
-  cargo run --package zawk --bin zawk -- 'END{ publish("notification", "Done") }' demo.txt
+  cargo run --package zawk --bin zawk -- 'END{ publish("desktop://notification", "Done") }' demo.txt
 
 run-mkbool:
   cargo run --package zawk --bin zawk -- 'BEGIN{ print mkbool("No") }' demo.txt

@@ -504,6 +504,7 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
 
 const DECRYPT_INVALID_BASE64: &str = "invalid base64 ciphertext";
 const DECRYPT_TOO_SHORT: &str = "ciphertext is too short";
+const DECRYPT_BAD_LENGTH: &str = "ciphertext length does not match a CBC mode (encrypted with GCM?)";
 const DECRYPT_FAILED: &str = "authentication failed (wrong key or corrupted ciphertext)";
 
 fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str) -> Result<Vec<u8>, &'static str> {
@@ -525,26 +526,52 @@ fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str)
         // an empty field decrypts to an empty string, like `encrypt` of nothing
         return Ok(vec![]);
     }
-    if !gcm {
-        crate::runtime::stdlib_notice("decrypt", "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it");
-    }
-    if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
-        let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+    let (salt, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
+        Some(encoded) => (true, encoded),
+        None => (false, encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX).unwrap_or(encrypted_text)),
+    };
+    let mut data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+    let salt = if salt {
         if data.len() <= SALT_LEN {
             return Err(DECRYPT_TOO_SHORT);
         }
-        let (salt, data) = data.split_at(SALT_LEN);
-        return decrypt_bytes(&derive_key(key_pass, salt, key_len), gcm, data).ok_or(DECRYPT_FAILED);
+        Some(data.drain(..SALT_LEN).collect::<Vec<u8>>())
+    } else {
+        None
+    };
+    check_ciphertext_shape(gcm, &data)?;
+    // only well-formed input of an old format gets the notices below, not garbage or a wrong mode
+    if !gcm {
+        crate::runtime::stdlib_notice("decrypt", "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it");
     }
-    let (key, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX) {
-        Some(encoded) => (derive_key(key_pass, PBKDF2_V2_SALT, key_len), encoded),
+    let key = match salt {
+        Some(salt) => derive_key(key_pass, &salt, key_len),
+        None if encrypted_text.starts_with(ENCRYPT_V2_PREFIX) => derive_key(key_pass, PBKDF2_V2_SALT, key_len),
         None => {
             crate::runtime::stdlib_notice("decrypt", "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it");
-            (legacy_key(key_pass, key_len), encrypted_text)
+            legacy_key(key_pass, key_len)
         }
     };
-    let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
     decrypt_bytes(&key, gcm, &data).ok_or(DECRYPT_FAILED)
+}
+
+/// Check the length of `data` (IV/nonce + ciphertext) against the mode, as `decrypt_bytes` does.
+fn check_ciphertext_shape(gcm: bool, data: &[u8]) -> Result<(), &'static str> {
+    if gcm {
+        // 12 bytes nonce + 16 bytes tag at least
+        if data.len() < 12 + 16 {
+            return Err(DECRYPT_TOO_SHORT);
+        }
+    } else {
+        // 16 bytes IV + at least one block
+        if data.len() < 32 {
+            return Err(DECRYPT_TOO_SHORT);
+        }
+        if data.len() % 16 != 0 {
+            return Err(DECRYPT_BAD_LENGTH);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -846,6 +873,9 @@ mod tests {
         check("aes-128-gcm", &text, "k1", "`v4:` ciphertext requires a CBC mode");
         check("aes-128-cbc", "v4:!!", "k1", DECRYPT_INVALID_BASE64);
         check("aes-128-cbc", "v4:AAAA", "k1", DECRYPT_TOO_SHORT);
+        // GCM `v3:` ciphertext decrypted with a CBC mode is rejected before any deprecation notice
+        let text = encrypt("aes-128-gcm", b"hello", "k1");
+        check("aes-128-cbc", &text, "k1", DECRYPT_BAD_LENGTH);
         // empty input is not an error
         set_errno(String::new());
         assert!(decrypt("aes-128-gcm", "", "k1").is_empty());

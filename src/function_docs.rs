@@ -406,7 +406,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       r#"s3_get("bucket1", "demo.txt")"#),
     d("s3_put", NETWORK, "s3_put(bucket: str, object: str, body: str) -> str", "Put text as an S3 object.",
       r#"s3_put("bucket1", "demo.txt", "hello")"#),
-    d("publish", NETWORK, "publish(url: str, body: str) -> void", "Publish a message to NATS or MQTT: nats://host:4222/topic.",
+    d("publish", NETWORK, "publish(url: str, body: str) -> void", "Publish a message to NATS (nats://, nats+tls://), MQTT (mqtt://, mqtts://) or a desktop notification (desktop://title); other schemes warn and set ERRNO.",
       r#"publish("nats://localhost:4222/topic", "hello")"#),
     d("local_ip", NETWORK, "local_ip() -> str", "Local IP address.", "local_ip()"),
     // Database
