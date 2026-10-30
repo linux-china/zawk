@@ -316,7 +316,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Array | `seq`, `uniq`, `asort`, `asorti`, `_max`, `_min`, `_sum`, `_mean`, `_median`, `_quantile`, `_var`, `_stddev`, `_mode`, `_count_distinct`, `_top`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |
 | Math | `rand`, `srand`, `int`, `float`, `strtonum`, `abs`, `ceil`, `floor`, `round`, `exp`, `log`, `log2`, `log10`, `sqrt`, `sin`, `cos`, `atan`, `atan2`, `intdiv0`, `min`, `max`, `eval`, `fend`, `mkbool` |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` (64-bit two's complement: negatives allowed, `compl(0)` is -1, numbers ≥ 2^63 use their low 64 bits, shift counts outside 0..63 shift everything out) |
-| Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff` |
+| Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc` |
 | Color | `hex2rgb`, `rgb2hex` |
 | Fake | `fake` |
 | Decision | `jev`, `jev_prob`, `jev_choice`, `jev_score` |

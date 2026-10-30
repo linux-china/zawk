@@ -970,6 +970,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result;
                     }
+                    DateTrunc(dst, unit, timestamp) => {
+                        let unit = index(&self.strs, unit);
+                        let timestamp = *self.get(*timestamp);
+                        let result = runtime::date_time::date_trunc(&*unit.as_str(), timestamp);
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
                         let result = runtime::math_util::mkbool(&*text.as_str());

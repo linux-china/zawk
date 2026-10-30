@@ -385,7 +385,7 @@ pub fn duration(text: &str) -> Int {
     }
 }
 
-/// Unit of `date_add`/`date_diff`: seconds, minutes and hours are fixed lengths of time; days and
+/// Unit of `date_add`/`date_diff`/`date_trunc`: seconds, minutes and hours are fixed lengths of time; days and
 /// weeks follow the local wall clock (a day is 23 or 25 hours across a DST change); months,
 /// quarters and years follow the calendar.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -512,6 +512,41 @@ pub fn date_diff(unit: &str, start: Int, end: Int) -> Int {
     })
 }
 
+fn try_date_trunc(unit: DateUnit, timestamp: i64) -> Option<i64> {
+    if let Some(seconds) = unit.seconds() {
+        // truncate by the offset at this instant, so both fall back hours keep their own offset
+        let offset = DateTime::from_timestamp(timestamp, 0)?.with_timezone(&Local).offset().fix().local_minus_utc();
+        let local = timestamp.checked_add(offset as i64)?;
+        return timestamp.checked_sub(local.rem_euclid(seconds));
+    }
+    let date = local_naive(timestamp)?.date();
+    let date = match unit {
+        DateUnit::Day => date,
+        // weeks start on Monday, as ISO 8601
+        DateUnit::Week => date - chrono::TimeDelta::days(date.weekday().num_days_from_monday() as i64),
+        _ => {
+            let unit_months = unit.months()? as u32;
+            let month0 = date.month0() / unit_months * unit_months;
+            NaiveDate::from_ymd_opt(date.year(), month0 + 1, 1)?
+        }
+    };
+    local_timestamp(&Local, &date.and_time(NaiveTime::MIN))
+}
+
+/// `date_trunc(unit, timestamp)`: the timestamp truncated to the start of its unit (hour, day,
+/// Monday of the week, first day of the month/quarter/year) in local time; `-1` with a warning for
+/// an unknown unit or a timestamp out of range.
+pub fn date_trunc(unit: &str, timestamp: Int) -> Int {
+    let Some(date_unit) = DateUnit::parse(unit) else {
+        runtime::stdlib_warning("date_trunc", format!("invalid unit {:?}", unit));
+        return -1;
+    };
+    try_date_trunc(date_unit, timestamp).unwrap_or_else(|| {
+        runtime::stdlib_warning("date_trunc", format!("date out of range: {}", timestamp));
+        -1
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,6 +566,7 @@ mod tests {
         assert_eq!(DateUnit::parse(" Months "), Some(DateUnit::Month));
         assert_eq!(DateUnit::parse("fortnight"), None);
         assert_eq!(try_date_add(i64::MAX, 1, DateUnit::Second), None);
+        assert_eq!(try_date_trunc(DateUnit::Second, t + 59), Some(t + 59));
     }
 
     #[test]

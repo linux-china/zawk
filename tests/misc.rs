@@ -4496,6 +4496,28 @@ fn date_add_and_date_diff() {
 }
 
 #[test]
+fn date_trunc_units() {
+    // weeks start on Monday; the second 01:30 of the DST fall back keeps its own offset
+    let prog = r#"BEGIN {
+        t = mktime("2024-02-15 10:37:42")
+        print strftime("%F %T", date_trunc("minute", t)), strftime("%T", date_trunc("h", t)), strftime("%F %T", date_trunc("day", t))
+        print strftime("%F %a", date_trunc("week", t)), strftime("%F", date_trunc("month", t)), strftime("%F", date_trunc("quarter", mktime("2024-08-20"))), strftime("%F", date_trunc("year", t))
+        f = mktime("2024 11 03 01 30 00"); print date_trunc("hour", f + 3600) - f, date_trunc("day", f + 3600) == mktime("2024-11-03"), date_trunc("s", t) == t
+        print date_trunc("fortnight", t), ERRNO
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("TZ", "America/New_York")
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("2024-02-15 10:37:00 10:00:00 2024-02-15 00:00:00\n2024-02-12 Mon 2024-02-01 2024-07-01 2024-01-01\n1800 1 1\n-1 date_trunc: invalid unit \"fortnight\"\n");
+    }
+}
+
+#[test]
 fn markdown_program() {
     let tmpdir = tempdir().unwrap();
     let md = tmpdir.path().join("prog.awk.md");

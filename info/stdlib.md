@@ -686,7 +686,7 @@ Please refer https://github.com/isibboi/evalexpr for more.
 
 `fend("1+2") # 3`
 
-Please refer https://github.com/printfn/fend for more.
+Please refer https://printfn.github.io/fend/documentation/ for more.
 
 ### min/max
 
@@ -757,6 +757,17 @@ Date arithmetic on Unix timestamps, in local time (set `TZ` for another zone):
 Units: `second`/`s`/`sec`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`/`wk`, `month`/`mo`/`mon`, `quarter`/`q`, `year`/`y`/`yr` (plural forms too, case is ignored).
 Seconds, minutes and hours are fixed lengths of time; days and weeks follow the wall clock (a day across a DST change is 23 or 25 hours).
 An unknown unit gives a warning, `-1` for `date_add` and `0` for `date_diff`.
+
+### date_trunc
+
+`date_trunc(unit, time)` truncates a Unix timestamp to the start of its unit in local time and returns a Unix timestamp,
+to be formatted with `strftime`, e.g. to group records by month: `count[strftime("%Y-%m", date_trunc("month", mktime($1)))]++`.
+
+- `date_trunc("hour", mktime("2024-02-15 10:37:42"))`: `2024-02-15 10:00:00`
+- `date_trunc("week", mktime("2024-02-15 10:37:42"))`: `2024-02-12 00:00:00`, the Monday of the week (ISO 8601)
+- `date_trunc("quarter", mktime("2024-08-20"))`: `2024-07-01 00:00:00`
+
+Units as `date_add`. An unknown unit gives a warning and `-1`.
 
 ### Duration
 

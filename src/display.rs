@@ -184,6 +184,7 @@ impl Display for Function {
             Duration => write!(f, "duration"),
             DateAdd => write!(f, "date_add"),
             DateDiff => write!(f, "date_diff"),
+            DateTrunc => write!(f, "date_trunc"),
             MkBool => write!(f, "mkbool"),
             MkPassword => write!(f, "mkpass"),
             Fend => write!(f, "fend"),

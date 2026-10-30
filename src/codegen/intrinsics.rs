@@ -209,6 +209,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] date_add(int_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
+        [ReadOnly] date_trunc(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
@@ -1953,6 +1954,13 @@ pub(crate) unsafe extern "C" fn date_diff(unit: *mut U128, start: Int, end: Int)
     guard_panic(stringify!(date_diff), || {
         let unit = &*(unit as *mut Str);
         date_time::date_diff(&*unit.as_str(), start, end)
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_trunc(unit: *mut U128, timestamp: Int) -> Int {
+    guard_panic(stringify!(date_trunc), || {
+        let unit = &*(unit as *mut Str);
+        date_time::date_trunc(&*unit.as_str(), timestamp)
     })
 }
 

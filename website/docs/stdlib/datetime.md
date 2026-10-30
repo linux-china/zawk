@@ -57,6 +57,14 @@ date_diff("month", mktime("2024-01-31"), mktime("2024-02-28"))  # 0: only comple
 Units: `second`/`s`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`, `month`/`mo`, `quarter`/`q`, `year`/`y`.
 Days and weeks follow the wall clock, so a day across a DST change is 23 or 25 hours.
 
+`date_trunc(unit, time)` truncates a timestamp to the start of its unit in local time, handy for grouping:
+
+```awk
+strftime("%F %T", date_trunc("hour", mktime("2024-02-15 10:37:42")))  # 2024-02-15 10:00:00
+strftime("%F", date_trunc("week", mktime("2024-02-15")))              # 2024-02-12: weeks start on Monday
+{ sales[strftime("%Y-%m", date_trunc("month", mktime($1)))] += $2 }   # monthly totals
+```
+
 ## Durations
 
 ```awk

@@ -314,6 +314,9 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("date_diff", DATETIME, "date_diff(unit: str, start: int, end: int) -> int",
       "Number of complete units from start to end (negative if end is earlier), as MySQL TIMESTAMPDIFF; units as date_add.",
       r#"date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))"#),
+    d("date_trunc", DATETIME, "date_trunc(unit: str, time: int) -> int",
+      "Unix time truncated to the start of its unit in local time (week starts on Monday); units as date_add; format it with strftime.",
+      r#"strftime("%F", date_trunc("month", mktime("2024-02-15 10:30:00")))"#),
     // Color
     d("hex2rgb", COLOR, "hex2rgb(s: str) -> map[int]int", "Hex color to array [r, g, b].", r##"hex2rgb("#FF0000")"##),
     d("rgb2hex", COLOR, "rgb2hex(r: int[, g: int[, b: int]]) -> str", "RGB to hex color.", "rgb2hex(255, 0, 0)"),

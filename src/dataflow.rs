@@ -275,6 +275,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(start.into()));
                 f(dst.into(), Some(end.into()));
             }
+            DateTrunc(dst, unit, timestamp) => {
+                f(dst.into(), Some(unit.into()));
+                f(dst.into(), Some(timestamp.into()));
+            }
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),

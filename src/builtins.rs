@@ -67,6 +67,7 @@ pub enum Function {
     Duration,
     DateAdd,
     DateDiff,
+    DateTrunc,
     MkBool,
     MkPassword,
     Fend,
@@ -462,6 +463,7 @@ static_map!(
     ["duration", Function::Duration],
     ["date_add", Function::DateAdd],
     ["date_diff", Function::DateDiff],
+    ["date_trunc", Function::DateTrunc],
     ["mkbool", Function::MkBool],
     ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
@@ -997,6 +999,7 @@ impl Function {
             Duration => (smallvec![Str], Int),
             DateAdd => (smallvec![Int, Int, Str], Int),
             DateDiff => (smallvec![Str, Int, Int], Int),
+            DateTrunc => (smallvec![Str, Int], Int),
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
@@ -1233,6 +1236,7 @@ impl Function {
             Mktime => 3,
             Duration => 1,
             DateAdd | DateDiff => 3,
+            DateTrunc => 2,
             StrCmp => 2,
             Similar => 2,
             CharAt => 2,
@@ -1313,7 +1317,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration | DateAdd | DateDiff
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration | DateAdd | DateDiff | DateTrunc
             | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
             // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
             TryElse => match (&args[0], &args[1]) {

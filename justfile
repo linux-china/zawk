@@ -403,3 +403,7 @@ run-date-add:
 # run data_diff
 run-date-diff:
    cargo run --package zawk --bin zawk -- 'BEGIN {print date_diff("day", mktime("2024-01-01"), mktime("2024-03-01")) }'
+
+# run date_trunc
+run-date-trunc:
+   cargo run --package zawk --bin zawk -- 'BEGIN {print strftime("%F %T", date_trunc("week", mktime("2024-02-15 10:37:42"))) }'

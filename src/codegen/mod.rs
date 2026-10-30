@@ -1186,6 +1186,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(date_diff), &mut [unit, start, end])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            DateTrunc(dst, unit, timestamp) => {
+                let unit = self.get_val(unit.reflect())?;
+                let timestamp = self.get_val(timestamp.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(date_trunc), &mut [unit, timestamp])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
             MkPassword(dst,len) => self.unop(intrinsic!(mkpass), dst, len),
             Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
