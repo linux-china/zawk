@@ -311,6 +311,10 @@ pub(crate) fn tsid() -> String {
 /// exponent, which make it decimal (`"018"` is 18, `"017.5"` is 17.5). Leading blanks or a sign
 /// also make it decimal, except before `0x`: `strtonum(" -0x10")` is -16, the same as for a field,
 /// since zawk reads hexadecimal input as a number everywhere.
+///
+/// A decimal number may group its integer digits by thousands with `,` or `_` (one kind per
+/// number): `strtonum("1,234.5")` and `strtonum("1_234.5")` are 1234.5. The first group has one
+/// to three digits and every later group exactly three, so `"1,2"` is still 1.
 pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
     use crate::runtime::float_parse::strtod;
     if strnum {
@@ -320,7 +324,10 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
     }
     let decimal = |bs: &[u8]| {
         let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
-        start.map_or(0.0, |i| strtod(&bs[i..]))
+        start.map_or(0.0, |i| match strip_thousands(&bs[i..]) {
+            Some(digits) => strtod(&digits),
+            None => strtod(&bs[i..]),
+        })
     };
     let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
     let trimmed = start.map_or(&bs[bs.len()..], |i| &bs[i..]);
@@ -347,6 +354,30 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         }
         _ => decimal(bs),
     }
+}
+
+/// `bs` (without leading blanks) with the thousands separators of its integer part removed, or
+/// `None` if it has none or they are not grouped by three: an optional sign, one to three
+/// digits, then one or more groups of `,` or `_` (the same one throughout) and three digits.
+fn strip_thousands(bs: &[u8]) -> Option<Vec<u8>> {
+    let sign = usize::from(matches!(bs.first(), Some(b'-' | b'+')));
+    let digits = |from: usize| bs[from..].iter().take_while(|b| b.is_ascii_digit()).count();
+    let first = digits(sign);
+    if !(1..=3).contains(&first) {
+        return None;
+    }
+    let sep = *bs.get(sign + first).filter(|b| matches!(b, b',' | b'_'))?;
+    let mut res = bs[..sign + first].to_vec();
+    let mut i = sign + first;
+    while bs.get(i) == Some(&sep) && digits(i + 1) == 3 {
+        res.extend_from_slice(&bs[i + 1..i + 4]);
+        i += 4;
+    }
+    if i == sign + first || bs.get(i).is_some_and(|b| matches!(b, b'0'..=b'9' | b',' | b'_')) {
+        return None;
+    }
+    res.extend_from_slice(&bs[i..]);
+    Some(res)
 }
 
 /// Converts a number to the 64-bit two's complement pattern used by the bitwise functions:
@@ -850,6 +881,21 @@ mod tests {
         assert_eq!(awk_strtonum(b" 0x11 ", true), 17.0);
         assert_eq!(awk_strtonum(b"0x11", true), 17.0);
         assert_eq!(awk_strtonum(b"017abc", true), 15.0);
+        // Thousands separators in decimal numbers.
+        assert_eq!(n("1,234.5"), 1234.5);
+        assert_eq!(n("1_234.5"), 1234.5);
+        assert_eq!(n("-1,234,567"), -1234567.0);
+        assert_eq!(n(" +12_345e1"), 123450.0);
+        assert_eq!(n("1,234abc"), 1234.0);
+        assert_eq!(awk_strtonum(b"1,234", true), 1234.0);
+        // Not grouped by three, or mixed separators: parsing stops at the separator as before.
+        assert_eq!(n("1,2"), 1.0);
+        assert_eq!(n("1,2345"), 1.0);
+        assert_eq!(n("1234,567"), 1234.0);
+        assert_eq!(n("1,234_567"), 1.0);
+        assert_eq!(n("1,234,"), 1.0);
+        assert_eq!(n(",234"), 0.0);
+        assert_eq!(n("0,123"), 0.0);
     }
 
     #[test]
