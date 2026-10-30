@@ -5,6 +5,7 @@ use chrono::Utc;
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::conn_pool::ConnPool;
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use bytes::BytesMut;
 use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
@@ -107,6 +108,9 @@ impl ToSql for PgParam {
 impl PgParam {
     fn encode(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let text = self.text.as_str();
+        if is_null(text.as_bytes()) {
+            return Ok(IsNull::Yes);
+        }
         if <&str as ToSql>::accepts(ty) || matches!(ty.kind(), Kind::Enum(_)) {
             // text-like types and enum labels are sent as is
             return text.to_sql(ty, out);
@@ -207,7 +211,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     for row in rows {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
-            let text_value = reflective_get(&row, i);
+            let text_value = if is_null_column(&row, i) { null_input().to_string() } else { reflective_get(&row, i) };
             items.push(text_value);
         }
         let v2: Vec<&str> = items.iter().map(|s| s as &str).collect();
@@ -227,6 +231,23 @@ pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
             0
         }
     }
+}
+
+/// Accepts any value: tells NULL apart from the empty string.
+struct Present;
+
+impl<'a> FromSql<'a> for Present {
+    fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        Ok(Present)
+    }
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+}
+
+/// Whether column `index` of `row` is NULL.
+pub(crate) fn is_null_column(row: &postgres::Row, index: usize) -> bool {
+    row.try_get::<_, Option<Present>>(index).ok().flatten().is_none()
 }
 
 /// Text representation of a `numeric` value decoded from the binary wire format.

@@ -226,6 +226,7 @@ pub enum Function {
     IsInt,
     IsNum,
     IsFormat,
+    IsNull,
     Substr,
     CharAt,
     Chars,
@@ -593,6 +594,7 @@ static_map!(
     ["isint", Function::IsInt],
     ["isnum", Function::IsNum],
     ["is", Function::IsFormat],
+    ["isnull", Function::IsNull],
     ["match", Function::Match],
     ["sub", Function::Sub],
     ["gsub", Function::GSub],
@@ -1096,6 +1098,7 @@ impl Function {
             IsInt => (smallvec![incoming[0]], Int),
             IsNum => (smallvec![incoming[0]], Int),
             IsFormat => (smallvec![Str, Str], Int),
+            IsNull => (smallvec![Str], Int),
             // Only arrays with integer keys can be joined.
             IntMapJoin => match incoming[0] {
                 MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Str], Str),
@@ -1254,7 +1257,7 @@ impl Function {
             SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => 3,
             PadLeft | PadRight | PadBoth => 3,
             Publish => 2,
-            IsInt | IsNum => 1,
+            IsInt | IsNum | IsNull => 1,
             IsFormat => 2,
             Encode | Decode | Digest | Escape => 2,
             Hmac | Jwt => 3,
@@ -1370,7 +1373,7 @@ impl Function {
             DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
             AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => Ok(Scalar(BaseTy::Str).abs()),
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
-            IsArray | IsNum | IsInt | IsFormat => Ok(Scalar(BaseTy::Int).abs()),
+            IsArray | IsNum | IsInt | IsFormat | IsNull => Ok(Scalar(BaseTy::Int).abs()),
             Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => {
                 Ok(Map {
                     key: BaseTy::Str,

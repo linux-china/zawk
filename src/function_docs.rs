@@ -121,6 +121,8 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("pascal_case", TEXT, "pascal_case(s: str) -> str", "Convert to PascalCase.", r#"pascal_case("hello_world")"#),
     d("isint", TEXT, "isint(x: any) -> bool", "1 if x is an integer (or integer text).", r#"isint("123")"#),
     d("isnum", TEXT, "isnum(x: any) -> bool", "1 if x is a number, or text that converts to one by strnum rules (bare \"inf\"/\"nan\" do not).", r#"isnum("1234.01")"#),
+    d("isnull", TEXT, "isnull(s: str) -> bool",
+      "1 if s is the `--null` text, i.e. a NULL read from a database, JSON Lines or Parquet input; always 0 without `--null`.", r#"isnull($3)"#),
     d("is", TEXT, "is(format: str, s: str) -> bool",
       "Validate s against a format: email, url, phone, ip.", r#"is("email", "demo@example.com")"#),
     d("starts_with", TEXT, "starts_with(s: str, prefix: str) -> bool", "1 if s starts with prefix.",

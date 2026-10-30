@@ -3161,6 +3161,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::IsFormat(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            IsNull => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::IsNull(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             Uniq => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Uniq(

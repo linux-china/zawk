@@ -414,6 +414,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] is_num_false() -> int_ty;
         [ReadOnly] is_str_num(str_ref_ty) -> int_ty;
         [ReadOnly] is_format(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] is_null(str_ref_ty) -> int_ty;
         // TODO: we are no longer relying on avoiding collisions with exisint library symbols
         // (everything in this module was one no_mangle); we should look into removing the _frawk
         // prefix.
@@ -2267,6 +2268,12 @@ pub(crate) unsafe extern "C" fn is_format(format: *mut U128, text: *mut U128) ->
         let format = &*(format as *mut Str);
         let text = &*(text as *mut Str);
         string_util::is_format(&*format.as_str(), &*text.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn is_null(text: *mut U128) -> Int {
+    guard_panic(stringify!(is_null), || {
+        (*(text as *mut Str)).with_bytes(runtime::str_escape::is_null) as Int
     })
 }
 

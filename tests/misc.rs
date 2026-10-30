@@ -4693,3 +4693,79 @@ fn json_flatten_invalid_warns() {
             .stdout("0 1\n");
     }
 }
+
+// `--null`: NULLs of database, JSON Lines and Parquet input are told apart from empty strings,
+// and are written back as NULL by `-o tsv` (`\N`), `-o jsonl` and `-o parquet` (null).
+#[test]
+fn null_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("n.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("CREATE TABLE t (a TEXT, b INT); INSERT INTO t VALUES (NULL, NULL), ('', 1);").unwrap();
+    let url = format!("sqlite://{}#t", db.display());
+    let parquet = dir.path().join("n.parquet");
+    let jsonl = dir.path().join("n.jsonl");
+    std::fs::write(&jsonl, "{\"a\":null,\"b\":\"\"}\n").unwrap();
+    let null = ["--null", r"\N"];
+    let header = r#"BEGIN{print "a","b:number"}{print $1,$2}"#;
+    let cases: Vec<(Vec<&str>, &str, String)> = vec![
+        // without --null, NULL is the empty string
+        (vec!["-o", "jsonl"], header, "{\"a\":\"\",\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into()),
+        (vec![], r#"{print isnull($1), isnull("")}"#, "0 0\n0 0\n".into()),
+        ([&null[..], &["-o", "jsonl"]].concat(), header, "{\"a\":null,\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into()),
+        (null.to_vec(), r#"{print isnull($1), isnull($2), "[" $1 "]"}"#, "1 1 [\\N]\n0 0 []\n".into()),
+        ([&null[..], &["-o", "tsv"]].concat(), "{print $1,$2}", "\\N\t\\N\n\t1\n".into()),
+        // a string that is not the --null text keeps its escaping
+        ([&null[..], &["-o", "tsv"]].concat(), r#"END{print "\\\\N"}"#, "\\\\\\\\N\n".into()),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, out) in &cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(args)
+                .arg(*prog)
+                .arg(&url)
+                .assert()
+                .success()
+                .stdout(out.clone());
+        }
+        // Parquet: NULL in a STRING column, read back as null
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(null)
+            .args(["-o", "parquet", r#"BEGIN{print "a","b:INT32"}{print $1,$2}"#])
+            .arg(&url)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        std::fs::write(&parquet, out.stdout).unwrap();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-i", "parquet", "{print}"])
+            .arg(&parquet)
+            .assert()
+            .success()
+            .stdout("{\"a\":null,\"b\":null}\n{\"a\":\"\",\"b\":1}\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(null)
+            .args(["-i", "jsonl", r#"{print isnull($1), isnull($2)}"#])
+            .arg(&jsonl)
+            .assert()
+            .success()
+            .stdout("1 0\n");
+        // query parameters: the --null text is bound as NULL
+        let prog = format!(
+            r#"BEGIN{{p[1]="\\N"; p[2]=""; sqlite_execute("{}", "insert into u values(?, ?)", p)}}"#,
+            db.display()
+        );
+        conn.execute_batch("DROP TABLE IF EXISTS u; CREATE TABLE u (a TEXT, b TEXT);").unwrap();
+        Command::cargo_bin("zawk").unwrap().arg(String::from(*backend_arg)).args(null).arg(prog).assert().success();
+        let row: (bool, String) =
+            conn.query_row("SELECT a IS NULL, b FROM u", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(row, (true, String::new()));
+    }
+}

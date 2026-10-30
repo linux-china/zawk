@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use mysql::*;
 use mysql::prelude::*;
@@ -9,14 +10,16 @@ use mysql::consts::ColumnType;
 
 static MYSQL_POOLS: LazyLock<Arc<Mutex<HashMap<String, Pool>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-/// Positional parameters bound as strings (MySQL converts them to the column types), or `None`
-/// when there are none: then the text protocol is used, since not every statement can be prepared.
+/// Positional parameters bound as strings (MySQL converts them to the column types), the `--null`
+/// text as NULL, or `None` when there are none: then the text protocol is used, since not every
+/// statement can be prepared.
 fn positional_params(params: &IntMap<Str>) -> Option<Params> {
     let values = crate::runtime::sqlite::positional_params(params);
     if values.is_empty() {
         None
     } else {
-        Some(Params::Positional(values.into_iter().map(Value::from).collect()))
+        let value = |s: String| if is_null(s.as_bytes()) { Value::NULL } else { Value::from(s) };
+        Some(Params::Positional(values.into_iter().map(value).collect()))
     }
 }
 
@@ -39,7 +42,7 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
         for i in 0..row.len() {
             let col_value: Value = row.get(i).unwrap_or(Value::NULL);
             let text_value = match col_value {
-                Value::NULL => { "".to_owned() }
+                Value::NULL => { null_input().to_owned() }
                 Value::Bytes(bytes) => { String::from_utf8(bytes).unwrap_or("".to_owned()) }
                 Value::Int(num) => { num.to_string() }
                 Value::UInt(num) => { num.to_string() }

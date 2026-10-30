@@ -1224,6 +1224,10 @@ fn real_main() {
             .num_args(0)
             .requires("output-format")
             .help("With -o table or -o markdown, print the number of rows and per-column statistics (type, non-empty and distinct counts, min, max, sum and mean) after the table; the first record is the header"))
+        .arg(Arg::new("null")
+            .long("null")
+            .value_name("text")
+            .help("Read NULLs of database, JSON Lines and Parquet input as text (default: the empty string), so that they are told apart from empty strings: isnull(s) is 1 for it, -o tsv writes it as \\N (as PostgreSQL COPY and MySQL LOAD DATA read it), -o jsonl and -o parquet write it as null, and database query parameters bind it as NULL. For example --null '\\N'"))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1503,6 +1507,9 @@ fn real_main() {
         None => (Escaper::Identity, None, None),
     };
     runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
+    if let Some(text) = matches.get_one::<String>("null") {
+        runtime::str_escape::set_null_text(text.clone());
+    }
     let input_format = input_format(&matches, &input_files);
     let json = matches!(input_format.as_deref(), Some("json"));
     let jsonl = matches!(input_format.as_deref(), Some("jsonl") | Some("ndjson"));

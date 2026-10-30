@@ -14,7 +14,8 @@
 //! on), and reported through `LineReader::new_columns` so that it is added to `FI` as well.
 //!
 //! Value mapping: strings are unescaped, numbers keep their source text, `true`/`false` become
-//! `1`/`0`, `null` and missing keys are empty, and nested objects/arrays keep their raw JSON text.
+//! `1`/`0`, `null` is empty (or the `--null` text), missing keys are empty, and nested
+//! objects/arrays keep their raw JSON text.
 //! A top-level array is split positionally into `$1..$n`. Blank lines are skipped, and so is a
 //! line that is not valid JSON, after a warning on stderr: neither becomes a record.
 
@@ -511,7 +512,7 @@ impl Val {
                 }
             }
             Val::Raw { start, end } => line.slice(start, end),
-            Val::Null => Str::default(),
+            Val::Null => Str::from(crate::runtime::str_escape::null_input()),
             Val::True => Str::from("1"),
             Val::False => Str::from("0"),
         }

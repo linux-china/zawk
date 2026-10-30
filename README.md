@@ -16,7 +16,7 @@ Features:
 * CSV/TSV support
 * JSON (`-i json`, e.g. `data.json#$.items` to select records with a JSONPath), JSON Lines (`-i jsonl`), Apache Parquet (`-i parquet`), Markdown table (`-i markdown`) and Excel (`-i xlsx`, the default for `.xlsx` files; `book.xlsx#Sheet2` selects a sheet; mixed with other files, or with `-i csv`, each workbook is converted to CSV) input
 * Read input files from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`
-* Read database tables or queries as input (SQLite, MySQL, PostgreSQL), like CSV with a header: `zawk '{print $FI["name"]}' 'mysql://root:123456@127.0.0.1:3306/test#people'`, `zawk '{print $1}' 'sqlite://./demo.db#select * from user where age > 30'`
+* Read database tables or queries as input (SQLite, MySQL, PostgreSQL), like CSV with a header: `zawk '{print $FI["name"]}' 'mysql://root:123456@127.0.0.1:3306/test#people'`, `zawk '{print $1}' 'sqlite://./demo.db#select * from user where age > 30'`. With `--null '\N'`, NULL is told apart from `''`: `isnull($2)`, and `-o jsonl/parquet` write it as null
 * High performance
 * gawk mostly compatible
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.

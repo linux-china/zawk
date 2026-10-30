@@ -7,7 +7,8 @@
 //! the file footer is written when stdout is closed, at the end of the program.
 //!
 //! All columns are OPTIONAL. Empty or unconvertible values are written as null, except for
-//! `STRING` (always written as is) and `BOOLEAN` (empty is false). Conversions:
+//! `STRING` (always written as is) and `BOOLEAN` (empty is false). A field that is the `--null`
+//! text is null in every column. Conversions:
 //!
 //! * `BOOLEAN`: `1/true/t/yes/y/on` are true, `0/false/f/no/n/off` and the empty string are
 //!   false, other numbers are true when nonzero, and other strings are true.
@@ -161,6 +162,10 @@ impl Column {
 
     /// Appends a value, given as TSV-escaped text.
     fn push(&mut self, raw: &[u8]) {
+        if crate::runtime::str_escape::is_tsv_null(raw) {
+            self.defs.push(0);
+            return;
+        }
         let text = unescape_tsv(raw);
         let defined = match (&mut self.values, self.kind) {
             (Values::Bytes(v), Kind::String) => {

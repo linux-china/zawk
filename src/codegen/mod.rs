@@ -1269,6 +1269,7 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(is_format), &mut [format, text])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            IsNull(dst, text) => self.unop(intrinsic!(is_null), dst, text),
             Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
             Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
             Flags(dst,text) => self.unop(intrinsic!(flags), dst, text),

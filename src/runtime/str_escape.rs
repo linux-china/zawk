@@ -1,4 +1,39 @@
 use std::borrow::Cow;
+use std::sync::OnceLock;
+
+/// The text of a NULL value, set by `--null`.
+static NULL_TEXT: OnceLock<String> = OnceLock::new();
+
+/// How a NULL value is written in a `-o tsv` field, as PostgreSQL `COPY` and MySQL `LOAD DATA`
+/// read it. `-o tsv` escapes a backslash as `\\`, so no other field is written this way.
+pub const TSV_NULL: &str = "\\N";
+
+/// `--null text`: NULLs of database, JSON Lines and Parquet input are read as `text`, and a field
+/// that is `text` is written as NULL by `-o tsv` (`\N`), `-o jsonl` and `-o parquet` (null).
+pub fn set_null_text(text: String) {
+    let _ = NULL_TEXT.set(text);
+}
+
+/// The `--null` text, if set.
+#[inline]
+pub fn null_text() -> Option<&'static str> {
+    NULL_TEXT.get().map(String::as_str)
+}
+
+/// What a NULL value of the input reads as: the `--null` text, or the empty string.
+pub fn null_input() -> &'static str {
+    null_text().unwrap_or("")
+}
+
+/// Whether a field of the `-o tsv` stream is NULL: `\N` when `--null` is set.
+pub fn is_tsv_null(raw: &[u8]) -> bool {
+    null_text().is_some() && raw == TSV_NULL.as_bytes()
+}
+
+/// `isnull(s)`: 1 if `--null` is set and `s` is its text.
+pub fn is_null(s: &[u8]) -> bool {
+    null_text().is_some_and(|n| n.as_bytes() == s)
+}
 
 /// escape text by format; an unknown format is a warning and gives an empty string
 pub fn escape(format: &str, text: &str) -> String {

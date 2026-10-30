@@ -8,8 +8,9 @@
 //!
 //! Rows are read with the record API of the `parquet` crate (without Arrow, also to keep the
 //! binary small). Value mapping, following `-i jsonl`: numbers (decimals exactly), strings,
-//! dates, times and timestamps (UTC) are plain text, booleans are `1`/`0`, null is empty, binary
-//! values are hex, and nested values (LIST, MAP, STRUCT) and JSON columns are JSON text.
+//! dates, times and timestamps (UTC) are plain text, booleans are `1`/`0`, null is empty (or the
+//! `--null` text), binary values are hex, and nested values (LIST, MAP, STRUCT) and JSON columns
+//! are JSON text.
 //!
 //! Parquet keeps its metadata at the end of the file, so standard input and S3 objects
 //! (`s3://bucket/key`) are read into memory.

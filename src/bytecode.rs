@@ -317,6 +317,7 @@ pub(crate) enum Instr<'a> {
     IsNumFalse(Reg<Int>),
     IsStrNum(Reg<Int>, Reg<Str<'a>>),
     IsFormat(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
+    IsNull(Reg<Int>, Reg<Str<'a>>),
     HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     SendMail(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -1504,6 +1505,10 @@ impl<'a> Instr<'a> {
             IsFormat(dst , format, text) => {
                 dst.accum(&mut f);
                 format.accum(&mut f);
+                text.accum(&mut f);
+            }
+            IsNull(dst, text) => {
+                dst.accum(&mut f);
                 text.accum(&mut f);
             }
             StrToInt(ir, sr) | HexStrToInt(ir, sr) => {

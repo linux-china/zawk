@@ -225,6 +225,25 @@ agree on `HTTPServer`: `httpServer`, `HttpServer`, `http_server`, `http-server`.
 decimal (with optional exponent) or `0x` hex, with optional sign and surrounding blanks. A bare `inf`/`nan` converts to 0, so
 `isnum("inf")` is 0, while the signed forms `+inf`, `-nan` are numbers.
 
+### isnull
+
+`isnull($3)`: 1 if the value is the `--null` text, that is a NULL read from a database, JSON Lines or Parquet input.
+Without `--null`, NULLs are read as the empty string and `isnull()` is always 0.
+
+```shell
+# NULL and '' are told apart; -o jsonl writes NULL as null, -o tsv as \N (for PostgreSQL COPY / MySQL LOAD DATA)
+zawk --null '\N' -o jsonl 'BEGIN{print "name","age:number"} {print $1, $2}' 'postgresql://...#select name, age from people'
+zawk --null '\N' '{print isnull($FI["age"]) ? "unknown" : $FI["age"]}' 'sqlite://./demo.db#user'
+```
+
+With `--null text`:
+
+- NULLs of database tables/queries (`sqlite://`, `mysql://`, `postgresql://` input and `*_query` results), and `null`
+  of JSON Lines and Parquet input are read as `text`; a missing JSON key is still the empty string.
+- A field that is `text` is written as `\N` by `-o tsv` (other backslashes are escaped as `\\`), and as null by
+  `-o jsonl` and `-o parquet` (for every column type, including strings); `-o csv` and plain output write `text` as is.
+- A query parameter (`sqlite_execute`, `mysql_execute`, `pg_execute`, `*_query`) that is `text` is bound as NULL.
+
 ### is(format,txt)
 
 Validate text format, such as: `is("email", "demo@example.com")`. Format list:
@@ -1121,7 +1140,8 @@ and untrusted input cannot inject SQL. **Do not build SQL by concatenating field
 Placeholders: `?` or `?1` for SQLite, `?` for MySQL, `$1`, `$2`... for PostgreSQL.
 Parameters are passed as text: SQLite/MySQL convert them by column type, PostgreSQL converts them
 to the inferred parameter type (bool, integers, floats, numeric, json, uuid, inet, bytea, date/time types;
-empty value is NULL for non-text types). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
+empty value is NULL for non-text types; with `--null text`, a parameter that is `text` is NULL for every database
+and type, see `isnull`). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
 
 Connections are cached per URL for the whole run. A PostgreSQL or Redis (`kv_*`) connection that was closed
 (server restart, idle timeout, network failure) is reconnected once on the next call, so long-running input

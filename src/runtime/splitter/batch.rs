@@ -1062,10 +1062,14 @@ pub fn escape_csv<'a>(s: &Str<'a>) -> Str<'a> {
 }
 
 /// Escape a field for `-o tsv`: a backslash, tab, newline or carriage return becomes `\\`, `\t`,
-/// `\n` or `\r`, the escapes that `-i tsv` reverses.
+/// `\n` or `\r`, the escapes that `-i tsv` reverses. The `--null` text is written as `\N`.
 pub fn escape_tsv<'a>(s: &Str<'a>) -> Str<'a> {
     use std::io::Write;
+    use crate::runtime::str_escape::{is_null, TSV_NULL};
     s.with_bytes(|bs| {
+        if is_null(bs) {
+            return Str::from(TSV_NULL);
+        }
         let escapes = bs.iter().filter(|b| matches!(b, b'\\' | b'\t' | b'\n' | b'\r')).count();
         if escapes == 0 {
             return s.clone();

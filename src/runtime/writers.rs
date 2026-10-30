@@ -63,6 +63,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use hashbrown::HashMap;
 
 use crate::common::{CompileError, FileSpec, Notification, Result};
+use crate::runtime::str_escape::is_tsv_null;
 use crate::runtime::{
     command::{command_env, command_for_write, exit_status_code, CommandEnv},
     Int, Str,
@@ -827,7 +828,7 @@ mod table_tests {
 /// Records are expected in the same tab-separated form as for `MarkdownFactory`. The first record
 /// is the header: a column name may end with `:number`, `:boolean` or `:string` (the default) to
 /// set the JSON type of its values. Every following record becomes one JSON object; a column
-/// missing from a record is `null`.
+/// missing from a record, or a field that is the `--null` text, is `null`.
 #[derive(Clone)]
 pub struct JsonlFactory<F>(pub F);
 
@@ -877,7 +878,8 @@ impl<W: io::Write> JsonlWriter<W> {
 
     fn write_row(&mut self, line: &[u8]) -> io::Result<()> {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
-        let cells: Vec<String> = line.split(|b| *b == b'\t').map(unescape_tsv).collect();
+        let raw_cells: Vec<&[u8]> = line.split(|b| *b == b'\t').collect();
+        let cells: Vec<String> = raw_cells.iter().map(|raw| unescape_tsv(raw)).collect();
         let columns = match &mut self.columns {
             None => {
                 let mut columns = Vec::with_capacity(cells.len());
@@ -906,6 +908,7 @@ impl<W: io::Write> JsonlWriter<W> {
             row.push(':');
             match cells.get(i) {
                 None => row.push_str("null"),
+                Some(_) if is_tsv_null(raw_cells[i]) => row.push_str("null"),
                 Some(cell) => {
                     if !json_value(cell, *ty, &mut row) {
                         if self.invalid.len() <= i {
@@ -921,8 +924,11 @@ impl<W: io::Write> JsonlWriter<W> {
     }
 }
 
-/// Reverses the TSV escaping of `print`.
+/// Reverses the TSV escaping of `print`; a NULL field (`\N`) is the `--null` text.
 fn unescape_tsv(raw: &[u8]) -> String {
+    if is_tsv_null(raw) {
+        return crate::runtime::str_escape::null_input().to_string();
+    }
     crate::runtime::str_escape::unescape_tsv(&String::from_utf8_lossy(raw)).into_owned()
 }
 

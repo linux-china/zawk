@@ -5,6 +5,7 @@ use rusqlite::types::{Value};
 use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::conn_pool::ConnSlots;
 use crate::runtime::csv::vec_to_csv;
+use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::numfmt::float_to_text;
 
 static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnSlots::new);
@@ -31,6 +32,9 @@ pub(crate) fn positional_params(params: &IntMap<Str>) -> Vec<String> {
 /// Binds `text` as an INTEGER/REAL when it is exactly the canonical text of that number, so `? > 10`
 /// and columns without affinity compare numerically. Anything else (`007`, `1e3`, `5.0`) stays TEXT.
 fn sqlite_param(text: &str) -> Value {
+    if is_null(text.as_bytes()) {
+        return Value::Null;
+    }
     if let Ok(n) = text.parse::<i64>() {
         if n.to_string() == text {
             return Value::Integer(n);
@@ -70,7 +74,7 @@ fn query_into(conn: &Connection, sql: &str, params: &[Value], map: &IntMap<Str>)
         while i < colum_count {
             let value = row.get::<_, Value>(i)?;
             let text_value = match value {
-                Value::Null => { "".to_owned() }
+                Value::Null => { null_input().to_owned() }
                 Value::Integer(num) => { num.to_string() }
                 Value::Real(num) => { float_to_text(num) }
                 Value::Text(text) => { text.to_string() }

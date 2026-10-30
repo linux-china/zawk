@@ -685,6 +685,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
             }
+            IsNull(dst, text) => f(dst.into(), Some(text.into())),
             IntToFloat(dst, src) => f(dst.into(), Some(src.into())),
             FloatToStr(dst, src) | FloatToStrOfmt(dst, src) => f(dst.into(), Some(src.into())),
             FloatToInt(dst, src) | FloatToBits(dst, src) => f(dst.into(), Some(src.into())),

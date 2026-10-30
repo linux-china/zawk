@@ -6,8 +6,8 @@
 //! with a header line of the column names, which is then read like `-i csv -H` input: `$1..$NF`
 //! are the columns, and `FI` maps each column name to its index.
 //!
-//! Values are plain text: NULL is empty, numbers and dates as the database shows them, and binary
-//! values (BLOB, BYTEA, binary MySQL strings) are empty.
+//! Values are plain text: NULL is empty (or the `--null` text), numbers and dates as the database
+//! shows them, and binary values (BLOB, BYTEA, binary MySQL strings) are empty.
 //!
 //! The query runs on a thread of its own, which sends the rows over a bounded channel as they are
 //! read, so a large table is streamed rather than loaded into memory.
@@ -29,7 +29,7 @@ impl DbValue {
     /// The text of the value as awk sees it.
     pub fn text(&self) -> &str {
         match self {
-            DbValue::Null => "",
+            DbValue::Null => crate::runtime::str_escape::null_input(),
             DbValue::Num(s) | DbValue::Text(s) => s,
         }
     }
@@ -481,19 +481,7 @@ mod mysql {
 mod postgres {
     use super::{DbColumn, DbValue, Sink, Source};
     use postgres::fallible_iterator::FallibleIterator;
-    use postgres::types::{FromSql, Type};
-
-    /// Accepts any value: tells NULL apart from the empty string.
-    struct Present;
-
-    impl<'a> FromSql<'a> for Present {
-        fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-            Ok(Present)
-        }
-        fn accepts(_: &Type) -> bool {
-            true
-        }
-    }
+    use postgres::types::Type;
 
     pub(super) fn query(source: &Source, sink: &mut Sink) -> Result<(), String> {
         let mut client = crate::runtime::postgres::connect(&source.conn)?;
@@ -513,7 +501,7 @@ mod postgres {
             let values = (0..row.len())
                 .map(|i| {
                     let ty = row.columns()[i].type_();
-                    if row.try_get::<_, Option<Present>>(i).ok().flatten().is_none() {
+                    if crate::runtime::postgres::is_null_column(&row, i) {
                         DbValue::Null
                     } else if *ty == Type::BYTEA {
                         DbValue::Text(String::new())

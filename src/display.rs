@@ -318,6 +318,7 @@ impl Display for Function {
             IsInt => write!(f, "isint"),
             IsNum => write!(f, "isnum"),
             IsFormat => write!(f, "is"),
+            IsNull => write!(f, "isnull"),
             Uniq => write!(f, "uniq"),
             Strnum => write!(f, "strnum"),
             ToFloat => write!(f, "to_float"),

@@ -1839,6 +1839,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = runtime::string_util::is_format(&*format.as_str(), &*text.as_str());
                     }
+                    IsNull(dst, text) => {
+                        let is_null = index(&self.strs, text).with_bytes(runtime::str_escape::is_null);
+                        *self.get_mut(*dst) = is_null as Int;
+                    }
                     StrToInt(ir, sr) => {
                         let sr = index(&self.strs, sr);
                         let num = sr.with_bytes(runtime::str_to_int);
