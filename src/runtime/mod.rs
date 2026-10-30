@@ -913,6 +913,9 @@ impl FileWrite {
     /// still exiting silently on write errors (e.g. a closed pipe).
     pub(crate) fn write_printf(&mut self, path: Option<(&Str, FileSpec)>, s: &Str) -> Result<()> {
         let (handle, fspec) = if let Some((out_file, fspec)) = path {
+            if !matches!(fspec, FileSpec::Cmd) && writers::is_stdout(out_file) {
+                s.with_bytes(stats::output_text);
+            }
             (self.0.get_handle(Some(out_file), fspec)?, fspec)
         } else {
             s.with_bytes(stats::output_text);
@@ -929,6 +932,9 @@ impl FileWrite {
         out_spec: Option<(&Str, FileSpec)>,
     ) -> Result<()> {
         if let Some((path, spec)) = out_spec {
+            if !matches!(spec, FileSpec::Cmd) && writers::is_stdout(path) {
+                stats::output_records(1);
+            }
             self.0.get_handle(Some(path), spec)?.write_all(ss, spec)
         } else {
             stats::output_records(1);

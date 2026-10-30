@@ -1299,13 +1299,18 @@ enum Special {
 }
 
 /// The output files that gawk treats specially: they write to the process's stdout and stderr
-/// rather than opening a new file.
+/// rather than opening a new file. As in gawk, `"-"` is another name for stdout.
 fn special_file(name: &Str) -> Option<Special> {
     name.with_bytes(|bs| match bs {
-        b"/dev/stdout" => Some(Special::Stdout),
+        b"/dev/stdout" | b"-" => Some(Special::Stdout),
         b"/dev/stderr" => Some(Special::Stderr),
         _ => None,
     })
+}
+
+/// Whether output redirected to `name` (with `>` or `>>`) goes to the process's stdout.
+pub(crate) fn is_stdout(name: &Str) -> bool {
+    matches!(special_file(name), Some(Special::Stdout))
 }
 
 /// Registry is a thread-local handle on all files we have ever interacted with.
@@ -1467,13 +1472,13 @@ impl Registry {
             fh.flush()?;
             found |= fh.raw.is_open();
         }
-        let special = name.with_bytes(|bs| bs == b"/dev/stdout" || bs == b"/dev/stderr");
-        match special_file(name) {
+        let special = special_file(name);
+        match special {
             Some(Special::Stdout) => self.stdout.flush()?,
             Some(Special::Stderr) => self.stderr.flush()?,
             None => {}
         }
-        if found || special {
+        if found || special.is_some() {
             return Ok(true);
         }
         // The file or command may have been opened by another thread.
