@@ -537,14 +537,13 @@ pub fn is_format(format: &str, text: &str) -> Int {
                 || text.starts_with("ftp://")
         }
         "phone" => PHONE_REGEX.is_match(text),
-        "ip" => {
-            use std::net::{Ipv4Addr, Ipv6Addr};
-            if text.contains(":") {
-                text.parse::<Ipv6Addr>().is_ok()
-            } else {
-                text.parse::<Ipv4Addr>().is_ok()
-            }
-        }
+        "ip" => text.parse::<std::net::IpAddr>().is_ok(),
+        "ipv4" => text.parse::<std::net::Ipv4Addr>().is_ok(),
+        "ipv6" => text.parse::<std::net::Ipv6Addr>().is_ok(),
+        "date" => is_date(text),
+        "uuid" => uuid::Uuid::try_parse(text).is_ok(),
+        "json" => serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok(),
+        "idcard_cn" => is_idcard_cn(text),
         &_ => {
             stdlib_warning("is", format!("format not supported: {:?}", format));
             false
@@ -555,6 +554,33 @@ pub fn is_format(format: &str, text: &str) -> Int {
     } else {
         0
     }
+}
+
+/// A real calendar date in ISO form, optionally with a time: `2024-02-29`, `2024-02-29 13:45:00`,
+/// `2024-02-29T13:45:00.123` or RFC 3339 with an offset. Relative words such as `now`, which
+/// `mktime` accepts, are not dates here.
+fn is_date(text: &str) -> bool {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime};
+    NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
+        || NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").is_ok()
+        || NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
+        || DateTime::parse_from_rfc3339(text).is_ok()
+}
+
+/// Chinese resident identity card number (GB 11643): 17 digits with a valid birth date at 7..15,
+/// then the ISO 7064 MOD 11-2 check character (`0`-`9` or `X`).
+fn is_idcard_cn(text: &str) -> bool {
+    const WEIGHTS: [u32; 17] = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+    const CHECK_CODES: &[u8; 11] = b"10X98765432";
+    let bytes = text.as_bytes();
+    if bytes.len() != 18 || !bytes[..17].iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    if chrono::NaiveDate::parse_from_str(&text[6..14], "%Y%m%d").is_err() {
+        return false;
+    }
+    let sum: u32 = bytes[..17].iter().zip(WEIGHTS).map(|(b, w)| (b - b'0') as u32 * w).sum();
+    bytes[17].to_ascii_uppercase() == CHECK_CODES[(sum % 11) as usize]
 }
 
 /// Longest password `mkpass` generates; longer requests are errors rather than huge allocations.
@@ -841,6 +867,25 @@ mod tests {
     #[test]
     fn test_is_format() {
         assert_eq!(1, is_format("phone", "008618667135137"));
+        assert_eq!(1, is_format("ip", "::1"));
+        assert_eq!(1, is_format("ipv4", "192.168.1.1"));
+        assert_eq!(0, is_format("ipv4", "::1"));
+        assert_eq!(0, is_format("ipv4", "256.1.1.1"));
+        assert_eq!(1, is_format("ipv6", "fe80::1"));
+        assert_eq!(0, is_format("ipv6", "192.168.1.1"));
+        assert_eq!(1, is_format("date", "2024-02-29"));
+        assert_eq!(1, is_format("date", "2024-02-29 13:45:00"));
+        assert_eq!(1, is_format("date", "2024-02-29T13:45:00.5+08:00"));
+        assert_eq!(0, is_format("date", "2023-02-29"));
+        assert_eq!(0, is_format("date", "now"));
+        assert_eq!(1, is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8"));
+        assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247"));
+        assert_eq!(1, is_format("json", r#"{"a": [1, 2]}"#));
+        assert_eq!(0, is_format("json", "{a: 1}"));
+        assert_eq!(1, is_format("idcard_cn", "11010519491231002X"));
+        assert_eq!(1, is_format("idcard_cn", "11010519491231002x"));
+        assert_eq!(0, is_format("idcard_cn", "110105194912310021"));
+        assert_eq!(0, is_format("idcard_cn", "110105194913310028"));
     }
 
     #[test]

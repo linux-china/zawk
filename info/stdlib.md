@@ -252,6 +252,13 @@ Validate text format, such as: `is("email", "demo@example.com")`. Format list:
 - url
 - phone
 - ip: IP v4/v6
+- ipv4: IP v4 only
+- ipv6: IP v6 only
+- date: a real calendar date in ISO form, optionally with a time: `2024-02-29`, `2024-02-29 13:45:00`,
+  `2024-02-29T13:45:00.123`, `2024-02-29T13:45:00+08:00`
+- uuid: such as `67e55044-10b1-426f-9247-bb680e5fe0c8`, simple/braced/urn forms are accepted too
+- json: valid JSON text
+- idcard_cn: Chinese resident identity card number (18 chars, birth date and check digit verified)
 
 ### starts_with/ends_with/contains
 

@@ -124,7 +124,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("isnull", TEXT, "isnull(s: str) -> bool",
       "1 if s is the `--null` text, i.e. a NULL read from a database, JSON Lines or Parquet input; always 0 without `--null`.", r#"isnull($3)"#),
     d("is", TEXT, "is(format: str, s: str) -> bool",
-      "Validate s against a format: email, url, phone, ip.", r#"is("email", "demo@example.com")"#),
+      "Validate s against a format: email, url, phone, ip, ipv4, ipv6, date, uuid, json, idcard_cn.", r#"is("email", "demo@example.com")"#),
     d("starts_with", TEXT, "starts_with(s: str, prefix: str) -> bool", "1 if s starts with prefix.",
       r#"starts_with("https://a.com", "https://")"#),
     d("ends_with", TEXT, "ends_with(s: str, suffix: str) -> bool", "1 if s ends with suffix.",
