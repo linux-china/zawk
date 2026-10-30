@@ -4769,3 +4769,47 @@ fn null_text() {
         assert_eq!(row, (true, String::new()));
     }
 }
+
+// `--stats`: run metrics as JSON on stderr. Header lines are neither input nor output records,
+// invalid JSON lines are rejected, and `exit n` is reported.
+#[test]
+fn run_stats() {
+    // the counts, without the timing fields
+    fn counts(stderr: &[u8]) -> String {
+        let line = String::from_utf8_lossy(stderr).lines().last().unwrap_or_default().to_string();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(v["elapsed_secs"].is_number() && v["records_per_sec"].is_number(), "{}", line);
+        format!(
+            "{} {} {} {}",
+            v["input_records"], v["output_records"], v["rejected_records"], v["exit_code"]
+        )
+    }
+    let cases: &[(&[&str], &str, &str, &str)] = &[
+        (&[], "$1 % 2 {print} END{printf \"a\\nb\\n\"}", "1\n2\n3\n4\n5\n", "5 5 0 0"),
+        (&[], "NR==2{exit 3}", "1\n2\n3\n", "2 0 0 3"),
+        (&["-i", "csv", "-H"], "{print $FI[\"a\"]}", "a\n1\n2\n", "2 2 0 0"),
+        (&["-i", "jsonl", "-o", "jsonl"], "BEGIN{print \"a\"}{print $FI[\"a\"]}", "{\"a\":1}\nbad\n{\"a\":2}\n", "2 2 1 0"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, input, expected) in cases {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg("--stats")
+                .args(*args)
+                .arg(*prog)
+                .write_stdin(*input)
+                .output()
+                .unwrap();
+            assert_eq!(counts(&out.stderr), *expected, "{} {:?} {}", backend_arg, args, prog);
+        }
+    }
+    // without --stats, nothing is written to stderr
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("{print}")
+        .write_stdin("1\n")
+        .assert()
+        .success()
+        .stderr("");
+}

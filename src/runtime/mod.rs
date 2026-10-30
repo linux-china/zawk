@@ -27,6 +27,7 @@ pub mod str_impl;
 pub mod string_search;
 pub mod utf8;
 pub mod writers;
+pub mod stats;
 pub mod parquet_writer;
 pub mod date_time;
 pub mod encoding;
@@ -471,6 +472,9 @@ impl RegexCache {
         reg: &mut FileRead<LR>,
     ) -> Result<(/* file changed */ bool, Str<'a>)> {
         let (changed, line) = reg.stdin.read_record(pat, self)?;
+        if reg.stdin.read_state() == 1 {
+            stats::input_record();
+        }
         Ok((changed, line.upcast()))
     }
     pub(crate) fn get_line_stdin_reuse<LR: LineReader>(
@@ -486,15 +490,20 @@ impl RegexCache {
             Some(spare) => spare,
             None => {
                 let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
+                if reg.stdin.read_state() == 1 {
+                    stats::input_record();
+                }
                 reg.spare_line = Some(old_line.clone());
                 return Ok(changed);
             }
         };
         mem::swap(old_line, spare);
         let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
-        if reg.stdin.read_state() == 0 {
+        match reg.stdin.read_state() {
             // End of input: no new record was read.
-            mem::swap(old_line, spare);
+            0 => mem::swap(old_line, spare),
+            1 => stats::input_record(),
+            _ => {}
         }
         Ok(changed)
     }
@@ -906,6 +915,7 @@ impl FileWrite {
         let (handle, fspec) = if let Some((out_file, fspec)) = path {
             (self.0.get_handle(Some(out_file), fspec)?, fspec)
         } else {
+            s.with_bytes(stats::output_text);
             (
                 self.0.get_handle(None, FileSpec::default())?,
                 FileSpec::default(),
@@ -921,6 +931,7 @@ impl FileWrite {
         if let Some((path, spec)) = out_spec {
             self.0.get_handle(Some(path), spec)?.write_all(ss, spec)
         } else {
+            stats::output_records(1);
             self.0
                 .get_handle(None, FileSpec::default())?
                 .write_all(ss, FileSpec::Append)
@@ -1024,6 +1035,8 @@ impl<LR: LineReader> FileRead<LR> {
     }
 
     pub(crate) fn update_named_columns<'a>(&mut self, fi: &StrMap<'a, Int>) {
+        // Called once FI is built from a header line, which is not a data record.
+        stats::input_header();
         let referenced_fi = self.backup_used_fields.has_fi();
         let have_columns = self.named_columns.is_some();
 

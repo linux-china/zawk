@@ -238,6 +238,7 @@ fn message_warning(subject: &str, msg: &str) {
     use std::sync::atomic::AtomicUsize;
     static INVALID: AtomicUsize = AtomicUsize::new(0);
     input_warning(&INVALID, || format!("NATS message of {}", subject), msg);
+    crate::runtime::stats::rejected_record();
     set_errno(msg.to_string());
 }
 

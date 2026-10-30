@@ -1,5 +1,7 @@
 # Unreleased
 
+* Add `--stats`: when the program exits, print run metrics as one JSON object on stderr for schedulers (Airflow, cron) to collect, e.g. `{"input_records":100000,"output_records":50000,"rejected_records":0,"elapsed_secs":0.018,"records_per_sec":5531967.9,"exit_code":0}`. `input_records` counts the records read from the main input (header lines of `-H`/`-i jsonl` excluded), `output_records` the records printed to stdout (one per `print`, one per newline of `printf`; the header of `-o jsonl/parquet/markdown/table` excluded), `rejected_records` the input records skipped because they could not be parsed (invalid JSON lines of `-i jsonl`, invalid NATS messages). Also reported on `exit n` and fatal errors; works with both backends and `-p`
+
 # Version 0.6.6 (2026-10-28)
 
 * Add `try E else F`: evaluate `E` without printing stdlib warnings, and give `F` (which can read `ERRNO`) if a stdlib function, `getline` or `close` failed in `E`, e.g. `body = try read_all(url) else ""` (`read_all` fails on an HTTP status >= 400; `http_get`/`http_post` only fail on a network error, so check `r["status"]` for HTTP errors). A failure an inner `try` handled (also in a called function) does not count for an outer one; fatal errors are not caught. **Behavior change**: `try` is a keyword and can no longer be used as a variable or function name (`try = 1`, `try++`, `try[1]`, `print try`, `function f(try)`, `function try()`, `-v try=1` are now errors, reported as "`try` is a keyword"); rename such variables, parameters or functions

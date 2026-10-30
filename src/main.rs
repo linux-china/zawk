@@ -88,6 +88,7 @@ macro_rules! fail {
 macro_rules! fatal {
     ($($t:tt)*) => {{
         eprintln_ignore!("{}", common::fatal_message(&format!($($t)*)));
+        runtime::stats::report(2);
         std::process::exit(2)
     }}
 }
@@ -914,6 +915,7 @@ fn main() {
 }
 
 fn real_main() {
+    let start = std::time::Instant::now();
     //.env load support
     dotenvy::dotenv().ok();
     runtime::logging::init();
@@ -1228,6 +1230,10 @@ fn real_main() {
             .long("null")
             .value_name("text")
             .help("Read NULLs of database, JSON Lines and Parquet input as text (default: the empty string), so that they are told apart from empty strings: isnull(s) is 1 for it, -o tsv writes it as \\N (as PostgreSQL COPY and MySQL LOAD DATA read it), -o jsonl and -o parquet write it as null, and database query parameters bind it as NULL. For example --null '\\N'"))
+        .arg(Arg::new("stats")
+            .long("stats")
+            .num_args(0)
+            .help("When the program exits, print run metrics as a JSON object on stderr for schedulers to collect: input_records (records read from the main input), output_records (records printed to stdout: one per print, one per newline of printf; the header of -o jsonl, parquet, markdown or table is not counted), rejected_records (input records skipped because they could not be parsed, such as invalid JSON lines of -i jsonl), elapsed_secs, records_per_sec (input records per second) and exit_code"))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1959,6 +1965,9 @@ fn real_main() {
     let summary = matches.get_flag("summary");
     if summary && !matches!(output_format, "markdown" | "table") {
         fail!("--summary requires -o table or -o markdown");
+    }
+    if matches.get_flag("stats") {
+        runtime::stats::enable(start, !output_format.is_empty());
     }
     if output_format == "parquet" && out_file.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         fatal!("refusing to write parquet output to a terminal; use --out-file FILE or redirect stdout");

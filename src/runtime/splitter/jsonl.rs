@@ -347,6 +347,7 @@ impl JsonlReader {
         };
         crate::runtime::set_errno(format!("{}: invalid JSON", loc));
         input_warning(&INVALID, || loc, "invalid JSON");
+        crate::runtime::stats::rejected_record();
     }
 
     /// Reads the next line that is not blank, or None at the end of the input. The flag is

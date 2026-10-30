@@ -20,6 +20,7 @@ crates:
 
 begin-file:
   cargo run --package zawk --bin zawk -- '{print $1}' demo.txt
+  cargo run --package zawk --bin zawk -- --stats  '{print $1}' demo.txt
 
 dump-prometheus:
   cargo run --package zawk --bin zawk -- dump --prometheus http://localhost:8081/actuator/prometheus
