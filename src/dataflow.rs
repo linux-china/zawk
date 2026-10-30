@@ -270,6 +270,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(n.into()));
                 f(dst.into(), Some(unit.into()));
             }
+            DateAddStr(dst, date_time_text, n, unit) => {
+                f(dst.into(), Some(date_time_text.into()));
+                f(dst.into(), Some(n.into()));
+                f(dst.into(), Some(unit.into()));
+            }
             DateDiff(dst, unit, start, end) => {
                 f(dst.into(), Some(unit.into()));
                 f(dst.into(), Some(start.into()));

@@ -999,7 +999,8 @@ impl Function {
             Strftime => (smallvec![Str, Int, Int], Str),
             Mktime => (smallvec![Str, Int, Int], Int),
             Duration => (smallvec![Str], Int),
-            DateAdd => (smallvec![Int, Int, Str], Int),
+            // date text is parsed as mktime does; other values are timestamps
+            DateAdd => (smallvec![if incoming[0] == Str { Str } else { Int }, Int, Str], Int),
             DateDiff => (smallvec![Str, Int, Int], Int),
             DateTrunc => (smallvec![Str, Int], Int),
             ToIso8601 => (smallvec![Int], Str),

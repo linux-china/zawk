@@ -275,6 +275,7 @@ pub(crate) enum Instr<'a> {
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     Duration(Reg<Int>, Reg<Str<'a>>),
     DateAdd(Reg<Int>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
+    DateAddStr(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     DateDiff(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     DateTrunc(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     ToIso8601(Reg<Str<'a>>, Reg<Int>),
@@ -860,6 +861,12 @@ impl<'a> Instr<'a> {
             DateAdd(res, timestamp, n, unit) => {
                 res.accum(&mut f);
                 timestamp.accum(&mut f);
+                n.accum(&mut f);
+                unit.accum(&mut f);
+            }
+            DateAddStr(res, date_time_text, n, unit) => {
+                res.accum(&mut f);
+                date_time_text.accum(&mut f);
                 n.accum(&mut f);
                 unit.accum(&mut f);
             }

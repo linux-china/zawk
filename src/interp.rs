@@ -962,6 +962,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result;
                     }
+                    DateAddStr(dst, date_time_text, n, unit) => {
+                        let date_time_text = index(&self.strs, date_time_text);
+                        let n = *self.get(*n);
+                        let unit = index(&self.strs, unit);
+                        let result = runtime::date_time::date_add_str(&*date_time_text.as_str(), n, &*unit.as_str());
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
                     DateDiff(dst, unit, start, end) => {
                         let unit = index(&self.strs, unit);
                         let start = *self.get(*start);

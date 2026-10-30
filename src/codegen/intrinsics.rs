@@ -208,6 +208,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
         [ReadOnly] date_add(int_ty, int_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] date_add_str(str_ref_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] date_trunc(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] to_iso8601(int_ty) -> str_ty;
@@ -1948,6 +1949,14 @@ pub(crate) unsafe extern "C" fn date_add(timestamp: Int, n: Int, unit: *mut U128
     guard_panic(stringify!(date_add), || {
         let unit = &*(unit as *mut Str);
         date_time::date_add(timestamp, n, &*unit.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_add_str(date_time_text: *mut U128, n: Int, unit: *mut U128) -> Int {
+    guard_panic(stringify!(date_add_str), || {
+        let date_time_text = &*(date_time_text as *mut Str);
+        let unit = &*(unit as *mut Str);
+        date_time::date_add_str(&*date_time_text.as_str(), n, &*unit.as_str())
     })
 }
 

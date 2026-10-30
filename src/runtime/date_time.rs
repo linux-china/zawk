@@ -480,6 +480,23 @@ pub fn date_add(timestamp: Int, n: Int, unit: &str) -> Int {
     })
 }
 
+/// `date_add(text, n, unit)`: as [`date_add`], with the time given as text: a numeric string is a
+/// Unix timestamp, other text is parsed as `mktime` does in local time; `-1` with a warning if it
+/// cannot be parsed.
+pub fn date_add_str(date_time_text: &str, n: Int, unit: &str) -> Int {
+    let timestamp = match runtime::compare::looks_numeric(date_time_text.as_bytes()) {
+        Some(num) => num as Int,
+        None => match mktime_tz(date_time_text, &Local) {
+            Some(timestamp) => timestamp,
+            None => {
+                runtime::stdlib_warning("date_add", format!("invalid date time {:?}", date_time_text));
+                return -1;
+            }
+        },
+    };
+    date_add(timestamp, n, unit)
+}
+
 fn try_date_diff(unit: DateUnit, start: i64, end: i64) -> Option<i64> {
     if let Some(seconds) = unit.seconds() {
         return Some(end.checked_sub(start)? / seconds);

@@ -255,7 +255,8 @@ Validate text format, such as: `is("email", "demo@example.com")`. Format list:
 - ipv4: IP v4 only
 - ipv6: IP v6 only
 - date: a real calendar date in ISO form, optionally with a time: `2024-02-29`, `2024-02-29 13:45:00`,
-  `2024-02-29T13:45:00.123`, `2024-02-29T13:45:00+08:00`
+  `2024-02-29T13:45:00.123`, `2024-02-29T13:45:00+08:00`, `2024-02-29T13:45:00Z`. Fields must be zero-padded and unsigned,
+  without surrounding whitespace, so `2024-1-5`, ` 2024-01-05` and `2024-01-05 1:2:3` are rejected
 - uuid: such as `67e55044-10b1-426f-9247-bb680e5fe0c8`, simple/braced/urn forms are accepted too
 - json: valid JSON text
 - idcard_cn: Chinese resident identity card number (18 chars, birth date and check digit verified)
@@ -759,6 +760,7 @@ The gawk format `"YYYY MM DD HH MM SS [DST]"` is tried first, and out-of-range v
 Date arithmetic on Unix timestamps, in local time (set `TZ` for another zone):
 
 - `date_add(mktime("2024-01-31 10:00:00"), 1, "month")`: `2024-02-29 10:00:00`, `n` units later (earlier if `n` is negative). A month end is clamped to the end of a shorter month.
+  The time may also be date text, parsed as `mktime` does: `date_add("2024-01-31 10:00:00", 1, "month")` is the same; a numeric string such as a field `"1706713200"` is a Unix timestamp. Text that cannot be parsed gives a warning and `-1`.
 - `date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))`: `60`, the number of complete units from start to end (negative if end is earlier), as MySQL's `TIMESTAMPDIFF`: `date_diff("month", mktime("2024-01-31 10:00"), mktime("2024-02-29"))` is `0`.
 
 Units: `second`/`s`/`sec`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`/`wk`, `month`/`mo`/`mon`, `quarter`/`q`, `year`/`y`/`yr` (plural forms too, case is ignored).

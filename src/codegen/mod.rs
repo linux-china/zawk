@@ -1179,6 +1179,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(date_add), &mut [timestamp, n, unit])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            DateAddStr(dst, date_time_text, n, unit) => {
+                let date_time_text = self.get_val(date_time_text.reflect())?;
+                let n = self.get_val(n.reflect())?;
+                let unit = self.get_val(unit.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(date_add_str), &mut [date_time_text, n, unit])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             DateDiff(dst, unit, start, end) => {
                 let unit = self.get_val(unit.reflect())?;
                 let start = self.get_val(start.reflect())?;

@@ -556,15 +556,36 @@ pub fn is_format(format: &str, text: &str) -> Int {
     }
 }
 
+static DATE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$").unwrap()
+});
+
 /// A real calendar date in ISO form, optionally with a time: `2024-02-29`, `2024-02-29 13:45:00`,
-/// `2024-02-29T13:45:00.123` or RFC 3339 with an offset. Relative words such as `now`, which
-/// `mktime` accepts, are not dates here.
+/// `2024-02-29T13:45:00.123` or with an offset (`Z`, `+08:00`, `+0800`). Fields must be zero-padded
+/// and unsigned, with no surrounding whitespace. Relative words such as `now`, which `mktime`
+/// accepts, are not dates here.
 fn is_date(text: &str) -> bool {
-    use chrono::{DateTime, NaiveDate, NaiveDateTime};
-    NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
-        || NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").is_ok()
-        || NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
-        || DateTime::parse_from_rfc3339(text).is_ok()
+    use chrono::{NaiveDate, NaiveTime};
+    let Some(caps) = DATE_REGEX.captures(text) else {
+        return false;
+    };
+    if NaiveDate::parse_from_str(&text[..10], "%Y-%m-%d").is_err() {
+        return false;
+    }
+    if text.len() == 10 {
+        return true;
+    }
+    let time_end = caps.get(1).map_or(text.len(), |m| m.start());
+    if NaiveTime::parse_from_str(&text[11..time_end], "%H:%M:%S%.f").is_err() {
+        return false;
+    }
+    match caps.get(1).map(|m| m.as_str()) {
+        None | Some("Z") => true,
+        Some(offset) => {
+            let digits = offset[1..].replace(':', "");
+            digits[..2].parse::<u32>().is_ok_and(|h| h <= 23) && digits[2..].parse::<u32>().is_ok_and(|m| m <= 59)
+        }
+    }
 }
 
 /// Chinese resident identity card number (GB 11643): 17 digits with a valid birth date at 7..15,
@@ -878,6 +899,15 @@ mod tests {
         assert_eq!(1, is_format("date", "2024-02-29T13:45:00.5+08:00"));
         assert_eq!(0, is_format("date", "2023-02-29"));
         assert_eq!(0, is_format("date", "now"));
+        assert_eq!(1, is_format("date", "2024-02-29T13:45:00Z"));
+        assert_eq!(1, is_format("date", "2024-02-29 13:45:00+0800"));
+        assert_eq!(0, is_format("date", "2024-1-5"));
+        assert_eq!(0, is_format("date", " 2024-01-05"));
+        assert_eq!(0, is_format("date", "+2024-01-05"));
+        assert_eq!(0, is_format("date", "2024-01-05 1:2:3"));
+        assert_eq!(0, is_format("date", "2024-01-05 24:00:00"));
+        assert_eq!(0, is_format("date", "2024-01-05T13:45:00+24:00"));
+        assert_eq!(0, is_format("date", "2024-01-05T13:45"));
         assert_eq!(1, is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8"));
         assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247"));
         assert_eq!(1, is_format("json", r#"{"a": [1, 2]}"#));

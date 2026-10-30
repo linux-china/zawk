@@ -2538,12 +2538,21 @@ impl<'a, 'b> View<'a, 'b> {
             }
             DateAdd => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::DateAdd(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                        conv_regs[2].into(),
-                    ))
+                    self.pushl(if conv_tys[0] == Ty::Str {
+                        LL::DateAddStr(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                            conv_regs[2].into(),
+                        )
+                    } else {
+                        LL::DateAdd(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                            conv_regs[2].into(),
+                        )
+                    })
                 }
             }
             DateDiff => {

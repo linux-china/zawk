@@ -423,6 +423,25 @@ fn exec_ends_options() {
 }
 
 #[test]
+fn program_file_version_flag() {
+    let tmpdir = tempdir().unwrap();
+    let prog_fname = tmpdir.path().join("prog.awk");
+    std::fs::write(&prog_fname, "# @meta version 1.2.3\nBEGIN { print \"x=\" x }\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::cargo_bin("zawk").unwrap().arg("-f").arg(&prog_fname).args(args).assert()
+    };
+    run(&["--version"]).success().stdout("1.2.3\n");
+    // With `-f`, a trailing `-v` is the assignment option missing its value.
+    let out = run(&["-v"]).failure().get_output().stderr.clone();
+    assert!(String::from_utf8_lossy(&out).contains("a value is required"), "{}", String::from_utf8_lossy(&out));
+    // A trailing `-v` that is the value of a preceding `-v` is an assignment, not a version request.
+    run(&["-v", "-v"]).failure();
+    // With `-E`, the arguments after the program file are the script's own.
+    Command::cargo_bin("zawk").unwrap().arg("-E").arg(&prog_fname).arg("-v")
+        .assert().success().stdout("1.2.3\n");
+}
+
+#[test]
 fn characters_as_bytes() {
     let prog = r#"BEGIN { s = "éa"; print length(s), index(s, "a"), match(s, /a/), length(substr(s, 2)); printf "[%3.1s]\n", "ab" }"#;
     for backend_arg in BACKEND_ARGS {
@@ -4468,6 +4487,26 @@ fn mktime_dst_gap_and_overlap() {
             .assert()
             .success()
             .stdout("1710055800 1710052200 1710055800\n1730611800\n");
+    }
+}
+
+#[test]
+fn date_add_date_text() {
+    // date text is parsed as mktime does, a numeric string is a timestamp, a float keeps its value
+    let prog = r#"BEGIN {
+        print strftime("%F %T", date_add("2024-01-31 10:00:00", 1, "month")), strftime("%F", date_add("2024-01-01", 1, "day"))
+        print date_add("1704067200", 1, "day"), date_add(1704067200.7, 1, "day")
+        print date_add("not a date", 1, "day"), ERRNO
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("TZ", "UTC")
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("2024-02-29 10:00:00 2024-01-02\n1704153600 1704153600\n-1 date_add: invalid date time \"not a date\"\n");
     }
 }
 

@@ -550,16 +550,31 @@ fn get_matches(
     }
 }
 
+// Short options that take a value, either attached (`-F,`) or as the next argument.
+const SHORT_WITH_VALUE: &str = "efEOvFBoipj";
+const LONG_WITH_VALUE: &[&str] = &[
+    "--source", "--program-file", "--exec", "--include", "--opt-level", "--out-file", "--input-format",
+    "--field-separator", "--backend", "--output-format", "--chunk-size",
+];
+
+/// Whether `arg` is an option whose value is the next argument, such as `-v`, `-Hv` or `--exec`.
+fn takes_next_value(arg: &str) -> bool {
+    if arg.starts_with("--") {
+        return LONG_WITH_VALUE.contains(&arg);
+    }
+    if !arg.starts_with('-') {
+        return false;
+    }
+    arg.char_indices()
+        .skip(1)
+        .find(|(_, c)| SHORT_WITH_VALUE.contains(*c))
+        .is_some_and(|(pos, c)| pos + c.len_utf8() == arg.len())
+}
+
 /// As in gawk, `-E file` is the last option: insert `--` after it so that clap treats all the
 /// remaining arguments (even ones like `-v` or `--help`) as input files. This is what makes
 /// `#!/usr/bin/env -S zawk -E` scripts receive their own arguments untouched.
 fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
-    // Short options that take a value, either attached (`-F,`) or as the next argument.
-    const SHORT_WITH_VALUE: &str = "efEOvFBoipj";
-    const LONG_WITH_VALUE: &[&str] = &[
-        "--source", "--program-file", "--exec", "--include", "--opt-level", "--out-file", "--input-format",
-        "--field-separator", "--backend", "--output-format", "--chunk-size",
-    ];
     let mut i = 1;
     while i < args.len() {
         let arg = args[i].as_str();
@@ -1311,9 +1326,13 @@ fn real_main() {
     if args.len() > 2 { // sub help from
         let last_pair = args.last().unwrap();
         if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
-            let awk_file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file")
-                || item == "-E" || item.starts_with("--exec"));
-            if awk_file_supplied {
+            let exec_supplied = args.iter().any(|item| item == "-E" || item.starts_with("--exec"));
+            let file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
+            // The arguments after `-E file` are the script's own, but with `-f` a trailing `-v` is the
+            // assignment option missing its value, and a flag after an option taking a value is that value.
+            let sub_flag = exec_supplied
+                || (file_supplied && last_pair != "-v" && !takes_next_value(&args[args.len() - 2]));
+            if sub_flag {
                 let last_pair = last_pair.clone();
                 args.remove(args.len() - 1); // remove --help and --version
                 let matches = get_matches(app, args);
