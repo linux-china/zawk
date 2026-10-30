@@ -4480,7 +4480,7 @@ fn date_add_and_date_diff() {
         print strftime("%F %T", date_add(t, 1, "month")), strftime("%F", date_add(t, 1, "y")), strftime("%F", date_add(t, -1, "quarter"))
         s = mktime("2024-03-09 12:00:00"); print date_add(s, 1, "day") - s, date_add(s, 24, "hours") - s
         print date_diff("day", mktime("2024-01-01"), mktime("2024-03-01")), date_diff("month", t, mktime("2024-02-29")), date_diff("month", mktime("2024-03-31"), mktime("2024-02-28"))
-        print date_diff("year", mktime("2024-02-29"), mktime("2025-02-28")), date_diff("week", mktime("2024-01-15"), mktime("2024-01-01")), date_diff("h", t, t + 7199)
+        print date_diff("year", mktime("2024-02-29"), mktime("2025-02-28")), date_diff("month", mktime("2024-02-29"), mktime("2024-01-31")), date_diff("week", mktime("2024-01-15"), mktime("2024-01-01")), date_diff("h", t, t + 7199)
         print date_add(t, 1, "fortnight"), date_diff("x", 1, 2), ERRNO
     }"#;
     for backend_arg in BACKEND_ARGS {
@@ -4491,7 +4491,7 @@ fn date_add_and_date_diff() {
             .arg(prog)
             .assert()
             .success()
-            .stdout("2024-02-29 10:00:00 2025-01-31 2023-10-31\n82800 86400\n60 0 -1\n1 -2 1\n-1 0 date_diff: invalid unit \"x\"\n");
+            .stdout("2024-02-29 10:00:00 2025-01-31 2023-10-31\n82800 86400\n60 0 -1\n0 0 -2 1\n-1 0 date_diff: invalid unit \"x\"\n");
     }
 }
 

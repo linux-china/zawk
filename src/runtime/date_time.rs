@@ -490,10 +490,12 @@ fn try_date_diff(unit: DateUnit, start: i64, end: i64) -> Option<i64> {
         return Some(if unit == DateUnit::Week { days / 7 } else { days });
     };
     let mut months = (end.year() as i64 - start.year() as i64) * 12 + end.month() as i64 - start.month() as i64;
-    // only complete months count: `date_add(start, months, "month")` must not pass `end`
-    if months > 0 && add_months(start, months)? > end {
+    // only complete months count, as MySQL: compare the (day, time) rest without clamping month
+    // ends, so swapping `start` and `end` only negates the result
+    let (start_rest, end_rest) = ((start.day(), start.time()), (end.day(), end.time()));
+    if months > 0 && end_rest < start_rest {
         months -= 1;
-    } else if months < 0 && add_months(start, months)? < end {
+    } else if months < 0 && end_rest > start_rest {
         months += 1;
     }
     Some(months / unit_months)
@@ -580,6 +582,24 @@ mod tests {
         assert_eq!(DateUnit::parse("fortnight"), None);
         assert_eq!(try_date_add(i64::MAX, 1, DateUnit::Second), None);
         assert_eq!(try_date_trunc(DateUnit::Second, t + 59), Some(t + 59));
+    }
+
+    #[test]
+    fn test_date_diff_months_symmetric() {
+        // month ends are not clamped: Jan 31 to Feb 28 and Feb 29 to the next Feb 28 are not complete
+        for (unit, start, end, expected) in [
+            (DateUnit::Month, "2023 01 31 00 00 00", "2023 02 28 00 00 00", 0),
+            (DateUnit::Month, "2023 01 31 00 00 00", "2023 03 31 00 00 00", 2),
+            (DateUnit::Month, "2023 01 31 10 00 00", "2023 03 31 09 59 59", 1),
+            (DateUnit::Year, "2020 02 29 00 00 00", "2021 02 28 00 00 00", 0),
+            (DateUnit::Year, "2020 02 29 00 00 00", "2021 03 01 00 00 00", 1),
+            (DateUnit::Quarter, "2023 11 30 00 00 00", "2024 02 29 00 00 00", 0),
+        ] {
+            let local = |text| mktime(text, false, MKTIME_LOCAL_TIMEZONE);
+            let (start, end) = (local(start), local(end));
+            assert_eq!(try_date_diff(unit, start, end), Some(expected), "{unit:?} {start} {end}");
+            assert_eq!(try_date_diff(unit, end, start), Some(-expected), "{unit:?} {end} {start}");
+        }
     }
 
     #[test]
