@@ -541,7 +541,7 @@ pub fn is_format(format: &str, text: &str) -> Int {
         "ipv4" => text.parse::<std::net::Ipv4Addr>().is_ok(),
         "ipv6" => text.parse::<std::net::Ipv6Addr>().is_ok(),
         "date" => is_date(text),
-        "uuid" => uuid::Uuid::try_parse(text).is_ok(),
+        "uuid" => uuid::Uuid::try_parse(&text.replace('-', "")).is_ok(),
         "json" => serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok(),
         "idcard_cn" => is_idcard_cn(text),
         &_ => {
