@@ -52,7 +52,7 @@ impl<F: FileFactory> FileFactory for ParquetFactory<F> {
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<std::process::Child> {
         self.0.cmd(cmd, env)
     }
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+    fn build(&self, path: &std::path::Path, spec: FileSpec) -> io::Result<Self::Output> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {

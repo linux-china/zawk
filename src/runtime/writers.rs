@@ -43,6 +43,7 @@
 use std::io::IsTerminal;
 use std::collections::VecDeque;
 use std::io::{self, Write};
+use std::path::Path;
 use std::process::{Child, ChildStdin};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -296,17 +297,17 @@ pub trait FileFactory: Clone + 'static + Send + Sync {
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
         command_for_write(cmd, env)
     }
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output>;
+    fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output>;
     // TODO maybe we should support this returning an error.
     fn stdout(&self) -> Self::Stdout;
 }
 
-impl<W: io::Write, T: Fn(&str, FileSpec) -> io::Result<W> + Clone + 'static + Send + Sync>
+impl<W: io::Write, T: Fn(&Path, FileSpec) -> io::Result<W> + Clone + 'static + Send + Sync>
     FileFactory for T
 {
     type Output = W;
     type Stdout = grep_cli::StandardStream;
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<W> {
+    fn build(&self, path: &Path, spec: FileSpec) -> io::Result<W> {
         (self)(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
@@ -316,7 +317,7 @@ impl<W: io::Write, T: Fn(&str, FileSpec) -> io::Result<W> + Clone + 'static + Se
 
 type FileWriter = std::fs::File;
 
-fn open_file(path: &str, spec: FileSpec) -> io::Result<FileWriter> {
+fn open_file(path: &Path, spec: FileSpec) -> io::Result<FileWriter> {
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -326,24 +327,40 @@ fn open_file(path: &str, spec: FileSpec) -> io::Result<FileWriter> {
     Ok(file)
 }
 
+/// The path of the output file name `name`. A file name is a sequence of bytes on Unix, so a name
+/// that is not valid UTF-8 (a Latin-1 or GBK file name) is opened by its bytes.
+#[cfg(unix)]
+fn bytes_path(name: &[u8]) -> std::borrow::Cow<'_, Path> {
+    use std::os::unix::ffi::OsStrExt;
+    std::borrow::Cow::Borrowed(Path::new(std::ffi::OsStr::from_bytes(name)))
+}
+
+#[cfg(not(unix))]
+fn bytes_path(name: &[u8]) -> std::borrow::Cow<'_, Path> {
+    match String::from_utf8_lossy(name) {
+        std::borrow::Cow::Borrowed(s) => std::borrow::Cow::Borrowed(Path::new(s)),
+        std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s.into()),
+    }
+}
+
 pub fn default_factory() -> impl FileFactory {
     open_file
 }
 
 pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
     // Do a test open+truncate of the file.
-    let _file = open_file(fname, FileSpec::Trunc)?;
+    let _file = open_file(Path::new(fname), FileSpec::Trunc)?;
 
     #[derive(Clone)]
     struct FileStdout(String);
     impl FileFactory for FileStdout {
         type Output = FileWriter;
         type Stdout = FileWriter;
-        fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+        fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output> {
             open_file(path, spec)
         }
         fn stdout(&self) -> Self::Stdout {
-            open_file(self.0.as_str(), FileSpec::Append).expect("failed to open stdout")
+            open_file(Path::new(&self.0), FileSpec::Append).expect("failed to open stdout")
         }
     }
     Ok(FileStdout(fname.into()))
@@ -364,7 +381,7 @@ impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
         self.0.cmd(cmd, env)
     }
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+    fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
@@ -727,7 +744,7 @@ impl<F: FileFactory> FileFactory for TableFactory<F> {
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
         self.0.cmd(cmd, env)
     }
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+    fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
@@ -840,7 +857,7 @@ impl<F: FileFactory> FileFactory for JsonlFactory<F> {
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
         self.0.cmd(cmd, env)
     }
-    fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+    fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
@@ -1385,9 +1402,8 @@ impl Registry {
         if fh.checked {
             return Ok(());
         }
-        let path = name.as_str();
-        if let Err(e) = global.check_open(&path) {
-            return Err(CompileError::new(format!("cannot redirect to `{}': {}", path, e)));
+        if let Err(e) = name.with_bytes(|bs| global.check_open(bs)) {
+            return Err(CompileError::new(format!("cannot redirect to `{}': {}", name.as_str(), e)));
         }
         fh.checked = true;
         Ok(())
@@ -1428,10 +1444,7 @@ impl Registry {
                 match self.files.entry(path.clone().unmoor()) {
                     Entry::Occupied(o) => Ok(o.into_mut()),
                     Entry::Vacant(v) => {
-                        let raw = path.with_bytes(|bs| match std::str::from_utf8(bs) {
-                            Ok(s) => Ok(global.get_handle(s)),
-                            Err(e) => err!("invalid UTF8 in filename: {}", e),
-                        })?;
+                        let raw = path.with_bytes(|bs| global.get_handle(bs));
                         Ok(v.insert(raw.into_handle()))
                     }
                 }
@@ -1519,12 +1532,12 @@ impl Clone for Registry {
 // receiver threads, while still avoiding an extra type parameter all the way up the stack.
 trait Root: 'static + Send + Sync {
     fn get_command(&self, cmd: &[u8]) -> RawHandle;
-    fn get_handle(&self, fname: &str) -> RawHandle;
+    fn get_handle(&self, fname: &[u8]) -> RawHandle;
     fn get_stdout(&self) -> RawHandle;
     fn get_stderr(&self) -> RawHandle;
     // opens the file `fname` for appending (creating it, never truncating it) to check that it
     // can be written.
-    fn check_open(&self, fname: &str) -> io::Result<()>;
+    fn check_open(&self, fname: &[u8]) -> io::Result<()>;
     // closes a file or command with name `fname`; see Registry::close for the return value.
     fn close(&self, fname: &[u8]) -> Result<Option<Int>>;
     fn is_command(&self, fname: &[u8]) -> bool;
@@ -1535,7 +1548,7 @@ trait Root: 'static + Send + Sync {
 }
 
 struct RootImpl<F> {
-    handles: Mutex<HashMap<String, RawHandle>>,
+    handles: Mutex<HashMap<Box<[u8]>, RawHandle>>,
     commands: Mutex<HashMap<Box<[u8]>, RawHandle>>,
     stdout_raw: RawHandle,
     stderr_raw: RawHandle,
@@ -1579,9 +1592,7 @@ impl<F: FileFactory> Root for RootImpl<F> {
         // Avoid flushing with the locks held.
         let mut handle = self.commands.lock().unwrap().get(fname).cloned();
         if handle.is_none() {
-            if let Ok(s) = std::str::from_utf8(fname) {
-                handle = self.handles.lock().unwrap().get(s).cloned();
-            }
+            handle = self.handles.lock().unwrap().get(fname).cloned();
         }
         match handle {
             Some(h) => {
@@ -1621,13 +1632,6 @@ impl<F: FileFactory> Root for RootImpl<F> {
             }
         }
         {
-            let fname = if let Ok(s) = std::str::from_utf8(fname) {
-                s
-            } else {
-                // If this file name is invalid UTF8, we haven't opened it; no need to return an
-                // error.
-                return Ok(None);
-            };
             let files = self.handles.lock().unwrap();
             if let Some(h) = files.get(fname) {
                 handle = Some(h.clone());
@@ -1673,17 +1677,17 @@ impl<F: FileFactory> Root for RootImpl<F> {
         );
         handle
     }
-    fn get_handle(&self, fname: &str) -> RawHandle {
+    fn get_handle(&self, fname: &[u8]) -> RawHandle {
         let mut handles = self.handles.lock().unwrap();
         if let Some(h) = handles.get(fname) {
             return h.clone();
         }
         let local_factory = self.file_factory.clone();
-        let local_name = String::from(fname);
+        let local_name = Box::<[u8]>::from(fname);
         let global_name = local_name.clone();
         let pool = self.pool.clone();
         let handle = build_handle(
-            move |spec| pool.open(|| local_factory.build(local_name.as_str(), spec)),
+            move |spec| pool.open(|| local_factory.build(&bytes_path(&local_name), spec)),
             /*is_stdout=*/ false,
             Default::default(),
             Some(self.pool.clone()),
@@ -1697,9 +1701,9 @@ impl<F: FileFactory> Root for RootImpl<F> {
     fn get_stderr(&self) -> RawHandle {
         self.stderr_raw.clone()
     }
-    fn check_open(&self, fname: &str) -> io::Result<()> {
+    fn check_open(&self, fname: &[u8]) -> io::Result<()> {
         self.pool
-            .open(|| self.file_factory.build(fname, FileSpec::Append))
+            .open(|| self.file_factory.build(&bytes_path(fname), FileSpec::Append))
             .map(drop)
     }
 }
@@ -2332,14 +2336,15 @@ pub mod testing {
     impl FileFactory for FakeFs {
         type Output = FakeFile;
         type Stdout = FakeFile;
-        fn build(&self, path: &str, spec: FileSpec) -> io::Result<Self::Output> {
+        fn build(&self, path: &Path, spec: FileSpec) -> io::Result<Self::Output> {
+            let path = path.to_string_lossy();
             let mut named = self.named.lock().unwrap();
-            if let Some(file) = named.get(path) {
+            if let Some(file) = named.get(path.as_ref()) {
                 file.reopen(spec);
                 return Ok(file.clone());
             }
             let new_file = FakeFile::default();
-            named.insert(path.into(), new_file.clone());
+            named.insert(path.into_owned(), new_file.clone());
             Ok(new_file)
         }
         fn stdout(&self) -> Self::Stdout {
@@ -2464,12 +2469,30 @@ mod tests {
         assert_eq!(&data[..], "hello there".as_bytes());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_file_name() {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(bytes_path(b"out\xff.txt").as_os_str().as_bytes(), b"out\xff.txt");
+        let fname = Str::from_bytes(b"/fake/out\xff.txt");
+        let fs = FakeFs::default();
+        let mut reg = Registry::from_factory(fs.clone());
+        reg.check_output(&fname, FileSpec::Trunc).unwrap();
+        let handle = reg.get_handle(Some(&fname), FileSpec::Trunc).unwrap();
+        handle.write(&Str::from("x"), FileSpec::Trunc).unwrap();
+        handle.flush().unwrap();
+        assert!(reg.flush_named(&fname).unwrap());
+        assert_eq!(reg.close(&fname).unwrap(), Some(0));
+        let data = fs.get_handle("/fake/out\u{FFFD}.txt").unwrap().read_data();
+        assert_eq!(&data[..], b"x");
+    }
+
     #[test]
     fn multithreaded_write() {
         const N_THREADS: usize = 100;
         const WRITES_PER_THREAD: usize = 1000;
         let fs = FakeFs::default();
-        fs.build("/fake/BAD", FileSpec::Trunc)
+        fs.build(Path::new("/fake/BAD"), FileSpec::Trunc)
             .unwrap()
             .set_poison(true);
         let mut threads = Vec::with_capacity(N_THREADS);
