@@ -49,6 +49,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'tooling',
+    'zawk-vs-gawk',
     'compatibility',
     'faq',
   ],
