@@ -93,6 +93,58 @@ macro_rules! fatal {
     }}
 }
 
+/// The arguments not valid UTF-8, by the text `command_line_args` gives them: the original bytes of
+/// a file name (see `raw_path`).
+static RAW_ARGS: std::sync::OnceLock<std::collections::HashMap<String, std::ffi::OsString>> =
+    std::sync::OnceLock::new();
+
+/// The command-line arguments. clap and zawk take them as `String`s, so the bytes of an argument
+/// that are not valid UTF-8 (a Latin-1 or GBK file name, `-F $'\xa7'`) are written as `\xNN`
+/// escapes: `-F`, `-v`, `var=value` operands and string literals of the program decode them back to
+/// the bytes, and a file name is opened by its original bytes.
+fn command_line_args() -> Vec<String> {
+    let mut raw = std::collections::HashMap::new();
+    let args = std::env::args_os()
+        .map(|arg| match arg.into_string() {
+            Ok(arg) => arg,
+            Err(arg) => {
+                let text = escape_non_utf8(&arg);
+                raw.insert(text.clone(), arg);
+                text
+            }
+        })
+        .collect();
+    let _ = RAW_ARGS.set(raw);
+    args
+}
+
+#[cfg(unix)]
+fn escape_non_utf8(arg: &std::ffi::OsStr) -> String {
+    use std::fmt::Write;
+    use std::os::unix::ffi::OsStrExt;
+    let mut text = String::new();
+    for chunk in arg.as_bytes().utf8_chunks() {
+        text.push_str(chunk.valid());
+        for b in chunk.invalid() {
+            let _ = write!(text, "\\x{:02X}", b);
+        }
+    }
+    text
+}
+
+#[cfg(not(unix))]
+fn escape_non_utf8(arg: &std::ffi::OsStr) -> String {
+    arg.to_string_lossy().into_owned()
+}
+
+/// The path of the file name `name`: the original bytes of an argument not valid UTF-8.
+fn raw_path(name: &str) -> &std::path::Path {
+    match RAW_ARGS.get().and_then(|raw| raw.get(name)) {
+        Some(arg) => std::path::Path::new(arg),
+        None => std::path::Path::new(name),
+    }
+}
+
 /// The program operand when it names an existing `.awk` (or Markdown) file: `zawk lint` reads it
 /// as `-f`, and a run that fails to parse it suggests `-f`.
 fn program_operand_file(p: &str) -> bool {
@@ -217,14 +269,14 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
                 Ok(Source::File(Box::new(database::DbCsv::new(name.to_string()))))
             }
             name => {
-                if std::fs::metadata(name).map_or(false, |m| m.is_dir()) {
+                if std::fs::metadata(raw_path(name)).map_or(false, |m| m.is_dir()) {
                     eprintln_ignore!(
                         "zawk: warning: command line argument `{}' is a directory: skipped",
                         name
                     );
                     return Ok(Source::Empty);
                 }
-                let file = File::open(name)
+                let file = File::open(raw_path(name))
                     .map_err(|e| common::InputOpenError::new_io(name, &e))?;
                 runtime::decompress::maybe_decompress(name, file).map(Source::File)
             }
@@ -289,7 +341,7 @@ fn read_program_source(prog_file: &str) -> (String, Option<&std::path::Path>) {
             Err(e) => fatal!("can't open source file `{}' for reading: {}", prog_file, e),
         }
     } else {
-        match std::fs::read_to_string(prog_file) {
+        match std::fs::read_to_string(raw_path(prog_file)) {
             Ok(p) => (p, Some(std::path::Path::new(prog_file))),
             Err(e) => fatal!(
                 "can't open source file `{}' for reading: {}",
@@ -1255,7 +1307,7 @@ fn real_main() {
             .num_args(1)
             .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
     // display help/version information from awk file
-    let mut args: Vec<String> = std::env::args().collect();
+    let mut args = command_line_args();
     if args.len() > 2 { // sub help from
         let last_pair = args.last().unwrap();
         if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
@@ -1279,7 +1331,7 @@ fn real_main() {
             }
         }
     }
-    let matches = get_matches(app, end_options_after_exec(std::env::args().collect()));
+    let matches = get_matches(app, end_options_after_exec(args));
     // dump sub command
     if let Some(matches) = matches.subcommand_matches("dump") {
         let input_file = matches.get_one::<String>("input-file").unwrap();
@@ -1388,7 +1440,7 @@ fn real_main() {
         None => exec_strategy.num_workers(),
     };
     // As in gawk, ARGV[0] is the name zawk was invoked with, without its directory.
-    let program_name = std::env::args()
+    let program_name = std::env::args_os()
         .next()
         .and_then(|arg0| {
             std::path::Path::new(&arg0)
@@ -2051,3 +2103,19 @@ fn set_executable(path: &str) {
 
 #[cfg(not(unix))]
 fn set_executable(path: &str) {}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn non_utf8_args_are_escaped() {
+        let arg = std::ffi::OsStr::from_bytes(b"in\xff\xa7\xe4\xb8\xad.txt");
+        assert_eq!(escape_non_utf8(arg), "in\\xFF\\xA7中.txt");
+        // The escapes decode back to the bytes, e.g. for `-F $'\xa7'`.
+        let a = Arena::default();
+        let mut buf = Vec::new();
+        assert_eq!(lexer::parse_string_literal(&escape_non_utf8(std::ffi::OsStr::from_bytes(b"\xa7")), &a, &mut buf), b"\xa7");
+    }
+}
