@@ -279,6 +279,7 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(unit.into()));
                 f(dst.into(), Some(timestamp.into()));
             }
+            ToIso8601(dst, timestamp) => f(dst.into(), Some(timestamp.into())),
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),

@@ -210,6 +210,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] date_add(int_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] date_trunc(str_ref_ty, int_ty) -> int_ty;
+        [ReadOnly] to_iso8601(int_ty) -> str_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
@@ -1961,6 +1962,12 @@ pub(crate) unsafe extern "C" fn date_trunc(unit: *mut U128, timestamp: Int) -> I
     guard_panic(stringify!(date_trunc), || {
         let unit = &*(unit as *mut Str);
         date_time::date_trunc(&*unit.as_str(), timestamp)
+    })
+}
+
+pub(crate) unsafe extern "C" fn to_iso8601(timestamp: Int) -> U128 {
+    guard_panic(stringify!(to_iso8601), || {
+        mem::transmute::<Str, U128>(Str::from(date_time::to_iso8601(timestamp)))
     })
 }
 

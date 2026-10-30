@@ -2561,6 +2561,11 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::DateTrunc(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
                 }
             }
+            ToIso8601 => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::ToIso8601(res_reg.into(), conv_regs[0].into()))
+                }
+            }
             MkBool => {
                 if res_reg != UNUSED {
                     self.pushl(LL::MkBool(

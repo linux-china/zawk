@@ -769,6 +769,15 @@ to be formatted with `strftime`, e.g. to group records by month: `count[strftime
 
 Units as `date_add`. An unknown unit gives a warning and `-1`.
 
+### to_iso8601
+
+`to_iso8601(time)` formats a Unix timestamp as an ISO 8601 UTC date time with milliseconds (`YYYY-MM-DDTHH:mm:ss.sssZ`),
+the format of JavaScript's `Date.prototype.toISOString` and `JSON.stringify`, e.g. `to_iso8601(0)` is `1970-01-01T00:00:00.000Z`.
+
+- `to_iso8601(mktime("2024-02-15 10:37:42 +08:00"))`: `2024-02-15T02:37:42.000Z`
+
+A timestamp out of range gives a warning and an empty string.
+
 ### Duration
 
 Convert duration to seconds: `duration("2min + 12sec") # 132`. Time

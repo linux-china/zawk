@@ -977,6 +977,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result;
                     }
+                    ToIso8601(dst, timestamp) => {
+                        let timestamp = *self.get(*timestamp);
+                        *index_mut(&mut self.strs, dst) = runtime::date_time::to_iso8601(timestamp).into();
+                    }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
                         let result = runtime::math_util::mkbool(&*text.as_str());

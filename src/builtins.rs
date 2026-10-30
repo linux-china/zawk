@@ -68,6 +68,7 @@ pub enum Function {
     DateAdd,
     DateDiff,
     DateTrunc,
+    ToIso8601,
     MkBool,
     MkPassword,
     Fend,
@@ -464,6 +465,7 @@ static_map!(
     ["date_add", Function::DateAdd],
     ["date_diff", Function::DateDiff],
     ["date_trunc", Function::DateTrunc],
+    ["to_iso8601", Function::ToIso8601],
     ["mkbool", Function::MkBool],
     ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
@@ -1000,6 +1002,7 @@ impl Function {
             DateAdd => (smallvec![Int, Int, Str], Int),
             DateDiff => (smallvec![Str, Int, Int], Int),
             DateTrunc => (smallvec![Str, Int], Int),
+            ToIso8601 => (smallvec![Int], Str),
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
@@ -1237,6 +1240,7 @@ impl Function {
             Duration => 1,
             DateAdd | DateDiff => 3,
             DateTrunc => 2,
+            ToIso8601 => 1,
             StrCmp => 2,
             Similar => 2,
             CharAt => 2,
@@ -1352,7 +1356,7 @@ impl Function {
                     val: BaseTy::Str,
                 }.abs())
             }
-            MkPassword => {
+            MkPassword | ToIso8601 => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),

@@ -185,6 +185,7 @@ impl Display for Function {
             DateAdd => write!(f, "date_add"),
             DateDiff => write!(f, "date_diff"),
             DateTrunc => write!(f, "date_trunc"),
+            ToIso8601 => write!(f, "to_iso8601"),
             MkBool => write!(f, "mkbool"),
             MkPassword => write!(f, "mkpass"),
             Fend => write!(f, "fend"),

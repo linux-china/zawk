@@ -277,6 +277,7 @@ pub(crate) enum Instr<'a> {
     DateAdd(Reg<Int>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
     DateDiff(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     DateTrunc(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
+    ToIso8601(Reg<Str<'a>>, Reg<Int>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
@@ -871,6 +872,10 @@ impl<'a> Instr<'a> {
             DateTrunc(res, unit, timestamp) => {
                 res.accum(&mut f);
                 unit.accum(&mut f);
+                timestamp.accum(&mut f);
+            }
+            ToIso8601(res, timestamp) => {
+                res.accum(&mut f);
                 timestamp.accum(&mut f);
             }
             MkBool(res, text) => {

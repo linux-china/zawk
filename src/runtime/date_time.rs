@@ -547,6 +547,19 @@ pub fn date_trunc(unit: &str, timestamp: Int) -> Int {
     })
 }
 
+/// `to_iso8601(timestamp)`: the timestamp as an ISO 8601 UTC date time with milliseconds, as
+/// JavaScript's `Date.prototype.toISOString`, e.g. `1970-01-01T00:00:00.000Z`; an empty string with
+/// a warning for a timestamp out of range.
+pub fn to_iso8601(timestamp: Int) -> String {
+    match DateTime::from_timestamp(timestamp, 0) {
+        Some(date_time) => date_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        None => {
+            runtime::stdlib_warning("to_iso8601", format!("date out of range: {}", timestamp));
+            String::new()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

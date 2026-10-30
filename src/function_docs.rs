@@ -317,6 +317,9 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d("date_trunc", DATETIME, "date_trunc(unit: str, time: int) -> int",
       "Unix time truncated to the start of its unit in local time (week starts on Monday); units as date_add; format it with strftime.",
       r#"strftime("%F", date_trunc("month", mktime("2024-02-15 10:30:00")))"#),
+    d("to_iso8601", DATETIME, "to_iso8601(time: int) -> str",
+      "Unix time as an ISO 8601 UTC date time with milliseconds (YYYY-MM-DDTHH:mm:ss.sssZ), as JavaScript toISOString.",
+      "to_iso8601(0)"),
     // Color
     d("hex2rgb", COLOR, "hex2rgb(s: str) -> map[int]int", "Hex color to array [r, g, b].", r##"hex2rgb("#FF0000")"##),
     d("rgb2hex", COLOR, "rgb2hex(r: int[, g: int[, b: int]]) -> str", "RGB to hex color.", "rgb2hex(255, 0, 0)"),
