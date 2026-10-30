@@ -42,6 +42,21 @@ datetime(1621530000)["month"]
 datetime("2020-02-02")["weekday"]
 ```
 
+## Date arithmetic
+
+`date_add(time, n, unit)` and `date_diff(unit, start, end)` work on Unix timestamps in local time:
+
+```awk
+date_add(mktime("2024-01-31 10:00:00"), 1, "month")          # 2024-02-29 10:00:00: month ends are clamped
+date_add(systime(), -7, "day")                               # a week ago
+date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))  # 60
+date_diff("month", mktime("2024-01-31"), mktime("2024-02-28"))  # 0: only complete units count
+```
+
+`date_diff` counts complete units from `start` to `end` (negative if `end` is earlier), as MySQL's `TIMESTAMPDIFF`.
+Units: `second`/`s`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`, `month`/`mo`, `quarter`/`q`, `year`/`y`.
+Days and weeks follow the wall clock, so a day across a DST change is 23 or 25 hours.
+
 ## Durations
 
 ```awk

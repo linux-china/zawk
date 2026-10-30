@@ -385,9 +385,153 @@ pub fn duration(text: &str) -> Int {
     }
 }
 
+/// Unit of `date_add`/`date_diff`: seconds, minutes and hours are fixed lengths of time; days and
+/// weeks follow the local wall clock (a day is 23 or 25 hours across a DST change); months,
+/// quarters and years follow the calendar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DateUnit {
+    Second,
+    Minute,
+    Hour,
+    Day,
+    Week,
+    Month,
+    Quarter,
+    Year,
+}
+
+impl DateUnit {
+    fn parse(unit: &str) -> Option<Self> {
+        let unit = match unit.trim().to_ascii_lowercase().as_str() {
+            "s" | "sec" | "secs" | "second" | "seconds" => Self::Second,
+            "m" | "min" | "mins" | "minute" | "minutes" => Self::Minute,
+            "h" | "hr" | "hrs" | "hour" | "hours" => Self::Hour,
+            "d" | "day" | "days" => Self::Day,
+            "w" | "wk" | "week" | "weeks" => Self::Week,
+            "mo" | "mon" | "month" | "months" => Self::Month,
+            "q" | "quarter" | "quarters" => Self::Quarter,
+            "y" | "yr" | "year" | "years" => Self::Year,
+            _ => return None,
+        };
+        Some(unit)
+    }
+
+    /// Length in seconds of a fixed-length unit.
+    fn seconds(self) -> Option<i64> {
+        match self {
+            Self::Second => Some(1),
+            Self::Minute => Some(60),
+            Self::Hour => Some(3600),
+            _ => None,
+        }
+    }
+
+    /// Length in months of a calendar unit.
+    fn months(self) -> Option<i64> {
+        match self {
+            Self::Month => Some(1),
+            Self::Quarter => Some(3),
+            Self::Year => Some(12),
+            _ => None,
+        }
+    }
+}
+
+fn local_naive(timestamp: i64) -> Option<NaiveDateTime> {
+    Some(DateTime::from_timestamp(timestamp, 0)?.with_timezone(&Local).naive_local())
+}
+
+/// Add months to a date time; the day is clamped to the end of a shorter month (Jan 31 + 1 month
+/// is Feb 28 or 29).
+fn add_months(naive: NaiveDateTime, months: i64) -> Option<NaiveDateTime> {
+    let delta = chrono::Months::new(u32::try_from(months.unsigned_abs()).ok()?);
+    if months >= 0 {
+        naive.checked_add_months(delta)
+    } else {
+        naive.checked_sub_months(delta)
+    }
+}
+
+fn try_date_add(timestamp: i64, n: i64, unit: DateUnit) -> Option<i64> {
+    if let Some(seconds) = unit.seconds() {
+        return timestamp.checked_add(n.checked_mul(seconds)?);
+    }
+    let naive = local_naive(timestamp)?;
+    let naive = match unit.months() {
+        Some(months) => add_months(naive, n.checked_mul(months)?)?,
+        None => {
+            let days = if unit == DateUnit::Week { n.checked_mul(7)? } else { n };
+            naive.checked_add_signed(chrono::TimeDelta::try_days(days)?)?
+        }
+    };
+    local_timestamp(&Local, &naive)
+}
+
+/// `date_add(timestamp, n, unit)`: the timestamp `n` units later (earlier if `n` is negative), in
+/// local time; `-1` with a warning for an unknown unit or a result out of range.
+pub fn date_add(timestamp: Int, n: Int, unit: &str) -> Int {
+    let Some(date_unit) = DateUnit::parse(unit) else {
+        runtime::stdlib_warning("date_add", format!("invalid unit {:?}", unit));
+        return -1;
+    };
+    try_date_add(timestamp, n, date_unit).unwrap_or_else(|| {
+        runtime::stdlib_warning("date_add", format!("date out of range: {} {} {}", timestamp, n, unit));
+        -1
+    })
+}
+
+fn try_date_diff(unit: DateUnit, start: i64, end: i64) -> Option<i64> {
+    if let Some(seconds) = unit.seconds() {
+        return Some(end.checked_sub(start)? / seconds);
+    }
+    let (start, end) = (local_naive(start)?, local_naive(end)?);
+    let Some(unit_months) = unit.months() else {
+        let days = (end - start).num_days();
+        return Some(if unit == DateUnit::Week { days / 7 } else { days });
+    };
+    let mut months = (end.year() as i64 - start.year() as i64) * 12 + end.month() as i64 - start.month() as i64;
+    // only complete months count: `date_add(start, months, "month")` must not pass `end`
+    if months > 0 && add_months(start, months)? > end {
+        months -= 1;
+    } else if months < 0 && add_months(start, months)? < end {
+        months += 1;
+    }
+    Some(months / unit_months)
+}
+
+/// `date_diff(unit, start, end)`: the number of complete units from `start` to `end` (negative if
+/// `end` is earlier), as MySQL's `TIMESTAMPDIFF`; `0` with a warning for an unknown unit.
+pub fn date_diff(unit: &str, start: Int, end: Int) -> Int {
+    let Some(date_unit) = DateUnit::parse(unit) else {
+        runtime::stdlib_warning("date_diff", format!("invalid unit {:?}", unit));
+        return 0;
+    };
+    try_date_diff(date_unit, start, end).unwrap_or_else(|| {
+        runtime::stdlib_warning("date_diff", format!("date out of range: {} {}", start, end));
+        0
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn utc(text: &str) -> i64 {
+        mktime(text, true, MKTIME_LOCAL_TIMEZONE)
+    }
+
+    #[test]
+    fn test_date_add_diff_units() {
+        // fixed-length units do not depend on the time zone
+        let t = utc("2024 01 31 10 00 00");
+        assert_eq!(try_date_add(t, 90, DateUnit::Minute), Some(t + 5400));
+        assert_eq!(try_date_add(t, -2, DateUnit::Hour), Some(t - 7200));
+        assert_eq!(try_date_diff(DateUnit::Hour, t, t + 7199), Some(1));
+        assert_eq!(try_date_diff(DateUnit::Minute, t + 119, t), Some(-1));
+        assert_eq!(DateUnit::parse(" Months "), Some(DateUnit::Month));
+        assert_eq!(DateUnit::parse("fortnight"), None);
+        assert_eq!(try_date_add(i64::MAX, 1, DateUnit::Second), None);
+    }
 
     #[test]
     fn test_strftime_invalid_format() {

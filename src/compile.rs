@@ -2536,6 +2536,26 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            DateAdd => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::DateAdd(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+            DateDiff => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::DateDiff(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
             MkBool => {
                 if res_reg != UNUSED {
                     self.pushl(LL::MkBool(

@@ -954,6 +954,22 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    DateAdd(dst, timestamp, n, unit) => {
+                        let timestamp = *self.get(*timestamp);
+                        let n = *self.get(*n);
+                        let unit = index(&self.strs, unit);
+                        let result = runtime::date_time::date_add(timestamp, n, &*unit.as_str());
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
+                    DateDiff(dst, unit, start, end) => {
+                        let unit = index(&self.strs, unit);
+                        let start = *self.get(*start);
+                        let end = *self.get(*end);
+                        let result = runtime::date_time::date_diff(&*unit.as_str(), start, end);
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
                         let result = runtime::math_util::mkbool(&*text.as_str());

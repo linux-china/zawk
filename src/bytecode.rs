@@ -274,6 +274,8 @@ pub(crate) enum Instr<'a> {
     Decrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     Duration(Reg<Int>, Reg<Str<'a>>),
+    DateAdd(Reg<Int>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
+    DateDiff(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
@@ -852,6 +854,18 @@ impl<'a> Instr<'a> {
             Duration(res, expr) => {
                 res.accum(&mut f);
                 expr.accum(&mut f);
+            }
+            DateAdd(res, timestamp, n, unit) => {
+                res.accum(&mut f);
+                timestamp.accum(&mut f);
+                n.accum(&mut f);
+                unit.accum(&mut f);
+            }
+            DateDiff(res, unit, start, end) => {
+                res.accum(&mut f);
+                unit.accum(&mut f);
+                start.accum(&mut f);
+                end.accum(&mut f);
             }
             MkBool(res, text) => {
                 res.accum(&mut f);

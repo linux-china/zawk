@@ -308,6 +308,12 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
       r#"datetime("2020-02-02")["year"]"#),
     d("duration", DATETIME, "duration(s: str) -> int", "Parse a duration expression into seconds.",
       r#"duration("2min + 12sec")"#),
+    d("date_add", DATETIME, "date_add(time: int, n: int, unit: str) -> int",
+      "Unix time n units later (earlier if n < 0) in local time; unit: second, minute, hour, day, week, month, quarter, year; a month end is clamped (Jan 31 + 1 month = Feb 28/29).",
+      r#"date_add(mktime("2024-01-31"), 1, "month")"#),
+    d("date_diff", DATETIME, "date_diff(unit: str, start: int, end: int) -> int",
+      "Number of complete units from start to end (negative if end is earlier), as MySQL TIMESTAMPDIFF; units as date_add.",
+      r#"date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))"#),
     // Color
     d("hex2rgb", COLOR, "hex2rgb(s: str) -> map[int]int", "Hex color to array [r, g, b].", r##"hex2rgb("#FF0000")"##),
     d("rgb2hex", COLOR, "rgb2hex(r: int[, g: int[, b: int]]) -> str", "RGB to hex color.", "rgb2hex(255, 0, 0)"),

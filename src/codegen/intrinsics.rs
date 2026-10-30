@@ -207,6 +207,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
+        [ReadOnly] date_add(int_ty, int_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
@@ -1937,6 +1939,20 @@ pub(crate) unsafe extern "C" fn duration(expr: *mut U128) -> Int {
     guard_panic(stringify!(duration), || {
         let expr = &*(expr as *mut Str);
         date_time::duration(&*expr.as_str()) as Int
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_add(timestamp: Int, n: Int, unit: *mut U128) -> Int {
+    guard_panic(stringify!(date_add), || {
+        let unit = &*(unit as *mut Str);
+        date_time::date_add(timestamp, n, &*unit.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_diff(unit: *mut U128, start: Int, end: Int) -> Int {
+    guard_panic(stringify!(date_diff), || {
+        let unit = &*(unit as *mut Str);
+        date_time::date_diff(&*unit.as_str(), start, end)
     })
 }
 

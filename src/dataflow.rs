@@ -265,6 +265,16 @@ pub(crate) mod boilerplate {
             Duration(dst, expr) => {
                 f(dst.into(), Some(expr.into()));
             }
+            DateAdd(dst, timestamp, n, unit) => {
+                f(dst.into(), Some(timestamp.into()));
+                f(dst.into(), Some(n.into()));
+                f(dst.into(), Some(unit.into()));
+            }
+            DateDiff(dst, unit, start, end) => {
+                f(dst.into(), Some(unit.into()));
+                f(dst.into(), Some(start.into()));
+                f(dst.into(), Some(end.into()));
+            }
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),

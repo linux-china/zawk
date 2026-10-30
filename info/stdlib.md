@@ -747,6 +747,17 @@ please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 `mktime()` returns `-1` if the text cannot be parsed, as gawk does.
 The gawk format `"YYYY MM DD HH MM SS [DST]"` is tried first, and out-of-range values are normalized (e.g. month `13`).
 
+### date_add and date_diff
+
+Date arithmetic on Unix timestamps, in local time (set `TZ` for another zone):
+
+- `date_add(mktime("2024-01-31 10:00:00"), 1, "month")`: `2024-02-29 10:00:00`, `n` units later (earlier if `n` is negative). A month end is clamped to the end of a shorter month.
+- `date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))`: `60`, the number of complete units from start to end (negative if end is earlier), as MySQL's `TIMESTAMPDIFF`: `date_diff("month", mktime("2024-01-31 10:00"), mktime("2024-02-29"))` is `0`.
+
+Units: `second`/`s`/`sec`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`/`wk`, `month`/`mo`/`mon`, `quarter`/`q`, `year`/`y`/`yr` (plural forms too, case is ignored).
+Seconds, minutes and hours are fixed lengths of time; days and weeks follow the wall clock (a day across a DST change is 23 or 25 hours).
+An unknown unit gives a warning, `-1` for `date_add` and `0` for `date_diff`.
+
 ### Duration
 
 Convert duration to seconds: `duration("2min + 12sec") # 132`. Time

@@ -395,3 +395,11 @@ run-excel:
 run-try:
    cargo run --package zawk --bin zawk --  'BEGIN { body = try http_get("https://httpbin.org/ip") else NONE; if(body["text"] !="") { print body["text"] } }'
    cargo run --package zawk --bin zawk --  'BEGIN { body = try http_get("https://httpbin222.org/ip") else NONE; if(body["text"] =="") { print "error" } }'
+
+# run data_add
+run-date-add:
+   cargo run --package zawk --bin zawk -- 'BEGIN {print date_add(mktime("2024-01-31 10:00:00"), 1, "month") }'
+
+# run data_diff
+run-date-diff:
+   cargo run --package zawk --bin zawk -- 'BEGIN {print date_diff("day", mktime("2024-01-01"), mktime("2024-03-01")) }'

@@ -65,6 +65,8 @@ pub enum Function {
     Strftime,
     Mktime,
     Duration,
+    DateAdd,
+    DateDiff,
     MkBool,
     MkPassword,
     Fend,
@@ -458,6 +460,8 @@ static_map!(
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
     ["duration", Function::Duration],
+    ["date_add", Function::DateAdd],
+    ["date_diff", Function::DateDiff],
     ["mkbool", Function::MkBool],
     ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
@@ -991,6 +995,8 @@ impl Function {
             Strftime => (smallvec![Str, Int, Int], Str),
             Mktime => (smallvec![Str, Int, Int], Int),
             Duration => (smallvec![Str], Int),
+            DateAdd => (smallvec![Int, Int, Str], Int),
+            DateDiff => (smallvec![Str, Int, Int], Int),
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
@@ -1226,6 +1232,7 @@ impl Function {
             Strftime => 3,
             Mktime => 3,
             Duration => 1,
+            DateAdd | DateDiff => 3,
             StrCmp => 2,
             Similar => 2,
             CharAt => 2,
@@ -1306,7 +1313,7 @@ impl Function {
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
             Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
             | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration
+            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration | DateAdd | DateDiff
             | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
             // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
             TryElse => match (&args[0], &args[1]) {
