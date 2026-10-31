@@ -1,13 +1,13 @@
+use crate::runtime::{Str, StrMap, stdlib_warning};
+use lettre::Transport;
+use reqwest::blocking::Response;
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
-use lettre::Transport;
-use reqwest::blocking::Response;
-use reqwest::header::{HeaderMap, HeaderName, CONTENT_TYPE};
-use serde::Serialize;
 use url::Url;
-use crate::runtime::{stdlib_warning, Str, StrMap};
 
 /// How long connecting to a server (http input, redis, mysql, postgres) may take, so that an
 /// unreachable host fails instead of waiting for the TCP default of several minutes.
@@ -16,8 +16,17 @@ pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Query parameters whose values are credentials, such as libpq's `?password=...`.
-const SECRET_PARAMS: &[&str] =
-    &["password", "passwd", "pwd", "sslpassword", "token", "access_token", "secret", "api_key", "apikey"];
+const SECRET_PARAMS: &[&str] = &[
+    "password",
+    "passwd",
+    "pwd",
+    "sslpassword",
+    "token",
+    "access_token",
+    "secret",
+    "api_key",
+    "apikey",
+];
 
 /// The byte offsets of the userinfo of `url` and of the `@` that ends it: `(3, 13)` for
 /// `s://user:pw@host`. A raw password may contain `/`, `?`, `#` or `@` (`u:p/ss@h/db#t`): when
@@ -32,7 +41,9 @@ pub(crate) fn userinfo_range(url: &str) -> Option<(usize, usize)> {
         return Some((start, start + at));
     }
     let first_at = rest.find('@')?;
-    let region = rest[first_at..].find('#').map_or(rest.len(), |i| first_at + i);
+    let region = rest[first_at..]
+        .find('#')
+        .map_or(rest.len(), |i| first_at + i);
     let at = rest[..region].rfind('@')?;
     let userinfo = &rest[..at];
     let (user, _) = userinfo.split_once(':')?;
@@ -65,7 +76,9 @@ pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
         copied = at;
         end = at;
     }
-    end = url[end..].find(['/', '?', '#']).map_or(url.len(), |i| end + i);
+    end = url[end..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |i| end + i);
     let fragment = url[end..].find('#').map_or(url.len(), |i| end + i);
     if let Some(q) = url[end..fragment].find('?') {
         let query_start = end + q + 1;
@@ -111,12 +124,17 @@ static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
 /// `parse_prometheus`, JWKS, `-f URL`): error statuses (404, proxy errors, ...) are errors, so an
 /// error page is never read as content.
 pub(crate) fn fetch(url: &str) -> reqwest::Result<Response> {
-    HTTP_CLIENT.get(url).send().and_then(|resp| resp.error_for_status())
+    HTTP_CLIENT
+        .get(url)
+        .send()
+        .and_then(|resp| resp.error_for_status())
 }
 
 /// The body at `url` as text, see `fetch`; the error leaves out the URL, which callers report.
 pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
-    fetch(url).and_then(|resp| resp.text()).map_err(|e| e.without_url().to_string())
+    fetch(url)
+        .and_then(|resp| resp.text())
+        .map_err(|e| e.without_url().to_string())
 }
 
 pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
@@ -130,15 +148,21 @@ pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'
         Err(e) => {
             // status 0 tells the failure; a warning and ERRNO tell why, as for other stdlib functions
             // reqwest errors carry the full URL, credentials included: report it redacted
-            stdlib_warning("http_get", format!("{}: {}", redact_url(url), e.without_url()));
+            stdlib_warning(
+                "http_get",
+                format!("{}: {}", redact_url(url), e.without_url()),
+            );
             resp_obj.insert(Str::from("status"), Str::from("0"));
         }
     }
     resp_obj
 }
 
-
-pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str) -> StrMap<'a, Str<'a>> {
+pub(crate) fn http_post<'a>(
+    url: &str,
+    headers: &StrMap<'a, Str<'a>>,
+    body: &Str,
+) -> StrMap<'a, Str<'a>> {
     let resp_obj: StrMap<Str> = StrMap::default();
     let mut builder = HTTP_CLIENT.post(url);
     // HeaderMap keys are case-insensitive, so `content-type` from the user counts as set
@@ -151,7 +175,8 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
     if !body_text.is_empty() {
         if !has_content_type {
             if (body_text.starts_with('{') && body_text.ends_with('}'))
-                || (body_text.starts_with('[') && body_text.ends_with(']')) {
+                || (body_text.starts_with('[') && body_text.ends_with(']'))
+            {
                 builder = builder.header(CONTENT_TYPE, "application/json");
             } else {
                 builder = builder.header(CONTENT_TYPE, "text/plain");
@@ -164,7 +189,10 @@ pub(crate) fn http_post<'a>(url: &str, headers: &StrMap<'a, Str<'a>>, body: &Str
         Err(e) => {
             // status 0 tells the failure; a warning and ERRNO tell why, as for other stdlib functions
             // reqwest errors carry the full URL, credentials included: report it redacted
-            stdlib_warning("http_post", format!("{}: {}", redact_url(url), e.without_url()));
+            stdlib_warning(
+                "http_post",
+                format!("{}: {}", redact_url(url), e.without_url()),
+            );
             resp_obj.insert(Str::from("status"), Str::from("0"));
         }
     }
@@ -177,11 +205,17 @@ fn convert_to_http_headers<'a>(headers: &StrMap<'a, Str<'a>>) -> HeaderMap {
     for name in &headers.to_vec() {
         let name_text = name.to_string();
         let value_text = headers.get(name).to_string();
-        match (HeaderName::from_bytes(name_text.as_bytes()), value_text.parse()) {
+        match (
+            HeaderName::from_bytes(name_text.as_bytes()),
+            value_text.parse(),
+        ) {
             (Ok(header_name), Ok(header_value)) => {
                 request_headers.insert(header_name, header_value);
             }
-            _ => stdlib_warning("http", format!("invalid HTTP header {:?}: {:?}", name_text, value_text)),
+            _ => stdlib_warning(
+                "http",
+                format!("invalid HTTP header {:?}: {:?}", name_text, value_text),
+            ),
         }
     }
     request_headers
@@ -201,7 +235,14 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
         Err(e) => {
             // a body cut off by the timeout or a reset connection is a failure, not an empty success:
             // status 0, a warning and ERRNO as for a failed send
-            stdlib_warning(func, format!("{}: failed to read response body: {}", redact_url(url), e.without_url()));
+            stdlib_warning(
+                func,
+                format!(
+                    "{}: failed to read response body: {}",
+                    redact_url(url),
+                    e.without_url()
+                ),
+            );
             resp_obj.insert(Str::from("status"), Str::from("0"));
             resp_obj.insert(Str::from("text"), Str::from(""));
         }
@@ -211,14 +252,23 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
 /// Response headers by name: the values of a repeated header are joined with `, `, or with `\n`
 /// for `Set-Cookie`, whose values may contain commas.
 fn merge_headers(headers: &HeaderMap) -> Vec<(String, String)> {
-    headers.keys().map(|name| {
-        let separator = if name == reqwest::header::SET_COOKIE { "\n" } else { ", " };
-        // header values are not necessarily ASCII
-        let values: Vec<String> = headers.get_all(name).iter()
-            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
-            .collect();
-        (name.to_string(), values.join(separator))
-    }).collect()
+    headers
+        .keys()
+        .map(|name| {
+            let separator = if name == reqwest::header::SET_COOKIE {
+                "\n"
+            } else {
+                ", "
+            };
+            // header values are not necessarily ASCII
+            let values: Vec<String> = headers
+                .get_all(name)
+                .iter()
+                .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+                .collect();
+            (name.to_string(), values.join(separator))
+        })
+        .collect()
 }
 
 /// All NATS requests run on this runtime. Its worker thread keeps driving the connections (PING/PONG,
@@ -232,8 +282,18 @@ pub(crate) static NATS_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::ne
         .expect("failed to build NATS runtime")
 });
 
+pub(crate) static KAFKA_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("zawk-kafka")
+        .enable_all()
+        .build()
+        .expect("failed to build kafka runtime")
+});
+
 // todo graceful shutdown
-static NATS_CONNECTIONS: LazyLock<Mutex<HashMap<String, async_nats::Client>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static NATS_CONNECTIONS: LazyLock<Mutex<HashMap<String, async_nats::Client>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The pooled NATS client of `conn_url` (`nats://[user:password@]host[:port]` or `tls://...`), connected if needed.
 pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
@@ -263,10 +323,16 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
         });
     // async_nats ignores the userinfo of the server URL: pass `user:password@` / `token@` explicitly
     if let Ok(url) = Url::parse(conn_url) {
-        let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
+        let decode = |s: &str| {
+            urlencoding::decode(s)
+                .map(|s| s.into_owned())
+                .unwrap_or_else(|_| s.to_string())
+        };
         if !url.username().is_empty() {
             options = match url.password() {
-                Some(password) => options.user_and_password(decode(url.username()), decode(password)),
+                Some(password) => {
+                    options.user_and_password(decode(url.username()), decode(password))
+                }
                 None => options.token(decode(url.username())),
             };
         }
@@ -277,7 +343,8 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
     pool.insert(conn_url.to_string(), client.clone());
     Ok(client)
 }
-static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
 /// reported as warnings.
@@ -291,28 +358,46 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     // an unknown scheme or a malformed URL is an error: never fall back to another transport
     let scheme = match namespace.split_once("://") {
         Some((scheme, _)) => scheme.to_ascii_lowercase(),
-        None => return Err(format!(
-            "invalid URL {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
-            redact_url(namespace),
-        )),
+        None => {
+            return Err(format!(
+                "invalid URL {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
+                redact_url(namespace),
+            ));
+        }
     };
     if scheme == "nats" || scheme == "nats+tls" {
-        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
+        let url = Url::parse(namespace)
+            .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
         if url.host().is_none() {
             return Err(format!("missing host in {:?}", redact_url(namespace)));
         }
-        let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
+        let topic = url
+            .path()
+            .strip_prefix('/')
+            .unwrap_or(url.path())
+            .to_string();
         // keep the userinfo (user:password@ / token@) and let async_nats default the port, same as `kv_*`
         let conn_url = url[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
         // publish only queues the message: flush so it is not lost when the script exits right after
         NATS_RUNTIME.block_on(async {
-            client.publish(topic, body.to_string().into()).await.map_err(|e| format!("failed to publish: {}", e))?;
-            client.flush().await.map_err(|e| format!("failed to flush: {}", e))
+            client
+                .publish(topic, body.to_string().into())
+                .await
+                .map_err(|e| format!("failed to publish: {}", e))?;
+            client
+                .flush()
+                .await
+                .map_err(|e| format!("failed to flush: {}", e))
         })
     } else if scheme == "mqtt" || scheme == "mqtts" {
-        let url = Url::parse(namespace).map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
-        let topic = url.path().strip_prefix('/').unwrap_or(url.path()).to_string();
+        let url = Url::parse(namespace)
+            .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
+        let topic = url
+            .path()
+            .strip_prefix('/')
+            .unwrap_or(url.path())
+            .to_string();
         if topic.is_empty() {
             return Err(format!("missing topic in {:?}", redact_url(namespace)));
         }
@@ -337,6 +422,42 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             pool.insert(key, cli);
         }
         result
+    } else if scheme == "kafka" {
+        use confluent_kafka::common::serialization::StringSerializer;
+        use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
+        let url = Url::parse(namespace)
+            .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
+        let topic = url
+            .path()
+            .strip_prefix('/')
+            .unwrap_or(url.path())
+            .to_string();
+        let bootstrap_servers = url.host().unwrap().to_string();
+        let props = HashMap::from([
+            ("bootstrap.servers".to_string(), bootstrap_servers),
+            ("acks".to_string(), "all".to_string()),
+        ]);
+        let config = ProducerConfig::new(&props).unwrap();
+        let producer = KafkaProducer::<String, String>::new(
+            config,
+            StringSerializer::new(),
+            StringSerializer::new(),
+        )
+        .unwrap();
+        let success = KAFKA_RUNTIME.block_on(async {
+            let mut result = false;
+            let record = ProducerRecord::new(topic, Some(body.to_string()));
+            if let Ok(ack) = producer.send(record).await {
+                result = ack.get().await.ok().is_some();
+            }
+            producer.close().await.unwrap();
+            result
+        });
+        if success {
+            Ok(())
+        } else {
+            Err(format!("Failed to send message to {}", scheme))
+        }
     } else if scheme == "desktop" {
         // desktop://title: the title is shown in the notification center, so mask any secret in it
         let redacted = redact_url(namespace);
@@ -370,7 +491,9 @@ impl MqttClient {
     fn publish(&mut self, topic: &str, body: &str) -> std::result::Result<(), String> {
         macro_rules! publish_and_flush {
             ($client:expr, $conn:expr, $qos:expr, $event:path, $payload:expr) => {{
-                $client.publish(topic, $qos, false, $payload).map_err(|e| format!("failed to publish: {}", e))?;
+                $client
+                    .publish(topic, $qos, false, $payload)
+                    .map_err(|e| format!("failed to publish: {}", e))?;
                 let deadline = std::time::Instant::now() + MQTT_TIMEOUT;
                 loop {
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -385,10 +508,22 @@ impl MqttClient {
         }
         match self {
             MqttClient::V4(client, conn) => {
-                publish_and_flush!(client, conn, rumqttc::QoS::AtMostOnce, rumqttc::Event::Outgoing, body.as_bytes().to_vec())
+                publish_and_flush!(
+                    client,
+                    conn,
+                    rumqttc::QoS::AtMostOnce,
+                    rumqttc::Event::Outgoing,
+                    body.as_bytes().to_vec()
+                )
             }
             MqttClient::V5(client, conn) => {
-                publish_and_flush!(client, conn, rumqttc::v5::mqttbytes::QoS::AtMostOnce, rumqttc::v5::Event::Outgoing, body.to_string())
+                publish_and_flush!(
+                    client,
+                    conn,
+                    rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+                    rumqttc::v5::Event::Outgoing,
+                    body.to_string()
+                )
             }
         }
     }
@@ -396,7 +531,10 @@ impl MqttClient {
 
 fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     let tls = url.scheme() == "mqtts";
-    let host = match url.host().ok_or_else(|| format!("missing host in {:?}", redact_url(url.as_str())))? {
+    let host = match url
+        .host()
+        .ok_or_else(|| format!("missing host in {:?}", redact_url(url.as_str())))?
+    {
         url::Host::Domain(domain) => domain.to_string(),
         url::Host::Ipv4(ip) => ip.to_string(),
         url::Host::Ipv6(ip) => ip.to_string(),
@@ -405,7 +543,11 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     // MQTT 3.1.1 limits client ids to 23 characters
     let client_id = format!("zawk-{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
     // username + password, or a token (JWT style) as the password only; userinfo is percent-encoded in the URL
-    let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
+    let decode = |s: &str| {
+        urlencoding::decode(s)
+            .map(|s| s.into_owned())
+            .unwrap_or_else(|_| s.to_string())
+    };
     let user_name = url.username();
     let credentials = if user_name.is_empty() {
         None
@@ -414,12 +556,21 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     } else {
         Some((String::new(), decode(user_name)))
     };
-    let is_v5 = !url.query_pairs().any(|(key, version)| key == "version" && version.contains("3.1"));
-    let transport = if tls { rumqttc::Transport::tls_with_config(crate::runtime::tls::client_config()?.into()) } else { rumqttc::Transport::tcp() };
+    let is_v5 = !url
+        .query_pairs()
+        .any(|(key, version)| key == "version" && version.contains("3.1"));
+    let transport = if tls {
+        rumqttc::Transport::tls_with_config(crate::runtime::tls::client_config()?.into())
+    } else {
+        rumqttc::Transport::tcp()
+    };
     let keep_alive = Duration::from_secs(60);
     if is_v5 {
         let mut options = rumqttc::v5::MqttOptions::new(client_id, host, port);
-        options.set_keep_alive(keep_alive).set_clean_start(true).set_transport(transport);
+        options
+            .set_keep_alive(keep_alive)
+            .set_clean_start(true)
+            .set_transport(transport);
         if let Some((user_name, password)) = credentials {
             options.set_credentials(user_name, password);
         }
@@ -427,7 +578,10 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
         Ok(MqttClient::V5(client, conn))
     } else {
         let mut options = rumqttc::MqttOptions::new(client_id, host, port);
-        options.set_keep_alive(keep_alive).set_clean_session(true).set_transport(transport);
+        options
+            .set_keep_alive(keep_alive)
+            .set_clean_session(true)
+            .set_transport(transport);
         if let Some((user_name, password)) = credentials {
             options.set_credentials(user_name, password);
         }
@@ -477,8 +631,18 @@ pub fn send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     }
 }
 
-fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str) -> std::result::Result<(), String> {
-    let smtp_url = if smtp_url.is_empty() { env::var("SMTP_URL").unwrap_or_default() } else { smtp_url.to_owned() };
+fn try_send_mail(
+    from: &str,
+    to: &str,
+    subject: &str,
+    text: &str,
+    smtp_url: &str,
+) -> std::result::Result<(), String> {
+    let smtp_url = if smtp_url.is_empty() {
+        env::var("SMTP_URL").unwrap_or_default()
+    } else {
+        smtp_url.to_owned()
+    };
     let (api_url, api_key) = if !smtp_url.is_empty() {
         (smtp_url, String::new())
     } else if let Ok(api_key) = env::var("MLSN_API_KEY") {
@@ -486,7 +650,10 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     } else if let Ok(api_key) = env::var("RESEND_API_KEY") {
         ("https://api.resend.com/emails".to_owned(), api_key)
     } else {
-        return Err("no mail transport: pass smtp_url or set SMTP_URL, MLSN_API_KEY or RESEND_API_KEY".to_owned());
+        return Err(
+            "no mail transport: pass smtp_url or set SMTP_URL, MLSN_API_KEY or RESEND_API_KEY"
+                .to_owned(),
+        );
     };
     if env::var("DRY_RUN").is_ok() {
         println!("====DRY_RUN MODE====");
@@ -497,7 +664,8 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
     if api_url.starts_with("smtp://") || api_url.starts_with("smtps://") {
         return try_smtp_send(&api_url, from, to, subject, text);
     }
-    let mut builder = HTTP_CLIENT.post(&api_url)
+    let mut builder = HTTP_CLIENT
+        .post(&api_url)
         .header("Authorization", format!("Bearer {}", api_key));
     if api_url.starts_with("https://api.resend.com") {
         let receivers: Vec<String> = to.split(',').map(|s| s.trim().to_string()).collect();
@@ -509,9 +677,11 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
         };
         builder = builder.json(&req);
     } else {
-        let receivers = to.split(',')
+        let receivers = to
+            .split(',')
             .filter(|s| !s.trim().is_empty())
-            .map(|email| MailAddress::new(email.trim())).collect();
+            .map(|email| MailAddress::new(email.trim()))
+            .collect();
         let req = MailerSendRequest {
             from: MailAddress::new(from),
             to: receivers,
@@ -520,21 +690,39 @@ fn try_send_mail(from: &str, to: &str, subject: &str, text: &str, smtp_url: &str
         };
         builder = builder.json(&req);
     }
-    let resp = builder.send().map_err(|e| format!("failed to send mail via {}: {}", redact_url(&api_url), e))?;
+    let resp = builder
+        .send()
+        .map_err(|e| format!("failed to send mail via {}: {}", redact_url(&api_url), e))?;
     let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().unwrap_or_else(|e| format!("(failed to read response body: {})", e));
-        return Err(format!("failed to send mail via {}: HTTP {} {}", redact_url(&api_url), status, body));
+        let body = resp
+            .text()
+            .unwrap_or_else(|e| format!("(failed to read response body: {})", e));
+        return Err(format!(
+            "failed to send mail via {}: HTTP {} {}",
+            redact_url(&api_url),
+            status,
+            body
+        ));
     }
     Ok(())
 }
 
-fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> std::result::Result<(), String> {
+fn try_smtp_send(
+    url: &str,
+    from: &str,
+    to: &str,
+    subject: &str,
+    text: &str,
+) -> std::result::Result<(), String> {
     let address = |text: &str| {
-        text.trim().parse::<lettre::message::Mailbox>()
+        text.trim()
+            .parse::<lettre::message::Mailbox>()
             .map_err(|e| format!("invalid mail address {:?}: {}", text, e))
     };
-    let mut builder = lettre::Message::builder().from(address(from)?).subject(subject);
+    let mut builder = lettre::Message::builder()
+        .from(address(from)?)
+        .subject(subject);
     for email_address in to.split(",") {
         if email_address.contains('@') {
             builder = builder.to(address(email_address.trim())?);
@@ -547,49 +735,96 @@ fn try_smtp_send(url: &str, from: &str, to: &str, subject: &str, text: &str) -> 
     let mailer = lettre::SmtpTransport::from_url(url)
         .map_err(|e| format!("invalid SMTP URL: {}", e))?
         .build();
-    mailer.send(&email).map(drop).map_err(|e| format!("failed to send mail: {}", e))
+    mailer
+        .send(&email)
+        .map(drop)
+        .map_err(|e| format!("failed to send mail: {}", e))
 }
 
 #[cfg(test)]
 mod tests {
-    use local_ip_address::local_ip;
     use super::*;
+    use local_ip_address::local_ip;
 
     #[test]
     fn test_merge_headers() {
         let mut headers = HeaderMap::new();
-        headers.append("set-cookie", "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+        headers.append(
+            "set-cookie",
+            "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
+                .parse()
+                .unwrap(),
+        );
         headers.append("set-cookie", "b=2".parse().unwrap());
         headers.append("vary", "Accept".parse().unwrap());
         headers.append("vary", "Origin".parse().unwrap());
         headers.append("content-type", "text/plain".parse().unwrap());
         let merged: HashMap<String, String> = merge_headers(&headers).into_iter().collect();
-        assert_eq!(merged["set-cookie"], "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nb=2");
+        assert_eq!(
+            merged["set-cookie"],
+            "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nb=2"
+        );
         assert_eq!(merged["vary"], "Accept, Origin");
         assert_eq!(merged["content-type"], "text/plain");
     }
 
     #[test]
     fn test_redact_url() {
-        assert_eq!(redact_url("redis://user:s3cret@127.0.0.1:1/h"), "redis://user:***@127.0.0.1:1/h");
-        assert_eq!(redact_url("redis://:s3cret@127.0.0.1"), "redis://:***@127.0.0.1");
-        assert_eq!(redact_url("nats://token@127.0.0.1:4222"), "nats://***@127.0.0.1:4222");
-        assert_eq!(redact_url("smtps://u%40x.com:p@ss@smtp.x.com:465"), "smtps://u%40x.com:***@smtp.x.com:465");
-        assert_eq!(redact_url("http://127.0.0.1/a@b?x=@"), "http://127.0.0.1/a@b?x=@");
+        assert_eq!(
+            redact_url("redis://user:s3cret@127.0.0.1:1/h"),
+            "redis://user:***@127.0.0.1:1/h"
+        );
+        assert_eq!(
+            redact_url("redis://:s3cret@127.0.0.1"),
+            "redis://:***@127.0.0.1"
+        );
+        assert_eq!(
+            redact_url("nats://token@127.0.0.1:4222"),
+            "nats://***@127.0.0.1:4222"
+        );
+        assert_eq!(
+            redact_url("smtps://u%40x.com:p@ss@smtp.x.com:465"),
+            "smtps://u%40x.com:***@smtp.x.com:465"
+        );
+        assert_eq!(
+            redact_url("http://127.0.0.1/a@b?x=@"),
+            "http://127.0.0.1/a@b?x=@"
+        );
         assert_eq!(redact_url("127.0.0.1:4222"), "127.0.0.1:4222");
         // raw passwords with reserved characters
-        assert_eq!(redact_url("mysql://root:p/ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
-        assert_eq!(redact_url("mysql://root:p?ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
-        assert_eq!(redact_url("mysql://root:p#ss@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
-        assert_eq!(redact_url("redis://u:a/b?c#d@e@h:6379/0"), "redis://u:***@h:6379/0");
+        assert_eq!(
+            redact_url("mysql://root:p/ss@127.0.0.1:3306/test#people"),
+            "mysql://root:***@127.0.0.1:3306/test#people"
+        );
+        assert_eq!(
+            redact_url("mysql://root:p?ss@127.0.0.1:3306/test#people"),
+            "mysql://root:***@127.0.0.1:3306/test#people"
+        );
+        assert_eq!(
+            redact_url("mysql://root:p#ss@127.0.0.1:3306/test#people"),
+            "mysql://root:***@127.0.0.1:3306/test#people"
+        );
+        assert_eq!(
+            redact_url("redis://u:a/b?c#d@e@h:6379/0"),
+            "redis://u:***@h:6379/0"
+        );
         assert_eq!(
             redact_url("mysql://u:p#w@h/db#select * from t where e = 'a@b'"),
             "mysql://u:***@h/db#select * from t where e = 'a@b'"
         );
-        assert_eq!(redact_url("postgres://u:p/w@h/db?password=x#t"), "postgres://u:***@h/db?password=***#t");
+        assert_eq!(
+            redact_url("postgres://u:p/w@h/db?password=x#t"),
+            "postgres://u:***@h/db?password=***#t"
+        );
         // an `@` in a path or a query is not a userinfo
-        assert_eq!(redact_url("https://registry.npmjs.org/@types/node"), "https://registry.npmjs.org/@types/node");
-        assert_eq!(redact_url("http://h/x?email=a@b.com"), "http://h/x?email=a@b.com");
+        assert_eq!(
+            redact_url("https://registry.npmjs.org/@types/node"),
+            "https://registry.npmjs.org/@types/node"
+        );
+        assert_eq!(
+            redact_url("http://h/x?email=a@b.com"),
+            "http://h/x?email=a@b.com"
+        );
         assert_eq!(
             redact_url("postgres://127.0.0.1:1/db?user=u&password=secret#people"),
             "postgres://127.0.0.1:1/db?user=u&password=***#people"
@@ -598,8 +833,14 @@ mod tests {
             redact_url("postgres://u:p@h/db?sslmode=disable&PWD=x&token=t&secret=#t"),
             "postgres://u:***@h/db?sslmode=disable&PWD=***&token=***&secret=#t"
         );
-        assert_eq!(redact_url("http://h/x?passwords=a&key=b"), "http://h/x?passwords=a&key=b");
-        assert_eq!(redact_url("mysql://root:123456@127.0.0.1:3306/test#people"), "mysql://root:***@127.0.0.1:3306/test#people");
+        assert_eq!(
+            redact_url("http://h/x?passwords=a&key=b"),
+            "http://h/x?passwords=a&key=b"
+        );
+        assert_eq!(
+            redact_url("mysql://root:123456@127.0.0.1:3306/test#people"),
+            "mysql://root:***@127.0.0.1:3306/test#people"
+        );
         assert_eq!(
             redact_url("sqlite://./a.db#select * from t where e = 'a@b' and q = '?password=1'"),
             "sqlite://./a.db#select * from t where e = 'a@b' and q = '?password=1'"
@@ -631,9 +872,21 @@ mod tests {
 
     #[test]
     fn test_publish_unknown_scheme() {
-        assert!(try_publish("redis://127.0.0.1:6379/x", "hello").unwrap_err().contains("unsupported scheme \"redis\""));
-        assert!(try_publish("nats//typo", "hello").unwrap_err().contains("invalid URL"));
-        assert!(try_publish("notification", "hello").unwrap_err().contains("invalid URL"));
+        assert!(
+            try_publish("redis://127.0.0.1:6379/x", "hello")
+                .unwrap_err()
+                .contains("unsupported scheme \"redis\"")
+        );
+        assert!(
+            try_publish("nats//typo", "hello")
+                .unwrap_err()
+                .contains("invalid URL")
+        );
+        assert!(
+            try_publish("notification", "hello")
+                .unwrap_err()
+                .contains("invalid URL")
+        );
         let err = try_publish("ftp://user:secret@host/x", "hello").unwrap_err();
         assert!(!err.contains("secret"));
     }
