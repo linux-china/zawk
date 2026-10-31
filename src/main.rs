@@ -1447,6 +1447,7 @@ fn real_main() {
     // NB: do we want this to be a command-line param?
     let chunk_size = if let Some(cs) = matches.get_one::<String>("chunk-size") {
         match cs.parse::<usize>() {
+            Ok(0) => fail!("value of 'chunk-size' flag must be at least 1"),
             Ok(u) => u,
             Err(e) => fail!("value of 'chunk-size' flag must be numeric: {}", e),
         }

@@ -1921,6 +1921,19 @@ fn default_fs_records_across_buffers() {
 }
 
 #[test]
+fn chunk_size_zero_is_rejected() {
+    // A zero-sized buffer never reaches EOF: reading 0 bytes looks like a full chunk.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--chunk-size", "0", "END { print NR }"])
+        .write_stdin("a\nb\n")
+        .timeout(std::time::Duration::from_secs(10))
+        .assert()
+        .code(1)
+        .stderr("zawk: value of 'chunk-size' flag must be at least 1\n");
+}
+
+#[test]
 fn empty_input_files_do_not_end_input() {
     // An empty input file, or one whose last record ends exactly at the end of a read buffer,
     // ends only that file: the following files are still read.
