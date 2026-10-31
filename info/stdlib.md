@@ -1124,11 +1124,15 @@ the input format given by `-i`, with `MSG_SUBJECT` (the topic), `MSG_HEADERS` an
 be the only input file. TLS and SASL are not supported.
 
 Publish events to Kafka: `publish("kafka://localhost:9092/topic1", body)`. The port defaults to `9092`; `publish` returns
-once the broker has acknowledged the message, and a failure is reported in `ERRNO`.
+once the broker has acknowledged the message, and a failure is reported in `ERRNO`. Without a key, the producer picks
+the partition itself.
 
-- `?group=name`: join the consumer group `name`, e.g. `kafka://localhost:9092/orders?group=workers`: the members share
+- `?key=value` (`publish` only): the record key, e.g. `kafka://localhost:9092/orders?key=user1`. Messages with the same
+  key go to the same partition, so they stay in order. The value is URL-decoded: use `encode("url", s)` for a computed key.
+  An empty key and any other query parameter are rejected.
+- `?group=name` (input only): join the consumer group `name`, e.g. `kafka://localhost:9092/orders?group=workers`: the members share
   the partitions and a later run resumes at the committed offset. Without it, zawk joins a new group of its own.
-- `?offset=earliest`: start at the oldest message when the group has no committed offset; `latest` (the default) only
+- `?offset=earliest` (input only): start at the oldest message when the group has no committed offset; `latest` (the default) only
   reads the messages sent from now on. Other query parameters are rejected.
 
 ### NATS

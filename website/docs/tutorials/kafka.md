@@ -69,6 +69,25 @@ warning and in `ERRNO`:
 zawk 'BEGIN { publish("kafka://localhost:9092/topic1", "hello world") }'
 ```
 
+### Message key
+
+`?key=value` sets the record key. Messages with the same key go to the same partition, so they stay in order; without
+a key, the producer picks the partition itself:
+
+```shell
+zawk 'BEGIN { publish("kafka://localhost:9092/orders?key=user1", "hello world") }'
+```
+
+The value is URL-decoded, so encode a key computed from the input with `encode("url", s)`:
+
+```shell
+zawk -i csv -H '{ publish("kafka://localhost:9092/orders?key=" encode("url", $FI["user"]), $0) }' orders.csv
+```
+
+`key` is the only query parameter of `publish`: an empty key or any other parameter is reported as a warning and in
+`ERRNO`, and nothing is sent. When reading a topic, `group` and `offset` are accepted instead, and the key of a
+message is not available.
+
 ### Forward a topic
 
 `publish()` also sends to NATS and MQTT, so a topic can be forwarded with one rule:

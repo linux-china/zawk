@@ -57,6 +57,7 @@ also from `.env`. Input files can be read from S3 directly: see [Cloud data](../
 ```awk
 publish("nats://127.0.0.1:4222/orders.created", to_json(order))
 publish("kafka://localhost:9092/orders", to_json(order))
+publish("kafka://localhost:9092/orders?key=" encode("url", user), to_json(order))
 publish("mqtt://127.0.0.1:1883/sensors/temp", $2)
 publish("mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic", body)
 publish("desktop://Job finished", "rows: " NR)
@@ -64,7 +65,8 @@ publish("desktop://Job finished", "rows: " NR)
 
 `publish` accepts `nats://`, `nats+tls://`, `kafka://`, `mqtt://`, `mqtts://` and `desktop://`. NATS subjects can also be
 read as input; see the [NATS tutorial](../tutorials/nats.md). Kafka topics too; see the
-[Kafka tutorial](../tutorials/kafka.md).
+[Kafka tutorial](../tutorials/kafka.md). `?key=value` sets the Kafka record key: messages with the same key go to the same
+partition.
 
 ## AI decisions: `jev`
 

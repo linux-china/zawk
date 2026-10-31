@@ -470,17 +470,11 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         let url = Url::parse(namespace)
             .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
         let (bootstrap_servers, topic) = kafka::endpoint(&url, namespace)?;
-        if let Some((name, _)) = url.query_pairs().next() {
-            return Err(format!(
-                "unsupported query parameter {:?} in {:?}",
-                name,
-                redact_url(namespace)
-            ));
-        }
+        let key = kafka::publish_key(&url, namespace)?;
         let producer = kafka_producer(&bootstrap_servers)?;
         // send only queues the record: wait for the ack so it is not lost when the script exits right after
         KAFKA_RUNTIME.block_on(async {
-            let record = ProducerRecord::new(topic, Some(body.to_string()));
+            let record = ProducerRecord::with_key(topic, key, Some(body.to_string()));
             let delivery = producer
                 .send(record)
                 .await

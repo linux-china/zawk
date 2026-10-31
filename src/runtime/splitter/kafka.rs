@@ -49,6 +49,18 @@ pub(crate) fn endpoint(parsed: &Url, url: &str) -> Result<(String, String), Stri
     Ok((format!("{}:{}", host, parsed.port().unwrap_or(DEFAULT_PORT)), topic))
 }
 
+/// The record key of a `kafka://host[:port]/topic[?key=value]` URL given to `publish`.
+pub(crate) fn publish_key(parsed: &Url, url: &str) -> Result<Option<String>, String> {
+    let mut key = None;
+    for (name, value) in parsed.query_pairs() {
+        match &*name {
+            "key" if !value.is_empty() => key = Some(value.into_owned()),
+            _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
+        }
+    }
+    Ok(key)
+}
+
 /// What a `kafka://host[:port]/topic[?group=name][&offset=earliest|latest]` URL asks for.
 #[derive(Debug, PartialEq)]
 struct Target {
@@ -228,6 +240,17 @@ mod tests {
         assert!(error("kafka://host/logs?offset=none").contains("unsupported query parameter \"offset\""));
     }
 
+    #[test]
+    fn test_publish_key() {
+        let key = |url: &str| publish_key(&Url::parse(url).unwrap(), url);
+        assert_eq!(key("kafka://broker/logs"), Ok(None));
+        assert_eq!(key("kafka://broker/logs?key=user1"), Ok(Some("user1".to_string())));
+        assert_eq!(key("kafka://broker/logs?key=a%26b%20c"), Ok(Some("a&b c".to_string())));
+        assert!(key("kafka://broker/logs?key=").unwrap_err().contains("unsupported query parameter \"key\""));
+        assert!(key("kafka://broker/logs?group=g1").unwrap_err().contains("unsupported query parameter \"group\""));
+        assert!(key("kafka://broker/logs?key=a&acks=1").unwrap_err().contains("unsupported query parameter \"acks\""));
+    }
+
     fn send(topic: &str, records: &[(&str, &[(&str, &str)])]) {
         let props = HashMap::from([("bootstrap.servers".to_string(), "localhost:9092".to_string())]);
         KAFKA_RUNTIME.block_on(async {
@@ -262,6 +285,22 @@ mod tests {
         let mut subscription = Subscription::new(&format!("{}?offset=earliest", url)).unwrap();
         let payloads: Vec<Vec<u8>> = (0..2).map(|_| subscription.next().unwrap().payload).collect();
         assert_eq!(payloads, [b"one".to_vec(), b"two".to_vec()]);
+    }
+
+    #[test]
+    fn test_publish_with_key() {
+        let topic = format!("zawk-test-{}", Uuid::new_v4());
+        let url = format!("kafka://localhost:9092/{}", topic);
+        crate::runtime::network::publish(&format!("{}?key=user%201", url), "one");
+        crate::runtime::network::publish(&url, "two");
+        let mut subscription = Subscription::new(&format!("{}?offset=earliest", url)).unwrap();
+        let consumer = subscription.consumer.as_mut().unwrap();
+        let mut keys = Vec::new();
+        while keys.len() < 2 {
+            let records = KAFKA_RUNTIME.block_on(consumer.poll(POLL_INTERVAL)).unwrap();
+            keys.extend(records.into_iter().map(|record| record.key().cloned()));
+        }
+        assert_eq!(keys, [Some(b"user 1".to_vec()), None]);
     }
 
     #[test]
