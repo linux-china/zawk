@@ -2012,6 +2012,24 @@ fn special_variables_cannot_be_parameters() {
 }
 
 #[test]
+fn special_variables_cannot_be_function_names() {
+    // As in gawk, a function cannot share its name with a special variable, including the ones
+    // zawk adds (zawk used to accept these, leaving `NR` and `NR()` as two unrelated names).
+    for name in ["NR", "FS", "ENVIRON", "PID", "FI", "MSG_SUBJECT", "MSG_HEADERS", "MSG_BODY"] {
+        let prog = format!("function {}() {{ return 1 }} BEGIN {{ print 1 }}", name);
+        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        assert!(!output.status.success(), "{}", name);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("function name `{}' previously defined", name)),
+            "{}: {}",
+            name,
+            stderr
+        );
+    }
+}
+
+#[test]
 fn csv_output_of_conditional_print_argument() {
     // With -o csv, a print argument that is a conditional expression is escaped like the others
     // (it was printed as an empty field).

@@ -548,6 +548,8 @@ impl<'a, I> ProgramContext<'a, I>
                     funcs.len() as NumTy,
                 )
                 .is_some()
+                // Special variables (NR, MSG_BODY, ...) are predefined names, as in gawk.
+                || builtins::Variable::try_from(fundec.name.clone()).is_ok()
             {
                 return syntax_err!("function name `{}' previously defined", fundec.name);
             }
