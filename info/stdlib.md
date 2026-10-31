@@ -1123,6 +1123,10 @@ It works as for a NATS subject (see below): messages are read until Ctrl+C, each
 the input format given by `-i`, with `MSG_SUBJECT` (the topic), `MSG_HEADERS` and `MSG_BODY`. A `kafka://` topic must
 be the only input file. TLS and SASL are not supported.
 
+Reading a topic needs Kafka 4.0 or newer, with or without `?group=`: zawk always joins a consumer group with the KIP-848
+protocol (`group.protocol=consumer`), and the classic protocol is not available. On an older broker the input ends with a
+warning. `publish` also works with Kafka 3.9.
+
 Publish events to Kafka: `publish("kafka://localhost:9092/topic1", body)`. The port defaults to `9092`; `publish` returns
 once the broker has acknowledged the message, and a failure is reported in `ERRNO`. Without a key, the producer picks
 the partition itself.

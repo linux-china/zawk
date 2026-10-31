@@ -108,3 +108,13 @@ zawk -i json '{ publish("mqtt://127.0.0.1:1883/devices/" $FI["device"], MSG_BODY
   cleared when the next message starts. A message without a value has no records.
 - A message key is not available to the program.
 - TLS, SASL and several bootstrap servers are not supported.
+
+## Broker version
+
+Reading a topic needs **Kafka 4.0 or newer**, with or without `?group=`: zawk always joins a consumer group, and only
+with the KIP-848 group protocol (`group.protocol=consumer`). The classic protocol is not available, so there is no
+setting to read from an older broker. On Kafka 3.9, zawk prints the warning
+`Kafka subscription closed: UnsupportedVersionError: The cluster does not support the new CONSUMER group protocol` and
+the input ends; upgrade the cluster, as the `group.protocol=classic` hint of that message does not apply to zawk.
+
+`publish` does not use a consumer group and also works with Kafka 3.9.
