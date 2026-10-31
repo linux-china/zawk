@@ -1,11 +1,11 @@
 use std::borrow::Borrow;
 use std::io::Read;
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 
-use crate::common::{CancelSignal, Result};
+use crate::common::{CancelSignal, CompileError, Result};
 use crate::runtime::{
     splitter::{
         batch::{
@@ -20,8 +20,6 @@ use crate::runtime::{
 /// A vector of dynamically typed factory functions producing a chunk producer
 /// for a particular chunk type in a different thread.
 type DynamicProducers<C> = Vec<Box<dyn FnOnce() -> Box<dyn ChunkProducer<Chunk = C>> + Send>>;
-
-// TODO: We probably want a better story here about ChunkProducers propagating error values.
 
 pub trait ChunkProducer {
     type Chunk: Chunk;
@@ -506,6 +504,8 @@ pub struct ParallelChunkProducer<P: ChunkProducer> {
     start: Receiver<()>,
     incoming: Receiver<P::Chunk>,
     spent: Sender<P::Chunk>,
+    // The error that stopped the reading thread, set before it closes `incoming`.
+    error: Arc<Mutex<Option<CompileError>>>,
 }
 
 impl<P: ChunkProducer> Clone for ParallelChunkProducer<P> {
@@ -514,6 +514,7 @@ impl<P: ChunkProducer> Clone for ParallelChunkProducer<P> {
             start: self.start.clone(),
             incoming: self.incoming.clone(),
             spent: self.spent.clone(),
+            error: self.error.clone(),
         }
     }
 }
@@ -526,15 +527,21 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
         let (start_sender, start_receiver) = bounded(chan_size);
         let (in_sender, in_receiver) = bounded(chan_size);
         let (spent_sender, spent_receiver) = bounded(chan_size);
+        let error = Arc::new(Mutex::new(None));
+        let reader_error = error.clone();
         std::thread::spawn(move || {
             let mut n_workers = 0;
             let mut p = p_factory();
             let mut n_failures = 0;
             loop {
                 let mut chunk = spent_receiver.try_recv().ok().unwrap_or_default();
-                let chunk_res = p.get_chunk(&mut chunk);
-                if chunk_res.is_err() || matches!(chunk_res, Ok(true)) {
-                    return;
+                match p.get_chunk(&mut chunk) {
+                    Ok(false) => {}
+                    Ok(true) => return,
+                    Err(e) => {
+                        *reader_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                        return;
+                    }
                 }
                 match in_sender.try_send(chunk) {
                     Ok(()) => {
@@ -581,6 +588,7 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
             start: start_receiver,
             incoming: in_receiver,
             spent: spent_sender,
+            error,
         }
     }
 }
@@ -626,7 +634,11 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             let _ = self.spent.try_send(new_chunk);
             Ok(false)
         } else {
-            Ok(true)
+            // All chunks are consumed. One consumer takes the error; the others just stop.
+            match self.error.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                Some(e) => Err(e),
+                None => Ok(true),
+            }
         }
     }
 }
@@ -949,6 +961,63 @@ mod tests {
         g.sort();
 
         assert_eq!(*g, (0..100).collect::<Vec<_>>());
+    }
+
+    // Yields `items` chunks, then fails with `msg`.
+    struct FailingChunkProducer {
+        items: usize,
+        msg: &'static str,
+    }
+
+    impl ChunkProducer for FailingChunkProducer {
+        type Chunk = ItemChunk<usize>;
+        fn next_file(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+        fn get_chunk(&mut self, chunk: &mut ItemChunk<usize>) -> Result<bool> {
+            if self.items == 0 {
+                return err!("{}", self.msg);
+            }
+            self.items -= 1;
+            chunk.item = self.items;
+            Ok(false)
+        }
+    }
+
+    #[test]
+    fn parallel_propagates_errors() {
+        use std::thread;
+        let parallel_producer = ParallelChunkProducer::new(
+            || FailingChunkProducer {
+                items: 100,
+                msg: "read failed",
+            },
+            /*chan_size=*/ 10,
+        );
+        let threads: Vec<_> = parallel_producer
+            .try_dyn_resize(5)
+            .into_iter()
+            .map(|prod| {
+                thread::spawn(move || {
+                    let mut prod = prod();
+                    let mut chunk = ItemChunk::default();
+                    let mut got = 0;
+                    loop {
+                        match prod.get_chunk(&mut chunk) {
+                            Ok(false) => got += 1,
+                            Ok(true) => return (got, None),
+                            Err(e) => return (got, Some(e.to_string())),
+                        }
+                    }
+                })
+            })
+            .collect();
+        let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+
+        // Chunks read before the error are still delivered, and one consumer gets the error.
+        assert_eq!(results.iter().map(|(got, _)| got).sum::<usize>(), 100);
+        let errors: Vec<_> = results.iter().filter_map(|(_, e)| e.as_deref()).collect();
+        assert_eq!(errors, vec!["read failed"]);
     }
 
     #[test]

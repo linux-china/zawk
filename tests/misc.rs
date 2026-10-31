@@ -3367,6 +3367,51 @@ fn parallel_exit_runs_end() {
 }
 
 #[test]
+fn parallel_input_errors() {
+    // An input that fails is a fatal error with -pr, as in serial mode: not an early end of input.
+    let tmpdir = tempdir().unwrap();
+    let path = |name: &str| tmpdir.path().join(name).to_str().unwrap().to_string();
+    let missing = path("missing");
+
+    let good = path("good");
+    let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
+    File::create(&good).unwrap().write_all(input.as_bytes()).unwrap();
+
+    let truncated = path("truncated.gz");
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(input.as_bytes()).unwrap();
+    let gz = encoder.finish().unwrap();
+    File::create(&truncated).unwrap().write_all(&gz[..gz.len() / 2]).unwrap();
+
+    let cases: [(&[&str], &[&str], &str); 4] = [
+        (&[], &[&missing], "cannot open file"),
+        (&["-icsv"], &[&missing], "cannot open file"),
+        (&[], &[&good, &missing], "cannot open file"),
+        (&[], &[&truncated], "cannot decompress Gzip file"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (opts, files, msg) in cases {
+            for jobs in ["-j2", "-j4"] {
+                // No END: the program stops on the error.
+                let out = Command::cargo_bin("zawk")
+                    .unwrap()
+                    .arg(backend_arg)
+                    .args(["-pr", jobs, "--chunk-size", "1024"])
+                    .args(opts)
+                    .arg(r#"{ n++ } END { print "end", n }"#)
+                    .args(files)
+                    .output()
+                    .unwrap();
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                assert_eq!(out.status.code(), Some(2), "{files:?} {jobs}: {stderr}");
+                assert!(stderr.contains(msg), "{files:?} {jobs}: {stderr}");
+                assert!(out.stdout.is_empty(), "{files:?} {jobs}: END ran");
+            }
+        }
+    }
+}
+
+#[test]
 fn lint_before_run() {
     // Errors: the report goes to stderr and the program does not run.
     let out = Command::cargo_bin("zawk")
