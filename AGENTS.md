@@ -71,3 +71,4 @@ insert into people(id, name, age) values (11, 'test', 18);
 Notes:
 
 - `Z` is the alias of `target/release/zawk`
+- DO NOT use `--release` option for `cargo test`
