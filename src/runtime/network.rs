@@ -1,3 +1,4 @@
+use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::splitter::kafka;
 use crate::runtime::{Str, StrMap, stdlib_warning};
 use confluent_kafka::common::serialization::StringSerializer;
@@ -309,15 +310,14 @@ pub(crate) static KAFKA_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::n
 });
 
 // todo graceful shutdown
-static NATS_CONNECTIONS: LazyLock<Mutex<HashMap<String, async_nats::Client>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NATS_CONNECTIONS: LazyLock<ConnSlots<async_nats::Client>> = LazyLock::new(ConnSlots::new);
 
 /// The pooled NATS client of `conn_url` (`nats://[user:password@]host[:port]` or `tls://...`), connected if needed.
 pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
-    let mut pool = NATS_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-    if let Some(client) = pool.get(conn_url) {
-        return Ok(client.clone());
-    }
+    NATS_CONNECTIONS.with_conn(conn_url, || nats_connect(conn_url), |client| Ok(client.clone()))
+}
+
+fn nats_connect(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
     let mut options = async_nats::ConnectOptions::new()
         .connection_timeout(Duration::from_secs(10))
         .event_callback(|event| async move {
@@ -354,11 +354,9 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
             };
         }
     }
-    let client = NATS_RUNTIME
+    NATS_RUNTIME
         .block_on(options.connect(conn_url))
-        .map_err(|e| format!("failed to connect to {}: {}", redact_url(conn_url), e))?;
-    pool.insert(conn_url.to_string(), client.clone());
-    Ok(client)
+        .map_err(|e| format!("failed to connect to {}: {}", redact_url(conn_url), e))
 }
 
 /// How long `publish` waits for the metadata of a Kafka topic, e.g. when the broker cannot be reached.
@@ -401,8 +399,7 @@ fn kafka_producer(
     Ok(producer)
 }
 
-static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static MQTT_CONNECTIONS: LazyLock<ConnPool<MqttClient>> = LazyLock::new(ConnPool::new);
 
 /// Publish `body` to a NATS, Kafka or MQTT topic, or show it as a desktop notification. Failures are
 /// reported as warnings.
@@ -464,11 +461,9 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             Some(query) => format!("{}?{}", &url[..url::Position::BeforePath], query),
             None => url[..url::Position::BeforePath].to_string(),
         };
-        let mut pool = MQTT_CONNECTIONS.lock().map_err(|e| e.to_string())?;
-        let reused = pool.contains_key(&key);
-        let mut cli = match pool.remove(&key) {
-            Some(cli) => cli,
-            None => mqtt_connect(&url)?,
+        let (mut cli, reused) = match MQTT_CONNECTIONS.take(&key) {
+            Some(cli) => (cli, true),
+            None => (mqtt_connect(&url)?, false),
         };
         let mut result = cli.publish(&topic, body);
         if result.is_err() && reused {
@@ -477,7 +472,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             result = cli.publish(&topic, body);
         }
         if result.is_ok() {
-            pool.insert(key, cli);
+            MQTT_CONNECTIONS.put(&key, cli);
         }
         result
     } else if scheme == "kafka" {
@@ -973,6 +968,75 @@ mod tests {
         // let the client see the closed connection: it now reconnects forever
         std::thread::sleep(Duration::from_millis(200));
         assert!(try_publish(&url, "second").unwrap_err().contains("timed out"));
+    }
+
+    /// A server that accepts connections and never answers, so that a client waits for its timeout.
+    /// Sends one message on the channel for each connection accepted.
+    fn silent_server() -> (u16, std::sync::mpsc::Receiver<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (accepted_tx, accepted_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut streams = Vec::new();
+            while let Ok((stream, _)) = listener.accept() {
+                streams.push(stream);
+                let _ = accepted_tx.send(());
+            }
+        });
+        (port, accepted_rx)
+    }
+
+    #[test]
+    fn test_nats_connect_does_not_block_other_urls() {
+        let (silent_port, accepted) = silent_server();
+        std::thread::spawn(move || nats_client(&format!("nats://127.0.0.1:{}", silent_port)));
+        accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+        // the connection above is still waiting for the server: this one must not wait for it
+        let url = format!(
+            "nats://127.0.0.1:{}",
+            nats_server_closing_after_first_message()
+        );
+        let start = std::time::Instant::now();
+        nats_client(&url).unwrap();
+        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
+    }
+
+    /// An MQTT 3.1.1 broker that accepts connections and takes any message.
+    fn mqtt_broker() -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    let mut connected = false;
+                    while let Ok(1..) = stream.read(&mut buf) {
+                        if !connected {
+                            connected = true;
+                            // CONNACK: session not present, connection accepted
+                            stream.write_all(&[0x20, 0x02, 0x00, 0x00]).unwrap();
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn test_mqtt_publish_does_not_block_other_urls() {
+        let (silent_port, accepted) = silent_server();
+        let silent = format!("mqtt://127.0.0.1:{}/t?version=3.1.1", silent_port);
+        std::thread::spawn(move || try_publish(&silent, "lost"));
+        accepted.recv_timeout(Duration::from_secs(5)).unwrap();
+        // the publish above is still waiting for the broker: this one must not wait for it
+        let url = format!("mqtt://127.0.0.1:{}/t?version=3.1.1", mqtt_broker());
+        let start = std::time::Instant::now();
+        try_publish(&url, "hello").unwrap();
+        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
+        // the connection went back to the pool, and is used again
+        try_publish(&url, "hello again").unwrap();
     }
 
     #[test]

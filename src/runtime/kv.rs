@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::stdlib_warning;
 
@@ -63,7 +62,7 @@ pub(crate) fn kv_clear(namespace: &str) {
 
 static SQLITE_CONNECTIONS: LazyLock<ConnSlots<rusqlite::Connection>> = LazyLock::new(ConnSlots::new);
 static REDIS_CONNECTIONS: LazyLock<ConnPool<redis::Connection>> = LazyLock::new(ConnPool::new);
-static NATS_STORES: LazyLock<Mutex<HashMap<String, async_nats::jetstream::kv::Store>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static NATS_STORES: LazyLock<ConnSlots<async_nats::jetstream::kv::Store>> = LazyLock::new(ConnSlots::new);
 
 fn is_redis_url(namespace: &str) -> bool {
     ["redis://", "rediss://", "redis+tls://"].iter().any(|scheme| namespace.starts_with(scheme))
@@ -178,22 +177,20 @@ mod nats_kv {
 
     /// The (pooled) key-value store named in the namespace URL, created if needed.
     fn store(url_text: &str) -> KvResult<Store> {
-        let mut pool = NATS_STORES.lock().map_err(|e| e.to_string())?;
-        if let Some(store) = pool.get(url_text) {
-            return Ok(store.clone());
-        }
+        NATS_STORES.with_conn(url_text, || open_store(url_text), |store| Ok(store.clone()))
+    }
+
+    fn open_store(url_text: &str) -> KvResult<Store> {
         let (conn_url, bucket) = split_name(url_text)?;
         let conn_url = conn_url.replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
-        let store = nats_block_on(async {
+        nats_block_on(async {
             let jetstream = async_nats::jetstream::new(client);
             match jetstream.get_key_value(bucket).await {
                 Ok(store) => Ok(store),
                 Err(_) => jetstream.create_key_value(Config { bucket: bucket.to_string(), ..Default::default() }).await,
             }
-        }).map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))?;
-        pool.insert(url_text.to_string(), store.clone());
-        Ok(store)
+        }).map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
@@ -383,6 +380,43 @@ mod tests {
         assert_eq!(nats_kv::kv_get(url, "nick").unwrap(), "");
         nats_kv::kv_clear(url).unwrap();
         assert_eq!(nats_kv::kv_get(url, "phone").unwrap(), "");
+    }
+
+    /// A NATS server that takes connections and requests but never answers a request, so that
+    /// JetStream calls wait for their timeout. Sends one message on the channel for each request.
+    fn nats_server_ignoring_requests() -> (u16, std::sync::mpsc::Receiver<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (request_tx, request_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .write_all(b"INFO {\"server_id\":\"mock\",\"server_name\":\"mock\",\"version\":\"2.10.0\",\"proto\":1,\"host\":\"127.0.0.1\",\"port\":4222,\"headers\":true,\"max_payload\":1048576}\r\n")
+                .unwrap();
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = stream.read(&mut buf) {
+                let request = String::from_utf8_lossy(&buf[..n]);
+                if request.contains("PING") {
+                    stream.write_all(b"PONG\r\n").unwrap();
+                }
+                if request.contains("PUB ") {
+                    let _ = request_tx.send(());
+                }
+            }
+        });
+        (port, request_rx)
+    }
+
+    #[test]
+    fn test_nats_store_does_not_block_other_urls() {
+        let (port, requests) = nats_server_ignoring_requests();
+        std::thread::spawn(move || nats_kv::kv_get(&format!("nats://127.0.0.1:{}/bucket", port), "k"));
+        requests.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        // the bucket above is still waiting for the server: this call must not wait for it
+        let start = std::time::Instant::now();
+        assert!(nats_kv::kv_get("nats://127.0.0.1:1/bucket", "k").is_err());
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
     }
 
     #[test]

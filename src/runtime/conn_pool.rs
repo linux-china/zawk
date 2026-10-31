@@ -1,4 +1,4 @@
-//! Connection caches shared by the database and KV functions, keyed by URL or path.
+//! Connection caches shared by the database, KV and messaging functions, keyed by URL or path.
 //!
 //! The global lock of a cache is only held to look up an entry: connecting and running
 //! statements happen outside of it, so with `-p` a slow query or connection to one URL does
@@ -38,7 +38,8 @@ impl<C> ConnPool<C> {
 
 /// One connection per key, behind its own lock: calls to the same key are serialized, calls to
 /// different keys are not. Used for SQLite, where a file is best written by a single connection
-/// and every connection to `:memory:` is a different database.
+/// and every connection to `:memory:` is a different database, and for NATS, where one client is
+/// shared by cloning it out of the slot.
 pub(crate) struct ConnSlots<C> {
     slots: Mutex<HashMap<String, Arc<Mutex<Option<C>>>>>,
 }
