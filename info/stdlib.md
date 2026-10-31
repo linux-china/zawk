@@ -1182,6 +1182,7 @@ Show a desktop notification: `publish("desktop://Job finished", "rows: 180")`, t
 
 `publish` accepts only `nats://`, `nats+tls://`, `kafka://`, `mqtt://`, `mqtts://` and `desktop://` (the scheme is matched ignoring case);
 any other URL is reported with a warning and sets `ERRNO`, so `try publish(url, body) else ...` catches a typo.
+The topic in the URL is percent-decoded for every protocol: `a%20b` is the topic `a b`.
 
 ### local_ip
 

@@ -414,6 +414,15 @@ fn kafka_producer(
     Ok(producer)
 }
 
+/// The topic (or NATS subject) in the path of a message broker URL, percent-decoded: `>` and spaces can
+/// only be written encoded. It is empty if the URL has no path.
+pub(crate) fn url_topic(url: &Url) -> std::result::Result<String, String> {
+    let path = url.path().strip_prefix('/').unwrap_or(url.path());
+    urlencoding::decode(path)
+        .map(|topic| topic.into_owned())
+        .map_err(|e| format!("invalid topic in {:?}: {}", redact_url(url.as_str()), e))
+}
+
 static MQTT_CONNECTIONS: LazyLock<ConnPool<MqttClient>> = LazyLock::new(ConnPool::new);
 
 /// Publish `body` to a NATS, Kafka or MQTT topic, or show it as a desktop notification. Failures are
@@ -441,11 +450,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         if url.host().is_none() {
             return Err(format!("missing host in {:?}", redact_url(namespace)));
         }
-        let topic = url
-            .path()
-            .strip_prefix('/')
-            .unwrap_or(url.path())
-            .to_string();
+        let topic = url_topic(&url)?;
         // keep the userinfo (user:password@ / token@) and let async_nats default the port, same as `kv_*`
         let conn_url = url[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
@@ -463,11 +468,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
     } else if scheme == "mqtt" || scheme == "mqtts" {
         let url = Url::parse(namespace)
             .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
-        let topic = url
-            .path()
-            .strip_prefix('/')
-            .unwrap_or(url.path())
-            .to_string();
+        let topic = url_topic(&url)?;
         if topic.is_empty() {
             return Err(format!("missing topic in {:?}", redact_url(namespace)));
         }
@@ -817,6 +818,19 @@ mod tests {
         );
         assert_eq!(merged["vary"], "Accept, Origin");
         assert_eq!(merged["content-type"], "text/plain");
+    }
+
+    #[test]
+    fn test_url_topic() {
+        let topic = |url: &str| url_topic(&Url::parse(url).unwrap());
+        for scheme in ["nats", "kafka", "mqtt"] {
+            assert_eq!(topic(&format!("{scheme}://h/a%20b")).unwrap(), "a b");
+            assert_eq!(topic(&format!("{scheme}://h/a/b%2Ec")).unwrap(), "a/b.c");
+            assert_eq!(topic(&format!("{scheme}://h")).unwrap(), "");
+            assert!(
+                topic(&format!("{scheme}://u:s3cret@h/%FF")).is_err_and(|e| !e.contains("s3cret"))
+            );
+        }
     }
 
     #[test]

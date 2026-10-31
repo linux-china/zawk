@@ -66,7 +66,7 @@ publish("desktop://Job finished", "rows: " NR)
 `publish` accepts `nats://`, `nats+tls://`, `kafka://`, `mqtt://`, `mqtts://` and `desktop://`. NATS subjects can also be
 read as input; see the [NATS tutorial](../tutorials/nats.md). Kafka topics too; see the
 [Kafka tutorial](../tutorials/kafka.md). `?key=value` sets the Kafka record key: messages with the same key go to the same
-partition.
+partition. The topic in the URL is percent-decoded for every protocol: `a%20b` is the topic `a b`.
 
 ## AI decisions: `jev`
 

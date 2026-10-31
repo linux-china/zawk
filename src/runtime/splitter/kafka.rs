@@ -22,7 +22,7 @@ use url::Url;
 use uuid::Uuid;
 
 use super::message::{INTERRUPTED, MessageSource, Received, WAITING, catch_sigint};
-use crate::runtime::network::{KAFKA_RUNTIME, is_power_of_ten, redact_url};
+use crate::runtime::network::{KAFKA_RUNTIME, is_power_of_ten, redact_url, url_topic};
 
 const DEFAULT_PORT: u16 = 9092;
 /// How long to wait for the broker, at start and when leaving the group.
@@ -51,10 +51,7 @@ pub(crate) fn endpoint(parsed: &Url, url: &str) -> Result<(String, String), Stri
             redact_url(url)
         ));
     }
-    let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
-    let topic = urlencoding::decode(path)
-        .map_err(|e| e.to_string())?
-        .into_owned();
+    let topic = url_topic(parsed)?;
     if topic.is_empty() {
         return Err(format!("missing topic in {:?}", redact_url(url)));
     }

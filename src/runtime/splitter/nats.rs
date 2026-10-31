@@ -12,7 +12,7 @@ use futures_util::StreamExt;
 use url::Url;
 
 use super::message::{INTERRUPTED, MessageSource, Received, WAITING, catch_sigint};
-use crate::runtime::network::{NATS_RUNTIME, nats_block_on, nats_client, redact_url};
+use crate::runtime::network::{NATS_RUNTIME, nats_block_on, nats_client, redact_url, url_topic};
 
 /// Whether `path` is a NATS subject to read messages from.
 pub fn is_nats_url(path: &str) -> bool {
@@ -40,11 +40,7 @@ impl Subscription {
         if parsed.host().is_none() {
             return Err(format!("missing host in {:?}", redact_url(url)));
         }
-        // `>` (and spaces) are percent-encoded in the path of a URL
-        let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
-        let subject = urlencoding::decode(path)
-            .map_err(|e| e.to_string())?
-            .into_owned();
+        let subject = url_topic(&parsed)?;
         if subject.is_empty() {
             return Err(format!("missing subject in {:?}", redact_url(url)));
         }
