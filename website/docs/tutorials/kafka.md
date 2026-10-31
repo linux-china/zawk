@@ -104,6 +104,8 @@ zawk -i json '{ publish("mqtt://127.0.0.1:1883/devices/" $FI["device"], MSG_BODY
 - The broker must advertise an address that zawk can reach: a broker in Docker needs
   `KAFKA_ADVERTISED_LISTENERS` set to the published host and port.
 - A broker that cannot be reached within 10 seconds is a fatal error at start.
+- A broker lost later is not: zawk keeps retrying and prints a warning on stderr after about 10 seconds without
+  messages (then at 10, 100, ... failed checks), and a note once the broker answers again.
 - A value that cannot be parsed (invalid JSON for `-i json`) is reported as a warning and in `ERRNO`, which is
   cleared when the next message starts. A message without a value has no records.
 - A message key is not available to the program.

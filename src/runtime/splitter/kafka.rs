@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use confluent_kafka::common::header::{Header, Headers};
 use confluent_kafka::common::serialization::ByteArrayDeserializer;
@@ -20,13 +20,18 @@ use url::Url;
 use uuid::Uuid;
 
 use super::message::{catch_sigint, MessageSource, Received, INTERRUPTED, WAITING};
-use crate::runtime::network::{redact_url, KAFKA_RUNTIME};
+use crate::runtime::network::{is_power_of_ten, redact_url, KAFKA_RUNTIME};
 
 const DEFAULT_PORT: u16 = 9092;
 /// How long to wait for the broker, at start and when leaving the group.
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// How often SIGINT is checked while waiting for a message.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// How long the input is idle before checking that the broker still answers: `poll` returns no
+/// error when the connection is lost, it only finds no records.
+const PROBE_INTERVAL: Duration = Duration::from_secs(10);
+/// How long a check waits for the broker. SIGINT is not seen meanwhile.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Whether `path` is a Kafka topic to read messages from.
 pub fn is_kafka_url(path: &str) -> bool {
@@ -91,6 +96,28 @@ impl Target {
 pub struct Subscription {
     // Only None once closed.
     consumer: Option<KafkaConsumer<Vec<u8>, Vec<u8>>>,
+    bootstrap_servers: String,
+    next_probe: Instant,
+    health: BrokerHealth,
+}
+
+/// The failures seen since the broker last answered.
+#[derive(Debug, Default)]
+struct BrokerHealth {
+    failures: u64,
+}
+
+impl BrokerHealth {
+    /// Count a failure. Whether to warn about it.
+    fn failed(&mut self) -> bool {
+        self.failures += 1;
+        is_power_of_ten(self.failures)
+    }
+
+    /// The broker answered. Whether it did not before.
+    fn recovered(&mut self) -> bool {
+        std::mem::take(&mut self.failures) > 0
+    }
 }
 
 impl Drop for Subscription {
@@ -129,7 +156,43 @@ impl Subscription {
             Ok::<_, String>(consumer)
         })?;
         catch_sigint();
-        Ok(Subscription { consumer: Some(consumer) })
+        Ok(Subscription {
+            consumer: Some(consumer),
+            bootstrap_servers,
+            next_probe: Instant::now() + PROBE_INTERVAL,
+            health: BrokerHealth::default(),
+        })
+    }
+
+    fn broker_answered(&mut self) {
+        self.next_probe = Instant::now() + PROBE_INTERVAL;
+        if self.health.recovered() {
+            eprintln_ignore!("zawk: Kafka broker {} is answering again", self.bootstrap_servers);
+        }
+    }
+
+    fn broker_failed(&mut self, error: &dyn std::fmt::Display) {
+        self.next_probe = Instant::now() + PROBE_INTERVAL;
+        if self.health.failed() {
+            eprintln_ignore!(
+                "zawk: warning: Kafka broker {} is not answering (failures so far: {}), still retrying: {}",
+                self.bootstrap_servers,
+                self.health.failures,
+                error
+            );
+        }
+    }
+
+    /// Tell an input without messages from a broker that is gone.
+    fn probe_broker(&mut self) {
+        let Some(consumer) = self.consumer.as_mut() else { return };
+        WAITING.store(true, Ordering::SeqCst);
+        let answer = KAFKA_RUNTIME.block_on(consumer.list_topics_with_timeout(PROBE_TIMEOUT));
+        WAITING.store(false, Ordering::SeqCst);
+        match answer {
+            Ok(_) => self.broker_answered(),
+            Err(e) => self.broker_failed(&e),
+        }
     }
 
     /// Commit the offsets and leave the group, without waiting for the session to time out.
@@ -160,6 +223,7 @@ impl MessageSource for Subscription {
             match polled {
                 Ok(records) => {
                     if let Some(record) = records.into_iter().next() {
+                        self.broker_answered();
                         let mut headers: Vec<(String, String)> = Vec::new();
                         for header in record.headers().iter() {
                             let value = String::from_utf8_lossy(header.value().unwrap_or_default());
@@ -175,8 +239,14 @@ impl MessageSource for Subscription {
                         let payload = record.value().cloned().unwrap_or_default();
                         return Some(Received { subject: record.topic().to_string(), headers, payload });
                     }
+                    if Instant::now() >= self.next_probe {
+                        self.probe_broker();
+                    }
                 }
-                Err(e) if e.is_retriable_error() => std::thread::sleep(POLL_INTERVAL),
+                Err(e) if e.is_retriable_error() => {
+                    self.broker_failed(&e);
+                    std::thread::sleep(POLL_INTERVAL);
+                }
                 Err(e) => {
                     eprintln_ignore!("zawk: warning: Kafka subscription closed: {}", e);
                     self.close();
@@ -204,6 +274,17 @@ mod tests {
         assert!(is_kafka_url("kafka://localhost:9092/topic1"));
         assert!(!is_kafka_url("nats://127.0.0.1:14222/topic1"));
         assert!(!is_kafka_url("demo.txt"));
+    }
+
+    #[test]
+    fn test_broker_health() {
+        let mut health = BrokerHealth::default();
+        assert!(!health.recovered());
+        let warned: Vec<usize> = (1..=100).filter(|_| health.failed()).collect();
+        assert_eq!(warned, [1, 10, 100]);
+        assert!(health.recovered());
+        assert!(!health.recovered());
+        assert!(health.failed());
     }
 
     #[test]

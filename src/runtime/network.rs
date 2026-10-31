@@ -309,6 +309,14 @@ pub(crate) static KAFKA_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::n
         .expect("failed to build kafka runtime")
 });
 
+/// Whether `n` is 1, 10, 100, ...: warn at these counts only, not to flood stderr.
+pub(crate) fn is_power_of_ten(mut n: u64) -> bool {
+    while n != 0 && n.is_multiple_of(10) {
+        n /= 10;
+    }
+    n == 1
+}
+
 // todo graceful shutdown
 static NATS_CONNECTIONS: LazyLock<ConnSlots<async_nats::Client>> = LazyLock::new(ConnSlots::new);
 
@@ -325,12 +333,7 @@ fn nats_connect(conn_url: &str) -> std::result::Result<async_nats::Client, Strin
             if let async_nats::Event::SlowConsumer(_) = event {
                 static DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let dropped = DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                // at 1, 10, 100, ... dropped messages: do not flood stderr
-                let mut n = dropped;
-                while n.is_multiple_of(10) {
-                    n /= 10;
-                }
-                if n == 1 {
+                if is_power_of_ten(dropped) {
                     eprintln_ignore!(
                         "zawk: warning: NATS messages dropped ({} so far): the program cannot keep up with the subject",
                         dropped
