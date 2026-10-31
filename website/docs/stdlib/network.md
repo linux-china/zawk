@@ -52,17 +52,18 @@ s3_put("bucket1", "reports/summary.json", to_json(summary))
 Settings come from `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_ACCESS_KEY_SECRET`, `S3_REGION` (or the `AWS_*` names),
 also from `.env`. Input files can be read from S3 directly: see [Cloud data](../tutorials/cloud-data.md).
 
-## Publish: NATS, MQTT and desktop notifications
+## Publish: NATS, Kafka, MQTT and desktop notifications
 
 ```awk
 publish("nats://127.0.0.1:4222/orders.created", to_json(order))
+publish("kafka://localhost:9092/orders", to_json(order))
 publish("mqtt://127.0.0.1:1883/sensors/temp", $2)
 publish("mqtts://BROKER_TOKEN@YOUR-BROKER.YOUR-NAMESPACE.cloudflarepubsub.com/topic", body)
 publish("desktop://Job finished", "rows: " NR)
 ```
 
-`publish` accepts `nats://`, `nats+tls://`, `mqtt://`, `mqtts://` and `desktop://`. NATS subjects can also be
-read as input; see the [NATS tutorial](../tutorials/nats.md). Kafka topics are input only; see the
+`publish` accepts `nats://`, `nats+tls://`, `kafka://`, `mqtt://`, `mqtts://` and `desktop://`. NATS subjects can also be
+read as input; see the [NATS tutorial](../tutorials/nats.md). Kafka topics too; see the
 [Kafka tutorial](../tutorials/kafka.md).
 
 ## AI decisions: `jev`

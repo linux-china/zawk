@@ -1121,7 +1121,10 @@ Input files can be read from S3 directly: `zawk -i csv '{print $1}' s3://bucket1
 Read the messages of a Kafka topic as input: `zawk '{ print $1 }' 'kafka://localhost:9092/topic1'`.
 It works as for a NATS subject (see below): messages are read until Ctrl+C, each one is an input file of its own in
 the input format given by `-i`, with `MSG_SUBJECT` (the topic), `MSG_HEADERS` and `MSG_BODY`. A `kafka://` topic must
-be the only input file. TLS, SASL and `publish` are not supported.
+be the only input file. TLS and SASL are not supported.
+
+Publish events to Kafka: `publish("kafka://localhost:9092/topic1", body)`. The port defaults to `9092`; `publish` returns
+once the broker has acknowledged the message, and a failure is reported in `ERRNO`.
 
 - `?group=name`: join the consumer group `name`, e.g. `kafka://localhost:9092/orders?group=workers`: the members share
   the partitions and a later run resumes at the committed offset. Without it, zawk joins a new group of its own.
@@ -1169,7 +1172,7 @@ Publish events to MQTT: `publish("mqtt://servername:1883/topic", body)`
 
 Show a desktop notification: `publish("desktop://Job finished", "rows: 180")`, the text after `desktop://` is the title.
 
-`publish` accepts only `nats://`, `nats+tls://`, `mqtt://`, `mqtts://` and `desktop://` (the scheme is matched ignoring case);
+`publish` accepts only `nats://`, `nats+tls://`, `kafka://`, `mqtt://`, `mqtts://` and `desktop://` (the scheme is matched ignoring case);
 any other URL is reported with a warning and sets `ERRNO`, so `try publish(url, body) else ...` catches a typo.
 
 ### local_ip

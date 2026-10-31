@@ -3991,8 +3991,8 @@ fn publish_unknown_scheme() {
             .assert()
             .success()
             .stdout(concat!(
-                "publish: unsupported scheme \"redis\", expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://\n",
-                "publish: invalid URL \"nats//typo\", expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://\n",
+                "publish: unsupported scheme \"redis\", expected nats://, nats+tls://, kafka://, mqtt://, mqtts:// or desktop://\n",
+                "publish: invalid URL \"nats//typo\", expected nats://, nats+tls://, kafka://, mqtt://, mqtts:// or desktop://\n",
                 "caught\n",
             ));
     }

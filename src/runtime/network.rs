@@ -1,4 +1,7 @@
+use crate::runtime::splitter::kafka;
 use crate::runtime::{Str, StrMap, stdlib_warning};
+use confluent_kafka::common::serialization::StringSerializer;
+use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
 use lettre::Transport;
 use reqwest::blocking::Response;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName};
@@ -343,10 +346,51 @@ pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Cli
     pool.insert(conn_url.to_string(), client.clone());
     Ok(client)
 }
+
+/// How long `publish` waits for the metadata of a Kafka topic, e.g. when the broker cannot be reached.
+const KAFKA_MAX_BLOCK_MS: &str = "10000";
+
+type KafkaStringProducer = KafkaProducer<String, String>;
+
+static KAFKA_PRODUCERS: LazyLock<Mutex<HashMap<String, Arc<KafkaStringProducer>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The pooled Kafka producer of `bootstrap_servers` (`host:port`), created if needed.
+fn kafka_producer(
+    bootstrap_servers: &str,
+) -> std::result::Result<Arc<KafkaStringProducer>, String> {
+    let mut pool = KAFKA_PRODUCERS.lock().map_err(|e| e.to_string())?;
+    if let Some(producer) = pool.get(bootstrap_servers) {
+        return Ok(producer.clone());
+    }
+    let props = HashMap::from([
+        (
+            ProducerConfig::BOOTSTRAP_SERVERS_CONFIG.to_string(),
+            bootstrap_servers.to_string(),
+        ),
+        (ProducerConfig::ACKS_CONFIG.to_string(), "all".to_string()),
+        // `publish` waits for each ack: there is no batch to wait for
+        (ProducerConfig::LINGER_MS_CONFIG.to_string(), "0".to_string()),
+        (
+            ProducerConfig::MAX_BLOCK_MS_CONFIG.to_string(),
+            KAFKA_MAX_BLOCK_MS.to_string(),
+        ),
+    ]);
+    // the producer starts its sender task on the current runtime
+    let producer = KAFKA_RUNTIME.block_on(async {
+        let config = ProducerConfig::new(&props).map_err(|e| e.to_string())?;
+        KafkaProducer::new(config, StringSerializer::new(), StringSerializer::new())
+            .map_err(|e| e.to_string())
+    })?;
+    let producer = Arc::new(producer);
+    pool.insert(bootstrap_servers.to_string(), producer.clone());
+    Ok(producer)
+}
+
 static MQTT_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, MqttClient>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-/// Publish `body` to a NATS or MQTT topic, or show it as a desktop notification. Failures are
+/// Publish `body` to a NATS, Kafka or MQTT topic, or show it as a desktop notification. Failures are
 /// reported as warnings.
 pub(crate) fn publish(namespace: &str, body: &str) {
     if let Err(msg) = try_publish(namespace, body) {
@@ -360,7 +404,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         Some((scheme, _)) => scheme.to_ascii_lowercase(),
         None => {
             return Err(format!(
-                "invalid URL {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
+                "invalid URL {:?}, expected nats://, nats+tls://, kafka://, mqtt://, mqtts:// or desktop://",
                 redact_url(namespace),
             ));
         }
@@ -423,41 +467,30 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         }
         result
     } else if scheme == "kafka" {
-        use confluent_kafka::common::serialization::StringSerializer;
-        use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
         let url = Url::parse(namespace)
             .map_err(|e| format!("invalid URL {:?}: {}", redact_url(namespace), e))?;
-        let topic = url
-            .path()
-            .strip_prefix('/')
-            .unwrap_or(url.path())
-            .to_string();
-        let bootstrap_servers = url.host().unwrap().to_string();
-        let props = HashMap::from([
-            ("bootstrap.servers".to_string(), bootstrap_servers),
-            ("acks".to_string(), "all".to_string()),
-        ]);
-        let config = ProducerConfig::new(&props).unwrap();
-        let producer = KafkaProducer::<String, String>::new(
-            config,
-            StringSerializer::new(),
-            StringSerializer::new(),
-        )
-        .unwrap();
-        let success = KAFKA_RUNTIME.block_on(async {
-            let mut result = false;
-            let record = ProducerRecord::new(topic, Some(body.to_string()));
-            if let Ok(ack) = producer.send(record).await {
-                result = ack.get().await.ok().is_some();
-            }
-            producer.close().await.unwrap();
-            result
-        });
-        if success {
-            Ok(())
-        } else {
-            Err(format!("Failed to send message to {}", scheme))
+        let (bootstrap_servers, topic) = kafka::endpoint(&url, namespace)?;
+        if let Some((name, _)) = url.query_pairs().next() {
+            return Err(format!(
+                "unsupported query parameter {:?} in {:?}",
+                name,
+                redact_url(namespace)
+            ));
         }
+        let producer = kafka_producer(&bootstrap_servers)?;
+        // send only queues the record: wait for the ack so it is not lost when the script exits right after
+        KAFKA_RUNTIME.block_on(async {
+            let record = ProducerRecord::new(topic, Some(body.to_string()));
+            let delivery = producer
+                .send(record)
+                .await
+                .map_err(|e| format!("failed to publish: {}", e))?;
+            delivery
+                .get()
+                .await
+                .map(drop)
+                .map_err(|e| format!("failed to publish: {}", e))
+        })
     } else if scheme == "desktop" {
         // desktop://title: the title is shown in the notification center, so mask any secret in it
         let redacted = redact_url(namespace);
@@ -470,7 +503,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             .map_err(|e| format!("failed to show notification: {}", e))
     } else {
         Err(format!(
-            "unsupported scheme {:?}, expected nats://, nats+tls://, mqtt://, mqtts:// or desktop://",
+            "unsupported scheme {:?}, expected nats://, nats+tls://, kafka://, mqtt://, mqtts:// or desktop://",
             scheme,
         ))
     }

@@ -33,6 +33,22 @@ pub fn is_kafka_url(path: &str) -> bool {
     path.starts_with("kafka://")
 }
 
+/// The bootstrap server (`host:port`) and the topic of a `kafka://host[:port]/topic` URL.
+pub(crate) fn endpoint(parsed: &Url, url: &str) -> Result<(String, String), String> {
+    let Some(host) = parsed.host_str() else {
+        return Err(format!("missing host in {:?}", redact_url(url)));
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(format!("user and password are not supported in {:?}", redact_url(url)));
+    }
+    let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
+    let topic = urlencoding::decode(path).map_err(|e| e.to_string())?.into_owned();
+    if topic.is_empty() {
+        return Err(format!("missing topic in {:?}", redact_url(url)));
+    }
+    Ok((format!("{}:{}", host, parsed.port().unwrap_or(DEFAULT_PORT)), topic))
+}
+
 /// What a `kafka://host[:port]/topic[?group=name][&offset=earliest|latest]` URL asks for.
 #[derive(Debug, PartialEq)]
 struct Target {
@@ -45,17 +61,7 @@ struct Target {
 impl Target {
     fn parse(url: &str) -> Result<Target, String> {
         let parsed = Url::parse(url).map_err(|e| format!("invalid URL {:?}: {}", redact_url(url), e))?;
-        let Some(host) = parsed.host_str() else {
-            return Err(format!("missing host in {:?}", redact_url(url)));
-        };
-        if !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(format!("user and password are not supported in {:?}", redact_url(url)));
-        }
-        let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
-        let topic = urlencoding::decode(path).map_err(|e| e.to_string())?.into_owned();
-        if topic.is_empty() {
-            return Err(format!("missing topic in {:?}", redact_url(url)));
-        }
+        let (bootstrap_servers, topic) = endpoint(&parsed, url)?;
         let mut group = None;
         let mut offset = "latest".to_string();
         for (name, value) in parsed.query_pairs() {
@@ -65,7 +71,6 @@ impl Target {
                 _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
             }
         }
-        let bootstrap_servers = format!("{}:{}", host, parsed.port().unwrap_or(DEFAULT_PORT));
         Ok(Target { bootstrap_servers, topic, group, offset })
     }
 }
@@ -246,6 +251,17 @@ mod tests {
             }
             producer.close().await.unwrap();
         });
+    }
+
+    #[test]
+    fn test_publish() {
+        let topic = format!("zawk-test-{}", Uuid::new_v4());
+        let url = format!("kafka://localhost:9092/{}", topic);
+        crate::runtime::network::publish(&url, "one");
+        crate::runtime::network::publish(&url, "two");
+        let mut subscription = Subscription::new(&format!("{}?offset=earliest", url)).unwrap();
+        let payloads: Vec<Vec<u8>> = (0..2).map(|_| subscription.next().unwrap().payload).collect();
+        assert_eq!(payloads, [b"one".to_vec(), b"two".to_vec()]);
     }
 
     #[test]

@@ -60,9 +60,18 @@ zawk -i json '
 ' 'kafka://localhost:9092/logs?group=alerts&offset=earliest'
 ```
 
-## Bridge Kafka to NATS or MQTT
+## Publish: send to a topic
 
-`publish()` sends to NATS and MQTT, so a topic can be forwarded with one rule:
+`publish(url, body)` sends a message and returns once the broker has acknowledged it. A failure is reported as a
+warning and in `ERRNO`:
+
+```shell
+zawk 'BEGIN { publish("kafka://localhost:9092/topic1", "hello world") }'
+```
+
+### Forward a topic
+
+`publish()` also sends to NATS and MQTT, so a topic can be forwarded with one rule:
 
 ```shell
 zawk -i json '{ publish("mqtt://127.0.0.1:1883/devices/" $FI["device"], MSG_BODY) }' \
@@ -79,4 +88,4 @@ zawk -i json '{ publish("mqtt://127.0.0.1:1883/devices/" $FI["device"], MSG_BODY
 - A value that cannot be parsed (invalid JSON for `-i json`) is reported as a warning and in `ERRNO`, which is
   cleared when the next message starts. A message without a value has no records.
 - A message key is not available to the program.
-- TLS, SASL and several bootstrap servers are not supported, and `publish()` cannot send to Kafka.
+- TLS, SASL and several bootstrap servers are not supported.
