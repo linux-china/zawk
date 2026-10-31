@@ -19,7 +19,7 @@ Features:
 * Read database tables or queries as input (SQLite, MySQL, PostgreSQL), like CSV with a header: `zawk '{print $FI["name"]}' 'mysql://root:123456@127.0.0.1:3306/test#people'`, `zawk '{print $1}' 'sqlite://./demo.db#select * from user where age > 30'`. With `--null '\N'`, NULL is told apart from `''`: `isnull($2)`, and `-o jsonl/parquet` write it as null
 * High performance
 * gawk mostly compatible
-* A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
+* A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS/Kafka etc.
 * i18n support: `length("你好Hello") # 7`, `substr("你好Hello", 1, 2) # 你好`
 * Load awk script from URL
 * Run the first ` ```awk ` (or `zawk`/`gawk`) code block of Markdown: `zawk -f notes.md`, or a Markdown program text

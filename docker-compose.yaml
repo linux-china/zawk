@@ -16,7 +16,7 @@ services:
   kafka:
     image: apache/kafka-native:4.4.0
     ports:
-      - "19092:9092"
+      - "9092:9092"
   postgresql:
     image: postgres:18.4-alpine3.22
     ports:

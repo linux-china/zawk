@@ -214,7 +214,7 @@ impl<'a> Core<'a> {
                 fi_header: Default::default(),
                 environ: environ.into(),
                 procinfo: procinfo.into(),
-                // NATS input is never read in parallel.
+                // Message input is never read in parallel.
                 msg_subject: Default::default(),
                 msg_headers: Default::default(),
                 msg_body: Default::default(),

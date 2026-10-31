@@ -87,7 +87,7 @@ pub fn set_output_failed() {
 /// Set when stdout is line buffered even if it is not a terminal; see `set_line_buffered`.
 static LINE_BUFFERED: AtomicBool = AtomicBool::new(false);
 
-/// Write each line printed to stdout at once, as for a terminal: the output of a NATS message is
+/// Write each line printed to stdout at once, as for a terminal: the output of a message is
 /// not held back until more messages arrive.
 pub fn set_line_buffered() {
     LINE_BUFFERED.store(true, Ordering::Relaxed);

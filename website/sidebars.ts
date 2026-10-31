@@ -41,6 +41,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'tutorials/database',
         'tutorials/nats',
+        'tutorials/kafka',
         'tutorials/ai',
         'tutorials/http-api',
         'tutorials/cloud-data',

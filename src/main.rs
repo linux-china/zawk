@@ -52,7 +52,9 @@ use runtime::{
         json::JsonRecords,
         jsonl::JsonlReader,
         markdown::MarkdownCsv,
-        nats::{self, NatsReader},
+        kafka,
+        message::{self, MessageReader, MessageSource},
+        nats,
         parquet::ParquetJson,
         regex::RegexSplitter,
         xlsx,
@@ -1307,7 +1309,7 @@ fn real_main() {
         .arg(Arg::new("input-files")
             .index(2)
             .num_args(1..)
-            .help("Input files to be read by zawk program: local paths, `-` (stdin), http(s):// URLs, s3://bucket/key, a nats:// subject, or a database table or query read as CSV with a header line (`sqlite://PATH#table`, `mysql://...#table`, `postgresql://...#select ...`; SQL when the text after `#` contains whitespace)"))
+            .help("Input files to be read by zawk program: local paths, `-` (stdin), http(s):// URLs, s3://bucket/key, a nats:// subject, a kafka:// topic, or a database table or query read as CSV with a header line (`sqlite://PATH#table`, `mysql://...#table`, `postgresql://...#select ...`; SQL when the text after `#` contains whitespace)"))
         .arg(Arg::new("parallel-strategy")
             .short('p')
             .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files")
@@ -1605,23 +1607,24 @@ fn real_main() {
     // self-describing, so FI is always populated from the first record (the column names for
     // Parquet, Markdown and database tables).
     let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown || database;
-    // A NATS subject: each message is an input file of its own, read until Ctrl+C.
-    let nats_url = input_files.iter().find(|f| nats::is_nats_url(f)).cloned();
-    if nats_url.is_some() {
+    // A NATS subject or a Kafka topic: each message is an input file of its own, read until Ctrl+C.
+    let message_url = input_files.iter().find(|f| nats::is_nats_url(f) || kafka::is_kafka_url(f)).cloned();
+    if let Some(url) = &message_url {
         if input_files.len() > 1 {
-            fail!("a nats:// subject must be the only input");
+            fail!("a {} must be the only input", if kafka::is_kafka_url(url) { "kafka:// topic" } else { "nats:// subject" });
         }
         if parquet || markdown || xlsx {
-            fail!("-i {} is not supported for NATS messages", input_format.as_deref().unwrap_or_default());
+            let service = if kafka::is_kafka_url(url) { "Kafka" } else { "NATS" };
+            fail!("-i {} is not supported for {} messages", input_format.as_deref().unwrap_or_default(), service);
         }
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
     }
     // Every input file starts with a header line (JSON and Parquet records are mapped by key).
-    // Every NATS message is read by a reader of its own, which starts with the header (the keys
+    // Every message is read by a reader of its own, which starts with the header (the keys
     // of a JSON message).
-    let header_per_file = parse_header && ((!json && !jsonl && !parquet) || nats_url.is_some());
-    let multi_file_headers = header_per_file && (input_files.len() > 1 || nats_url.is_some());
+    let header_per_file = parse_header && ((!json && !jsonl && !parquet) || message_url.is_some());
+    let multi_file_headers = header_per_file && (input_files.len() > 1 || message_url.is_some());
     if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
         // The workers cannot tell which record is the header of a file.
         eprintln!("zawk: warning: -H with several input files: running serially");
@@ -1651,7 +1654,7 @@ fn real_main() {
             stage: exec_strategy.stage(),
             parse_header,
             header_per_file,
-            header_in_main: nats_url.is_some(),
+            header_in_main: message_url.is_some(),
         },
         output_record_sep,
         argv,
@@ -1684,13 +1687,20 @@ fn real_main() {
             fatal!("{}", e);
         }
     }
-    let mut nats_input = nats_url.map(|url| match nats::Subscription::new(&url) {
-        Ok(subscription) => {
-            // the output of each message is written as soon as it is printed
-            runtime::writers::set_line_buffered();
-            subscription
+    let mut message_input = message_url.map(|url| {
+        let source = if kafka::is_kafka_url(&url) {
+            kafka::Subscription::new(&url).map(|s| Box::new(s) as Box<dyn MessageSource>)
+        } else {
+            nats::Subscription::new(&url).map(|s| Box::new(s) as Box<dyn MessageSource>)
+        };
+        match source {
+            Ok(source) => {
+                // the output of each message is written as soon as it is printed
+                runtime::writers::set_line_buffered();
+                source
+            }
+            Err(e) => fatal!("{}", e),
         }
-        Err(e) => fatal!("{}", e),
     });
     runtime::set_multi_file_headers(multi_file_headers);
     let check_utf8 = matches.get_flag("utf8");
@@ -1701,15 +1711,15 @@ fn real_main() {
     // this up here.
     macro_rules! with_inp {
         ($analysis:expr, $inp:ident, $body:expr) => {{
-            if let Some(subscription) = nats_input.take() {
+            if let Some(source) = message_input.take() {
                 // Each message is read with a reader of the input format of its own.
                 if json || jsonl {
                     let fi_names = awk_util::fi_constant_keys(&program_code);
                     let signal = signal.clone();
-                    let $inp = NatsReader::new(subscription, json, check_utf8, move |payload, subject| {
-                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
+                    let $inp = MessageReader::new(source, json, check_utf8, move |payload, subject| {
+                        let chunk_size = message::chunk_size(chunk_size, payload.len());
                         let reader = JsonlReader::new(
-                            once((nats::payload_reader(payload), subject)),
+                            once((message::payload_reader(payload), subject)),
                             fi_names.clone(),
                             chunk_size,
                             false,
@@ -1721,10 +1731,10 @@ fn real_main() {
                     $body
                 } else if let Some(ifmt) = ifmt {
                     let signal = signal.clone();
-                    let $inp = NatsReader::new(subscription, false, check_utf8, move |payload, subject| {
-                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
+                    let $inp = MessageReader::new(source, false, check_utf8, move |payload, subject| {
+                        let chunk_size = message::chunk_size(chunk_size, payload.len());
                         CSVReader::new(
-                            once((nats::payload_reader(payload), subject)),
+                            once((message::payload_reader(payload), subject)),
                             ifmt,
                             chunk_size,
                             false,
@@ -1734,9 +1744,9 @@ fn real_main() {
                     });
                     $body
                 } else {
-                    let $inp = NatsReader::new(subscription, false, check_utf8, move |payload, subject| {
-                        let chunk_size = nats::chunk_size(chunk_size, payload.len());
-                        RegexSplitter::new(nats::payload_reader(payload), chunk_size, subject, false)
+                    let $inp = MessageReader::new(source, false, check_utf8, move |payload, subject| {
+                        let chunk_size = message::chunk_size(chunk_size, payload.len());
+                        RegexSplitter::new(message::payload_reader(payload), chunk_size, subject, false)
                     });
                     $body
                 }

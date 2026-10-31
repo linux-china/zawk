@@ -140,7 +140,9 @@ zawk [options] -f script.awk [file ...]
 Input files may be local paths, `-` (stdin), `https://...` URLs or `s3://bucket/key`; compressed input is detected
 and decompressed automatically. A NATS subject (`'nats://host:4222/logs.>'`, wildcards allowed) as the only input
 reads its messages until Ctrl+C, then runs END: each message is an input file (`-i`/`-H` apply to its payload), with
-`MSG_SUBJECT`, `MSG_HEADERS["name"]` and `MSG_BODY`. A database URL reads a table or a query as CSV with a header
+`MSG_SUBJECT`, `MSG_HEADERS["name"]` and `MSG_BODY`. A Kafka topic (`'kafka://host:9092/topic'`, with `?group=name` to
+share it and resume, and `?offset=earliest` to start at the oldest message) is read the same way, MSG_SUBJECT being
+the topic. A database URL reads a table or a query as CSV with a header
 line (`FI` from the column names, no `-i`/`-H` needed): `'sqlite://./app.db#user'`, `'mysql://u:p@host:3306/db#people'`,
 `'postgresql://u:p@host:5432/db#select name, age from people'` (after `#`: a table name, or SQL when it contains
 spaces; NULL and BLOB values are `""`; for a large table, use SQL with `LIMIT` when only the first rows are needed). `.env` in the current directory is loaded as environment variables.

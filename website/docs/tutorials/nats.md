@@ -129,3 +129,4 @@ zawk 'BEGIN { t = kv_get("nats://127.0.0.1:4222/config", "threshold") } $3 > t' 
 - A payload that cannot be parsed (invalid JSON for `-i json`) is reported as a warning and in `ERRNO`, which is
   cleared when the next message starts.
 - JetStream consumers and request/reply are not supported as input.
+- Kafka topics can be read in the same way, see [Streaming with Kafka](./kafka.md).

@@ -61,10 +61,11 @@ Every input file can come from somewhere other than the local disk:
 | MySQL | `zawk '{ print $FI["name"] }' 'mysql://root:123456@127.0.0.1:3306/test#people'` |
 | PostgreSQL | `zawk '{ print $1 }' 'postgresql://u:p@host:5432/db#select name, age from people'` |
 | NATS | `zawk 'MSG_SUBJECT ~ /demo/ { print }' 'nats://localhost:4222/logs.>'` |
+| Kafka | `zawk '{ print $1 }' 'kafka://localhost:9092/topic1'` |
 | Compressed | `zawk '{ print $1 }' access.log.gz` (gz, zst, bz2, xz, lz4) |
 
-See the [database](../tutorials/database.md), [NATS](../tutorials/nats.md) and
-[cloud data](../tutorials/cloud-data.md) tutorials for details.
+See the [database](../tutorials/database.md), [NATS](../tutorials/nats.md), [Kafka](../tutorials/kafka.md)
+and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 
 ## Output formats
 

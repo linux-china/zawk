@@ -11,6 +11,8 @@ pub mod database;
 pub mod json;
 pub mod jsonl;
 pub mod markdown;
+pub mod kafka;
+pub mod message;
 pub mod nats;
 pub mod parquet;
 pub mod regex;

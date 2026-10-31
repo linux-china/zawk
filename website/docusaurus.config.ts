@@ -6,7 +6,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'zawk',
-  tagline: 'Modern AWK + stdlib + Rust: the AWK you know, with CSV, JSON, Parquet, databases, NATS and AI built in',
+  tagline: 'Modern AWK + stdlib + Rust: the AWK you know, with CSV, JSON, Parquet, databases, NATS, Kafka and AI built in',
   favicon: 'img/logo.svg',
 
   future: {
@@ -102,6 +102,7 @@ const config: Config = {
           items: [
             {label: 'Databases', to: '/docs/tutorials/database'},
             {label: 'NATS & MQTT', to: '/docs/tutorials/nats'},
+            {label: 'Kafka', to: '/docs/tutorials/kafka'},
             {label: 'AI Integration', to: '/docs/tutorials/ai'},
           ],
         },

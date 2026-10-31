@@ -1544,7 +1544,7 @@ pub(crate) enum Variable {
     OFMT = 17,
     IGNORECASE = 18,
     ERRNO = 19,
-    // The subject, headers and payload of the NATS message being read (`nats://` input).
+    // The subject, headers and payload of the message being read (`nats://` or `kafka://` input).
     MSG_SUBJECT = 20,
     MSG_HEADERS = 21,
     MSG_BODY = 22,
@@ -1591,7 +1591,7 @@ pub(crate) struct Variables<'a> {
     pub ofmt: Str<'a>,
     // gawk's IGNORECASE: regex matching ignores case when it is nonzero.
     pub ignorecase: Int,
-    // The NATS message being read, see `splitter::nats`.
+    // The message being read, see `splitter::message`.
     pub msg_subject: Str<'a>,
     pub msg_headers: StrMap<'a, Str<'a>>,
     pub msg_body: Str<'a>,
@@ -1697,10 +1697,10 @@ impl<'a> Variables<'a> {
         self.fi.insert(unique, col);
     }
 
-    /// Load the NATS message being read (if any) into MSG_SUBJECT, MSG_HEADERS and MSG_BODY. Each
+    /// Load the message being read (if any) into MSG_SUBJECT, MSG_HEADERS and MSG_BODY. Each
     /// message is an input file of its own: this runs when the input file changes.
     pub(crate) fn load_message(&mut self) {
-        let Some(msg) = crate::runtime::splitter::nats::current_message() else { return };
+        let Some(msg) = crate::runtime::splitter::message::current_message() else { return };
         self.msg_subject = msg.subject.clone().into();
         self.msg_body = msg.body.clone().into();
         let headers = StrMap::default();

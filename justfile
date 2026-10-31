@@ -376,6 +376,18 @@ run-nats:
 run-nats-json:
    cargo run --package zawk --bin zawk -- -i json '{ print "Hello", $FI["name"] }' 'nats://localhost:4222/topic1-json'
 
+# test Kafka text format
+run-kafka-publish:
+   cargo run --package zawk --bin zawk -- 'BEGIN{ publish("kafka://localhost:9092/topic1", "hello world")}'
+
+# test Kafka text format
+run-kafka-subscribe:
+   cargo run --package zawk --bin zawk -- '{ print MSG_SUBJECT, MSG_BODY, ",",  $1} END {print "bye!"}' 'kafka://localhost:9092/topic1?offset=earliest'
+
+# test Kafka json format
+run-kafka-json:
+   cargo run --package zawk --bin zawk -- -i json '{ print "Hello", $FI["name"] }' 'kafka://localhost:9092/topic1-json?offset=earliest'
+
 # run similar
 run-similar:
    cargo run --package zawk --bin zawk -- 'BEGIN {print similar("hello", "helle") }'

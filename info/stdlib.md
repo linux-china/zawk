@@ -1116,6 +1116,18 @@ Environment variables for S3 access:
 The AWS style names `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` are also supported.
 Input files can be read from S3 directly: `zawk -i csv '{print $1}' s3://bucket1/demo.csv`.
 
+### Kafka
+
+Read the messages of a Kafka topic as input: `zawk '{ print $1 }' 'kafka://localhost:9092/topic1'`.
+It works as for a NATS subject (see below): messages are read until Ctrl+C, each one is an input file of its own in
+the input format given by `-i`, with `MSG_SUBJECT` (the topic), `MSG_HEADERS` and `MSG_BODY`. A `kafka://` topic must
+be the only input file. TLS, SASL and `publish` are not supported.
+
+- `?group=name`: join the consumer group `name`, e.g. `kafka://localhost:9092/orders?group=workers`: the members share
+  the partitions and a later run resumes at the committed offset. Without it, zawk joins a new group of its own.
+- `?offset=earliest`: start at the oldest message when the group has no committed offset; `latest` (the default) only
+  reads the messages sent from now on. Other query parameters are rejected.
+
 ### NATS
 
 Publish events to NATS: `publish("nats://host:4222/topic", body)`

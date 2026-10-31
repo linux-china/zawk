@@ -62,7 +62,8 @@ publish("desktop://Job finished", "rows: " NR)
 ```
 
 `publish` accepts `nats://`, `nats+tls://`, `mqtt://`, `mqtts://` and `desktop://`. NATS subjects can also be
-read as input; see the [NATS tutorial](../tutorials/nats.md).
+read as input; see the [NATS tutorial](../tutorials/nats.md). Kafka topics are input only; see the
+[Kafka tutorial](../tutorials/kafka.md).
 
 ## AI decisions: `jev`
 

@@ -52,7 +52,7 @@ function HomepageHeader() {
           </Heading>
           <p className={styles.subtitle}>
             zawk runs your AWK programs, compiled with Cranelift, and adds CSV, JSON, Parquet, Excel,
-            databases, S3 and NATS as input, ~190 standard library functions, modern syntax, and tooling
+            databases, S3, NATS and Kafka as input, ~190 standard library functions, modern syntax, and tooling
             built for AI agents.
           </p>
           <div className={styles.buttons}>
@@ -85,6 +85,7 @@ const sources = [
   'S3',
   'HTTP',
   'NATS',
+  'Kafka',
   'gz · zst · xz',
 ];
 

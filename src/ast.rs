@@ -86,7 +86,7 @@ pub struct Prog<'a, 'b, I> {
     // whose FI comes from the record keys).
     pub header_per_file: bool,
     // The header of every input file, including the first one, is read by the main loop rather
-    // than in BEGIN: the input files are NATS messages, which BEGIN must not wait for.
+    // than in BEGIN: the input files are NATS or Kafka messages, which BEGIN must not wait for.
     pub header_in_main: bool,
     // Where calls and variable references start in the program text, for error messages: see
     // `expr_key`.

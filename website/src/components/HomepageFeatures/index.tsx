@@ -59,7 +59,7 @@ const FeatureList: FeatureItem[] = [
     title: 'Streams and messages',
     description: (
       <>
-        Subscribe to a NATS subject as input, then publish to NATS or MQTT. A ten-line AWK script becomes a
+        Subscribe to a NATS subject or a Kafka topic as input, then publish to NATS or MQTT. A ten-line AWK script becomes a
         message processor.
       </>
     ),

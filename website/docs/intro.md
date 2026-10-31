@@ -13,7 +13,7 @@ It runs the AWK programs you already know (it is gawk mostly compatible and the 
 has always been missing for today's data work:
 
 - **Structured input and output**: CSV/TSV (RFC 4180), JSON, JSON Lines, Apache Parquet, Markdown tables and Excel,
-  from local files, stdin, `http(s)://`, `s3://`, database tables and NATS subjects.
+  from local files, stdin, `http(s)://`, `s3://`, database tables, NATS subjects and Kafka topics.
 - **A standard library** of ~190 functions: text, JSON/XML/HTML, date/time, crypto/JWT, encoding, IDs,
   statistics, HTTP, SQLite/MySQL/PostgreSQL, Redis/NATS KV, S3, NATS/MQTT and LLM decisions.
 - **Modern syntax**: f-strings, raw strings, `??`, `try ... else`, `match` expressions, `local` variables,
@@ -128,7 +128,7 @@ zawk [options] -f script.awk [file ...]
 | `--posix` | Disable zawk's command-line sugar |
 
 Input files can be local paths, `-` (stdin), `https://` URLs, `s3://bucket/key`, database URLs
-(`sqlite://`, `mysql://`, `postgresql://`) or a NATS subject. Compressed input (gz, zst, bz2, xz, lz4) is
+(`sqlite://`, `mysql://`, `postgresql://`) a NATS subject or a Kafka topic. Compressed input (gz, zst, bz2, xz, lz4) is
 detected and decompressed automatically, and a `.env` file in the current directory is loaded as environment
 variables.
 
@@ -136,5 +136,5 @@ variables.
 
 - [New AWK Syntax](./syntax/overview.md): everything zawk adds to the language.
 - [Standard Library](./stdlib/overview.md): ~190 functions, by category.
-- [Tutorials](./tutorials/database.md): databases, NATS, AI integration, HTTP APIs, S3 and Parquet.
+- [Tutorials](./tutorials/database.md): databases, NATS, Kafka, AI integration, HTTP APIs, S3 and Parquet.
 - [Differences from gawk](./compatibility.md) and the [FAQ](./faq.md).

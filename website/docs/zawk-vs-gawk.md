@@ -20,7 +20,7 @@ you pick one.
 | CSV / TSV           | RFC 4180 with `-i csv`, `-i tsv`, header names with `-H`       | `--csv` since 5.3                                  |
 | Other input formats | JSON, JSON Lines, Parquet, Markdown tables, Excel              | text only                                          |
 | Output formats      | CSV, TSV, JSON Lines, Markdown, table, Parquet with `-o`       | text only                                          |
-| Input sources       | files, stdin, `http(s)://`, `s3://`, databases, NATS           | files, stdin, `/inet` sockets                      |
+| Input sources       | files, stdin, `http(s)://`, `s3://`, databases, NATS, Kafka    | files, stdin, `/inet` sockets                      |
 | Standard library    | ~190 functions: JSON, date/time, crypto, HTTP, SQL, KV, LLM... | strings, math, time, bit operations                |
 | Extensions          | built in, no loading needed                                    | `@load` C extensions                               |
 | Tooling             | `lint`, `fmt`, `inspect`, `functions`, `llm`                   | `--lint`, `--pretty-print`, `--profile`, `--debug` |

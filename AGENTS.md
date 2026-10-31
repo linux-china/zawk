@@ -42,7 +42,7 @@ All configuration are in the `.env`, and you can read it if necessary.
 
 - redis: `redis://127.0.0.1:6379`
 - nats: `nats://127.0.0.1:14222/topic1`
-- kafka: `kafka://127.0.0.1:19092/topic1`
+- kafka: `kafka://127.0.0.1:9092/topic1`
 - mqtt: `mqtt://127.0.0.1:1883/topic1`
 - smtp url: `smtp://127.0.0.1:3535`
 - s3 objects: `s3://mj-artifacts/demo.csv`

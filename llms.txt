@@ -4,7 +4,7 @@
 
 Things to remember to write awk script with zawk:
 
-- standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS etc.
+- standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS/Kafka etc.
 - csv/tsv/jsonl/parquet built-in support with `zawk -i csv/tsv/jsonl/parquet`
 - Excel input: `zawk -H '{ print $FI["name"] }' book.xlsx#Sheet2` (`-i xlsx` is the default for `.xlsx`; `#name` selects the sheet; `-H` for the header row)
 - database tables or queries as input, read like CSV with a header: `zawk '{ print $FI["name"] }' 'sqlite://./app.db#user'`, `mysql://...#people`, `postgresql://...#select * from people`

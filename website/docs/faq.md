@@ -7,7 +7,7 @@ title: FAQ
 ## What is zawk?
 
 A modern AWK implementation in Rust: `zawk = AWK + stdlib + Rust`. It is gawk mostly compatible, compiles
-programs to machine code with Cranelift, reads structured formats (CSV, JSON, Parquet, Excel, databases, NATS)
+programs to machine code with Cranelift, reads structured formats (CSV, JSON, Parquet, Excel, databases, NATS, Kafka)
 and ships a standard library of ~190 functions.
 
 ## How is it related to frawk?
