@@ -46,11 +46,11 @@ termcolor = "1.4"
 itertools = "0.15"
 num-traits = "0.2"
 paste = "1.0"
-cranelift = "0.137.0"
-cranelift-codegen = "0.137.0"
-cranelift-module = "0.137.0"
-cranelift-native = "0.137.0"
-cranelift-jit = "0.137.0"
+cranelift = "0.137.1"
+cranelift-codegen = "0.137.1"
+cranelift-module = "0.137.1"
+cranelift-native = "0.137.1"
+cranelift-jit = "0.137.1"
 fast-float = "0.2"
 bumpalo = { version = "3.20", features = ["collections"] }
 uuid = { version = "1.29", features = ["v4", "v7", "fast-rng"] }
@@ -99,6 +99,7 @@ logos = "0.16.1"
 local-ip-address = "0.6"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
 async-nats = { version = "0.51", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
+confluent-kafka = { version = "1.0",default-features = false, features = ["lz4", "snappy", "zstd", "rustls", "webpki-roots"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
 opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry"] }
 # the reqwest transport of opendal without its aws-lc-rs provider: rustls uses ring, as the other dependencies do
@@ -124,7 +125,7 @@ postgres = { version = "0.19", features = [
 ] }
 csv = "1.4"
 # LZ4 codecs, to keep the binary small.
-parquet = { version = "60", default-features = false, features = ["snap", "zstd", "lz4"] }
+parquet = { version = "60.1", default-features = false, features = ["snap", "zstd", "lz4"] }
 bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
