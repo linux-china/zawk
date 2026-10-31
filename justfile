@@ -16,7 +16,7 @@ crates:
   cargo tree -d -e normal > crates-dup.txt          # 重复版本
   cargo bloat --release --crates -n 60 > cargo-bloat.txt
   cargo bloat --release -n 60 > cargo-bloat-fn.txt  # 按函数看
-  cargo build --release --bin dotenvx && ls -l target/release/dotenvx  # 真实 strip 后体积
+  cargo build --release --bin zawk && ls -l target/release/zawk  # 真实 strip 后体积
 
 begin-file:
   cargo run --package zawk --bin zawk -- '{print $1}' demo.txt
