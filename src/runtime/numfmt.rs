@@ -233,12 +233,12 @@ mod tests {
         assert_eq!(number_to_string(f64::NEG_INFINITY), "-inf");
         assert_eq!(number_to_string(f64::NAN), "+nan");
         set_convfmt(b"%.2f");
-        assert_eq!(number_to_string(3.14159), "3.14");
+        assert_eq!(number_to_string(1.23456), "1.23");
         assert_eq!(number_to_string(3.0), "3");
         set_convfmt(b"%d");
         assert_eq!(number_to_string(3.7), "3");
         set_convfmt(b"%s");
-        assert_eq!(number_to_string(3.14159), "3.14159");
+        assert_eq!(number_to_string(1.23456), "1.23456");
         set_convfmt(b"%.6g");
     }
 

@@ -790,7 +790,7 @@ mod tests {
         // Expected values are gawk's output.
         assert_eq!(sprintf!(b"%2$s %1$s", "a", "b"), "b a");
         assert_eq!(sprintf!(b"%1$s-%1$s", "x"), "x-x");
-        assert_eq!(sprintf!(b"[%2$*1$d][%3$.*1$f]", 5, 42, 3.14159), "[   42][3.14159]");
+        assert_eq!(sprintf!(b"[%2$*1$d][%3$.*1$f]", 5, 42, 1.23456), "[   42][1.23456]");
         assert_eq!(sprintf!(b"[%1$-5s|%1$05d]", 7), "[7    |00007]");
         // A missing argument is empty; `0$` is not a positional reference.
         assert_eq!(sprintf!(b"[%3$s][%0$s]", "a"), "[][%0$s]");
@@ -851,8 +851,8 @@ mod tests {
             "3 18446744073709551615 FF 0xff 010 +5  5"
         );
         assert_eq!(
-            sprintf!(b"[%*d][%-*d][%.*f][%*d]", 5, 42, 4, 42, 2, 3.14159, -4, 7),
-            "[   42][42  ][3.14][7   ]"
+            sprintf!(b"[%*d][%-*d][%.*f][%*d]", 5, 42, 4, 42, 2, 1.23456, -4, 7),
+            "[   42][42  ][1.23][7   ]"
         );
         assert_eq!(sprintf!(b"[%d][%x][%5%][%z]", 9.223372036854775808e18, -1), "[9223372036854775808][ffffffffffffffff][%][%z]");
         assert_eq!(sprintf!(b"[%f][%5.1f]", f64::INFINITY, f64::NAN), "[+inf][ +nan]");
