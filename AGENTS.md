@@ -44,7 +44,7 @@ All configuration are in the `.env`, and you can read it if necessary.
 - nats: `nats://127.0.0.1:14222/topic1`
 - kafka: `kafka://127.0.0.1:9092/topic1`
 - mqtt: `mqtt://127.0.0.1:1883/topic1`
-- smtp url: `smtp://127.0.0.1:3535`
+- smtp url: `smtp://127.0.0.1:3535` it's a fake smtp server, and it's ok to send emails.
 - s3 objects: `s3://mj-artifacts/demo.csv`
 - http testing: use `http://127.0.0.1:18080` httpbin service
 - mysql: `mysql://root:123456@127.0.0.1:3306/test`

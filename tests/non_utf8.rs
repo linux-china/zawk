@@ -150,3 +150,37 @@ fn every_string_function_is_covered() {
         .collect();
     assert!(missing.is_empty(), "add non-UTF-8 cases (or an exemption) for: {:?}", missing);
 }
+
+#[cfg(unix)]
+fn run_with_env(backend: &str, prog: &str) -> std::process::Output {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    Command::cargo_bin("zawk").unwrap()
+        .env(OsStr::from_bytes(b"NON_UTF8_VAL"), OsStr::from_bytes(b"caf\xe9x"))
+        .env(OsStr::from_bytes(b"NON_UTF8_KEY_\xe9"), "v")
+        .args([backend, prog])
+        .output().unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_environ_is_preserved() {
+    for backend in BACKEND_ARGS {
+        let out = run_with_env(backend, r#"BEGIN {
+            printf "%s", ENVIRON["NON_UTF8_VAL"]
+            for (k in ENVIRON) if (k ~ /^NON_UTF8_KEY_/) printf " %s", k
+        }"#);
+        assert!(out.status.success(), "{}: {:?}", backend, out);
+        assert_eq!(out.stdout, b"caf\xe9x NON_UTF8_KEY_\xe9", "{}", backend);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_environ_is_passed_to_commands() {
+    for backend in BACKEND_ARGS {
+        let out = run_with_env(backend, r#"BEGIN { system("printenv NON_UTF8_VAL") }"#);
+        assert!(out.status.success(), "{}: {:?}", backend, out);
+        assert_eq!(out.stdout, b"caf\xe9x\n", "{}", backend);
+    }
+}

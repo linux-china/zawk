@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::io;
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::rc::Weak;
@@ -8,7 +9,7 @@ use crate::runtime::HashMap;
 use crate::runtime::{Int, Str, StrMap};
 
 /// The environment passed to child processes: the contents of ENVIRON.
-pub(crate) type CommandEnv = Vec<(String, String)>;
+pub(crate) type CommandEnv = Vec<(OsString, OsString)>;
 
 thread_local! {
     // The ENVIRON map of the program running on this thread. It is held weakly so that it is
@@ -37,8 +38,18 @@ pub(crate) fn register_environ(environ: &StrMap<'_, Str<'_>>) {
 pub(crate) fn command_env() -> Option<CommandEnv> {
     let map = ENVIRON.with(|e| e.borrow().as_ref().and_then(Weak::upgrade))?;
     let map = map.borrow();
-    let lossy = |s: &Str| s.with_bytes(|bs| String::from_utf8_lossy(bs).into_owned());
-    Some(map.iter().map(|(k, v)| (lossy(k), lossy(v))).collect())
+    Some(map.iter().map(|(k, v)| (env_os_string(k), env_os_string(v))).collect())
+}
+
+#[cfg(unix)]
+fn env_os_string(s: &Str) -> OsString {
+    use std::os::unix::ffi::OsStringExt;
+    OsString::from_vec(s.with_bytes(<[u8]>::to_vec))
+}
+
+#[cfg(not(unix))]
+fn env_os_string(s: &Str) -> OsString {
+    s.with_bytes(|bs| String::from_utf8_lossy(bs).into_owned()).into()
 }
 
 fn prepare_command(prog: &str, env: Option<&CommandEnv>) -> io::Result<Command> {

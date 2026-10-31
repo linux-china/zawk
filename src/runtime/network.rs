@@ -285,6 +285,20 @@ pub(crate) static NATS_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::ne
         .expect("failed to build NATS runtime")
 });
 
+/// How long a NATS request waits for the server, e.g. while the client reconnects after losing it.
+const NATS_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Run `request` on [`NATS_RUNTIME`]. A client reconnects forever after losing the server and its
+/// requests wait for that, so every request that needs an answer from the server must go through here.
+pub(crate) fn nats_block_on<T, E: std::fmt::Display>(
+    request: impl Future<Output = std::result::Result<T, E>>,
+) -> std::result::Result<T, String> {
+    NATS_RUNTIME
+        .block_on(async { tokio::time::timeout(NATS_TIMEOUT, request).await })
+        .map_err(|_| format!("timed out after {:?} waiting for the NATS server", NATS_TIMEOUT))?
+        .map_err(|e| e.to_string())
+}
+
 pub(crate) static KAFKA_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
@@ -424,7 +438,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         let conn_url = url[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
         // publish only queues the message: flush so it is not lost when the script exits right after
-        NATS_RUNTIME.block_on(async {
+        nats_block_on(async {
             client
                 .publish(topic, body.to_string().into())
                 .await
@@ -922,6 +936,43 @@ mod tests {
     fn test_publish_nats() {
         let url = "nats://127.0.0.1:14222/topic1";
         publish(url, "Hello World!");
+    }
+
+    /// A server that accepts one connection, answers until the first message, then goes away for good.
+    fn nats_server_closing_after_first_message() -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            drop(listener);
+            stream
+                .write_all(b"INFO {\"server_id\":\"mock\",\"server_name\":\"mock\",\"version\":\"2.10.0\",\"proto\":1,\"host\":\"127.0.0.1\",\"port\":4222,\"headers\":true,\"max_payload\":1048576}\r\n")
+                .unwrap();
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = stream.read(&mut buf) {
+                let request = String::from_utf8_lossy(&buf[..n]);
+                if request.contains("PING") {
+                    stream.write_all(b"PONG\r\n").unwrap();
+                }
+                if request.contains("PUB ") {
+                    break;
+                }
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn test_publish_nats_times_out_when_server_is_gone() {
+        let url = format!(
+            "nats://127.0.0.1:{}/topic1",
+            nats_server_closing_after_first_message()
+        );
+        try_publish(&url, "first").unwrap();
+        // let the client see the closed connection: it now reconnects forever
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(try_publish(&url, "second").unwrap_err().contains("timed out"));
     }
 
     #[test]

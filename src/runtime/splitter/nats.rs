@@ -12,7 +12,7 @@ use futures_util::StreamExt;
 use url::Url;
 
 use super::message::{catch_sigint, MessageSource, Received, INTERRUPTED, WAITING};
-use crate::runtime::network::{nats_client, redact_url, NATS_RUNTIME};
+use crate::runtime::network::{nats_block_on, nats_client, redact_url, NATS_RUNTIME};
 
 /// Whether `path` is a NATS subject to read messages from.
 pub fn is_nats_url(path: &str) -> bool {
@@ -54,7 +54,7 @@ impl Subscription {
         }
         let conn_url = parsed[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
-        let subscriber = NATS_RUNTIME.block_on(async {
+        let subscriber = nats_block_on(async {
             let subscriber = match queue {
                 Some(queue) => client.queue_subscribe(subject.clone(), queue).await,
                 None => client.subscribe(subject.clone()).await,

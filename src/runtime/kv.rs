@@ -173,7 +173,7 @@ mod redis_kv {
 mod nats_kv {
     use async_nats::jetstream::kv::{Config, Store};
     use futures_util::TryStreamExt;
-    use crate::runtime::network::{nats_client, NATS_RUNTIME};
+    use crate::runtime::network::{nats_block_on, nats_client};
     use super::{split_name, KvResult, NATS_STORES};
 
     /// The (pooled) key-value store named in the namespace URL, created if needed.
@@ -185,7 +185,7 @@ mod nats_kv {
         let (conn_url, bucket) = split_name(url_text)?;
         let conn_url = conn_url.replacen("nats+tls://", "tls://", 1);
         let client = nats_client(&conn_url)?;
-        let store = NATS_RUNTIME.block_on(async {
+        let store = nats_block_on(async {
             let jetstream = async_nats::jetstream::new(client);
             match jetstream.get_key_value(bucket).await {
                 Ok(store) => Ok(store),
@@ -198,30 +198,31 @@ mod nats_kv {
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
         let store = store(url_text)?;
-        let value = NATS_RUNTIME.block_on(store.get(key)).map_err(|e| e.to_string())?;
+        let value = nats_block_on(store.get(key))?;
         Ok(value.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default())
     }
 
     pub(crate) fn kv_put(url_text: &str, key: &str, value: &str) -> KvResult<()> {
         let store = store(url_text)?;
-        NATS_RUNTIME.block_on(store.put(key, value.to_string().into())).map(drop).map_err(|e| e.to_string())
+        nats_block_on(store.put(key, value.to_string().into())).map(drop)
     }
 
     pub(crate) fn kv_delete(url_text: &str, key: &str) -> KvResult<()> {
         let store = store(url_text)?;
-        NATS_RUNTIME.block_on(store.delete(key)).map_err(|e| e.to_string())
+        nats_block_on(store.delete(key))
     }
 
     /// Purge every key of the bucket, history included.
     pub(crate) fn kv_clear(url_text: &str) -> KvResult<()> {
         let store = store(url_text)?;
-        NATS_RUNTIME.block_on(async {
-            let keys: Vec<String> = store.keys().await.map_err(|e| e.to_string())?.try_collect().await.map_err(|e| e.to_string())?;
-            for key in keys {
-                store.purge(key).await.map_err(|e| e.to_string())?;
-            }
-            Ok(())
-        })
+        let keys: Vec<String> = nats_block_on(async {
+            store.keys().await.map_err(|e| e.to_string())?.try_collect().await.map_err(|e| e.to_string())
+        })?;
+        // one timeout per key: a big bucket is not a stuck server
+        for key in keys {
+            nats_block_on(store.purge(key))?;
+        }
+        Ok(())
     }
 }
 

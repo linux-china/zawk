@@ -1631,11 +1631,23 @@ impl<'a> Default for Variables<'a> {
 
 fn load_env_variables<'a>() -> StrMap<'a, Str<'a>> {
     let env = StrMap::default();
-    for (k, v) in std::env::vars() {
-        env.insert(k.into(), v.into());
+    for (k, v) in std::env::vars_os() {
+        env.insert(env_str(&k), env_str(&v));
     }
     crate::runtime::command::register_environ(&env);
     env
+}
+
+/// The bytes of an environment string, which need not be valid UTF-8.
+#[cfg(unix)]
+fn env_str<'a>(s: &std::ffi::OsStr) -> Str<'a> {
+    use std::os::unix::ffi::OsStrExt;
+    Str::from_bytes(s.as_bytes())
+}
+
+#[cfg(not(unix))]
+fn env_str<'a>(s: &std::ffi::OsStr) -> Str<'a> {
+    s.to_string_lossy().into_owned().into()
 }
 
 /// The contents of PROCINFO, as in gawk (without gawk's internal and array-valued entries).
