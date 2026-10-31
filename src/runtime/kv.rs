@@ -211,8 +211,11 @@ mod redis_kv {
 mod nats_kv {
     use super::{KvResult, NATS_STORES, split_name};
     use crate::runtime::network::{nats_block_on, nats_client};
+    use async_nats::jetstream::ErrorCode;
+    use async_nats::jetstream::context::{GetStreamError, GetStreamErrorKind, KeyValueError};
     use async_nats::jetstream::kv::{Config, Store};
     use futures_util::TryStreamExt;
+    use std::error::Error;
 
     /// The (pooled) key-value store named in the namespace URL, created if needed.
     fn store(url_text: &str) -> KvResult<Store> {
@@ -227,17 +230,26 @@ mod nats_kv {
             let jetstream = async_nats::jetstream::new(client);
             match jetstream.get_key_value(bucket).await {
                 Ok(store) => Ok(store),
-                Err(_) => {
-                    jetstream
-                        .create_key_value(Config {
-                            bucket: bucket.to_string(),
-                            ..Default::default()
-                        })
-                        .await
-                }
+                Err(e) if is_bucket_missing(&e) => jetstream
+                    .create_key_value(Config {
+                        bucket: bucket.to_string(),
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e)),
+                Err(e) => Err(format!("failed to open bucket {:?}: {}", bucket, e)),
             }
         })
-        .map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))
+    }
+
+    /// Whether the server answered that the bucket does not exist, as opposed to a failed request.
+    pub(super) fn is_bucket_missing(e: &KeyValueError) -> bool {
+        e.source()
+            .and_then(|source| source.downcast_ref::<GetStreamError>())
+            .is_some_and(|source| {
+                matches!(source.kind(), GetStreamErrorKind::JetStream(e)
+                    if e.kind() == ErrorCode::STREAM_NOT_FOUND)
+            })
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
@@ -378,6 +390,37 @@ mod sqlite_kv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_nats::jetstream;
+    use async_nats::jetstream::context::{GetStreamError, GetStreamErrorKind, KeyValueError};
+    use async_nats::jetstream::context::{KeyValueErrorKind, RequestErrorKind};
+
+    fn get_bucket_error(source: GetStreamError) -> KeyValueError {
+        KeyValueError::with_source(KeyValueErrorKind::GetBucket, source)
+    }
+
+    fn jetstream_error(code: u64) -> GetStreamError {
+        let body = format!(r#"{{"code":503,"err_code":{code},"description":"test"}}"#);
+        let error: jetstream::Error = serde_json::from_str(&body).unwrap();
+        GetStreamError::new(GetStreamErrorKind::JetStream(error))
+    }
+
+    #[test]
+    fn only_stream_not_found_means_bucket_missing() {
+        let missing = jetstream_error(jetstream::ErrorCode::STREAM_NOT_FOUND.0);
+        assert!(nats_kv::is_bucket_missing(&get_bucket_error(missing)));
+
+        let unavailable = jetstream_error(jetstream::ErrorCode::JETSTREAM_NOT_ENABLED.0);
+        assert!(!nats_kv::is_bucket_missing(&get_bucket_error(unavailable)));
+
+        let request = GetStreamError::with_source(
+            GetStreamErrorKind::Request,
+            jetstream::context::RequestError::new(RequestErrorKind::TimedOut),
+        );
+        assert!(!nats_kv::is_bucket_missing(&get_bucket_error(request)));
+
+        let invalid = KeyValueError::new(KeyValueErrorKind::InvalidStoreName);
+        assert!(!nats_kv::is_bucket_missing(&invalid));
+    }
 
     #[test]
     #[ignore]
