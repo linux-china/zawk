@@ -53,7 +53,8 @@ const sidebars: SidebarsConfig = {
     'zawk-vs-gawk',
     'compatibility',
     'faq',
-    'snippets'
+    'snippets',
+    'zawk-cheat-sheet'
   ],
 };
 
