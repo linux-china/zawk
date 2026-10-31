@@ -14,8 +14,8 @@
 //! numbers, as numbers do), and array keys are plain strings, as in gawk.
 use crate::builtins::Variable;
 use crate::bytecode::Instr;
-use crate::common::NumTy;
 use crate::cfg::SmallVec;
+use crate::common::NumTy;
 use crate::compile::{HighLevel, Ty};
 use crate::dataflow::{self, JoinSemiLattice, Key};
 
@@ -28,9 +28,18 @@ struct Strnum {
 }
 
 impl Strnum {
-    const NO: Strnum = Strnum { strnum: false, uninit: false };
-    const MAYBE: Strnum = Strnum { strnum: true, uninit: false };
-    const UNINIT: Strnum = Strnum { strnum: false, uninit: true };
+    const NO: Strnum = Strnum {
+        strnum: false,
+        uninit: false,
+    };
+    const MAYBE: Strnum = Strnum {
+        strnum: true,
+        uninit: false,
+    };
+    const UNINIT: Strnum = Strnum {
+        strnum: false,
+        uninit: true,
+    };
 }
 
 impl JoinSemiLattice for Strnum {
@@ -104,8 +113,10 @@ impl StrnumAnalysis {
                     if ty == Ty::Str {
                         self.dfa.add_dep(Key::Reg(param, ty), Key::Reg(arg, ty), ());
                     } else if ty.is_array() && ty.val().ok() == Some(Ty::Str) {
-                        self.dfa.add_dep(Key::MapVal(param, ty), Key::MapVal(arg, ty), ());
-                        self.dfa.add_dep(Key::MapVal(arg, ty), Key::MapVal(param, ty), ());
+                        self.dfa
+                            .add_dep(Key::MapVal(param, ty), Key::MapVal(arg, ty), ());
+                        self.dfa
+                            .add_dep(Key::MapVal(arg, ty), Key::MapVal(param, ty), ());
                     }
                 }
             }
@@ -121,16 +132,26 @@ impl StrnumAnalysis {
     pub(crate) fn visit_ll(&mut self, inst: &Instr) {
         use Instr::*;
         match inst {
-            GetColumn(dst, _) | NextLine(dst, _, _) | NextLineStdin(dst) | IntToStr(dst, _)
+            GetColumn(dst, _)
+            | NextLine(dst, _, _)
+            | NextLineStdin(dst)
+            | IntToStr(dst, _)
             | FloatToStr(dst, _) => self.dfa.add_src(dst, Strnum::MAYBE),
             StoreConstStr(dst, s) if s.is_uninit() => self.dfa.add_src(dst, Strnum::UNINIT),
             SplitInt(_, _, map, _) => self.add_map_vals(map),
             SplitStr(_, _, map, _) => self.add_map_vals(map),
             SplitIntConst(_, _, map, _) => self.add_map_vals(map),
             SplitStrConst(_, _, map, _) => self.add_map_vals(map),
-            SplitSeps { arr_ty, arr, seps_ty, seps, .. } => {
+            SplitSeps {
+                arr_ty,
+                arr,
+                seps_ty,
+                seps,
+                ..
+            } => {
                 self.dfa.add_src(Key::MapVal(*arr, *arr_ty), Strnum::MAYBE);
-                self.dfa.add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);
+                self.dfa
+                    .add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);
             }
             MatchArrStr(_, _, _, map, _) => self.add_map_vals(map),
             CmpStr { l, r, .. } => {
@@ -139,14 +160,18 @@ impl StrnumAnalysis {
             }
             CmpStrNum { s, .. } => self.dfa.add_query(s),
             // The values of `src` flow into `dst`.
-            Asort { src_ty, src, dst_ty, dst, .. } if src_ty.val().ok() == Some(Ty::Str) => {
+            Asort {
+                src_ty,
+                src,
+                dst_ty,
+                dst,
+                ..
+            } if src_ty.val().ok() == Some(Ty::Str) => {
                 self.dfa.add_query(Key::MapVal(*src, *src_ty));
                 self.dfa
                     .add_dep(Key::MapVal(*dst, *dst_ty), Key::MapVal(*src, *src_ty), ());
             }
-            AwkStrtonum(_, s, _) | TypeOfString(_, s, _) => {
-                self.dfa.add_query(s)
-            }
+            AwkStrtonum(_, s, _) | TypeOfString(_, s, _) => self.dfa.add_query(s),
             Printf { args, .. } | Sprintf { args, .. } => {
                 for (reg, ty) in args.iter().cloned() {
                     if ty == Ty::Str {

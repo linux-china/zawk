@@ -25,15 +25,14 @@ use std::sync::{Arc, RwLock};
 
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
-use crate::runtime::{
-    str_impl::Str,
-    Int, RegexCache,
-};
+use crate::runtime::{Int, RegexCache, str_impl::Str};
 
 use super::{
+    DefaultLine, Line, LineReader, ReaderState,
     batch::ByteReader,
     chunk::{ChunkProducer, OffsetChunk},
-    display_name, input_warning, field_from_end_offset, normalize_join_indexes, resolve_negative_col, DefaultLine, Line, LineReader, ReaderState,
+    display_name, field_from_end_offset, input_warning, normalize_join_indexes,
+    resolve_negative_col,
 };
 
 // NUL never appears in valid JSON text, so the inner reader never splits a record into fields.
@@ -53,7 +52,8 @@ struct Schema {
 impl Schema {
     fn push(&mut self, name: String) {
         if !self.index.contains_key(name.as_bytes()) {
-            self.index.insert(name.as_bytes().to_vec(), self.names.len());
+            self.index
+                .insert(name.as_bytes().to_vec(), self.names.len());
             self.names.push(name);
         }
     }
@@ -124,7 +124,13 @@ impl<'a> Line<'a> for JsonlLine {
     fn nf(&mut self, _pat: &Str, _rc: &mut RegexCache) -> Result<usize> {
         Ok(self.fields.len())
     }
-    fn get_col(&mut self, col: Int, _pat: &Str, ofs: &Str, _rc: &mut RegexCache) -> Result<Str<'a>> {
+    fn get_col(
+        &mut self,
+        col: Int,
+        _pat: &Str,
+        ofs: &Str,
+        _rc: &mut RegexCache,
+    ) -> Result<Str<'a>> {
         let col = if col < 0 {
             match resolve_negative_col(col, self.fields.len())? {
                 Some(col) => col,
@@ -156,7 +162,7 @@ impl<'a> Line<'a> for JsonlLine {
                         "attempt to assign field $(-{}); only {} fields",
                         field_from_end_offset(col),
                         self.fields.len()
-                    )
+                    );
                 }
             }
         } else {
@@ -334,7 +340,11 @@ impl JsonlReader {
                 None => true,
             }
         });
-        out.line = if scalar && self.scalar_text { out.fields[0].clone() } else { line };
+        out.line = if scalar && self.scalar_text {
+            out.fields[0].clone()
+        } else {
+            line
+        };
         valid
     }
 
@@ -352,7 +362,11 @@ impl JsonlReader {
 
     /// Reads the next line that is not blank, or None at the end of the input. The flag is
     /// whether a new file was started on the way.
-    fn read_nonblank(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<(bool, Option<Str<'static>>)> {
+    fn read_nonblank(
+        &mut self,
+        pat: &Str,
+        rc: &mut RegexCache,
+    ) -> Result<(bool, Option<Str<'static>>)> {
         let mut changed = false;
         loop {
             let file_changed = self.inner.read_line_reuse(pat, rc, &mut self.scratch)?;
@@ -494,9 +508,16 @@ fn trim_cr(line: Str<'static>) -> Str<'static> {
 
 enum Val {
     // Span includes the surrounding quotes.
-    Str { start: usize, end: usize, escaped: bool },
+    Str {
+        start: usize,
+        end: usize,
+        escaped: bool,
+    },
     // Numbers, nested objects and arrays: kept as their source text.
-    Raw { start: usize, end: usize },
+    Raw {
+        start: usize,
+        end: usize,
+    },
     Null,
     True,
     False,
@@ -505,13 +526,19 @@ enum Val {
 impl Val {
     fn to_str(&self, line: &Str<'static>, bs: &[u8]) -> Str<'static> {
         match *self {
-            Val::Str { start, end, escaped: false } => line.slice(start + 1, end - 1),
-            Val::Str { start, end, escaped: true } => {
-                match serde_json::from_slice::<String>(&bs[start..end]) {
-                    Ok(s) => Str::from(s).unmoor(),
-                    Err(_) => line.slice(start + 1, end - 1),
-                }
-            }
+            Val::Str {
+                start,
+                end,
+                escaped: false,
+            } => line.slice(start + 1, end - 1),
+            Val::Str {
+                start,
+                end,
+                escaped: true,
+            } => match serde_json::from_slice::<String>(&bs[start..end]) {
+                Ok(s) => Str::from(s).unmoor(),
+                Err(_) => line.slice(start + 1, end - 1),
+            },
             Val::Raw { start, end } => line.slice(start, end),
             Val::Null => Str::from(crate::runtime::str_escape::null_input()),
             Val::True => Str::from("1"),
@@ -549,7 +576,9 @@ fn scan_scalar(bs: &[u8], start: usize) -> Option<Val> {
     let (val, end) = scan_value(bs, start)?;
     let valid = skip_ws(bs, end) == bs.len()
         && match val {
-            Val::Raw { start, end } => std::str::from_utf8(&bs[start..end]).is_ok_and(|s| s.parse::<f64>().is_ok()),
+            Val::Raw { start, end } => {
+                std::str::from_utf8(&bs[start..end]).is_ok_and(|s| s.parse::<f64>().is_ok())
+            }
             _ => true,
         };
     valid.then_some(val)
@@ -571,7 +600,14 @@ fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {
     match *bs.get(i)? {
         b'"' => {
             let (end, escaped) = scan_string(bs, i)?;
-            Some((Val::Str { start, end, escaped }, end))
+            Some((
+                Val::Str {
+                    start,
+                    end,
+                    escaped,
+                },
+                end,
+            ))
         }
         b'{' | b'[' => {
             let mut depth = 0usize;
@@ -597,7 +633,9 @@ fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {
         }
         _ => {
             let mut end = i;
-            while end < bs.len() && !matches!(bs[end], b',' | b'}' | b']' | b' ' | b'\t' | b'\r' | b'\n') {
+            while end < bs.len()
+                && !matches!(bs[end], b',' | b'}' | b']' | b' ' | b'\t' | b'\r' | b'\n')
+            {
                 end += 1;
             }
             let val = match &bs[start..end] {
@@ -648,7 +686,9 @@ fn parse_object<'a>(bs: &'a [u8], mut f: impl FnMut(Key<'a>, Val)) -> bool {
         if bs.get(i) != Some(&b'"') {
             return false;
         }
-        let Some((key_end, escaped)) = scan_string(bs, i) else { return false };
+        let Some((key_end, escaped)) = scan_string(bs, i) else {
+            return false;
+        };
         let key = if escaped {
             match serde_json::from_slice::<String>(&bs[i..key_end]) {
                 Ok(s) => Key::Unescaped(s),
@@ -662,7 +702,9 @@ fn parse_object<'a>(bs: &'a [u8], mut f: impl FnMut(Key<'a>, Val)) -> bool {
             return false;
         }
         i = skip_ws(bs, i + 1);
-        let Some((val, next)) = scan_value(bs, i) else { return false };
+        let Some((val, next)) = scan_value(bs, i) else {
+            return false;
+        };
         f(key, val);
         i = skip_ws(bs, next);
         match bs.get(i) {
@@ -683,13 +725,27 @@ pub fn object_cells(bs: &[u8]) -> Option<Vec<(String, crate::inspect::Cell)>> {
     let mut out = Vec::new();
     parse_object(bs, |key, val| {
         let cell = match val {
-            Val::Str { start, end, escaped } => {
-                let unescaped = if escaped { serde_json::from_slice::<String>(&bs[start..end]).ok() } else { None };
-                Cell::Str(unescaped.unwrap_or_else(|| String::from_utf8_lossy(&bs[start + 1..end - 1]).into_owned()))
+            Val::Str {
+                start,
+                end,
+                escaped,
+            } => {
+                let unescaped = if escaped {
+                    serde_json::from_slice::<String>(&bs[start..end]).ok()
+                } else {
+                    None
+                };
+                Cell::Str(unescaped.unwrap_or_else(|| {
+                    String::from_utf8_lossy(&bs[start + 1..end - 1]).into_owned()
+                }))
             }
             Val::Raw { start, end } => {
                 let text = String::from_utf8_lossy(&bs[start..end]).into_owned();
-                if matches!(bs[start], b'{' | b'[') { Cell::Nested(text) } else { Cell::Num(text) }
+                if matches!(bs[start], b'{' | b'[') {
+                    Cell::Nested(text)
+                } else {
+                    Cell::Num(text)
+                }
             }
             Val::Null => Cell::Null,
             Val::True => Cell::Bool(true),
@@ -713,7 +769,9 @@ fn parse_array(bs: &[u8], mut f: impl FnMut(Val)) -> bool {
     }
     loop {
         i = skip_ws(bs, i);
-        let Some((val, next)) = scan_value(bs, i) else { return false };
+        let Some((val, next)) = scan_value(bs, i) else {
+            return false;
+        };
         f(val);
         i = skip_ws(bs, next);
         match bs.get(i) {
@@ -768,7 +826,15 @@ mod tests {
         assert_eq!(names, vec!["id", "name", "ok", "no", "nil", "o", "big"]);
         assert_eq!(
             vals,
-            vec!["1", "a\"b", "1", "0", "", r#"{"x":[1,"}"]}"#, "12345678901234567890"]
+            vec![
+                "1",
+                "a\"b",
+                "1",
+                "0",
+                "",
+                r#"{"x":[1,"}"]}"#,
+                "12345678901234567890"
+            ]
         );
     }
 

@@ -23,17 +23,17 @@
 
 use crate::arena::Arena;
 use crate::ast;
+use crate::builtins::Function;
 use crate::cfg::{self, Escaper};
 use crate::common::Stage;
-use crate::builtins::Function;
 use crate::common::{Either, FileSpec};
 use crate::compile;
-use crate::lexer::{self, Loc, Tok};
 use crate::inspect::Sample;
+use crate::lexer::{self, Loc, Tok};
 use crate::parsing;
 use lalrpop_util::ParseError;
 use serde::ser::{Serialize, SerializeMap, Serializer};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// A part of the program: a `-f` file, a `-e` string or the program operand, or a piece of one
 /// of them between `@include` lines (see `include`).
@@ -106,12 +106,22 @@ pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
     let mut diags = scan_tokens(&prog);
     // Variables declared with `# @var` come from `-v`, as given variables do.
     let mut assigned = opts.assigned.clone();
-    assigned.extend(sources.iter().flat_map(|s| crate::awk_util::declared_vars(&s.text)));
-    let opts = Options { assigned, ..opts.clone() };
+    assigned.extend(
+        sources
+            .iter()
+            .flat_map(|s| crate::awk_util::declared_vars(&s.text)),
+    );
+    let opts = Options {
+        assigned,
+        ..opts.clone()
+    };
     diags.extend(check_program(&prog, &opts));
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
 
-    let errors = diags.iter().filter(|d| d.severity == Severity::Error).count();
+    let errors = diags
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count();
     let lines: Vec<&str> = prog.lines().collect();
     let items: Vec<Object> = diags
         .iter()
@@ -126,7 +136,10 @@ pub fn file_error(file: &str, reason: &str) -> String {
     let d = Object(vec![
         ("code", json!("E001")),
         ("severity", json!("error")),
-        ("message", json!(format!("can't open source file for reading: {}", reason))),
+        (
+            "message",
+            json!(format!("can't open source file for reading: {}", reason)),
+        ),
         ("file", json!(file)),
     ]);
     report(1, 0, &[d])
@@ -147,7 +160,10 @@ pub fn input_error(file: &str, reason: &str) -> String {
     let d = Object(vec![
         ("code", json!("E002")),
         ("severity", json!("error")),
-        ("message", json!(format!("can't open input file for reading: {}", reason))),
+        (
+            "message",
+            json!(format!("can't open input file for reading: {}", reason)),
+        ),
         ("file", json!(file)),
     ]);
     report(1, 0, &[d])
@@ -212,7 +228,10 @@ fn to_json(d: &Diagnostic, lines: &[&str], sources: &[Source], starts: &[usize])
     let first_line = sources.get(idx).map_or(0, |s| s.line);
     v.0.extend([
         ("file", json!(file)),
-        ("line", json!(loc.line - starts.get(idx).copied().unwrap_or(0) + first_line + 1)),
+        (
+            "line",
+            json!(loc.line - starts.get(idx).copied().unwrap_or(0) + first_line + 1),
+        ),
         ("column", json!(column)),
         ("source", json!(line_text)),
         ("caret", json!(caret)),
@@ -275,7 +294,9 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
     let (code, loc) = match err {
         ParseError::InvalidToken { location } => ("E102", *location),
         ParseError::UnrecognizedEof { location, .. } => ("E101", *location),
-        ParseError::UnrecognizedToken { token: (l, _, r), .. } => {
+        ParseError::UnrecognizedToken {
+            token: (l, _, r), ..
+        } => {
             if parsing::unsupported_field_operand(prog, l, r).is_some() {
                 ("E201", *l)
             } else {
@@ -283,7 +304,9 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
             }
         }
         ParseError::ExtraToken { token: (l, _, _) } => ("E101", *l),
-        ParseError::User { error } if error.desc.contains("unsupported") => ("E201", error.location),
+        ParseError::User { error } if error.desc.contains("unsupported") => {
+            ("E201", error.location)
+        }
         ParseError::User { error } => ("E102", error.location),
     };
     // Reuse the message of a run, without its location and source excerpt.
@@ -299,9 +322,18 @@ fn parse_diagnostic(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Dia
 /// gawk builtin functions that zawk lacks, with what to use instead; calling one is an unsupported
 /// feature rather than a typo.
 const UNSUPPORTED_GAWK_FUNCTIONS: &[(&str, &str)] = &[
-    ("bindtextdomain", "internationalization is not supported; drop the call"),
-    ("dcgettext", "internationalization is not supported; use the string itself"),
-    ("dcngettext", "internationalization is not supported; pick the singular or plural string with `n == 1 ? s1 : s2`"),
+    (
+        "bindtextdomain",
+        "internationalization is not supported; drop the call",
+    ),
+    (
+        "dcgettext",
+        "internationalization is not supported; use the string itself",
+    ),
+    (
+        "dcngettext",
+        "internationalization is not supported; pick the singular or plural string with `n == 1 ? s1 : s2`",
+    ),
 ];
 
 fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
@@ -506,10 +538,22 @@ const READ_ONLY_VARIABLES: &[(&str, &str)] = &[
     ("FILENAME", "it is the name of the input file being read"),
     ("NR", "it counts the records read"),
     ("NF", "it is the number of fields of the current record"),
-    ("FI", "it maps the column names of the header to field indexes"),
-    ("MSG_SUBJECT", "it is the subject of the NATS message (or topic of the Kafka message) being read"),
-    ("MSG_HEADERS", "it holds the headers of the NATS or Kafka message being read"),
-    ("MSG_BODY", "it is the payload of the NATS or Kafka message being read"),
+    (
+        "FI",
+        "it maps the column names of the header to field indexes",
+    ),
+    (
+        "MSG_SUBJECT",
+        "it is the subject of the NATS message (or topic of the Kafka message) being read",
+    ),
+    (
+        "MSG_HEADERS",
+        "it holds the headers of the NATS or Kafka message being read",
+    ),
+    (
+        "MSG_BODY",
+        "it is the payload of the NATS or Kafka message being read",
+    ),
 ];
 
 /// A field read with a literal number or column name.
@@ -524,7 +568,9 @@ impl FieldRef<'_> {
         match e {
             ast::Expr::Unop(ast::Unop::Column, x) => match x {
                 ast::Expr::ILit(n) => Some(FieldRef::Num(*n)),
-                ast::Expr::Index(ast::Expr::Var("FI"), ast::Expr::StrLit(k)) => Some(FieldRef::Name(k)),
+                ast::Expr::Index(ast::Expr::Var("FI"), ast::Expr::StrLit(k)) => {
+                    Some(FieldRef::Name(k))
+                }
                 _ => None,
             },
             _ => None,
@@ -543,9 +589,9 @@ impl FieldRef<'_> {
 /// filled by it (e.g. `split(s, parts)`, or an array passed to a user function).
 const READ_ONLY_FUNCTIONS: &[&str] = &[
     "length", "substr", "index", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int",
-    "srand", "tolower", "toupper", "system", "close", "fflush", "strtonum", "gensub", "and",
-    "or", "xor", "compl", "lshift", "rshift", "strftime", "mktime", "trim", "ltrim", "rtrim",
-    "max", "min", "abs", "uuid",
+    "srand", "tolower", "toupper", "system", "close", "fflush", "strtonum", "gensub", "and", "or",
+    "xor", "compl", "lshift", "rshift", "strftime", "mktime", "trim", "ltrim", "rtrim", "max",
+    "min", "abs", "uuid",
 ];
 
 impl<'a, 'p> Facts<'a, 'p> {
@@ -559,7 +605,11 @@ impl<'a, 'p> Facts<'a, 'p> {
 
     fn used(&mut self, name: &'a str, loc: Option<Loc>) {
         if !self.is_local(name) {
-            self.uses.push(Use { name, region: self.region, loc });
+            self.uses.push(Use {
+                name,
+                region: self.region,
+                loc,
+            });
         }
     }
 
@@ -568,7 +618,12 @@ impl<'a, 'p> Facts<'a, 'p> {
             if name == "FS" {
                 self.fs_sets += 1;
             }
-            self.sets.push(Set { name, region: self.region, kind, loc });
+            self.sets.push(Set {
+                name,
+                region: self.region,
+                kind,
+                loc,
+            });
         }
     }
 
@@ -596,7 +651,9 @@ impl<'a, 'p> Facts<'a, 'p> {
             Printf(fmt, args, out) => {
                 match literal(fmt) {
                     Some(f) => self.formats.push((f, args.len(), self.loc(fmt))),
-                    None if args.is_empty() && has_field(fmt) => self.dynamic_formats.push(self.loc(fmt)),
+                    None if args.is_empty() && has_field(fmt) => {
+                        self.dynamic_formats.push(self.loc(fmt))
+                    }
                     None => {}
                 }
                 self.expr(fmt);
@@ -800,7 +857,8 @@ impl<'a, 'p> Facts<'a, 'p> {
             _ => return,
         };
         if crate::runtime::compare::looks_numeric(s).is_some() {
-            let what = FieldRef::of(field).map_or("the field".to_string(), |f| format!("`{}`", f.describe()));
+            let what = FieldRef::of(field)
+                .map_or("the field".to_string(), |f| format!("`{}`", f.describe()));
             self.string_comparisons.push((what, s, self.loc(field)));
         }
     }
@@ -830,7 +888,8 @@ impl<'a, 'p> Facts<'a, 'p> {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => {}
             Var(name) => {
                 if self.region == Region::Begin && matches!(*name, "NF" | "FILENAME") {
-                    self.begin_record_reads.push((format!("`{}`", name), self.loc(e)));
+                    self.begin_record_reads
+                        .push((format!("`{}`", name), self.loc(e)));
                 }
                 self.used(name, self.loc(e))
             }
@@ -858,9 +917,17 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(r);
             }
             // `$NF-1` is the last field minus 1; `$(NF-1)` is the field before the last.
-            Binop(op @ (ast::Binop::Minus | ast::Binop::Plus), l @ Unop(ast::Unop::Column, Var("NF")), r) => {
+            Binop(
+                op @ (ast::Binop::Minus | ast::Binop::Plus),
+                l @ Unop(ast::Unop::Column, Var("NF")),
+                r,
+            ) => {
                 if let ILit(n @ 1..) = r {
-                    let op = if matches!(op, ast::Binop::Minus) { "-" } else { "+" };
+                    let op = if matches!(op, ast::Binop::Minus) {
+                        "-"
+                    } else {
+                        "+"
+                    };
                     self.field_offsets.push((op, *n, self.loc(l)));
                 }
                 self.expr(l);
@@ -987,7 +1054,9 @@ fn has_field(e: &AstExpr) -> bool {
     match e {
         Unop(ast::Unop::Column, _) => true,
         Unop(_, x) => has_field(x),
-        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r) => has_field(l) || has_field(r),
+        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r) => {
+            has_field(l) || has_field(r)
+        }
         ITE(c, t, f) => has_field(c) || has_field(t) || has_field(f),
         Call(_, args) => args.iter().any(|a| has_field(a)),
         _ => false,
@@ -1020,7 +1089,11 @@ fn format_arguments(fmt: &[u8]) -> usize {
         if j == start || fmt.get(j) != Some(&b'$') {
             return None;
         }
-        let n = std::str::from_utf8(&fmt[start..j]).ok()?.parse().ok().filter(|n| *n > 0)?;
+        let n = std::str::from_utf8(&fmt[start..j])
+            .ok()?
+            .parse()
+            .ok()
+            .filter(|n| *n > 0)?;
         *i = j + 1;
         Some(n)
     };
@@ -1135,7 +1208,11 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             facts.stmt(body);
         }
     }
-    let worker_blocks = prog.beginfile.iter().chain(prog.endfile.iter()).chain(prog.prepare.iter());
+    let worker_blocks = prog
+        .beginfile
+        .iter()
+        .chain(prog.endfile.iter())
+        .chain(prog.prepare.iter());
     worker_blocks.for_each(|s| facts.stmt(s));
     facts.region = Region::End;
     prog.end.iter().for_each(|s| facts.stmt(s));
@@ -1158,7 +1235,11 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
 
     // Without a header `FI` is empty, so every `$FI["col"]` is `""`. Reported once, at the first use.
     if !opts.header && !facts.header_columns.is_empty() {
-        let first = facts.header_columns.iter().filter_map(|(_, l)| *l).min_by_key(|l| (l.line, l.col));
+        let first = facts
+            .header_columns
+            .iter()
+            .filter_map(|(_, l)| *l)
+            .min_by_key(|l| (l.line, l.col));
         diags.push(warning(
             "W105",
             "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
@@ -1292,18 +1373,21 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     // `if ("0")`: a string constant as a condition is almost always a mistake.
     for (s, loc) in &facts.string_conds {
         let message = if s.is_empty() {
-            "the condition is the empty string: it is always false; compare a value instead".to_string()
+            "the condition is the empty string: it is always false; compare a value instead"
+                .to_string()
         } else {
             let lit = String::from_utf8_lossy(s);
             if crate::runtime::compare::str_is_false(s, true) {
                 format!(
                     "the condition is the string constant \"{}\": zawk treats it as false (it looks like 0), gawk as true (a non-empty string); compare a value instead, e.g. `x == \"{}\"`",
-                    lit.escape_debug(), lit.escape_debug()
+                    lit.escape_debug(),
+                    lit.escape_debug()
                 )
             } else {
                 format!(
                     "the condition is the string constant \"{}\": it is always true; compare a value instead, e.g. `$1 == \"{}\"`",
-                    lit.escape_debug(), lit.escape_debug()
+                    lit.escape_debug(),
+                    lit.escape_debug()
                 )
             }
         };
@@ -1357,7 +1441,10 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             || facts.arrays.contains(&s.name)
             || facts.getline_vars.contains(&s.name)
             || prog.decs.iter().any(|d| d.name == s.name)
-            || facts.sets.iter().any(|t| t.name == s.name && t.kind == SetKind::Indirect)
+            || facts
+                .sets
+                .iter()
+                .any(|t| t.name == s.name && t.kind == SetKind::Indirect)
         {
             continue;
         }
@@ -1368,8 +1455,14 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             .map(|u| (edit_distance(name, u), *u))
             .filter(|(d, _)| *d <= 2 && *d < name.chars().count())
             .min_by_key(|(d, _)| *d)
-            .map_or(String::new(), |(_, u)| format!("; `{}` is read but never set, is one of them a typo?", u));
-        let what = if crate::ast::is_local_name(s.name) { "local variable" } else { "variable" };
+            .map_or(String::new(), |(_, u)| {
+                format!("; `{}` is read but never set, is one of them a typo?", u)
+            });
+        let what = if crate::ast::is_local_name(s.name) {
+            "local variable"
+        } else {
+            "variable"
+        };
         diags.push(warning(
             "W206",
             format!("{} `{}` is set but never read{}", what, name, typo),
@@ -1385,7 +1478,11 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
                 .map_while(Result::ok)
                 .find(|(_, tok, _)| matches!(tok, Tok::FunDec(n) if *n == dec.name))
                 .map(|(l, _, _)| l);
-            diags.push(warning("W207", format!("function `{}` is defined but never called", dec.name), loc));
+            diags.push(warning(
+                "W207",
+                format!("function `{}` is defined but never called", dec.name),
+                loc,
+            ));
         }
     }
 
@@ -1476,7 +1573,11 @@ impl Splitter {
             return Vec::new();
         }
         match self {
-            Splitter::Blank => line.split([' ', '\t', '\n']).filter(|f| !f.is_empty()).map(String::from).collect(),
+            Splitter::Blank => line
+                .split([' ', '\t', '\n'])
+                .filter(|f| !f.is_empty())
+                .map(String::from)
+                .collect(),
             Splitter::Char(c) => line.split(*c).map(String::from).collect(),
             Splitter::Regex(re) => re.split(line).map(String::from).collect(),
         }
@@ -1491,7 +1592,10 @@ fn looks_numeric(s: &str) -> bool {
 /// Whether `s` starts with a number (after blanks and a sign), so it is not 0 as an integer.
 fn starts_numeric(s: &[u8]) -> bool {
     let s = s.trim_ascii_start();
-    let s = s.strip_prefix(b"-").or_else(|| s.strip_prefix(b"+")).unwrap_or(s);
+    let s = s
+        .strip_prefix(b"-")
+        .or_else(|| s.strip_prefix(b"+"))
+        .unwrap_or(s);
     let s = s.strip_prefix(b".").unwrap_or(s);
     s.first().is_some_and(u8::is_ascii_digit)
 }
@@ -1542,19 +1646,29 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
         Sample::Fields { header, rows } => (header.clone(), rows.clone(), None),
         Sample::Lines(lines) => {
             let fs = match facts.fs_literals.as_slice() {
-                [] if facts.fs_sets == 0 => opts.field_sep.clone().unwrap_or_else(|| " ".to_string()),
+                [] if facts.fs_sets == 0 => {
+                    opts.field_sep.clone().unwrap_or_else(|| " ".to_string())
+                }
                 [fs] if facts.fs_sets == 1 => String::from_utf8_lossy(fs).into_owned(),
                 // FS changes in a way the sample cannot follow.
                 _ => return diags,
             };
-            let Some(splitter) = Splitter::new(&fs) else { return diags };
+            let Some(splitter) = Splitter::new(&fs) else {
+                return diags;
+            };
             let mut records = lines.iter();
             let header = if opts.header {
-                records.next().map(|h| splitter.split(h.trim_start_matches('\u{feff}')))
+                records
+                    .next()
+                    .map(|h| splitter.split(h.trim_start_matches('\u{feff}')))
             } else {
                 None
             };
-            (header, records.map(|l| splitter.split(l)).collect::<Vec<_>>(), Some((fs, lines)))
+            (
+                header,
+                records.map(|l| splitter.split(l)).collect::<Vec<_>>(),
+                Some((fs, lines)),
+            )
         }
     };
     let max_nf = rows.iter().map(|r| r.len()).max().unwrap_or(0);
@@ -1564,19 +1678,46 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
     if let Some((fs, lines)) = &fs {
         let first_wide = facts.fields.iter().find(|(n, _)| *n >= 2);
         let unknown_header = header.as_ref().is_some_and(|h| h.len() == 1)
-            && facts.header_columns.iter().any(|(k, _)| k.is_some_and(|k| !header.as_ref().unwrap().iter().any(|c| c.as_bytes() == k)));
+            && facts.header_columns.iter().any(|(k, _)| {
+                k.is_some_and(|k| !header.as_ref().unwrap().iter().any(|c| c.as_bytes() == k))
+            });
         let header_one = header.as_ref().is_none_or(|h| h.len() <= 1);
-        if !rows.is_empty() && max_nf <= 1 && header_one && (first_wide.is_some() || unknown_header) {
-            let shown = if fs == " " { "the default FS (blanks)".to_string() } else { format!("FS `{}`", fs.escape_default()) };
-            let candidates = [(',', "`-F,` or `-i csv`"), ('\t', "`-F'\\t'` or `-i tsv`"), (';', "`-F';'`"), ('|', "`-F'|'`")];
+        if !rows.is_empty() && max_nf <= 1 && header_one && (first_wide.is_some() || unknown_header)
+        {
+            let shown = if fs == " " {
+                "the default FS (blanks)".to_string()
+            } else {
+                format!("FS `{}`", fs.escape_default())
+            };
+            let candidates = [
+                (',', "`-F,` or `-i csv`"),
+                ('\t', "`-F'\\t'` or `-i tsv`"),
+                (';', "`-F';'`"),
+                ('|', "`-F'|'`"),
+            ];
             let suggestion = candidates
                 .iter()
                 .filter(|(c, _)| !fs.contains(*c) && !(fs == " " && *c == '\t'))
-                .filter(|(c, _)| lines.iter().filter(|l| !l.is_empty()).all(|l| l.contains(*c)))
+                .filter(|(c, _)| {
+                    lines
+                        .iter()
+                        .filter(|l| !l.is_empty())
+                        .all(|l| l.contains(*c))
+                })
                 .max_by_key(|(c, _)| lines.iter().map(|l| l.matches(*c).count()).sum::<usize>())
-                .map(|(c, opt)| format!("; the lines contain `{}`: did you mean {}?", c.escape_default(), opt))
+                .map(|(c, opt)| {
+                    format!(
+                        "; the lines contain `{}`: did you mean {}?",
+                        c.escape_default(),
+                        opt
+                    )
+                })
                 .unwrap_or_default();
-            let what = if first_wide.is_some() { "fields after `$1`" } else { "columns of the header" };
+            let what = if first_wide.is_some() {
+                "fields after `$1`"
+            } else {
+                "columns of the header"
+            };
             let loc = match first_wide {
                 Some((_, l)) => *l,
                 None => facts.header_columns.iter().find_map(|(_, l)| *l),
@@ -1606,7 +1747,8 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
             let hint = match closest_column(&name, header) {
                 Some(c) => format!("did you mean `{}`?", c),
                 None => {
-                    let mut cols: Vec<String> = header.iter().take(20).map(|c| format!("`{}`", c)).collect();
+                    let mut cols: Vec<String> =
+                        header.iter().take(20).map(|c| format!("`{}`", c)).collect();
                     if header.len() > 20 {
                         cols.push("...".to_string());
                     }
@@ -1650,7 +1792,10 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
     for (field, number, loc) in &facts.field_comparisons {
         let index = match field {
             FieldRef::Num(n) if *n >= 1 => *n as usize,
-            FieldRef::Name(k) => match header.as_ref().and_then(|h| h.iter().position(|c| c.as_bytes() == *k)) {
+            FieldRef::Name(k) => match header
+                .as_ref()
+                .and_then(|h| h.iter().position(|c| c.as_bytes() == *k))
+            {
                 Some(i) => i + 1,
                 None => continue,
             },
@@ -1662,13 +1807,18 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
             .filter_map(|(i, r)| r.get(index - 1).map(|v| (i + 1, v.as_str())))
             .filter(|(_, v)| !v.trim().is_empty() && !looks_numeric(v))
             .collect();
-        let Some((record, value)) = bad.first() else { continue };
+        let Some((record, value)) = bad.first() else {
+            continue;
+        };
         let name = field.describe();
         let shown: String = value.chars().take(40).collect();
         let advice = if bad.len() == 1 && *record == 1 && header.is_none() {
             "; the first record looks like a header line: run with `-H` (and pass `-H` to lint) or skip it with `NR > 1`".to_string()
         } else {
-            format!("; to compare numbers use `{} + 0` (non-numbers are 0) or skip those records first", name)
+            format!(
+                "; to compare numbers use `{} + 0` (non-numbers are 0) or skip those records first",
+                name
+            )
         };
         diags.push(warning(
             "W129",
@@ -1698,7 +1848,11 @@ fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
         Parallel::File => &["NR"],
     };
     for counter in counters {
-        if let Some(u) = facts.uses.iter().find(|u| u.region == Region::Main && u.name == *counter) {
+        if let Some(u) = facts
+            .uses
+            .iter()
+            .find(|u| u.region == Region::Main && u.name == *counter)
+        {
             diags.push(warning(
                 "W301",
                 format!(
@@ -1718,7 +1872,10 @@ fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
             || reported.contains(&s.name)
             || facts.arrays.contains(&s.name)
             || crate::builtins::VARIABLES.contains_key(s.name)
-            || !facts.uses.iter().any(|u| u.region == Region::End && u.name == s.name)
+            || !facts
+                .uses
+                .iter()
+                .any(|u| u.region == Region::End && u.name == s.name)
         {
             continue;
         }
@@ -1737,11 +1894,20 @@ fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
 
 /// gawk special variables that zawk treats as ordinary variables.
 const IGNORED_GAWK_VARIABLES: &[(&str, &str)] = &[
-    ("FIELDWIDTHS", "fixed-width field splitting is not supported; use substr() or FS"),
-    ("FPAT", "field splitting by content is not supported; use FS or match()/split()"),
+    (
+        "FIELDWIDTHS",
+        "fixed-width field splitting is not supported; use substr() or FS",
+    ),
+    (
+        "FPAT",
+        "field splitting by content is not supported; use FS or match()/split()",
+    ),
     ("RT", "the text matched by RS is not available"),
     ("BINMODE", "binary mode is not supported"),
-    ("LINT", "dynamic lint checking is not supported; use `zawk lint`"),
+    (
+        "LINT",
+        "dynamic lint checking is not supported; use `zawk lint`",
+    ),
     ("TEXTDOMAIN", "internationalization is not supported"),
     ("SYMTAB", "indirect variable access is not supported"),
     ("FUNCTAB", "indirect function calls are not supported"),
@@ -1792,13 +1958,19 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
                 continue;
             }
             let hint = if ".[]()*+?{}|^$".contains(c) {
-                format!(": in a dynamic regex `{}` is then an operator, write `\\\\{}` to match it literally", c, c)
+                format!(
+                    ": in a dynamic regex `{}` is then an operator, write `\\\\{}` to match it literally",
+                    c, c
+                )
             } else {
                 String::new()
             };
             diags.push(warning(
                 "W102",
-                format!("escape sequence `\\{}` is treated as plain `{}`{}", c, c, hint),
+                format!(
+                    "escape sequence `\\{}` is treated as plain `{}`{}",
+                    c, c, hint
+                ),
                 Some(loc.advance(open).advance(&lit[..i])),
             ));
         }
@@ -1873,14 +2045,28 @@ mod tests {
 
     #[test]
     fn field_operand_operators() {
-        for prog in ["{ print $$1 }", "{ print $++i }", "{ print $--i }", "{ print $-1 }", "{ print $ !0 }", "{ print $+1 }"] {
+        for prog in [
+            "{ print $$1 }",
+            "{ print $++i }",
+            "{ print $--i }",
+            "{ print $-1 }",
+            "{ print $ !0 }",
+            "{ print $+1 }",
+        ] {
             let v = run(prog);
             assert_eq!(codes(&v), ["E201"], "{}", prog);
-            assert!(message(&v, 0).contains("parenthesize the field number"), "{}", message(&v, 0));
+            assert!(
+                message(&v, 0).contains("parenthesize the field number"),
+                "{}",
+                message(&v, 0)
+            );
         }
         assert_eq!(run("{ print $$1 }")["diagnostics"][0]["column"], 10);
         // Parenthesized operands, and operators after a whole field reference, are fine.
-        for prog in ["{ print $($1), $(++i), $(-1 + NF), $(!0) }", "{ print $1 - 1, ($NF) + 1, $ 1, -$1, !$1 }"] {
+        for prog in [
+            "{ print $($1), $(++i), $(-1 + NF), $(!0) }",
+            "{ print $1 - 1, ($NF) + 1, $ 1, -$1, !$1 }",
+        ] {
             assert_eq!(run(prog)["errors"], 0, "{}", prog);
         }
     }
@@ -1897,7 +2083,12 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 27);
         let v = run("BEGIN { dcgettext(\"a\") }");
         assert_eq!(codes(&v), ["E203"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("internationalization"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("internationalization")
+        );
         assert_eq!(codes(&run("BEGIN { patsplit(\"a\", b) }")), ["E302"]);
         // gawk functions zawk implements are checked like any other builtin.
         assert_eq!(codes(&run("BEGIN { print and(1) }")), ["E302"]);
@@ -1911,7 +2102,10 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["line"], 3);
         assert_eq!(v["diagnostics"][0]["column"], 9);
         let v = run("BEGIN { substr(1) }");
-        assert_eq!(v["diagnostics"][0]["message"], "function `substr` expects 2 or 3 arguments, got 1");
+        assert_eq!(
+            v["diagnostics"][0]["message"],
+            "function `substr` expects 2 or 3 arguments, got 1"
+        );
     }
 
     #[test]
@@ -1920,7 +2114,11 @@ mod tests {
         assert_eq!(codes(&v), ["W102", "W102", "W102"]);
         assert_eq!(v["diagnostics"][0]["column"], 11);
         assert_eq!(v["diagnostics"][1]["column"], 19);
-        assert!(message(&v, 2).contains("write `\\\\.` to match it literally"), "{}", message(&v, 2));
+        assert!(
+            message(&v, 2).contains("write `\\\\.` to match it literally"),
+            "{}",
+            message(&v, 2)
+        );
     }
 
     #[test]
@@ -1937,7 +2135,12 @@ mod tests {
         assert_eq!(v["diagnostics"][0]["column"], 9);
         // As the second argument it is a compile error, not a warning.
         assert_eq!(codes(&run("BEGIN { print index(\"abc\", /b/) }")), ["E300"]);
-        assert!(codes(&run("BEGIN { print index(\"abc\", \"b\"), match(\"abc\", /b/) }")).is_empty());
+        assert!(
+            codes(&run(
+                "BEGIN { print index(\"abc\", \"b\"), match(\"abc\", /b/) }"
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
@@ -1945,10 +2148,25 @@ mod tests {
         let v = run("BEGIN { a[10] = 1; for (k in a) if (k > 9) print k }");
         assert_eq!(codes(&v), ["W108"]);
         assert_eq!(v["diagnostics"][0]["column"], 37);
-        assert_eq!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (-1 <= k) print k }")), ["W108"]);
-        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k+0 > 9) print k }")).is_empty());
+        assert_eq!(
+            codes(&run(
+                "BEGIN { a[1] = 1; for (k in a) if (-1 <= k) print k }"
+            )),
+            ["W108"]
+        );
+        assert!(
+            codes(&run(
+                "BEGIN { a[1] = 1; for (k in a) if (k+0 > 9) print k }"
+            ))
+            .is_empty()
+        );
         assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) if (k == 1) print k }")).is_empty());
-        assert!(codes(&run("BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k, n }")).is_empty());
+        assert!(
+            codes(&run(
+                "BEGIN { a[1] = 1; for (k in a) n++; if (k > 9) print k, n }"
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
@@ -1957,11 +2175,20 @@ mod tests {
         assert_eq!(codes(&v), ["E306"]);
         assert_eq!(v["diagnostics"][0]["column"], 24);
         let msg = v["diagnostics"][0]["message"].as_str().unwrap();
-        assert!(msg.contains("`substr(...)`") && !msg.contains("Call("), "{}", msg);
+        assert!(
+            msg.contains("`substr(...)`") && !msg.contains("Call("),
+            "{}",
+            msg
+        );
         let v = run(r#"BEGIN { if (substr("abc", 1, 1) = "a") print }"#);
         assert_eq!(codes(&v), ["E306"]);
         assert_eq!(v["diagnostics"][0]["column"], 13);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("`==`"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("`==`")
+        );
         assert_eq!(codes(&run("BEGIN { print 2--1 }")), ["E306"]);
     }
 
@@ -1970,11 +2197,19 @@ mod tests {
         let v = run("function g(a, a) { return a }\nBEGIN { print g(1, 2) }");
         assert_eq!(codes(&v), ["E305"]);
         assert_eq!(codes(&run("function h(h) { return 1 }")), ["E305"]);
-        assert_eq!(codes(&run("function h(x) { return x }\nfunction g(h) { return h }")), ["E305"]);
+        assert_eq!(
+            codes(&run(
+                "function h(x) { return x }\nfunction g(h) { return h }"
+            )),
+            ["E305"]
+        );
         let v = run("function foo(x) { return x }\nBEGIN {\n  foo = 1; print foo(2) }");
         assert_eq!(codes(&v), ["E305"]);
         assert_eq!(v["diagnostics"][0]["line"], 3);
-        assert_eq!(codes(&run("function foo(x) { return x }\nBEGIN { foo[1] = 1 }")), ["W207", "E305"]);
+        assert_eq!(
+            codes(&run("function foo(x) { return x }\nBEGIN { foo[1] = 1 }")),
+            ["W207", "E305"]
+        );
         assert!(codes(&run("function foo(x) { return x }\nBEGIN { print foo(1) }")).is_empty());
     }
 
@@ -1990,19 +2225,40 @@ mod tests {
         assert_eq!(codes(&v), ["E305", "E305", "E305", "E305"]);
         assert_eq!(v["diagnostics"][1]["line"], 2);
         assert_eq!(v["diagnostics"][1]["column"], 21);
-        let header = Options { header: true, ..Options::default() };
+        let header = Options {
+            header: true,
+            ..Options::default()
+        };
         let v = run_with("{ $FI[\"name\"] = \"x\"; FI[\"name\"] = 1 }", &header);
         assert_eq!(codes(&v), ["E305", "E305"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("$FI[...]"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("$FI[...]")
+        );
         // Reading them is fine.
-        assert!(codes(&run_with("{ print ARGV[1], ARGC, FILENAME, NR, NF, $0, $1, $FI[\"name\"] }", &header)).is_empty());
+        assert!(
+            codes(&run_with(
+                "{ print ARGV[1], ARGC, FILENAME, NR, NF, $0, $1, $FI[\"name\"] }",
+                &header
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
     fn f_name() {
-        let v = run("function f(x) { return x }\nfunction g(y) { return f(y) }\nBEGIN { f = 1; print g(f) }");
+        let v = run(
+            "function f(x) { return x }\nfunction g(y) { return f(y) }\nBEGIN { f = 1; print g(f) }",
+        );
         assert_eq!(codes(&v), ["W103", "W103", "E305"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("function"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("function")
+        );
         assert_eq!(v["diagnostics"][1]["line"], 3);
         assert_eq!(v["diagnostics"][1]["column"], 9);
         assert!(codes(&run("BEGIN { x = fx = xf = 1; print f\"{x}\", fx, xf }")).is_empty());
@@ -2012,15 +2268,33 @@ mod tests {
     fn r_name() {
         let v = run("BEGIN {\n  r = 5; print r\"x\", r\n}");
         assert_eq!(codes(&v), ["W103"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("raw strings"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("raw strings")
+        );
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 3);
         let v = run("function r(x) { return x }\nBEGIN { print r(1), r(2) }");
         assert_eq!(codes(&v), ["W103"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("function"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("function")
+        );
         // Both names in one program: one warning per name and kind.
-        assert_eq!(codes(&run("BEGIN { f = r = 1; print f, r }")), ["W103", "W103"]);
-        assert!(codes(&run("BEGIN { rx = xr = 1; print r\"\\d\", r#\"a\"b\"#, rx, xr }")).is_empty());
+        assert_eq!(
+            codes(&run("BEGIN { f = r = 1; print f, r }")),
+            ["W103", "W103"]
+        );
+        assert!(
+            codes(&run(
+                "BEGIN { rx = xr = 1; print r\"\\d\", r#\"a\"b\"#, rx, xr }"
+            ))
+            .is_empty()
+        );
     }
 
     fn run_with(prog: &str, opts: &Options) -> Value {
@@ -2044,7 +2318,10 @@ mod tests {
         assert!(codes(&run("{ for (k in a) print k; a[$1]++ }")).is_empty());
         assert!(codes(&run("{ getline line; print line, NR, FILENAME }")).is_empty());
         assert!(codes(&run("function g(a, b) { return a + b } { print g($1) }")).is_empty());
-        let opts = Options { assigned: vec!["n".into()], ..Options::default() };
+        let opts = Options {
+            assigned: vec!["n".into()],
+            ..Options::default()
+        };
         assert!(codes(&run_with("{ print n }", &opts)).is_empty());
         assert!(codes(&run("# @var n count\n# @var m? other\n{ print n, m }")).is_empty());
         // An array that is only read is empty too.
@@ -2059,7 +2336,10 @@ mod tests {
         assert_eq!(codes(&run("{ print $NF+2 }")), ["W116"]);
         assert!(codes(&run("{ i = 1; print $(NF-1), $NF, $NF+0, $i-1 }")).is_empty());
         assert_eq!(codes(&run("$3 > \"100\" { print }")), ["W117"]);
-        assert_eq!(codes(&run("{ if (\"1.5\" <= $FI[\"x\"]) print }")), ["W117", "W105"]);
+        assert_eq!(
+            codes(&run("{ if (\"1.5\" <= $FI[\"x\"]) print }")),
+            ["W117", "W105"]
+        );
         assert!(codes(&run("$3 > 100 || $1 > \"abc\" || $2 == \"10\" { print }")).is_empty());
         assert_eq!(codes(&run("{ printf $0 }")), ["W118"]);
         assert_eq!(codes(&run("{ printf($1 \"\\n\") }")), ["W118"]);
@@ -2086,12 +2366,20 @@ mod tests {
         assert_eq!(codes(&run("{ n++ }")), ["W206"]);
         // Arrays, loop keys, filled by a function, getline, special variables: not reported.
         assert!(codes(&run("{ a[$1] = 1; n = split($0, p); OFS = \"-\"; getline junk; for (k in a) m++; print m, n }")).is_empty());
-        let v = run("function used(x) { return x }\nfunction unused(x) { return x }\n{ print used($1) }");
+        let v = run(
+            "function used(x) { return x }\nfunction unused(x) { return x }\n{ print used($1) }",
+        );
         assert_eq!(codes(&v), ["W207"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         // Formats built from literals are checked too.
-        assert_eq!(codes(&run("BEGIN { printf \"%s \" \"%s\\n\", 1 }")), ["W202"]);
-        assert_eq!(codes(&run("BEGIN { print sprintf(\"%d\" \"\", 1, 2) }")), ["W203"]);
+        assert_eq!(
+            codes(&run("BEGIN { printf \"%s \" \"%s\\n\", 1 }")),
+            ["W202"]
+        );
+        assert_eq!(
+            codes(&run("BEGIN { print sprintf(\"%d\" \"\", 1, 2) }")),
+            ["W203"]
+        );
     }
 
     #[test]
@@ -2105,9 +2393,17 @@ mod tests {
         assert_eq!(codes(&v), ["W202"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 3);
-        assert_eq!(codes(&run("BEGIN { print sprintf(\"%d\", 1, 2) }")), ["W203"]);
+        assert_eq!(
+            codes(&run("BEGIN { print sprintf(\"%d\", 1, 2) }")),
+            ["W203"]
+        );
         assert_eq!(codes(&run("BEGIN { printf(\"%s\") }")), ["W202"]);
-        assert!(codes(&run("BEGIN { printf \"%s=%d\\n\", \"a\", 1; x = \"%s\"; printf x }")).is_empty());
+        assert!(
+            codes(&run(
+                "BEGIN { printf \"%s=%d\\n\", \"a\", 1; x = \"%s\"; printf x }"
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
@@ -2117,7 +2413,10 @@ mod tests {
         assert_eq!(codes(&v), ["W105"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 10);
-        let header = Options { header: true, ..Options::default() };
+        let header = Options {
+            header: true,
+            ..Options::default()
+        };
         assert!(codes(&run_with(prog, &header)).is_empty());
     }
 
@@ -2126,7 +2425,10 @@ mod tests {
         Options {
             header,
             field_sep: fs.map(String::from),
-            data: Some(Data { file: "data.csv".to_string(), sample }),
+            data: Some(Data {
+                file: "data.csv".to_string(),
+                sample,
+            }),
             ..Options::default()
         }
     }
@@ -2138,7 +2440,10 @@ mod tests {
     #[test]
     fn data_unknown_columns() {
         let opts = with_lines(&["name,age:INT64,price", "a,1,2"], true, Some(","));
-        let v = run_with("{ print $FI[\"nmae\"], $FI[\"Price\"], $FI[\"age\"], $FI[\"zzz\"], $FI[\"nmae\"] }", &opts);
+        let v = run_with(
+            "{ print $FI[\"nmae\"], $FI[\"Price\"], $FI[\"age\"], $FI[\"zzz\"], $FI[\"nmae\"] }",
+            &opts,
+        );
         assert_eq!(codes(&v), ["W126", "W126", "W126", "W126"]);
         assert_eq!(v["valid"], false);
         assert!(message(&v, 0).contains("did you mean `name`?"));
@@ -2146,12 +2451,21 @@ mod tests {
         assert!(message(&v, 2).contains("did you mean `age:INT64`?"));
         assert!(message(&v, 3).contains("the columns are `name`, `age:INT64`, `price`"));
         assert_eq!(v["diagnostics"][0]["column"], 10);
-        assert!(codes(&run_with("{ k = \"x\"; print $FI[\"name\"], $FI[k] }", &opts)).is_empty());
+        assert!(
+            codes(&run_with(
+                "{ k = \"x\"; print $FI[\"name\"], $FI[k] }",
+                &opts
+            ))
+            .is_empty()
+        );
         let jsonl = Options {
             header: true,
             data: Some(Data {
                 file: "x.jsonl".to_string(),
-                sample: Sample::Fields { header: Some(vec!["id".into(), "user".into()]), rows: vec![vec!["1".into(), "a".into()]] },
+                sample: Sample::Fields {
+                    header: Some(vec!["id".into(), "user".into()]),
+                    rows: vec![vec!["1".into(), "a".into()]],
+                },
             }),
             ..Options::default()
         };
@@ -2181,25 +2495,53 @@ mod tests {
         assert!(message(&run_with("{ print $2 }", &tabs), 0).contains("`-F'\\t'` or `-i tsv`"));
         // The separator of BEGIN is the one the run uses.
         assert!(codes(&run_with("BEGIN { FS = \",\" } { print $2 }", &opts)).is_empty());
-        assert!(codes(&run_with("{ print $2 }", &with_lines(&["a,b"], false, Some(",")))).is_empty());
+        assert!(
+            codes(&run_with(
+                "{ print $2 }",
+                &with_lines(&["a,b"], false, Some(","))
+            ))
+            .is_empty()
+        );
         // An unknown separator: no checks.
         assert!(codes(&run_with("BEGIN { x = \",\"; FS = x } { print $2 }", &opts)).is_empty());
         assert!(codes(&run_with("{ print $1 }", &opts)).is_empty());
         // A header read with the wrong separator.
         let header = with_lines(&["name,age", "a,1"], true, None);
-        assert_eq!(codes(&run_with("{ print $FI[\"age\"] }", &header)), ["W128"]);
+        assert_eq!(
+            codes(&run_with("{ print $FI[\"age\"] }", &header)),
+            ["W128"]
+        );
     }
 
     #[test]
     fn data_string_comparisons() {
-        let opts = with_lines(&["id,price", "1,12.5", "2,N/A", "3,", "4, 7 "], true, Some(","));
-        let v = run_with("$2 > 10 || 5 <= $FI[\"price\"] { n++ } $1 > 0 { m++ } END { print n, m }", &opts);
+        let opts = with_lines(
+            &["id,price", "1,12.5", "2,N/A", "3,", "4, 7 "],
+            true,
+            Some(","),
+        );
+        let v = run_with(
+            "$2 > 10 || 5 <= $FI[\"price\"] { n++ } $1 > 0 { m++ } END { print n, m }",
+            &opts,
+        );
         assert_eq!(codes(&v), ["W129", "W129"]);
-        assert!(message(&v, 0).contains("1 record of the first 4 records of `data.csv` (e.g. record 2: \"N/A\")"));
+        assert!(
+            message(&v, 0)
+                .contains("1 record of the first 4 records of `data.csv` (e.g. record 2: \"N/A\")")
+        );
         assert!(message(&v, 1).contains("`$FI[\"price\"]` is compared with the number 5"));
-        assert!(codes(&run_with("$2 + 0 > 10 { n++ } $2 == 10 { m++ } END { print n, m }", &opts)).is_empty());
+        assert!(
+            codes(&run_with(
+                "$2 + 0 > 10 { n++ } $2 == 10 { m++ } END { print n, m }",
+                &opts
+            ))
+            .is_empty()
+        );
         // A header line read as a record.
-        let v = run_with("$2 > 10 { print }", &with_lines(&["id,price", "1,12.5"], false, Some(",")));
+        let v = run_with(
+            "$2 > 10 { print }",
+            &with_lines(&["id,price", "1,12.5"], false, Some(",")),
+        );
         assert_eq!(codes(&v), ["W129"]);
         assert!(message(&v, 0).contains("looks like a header line"));
         // Hexadecimal and signed inf/nan fields are numbers, as at run time.
@@ -2211,7 +2553,12 @@ mod tests {
     fn numeric_redirects() {
         let v = run("{ print $1 > 10 }");
         assert_eq!(codes(&v), ["W114"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("the file `10`"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("the file `10`")
+        );
         assert_eq!(v["diagnostics"][0]["column"], 14);
         assert_eq!(codes(&run("{ printf \"%s\", $1 >> NR + 1 }")), ["W114"]);
         assert_eq!(codes(&run("{ print $1 > -1.5 }")), ["W114"]);
@@ -2226,7 +2573,10 @@ mod tests {
         let v = run("BEGIN { for (i in \"a\"..\"c\") print i }");
         assert_eq!(codes(&v), ["W208", "W208"]);
         assert!(message(&v, 0).contains("the string \"a\""));
-        assert_eq!(codes(&run("BEGIN { x = \"1\"; for (i in x \"0\"..=20) print i }")), ["W208"]);
+        assert_eq!(
+            codes(&run("BEGIN { x = \"1\"; for (i in x \"0\"..=20) print i }")),
+            ["W208"]
+        );
         assert!(codes(&run("BEGIN { for (i in 1..=3) print i }")).is_empty());
         assert!(codes(&run("BEGIN { for (i in \"1\"..\"3\") print i }")).is_empty());
         assert!(codes(&run("BEGIN { n = 3; for (i in 0..n + 1) print i }")).is_empty());
@@ -2236,14 +2586,34 @@ mod tests {
     fn condition_assignments() {
         let v = run("BEGIN { if (x = 1) print x }");
         assert_eq!(codes(&v), ["W115"]);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().contains("`x` is assigned"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("`x` is assigned")
+        );
         assert_eq!(v["diagnostics"][0]["column"], 13);
         assert_eq!(codes(&run("BEGIN { while (y = 0) {} print y }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { do {} while (!(y = 0)); print y }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { for (i = 0; i = 3; i++) break; print i }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { z = 1; x = (z = 2) ? 1 : 2; print x, z }")), ["W115"]);
-        assert_eq!(codes(&run("{ a = $1 } a = \"x\" && 1 { print a }")), ["W115"]);
-        assert_eq!(codes(&run("BEGIN { a[1] = 0; if (a[1] = 2) print }")), ["W115"]);
+        assert_eq!(
+            codes(&run("BEGIN { do {} while (!(y = 0)); print y }")),
+            ["W115"]
+        );
+        assert_eq!(
+            codes(&run("BEGIN { for (i = 0; i = 3; i++) break; print i }")),
+            ["W115"]
+        );
+        assert_eq!(
+            codes(&run("BEGIN { z = 1; x = (z = 2) ? 1 : 2; print x, z }")),
+            ["W115"]
+        );
+        assert_eq!(
+            codes(&run("{ a = $1 } a = \"x\" && 1 { print a }")),
+            ["W115"]
+        );
+        assert_eq!(
+            codes(&run("BEGIN { a[1] = 0; if (a[1] = 2) print }")),
+            ["W115"]
+        );
         assert!(codes(&run("BEGIN { if ((x = 1) != \"\") print x }")).is_empty());
         assert!(codes(&run("BEGIN { x = 1; if (x == 1) print x }")).is_empty());
         assert!(codes(&run("BEGIN { while ((getline line) > 0) print line }")).is_empty());
@@ -2255,16 +2625,46 @@ mod tests {
         assert_eq!(codes(&v), ["W218", "W218", "W218", "W218"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);
         assert_eq!(v["diagnostics"][0]["column"], 9);
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().starts_with("`$1`"));
-        assert!(v["diagnostics"][1]["message"].as_str().unwrap().contains("always 0"));
-        assert!(v["diagnostics"][3]["message"].as_str().unwrap().starts_with("a computed field (`$(...)`) is read"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("`$1`")
+        );
+        assert!(
+            v["diagnostics"][1]["message"]
+                .as_str()
+                .unwrap()
+                .contains("always 0")
+        );
+        assert!(
+            v["diagnostics"][3]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("a computed field (`$(...)`) is read")
+        );
         let v = run("BEGIN { print $(-1), $FI[\"id\"] }");
-        assert!(v["diagnostics"][0]["message"].as_str().unwrap().starts_with("a field (`$(-1)`) is read"));
-        assert!(v["diagnostics"][1]["message"].as_str().unwrap().starts_with("`$FI[\"id\"]` is read"));
+        assert!(
+            v["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("a field (`$(-1)`) is read")
+        );
+        assert!(
+            v["diagnostics"][1]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("`$FI[\"id\"]` is read")
+        );
         // After `getline`, or outside BEGIN, there is a record.
         assert!(codes(&run("BEGIN { getline; print $1, NF }")).is_empty());
         assert!(codes(&run("BEGIN { while ((getline < \"f\") > 0) print $0 }")).is_empty());
-        assert!(codes(&run("function rd() { return getline } BEGIN { rd(); print $0 }")).is_empty());
+        assert!(
+            codes(&run(
+                "function rd() { return getline } BEGIN { rd(); print $0 }"
+            ))
+            .is_empty()
+        );
         assert!(codes(&run("{ print $1, NF, FILENAME } END { print $0, NF }")).is_empty());
     }
 
@@ -2281,7 +2681,10 @@ mod tests {
     fn parallel() {
         let prog = "NR == 1 { print }\n{ last = $1; sum += $1; n++; avg = avg + $2; seen[$1] = $2 }\nEND { print last, sum, n, avg, length(seen) }";
         assert!(codes(&run(prog)).is_empty());
-        let pr = Options { parallel: Some(Parallel::Record), ..Options::default() };
+        let pr = Options {
+            parallel: Some(Parallel::Record),
+            ..Options::default()
+        };
         let v = run_with(prog, &pr);
         assert_eq!(codes(&v), ["W301", "W302"]);
         assert_eq!(v["diagnostics"][1]["line"], 2);
@@ -2289,9 +2692,15 @@ mod tests {
         // Values collected per worker in PREPARE are the documented fix.
         let fixed = "{ max = max > $1 ? max : $1 } PREPARE { m[PID] = max } END { for (p in m) print m[p] }";
         assert!(codes(&run_with(fixed, &pr)).is_empty());
-        let pf = Options { parallel: Some(Parallel::File), ..Options::default() };
+        let pf = Options {
+            parallel: Some(Parallel::File),
+            ..Options::default()
+        };
         assert!(codes(&run_with("FNR == 1 { print FILENAME }", &pf)).is_empty());
-        assert_eq!(codes(&run_with("FNR == 1 { print FILENAME }", &pr)), ["W301"]);
+        assert_eq!(
+            codes(&run_with("FNR == 1 { print FILENAME }", &pr)),
+            ["W301"]
+        );
     }
 
     #[test]

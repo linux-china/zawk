@@ -22,8 +22,7 @@ pub fn detect(prefix: &[u8]) -> Option<Format> {
         Some(Format::Gzip)
     } else if prefix.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
         Some(Format::Zstd)
-    } else if prefix.starts_with(b"BZh") && prefix.len() > 3 && (b'1'..=b'9').contains(&prefix[3])
-    {
+    } else if prefix.starts_with(b"BZh") && prefix.len() > 3 && (b'1'..=b'9').contains(&prefix[3]) {
         Some(Format::Bzip2)
     } else if prefix.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0x00]) {
         Some(Format::Xz)
@@ -60,7 +59,11 @@ pub fn maybe_decompress<R: Read + Send + 'static>(
         Some(Format::Xz) => Box::new(liblzma::read::XzDecoder::new_multi_decoder(r)),
         Some(Format::Lz4) => Box::new(lz4_flex::frame::FrameDecoder::new(r)),
     };
-    Ok(Box::new(Decoder { inner: decoder, name: name.to_string(), format: format.unwrap() }))
+    Ok(Box::new(Decoder {
+        inner: decoder,
+        name: name.to_string(),
+        format: format.unwrap(),
+    }))
 }
 
 /// Names decoding errors after the file. Truncated input surfaces from the decoders as
@@ -82,7 +85,10 @@ impl Read for Decoder {
             };
             io::Error::new(
                 kind,
-                format!("cannot decompress {:?} file `{}': {}", self.format, self.name, e),
+                format!(
+                    "cannot decompress {:?} file `{}': {}",
+                    self.format, self.name, e
+                ),
             )
         })
     }
@@ -108,7 +114,10 @@ mod tests {
     fn plain_passthrough() {
         roundtrip(TEXT.to_vec());
         let mut out = Vec::new();
-        maybe_decompress("test", Cursor::new(b"ab".to_vec())).unwrap().read_to_end(&mut out).unwrap();
+        maybe_decompress("test", Cursor::new(b"ab".to_vec()))
+            .unwrap()
+            .read_to_end(&mut out)
+            .unwrap();
         assert_eq!(out, b"ab");
     }
 

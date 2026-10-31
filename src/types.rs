@@ -277,7 +277,7 @@
 //! [`State`]: [crate::types::State]
 use crate::ast;
 use crate::builtins;
-use crate::cfg::{self, is_unused, Function, Ident, ProgramContext};
+use crate::cfg::{self, Function, Ident, ProgramContext, is_unused};
 use crate::common::{self, FileSpec, NodeIx, NumTy, Result};
 use crate::compile;
 use hashbrown::{HashMap, HashSet};
@@ -529,7 +529,7 @@ impl Rule {
                         return err!(
                             "a variable is used both as an array and as a scalar \
                              (arrays of arrays such as `a[i][j]` are not supported)"
-                        )
+                        );
                     }
                     (t1, t2) => return err!("kinds do not match. {:?} vs {:?}", t1, t2),
                 },
@@ -907,7 +907,10 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     let is_map = |d: &State| matches!(d, Some(TVar::Map { .. }));
                     let has_scalar = matches!(cur_val, Some(TVar::Scalar(_)))
                         || deps.iter().any(|d| matches!(d, Some(TVar::Scalar(_))));
-                    let maps = deps.iter().zip(array_uses.iter()).filter(|(d, _)| is_map(d));
+                    let maps = deps
+                        .iter()
+                        .zip(array_uses.iter())
+                        .filter(|(d, _)| is_map(d));
                     let (mut array_use, mut array_value) = (false, is_map(&cur_val));
                     for (_, used) in maps {
                         if *used {
@@ -977,14 +980,15 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 let Some(arg) = args.get(i) else { continue };
                 // A variable may already have become an array when the scalar assigned to it
                 // conflicted: check the values flowing into it too.
-                let is_scalar = |ix: NodeIx| {
-                    matches!(self.nw.read(ix), Some(TVar::Scalar(Some(b))) if *b != BaseTy::Null)
-                };
+                let is_scalar = |ix: NodeIx| matches!(self.nw.read(ix), Some(TVar::Scalar(Some(b))) if *b != BaseTy::Null);
                 let receives_scalar = self
                     .nw
                     .graph
                     .edges_directed(*arg, petgraph::Direction::Incoming)
-                    .any(|e| matches!(e.weight().constraint, Constraint::Flows(_)) && is_scalar(e.source()));
+                    .any(|e| {
+                        matches!(e.weight().constraint, Constraint::Flows(_))
+                            && is_scalar(e.source())
+                    });
                 if !is_scalar(*arg) && !receives_scalar {
                     continue;
                 }
@@ -992,7 +996,12 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     Some(d) => format!("{} is a scalar", d),
                     None => "a scalar value is given".to_string(),
                 };
-                let msg = format!("{}: argument {} must be an array, but {}", name, i + 1, what);
+                let msg = format!(
+                    "{}: argument {} must be an array, but {}",
+                    name,
+                    i + 1,
+                    what
+                );
                 let err = common::CompileError::new(msg);
                 return Err(match self.use_locs.builtin_calls.get(name) {
                     Some(loc) => err.with_loc(*loc),
@@ -1035,11 +1044,15 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     None => err,
                 });
             }
-            for (i, ((arg, ty), exp)) in args.iter().zip(tys.iter()).zip(expected.iter()).enumerate() {
+            for (i, ((arg, ty), exp)) in
+                args.iter().zip(tys.iter()).zip(expected.iter()).enumerate()
+            {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
                     let err = self.kind_error(*arg, !ty.is_array());
                     // E.g. a literal: report the call instead.
-                    let loc = f.awk_name().and_then(|name| self.use_locs.builtin_calls.get(name));
+                    let loc = f
+                        .awk_name()
+                        .and_then(|name| self.use_locs.builtin_calls.get(name));
                     return Err(match (err.1, loc) {
                         (None, Some(loc)) => err.with_loc(*loc),
                         _ => err,
@@ -1068,7 +1081,11 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             let func = &self.func_table[*f as usize];
             let mut args: SmallVec<State> = arg_nodes.iter().map(|ix| *self.nw.read(*ix)).collect();
             args.resize(func.args.len(), None);
-            if !self.funcs.contains_key(&Args { id: *f, func_id: None, args: args.clone() }) {
+            if !self.funcs.contains_key(&Args {
+                id: *f,
+                func_id: None,
+                args: args.clone(),
+            }) {
                 continue;
             }
             for (param, arg) in func.args.iter().zip(args.iter()) {
@@ -1077,7 +1094,9 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     func_id: Some(*f),
                     args: args.clone(),
                 };
-                let Some(ix) = self.env.get(&key) else { continue };
+                let Some(ix) = self.env.get(&key) else {
+                    continue;
+                };
                 let arg_ty = flatten(concrete(*arg))?;
                 let param_ty = flatten(concrete(*self.nw.read(*ix)))?;
                 if !arg_ty.is_array() || !param_ty.is_array() || arg_ty == param_ty {
@@ -1145,14 +1164,23 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         for (Args { id, func_id, .. }, ix) in self.env.iter() {
             // Globals referenced only from the main program are local to it.
             let name = func_id
-                .and_then(|f| self.func_table[f as usize].args.iter().find(|a| a.id.low == id.low))
+                .and_then(|f| {
+                    self.func_table[f as usize]
+                        .args
+                        .iter()
+                        .find(|a| a.id.low == id.low)
+                })
                 .map(|a| a.name)
                 .or_else(|| self.global_names.get(&id.low).copied());
-            if !name.is_some_and(ast::is_uninit_var) || !matches!(self.nw.read(*ix), Some(TVar::Map { .. })) {
+            if !name.is_some_and(ast::is_uninit_var)
+                || !matches!(self.nw.read(*ix), Some(TVar::Map { .. }))
+            {
                 continue;
             }
             for n in self.nw.graph.neighbors(*ix) {
-                let Some(local) = self.var_name(n) else { continue };
+                let Some(local) = self.var_name(n) else {
+                    continue;
+                };
                 let err = self.kind_error(n, true);
                 let hint = local.split('`').nth(1).unwrap_or("x");
                 return Err(common::CompileError(
@@ -1220,7 +1248,11 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         let var_loc = |ix: NodeIx| {
             let (key, _) = self.env.iter().find(|(_, v)| **v == ix)?;
             let low = key.id.low;
-            let kind = if scalar_as_array { &uses.array } else { &uses.scalar };
+            let kind = if scalar_as_array {
+                &uses.array
+            } else {
+                &uses.scalar
+            };
             kind.get(&low).or_else(|| uses.any.get(&low)).copied()
         };
         if let Some(loc) = var_loc(ix) {
@@ -1283,7 +1315,9 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
         }
         // Globals referenced only from the main program are local to it.
-        self.global_names.get(&low).map(|name| format!("`{}`", ast::source_name(name)))
+        self.global_names
+            .get(&low)
+            .map(|name| format!("`{}`", ast::source_name(name)))
     }
 
     pub(crate) fn constant(&mut self, tv: State) -> NodeIx {

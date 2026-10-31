@@ -1,17 +1,18 @@
-use std::io::{Read, Write};
-use std::sync::{Arc, LazyLock, Mutex};
-use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use crate::runtime;
 use crate::runtime::HashMap;
-use urlencoding::decode_binary as url_decode_binary;
+use crate::runtime::{SharedMap, Str, stdlib_warning};
 use base58;
 use base58::{FromBase58, ToBase58};
+use base64::{
+    Engine as _, engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD,
+};
 use flate2::Compression;
+use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
-use flate2::read::{ZlibDecoder};
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use crate::runtime;
-use crate::runtime::{stdlib_warning, SharedMap, Str};
-
+use std::io::{Read, Write};
+use std::sync::{Arc, LazyLock, Mutex};
+use urlencoding::decode_binary as url_decode_binary;
 
 pub fn encode(format: &str, text: &[u8]) -> String {
     match format {
@@ -30,30 +31,22 @@ pub fn encode(format: &str, text: &[u8]) -> String {
         }
         "url" => urlencoding::encode_binary(text).to_string(),
         "hex" => hex::encode(text),
-        "hex-base64" => {
-            match hex::decode(text) {
-                Ok(bytes) => STANDARD.encode(&bytes),
-                Err(e) => encode_failed(format, e),
-            }
-        }
-        "hex-base64url" => {
-            match hex::decode(text) {
-                Ok(bytes) => URL_SAFE_NO_PAD.encode(&bytes),
-                Err(e) => encode_failed(format, e),
-            }
-        }
-        "base64-hex" => {
-            match STANDARD.decode(text) {
-                Ok(bytes) => hex::encode(&bytes),
-                Err(e) => encode_failed(format, e),
-            }
-        }
-        "base64url-hex" => {
-            match URL_SAFE_NO_PAD.decode(text) {
-                Ok(bytes) => hex::encode(&bytes),
-                Err(e) => encode_failed(format, e),
-            }
-        }
+        "hex-base64" => match hex::decode(text) {
+            Ok(bytes) => STANDARD.encode(&bytes),
+            Err(e) => encode_failed(format, e),
+        },
+        "hex-base64url" => match hex::decode(text) {
+            Ok(bytes) => URL_SAFE_NO_PAD.encode(&bytes),
+            Err(e) => encode_failed(format, e),
+        },
+        "base64-hex" => match STANDARD.decode(text) {
+            Ok(bytes) => hex::encode(&bytes),
+            Err(e) => encode_failed(format, e),
+        },
+        "base64url-hex" => match URL_SAFE_NO_PAD.decode(text) {
+            Ok(bytes) => hex::encode(&bytes),
+            Err(e) => encode_failed(format, e),
+        },
         &_ => {
             stdlib_warning("encode", format!("unsupported format {:?}", format));
             String::new()
@@ -80,18 +73,27 @@ pub fn decode(format: &str, text: &str) -> Vec<u8> {
 
 fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
     let bytes = match format {
-        "base32" => data_encoding::BASE32_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
-        "base32hex" => data_encoding::BASE32HEX_NOPAD.decode(text.as_bytes()).map_err(|e| e.to_string()),
+        "base32" => data_encoding::BASE32_NOPAD
+            .decode(text.as_bytes())
+            .map_err(|e| e.to_string()),
+        "base32hex" => data_encoding::BASE32HEX_NOPAD
+            .decode(text.as_bytes())
+            .map_err(|e| e.to_string()),
         "base58" => text.from_base58().map_err(|e| format!("{:?}", e)),
         "base62" => base62_decode(text).ok_or_else(|| "invalid base62 text".to_string()),
         "base64" => STANDARD.decode(text).map_err(|e| e.to_string()),
         "base85" => base85::decode(text).map_err(|e| e.to_string()),
         "base64url" => URL_SAFE_NO_PAD.decode(text).map_err(|e| e.to_string()),
-        "zlib2base64url" => URL_SAFE_NO_PAD.decode(text).map_err(|e| e.to_string()).and_then(|bytes| {
-            let mut d = ZlibDecoder::new(bytes.as_slice());
-            let mut out = Vec::new();
-            d.read_to_end(&mut out).map(|_| out).map_err(|e| e.to_string())
-        }),
+        "zlib2base64url" => URL_SAFE_NO_PAD
+            .decode(text)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| {
+                let mut d = ZlibDecoder::new(bytes.as_slice());
+                let mut out = Vec::new();
+                d.read_to_end(&mut out)
+                    .map(|_| out)
+                    .map_err(|e| e.to_string())
+            }),
         "url" => Ok(url_decode_binary(text.as_bytes()).into_owned()),
         "hex" => hex::decode(text).map_err(|e| e.to_string()),
         _ => return Err(format!("unsupported format {:?}", format)),
@@ -121,11 +123,14 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     return SharedMap::from(map);
 }
 
-static BLOOM_FILTERS: LazyLock<Arc<Mutex<HashMap<String, GrowableBloom>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::default())));
+static BLOOM_FILTERS: LazyLock<Arc<Mutex<HashMap<String, GrowableBloom>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::default())));
 
 pub fn bf_insert(item: &[u8], group: &str) {
     let mut filters = BLOOM_FILTERS.lock().unwrap();
-    let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
+    let filter = filters
+        .entry(group.to_string())
+        .or_insert_with(|| GrowableBloomBuilder::new().build());
     filter.insert(item);
 }
 
@@ -139,7 +144,9 @@ pub fn bf_contains(item: &[u8], group: &str) -> i64 {
 
 pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
     let mut filters = BLOOM_FILTERS.lock().unwrap();
-    let filter = filters.entry(group.to_string()).or_insert_with(|| GrowableBloomBuilder::new().build());
+    let filter = filters
+        .entry(group.to_string())
+        .or_insert_with(|| GrowableBloomBuilder::new().build());
     return if filter.contains(item) {
         1
     } else {
@@ -148,7 +155,8 @@ pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
     };
 }
 
-const BASE62_ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const BASE62_ALPHABET: &[u8; 62] =
+    b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /// Base62 in the format of the `base-62` crate: the bytes, prefixed with `0x01` to keep leading
 /// zeros, are a big-endian number written in base 62 with the least significant digit first.
@@ -297,7 +305,10 @@ mod tests {
 
     #[test]
     fn test_hex2base64() {
-        let base64_text = encode("hex-base64", "91e1fa4f7c75cfb9a684a2f54f7afdb10740c7177307ab227a618caffe993b05".as_bytes());
+        let base64_text = encode(
+            "hex-base64",
+            "91e1fa4f7c75cfb9a684a2f54f7afdb10740c7177307ab227a618caffe993b05".as_bytes(),
+        );
         println!("{}", base64_text);
     }
 
@@ -316,7 +327,8 @@ mod tests {
         let text = r#"@startuml
 Bob -> Alice : hello
 @enduml
-        "#.trim();
+        "#
+        .trim();
         let encoded_text = encode("zlib2base64url", text.as_bytes());
         println!("encode: {}", encoded_text);
         let plain_text = decode("zlib2base64url", &encoded_text);

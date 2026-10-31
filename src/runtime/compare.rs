@@ -14,7 +14,7 @@
 use std::cmp::Ordering;
 
 use crate::runtime::str_impl::{char_count, characters_as_bytes};
-use crate::runtime::{awk_regex, convert, Float, Int, Str};
+use crate::runtime::{Float, Int, Str, awk_regex, convert};
 
 /// How a string operand of a comparison behaves.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -199,7 +199,12 @@ fn cmp_folded(l: &[u8], r: &[u8]) -> Ordering {
         let fold = |bs: &[u8]| bs.iter().map(u8::to_ascii_lowercase).collect::<Vec<_>>();
         return fold(l).cmp(&fold(r));
     }
-    let units = |bs: &[u8]| folded_units(bs).into_iter().map(|(u, _)| u).collect::<Vec<_>>();
+    let units = |bs: &[u8]| {
+        folded_units(bs)
+            .into_iter()
+            .map(|(u, _)| u)
+            .collect::<Vec<_>>()
+    };
     units(l).cmp(&units(r))
 }
 
@@ -236,7 +241,8 @@ fn find_folded(needle: &[u8], haystack: &[u8]) -> Option<Option<usize>> {
 /// The 1-based character position of `needle` in `haystack` as `index()` returns it, ignoring
 /// case when IGNORECASE is set; `None` when IGNORECASE does not apply.
 pub(crate) fn index_folded(needle: &[u8], haystack: &[u8]) -> Option<Int> {
-    find_folded(needle, haystack).map(|off| off.map_or(0, |x| char_count(&haystack[..x]) as Int + 1))
+    find_folded(needle, haystack)
+        .map(|off| off.map_or(0, |x| char_count(&haystack[..x]) as Int + 1))
 }
 
 /// Compare two strings; `code` is `encode(op, kind of l, kind of r)`.
@@ -308,7 +314,10 @@ mod tests {
             assert_eq!(looks_numeric(s.as_bytes()), Some(v), "{:?}", s);
         }
         assert!(looks_numeric(b"+inf").unwrap().is_infinite());
-        for s in ["", " ", "abc", "10abc", "0x", "0x1G", "0b1", "0o7", "1e", ".", "+", "inf", "1 2", "--1"] {
+        for s in [
+            "", " ", "abc", "10abc", "0x", "0x1G", "0b1", "0o7", "1e", ".", "+", "inf", "1 2",
+            "--1",
+        ] {
             assert_eq!(looks_numeric(s.as_bytes()), None, "{:?}", s);
         }
     }
@@ -321,27 +330,60 @@ mod tests {
         #[allow(non_upper_case_globals)]
         const Plain: StrKind = StrKind::Str;
         // Two numeric strnums compare numerically; otherwise as strings.
-        assert_eq!(cmp_str_str(&s("10"), &s("9"), encode(Gt, Strnum, Strnum)), 1);
+        assert_eq!(
+            cmp_str_str(&s("10"), &s("9"), encode(Gt, Strnum, Strnum)),
+            1
+        );
         assert_eq!(cmp_str_str(&s("10"), &s("9"), encode(Gt, Strnum, Plain)), 0);
-        assert_eq!(cmp_str_str(&s("abc"), &s("9"), encode(Gt, Strnum, Strnum)), 1);
-        assert_eq!(cmp_str_str(&s("1e1"), &s("10"), encode(Eq, Strnum, Strnum)), 1);
+        assert_eq!(
+            cmp_str_str(&s("abc"), &s("9"), encode(Gt, Strnum, Strnum)),
+            1
+        );
+        assert_eq!(
+            cmp_str_str(&s("1e1"), &s("10"), encode(Eq, Strnum, Strnum)),
+            1
+        );
         // Uninitialized values are "" or 0.
         assert_eq!(cmp_str_str(&s(""), &s(""), encode(Eq, Uninit, Plain)), 1);
         assert_eq!(cmp_str_str(&s(""), &s("0"), encode(Eq, Uninit, Strnum)), 1);
         assert_eq!(cmp_str_str(&s(""), &s("0"), encode(Eq, Uninit, Plain)), 0);
         // The uninitialized value is 0 or "" unless it is compared as a string.
         let u = Str::uninit();
-        assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)), 1);
+        assert_eq!(
+            cmp_str_num(&u, 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)),
+            1
+        );
         assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, Strnum, false)), 1);
         assert_eq!(cmp_str_num(&u, 0.0, str_num_code(Eq, Plain, false)), 0);
-        assert_eq!(cmp_str_num(&s(""), 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)), 0);
-        assert_eq!(cmp_str_str(&u, &s("0"), encode(Eq, StrKind::MaybeUninit, Strnum)), 1);
-        assert_eq!(cmp_str_str(&s("10"), &s("9"), encode(Lt, StrKind::MaybeUninit, Strnum)), 1);
+        assert_eq!(
+            cmp_str_num(&s(""), 0.0, str_num_code(Eq, StrKind::MaybeUninit, false)),
+            0
+        );
+        assert_eq!(
+            cmp_str_str(&u, &s("0"), encode(Eq, StrKind::MaybeUninit, Strnum)),
+            1
+        );
+        assert_eq!(
+            cmp_str_str(&s("10"), &s("9"), encode(Lt, StrKind::MaybeUninit, Strnum)),
+            1
+        );
         // Strings and numbers.
-        assert_eq!(cmp_str_num(&s("10"), 9.0, str_num_code(Gt, Strnum, false)), 1);
-        assert_eq!(cmp_str_num(&s("abc"), 5.0, str_num_code(Gt, Strnum, false)), 1);
-        assert_eq!(cmp_str_num(&s("10"), 9.0, str_num_code(Gt, Plain, false)), 0);
+        assert_eq!(
+            cmp_str_num(&s("10"), 9.0, str_num_code(Gt, Strnum, false)),
+            1
+        );
+        assert_eq!(
+            cmp_str_num(&s("abc"), 5.0, str_num_code(Gt, Strnum, false)),
+            1
+        );
+        assert_eq!(
+            cmp_str_num(&s("10"), 9.0, str_num_code(Gt, Plain, false)),
+            0
+        );
         // 9 < "10"
-        assert_eq!(cmp_str_num(&s("10"), 9.0, str_num_code(Lt, Strnum, true)), 1);
+        assert_eq!(
+            cmp_str_num(&s("10"), 9.0, str_num_code(Lt, Strnum, true)),
+            1
+        );
     }
 }

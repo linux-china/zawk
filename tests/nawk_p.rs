@@ -12,7 +12,7 @@
 //!   in frawk but false in awk/mawk.
 
 use assert_cmd::Command;
-use std::fs::{read_to_string, File};
+use std::fs::{File, read_to_string};
 use std::io::Write;
 use tempfile::tempdir;
 

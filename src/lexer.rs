@@ -3,9 +3,9 @@
 //! This lexer is fairly rudamentary. It ought not be too slow, but it also has not been optimized
 //! very aggressively. Various edge cases still do not work.
 use hashbrown::HashMap;
+use regex::Regex;
 use std::borrow::Cow;
 use std::sync::LazyLock;
-use regex::Regex;
 use unicode_xid::UnicodeXID;
 
 use crate::arena::Arena;
@@ -337,7 +337,8 @@ fn is_match_expr(bs: &[u8], lparen: usize) -> bool {
             if bs.get(j) == Some(&b'!') {
                 j += 1;
             }
-            if !bs[j..].starts_with(b"in") || bs.get(j + 2).is_some_and(|c| is_id_body(*c as char)) {
+            if !bs[j..].starts_with(b"in") || bs.get(j + 2).is_some_and(|c| is_id_body(*c as char))
+            {
                 return false;
             }
             j = skip_blanks(j + 2);
@@ -450,8 +451,22 @@ fn paren_list_end(bs: &[u8], open: usize) -> Option<(usize, bool)> {
             }
             b'/' if matches!(
                 prev,
-                b'(' | b',' | b'~' | b'!' | b'&' | b'|' | b'=' | b'<' | b'>' | b'?' | b':'
-                    | b'+' | b'-' | b'*' | b'%' | b'^' | b'['
+                b'(' | b','
+                    | b'~'
+                    | b'!'
+                    | b'&'
+                    | b'|'
+                    | b'='
+                    | b'<'
+                    | b'>'
+                    | b'?'
+                    | b':'
+                    | b'+'
+                    | b'-'
+                    | b'*'
+                    | b'%'
+                    | b'^'
+                    | b'['
             ) =>
             {
                 i += 1;
@@ -538,15 +553,27 @@ fn bad_fundec_desc(kw: &str, rest: &str) -> String {
         String::new()
     };
     if name.is_empty() {
-        format!("`{}` is a reserved word and must be followed by a function name", kw)
+        format!(
+            "`{}` is a reserved word and must be followed by a function name",
+            kw
+        )
     } else if !name.is_ascii() {
-        format!("invalid function name `{}`: function names must be ASCII ([a-zA-Z_][a-zA-Z_0-9]*)", name)
+        format!(
+            "invalid function name `{}`: function names must be ASCII ([a-zA-Z_][a-zA-Z_0-9]*)",
+            name
+        )
     } else if KEYWORDS.get(name.as_bytes()).is_some() {
         format!("invalid function name `{}`: it is a reserved word", name)
-    } else if !rest[name.len()..].trim_start_matches([' ', '\t']).starts_with('(') {
+    } else if !rest[name.len()..]
+        .trim_start_matches([' ', '\t'])
+        .starts_with('(')
+    {
         format!("expected `(` after function name `{}`", name)
     } else {
-        format!("invalid function name `{}`: function names must match [a-zA-Z_][a-zA-Z_0-9]*", name)
+        format!(
+            "invalid function name `{}`: function names must match [a-zA-Z_][a-zA-Z_0-9]*",
+            name
+        )
     }
 }
 
@@ -685,7 +712,11 @@ pub(crate) fn unknown_escapes(lit: &str) -> Vec<(usize, char)> {
             continue;
         }
         match chars.next() {
-            Some((_, 'a' | 'b' | 'f' | 'v' | '\\' | 'n' | 'r' | 't' | '"' | 'x' | '0'..='7' | '\n')) | None => {}
+            Some((
+                _,
+                'a' | 'b' | 'f' | 'v' | '\\' | 'n' | 'r' | 't' | '"' | 'x' | '0'..='7' | '\n',
+            ))
+            | None => {}
             Some((_, '\r')) if lit[i + 2..].starts_with('\n') => {}
             Some((_, c)) => found.push((i, c)),
         }
@@ -800,10 +831,14 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn num(&self) -> Option<(Tok<'a>, usize)> {
-        static HEX_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+").unwrap());
+        static HEX_PATTERN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+").unwrap());
         static INT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[+-]?\d+").unwrap());
         // Adapted from https://www.regular-expressions.info/floatingpoint.html
-        static FLOAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[-+]?(\d+\.\d*([eE][-+]?\d+)?|\.\d+([eE][-+]?\d+)?|\d+[eE][-+]?\d+)").unwrap());
+        static FLOAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^[-+]?(\d+\.\d*([eE][-+]?\d+)?|\.\d+([eE][-+]?\d+)?|\d+[eE][-+]?\d+)")
+                .unwrap()
+        });
         let text = &self.text[self.cur..];
         if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {
             let is = i.as_str();
@@ -813,7 +848,8 @@ impl<'a> Tokenizer<'a> {
             .and_then(|c| c.get(0))
             // In a range, `1..5` is the integer `1` followed by `..`, not `1.` followed by `.5`.
             .filter(|f| {
-                self.range_depth.is_none() || !(f.as_str().ends_with('.') && text[f.end()..].starts_with('.'))
+                self.range_depth.is_none()
+                    || !(f.as_str().ends_with('.') && text[f.end()..].starts_with('.'))
             })
         {
             let fs = f.as_str();
@@ -827,7 +863,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn fundec(&self) -> Option<(Tok<'a>, usize)> {
-        static FN_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^((?:function|func)\s+([a-zA-Z_][a-zA-Z_0-9]*)[ \t]*)\(").unwrap());
+        static FN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^((?:function|func)\s+([a-zA-Z_][a-zA-Z_0-9]*)[ \t]*)\(").unwrap()
+        });
         let captures = FN_PATTERN.captures(&self.text[self.cur..])?;
         let full = captures.get(1)?.as_str();
         let name = captures.get(2)?.as_str();
@@ -1086,10 +1124,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                     //   - Previous token is not a '{', as "{}" should not be converted to
                     //     invalid "{;}".
                     match self.prev_tok {
-                        Some(Tok::Semi)|Some(Tok::Newline)|Some(Tok::LBrace) => {
+                        Some(Tok::Semi) | Some(Tok::Newline) | Some(Tok::LBrace) => {
                             self.cur += 1;
                             self.spanned(ix, self.cur, Tok::RBrace)
-                        },
+                        }
                         _ => self.spanned(ix, self.cur, Tok::Semi),
                     }
                 }
@@ -1128,7 +1166,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.keyword() {
-                        if matches!(tok, Tok::Try) && try_used_as_name(&self.text[self.cur + len..]) {
+                        if matches!(tok, Tok::Try) && try_used_as_name(&self.text[self.cur + len..])
+                        {
                             return Some(Err(Error {
                                 location: self.index_to_loc(ix),
                                 desc: "`try` is a keyword (`try E else F`) and cannot be used as a variable or parameter name".into(),
@@ -1145,8 +1184,17 @@ impl<'a> Iterator for Tokenizer<'a> {
                                 }
                             }
                             // `print(1)(2)`: the parentheses only group the first operand.
-                            Tok::PrintLP | Tok::PrintfLP if paren_grouping(&self.text[self.cur + len - 1..]) => {
-                                (if matches!(tok, Tok::PrintLP) { Tok::Print } else { Tok::Printf }, len - 1)
+                            Tok::PrintLP | Tok::PrintfLP
+                                if paren_grouping(&self.text[self.cur + len - 1..]) =>
+                            {
+                                (
+                                    if matches!(tok, Tok::PrintLP) {
+                                        Tok::Print
+                                    } else {
+                                        Tok::Printf
+                                    },
+                                    len - 1,
+                                )
                             }
                             tok => (tok, len),
                         };
@@ -1158,7 +1206,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                     } else if is_id_start(c) {
                         self.cur += c.len_utf8();
                         let (s, new_start) = self.ident(ix);
-                        let builtin_func_call = s == "func" && self.text[new_start..].starts_with('(');
+                        let builtin_func_call =
+                            s == "func" && self.text[new_start..].starts_with('(');
                         if (s == "function" || s == "func") && !builtin_func_call {
                             // `fundec` did not match, so this is not a valid function header.
                             // `func(...)` right before `(` is the `func` builtin parser.
@@ -1172,7 +1221,11 @@ impl<'a> Iterator for Tokenizer<'a> {
                         // `substr ($0, 2)`; only user-defined calls need the `(` right after.
                         let is_builtin = crate::builtins::is_awk_builtin(s);
                         let lparen = if is_builtin {
-                            new_start + bs[new_start..].iter().take_while(|b| matches!(b, b' ' | b'\t')).count()
+                            new_start
+                                + bs[new_start..]
+                                    .iter()
+                                    .take_while(|b| matches!(b, b' ' | b'\t'))
+                                    .count()
                         } else {
                             new_start
                         };
@@ -1186,7 +1239,11 @@ impl<'a> Iterator for Tokenizer<'a> {
                             // Builtin names are reserved, as in gawk: `toupper = 1` is an error.
                             return Some(Err(Error {
                                 location: self.index_to_loc(ix),
-                                desc: format!("builtin function `{}` cannot be used as a variable", s).into(),
+                                desc: format!(
+                                    "builtin function `{}` cannot be used as a variable",
+                                    s
+                                )
+                                .into(),
                             }));
                         } else {
                             self.cur = new_start;
@@ -1340,10 +1397,26 @@ and the third"#;
         assert_eq!(toks("k in a"), vec![Ident("k"), In, Ident("a")]);
         assert_eq!(toks("k !in a"), vec![Ident("k"), NotIn, Ident("a")]);
         assert_eq!(toks("!inside"), vec![Not, Ident("inside")]);
-        assert_eq!(toks("!index(s)"), vec![Not, CallStart("index"), Ident("s"), RParen]);
+        assert_eq!(
+            toks("!index(s)"),
+            vec![Not, CallStart("index"), Ident("s"), RParen]
+        );
         assert_eq!(
             toks("switch(x){case /a/:default:}"),
-            vec![Switch, LParen, Ident("x"), RParen, LBrace, Case, PatLit("a"), COLON, Default, COLON, Semi, RBrace]
+            vec![
+                Switch,
+                LParen,
+                Ident("x"),
+                RParen,
+                LBrace,
+                Case,
+                PatLit("a"),
+                COLON,
+                Default,
+                COLON,
+                Semi,
+                RBrace
+            ]
         );
         assert_eq!(
             toks("switches cases defaults"),
@@ -1364,13 +1437,22 @@ and the third"#;
     #[test]
     fn builtin_call_with_blanks() {
         use Tok::*;
-        let toks = |s| lex_str(s).into_iter().map(|x| x.1).filter(|t| t != &Newline).collect::<Vec<_>>();
+        let toks = |s| {
+            lex_str(s)
+                .into_iter()
+                .map(|x| x.1)
+                .filter(|t| t != &Newline)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(toks("int (x)"), vec![CallStart("int"), Ident("x"), RParen]);
         assert_eq!(toks("substr \t($0, 2)").len(), 6);
         assert_eq!(toks("length"), vec![Ident("length")]);
         assert_eq!(toks("length ($1)")[0], CallStart("length"));
         // User-defined and stdlib extension functions still need `(` right after the name.
-        assert_eq!(toks("max (x)"), vec![Ident("max"), LParen, Ident("x"), RParen]);
+        assert_eq!(
+            toks("max (x)"),
+            vec![Ident("max"), LParen, Ident("x"), RParen]
+        );
         // `match (a, b) in arr { ... => ... }` is a match expression; without arms it's a call.
         assert!(is_match_expr(b"(1, 2) in a { _ => 1 }", 0));
         assert!(is_match_expr(b"(1, 2) !in a {\n  \"}\" => 1 }", 0));
@@ -1384,9 +1466,18 @@ and the third"#;
     fn raw_string_literals() {
         use Tok::*;
         let toks = |s| lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
-        assert_eq!(toks(r#"x=r"C:\a\b""#), vec![Ident("x"), Assign, RawStrLit(r"C:\a\b"), Newline]);
-        assert_eq!(toks(r###"r#"say "hi""# r##"a"#b"##"###), vec![RawStrLit(r#"say "hi""#), RawStrLit(r##"a"#b"##), Newline]);
-        assert_eq!(toks(r#"r"\" / 2"#), vec![RawStrLit(r"\"), Div, ILit("2"), Newline]);
+        assert_eq!(
+            toks(r#"x=r"C:\a\b""#),
+            vec![Ident("x"), Assign, RawStrLit(r"C:\a\b"), Newline]
+        );
+        assert_eq!(
+            toks(r###"r#"say "hi""# r##"a"#b"##"###),
+            vec![RawStrLit(r#"say "hi""#), RawStrLit(r##"a"#b"##), Newline]
+        );
+        assert_eq!(
+            toks(r#"r"\" / 2"#),
+            vec![RawStrLit(r"\"), Div, ILit("2"), Newline]
+        );
         assert_eq!(toks(r#"r "x" r#x"#)[..2], [Ident("r"), StrLit("x")]);
         assert!(Tokenizer::new(r#"r#"x""#).any(|t| t.is_err()));
     }
@@ -1437,7 +1528,10 @@ and the third"#;
             parse_string_literal(r#"are you there \77\xh"#, &a, &mut buf),
             b"are you there ?\\xh"
         );
-        assert_eq!(parse_string_literal(r#"a\qb x\/y \. \\."#, &a, &mut buf), b"aqb x/y . \\.");
+        assert_eq!(
+            parse_string_literal(r#"a\qb x\/y \. \\."#, &a, &mut buf),
+            b"aqb x/y . \\."
+        );
         assert_eq!(unknown_escapes(r#"a\qb \\. \t\/"#), [(1, 'q'), (11, '/')]);
     }
 
@@ -1446,7 +1540,10 @@ and the third"#;
         let mut buf = Vec::new();
         let a = Arena::default();
         assert_eq!(parse_string_literal("x\\\ny", &a, &mut buf), b"xy");
-        assert_eq!(parse_string_literal("x\\\r\ny\\\rz", &a, &mut buf), b"xy\rz");
+        assert_eq!(
+            parse_string_literal("x\\\r\ny\\\rz", &a, &mut buf),
+            b"xy\rz"
+        );
         assert_eq!(parse_regex_literal("a\\\nb", &a, &mut buf), b"ab");
         assert_eq!(parse_regex_literal("a\\\r\nb", &a, &mut buf), b"ab");
         assert_eq!(regex_lit_end(b"a\\\r\nb/"), Some(5));
@@ -1477,7 +1574,10 @@ and the third"#;
     fn unknown_character_is_an_error() {
         for (text, desc) in [
             ("BEGIN { x = 1 } `rest", "unexpected character"),
-            ("@namespace \"foo\"\nBEGIN { x = 1 }", "unsupported '@' syntax"),
+            (
+                "@namespace \"foo\"\nBEGIN { x = 1 }",
+                "unsupported '@' syntax",
+            ),
         ] {
             let err = Tokenizer::new(text)
                 .find_map(Result::err)
@@ -1544,7 +1644,10 @@ and the third"#;
     #[test]
     fn function_is_reserved() {
         use Tok::*;
-        let toks: Vec<_> = lex_str("function f(a) func g (b)").into_iter().map(|x| x.1).collect();
+        let toks: Vec<_> = lex_str("function f(a) func g (b)")
+            .into_iter()
+            .map(|x| x.1)
+            .collect();
         assert_eq!(&toks[..3], &[FunDec("f"), LParen, Ident("a")]);
         assert_eq!(&toks[4..6], &[FunDec("g"), LParen]);
         for text in [

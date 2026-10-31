@@ -25,7 +25,11 @@ fn client() -> io::Result<&'static reqwest::blocking::Client> {
 }
 
 fn open_error(url: &str, e: impl std::fmt::Display) -> io::Error {
-    let msg = format!("cannot open file `{}' for reading: {}", crate::runtime::network::redact_url(url), e);
+    let msg = format!(
+        "cannot open file `{}' for reading: {}",
+        crate::runtime::network::redact_url(url),
+        e
+    );
     io::Error::other(crate::common::InputOpenError(msg))
 }
 
@@ -36,7 +40,10 @@ pub fn open(url: &str) -> io::Result<Body> {
         .get(url)
         .send()
         .and_then(|resp| resp.error_for_status())
-        .map(|resp| Body { resp, url: crate::runtime::network::redact_url(url).into_owned() })
+        .map(|resp| Body {
+            resp,
+            url: crate::runtime::network::redact_url(url).into_owned(),
+        })
         .map_err(|e| open_error(url, without_url(e)))
 }
 
@@ -50,10 +57,16 @@ pub struct Body {
 impl Read for Body {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.resp.read(buf).map_err(|e| {
-            let timed_out = e.get_ref().and_then(|e| e.downcast_ref::<reqwest::Error>()).is_some_and(|e| e.is_timeout());
+            let timed_out = e
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<reqwest::Error>())
+                .is_some_and(|e| e.is_timeout());
             if timed_out {
                 let secs = crate::runtime::network::READ_TIMEOUT.as_secs();
-                io::Error::new(io::ErrorKind::TimedOut, format!("no data from `{}' for {}s", self.url, secs))
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("no data from `{}' for {}s", self.url, secs),
+                )
             } else {
                 e
             }

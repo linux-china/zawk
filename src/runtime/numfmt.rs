@@ -29,8 +29,7 @@ struct NumFormat {
 impl NumFormat {
     fn new(fmt: &[u8]) -> NumFormat {
         NumFormat {
-            fmt: validate_format(fmt)
-                .and_then(|(fmt, kind)| Some((CString::new(fmt).ok()?, kind))),
+            fmt: validate_format(fmt).and_then(|(fmt, kind)| Some((CString::new(fmt).ok()?, kind))),
         }
     }
     fn default_format() -> NumFormat {
@@ -122,9 +121,12 @@ fn format_with<'b>(fmt: &NumFormat, f: Float, buf: &'b mut [u8; 64]) -> std::bor
     // is given by `kind`; `dst` has room for `len` bytes.
     let print = |dst: *mut u8, len: usize| unsafe {
         match kind {
-            ArgKind::Double => {
-                libc::snprintf(dst as *mut libc::c_char, len, fmt.as_ptr(), f as libc::c_double)
-            }
+            ArgKind::Double => libc::snprintf(
+                dst as *mut libc::c_char,
+                len,
+                fmt.as_ptr(),
+                f as libc::c_double,
+            ),
             ArgKind::LongLong => libc::snprintf(
                 dst as *mut libc::c_char,
                 len,
@@ -151,7 +153,11 @@ fn format_with<'b>(fmt: &NumFormat, f: Float, buf: &'b mut [u8; 64]) -> std::bor
 /// written exactly, other values with OFMT (if `output`, i.e. for print) or CONVFMT.
 pub(crate) fn with_number_bytes<R>(f: Float, output: bool, k: impl FnOnce(&[u8]) -> R) -> R {
     if f.is_nan() {
-        return k(if f.is_sign_negative() { b"-nan" } else { b"+nan" });
+        return k(if f.is_sign_negative() {
+            b"-nan"
+        } else {
+            b"+nan"
+        });
     }
     if f.is_infinite() {
         return k(if f < 0.0 { b"-inf" } else { b"+inf" });
@@ -213,8 +219,21 @@ mod tests {
         assert!(valid(b"x=%-10.3e%%"));
         assert!(valid(b"%d"));
         assert!(valid(b"%05x"));
-        assert_eq!(validate_format(b"%5d"), Some((b"%5lld".to_vec(), ArgKind::LongLong)));
-        for bad in [&b"%s"[..], b"%Lf", b"%ld", b"%*g", b"%g %g", b"%d%f", b"abc", b"%", b"%.2f\0"] {
+        assert_eq!(
+            validate_format(b"%5d"),
+            Some((b"%5lld".to_vec(), ArgKind::LongLong))
+        );
+        for bad in [
+            &b"%s"[..],
+            b"%Lf",
+            b"%ld",
+            b"%*g",
+            b"%g %g",
+            b"%d%f",
+            b"abc",
+            b"%",
+            b"%.2f\0",
+        ] {
             assert!(!valid(bad), "{:?}", bad);
         }
     }

@@ -1,4 +1,4 @@
-use fake::{Fake};
+use fake::Fake;
 use fake::faker::address::raw::{PostCode, ZipCode};
 use fake::faker::automotive::raw::LicencePlate;
 use fake::faker::company::raw::CompanyName;
@@ -36,15 +36,9 @@ pub fn fake(name: &str, locale: &str) -> String {
                 CellNumber(EN).fake()
             }
         }
-        "email" => {
-            FreeEmail(EN).fake()
-        }
-        "ip" | "ipv4" => {
-            IPv4(EN).fake()
-        }
-        "creditcard" => {
-            CreditCardNumber().fake()
-        }
+        "email" => FreeEmail(EN).fake(),
+        "ip" | "ipv4" => IPv4(EN).fake(),
+        "creditcard" => CreditCardNumber().fake(),
         "company" => {
             if is_chinese(locale) {
                 CompanyName(ZH_CN).fake()
@@ -78,9 +72,7 @@ pub fn fake(name: &str, locale: &str) -> String {
             let name: String = Name(EN).fake();
             name.replace(" ", "-").to_string()
         }
-        _ => {
-            "".to_string()
-        }
+        _ => "".to_string(),
     };
 }
 
@@ -88,28 +80,36 @@ fn is_chinese(locale: &str) -> bool {
     locale == "ZH_CN" || locale == "CN" || locale == "ZH"
 }
 
-
-const PROVINCE_SHOT_NAMES: [char; 31] = ['京', '津', '晋', '冀', '蒙', '辽', '吉', '黑', '沪', '苏', '浙', '皖', '闽', '赣',
-    '鲁', '豫', '鄂', '湘', '粤', '桂', '琼', '渝', '川', '贵', '云', '藏', '陕', '甘', '青', '宁', '新'];
-const LICENSE_CHARS: [char; 23] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'];
+const PROVINCE_SHOT_NAMES: [char; 31] = [
+    '京', '津', '晋', '冀', '蒙', '辽', '吉', '黑', '沪', '苏', '浙', '皖', '闽', '赣', '鲁', '豫',
+    '鄂', '湘', '粤', '桂', '琼', '渝', '川', '贵', '云', '藏', '陕', '甘', '青', '宁', '新',
+];
+const LICENSE_CHARS: [char; 23] = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U',
+    'V', 'W', 'X', 'Y',
+];
 
 fn generate_chinese_plate_number() -> String {
     use rand::RngExt;
     let rng = &mut rand::rng();
     let province: &char = PROVINCE_SHOT_NAMES.choose(rng).unwrap();
     let alphabet: &char = LICENSE_CHARS.choose(rng).unwrap();
-    format!("{}{}{}{}{}{}{}", province, alphabet,
-            rng.random_range(0..=9),
-            rng.random_range(0..=9),
-            rng.random_range(0..=9),
-            rng.random_range(0..=9),
-            rng.random_range(0..=9))
+    format!(
+        "{}{}{}{}{}{}{}",
+        province,
+        alphabet,
+        rng.random_range(0..=9),
+        rng.random_range(0..=9),
+        rng.random_range(0..=9),
+        rng.random_range(0..=9),
+        rng.random_range(0..=9)
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use fake::{Fake};
     use super::*;
+    use fake::Fake;
 
     #[test]
     fn test_fake_name() {

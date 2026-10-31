@@ -136,7 +136,15 @@ pub fn sections(path: &str, opts: &Options, raw_lines: usize) -> io::Result<Sect
     let tap = LineTap::new(raw_lines);
     let (ins, format, limited) = read(path, opts, Some(&tap))?;
     let [schema, sample, summary] = ins.tables().map(|t| t.markdown());
-    Ok(Sections { rows: ins.rows, limited, schema, sample, summary, notes: ins.notes(format), lines: tap.lines() })
+    Ok(Sections {
+        rows: ins.rows,
+        limited,
+        schema,
+        sample,
+        summary,
+        notes: ins.notes(format),
+        lines: tap.lines(),
+    })
 }
 
 /// Keeps a copy of the first lines read through the readers it wraps.
@@ -147,11 +155,18 @@ struct LineTap {
 
 impl LineTap {
     fn new(max_lines: usize) -> LineTap {
-        LineTap { buf: Arc::default(), max_lines }
+        LineTap {
+            buf: Arc::default(),
+            max_lines,
+        }
     }
 
     fn wrap(&self, input: Box<dyn Read + Send>) -> Box<dyn Read + Send> {
-        Box::new(Tapped { inner: input, buf: self.buf.clone(), max_lines: self.max_lines })
+        Box::new(Tapped {
+            inner: input,
+            buf: self.buf.clone(),
+            max_lines: self.max_lines,
+        })
     }
 
     fn lines(&self) -> Vec<String> {
@@ -191,7 +206,11 @@ impl Read for Tapped {
 
 /// Reads `path` into an inspector; returns it with the format and whether reading stopped at
 /// `max_rows`. A text input is read through `tap`, when given.
-fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspector, Format, bool)> {
+fn read(
+    path: &str,
+    opts: &Options,
+    tap: Option<&LineTap>,
+) -> io::Result<(Inspector, Format, bool)> {
     let mut ins = Inspector::new(opts.sample_rows);
     let open = |path: &str| -> io::Result<Box<dyn Read + Send>> {
         let input = open_input(path)?;
@@ -201,13 +220,24 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
         })
     };
     let (format, limited) = match opts.format {
-        None | Some(Format::Database) if database::is_db_url(path) => (Format::Database, read_database(path, opts, &mut ins)?),
-        Some(Format::Database) => return Err(io::Error::other(format!("`{}' is not a database URL", path))),
+        None | Some(Format::Database) if database::is_db_url(path) => {
+            (Format::Database, read_database(path, opts, &mut ins)?)
+        }
+        Some(Format::Database) => {
+            return Err(io::Error::other(format!(
+                "`{}' is not a database URL",
+                path
+            )));
+        }
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
         Some(Format::Xlsx) => (Format::Xlsx, read_xlsx(path, opts, &mut ins)?),
         Some(format) => {
             let input = open(path)?;
-            let input = if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input };
+            let input = if format == Format::Json {
+                Box::new(json::JsonRecords::new(input, path))
+            } else {
+                input
+            };
             (format, read_text(input, format, opts, &mut ins)?)
         }
         None => {
@@ -227,7 +257,9 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
                 };
                 if format == Format::Parquet {
                     if path == "-" {
-                        return Err(io::Error::other("Parquet on standard input: use `-i parquet`"));
+                        return Err(io::Error::other(
+                            "Parquet on standard input: use `-i parquet`",
+                        ));
                     }
                     if let Some(tap) = tap {
                         // The sniffed bytes are binary, not lines.
@@ -236,7 +268,11 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
                     (format, read_parquet(path, opts, &mut ins)?)
                 } else {
                     let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
-                    let input = if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input };
+                    let input = if format == Format::Json {
+                        Box::new(json::JsonRecords::new(input, path))
+                    } else {
+                        input
+                    };
                     (format, read_text(input, format, opts, &mut ins)?)
                 }
             }
@@ -247,7 +283,11 @@ fn read(path: &str, opts: &Options, tap: Option<&LineTap>) -> io::Result<(Inspec
 
 /// The format named by the extension of `path` (after a compression extension).
 pub fn extension_format(path: &str) -> Option<Format> {
-    let path = path.split(['?', '#']).next().unwrap_or(path).to_ascii_lowercase();
+    let path = path
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase();
     let mut path = path.as_str();
     for ext in [".gz", ".zst", ".zstd", ".bz2", ".xz", ".lz4"] {
         if let Some(p) = path.strip_suffix(ext) {
@@ -277,13 +317,21 @@ fn sniff_text(prefix: &[u8]) -> Format {
     }
     let line = prefix.split(|b| *b == b'\n').next().unwrap_or_default();
     let count = |c: u8| line.iter().filter(|b| **b == c).count();
-    if count(b'\t') > count(b',') { Format::Tsv } else { Format::Csv }
+    if count(b'\t') > count(b',') {
+        Format::Tsv
+    } else {
+        Format::Csv
+    }
 }
 
 /// Opens `path` to be read as `format`: a JSON document is read as JSON Lines.
 fn open_format(path: &str, format: Format) -> io::Result<Box<dyn Read + Send>> {
     let input = open_input(path)?;
-    Ok(if format == Format::Json { Box::new(json::JsonRecords::new(input, path)) } else { input })
+    Ok(if format == Format::Json {
+        Box::new(json::JsonRecords::new(input, path))
+    } else {
+        input
+    })
 }
 
 /// Opens a file, URL, S3 object or standard input (`-`), decompressing it if needed. A JSONPath
@@ -311,7 +359,11 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
     if path != "-" {
         ParquetJson::check(path).map_err(io::Error::other)?;
     }
-    let source = if path == "-" { ParquetJson::stdin() } else { ParquetJson::file(path.to_string()) };
+    let source = if path == "-" {
+        ParquetJson::stdin()
+    } else {
+        ParquetJson::file(path.to_string())
+    };
     let mut table = source.table()?;
     for (i, (name, ty)) in table.columns().into_iter().enumerate() {
         ins.add_column(name.clone(), name, Some(ty), Some(i + 1));
@@ -359,7 +411,12 @@ fn xlsx_cell(cell: calamine::Data) -> Cell {
 fn read_database(url: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
     let mut table = database::DbTable::open(url)?;
     for (i, c) in table.columns().iter().enumerate() {
-        ins.add_column(c.name.clone(), c.name.clone(), c.db_type.clone(), Some(i + 1));
+        ins.add_column(
+            c.name.clone(),
+            c.name.clone(),
+            c.db_type.clone(),
+            Some(i + 1),
+        );
     }
     while let Some(row) = table.next_row() {
         if ins.full(opts.max_rows) {
@@ -380,7 +437,12 @@ fn db_cell(value: database::DbValue) -> Cell {
 
 /// Reads the rows of a CSV, TSV, JSON or JSON Lines input; returns whether reading stopped at
 /// `--max-rows`.
-fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_text(
+    input: Box<dyn Read + Send>,
+    format: Format,
+    opts: &Options,
+    ins: &mut Inspector,
+) -> io::Result<bool> {
     let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
     match format {
         Format::Csv => {
@@ -390,7 +452,10 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                 .from_reader(input);
             let mut record = csv::ByteRecord::new();
             let mut header = opts.header;
-            while reader.read_byte_record(&mut record).map_err(io::Error::other)? {
+            while reader
+                .read_byte_record(&mut record)
+                .map_err(io::Error::other)?
+            {
                 let fields = record.iter().map(lossy).collect();
                 if header {
                     ins.add_header(fields);
@@ -412,7 +477,10 @@ fn read_text(input: Box<dyn Read + Send>, format: Format, opts: &Options, ins: &
                     break;
                 }
                 let line = trim_eol(&line);
-                let fields = line.split(|b| *b == b'\t').map(|f| unescape_tsv(&lossy(f))).collect();
+                let fields = line
+                    .split(|b| *b == b'\t')
+                    .map(|f| unescape_tsv(&lossy(f)))
+                    .collect();
                 if header {
                     ins.add_header(fields);
                     header = false;
@@ -457,12 +525,20 @@ pub enum Sample {
     /// Records split by an input format: the `FI` keys (a CSV/TSV header line with `-H`, the
     /// keys of the first JSON object, the Parquet columns) and the fields of each record, as
     /// awk sees them (a null is "").
-    Fields { header: Option<Vec<String>>, rows: Vec<Vec<String>> },
+    Fields {
+        header: Option<Vec<String>>,
+        rows: Vec<Vec<String>>,
+    },
 }
 
 /// Reads the first `max_records` records of `path` as a run reads them: with `format` (`-i`),
 /// or as lines of text when it is `None`. With `header` (`-H`), the header line is read as well.
-pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usize) -> io::Result<Sample> {
+pub fn sample(
+    path: &str,
+    format: Option<Format>,
+    header: bool,
+    max_records: usize,
+) -> io::Result<Sample> {
     let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
     let lines = |input: Box<dyn Read + Send>, max: usize| -> io::Result<Vec<String>> {
         let mut reader = BufReader::new(input);
@@ -487,7 +563,11 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                 .from_reader(open_input(path)?);
             let mut record = csv::ByteRecord::new();
             let mut rows = Vec::new();
-            while rows.len() < wanted && reader.read_byte_record(&mut record).map_err(io::Error::other)? {
+            while rows.len() < wanted
+                && reader
+                    .read_byte_record(&mut record)
+                    .map_err(io::Error::other)?
+            {
                 rows.push(record.iter().map(lossy).collect());
             }
             rows
@@ -508,7 +588,8 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                     continue;
                 }
                 let pairs = jsonl::object_cells(line.as_bytes()).unwrap_or_default();
-                let keys = keys.get_or_insert_with(|| pairs.iter().map(|(k, _)| k.clone()).collect());
+                let keys =
+                    keys.get_or_insert_with(|| pairs.iter().map(|(k, _)| k.clone()).collect());
                 let mut row = vec![String::new(); keys.len()];
                 for (k, cell) in &pairs {
                     if let Some(i) = keys.iter().position(|x| x == k) {
@@ -517,7 +598,10 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                 }
                 rows.push(row);
             }
-            return Ok(Sample::Fields { header: Some(keys.unwrap_or_default()), rows });
+            return Ok(Sample::Fields {
+                header: Some(keys.unwrap_or_default()),
+                rows,
+            });
         }
         Some(Format::Xlsx) => xlsx::Sheet::open(path)?
             .rows
@@ -535,13 +619,20 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                     None => break,
                 }
             }
-            return Ok(Sample::Fields { header: Some(header), rows });
+            return Ok(Sample::Fields {
+                header: Some(header),
+                rows,
+            });
         }
         Some(Format::Parquet) => {
             if path != "-" {
                 ParquetJson::check(path).map_err(io::Error::other)?;
             }
-            let source = if path == "-" { ParquetJson::stdin() } else { ParquetJson::file(path.to_string()) };
+            let source = if path == "-" {
+                ParquetJson::stdin()
+            } else {
+                ParquetJson::file(path.to_string())
+            };
             let mut table = source.table()?;
             let header = table.columns().into_iter().map(|(name, _)| name).collect();
             let mut rows = Vec::new();
@@ -551,7 +642,10 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
                     None => break,
                 }
             }
-            return Ok(Sample::Fields { header: Some(header), rows });
+            return Ok(Sample::Fields {
+                header: Some(header),
+                rows,
+            });
         }
     };
     // CSV, TSV and xlsx: the header line, with `-H`.
@@ -562,7 +656,10 @@ pub fn sample(path: &str, format: Option<Format>, header: bool, max_records: usi
         }
         h
     });
-    Ok(Sample::Fields { header: header_row, rows })
+    Ok(Sample::Fields {
+        header: header_row,
+        rows,
+    })
 }
 
 fn trim_eol(line: &[u8]) -> &[u8] {
@@ -580,7 +677,9 @@ fn split_type(header: &str) -> (String, Option<String>) {
     if let Some((name, ty)) = header.rsplit_once(':') {
         let ty = ty.trim();
         let valid = ty.starts_with(|c: char| c.is_ascii_alphabetic())
-            && ty.chars().all(|c| c.is_ascii_alphanumeric() || "_(), ".contains(c));
+            && ty
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_(), ".contains(c));
         if !name.trim().is_empty() && valid {
             return (name.trim().to_string(), Some(ty.to_ascii_uppercase()));
         }
@@ -626,21 +725,41 @@ impl Inspector {
         max_rows.is_some_and(|max| self.rows >= max)
     }
 
-    fn add_column(&mut self, name: String, key: String, declared: Option<String>, field: Option<usize>) -> usize {
+    fn add_column(
+        &mut self,
+        name: String,
+        key: String,
+        declared: Option<String>,
+        field: Option<usize>,
+    ) -> usize {
         let i = self.columns.len();
         self.index.entry(key.clone()).or_insert(i);
         let mut stats = Stats::default();
         // the column is null in the rows read before it appeared
         stats.nulls = self.rows;
-        self.columns.push(Column { name, key, declared, field, stats });
+        self.columns.push(Column {
+            name,
+            key,
+            declared,
+            field,
+            stats,
+        });
         i
     }
 
     fn add_header(&mut self, fields: Vec<String>) {
         for (i, header) in fields.into_iter().enumerate() {
-            let header = if i == 0 { header.trim_start_matches('\u{feff}').to_string() } else { header };
+            let header = if i == 0 {
+                header.trim_start_matches('\u{feff}').to_string()
+            } else {
+                header
+            };
             let (name, declared) = split_type(&header);
-            let name = if name.is_empty() { format!("c{}", i + 1) } else { name };
+            let name = if name.is_empty() {
+                format!("c{}", i + 1)
+            } else {
+                name
+            };
             self.add_column(name, header, declared, Some(i + 1));
         }
     }
@@ -654,7 +773,11 @@ impl Inspector {
                 Some(i) => *i,
                 None => {
                     // keys of the first record are the fields $1..$n
-                    let field = if first { Some(self.columns.len() + 1) } else { None };
+                    let field = if first {
+                        Some(self.columns.len() + 1)
+                    } else {
+                        None
+                    };
                     self.add_column(key.clone(), key, None, field)
                 }
             };
@@ -668,7 +791,12 @@ impl Inspector {
 
     fn add_row(&mut self, cells: Vec<Cell>) {
         for i in self.columns.len()..cells.len() {
-            self.add_column(format!("c{}", i + 1), format!("c{}", i + 1), None, Some(i + 1));
+            self.add_column(
+                format!("c{}", i + 1),
+                format!("c{}", i + 1),
+                None,
+                Some(i + 1),
+            );
         }
         if self.samples.len() < self.sample_rows {
             let sample = (0..self.columns.len())
@@ -691,7 +819,11 @@ impl Inspector {
     fn report(&self, path: &str, format: Format, limited: bool, style: Style) -> String {
         let md = style == Style::Markdown;
         let mut out = String::new();
-        let rows = if limited { format!("{} (stopped at --max-rows)", self.rows) } else { self.rows.to_string() };
+        let rows = if limited {
+            format!("{} (stopped at --max-rows)", self.rows)
+        } else {
+            self.rows.to_string()
+        };
         let path = crate::runtime::network::redact_url(path);
         let reader = match format.zawk_options() {
             "" => format!("zawk '...' '{}'", path),
@@ -699,17 +831,37 @@ impl Inspector {
         };
         if md {
             out.push_str(&format!("# Inspect `{}`\n\n", path));
-            out.push_str(&format!("- Format: {} (read with `{}`)\n", format.name(), reader));
-            out.push_str(&format!("- Rows: {}\n- Columns: {}\n", rows, self.columns.len()));
+            out.push_str(&format!(
+                "- Format: {} (read with `{}`)\n",
+                format.name(),
+                reader
+            ));
+            out.push_str(&format!(
+                "- Rows: {}\n- Columns: {}\n",
+                rows,
+                self.columns.len()
+            ));
         } else {
             out.push_str(&format!("File:    {}\n", path));
-            out.push_str(&format!("Format:  {} (read with: {})\n", format.name(), reader));
-            out.push_str(&format!("Rows:    {}\nColumns: {}\n", rows, self.columns.len()));
+            out.push_str(&format!(
+                "Format:  {} (read with: {})\n",
+                format.name(),
+                reader
+            ));
+            out.push_str(&format!(
+                "Rows:    {}\nColumns: {}\n",
+                rows,
+                self.columns.len()
+            ));
         }
 
         let [schema, sample, summary] = self.tables();
         let sample_title = format!("Sample (first {} rows)", self.samples.len());
-        for (title, table) in [("Schema", &schema), (sample_title.as_str(), &sample), ("Summary", &summary)] {
+        for (title, table) in [
+            ("Schema", &schema),
+            (sample_title.as_str(), &sample),
+            ("Summary", &summary),
+        ] {
             if md {
                 out.push_str(&format!("\n## {}\n\n", title));
                 out.push_str(&table.markdown());
@@ -754,13 +906,31 @@ impl Inspector {
             row.resize(self.columns.len(), "NULL".to_string());
         }
         let summary_headers = [
-            "column_name", "column_type", "min", "max", "approx_unique", "avg", "std", "q25", "q50",
-            "q75", "count", "null_percentage",
+            "column_name",
+            "column_type",
+            "min",
+            "max",
+            "approx_unique",
+            "avg",
+            "std",
+            "q25",
+            "q50",
+            "q75",
+            "count",
+            "null_percentage",
         ];
         let summary = Table {
             headers: summary_headers.iter().map(|s| s.to_string()).collect(),
-            right: summary_headers.iter().map(|h| !matches!(*h, "column_name" | "column_type" | "min" | "max")).collect(),
-            rows: self.columns.iter().zip(&types).map(|(c, ty)| c.stats.summary(&c.name, ty, self.rows)).collect(),
+            right: summary_headers
+                .iter()
+                .map(|h| !matches!(*h, "column_name" | "column_type" | "min" | "max"))
+                .collect(),
+            rows: self
+                .columns
+                .iter()
+                .zip(&types)
+                .map(|(c, ty)| c.stats.summary(&c.name, ty, self.rows))
+                .collect(),
         };
 
         [schema, sample, summary]
@@ -770,7 +940,11 @@ impl Inspector {
         let mut notes = vec![
             "Values are shown as awk sees them: booleans are 1/0, and NULL (null, missing or an empty CSV field) is the empty string.".to_string(),
         ];
-        if let Some(c) = self.columns.iter().find(|c| c.declared.is_some() && matches!(format, Format::Csv | Format::Tsv)) {
+        if let Some(c) = self
+            .columns
+            .iter()
+            .find(|c| c.declared.is_some() && matches!(format, Format::Csv | Format::Tsv))
+        {
             notes.push(format!(
                 "Column types come from `name:TYPE` headers. With -H, `FI` keys are the whole header text, e.g. `$FI[\"{}\"]`, or use the field number.",
                 c.key
@@ -783,10 +957,21 @@ impl Inspector {
             notes.push("Database rows are read as CSV with a header line of the column names: `$FI[\"name\"]` or the field number; BLOB values are the empty string.".to_string());
         }
         if self.non_objects > 0 {
-            let lines = if self.non_objects == 1 { "1 line is".to_string() } else { format!("{} lines are", self.non_objects) };
-            notes.push(format!("{} not a JSON object: no fields (NF=0), not counted in the rows.", lines));
+            let lines = if self.non_objects == 1 {
+                "1 line is".to_string()
+            } else {
+                format!("{} lines are", self.non_objects)
+            };
+            notes.push(format!(
+                "{} not a JSON object: no fields (NF=0), not counted in the rows.",
+                lines
+            ));
         }
-        if self.columns.iter().any(|c| c.stats.distinct.exact.is_none()) {
+        if self
+            .columns
+            .iter()
+            .any(|c| c.stats.distinct.exact.is_none())
+        {
             notes.push("approx_unique is a HyperLogLog estimate for columns with more than 100000 distinct values.".to_string());
         }
         notes
@@ -795,7 +980,9 @@ impl Inspector {
 
 impl Column {
     fn data_type(&self) -> String {
-        self.declared.clone().unwrap_or_else(|| self.stats.inferred_type().to_string())
+        self.declared
+            .clone()
+            .unwrap_or_else(|| self.stats.inferred_type().to_string())
     }
 }
 
@@ -814,9 +1001,12 @@ fn is_numeric_type(t: &str) -> bool {
     if t.starts_with("INTERVAL") {
         return false;
     }
-    ["INT", "UINT", "BIGINT", "SMALLINT", "TINYINT", "LONG", "FLOAT", "DOUBLE", "REAL", "DECIMAL", "NUMERIC"]
-        .iter()
-        .any(|p| t.starts_with(p))
+    [
+        "INT", "UINT", "BIGINT", "SMALLINT", "TINYINT", "LONG", "FLOAT", "DOUBLE", "REAL",
+        "DECIMAL", "NUMERIC",
+    ]
+    .iter()
+    .any(|p| t.starts_with(p))
 }
 
 // The shapes of values, for type inference (a bit set).
@@ -853,15 +1043,22 @@ fn text_shape(s: &str) -> u8 {
         return DATE;
     }
     if b.len() >= 16 && b[4] == b'-' {
-        let timestamp = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"]
-            .iter()
-            .any(|f| NaiveDateTime::parse_from_str(t, f).is_ok());
+        let timestamp = [
+            "%Y-%m-%d %H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%S%.f",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%dT%H:%M",
+        ]
+        .iter()
+        .any(|f| NaiveDateTime::parse_from_str(t, f).is_ok());
         if timestamp || DateTime::parse_from_rfc3339(t).is_ok() {
             return TIMESTAMP;
         }
     }
     if (5..=18).contains(&b.len()) && b[2] == b':' {
-        if NaiveTime::parse_from_str(t, "%H:%M:%S%.f").is_ok() || NaiveTime::parse_from_str(t, "%H:%M").is_ok() {
+        if NaiveTime::parse_from_str(t, "%H:%M:%S%.f").is_ok()
+            || NaiveTime::parse_from_str(t, "%H:%M").is_ok()
+        {
             return TIME;
         }
     }
@@ -905,7 +1102,10 @@ impl Stats {
                 let shape = text_shape(s) & (DATE | TIMESTAMP | TIME);
                 (s.as_str(), if shape == 0 { OTHER } else { shape })
             }
-            Cell::Num(s) => (s.as_str(), if s.parse::<i64>().is_ok() { INT } else { FLOAT }),
+            Cell::Num(s) => (
+                s.as_str(),
+                if s.parse::<i64>().is_ok() { INT } else { FLOAT },
+            ),
             Cell::Bool(_) => (awk_text(cell), BOOL),
             Cell::Nested(s) => (s.as_str(), NESTED),
         };
@@ -966,7 +1166,10 @@ impl Stats {
     fn summary(&self, name: &str, ty: &str, rows: u64) -> Vec<String> {
         let numeric = is_numeric_type(ty) && self.num_n > 0;
         let (min, max) = if numeric {
-            (self.num_min.as_ref().map(|m| m.1.clone()), self.num_max.as_ref().map(|m| m.1.clone()))
+            (
+                self.num_min.as_ref().map(|m| m.1.clone()),
+                self.num_max.as_ref().map(|m| m.1.clone()),
+            )
         } else {
             (self.text_min.clone(), self.text_max.clone())
         };
@@ -981,13 +1184,21 @@ impl Stats {
             let mut sorted = self.reservoir.clone();
             sorted.sort_by(f64::total_cmp);
             let q = |p: f64| fmt_num(sorted[(p * (sorted.len() - 1) as f64).round() as usize]);
-            let std = if self.num_n > 1 { fmt_num((self.m2 / (self.num_n - 1) as f64).sqrt()) } else { String::new() };
+            let std = if self.num_n > 1 {
+                fmt_num((self.m2 / (self.num_n - 1) as f64).sqrt())
+            } else {
+                String::new()
+            };
             row.extend([fmt_num(self.mean), std, q(0.25), q(0.5), q(0.75)]);
         } else {
             row.extend(std::iter::repeat_n(String::new(), 5));
         }
         row.push(rows.to_string());
-        let pct = if rows == 0 { 0.0 } else { self.nulls as f64 * 100.0 / rows as f64 };
+        let pct = if rows == 0 {
+            0.0
+        } else {
+            self.nulls as f64 * 100.0 / rows as f64
+        };
         row.push(format!("{:.2}%", pct));
         row
     }
@@ -1019,7 +1230,10 @@ const HLL_BITS: u32 = 12;
 
 impl Default for Distinct {
     fn default() -> Distinct {
-        Distinct { exact: Some(HashSet::new()), registers: vec![0; 1 << HLL_BITS] }
+        Distinct {
+            exact: Some(HashSet::new()),
+            registers: vec![0; 1 << HLL_BITS],
+        }
     }
 }
 
@@ -1108,7 +1322,11 @@ fn display_width(s: &str) -> usize {
 
 fn pad(s: &str, width: usize, right: bool) -> String {
     let fill = " ".repeat(width.saturating_sub(display_width(s)));
-    if right { format!("{}{}", fill, s) } else { format!("{}{}", s, fill) }
+    if right {
+        format!("{}{}", fill, s)
+    } else {
+        format!("{}{}", s, fill)
+    }
 }
 
 /// Renders records as a table with box-drawing borders (`-o table`): the first record is the
@@ -1125,21 +1343,38 @@ pub fn boxed_table(mut records: Vec<Vec<String>>) -> String {
     let headers = records.remove(0);
     let right = (0..columns)
         .map(|i| {
-            let mut values = records.iter().map(|r| r[i].as_str()).filter(|s| !s.is_empty()).peekable();
+            let mut values = records
+                .iter()
+                .map(|r| r[i].as_str())
+                .filter(|s| !s.is_empty())
+                .peekable();
             values.peek().is_some() && values.all(|s| matches!(text_shape(s), INT | FLOAT))
         })
         .collect();
-    Table { headers, rows: records, right }.boxed_with(usize::MAX)
+    Table {
+        headers,
+        rows: records,
+        right,
+    }
+    .boxed_with(usize::MAX)
 }
 
 impl Table {
     fn cells(&self, max: usize, escape_pipes: bool) -> (Vec<String>, Vec<Vec<String>>) {
         let fix = |s: &String| {
             let s = cell_text(s, max);
-            if escape_pipes { s.replace('|', "\\|") } else { s }
+            if escape_pipes {
+                s.replace('|', "\\|")
+            } else {
+                s
+            }
         };
         let headers = self.headers.iter().map(fix).collect();
-        let rows = self.rows.iter().map(|r| r.iter().map(fix).collect()).collect();
+        let rows = self
+            .rows
+            .iter()
+            .map(|r| r.iter().map(fix).collect())
+            .collect();
         (headers, rows)
     }
 
@@ -1151,7 +1386,13 @@ impl Table {
     fn boxed_with(&self, max: usize) -> String {
         let (headers, rows) = self.cells(max, false);
         let widths: Vec<usize> = (0..headers.len())
-            .map(|i| rows.iter().map(|r| display_width(&r[i])).chain([display_width(&headers[i])]).max().unwrap_or(0))
+            .map(|i| {
+                rows.iter()
+                    .map(|r| display_width(&r[i]))
+                    .chain([display_width(&headers[i])])
+                    .max()
+                    .unwrap_or(0)
+            })
             .collect();
         let rule = |l: &str, m: &str, r: &str| {
             let parts: Vec<String> = widths.iter().map(|w| "─".repeat(w + 2)).collect();
@@ -1178,7 +1419,11 @@ impl Table {
     fn markdown(&self) -> String {
         let (headers, rows) = self.cells(MARKDOWN_CELL_WIDTH, true);
         let mut out = format!("| {} |\n", headers.join(" | "));
-        let delims: Vec<&str> = self.right.iter().map(|r| if *r { "---:" } else { "---" }).collect();
+        let delims: Vec<&str> = self
+            .right
+            .iter()
+            .map(|r| if *r { "---:" } else { "---" })
+            .collect();
         out.push_str(&format!("| {} |\n", delims.join(" | ")));
         for row in &rows {
             out.push_str(&format!("| {} |\n", row.join(" | ")));
@@ -1207,8 +1452,14 @@ mod tests {
 
     #[test]
     fn header_types() {
-        assert_eq!(split_type("age:INT64"), ("age".to_string(), Some("INT64".to_string())));
-        assert_eq!(split_type("price:decimal(10,2)"), ("price".to_string(), Some("DECIMAL(10,2)".to_string())));
+        assert_eq!(
+            split_type("age:INT64"),
+            ("age".to_string(), Some("INT64".to_string()))
+        );
+        assert_eq!(
+            split_type("price:decimal(10,2)"),
+            ("price".to_string(), Some("DECIMAL(10,2)".to_string()))
+        );
         assert_eq!(split_type("name"), ("name".to_string(), None));
         assert_eq!(split_type("url:"), ("url:".to_string(), None));
     }

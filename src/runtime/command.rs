@@ -38,7 +38,11 @@ pub(crate) fn register_environ(environ: &StrMap<'_, Str<'_>>) {
 pub(crate) fn command_env() -> Option<CommandEnv> {
     let map = ENVIRON.with(|e| e.borrow().as_ref().and_then(Weak::upgrade))?;
     let map = map.borrow();
-    Some(map.iter().map(|(k, v)| (env_os_string(k), env_os_string(v))).collect())
+    Some(
+        map.iter()
+            .map(|(k, v)| (env_os_string(k), env_os_string(v)))
+            .collect(),
+    )
 }
 
 #[cfg(unix)]
@@ -49,7 +53,8 @@ fn env_os_string(s: &Str) -> OsString {
 
 #[cfg(not(unix))]
 fn env_os_string(s: &Str) -> OsString {
-    s.with_bytes(|bs| String::from_utf8_lossy(bs).into_owned()).into()
+    s.with_bytes(|bs| String::from_utf8_lossy(bs).into_owned())
+        .into()
 }
 
 fn prepare_command(prog: &str, env: Option<&CommandEnv>) -> io::Result<Command> {
@@ -81,18 +86,30 @@ pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
     if let Ok(mut command) = prepare_command(cmd, command_env().as_ref()) {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Ok(output) = command.output() {
-            map.insert(Str::from("code"), Str::from(exit_status_code(output.status).to_string()));
+            map.insert(
+                Str::from("code"),
+                Str::from(exit_status_code(output.status).to_string()),
+            );
             if !output.stdout.is_empty() {
-                map.insert(Str::from("stdout"), Str::from(String::from_utf8_lossy(&output.stdout).to_string()));
+                map.insert(
+                    Str::from("stdout"),
+                    Str::from(String::from_utf8_lossy(&output.stdout).to_string()),
+                );
             }
             if !output.stderr.is_empty() {
-                map.insert(Str::from("stderr"), Str::from(String::from_utf8_lossy(&output.stderr).to_string()));
+                map.insert(
+                    Str::from("stderr"),
+                    Str::from(String::from_utf8_lossy(&output.stderr).to_string()),
+                );
             }
         } else {
             map.insert(Str::from("stderr"), Str::from("Failed to execute command"));
         }
     } else {
-        map.insert(Str::from("stderr"), Str::from("Failed to construct command line"));
+        map.insert(
+            Str::from("stderr"),
+            Str::from("Failed to construct command line"),
+        );
     }
     StrMap::from(map)
 }

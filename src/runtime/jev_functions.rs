@@ -16,8 +16,10 @@ use std::sync::{LazyLock, Mutex, OnceLock};
 
 use serde_json::Value;
 
+use crate::runtime::jev::{
+    JEV_THRESHOLD, Question, Questions, State, TypeSafeClient, TypeSafeError,
+};
 use crate::runtime::{CostModel, StrLru};
-use crate::runtime::jev::{Question, Questions, State, TypeSafeClient, TypeSafeError, JEV_THRESHOLD};
 
 const QUESTION_ID: &str = "q";
 
@@ -35,7 +37,8 @@ const ANSWER_COST: CostModel = CostModel {
 };
 
 /// Answers by request: the same record asked the same question is evaluated once.
-static CACHE: LazyLock<Mutex<StrLru<Answer>>> = LazyLock::new(|| Mutex::new(StrLru::new(CACHE_BUDGET, ANSWER_COST)));
+static CACHE: LazyLock<Mutex<StrLru<Answer>>> =
+    LazyLock::new(|| Mutex::new(StrLru::new(CACHE_BUDGET, ANSWER_COST)));
 
 #[derive(Clone)]
 enum Answer {
@@ -87,7 +90,10 @@ fn options_of(options: &str) -> Vec<(String, Option<String>)> {
             .collect(),
         Ok(Value::String(text)) => text.split(',').map(|name| plain(name.to_owned())).collect(),
         Ok(value) => vec![plain(value_text(&value))],
-        Err(_) => options.split(',').map(|name| plain(name.to_owned())).collect(),
+        Err(_) => options
+            .split(',')
+            .map(|name| plain(name.to_owned()))
+            .collect(),
     }
     .into_iter()
     .filter(|(name, _)| !name.is_empty())
@@ -107,9 +113,21 @@ fn ask(record: &str, question: Question) -> Result<Answer, String> {
         .evaluate(&state, questions)
         .map_err(|e: TypeSafeError| e.to_string())?;
     let answer = match kind {
-        Question::Noul { .. } => Answer::Probability(evaluation.yes_no(QUESTION_ID).map_err(|e| e.to_string())?),
-        Question::Choice { .. } => Answer::Choice(evaluation.choice(QUESTION_ID).map_err(|e| e.to_string())?.choice),
-        Question::Score { .. } => Answer::Score(evaluation.score(QUESTION_ID).map_err(|e| e.to_string())?.score),
+        Question::Noul { .. } => {
+            Answer::Probability(evaluation.yes_no(QUESTION_ID).map_err(|e| e.to_string())?)
+        }
+        Question::Choice { .. } => Answer::Choice(
+            evaluation
+                .choice(QUESTION_ID)
+                .map_err(|e| e.to_string())?
+                .choice,
+        ),
+        Question::Score { .. } => Answer::Score(
+            evaluation
+                .score(QUESTION_ID)
+                .map_err(|e| e.to_string())?
+                .score,
+        ),
     };
     CACHE.lock().unwrap().insert(cache_key, answer.clone());
     Ok(answer)
@@ -163,7 +181,10 @@ pub fn jev_choice(record: &str, instructions: &str, options: &str) -> String {
         report("jev_choice", "no options given");
         return String::new();
     }
-    let question = Question::Choice { instructions: instructions.to_owned(), criteria };
+    let question = Question::Choice {
+        instructions: instructions.to_owned(),
+        criteria,
+    };
     match ask(record, question) {
         Ok(Answer::Choice(choice)) => choice,
         Ok(_) => String::new(),
@@ -188,7 +209,10 @@ pub fn jev_score(record: &str, instructions: &str, levels: &str) -> f64 {
         report("jev_score", "at least two levels are required");
         return -1.0;
     }
-    let question = Question::Score { instructions: instructions.to_owned(), criteria };
+    let question = Question::Score {
+        instructions: instructions.to_owned(),
+        criteria,
+    };
     match ask(record, question) {
         Ok(Answer::Score(score)) => score,
         Ok(_) => -1.0,
@@ -218,7 +242,10 @@ mod tests {
         );
         assert_eq!(
             options_of("{\"billing\":\"billing\",\"security\":\"account access\"}"),
-            vec![("billing".to_owned(), None), ("security".to_owned(), Some("account access".to_owned()))]
+            vec![
+                ("billing".to_owned(), None),
+                ("security".to_owned(), Some("account access".to_owned()))
+            ]
         );
         assert_eq!(
             options_of("\"budget, premium\""),
@@ -243,11 +270,19 @@ mod tests {
         assert!((0.0..=1.0).contains(&yes));
         assert_eq!(jev(record, "the name is European", 0.0), 1);
         let text = "\"I was charged twice for my subscription this month!\"";
-        let team = jev_choice(text, "which team should handle this?", "[\"billing\",\"technical\",\"security\",\"sales\"]");
+        let team = jev_choice(
+            text,
+            "which team should handle this?",
+            "[\"billing\",\"technical\",\"security\",\"sales\"]",
+        );
         println!("jev_choice: {team}");
         assert_eq!(team, "billing");
         let product = "\"Hand-stitched Italian leather handbag with 18k gold hardware\"";
-        let score = jev_score(product, "how luxurious is this product?", "[\"budget\",\"mid-range\",\"premium\",\"luxury\"]");
+        let score = jev_score(
+            product,
+            "how luxurious is this product?",
+            "[\"budget\",\"mid-range\",\"premium\",\"luxury\"]",
+        );
         println!("jev_score: {score}");
         assert!(score >= 0.0);
     }

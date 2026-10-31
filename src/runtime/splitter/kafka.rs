@@ -15,12 +15,14 @@ use std::time::{Duration, Instant};
 
 use confluent_kafka::common::header::{Header, Headers};
 use confluent_kafka::common::serialization::ByteArrayDeserializer;
-use confluent_kafka::consumer::{CloseOptions, Consumer, ConsumerConfig, GroupProtocol, KafkaConsumer};
+use confluent_kafka::consumer::{
+    CloseOptions, Consumer, ConsumerConfig, GroupProtocol, KafkaConsumer,
+};
 use url::Url;
 use uuid::Uuid;
 
-use super::message::{catch_sigint, MessageSource, Received, INTERRUPTED, WAITING};
-use crate::runtime::network::{is_power_of_ten, redact_url, KAFKA_RUNTIME};
+use super::message::{INTERRUPTED, MessageSource, Received, WAITING, catch_sigint};
+use crate::runtime::network::{KAFKA_RUNTIME, is_power_of_ten, redact_url};
 
 const DEFAULT_PORT: u16 = 9092;
 /// How long to wait for the broker, at start and when leaving the group.
@@ -44,14 +46,22 @@ pub(crate) fn endpoint(parsed: &Url, url: &str) -> Result<(String, String), Stri
         return Err(format!("missing host in {:?}", redact_url(url)));
     };
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(format!("user and password are not supported in {:?}", redact_url(url)));
+        return Err(format!(
+            "user and password are not supported in {:?}",
+            redact_url(url)
+        ));
     }
     let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
-    let topic = urlencoding::decode(path).map_err(|e| e.to_string())?.into_owned();
+    let topic = urlencoding::decode(path)
+        .map_err(|e| e.to_string())?
+        .into_owned();
     if topic.is_empty() {
         return Err(format!("missing topic in {:?}", redact_url(url)));
     }
-    Ok((format!("{}:{}", host, parsed.port().unwrap_or(DEFAULT_PORT)), topic))
+    Ok((
+        format!("{}:{}", host, parsed.port().unwrap_or(DEFAULT_PORT)),
+        topic,
+    ))
 }
 
 /// The record key of a `kafka://host[:port]/topic[?key=value]` URL given to `publish`.
@@ -60,7 +70,13 @@ pub(crate) fn publish_key(parsed: &Url, url: &str) -> Result<Option<String>, Str
     for (name, value) in parsed.query_pairs() {
         match &*name {
             "key" if !value.is_empty() => key = Some(value.into_owned()),
-            _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
+            _ => {
+                return Err(format!(
+                    "unsupported query parameter {:?} in {:?}",
+                    name,
+                    redact_url(url)
+                ));
+            }
         }
     }
     Ok(key)
@@ -77,7 +93,8 @@ struct Target {
 
 impl Target {
     fn parse(url: &str) -> Result<Target, String> {
-        let parsed = Url::parse(url).map_err(|e| format!("invalid URL {:?}: {}", redact_url(url), e))?;
+        let parsed =
+            Url::parse(url).map_err(|e| format!("invalid URL {:?}: {}", redact_url(url), e))?;
         let (bootstrap_servers, topic) = endpoint(&parsed, url)?;
         let mut group = None;
         let mut offset = "latest".to_string();
@@ -85,10 +102,21 @@ impl Target {
             match &*name {
                 "group" if !value.is_empty() => group = Some(value.into_owned()),
                 "offset" if value == "earliest" || value == "latest" => offset = value.into_owned(),
-                _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
+                _ => {
+                    return Err(format!(
+                        "unsupported query parameter {:?} in {:?}",
+                        name,
+                        redact_url(url)
+                    ));
+                }
             }
         }
-        Ok(Target { bootstrap_servers, topic, group, offset })
+        Ok(Target {
+            bootstrap_servers,
+            topic,
+            group,
+            offset,
+        })
     }
 }
 
@@ -128,22 +156,39 @@ impl Drop for Subscription {
 
 impl Subscription {
     pub fn new(url: &str) -> Result<Subscription, String> {
-        let Target { bootstrap_servers, topic, group, offset } = Target::parse(url)?;
+        let Target {
+            bootstrap_servers,
+            topic,
+            group,
+            offset,
+        } = Target::parse(url)?;
         let group = group.unwrap_or_else(|| format!("zawk-{}", Uuid::new_v4()));
         let props = HashMap::from([
-            (ConsumerConfig::BOOTSTRAP_SERVERS_CONFIG.to_string(), bootstrap_servers.clone()),
+            (
+                ConsumerConfig::BOOTSTRAP_SERVERS_CONFIG.to_string(),
+                bootstrap_servers.clone(),
+            ),
             (ConsumerConfig::GROUP_ID_CONFIG.to_string(), group),
-            (ConsumerConfig::GROUP_PROTOCOL_CONFIG.to_string(), GroupProtocol::Consumer.to_string()),
+            (
+                ConsumerConfig::GROUP_PROTOCOL_CONFIG.to_string(),
+                GroupProtocol::Consumer.to_string(),
+            ),
             (ConsumerConfig::AUTO_OFFSET_RESET_CONFIG.to_string(), offset),
             // A record is committed once it is returned: one at a time, the records left when
             // SIGINT ends the input are read again by the next run of the group.
-            (ConsumerConfig::MAX_POLL_RECORDS_CONFIG.to_string(), "1".to_string()),
+            (
+                ConsumerConfig::MAX_POLL_RECORDS_CONFIG.to_string(),
+                "1".to_string(),
+            ),
         ]);
         let consumer = KAFKA_RUNTIME.block_on(async {
             let config = ConsumerConfig::new(&props).map_err(|e| e.to_string())?;
-            let mut consumer =
-                KafkaConsumer::new(config, ByteArrayDeserializer::new(), ByteArrayDeserializer::new())
-                    .map_err(|e| e.to_string())?;
+            let mut consumer = KafkaConsumer::new(
+                config,
+                ByteArrayDeserializer::new(),
+                ByteArrayDeserializer::new(),
+            )
+            .map_err(|e| e.to_string())?;
             // the client retries for ever: tell now if the broker cannot be reached
             consumer
                 .list_topics_with_timeout(TIMEOUT)
@@ -167,7 +212,10 @@ impl Subscription {
     fn broker_answered(&mut self) {
         self.next_probe = Instant::now() + PROBE_INTERVAL;
         if self.health.recovered() {
-            eprintln_ignore!("zawk: Kafka broker {} is answering again", self.bootstrap_servers);
+            eprintln_ignore!(
+                "zawk: Kafka broker {} is answering again",
+                self.bootstrap_servers
+            );
         }
     }
 
@@ -185,7 +233,9 @@ impl Subscription {
 
     /// Tell an input without messages from a broker that is gone.
     fn probe_broker(&mut self) {
-        let Some(consumer) = self.consumer.as_mut() else { return };
+        let Some(consumer) = self.consumer.as_mut() else {
+            return;
+        };
         WAITING.store(true, Ordering::SeqCst);
         let answer = KAFKA_RUNTIME.block_on(consumer.list_topics_with_timeout(PROBE_TIMEOUT));
         WAITING.store(false, Ordering::SeqCst);
@@ -197,8 +247,11 @@ impl Subscription {
 
     /// Commit the offsets and leave the group, without waiting for the session to time out.
     fn close(&mut self) {
-        let Some(mut consumer) = self.consumer.take() else { return };
-        let closed = KAFKA_RUNTIME.block_on(consumer.close_with_options(CloseOptions::new_with_timeout(TIMEOUT)));
+        let Some(mut consumer) = self.consumer.take() else {
+            return;
+        };
+        let closed = KAFKA_RUNTIME
+            .block_on(consumer.close_with_options(CloseOptions::new_with_timeout(TIMEOUT)));
         if let Err(e) = closed {
             eprintln_ignore!("zawk: warning: failed to close Kafka consumer: {}", e);
         }
@@ -232,12 +285,18 @@ impl MessageSource for Subscription {
                                     values.push_str(", ");
                                     values.push_str(&value);
                                 }
-                                None => headers.push((header.key().to_string(), value.into_owned())),
+                                None => {
+                                    headers.push((header.key().to_string(), value.into_owned()))
+                                }
                             }
                         }
                         // a tombstone has no value: an empty payload, without records
                         let payload = record.value().cloned().unwrap_or_default();
-                        return Some(Received { subject: record.topic().to_string(), headers, payload });
+                        return Some(Received {
+                            subject: record.topic().to_string(),
+                            headers,
+                            payload,
+                        });
                     }
                     if Instant::now() >= self.next_probe {
                         self.probe_broker();
@@ -264,9 +323,11 @@ mod tests {
     use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
 
     use super::*;
-    use crate::runtime::splitter::message::{chunk_size, current_message, payload_reader, MessageReader};
-    use crate::runtime::splitter::regex::RegexSplitter;
     use crate::runtime::splitter::LineReader;
+    use crate::runtime::splitter::message::{
+        MessageReader, chunk_size, current_message, payload_reader,
+    };
+    use crate::runtime::splitter::regex::RegexSplitter;
     use crate::runtime::{RegexCache, Str};
 
     #[test]
@@ -316,29 +377,60 @@ mod tests {
         assert!(error("kafka://localhost:9092/").contains("missing topic"));
         assert!(error("kafka://user:secret@localhost:9092/logs").contains("not supported"));
         assert!(!error("kafka://user:secret@localhost:9092/logs").contains("secret"));
-        assert!(error("kafka://host/logs?queue=a").contains("unsupported query parameter \"queue\""));
-        assert!(error("kafka://host/logs?group=").contains("unsupported query parameter \"group\""));
-        assert!(error("kafka://host/logs?offset=none").contains("unsupported query parameter \"offset\""));
+        assert!(
+            error("kafka://host/logs?queue=a").contains("unsupported query parameter \"queue\"")
+        );
+        assert!(
+            error("kafka://host/logs?group=").contains("unsupported query parameter \"group\"")
+        );
+        assert!(
+            error("kafka://host/logs?offset=none")
+                .contains("unsupported query parameter \"offset\"")
+        );
     }
 
     #[test]
     fn test_publish_key() {
         let key = |url: &str| publish_key(&Url::parse(url).unwrap(), url);
         assert_eq!(key("kafka://broker/logs"), Ok(None));
-        assert_eq!(key("kafka://broker/logs?key=user1"), Ok(Some("user1".to_string())));
-        assert_eq!(key("kafka://broker/logs?key=a%26b%20c"), Ok(Some("a&b c".to_string())));
-        assert!(key("kafka://broker/logs?key=").unwrap_err().contains("unsupported query parameter \"key\""));
-        assert!(key("kafka://broker/logs?group=g1").unwrap_err().contains("unsupported query parameter \"group\""));
-        assert!(key("kafka://broker/logs?key=a&acks=1").unwrap_err().contains("unsupported query parameter \"acks\""));
+        assert_eq!(
+            key("kafka://broker/logs?key=user1"),
+            Ok(Some("user1".to_string()))
+        );
+        assert_eq!(
+            key("kafka://broker/logs?key=a%26b%20c"),
+            Ok(Some("a&b c".to_string()))
+        );
+        assert!(
+            key("kafka://broker/logs?key=")
+                .unwrap_err()
+                .contains("unsupported query parameter \"key\"")
+        );
+        assert!(
+            key("kafka://broker/logs?group=g1")
+                .unwrap_err()
+                .contains("unsupported query parameter \"group\"")
+        );
+        assert!(
+            key("kafka://broker/logs?key=a&acks=1")
+                .unwrap_err()
+                .contains("unsupported query parameter \"acks\"")
+        );
     }
 
     fn send(topic: &str, records: &[(&str, &[(&str, &str)])]) {
-        let props = HashMap::from([("bootstrap.servers".to_string(), "localhost:9092".to_string())]);
+        let props = HashMap::from([(
+            "bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        )]);
         KAFKA_RUNTIME.block_on(async {
             let config = ProducerConfig::new(&props).unwrap();
-            let producer =
-                KafkaProducer::<String, String>::new(config, StringSerializer::default(), StringSerializer::default())
-                    .unwrap();
+            let producer = KafkaProducer::<String, String>::new(
+                config,
+                StringSerializer::default(),
+                StringSerializer::default(),
+            )
+            .unwrap();
             for (value, headers) in records {
                 let headers = headers
                     .iter()
@@ -364,7 +456,9 @@ mod tests {
         crate::runtime::network::publish(&url, "one");
         crate::runtime::network::publish(&url, "two");
         let mut subscription = Subscription::new(&format!("{}?offset=earliest", url)).unwrap();
-        let payloads: Vec<Vec<u8>> = (0..2).map(|_| subscription.next().unwrap().payload).collect();
+        let payloads: Vec<Vec<u8>> = (0..2)
+            .map(|_| subscription.next().unwrap().payload)
+            .collect();
         assert_eq!(payloads, [b"one".to_vec(), b"two".to_vec()]);
     }
 
@@ -378,7 +472,9 @@ mod tests {
         let consumer = subscription.consumer.as_mut().unwrap();
         let mut keys = Vec::new();
         while keys.len() < 2 {
-            let records = KAFKA_RUNTIME.block_on(consumer.poll(POLL_INTERVAL)).unwrap();
+            let records = KAFKA_RUNTIME
+                .block_on(consumer.poll(POLL_INTERVAL))
+                .unwrap();
             keys.extend(records.into_iter().map(|record| record.key().cloned()));
         }
         assert_eq!(keys, [Some(b"user 1".to_vec()), None]);
@@ -387,12 +483,25 @@ mod tests {
     #[test]
     fn test_read_messages() {
         let topic = format!("zawk-test-{}", Uuid::new_v4());
-        send(&topic, &[("a1\na2", &[("h", "1"), ("h", "2"), ("k", "v")]), ("", &[]), ("b1", &[])]);
+        send(
+            &topic,
+            &[
+                ("a1\na2", &[("h", "1"), ("h", "2"), ("k", "v")]),
+                ("", &[]),
+                ("b1", &[]),
+            ],
+        );
         let url = format!("kafka://localhost:9092/{}?offset=earliest", topic);
         let subscription = Subscription::new(&url).unwrap();
-        let mut reader = MessageReader::new(Box::new(subscription), false, false, |payload, subject| {
-            RegexSplitter::new(payload_reader(payload), chunk_size(1 << 20, 0), subject, false)
-        });
+        let mut reader =
+            MessageReader::new(Box::new(subscription), false, false, |payload, subject| {
+                RegexSplitter::new(
+                    payload_reader(payload),
+                    chunk_size(1 << 20, 0),
+                    subject,
+                    false,
+                )
+            });
         let mut rc = RegexCache::default();
         let mut records = Vec::new();
         let mut headers = Vec::new();
@@ -408,11 +517,18 @@ mod tests {
         }
         assert_eq!(
             records,
-            [(true, "a1".to_string()), (false, "a2".to_string()), (true, "b1".to_string())]
+            [
+                (true, "a1".to_string()),
+                (false, "a2".to_string()),
+                (true, "b1".to_string())
+            ]
         );
         assert_eq!(
             headers,
-            [("h".to_string(), "1, 2".to_string()), ("k".to_string(), "v".to_string())]
+            [
+                ("h".to_string(), "1, 2".to_string()),
+                ("k".to_string(), "v".to_string())
+            ]
         );
     }
 }

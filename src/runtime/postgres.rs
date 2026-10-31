@@ -1,15 +1,15 @@
+use crate::runtime::conn_pool::ConnPool;
+use crate::runtime::csv::vec_to_csv;
+use crate::runtime::numfmt::{f32_to_text, float_to_text};
+use crate::runtime::str_escape::{is_null, null_input};
+use crate::runtime::{Int, IntMap, Str, stdlib_warning};
+use bytes::BytesMut;
+use chrono::Utc;
+use postgres::Client;
+use postgres::types::{FromSql, IsNull, Kind, ToSql, Type, to_sql_checked};
 use std::error::Error;
 use std::fmt::Write;
 use std::sync::LazyLock;
-use chrono::Utc;
-use crate::runtime::{stdlib_warning, Int, IntMap, Str};
-use crate::runtime::conn_pool::ConnPool;
-use crate::runtime::csv::vec_to_csv;
-use crate::runtime::str_escape::{is_null, null_input};
-use crate::runtime::numfmt::{f32_to_text, float_to_text};
-use bytes::BytesMut;
-use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
-use postgres::Client;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
@@ -42,7 +42,9 @@ pub(crate) fn connect(db_url: &str) -> Result<Client, String> {
     if config.get_connect_timeout().is_none() {
         config.connect_timeout(crate::runtime::network::CONNECT_TIMEOUT);
     }
-    config.connect(MakeRustlsConnect::new(tls_config?)).map_err(error_text)
+    config
+        .connect(MakeRustlsConnect::new(tls_config?))
+        .map_err(error_text)
 }
 
 /// `postgres::Error` displays only its kind, such as "db error": append the cause.
@@ -58,7 +60,11 @@ pub(crate) fn error_text(e: postgres::Error) -> String {
 /// fails because its connection was closed (server restart, idle timeout), it is dropped so the
 /// next call reconnects. With `retry`, `f` is also retried once with a new connection: only safe
 /// for reads, since a write may have been committed before the connection was lost.
-fn with_client<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>) -> Result<T, String> {
+fn with_client<T>(
+    db_url: &str,
+    retry: bool,
+    mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>,
+) -> Result<T, String> {
     let (mut client, reused) = match PG_POOLS.take(db_url) {
         Some(client) => (client, true),
         None => (connect(db_url)?, false),
@@ -67,9 +73,14 @@ fn with_client<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Client) -> R
         Err(e) if client.is_closed() => {
             drop(client);
             if !(retry && reused) {
-                return Err(format!("{} (not retried: the statement may already have been applied)", error_text(e)));
+                return Err(format!(
+                    "{} (not retried: the statement may already have been applied)",
+                    error_text(e)
+                ));
             }
-            let mut client = connect(db_url).map_err(|reconnect| format!("{} (reconnect failed: {})", error_text(e), reconnect))?;
+            let mut client = connect(db_url).map_err(|reconnect| {
+                format!("{} (reconnect failed: {})", error_text(e), reconnect)
+            })?;
             let result = f(&mut client).map_err(error_text);
             if !client.is_closed() {
                 PG_POOLS.put(db_url, client);
@@ -92,10 +103,19 @@ struct PgParam {
 }
 
 impl ToSql for PgParam {
-    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         // the driver reports a 0-based index without the value: name the `$n`, value and type
-        self.encode(ty, out)
-            .map_err(|e| format!("${}: {:?} is not a valid {}: {}", self.position, self.text, ty, e).into())
+        self.encode(ty, out).map_err(|e| {
+            format!(
+                "${}: {:?} is not a valid {}: {}",
+                self.position, self.text, ty, e
+            )
+            .into()
+        })
     }
 
     fn accepts(_: &Type) -> bool {
@@ -106,7 +126,11 @@ impl ToSql for PgParam {
 }
 
 impl PgParam {
-    fn encode(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+    fn encode(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let text = self.text.as_str();
         if is_null(text.as_bytes()) {
             return Ok(IsNull::Yes);
@@ -140,7 +164,9 @@ impl PgParam {
                 }
                 None => Err(format!("invalid numeric: {}", text).into()),
             },
-            Type::JSON | Type::JSONB => serde_json::from_str::<serde_json::Value>(text)?.to_sql(ty, out),
+            Type::JSON | Type::JSONB => {
+                serde_json::from_str::<serde_json::Value>(text)?.to_sql(ty, out)
+            }
             Type::UUID => Uuid::parse_str(value)?.to_sql(ty, out),
             Type::INET => value.parse::<std::net::IpAddr>()?.to_sql(ty, out),
             // `\\x...` is hex, as in the text format of bytea
@@ -158,7 +184,11 @@ impl PgParam {
                 Ok(dt) => dt.with_timezone(&Utc).to_sql(ty, out),
                 Err(_) => parse_timestamp(value)?.and_utc().to_sql(ty, out),
             },
-            _ => Err(format!("unsupported parameter type, cast it in SQL, e.g. `${}::text::{}`", self.position, ty).into()),
+            _ => Err(format!(
+                "unsupported parameter type, cast it in SQL, e.g. `${}::text::{}`",
+                self.position, ty
+            )
+            .into()),
         }
     }
 }
@@ -185,21 +215,28 @@ fn parse_time(text: &str) -> Result<chrono::NaiveTime, chrono::ParseError> {
 fn parse_timestamp(text: &str) -> Result<chrono::NaiveDateTime, chrono::ParseError> {
     chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f"))
-        .or_else(|_| chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").map(|d| d.and_time(chrono::NaiveTime::MIN)))
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                .map(|d| d.and_time(chrono::NaiveTime::MIN))
+        })
 }
 
 fn positional_params(params: &IntMap<Str>) -> Vec<PgParam> {
     crate::runtime::sqlite::positional_params(params)
         .into_iter()
         .enumerate()
-        .map(|(i, text)| PgParam { position: i + 1, text })
+        .map(|(i, text)| PgParam {
+            position: i + 1,
+            text,
+        })
         .collect()
 }
 
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let params = positional_params(params);
-    let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+    let params: Vec<&(dyn ToSql + Sync)> =
+        params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
     let rows = match with_client(db_url, true, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
@@ -211,7 +248,11 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     for row in rows {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
-            let text_value = if is_null_column(&row, i) { null_input().to_string() } else { reflective_get(&row, i) };
+            let text_value = if is_null_column(&row, i) {
+                null_input().to_string()
+            } else {
+                reflective_get(&row, i)
+            };
             items.push(text_value);
         }
         let v2: Vec<&str> = items.iter().map(|s| s as &str).collect();
@@ -223,7 +264,8 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
 
 pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
-    let params: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+    let params: Vec<&(dyn ToSql + Sync)> =
+        params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
     match with_client(db_url, false, |client| client.execute(sql, &params)) {
         Ok(n) => n as Int,
         Err(e) => {
@@ -247,7 +289,10 @@ impl<'a> FromSql<'a> for Present {
 
 /// Whether column `index` of `row` is NULL.
 pub(crate) fn is_null_column(row: &postgres::Row, index: usize) -> bool {
-    row.try_get::<_, Option<Present>>(index).ok().flatten().is_none()
+    row.try_get::<_, Option<Present>>(index)
+        .ok()
+        .flatten()
+        .is_none()
 }
 
 /// Text representation of a `numeric` value decoded from the binary wire format.
@@ -255,7 +300,9 @@ struct PgNumeric(String);
 
 impl<'a> FromSql<'a> for PgNumeric {
     fn from_sql(_: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
-        decode_numeric(raw).map(PgNumeric).ok_or_else(|| "invalid numeric value".into())
+        decode_numeric(raw)
+            .map(PgNumeric)
+            .ok_or_else(|| "invalid numeric value".into())
     }
 
     fn accepts(ty: &Type) -> bool {
@@ -296,7 +343,10 @@ fn encode_numeric(text: &str) -> Option<Vec<u8>> {
     }
     let (int_part, frac_part) = body.split_once('.').unwrap_or((body, ""));
     if (int_part.is_empty() && frac_part.is_empty())
-        || !int_part.bytes().chain(frac_part.bytes()).all(|b| b.is_ascii_digit())
+        || !int_part
+            .bytes()
+            .chain(frac_part.bytes())
+            .all(|b| b.is_ascii_digit())
     {
         return None;
     }
@@ -305,8 +355,16 @@ fn encode_numeric(text: &str) -> Option<Vec<u8>> {
     // pad the integer part on the left and the fraction on the right to groups of 4 digits
     let int_pad = (4 - int_part.len() % 4) % 4;
     let frac_pad = (4 - frac_part.len() % 4) % 4;
-    let text = format!("{}{}{}{}", "0".repeat(int_pad), int_part, frac_part, "0".repeat(frac_pad));
-    let mut digits: Vec<u16> = text.as_bytes().chunks(4)
+    let text = format!(
+        "{}{}{}{}",
+        "0".repeat(int_pad),
+        int_part,
+        frac_part,
+        "0".repeat(frac_pad)
+    );
+    let mut digits: Vec<u16> = text
+        .as_bytes()
+        .chunks(4)
         .map(|group| group.iter().fold(0, |n, b| n * 10 + (b - b'0') as u16))
         .collect();
     let mut weight = ((int_pad + int_part.len()) / 4) as i64 - 1;
@@ -319,7 +377,11 @@ fn encode_numeric(text: &str) -> Option<Vec<u8>> {
     if digits.is_empty() {
         weight = 0;
     }
-    let sign = if negative && !digits.is_empty() { 0x4000 } else { 0 };
+    let sign = if negative && !digits.is_empty() {
+        0x4000
+    } else {
+        0
+    };
     let mut raw = header(digits.len(), i16::try_from(weight).ok()?, sign, dscale);
     for d in digits {
         raw.extend(d.to_be_bytes());
@@ -328,7 +390,10 @@ fn encode_numeric(text: &str) -> Option<Vec<u8>> {
 }
 
 fn decode_numeric(raw: &[u8]) -> Option<String> {
-    let read_u16 = |pos: usize| raw.get(pos..pos + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let read_u16 = |pos: usize| {
+        raw.get(pos..pos + 2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]))
+    };
     let ndigits = read_u16(0)? as usize;
     let weight = read_u16(2)? as i16 as i32;
     let sign = read_u16(4)?;
@@ -339,8 +404,16 @@ fn decode_numeric(raw: &[u8]) -> Option<String> {
         0xF000 => return Some("-Infinity".to_string()),
         _ => {}
     }
-    let digits = (0..ndigits).map(|i| read_u16(8 + i * 2)).collect::<Option<Vec<u16>>>()?;
-    let digit = |i: i32| if i >= 0 { digits.get(i as usize).copied().unwrap_or(0) } else { 0 };
+    let digits = (0..ndigits)
+        .map(|i| read_u16(8 + i * 2))
+        .collect::<Option<Vec<u16>>>()?;
+    let digit = |i: i32| {
+        if i >= 0 {
+            digits.get(i as usize).copied().unwrap_or(0)
+        } else {
+            0
+        }
+    };
     let mut text = String::new();
     if sign == 0x4000 {
         text.push('-');
@@ -450,7 +523,11 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
         }
         // enums and text-compatible types (citext etc.), otherwise empty
         &_ => match row.columns()[index].type_().kind() {
-            Kind::Enum(_) => row.try_get::<_, Option<PgEnum>>(index).ok().flatten().map(|v| v.0),
+            Kind::Enum(_) => row
+                .try_get::<_, Option<PgEnum>>(index)
+                .ok()
+                .flatten()
+                .map(|v| v.0),
             _ => row.try_get::<_, Option<String>>(index).ok().flatten(),
         },
     };
@@ -479,24 +556,59 @@ mod tests {
     #[test]
     fn test_decode_numeric() {
         // 12345.678
-        assert_eq!(decode_numeric(&numeric_raw(1, 0, 3, &[1, 2345, 6780])).unwrap(), "12345.678");
+        assert_eq!(
+            decode_numeric(&numeric_raw(1, 0, 3, &[1, 2345, 6780])).unwrap(),
+            "12345.678"
+        );
         // -0.00012
-        assert_eq!(decode_numeric(&numeric_raw(-2, 0, 8, &[1200])).unwrap(), "0.00001200");
-        assert_eq!(decode_numeric(&numeric_raw(-1, 0x4000, 5, &[1, 2000])).unwrap(), "-0.00012");
+        assert_eq!(
+            decode_numeric(&numeric_raw(-2, 0, 8, &[1200])).unwrap(),
+            "0.00001200"
+        );
+        assert_eq!(
+            decode_numeric(&numeric_raw(-1, 0x4000, 5, &[1, 2000])).unwrap(),
+            "-0.00012"
+        );
         // 100000000 (trailing zero groups stripped)
-        assert_eq!(decode_numeric(&numeric_raw(2, 0, 0, &[1])).unwrap(), "100000000");
+        assert_eq!(
+            decode_numeric(&numeric_raw(2, 0, 0, &[1])).unwrap(),
+            "100000000"
+        );
         // 0.00
         assert_eq!(decode_numeric(&numeric_raw(0, 0, 2, &[])).unwrap(), "0.00");
-        assert_eq!(decode_numeric(&numeric_raw(0, 0xC000, 0, &[])).unwrap(), "NaN");
+        assert_eq!(
+            decode_numeric(&numeric_raw(0, 0xC000, 0, &[])).unwrap(),
+            "NaN"
+        );
     }
 
     #[test]
     fn test_encode_numeric() {
-        for text in ["12345.678", "0.00012", "-0.00012", "100000000", "0.00", "3.14", "-12.50", "0", "7", "NaN"] {
-            assert_eq!(decode_numeric(&encode_numeric(text).unwrap()).unwrap(), text);
+        for text in [
+            "12345.678",
+            "0.00012",
+            "-0.00012",
+            "100000000",
+            "0.00",
+            "3.14",
+            "-12.50",
+            "0",
+            "7",
+            "NaN",
+        ] {
+            assert_eq!(
+                decode_numeric(&encode_numeric(text).unwrap()).unwrap(),
+                text
+            );
         }
-        assert_eq!(decode_numeric(&encode_numeric("+007.10").unwrap()).unwrap(), "7.10");
-        assert_eq!(decode_numeric(&encode_numeric(".5").unwrap()).unwrap(), "0.5");
+        assert_eq!(
+            decode_numeric(&encode_numeric("+007.10").unwrap()).unwrap(),
+            "7.10"
+        );
+        assert_eq!(
+            decode_numeric(&encode_numeric(".5").unwrap()).unwrap(),
+            "0.5"
+        );
         assert_eq!(decode_numeric(&encode_numeric("-0").unwrap()).unwrap(), "0");
         for text in ["", ".", "abc", "1e5", "1.2.3", "--1"] {
             assert!(encode_numeric(text).is_none(), "{}", text);

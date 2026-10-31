@@ -16,7 +16,7 @@
 
 use std::io::{self, Cursor, Read};
 
-use calamine::{open_workbook_auto_from_rs, Data, Reader};
+use calamine::{Data, Reader, open_workbook_auto_from_rs};
 
 use crate::runtime::numfmt::float_to_text;
 
@@ -50,27 +50,46 @@ impl Sheet {
         let (file, sheet) = split_sheet(path);
         // reported as an input that cannot be opened
         let error = |e: String| {
-            io::Error::other(crate::common::InputOpenError(format!("cannot read xlsx file `{}': {}", file, e)))
+            io::Error::other(crate::common::InputOpenError(format!(
+                "cannot read xlsx file `{}': {}",
+                file, e
+            )))
         };
         let data = load(file)?;
-        let mut book = open_workbook_auto_from_rs(Cursor::new(data)).map_err(|e| error(e.to_string()))?;
+        let mut book =
+            open_workbook_auto_from_rs(Cursor::new(data)).map_err(|e| error(e.to_string()))?;
         let names = book.sheet_names();
         let name = match sheet {
-            None => names.first().cloned().ok_or_else(|| error("the workbook has no sheet".to_string()))?,
+            None => names
+                .first()
+                .cloned()
+                .ok_or_else(|| error("the workbook has no sheet".to_string()))?,
             Some(sheet) => names
                 .iter()
                 .find(|n| n.as_str() == sheet)
                 .or_else(|| names.iter().find(|n| n.eq_ignore_ascii_case(sheet)))
                 .cloned()
-                .ok_or_else(|| error(format!("no sheet `{}' (the sheets are {})", sheet, names.join(", "))))?,
+                .ok_or_else(|| {
+                    error(format!(
+                        "no sheet `{}' (the sheets are {})",
+                        sheet,
+                        names.join(", ")
+                    ))
+                })?,
         };
-        let range = book.worksheet_range(&name).map_err(|e| error(e.to_string()))?;
+        let range = book
+            .worksheet_range(&name)
+            .map_err(|e| error(e.to_string()))?;
         // The range starts at its first non-empty cell: the cells before it are empty, so that
         // `$1` is always column A.
         let skip = range.start().map_or(0, |(_, col)| col as usize);
         let rows = range
             .rows()
-            .map(|row| std::iter::repeat_n(Data::Empty, skip).chain(row.iter().cloned()).collect())
+            .map(|row| {
+                std::iter::repeat_n(Data::Empty, skip)
+                    .chain(row.iter().cloned())
+                    .collect()
+            })
             .collect();
         Ok(Sheet { rows })
     }
@@ -101,14 +120,28 @@ pub fn cell_text(cell: &Data) -> String {
         Data::Error(e) => e.to_string(),
         Data::DateTime(dt) => {
             let (y, mo, d, h, mi, s, ms) = dt.to_ymd_hms_milli();
-            let time = if ms > 0 { format!("{:02}:{:02}:{:02}.{:03}", h, mi, s, ms) } else { format!("{:02}:{:02}:{:02}", h, mi, s) };
+            let time = if ms > 0 {
+                format!("{:02}:{:02}:{:02}.{:03}", h, mi, s, ms)
+            } else {
+                format!("{:02}:{:02}:{:02}", h, mi, s)
+            };
             if dt.is_duration() {
                 // whole hours, as `[h]:mm:ss` in Excel, with the milliseconds as for a time
                 let millis = (dt.as_f64() * 86_400_000.0).round() as i64;
                 let sign = if millis < 0 { "-" } else { "" };
                 let (secs, ms) = (millis.unsigned_abs() / 1000, millis.unsigned_abs() % 1000);
-                let hms = format!("{}{:02}:{:02}:{:02}", sign, secs / 3600, secs / 60 % 60, secs % 60);
-                if ms > 0 { format!("{}.{:03}", hms, ms) } else { hms }
+                let hms = format!(
+                    "{}{:02}:{:02}:{:02}",
+                    sign,
+                    secs / 3600,
+                    secs / 60 % 60,
+                    secs % 60
+                );
+                if ms > 0 {
+                    format!("{}.{:03}", hms, ms)
+                } else {
+                    hms
+                }
             } else if dt.as_f64() < 1.0 {
                 time
             } else if (h, mi, s, ms) == (0, 0, 0, 0) {
@@ -131,12 +164,22 @@ pub struct XlsxCsv {
 
 impl XlsxCsv {
     pub fn new(path: String) -> XlsxCsv {
-        XlsxCsv { path, tsv: false, buf: None, pos: 0 }
+        XlsxCsv {
+            path,
+            tsv: false,
+            buf: None,
+            pos: 0,
+        }
     }
 
     /// The sheet as TSV, each cell escaped as `-o tsv` does.
     pub fn tsv(path: String) -> XlsxCsv {
-        XlsxCsv { path, tsv: true, buf: None, pos: 0 }
+        XlsxCsv {
+            path,
+            tsv: true,
+            buf: None,
+            pos: 0,
+        }
     }
 
     fn load(&self) -> io::Result<Vec<u8>> {
@@ -145,7 +188,10 @@ impl XlsxCsv {
         for row in &sheet.rows {
             let cells: Vec<String> = row.iter().map(cell_text).collect();
             if self.tsv {
-                let cells: Vec<String> = cells.iter().map(|c| crate::runtime::str_escape::escape_tsv(c)).collect();
+                let cells: Vec<String> = cells
+                    .iter()
+                    .map(|c| crate::runtime::str_escape::escape_tsv(c))
+                    .collect();
                 out.extend_from_slice(cells.join("\t").as_bytes());
             } else {
                 let cells: Vec<&str> = cells.iter().map(String::as_str).collect();
@@ -183,7 +229,10 @@ mod tests {
 
     #[test]
     fn test_split_sheet() {
-        assert_eq!(split_sheet("no/such/book.xlsx#Sheet2"), ("no/such/book.xlsx", Some("Sheet2")));
+        assert_eq!(
+            split_sheet("no/such/book.xlsx#Sheet2"),
+            ("no/such/book.xlsx", Some("Sheet2"))
+        );
         assert_eq!(split_sheet("book.xlsx"), ("book.xlsx", None));
         assert!(is_xlsx_file("a/b.XLSX#s1"));
         assert!(is_xlsx_file("b.ods"));
@@ -197,8 +246,18 @@ mod tests {
         // the name is matched ignoring case
         assert_eq!(demo("#sheet2"), demo("#Sheet2"));
         assert!(demo("#Sheet2").starts_with("id,nick,status\n"));
-        let err = Sheet::open(&format!("{}/tests/demo.xlsx#nosuch", env!("CARGO_MANIFEST_DIR"))).err().unwrap();
-        assert!(err.to_string().contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"), "{}", err);
+        let err = Sheet::open(&format!(
+            "{}/tests/demo.xlsx#nosuch",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .err()
+        .unwrap();
+        assert!(
+            err.to_string()
+                .contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -213,7 +272,9 @@ mod tests {
     fn test_cell_types() {
         let path = format!("{}/tests/types.xlsx", env!("CARGO_MANIFEST_DIR"));
         let mut text = String::new();
-        XlsxCsv::new(path.clone()).read_to_string(&mut text).unwrap();
+        XlsxCsv::new(path.clone())
+            .read_to_string(&mut text)
+            .unwrap();
         assert_eq!(
             text,
             "name,born,start,seen,active,score,note\n\
@@ -222,14 +283,22 @@ mod tests {
         );
         // data from B2: `$1` is column A, the empty rows above are skipped
         let mut text = String::new();
-        XlsxCsv::new(format!("{}#offset", path)).read_to_string(&mut text).unwrap();
+        XlsxCsv::new(format!("{}#offset", path))
+            .read_to_string(&mut text)
+            .unwrap();
         assert_eq!(text, ",x,1\n,y,2\n");
     }
 
     #[test]
     fn test_duration_text() {
         use calamine::{ExcelDateTime, ExcelDateTimeType};
-        let duration = |days: f64| cell_text(&Data::DateTime(ExcelDateTime::new(days, ExcelDateTimeType::TimeDelta, false)));
+        let duration = |days: f64| {
+            cell_text(&Data::DateTime(ExcelDateTime::new(
+                days,
+                ExcelDateTimeType::TimeDelta,
+                false,
+            )))
+        };
         let secs = |s: f64| duration(s / 86400.0);
         assert_eq!(secs(5405.0), "01:30:05");
         assert_eq!(secs(-5405.0), "-01:30:05");

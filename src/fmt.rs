@@ -61,7 +61,12 @@ fn syntax_tree(text: &str) -> Result<String, String> {
     }
     let mut res = String::new();
     for dec in prog.decs.iter() {
-        res.push_str(&format!("function {} {:?} {}\n", dec.name, dec.args, stmt(dec.body)));
+        res.push_str(&format!(
+            "function {} {:?} {}\n",
+            dec.name,
+            dec.args,
+            stmt(dec.body)
+        ));
     }
     for (name, blocks) in [
         ("BEGIN", &prog.begin),
@@ -96,7 +101,12 @@ fn stmt(s: &ast::Stmt<&str>) -> String {
                 _ => format!("{{{}}}", items.join("; ")),
             }
         }
-        If(c, t, e) => format!("if({:?}) {} else {}", c, stmt(t), e.map_or(String::new(), stmt)),
+        If(c, t, e) => format!(
+            "if({:?}) {} else {}",
+            c,
+            stmt(t),
+            e.map_or(String::new(), stmt)
+        ),
         For(i, c, u, b) => format!(
             "for({}; {:?}; {}) {}",
             i.map_or(String::new(), stmt),
@@ -108,10 +118,20 @@ fn stmt(s: &ast::Stmt<&str>) -> String {
         While(top, c, b) => format!("while{}({:?}) {}", top, c, stmt(b)),
         ForEach(v, a, b) => format!("for({} in {:?}) {}", v, a, stmt(b)),
         ForRange(v, s, e, inclusive, b) => {
-            format!("for({} in {:?}{}{:?}) {}", v, s, if *inclusive { "..=" } else { ".." }, e, stmt(b))
+            format!(
+                "for({} in {:?}{}{:?}) {}",
+                v,
+                s,
+                if *inclusive { "..=" } else { ".." },
+                e,
+                stmt(b)
+            )
         }
         Switch(e, cases) => {
-            let cases: Vec<String> = cases.iter().map(|(l, b)| format!("{:?}: {}", l, stmt(b))).collect();
+            let cases: Vec<String> = cases
+                .iter()
+                .map(|(l, b)| format!("{:?}: {}", l, stmt(b)))
+                .collect();
             format!("switch({:?}) {{{}}}", e, cases.join("; "))
         }
         EndBlock(b) => format!("end {}", stmt(b)),
@@ -394,7 +414,11 @@ impl<'a, 'u> Formatter<'a, 'u> {
     }
 
     fn next_significant(toks: &[Token<'a>], i: usize) -> Option<Tok<'a>> {
-        toks[i + 1..].iter().map(|t| &t.tok).find(|t| **t != Tok::Newline).cloned()
+        toks[i + 1..]
+            .iter()
+            .map(|t| &t.tok)
+            .find(|t| **t != Tok::Newline)
+            .cloned()
     }
 
     fn newline(&mut self, toks: &[Token<'a>], i: usize) {
@@ -407,7 +431,8 @@ impl<'a, 'u> Formatter<'a, 'u> {
         }
         if self.expect_body {
             // `if (x)` + newline + `{`, `else` + newline + `if`: the newline is dropped.
-            let joined = next == Some(Tok::LBrace) || (self.prev == Some(Tok::Else) && next == Some(Tok::If));
+            let joined = next == Some(Tok::LBrace)
+                || (self.prev == Some(Tok::Else) && next == Some(Tok::If));
             if !joined {
                 if !self.hung {
                     self.hang += 1;
@@ -452,12 +477,18 @@ impl<'a, 'u> Formatter<'a, 'u> {
         let Some(prev) = &self.prev else {
             return false;
         };
-        if matches!(tok, Tok::RParen | Tok::RBrack | Tok::LBrack | Tok::Comma | Tok::Semi) {
+        if matches!(
+            tok,
+            Tok::RParen | Tok::RBrack | Tok::LBrack | Tok::Comma | Tok::Semi
+        ) {
             return false;
         }
         if self.prev_unary {
             // `- -x` is not `--x`.
-            return matches!((prev, tok), (Tok::Sub, Tok::Sub | Tok::Decr) | (Tok::Add, Tok::Add | Tok::Incr));
+            return matches!(
+                (prev, tok),
+                (Tok::Sub, Tok::Sub | Tok::Decr) | (Tok::Add, Tok::Add | Tok::Incr)
+            );
         }
         !matches!(
             prev,
@@ -484,7 +515,9 @@ impl<'a, 'u> Formatter<'a, 'u> {
             }
             Tok::LBrace => {
                 let kind = match self.prev {
-                    Some(Tok::RParen) if self.last_closed == Some(Head::Switch) => BlockKind::Switch,
+                    Some(Tok::RParen) if self.last_closed == Some(Head::Switch) => {
+                        BlockKind::Switch
+                    }
                     Some(Tok::Do) => BlockKind::Do,
                     _ => BlockKind::Block,
                 };
@@ -593,7 +626,11 @@ impl<'a, 'u> Formatter<'a, 'u> {
                 }
             }
             Tok::Case | Tok::Default
-                if self.parens.is_empty() && self.frames.last().is_some_and(|f| f.kind == BlockKind::Switch) =>
+                if self.parens.is_empty()
+                    && self
+                        .frames
+                        .last()
+                        .is_some_and(|f| f.kind == BlockKind::Switch) =>
             {
                 self.emit(tok, t.text, false, 1);
                 self.in_label = true;
@@ -633,7 +670,12 @@ mod tests {
     fn fmt(text: &str) -> String {
         let out = format(text, &Options::default()).unwrap_or_else(|e| panic!("{}: {}", text, e));
         // Formatting is idempotent.
-        assert_eq!(format(&out, &Options::default()).unwrap(), out, "not idempotent: {}", text);
+        assert_eq!(
+            format(&out, &Options::default()).unwrap(),
+            out,
+            "not idempotent: {}",
+            text
+        );
         out
     }
 
@@ -660,12 +702,23 @@ mod tests {
             fmt("{for(i=1;i<=NF;i++)\nsum+=$i\nprint sum}"),
             "{\n    for (i = 1; i <= NF; i++)\n        sum += $i\n    print sum\n}\n"
         );
-        assert_eq!(fmt("BEGIN{for(;;)break}"), "BEGIN {\n    for (;;) break\n}\n");
-        assert_eq!(fmt("BEGIN{for(k in a)delete a[k]}"), "BEGIN {\n    for (k in a) delete a[k]\n}\n");
-        assert_eq!(fmt("BEGIN{do{i++}while(i<3);print i}"), "BEGIN {\n    do {\n        i++\n    } while (i < 3)\n    print i\n}\n");
+        assert_eq!(
+            fmt("BEGIN{for(;;)break}"),
+            "BEGIN {\n    for (;;) break\n}\n"
+        );
+        assert_eq!(
+            fmt("BEGIN{for(k in a)delete a[k]}"),
+            "BEGIN {\n    for (k in a) delete a[k]\n}\n"
+        );
+        assert_eq!(
+            fmt("BEGIN{do{i++}while(i<3);print i}"),
+            "BEGIN {\n    do {\n        i++\n    } while (i < 3)\n    print i\n}\n"
+        );
         assert_eq!(fmt("BEGIN{while(x--);}"), "BEGIN {\n    while (x--) ;\n}\n");
         assert_eq!(
-            fmt("BEGIN{switch(x){case 1:print \"one\";break\ncase /a/: case \"b\":\ndefault: print}}"),
+            fmt(
+                "BEGIN{switch(x){case 1:print \"one\";break\ncase /a/: case \"b\":\ndefault: print}}"
+            ),
             "BEGIN {\n    switch (x) {\n    case 1:\n        print \"one\"\n        break\n    case /a/:\n    case \"b\":\n    default:\n        print\n    }\n}\n"
         );
     }
@@ -676,22 +729,38 @@ mod tests {
             fmt("function add(a,b){return a+b}\nBEGIN{print add(1,2)}"),
             "function add(a, b) {\n    return a + b\n}\nBEGIN {\n    print add(1, 2)\n}\n"
         );
-        assert_eq!(fmt("func f (x)\n{ return -x }"), "func f(x) {\n    return -x\n}\n");
+        assert_eq!(
+            fmt("func f (x)\n{ return -x }"),
+            "func f(x) {\n    return -x\n}\n"
+        );
     }
 
     #[test]
     fn operators() {
-        assert_eq!(fmt("BEGIN{x=-1;y=x- -1;z=2^-1;print !x,-x,x--,--x,$NF,$(NF-1)}"),
-            "BEGIN {\n    x = -1\n    y = x - -1\n    z = 2 ^ -1\n    print !x, -x, x--, --x, $NF, $(NF - 1)\n}\n");
-        assert_eq!(fmt("{a[$1,$2]++;if(($1,$2) in a)print a[$1,$2]>\"out\"}"),
-            "{\n    a[$1, $2]++\n    if (($1, $2) in a) print a[$1, $2] > \"out\"\n}\n");
-        assert_eq!(fmt("{x = a b (c) f\"{x}\" \"s\"}"), "{\n    x = a b (c) f\"{x}\" \"s\"\n}\n");
-        assert_eq!(fmt("{x = a ?b:c ?? d; y = x !~ /re/ && $1 ~ \"x\" || 2**3}"),
-            "{\n    x = a ? b : c ?? d\n    y = x !~ /re/ && $1 ~ \"x\" || 2 ** 3\n}\n");
-        assert_eq!(fmt("{while((\"ls\"|getline line)>0)n++; getline x < \"f\"}"),
-            "{\n    while ((\"ls\" | getline line) > 0) n++\n    getline x < \"f\"\n}\n");
-        assert_eq!(fmt("{print (1,2) > \"f\"; printf(\"%d\\n\", 1); exit(1)}"),
-            "{\n    print(1, 2) > \"f\"\n    printf(\"%d\\n\", 1)\n    exit(1)\n}\n");
+        assert_eq!(
+            fmt("BEGIN{x=-1;y=x- -1;z=2^-1;print !x,-x,x--,--x,$NF,$(NF-1)}"),
+            "BEGIN {\n    x = -1\n    y = x - -1\n    z = 2 ^ -1\n    print !x, -x, x--, --x, $NF, $(NF - 1)\n}\n"
+        );
+        assert_eq!(
+            fmt("{a[$1,$2]++;if(($1,$2) in a)print a[$1,$2]>\"out\"}"),
+            "{\n    a[$1, $2]++\n    if (($1, $2) in a) print a[$1, $2] > \"out\"\n}\n"
+        );
+        assert_eq!(
+            fmt("{x = a b (c) f\"{x}\" \"s\"}"),
+            "{\n    x = a b (c) f\"{x}\" \"s\"\n}\n"
+        );
+        assert_eq!(
+            fmt("{x = a ?b:c ?? d; y = x !~ /re/ && $1 ~ \"x\" || 2**3}"),
+            "{\n    x = a ? b : c ?? d\n    y = x !~ /re/ && $1 ~ \"x\" || 2 ** 3\n}\n"
+        );
+        assert_eq!(
+            fmt("{while((\"ls\"|getline line)>0)n++; getline x < \"f\"}"),
+            "{\n    while ((\"ls\" | getline line) > 0) n++\n    getline x < \"f\"\n}\n"
+        );
+        assert_eq!(
+            fmt("{print (1,2) > \"f\"; printf(\"%d\\n\", 1); exit(1)}"),
+            "{\n    print(1, 2) > \"f\"\n    printf(\"%d\\n\", 1)\n    exit(1)\n}\n"
+        );
     }
 
     #[test]
@@ -701,27 +770,42 @@ mod tests {
             fmt(src),
             "#!/usr/bin/env -S zawk -E\n# @var n: int\n\nBEGIN { # start\n    x = 1 # one\n\n    # two\n    y = 2\n}\n# end\n"
         );
-        assert_eq!(fmt("BEGIN {\n  # nothing\n}"), "BEGIN {\n    # nothing\n}\n");
-        assert_eq!(fmt("{ if (x) # why\n print }"), "{\n    if (x) # why\n        print\n}\n");
+        assert_eq!(
+            fmt("BEGIN {\n  # nothing\n}"),
+            "BEGIN {\n    # nothing\n}\n"
+        );
+        assert_eq!(
+            fmt("{ if (x) # why\n print }"),
+            "{\n    if (x) # why\n        print\n}\n"
+        );
     }
 
     #[test]
     fn line_breaks_in_expressions() {
         assert_eq!(fmt("{print a,\nb}"), "{\n    print a,\n        b\n}\n");
-        assert_eq!(fmt("$1 > 0 &&\n$2 > 0 { n++ }"), "$1 > 0 &&\n    $2 > 0 {\n    n++\n}\n");
+        assert_eq!(
+            fmt("$1 > 0 &&\n$2 > 0 { n++ }"),
+            "$1 > 0 &&\n    $2 > 0 {\n    n++\n}\n"
+        );
         assert_eq!(fmt("{x = 1 + \\\n2}"), "{\n    x = 1 + \\\n        2\n}\n");
         assert_eq!(fmt("{f(a,\nb)}"), "{\n    f(a,\n        b)\n}\n");
     }
 
     #[test]
     fn tabs() {
-        let opts = Options { indent: "\t".into() };
+        let opts = Options {
+            indent: "\t".into(),
+        };
         assert_eq!(format("{print}", &opts).unwrap(), "{\n\tprint\n}\n");
     }
 
     #[test]
     fn syntax_errors() {
-        assert!(format("BEGIN {", &Options::default()).unwrap_err().starts_with("syntax error"));
+        assert!(
+            format("BEGIN {", &Options::default())
+                .unwrap_err()
+                .starts_with("syntax error")
+        );
         assert!(format("BEGIN { x = \"a }", &Options::default()).is_err());
     }
 

@@ -1,9 +1,9 @@
+use crate::runtime::{Str, StrMap, stdlib_warning};
+use anyhow::Result;
+use ini::configparser::ini::Ini;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use anyhow::Result;
-use ini::configparser::ini::Ini;
-use crate::runtime::{stdlib_warning, Str, StrMap};
 
 pub(crate) fn read_config<'b>(file: &str) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();

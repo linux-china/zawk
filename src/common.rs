@@ -5,8 +5,8 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, Ordering},
     Arc, Condvar, Mutex,
+    atomic::{AtomicBool, AtomicI64, Ordering},
 };
 
 pub(crate) type NumTy = u32;
@@ -66,7 +66,7 @@ impl<T: Default> Default for Stage<T> {
 
 impl<T> Stage<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        use smallvec::{smallvec, SmallVec};
+        use smallvec::{SmallVec, smallvec};
         let res: SmallVec<[&T; 3]> = match self {
             Stage::Main(t) => smallvec![t],
             Stage::Par {
@@ -249,7 +249,11 @@ pub struct InputOpenError(pub String);
 
 impl InputOpenError {
     pub fn new_io(path: &str, e: &std::io::Error) -> std::io::Error {
-        let msg = format!("cannot open file `{}' for reading: {}", path, io_error_reason(e));
+        let msg = format!(
+            "cannot open file `{}' for reading: {}",
+            path,
+            io_error_reason(e)
+        );
         std::io::Error::new(e.kind(), InputOpenError(msg))
     }
 

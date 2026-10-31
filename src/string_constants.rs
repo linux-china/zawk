@@ -156,10 +156,12 @@ impl StringConstantAnalysis {
         if q.0.is_none() {
             return false;
         }
-        res.extend(
-            q.iter()
-                .map(|x| intern_r.get(x).cloned().unwrap_or_else(|| Rc::from(&[][..]))),
-        );
+        res.extend(q.iter().map(|x| {
+            intern_r
+                .get(x)
+                .cloned()
+                .unwrap_or_else(|| Rc::from(&[][..]))
+        }));
         true
     }
 

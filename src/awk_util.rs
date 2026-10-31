@@ -15,7 +15,9 @@ static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new("\\s+").unwrap(
 fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
     let mut tags: Vec<CommentTag> = vec![];
     for line in awk_code.lines() {
-        let Some(tag_declare) = line.strip_prefix("# @") else { continue };
+        let Some(tag_declare) = line.strip_prefix("# @") else {
+            continue;
+        };
         let (tag_name, rest) = match tag_declare.split_once(' ') {
             Some((name, rest)) => (name, Some(rest.trim())),
             None => (tag_declare, None),
@@ -30,7 +32,9 @@ fn parse_comment_tags(awk_code: &str) -> Vec<CommentTag> {
             continue;
         }
         // `var`, `env` and `meta` need a name, e.g. `# @meta version 1.0`
-        let Some(rest) = rest.filter(|rest| !rest.is_empty()) else { continue };
+        let Some(rest) = rest.filter(|rest| !rest.is_empty()) else {
+            continue;
+        };
         if tag_name == "var" || tag_name == "env" {
             let comment_parts: Vec<&str> = WHITESPACE.splitn(rest, 2).collect();
             tags.push(CommentTag {
@@ -206,9 +210,8 @@ fn operand_only_vars_in_begin(
         .filter(|line| !line.trim_start().starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    let provided_by = |decs: &[String], name: &str| {
-        decs.iter().any(|s| s.split('=').next() == Some(name))
-    };
+    let provided_by =
+        |decs: &[String], name: &str| decs.iter().any(|s| s.split('=').next() == Some(name));
     tags.iter()
         .filter(|tag| tag.type_name == "var")
         .map(|tag| tag.value1.trim_end_matches('?'))
@@ -253,7 +256,11 @@ pub fn sugar_syntax_convert(awk_code: String) -> String {
 
 /// Whether the program file `name` (a local path or a URL) is a Markdown file, by its extension.
 pub fn is_markdown_file(name: &str) -> bool {
-    let path = name.split(['?', '#']).next().unwrap_or(name).to_ascii_lowercase();
+    let path = name
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(name)
+        .to_ascii_lowercase();
     path.ends_with(".md") || path.ends_with(".markdown")
 }
 
@@ -267,8 +274,14 @@ pub fn extract_awk_block(markdown: &str) -> Option<String> {
         let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event else {
             continue;
         };
-        let lang = info.split(|c: char| c.is_whitespace() || c == '{' || c == ',').next().unwrap_or("");
-        if !["awk", "zawk", "gawk"].iter().any(|l| lang.eq_ignore_ascii_case(l)) {
+        let lang = info
+            .split(|c: char| c.is_whitespace() || c == '{' || c == ',')
+            .next()
+            .unwrap_or("");
+        if !["awk", "zawk", "gawk"]
+            .iter()
+            .any(|l| lang.eq_ignore_ascii_case(l))
+        {
             continue;
         }
         // The line after the opening fence, for an empty block.
@@ -295,7 +308,11 @@ pub fn extract_awk_block(markdown: &str) -> Option<String> {
 /// spaces) with a ```` ``` ```` or `~~~` fence.
 fn has_code_fence(text: &str) -> bool {
     text.lines().any(|line| {
-        let line = line.strip_prefix("   ").or_else(|| line.strip_prefix("  ")).or_else(|| line.strip_prefix(' ')).unwrap_or(line);
+        let line = line
+            .strip_prefix("   ")
+            .or_else(|| line.strip_prefix("  "))
+            .or_else(|| line.strip_prefix(' '))
+            .unwrap_or(line);
         line.starts_with("```") || line.starts_with("~~~")
     })
 }
@@ -308,7 +325,9 @@ pub fn program_text(text: &str) -> Result<Option<String>, String> {
     if !has_code_fence(text) {
         return Ok(None);
     }
-    extract_awk_block(text).map(Some).ok_or_else(|| "no ```awk code block in the Markdown text".to_string())
+    extract_awk_block(text)
+        .map(Some)
+        .ok_or_else(|| "no ```awk code block in the Markdown text".to_string())
 }
 
 #[cfg(test)]
@@ -330,7 +349,10 @@ mod tests {
         let operands = ["name=bob".to_string()];
         let code = "# @var name the name\nBEGIN { print name }\n";
         let tags = parse_comment_tags(code);
-        assert_eq!(operand_only_vars_in_begin(code, &tags, &[], &operands), vec!["name"]);
+        assert_eq!(
+            operand_only_vars_in_begin(code, &tags, &[], &operands),
+            vec!["name"]
+        );
         assert!(operand_only_vars_in_begin(code, &tags, &operands, &operands).is_empty());
         let code = "# @var name the name\n{ print name }\n";
         let tags = parse_comment_tags(code);
@@ -340,10 +362,22 @@ mod tests {
     #[test]
     fn test_extract_awk_block() {
         let md = "Intro\n\n```sh\nzawk 'x'\n```\n\n```awk\nBEGIN { print 1 }\n```\n\n```awk\nBEGIN { print 2 }\n```\n";
-        assert_eq!(extract_awk_block(md).unwrap(), "\n".repeat(7) + "BEGIN { print 1 }\n");
-        assert_eq!(extract_awk_block("~~~ZAWK\n{ print }\n~~~\n").unwrap(), "\n{ print }\n");
-        assert_eq!(extract_awk_block("````gawk {.x}\nBEGIN { s = \"```\" }\n````\n").unwrap(), "\nBEGIN { s = \"```\" }\n");
-        assert_eq!(extract_awk_block("* item\n\n  ```awk\n  { print $1 }\n  ```\n").unwrap(), "\n\n\n{ print $1 }\n");
+        assert_eq!(
+            extract_awk_block(md).unwrap(),
+            "\n".repeat(7) + "BEGIN { print 1 }\n"
+        );
+        assert_eq!(
+            extract_awk_block("~~~ZAWK\n{ print }\n~~~\n").unwrap(),
+            "\n{ print }\n"
+        );
+        assert_eq!(
+            extract_awk_block("````gawk {.x}\nBEGIN { s = \"```\" }\n````\n").unwrap(),
+            "\nBEGIN { s = \"```\" }\n"
+        );
+        assert_eq!(
+            extract_awk_block("* item\n\n  ```awk\n  { print $1 }\n  ```\n").unwrap(),
+            "\n\n\n{ print $1 }\n"
+        );
         assert_eq!(extract_awk_block("```awk\n```\n").unwrap(), "\n");
         assert_eq!(extract_awk_block("```awkward\nx\n```\n"), None);
         assert_eq!(extract_awk_block("no code\n"), None);
@@ -352,21 +386,38 @@ mod tests {
     #[test]
     fn test_parse_comment_tags() {
         assert!(parse_comment_tags("# @meta\n# @meta \n# @var\n# @env  \n").is_empty());
-        let tags = parse_comment_tags("# @meta version  1.0 first release\n# @var  name  user name\n# @desc\n");
+        let tags = parse_comment_tags(
+            "# @meta version  1.0 first release\n# @var  name  user name\n# @desc\n",
+        );
         assert_eq!(tags.len(), 3);
-        assert_eq!((tags[0].value1.as_str(), tags[0].value2.as_deref()), ("version", Some("1.0")));
+        assert_eq!(
+            (tags[0].value1.as_str(), tags[0].value2.as_deref()),
+            ("version", Some("1.0"))
+        );
         assert_eq!(tags[0].description.as_deref(), Some("first release"));
-        assert_eq!((tags[1].type_name.as_str(), tags[1].value1.as_str()), ("var", "name"));
+        assert_eq!(
+            (tags[1].type_name.as_str(), tags[1].value1.as_str()),
+            ("var", "name")
+        );
         assert_eq!(tags[1].description.as_deref(), Some("user name"));
-        assert_eq!((tags[2].type_name.as_str(), tags[2].description.as_deref()), ("desc", None));
+        assert_eq!(
+            (tags[2].type_name.as_str(), tags[2].description.as_deref()),
+            ("desc", None)
+        );
     }
 
     #[test]
     fn test_program_text() {
         assert_eq!(program_text("BEGIN { print \"```\" }"), Ok(None));
         assert_eq!(program_text("BEGIN { s = \"~~~\" }\n{ print s }"), Ok(None));
-        assert_eq!(program_text("Answer:\n```awk\nBEGIN {}\n```"), Ok(Some("\n\nBEGIN {}\n".to_string())));
-        assert_eq!(program_text("Answer:\n  ~~~ zawk\nBEGIN {}\n  ~~~"), Ok(Some("\n\nBEGIN {}\n".to_string())));
+        assert_eq!(
+            program_text("Answer:\n```awk\nBEGIN {}\n```"),
+            Ok(Some("\n\nBEGIN {}\n".to_string()))
+        );
+        assert_eq!(
+            program_text("Answer:\n  ~~~ zawk\nBEGIN {}\n  ~~~"),
+            Ok(Some("\n\nBEGIN {}\n".to_string()))
+        );
         assert!(program_text("Answer:\n```bash\nzawk 'BEGIN{print 1}'\n```\n").is_err());
     }
 
@@ -424,9 +475,15 @@ mod tests {
             let new_code = sugar_syntax_convert(code.to_owned());
             assert_eq!(new_code, format!("{{ print {} }}", code.trim()), "{}", code);
         }
-        assert_eq!(sugar_syntax_convert("/error/".to_owned()), "/error/ { print $0 }");
+        assert_eq!(
+            sugar_syntax_convert("/error/".to_owned()),
+            "/error/ { print $0 }"
+        );
         // `/a/ ; /b/` becomes `/a/ ; /b/ { print $0 }`, the same as the plain program
-        assert_eq!(sugar_syntax_convert("/a/ ; /b/".to_owned()), "/a/ ; /b/ { print $0 }");
+        assert_eq!(
+            sugar_syntax_convert("/a/ ; /b/".to_owned()),
+            "/a/ ; /b/ { print $0 }"
+        );
         for code in [
             "$1",
             "$NF",

@@ -1,16 +1,16 @@
+use crate::runtime::{SharedMap, Str, StrMap, stdlib_warning};
+use aes::cipher::consts::U12;
+use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use hmac::{Hmac, KeyInit, Mac};
+use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode_header};
+use serde_json::{Number, Value};
+use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, Mutex};
-use sha2::{Sha256, Sha384, Sha512, Digest};
-use hmac::{Hmac, KeyInit, Mac};
-use serde_json::{Number, Value};
-use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
-use aes::cipher::consts::U12;
-use base64::{Engine, engine::general_purpose::STANDARD};
-use jsonwebtoken::{Algorithm, Header, DecodingKey, EncodingKey, Validation, decode_header};
-use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet};
-use crate::runtime::{stdlib_warning, SharedMap, Str, StrMap};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha384 = Hmac<Sha384>;
@@ -27,13 +27,17 @@ pub fn digest(algorithm: &str, text: &[u8]) -> String {
     match algorithm.to_ascii_lowercase().as_str() {
         "md5" | "md-5" => format!("{:x}", md5::compute(text)),
         "adler32" => adler::adler32(BufReader::new(text)).unwrap().to_string(),
-        "crc32" => crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC).checksum(text).to_string(),
+        "crc32" => crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC)
+            .checksum(text)
+            .to_string(),
         "blake3" => blake3::hash(text).to_string(),
         "sha256" | "sha-256" => hex::encode(Sha256::digest(text)),
         "sha384" | "sha-384" => hex::encode(Sha384::digest(text)),
         "sha512" | "sha-512" => hex::encode(Sha512::digest(text)),
         "bcrypt" => bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default(),
-        "murmur3" => murmur3::murmur3_32(&mut Cursor::new(text), 0).unwrap().to_string(),
+        "murmur3" => murmur3::murmur3_32(&mut Cursor::new(text), 0)
+            .unwrap()
+            .to_string(),
         "xxh32" => xxhash_rust::xxh32::xxh32(text, 0).to_string(),
         "xxh64" => xxhash_rust::xxh64::xxh64(text, 0).to_string(),
         _ => {
@@ -76,7 +80,11 @@ pub(crate) fn jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>)
     })
 }
 
-fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Result<String, String> {
+fn try_jwt<'a>(
+    algorithm: &str,
+    key: &str,
+    payload: &StrMap<'a, Str<'a>>,
+) -> Result<String, String> {
     let mut claims: BTreeMap<String, Value> = BTreeMap::new();
     let mut bad_claim = None;
     payload.iter(|map| {
@@ -88,7 +96,12 @@ fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Res
                     Ok(seconds) => {
                         claims.insert(key, Value::Number(Number::from(seconds)));
                     }
-                    Err(_) => bad_claim = Some(format!("invalid `{}` claim {:?}, expected seconds since the epoch", key, value)),
+                    Err(_) => {
+                        bad_claim = Some(format!(
+                            "invalid `{}` claim {:?}, expected seconds since the epoch",
+                            key, value
+                        ))
+                    }
                 }
             } else {
                 claims.insert(key, claim_value(value));
@@ -105,11 +118,15 @@ fn try_jwt<'a>(algorithm: &str, key: &str, payload: &StrMap<'a, Str<'a>>) -> Res
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
             EncodingKey::from_secret(key.as_ref())
         }
-        Algorithm::ES256 | Algorithm::ES384 => EncodingKey::from_ec_pem(key.as_ref()).map_err(bad_key)?,
-        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512
-        | Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => {
-            EncodingKey::from_rsa_pem(key.as_ref()).map_err(bad_key)?
+        Algorithm::ES256 | Algorithm::ES384 => {
+            EncodingKey::from_ec_pem(key.as_ref()).map_err(bad_key)?
         }
+        Algorithm::RS256
+        | Algorithm::RS384
+        | Algorithm::RS512
+        | Algorithm::PS256
+        | Algorithm::PS384
+        | Algorithm::PS512 => EncodingKey::from_rsa_pem(key.as_ref()).map_err(bad_key)?,
         Algorithm::EdDSA => EncodingKey::from_ed_pem(key.as_ref()).map_err(bad_key)?,
         _ => return Err(format!("unsupported algorithm {:?}", algorithm)),
     };
@@ -138,16 +155,24 @@ fn claim_value(value: String) -> Value {
 
 const HMAC_ALGORITHMS: &[Algorithm] = &[Algorithm::HS256, Algorithm::HS384, Algorithm::HS512];
 const RSA_ALGORITHMS: &[Algorithm] = &[
-    Algorithm::RS256, Algorithm::RS384, Algorithm::RS512,
-    Algorithm::PS256, Algorithm::PS384, Algorithm::PS512,
+    Algorithm::RS256,
+    Algorithm::RS384,
+    Algorithm::RS512,
+    Algorithm::PS256,
+    Algorithm::PS384,
+    Algorithm::PS512,
 ];
 
 /// Build decoding key from PEM text, key type must match the algorithm
 fn decoding_key_from_pem(alg: Algorithm, pem: &str) -> Option<DecodingKey> {
     match alg {
         Algorithm::ES256 | Algorithm::ES384 => DecodingKey::from_ec_pem(pem.as_ref()).ok(),
-        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512
-        | Algorithm::PS256 | Algorithm::PS384 | Algorithm::PS512 => DecodingKey::from_rsa_pem(pem.as_ref()).ok(),
+        Algorithm::RS256
+        | Algorithm::RS384
+        | Algorithm::RS512
+        | Algorithm::PS256
+        | Algorithm::PS384
+        | Algorithm::PS512 => DecodingKey::from_rsa_pem(pem.as_ref()).ok(),
         Algorithm::EdDSA => DecodingKey::from_ed_pem(pem.as_ref()).ok(),
         // never use public PEM text as HMAC secret: algorithm confusion attack
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => None,
@@ -171,7 +196,10 @@ fn jwk_allowed_algorithms(jwk: &Jwk) -> Vec<Algorithm> {
     match jwk.common.key_algorithm {
         // KeyAlgorithm and Algorithm share the same names for signature algorithms
         Some(key_alg) => match Algorithm::from_str(&format!("{:?}", key_alg)) {
-            Ok(alg) => by_key_type.into_iter().filter(|item| *item == alg).collect(),
+            Ok(alg) => by_key_type
+                .into_iter()
+                .filter(|item| *item == alg)
+                .collect(),
             Err(_) => vec![], // encryption only key, e.g. RSA-OAEP
         },
         None => by_key_type,
@@ -212,10 +240,16 @@ pub(crate) fn dejwt<'a>(key: &str, token: &str) -> StrMap<'a, Str<'a>> {
                         map.insert(Str::from(key), Str::from(text));
                     }
                     Value::Array(arr) => {
-                        map.insert(Str::from(key), Str::from(serde_json::to_string(&arr).unwrap()));
+                        map.insert(
+                            Str::from(key),
+                            Str::from(serde_json::to_string(&arr).unwrap()),
+                        );
                     }
                     Value::Object(obj) => {
-                        map.insert(Str::from(key), Str::from(serde_json::to_string(&obj).unwrap()));
+                        map.insert(
+                            Str::from(key),
+                            Str::from(serde_json::to_string(&obj).unwrap()),
+                        );
                     }
                 }
             }
@@ -233,20 +267,33 @@ fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String>
     // allowed algorithms are decided by the key, and header.alg must be in the white list
     let decoding_key = if key.starts_with("https://") || key.starts_with("http://") {
         if !is_trusted_jwks_url(key) {
-            return Err(format!("JWKS URL must be https (http only for localhost): {}", key));
+            return Err(format!(
+                "JWKS URL must be https (http only for localhost): {}",
+                key
+            ));
         }
         let jwk = extract_jwk(key)?;
         if !jwk_allowed_algorithms(&jwk).contains(&header.alg) {
-            return Err(format!("algorithm {:?} of the token is not allowed by the JWK {}", header.alg, key));
+            return Err(format!(
+                "algorithm {:?} of the token is not allowed by the JWK {}",
+                header.alg, key
+            ));
         }
         DecodingKey::from_jwk(&jwk).map_err(|e| format!("invalid JWK {}: {}", key, e))?
     } else if key.trim_start().starts_with("-----BEGIN") {
-        decoding_key_from_pem(header.alg, key)
-            .ok_or_else(|| format!("PEM key is not a valid public key for algorithm {:?}", header.alg))?
+        decoding_key_from_pem(header.alg, key).ok_or_else(|| {
+            format!(
+                "PEM key is not a valid public key for algorithm {:?}",
+                header.alg
+            )
+        })?
     } else if HMAC_ALGORITHMS.contains(&header.alg) {
         DecodingKey::from_secret(key.as_ref())
     } else {
-        return Err(format!("algorithm {:?} needs a PEM public key or JWKS URL, not a secret", header.alg));
+        return Err(format!(
+            "algorithm {:?} needs a PEM public key or JWKS URL, not a secret",
+            header.alg
+        ));
     };
     let mut validation = Validation::new(header.alg);
     validation.required_spec_claims.clear();
@@ -256,16 +303,20 @@ fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String>
         .map_err(|e| format!("invalid token: {}", e))
 }
 
-static JWK_POOLS: LazyLock<Arc<Mutex<HashMap<String, Jwk>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static JWK_POOLS: LazyLock<Arc<Mutex<HashMap<String, Jwk>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
     let mut pools = JWK_POOLS.lock().unwrap();
     if let Some(jwk) = pools.get(full_http_url) {
         return Ok(jwk.clone());
     }
-    let (http_url, kid) = full_http_url
-        .split_once('#')
-        .ok_or_else(|| format!("JWKS URL needs the key id as fragment, e.g. {}#kid", full_http_url))?;
+    let (http_url, kid) = full_http_url.split_once('#').ok_or_else(|| {
+        format!(
+            "JWKS URL needs the key id as fragment, e.g. {}#kid",
+            full_http_url
+        )
+    })?;
     let jwkset: JwkSet = crate::runtime::network::fetch(http_url)
         .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e.without_url()))?
         .json::<JwkSet>()
@@ -293,11 +344,13 @@ const PBKDF2_ITERATIONS: u32 = 100_000;
 const CBC_TAG_LEN: usize = 32;
 
 /// derived keys by (password, salt, key length), because derivation is slow by design
-static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, Vec<u8>, usize), Vec<u8>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, Vec<u8>, usize), Vec<u8>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 /// random salt used by `encrypt` for a (password, key length), generated once per process: a fresh salt
 /// for every call would run the slow PBKDF2 on every record, and a per-process random salt already
 /// defeats precomputed dictionaries shared by all users of zawk
-static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(String, usize), [u8; SALT_LEN]>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(String, usize), [u8; SALT_LEN]>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
     let prf = HmacSha256::new_from_slice(password).unwrap();
@@ -320,11 +373,13 @@ fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [
 /// derive key with PBKDF2, cached by (password, salt, key length)
 fn derive_key(key_pass: &str, salt: &[u8], key_len: usize) -> Vec<u8> {
     let mut keys = DERIVED_KEYS.lock().unwrap();
-    keys.entry((key_pass.to_string(), salt.to_vec(), key_len)).or_insert_with(|| {
-        let mut key = vec![0u8; key_len];
-        pbkdf2_hmac_sha256(key_pass.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
-        key
-    }).clone()
+    keys.entry((key_pass.to_string(), salt.to_vec(), key_len))
+        .or_insert_with(|| {
+            let mut key = vec![0u8; key_len];
+            pbkdf2_hmac_sha256(key_pass.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
+            key
+        })
+        .clone()
 }
 
 /// random salt for `encrypt`, see `ENCRYPT_SALTS`
@@ -378,8 +433,13 @@ fn parse_cipher_mode(mode: &str) -> Option<(usize, bool)> {
 }
 
 fn unsupported_mode(func: &str, mode: &str) {
-    crate::runtime::stdlib_warning(func, format!(
-        "unsupported mode {:?}, expected aes-128-gcm, aes-256-gcm, aes-128-cbc or aes-256-cbc", mode));
+    crate::runtime::stdlib_warning(
+        func,
+        format!(
+            "unsupported mode {:?}, expected aes-128-gcm, aes-256-gcm, aes-128-cbc or aes-256-cbc",
+            mode
+        ),
+    );
 }
 
 /// buffer with room for PKCS7 padding (always 1..=16 bytes)
@@ -391,37 +451,50 @@ fn cbc_padded_buf(plaintext: &[u8]) -> Vec<u8> {
 
 /// random bytes from the OS CSPRNG, used as IV/nonce
 fn random_bytes<const N: usize>() -> Option<[u8; N]> {
-    use rand::{rngs::SysRng, TryRng};
+    use rand::{TryRng, rngs::SysRng};
     let mut buf = [0u8; N];
     SysRng.try_fill_bytes(&mut buf).ok()?;
     Some(buf)
 }
 
 fn encrypt_bytes(key: &[u8], gcm: bool, plaintext: &[u8]) -> Option<Vec<u8>> {
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Aes256Gcm, Nonce};
+    use aes_gcm::{
+        Aes128Gcm, Aes256Gcm, Nonce,
+        aead::{Aead, KeyInit},
+    };
     let bytes = match (key.len(), gcm) {
         (32, true) => {
             let nonce = Nonce::<U12>::from(random_bytes::<12>()?);
-            let ct = Aes256Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
+            let ct = Aes256Gcm::new_from_slice(key)
+                .ok()?
+                .encrypt(&nonce, plaintext)
+                .ok()?;
             [nonce.to_vec(), ct].concat()
         }
         (16, true) => {
             let nonce = Nonce::<U12>::from(random_bytes::<12>()?);
-            let ct = Aes128Gcm::new_from_slice(key).ok()?.encrypt(&nonce, plaintext).ok()?;
+            let ct = Aes128Gcm::new_from_slice(key)
+                .ok()?
+                .encrypt(&nonce, plaintext)
+                .ok()?;
             [nonce.to_vec(), ct].concat()
         }
         (32, false) => {
             let iv = random_bytes::<16>()?;
             let cipher = Aes256CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
-            let ct = cipher.encrypt_padded::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            let ct = cipher
+                .encrypt_padded::<Pkcs7>(&mut buf, plaintext.len())
+                .ok()?;
             [iv.as_slice(), ct].concat()
         }
         (16, false) => {
             let iv = random_bytes::<16>()?;
             let cipher = Aes128CbcEnc::new_from_slices(key, &iv).ok()?;
             let mut buf = cbc_padded_buf(plaintext);
-            let ct = cipher.encrypt_padded::<Pkcs7>(&mut buf, plaintext.len()).ok()?;
+            let ct = cipher
+                .encrypt_padded::<Pkcs7>(&mut buf, plaintext.len())
+                .ok()?;
             [iv.as_slice(), ct].concat()
         }
         _ => return None,
@@ -430,7 +503,10 @@ fn encrypt_bytes(key: &[u8], gcm: bool, plaintext: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes128Gcm, Aes256Gcm, Nonce};
+    use aes_gcm::{
+        Aes128Gcm, Aes256Gcm, Nonce,
+        aead::{Aead, KeyInit},
+    };
     if gcm {
         // 12 bytes nonce + 16 bytes tag at least
         if data.len() < 12 + 16 {
@@ -439,8 +515,14 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
         let (nonce, ciphertext) = data.split_at(12);
         let nonce = Nonce::<U12>::try_from(nonce).ok()?;
         match key.len() {
-            32 => Aes256Gcm::new_from_slice(key).ok()?.decrypt(&nonce, ciphertext).ok(),
-            16 => Aes128Gcm::new_from_slice(key).ok()?.decrypt(&nonce, ciphertext).ok(),
+            32 => Aes256Gcm::new_from_slice(key)
+                .ok()?
+                .decrypt(&nonce, ciphertext)
+                .ok(),
+            16 => Aes128Gcm::new_from_slice(key)
+                .ok()?
+                .decrypt(&nonce, ciphertext)
+                .ok(),
             _ => None,
         }
     } else {
@@ -451,8 +533,16 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
         let (iv, ciphertext) = data.split_at(16);
         let mut buf = ciphertext.to_vec();
         match key.len() {
-            32 => Aes256CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
-            16 => Aes128CbcDec::new_from_slices(key, iv).ok()?.decrypt_padded::<Pkcs7>(&mut buf).ok().map(|pt| pt.to_vec()),
+            32 => Aes256CbcDec::new_from_slices(key, iv)
+                .ok()?
+                .decrypt_padded::<Pkcs7>(&mut buf)
+                .ok()
+                .map(|pt| pt.to_vec()),
+            16 => Aes128CbcDec::new_from_slices(key, iv)
+                .ok()?
+                .decrypt_padded::<Pkcs7>(&mut buf)
+                .ok()
+                .map(|pt| pt.to_vec()),
             _ => None,
         }
     }
@@ -474,7 +564,11 @@ pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
     let key = derive_key(key_pass, &salt, key_len);
     if gcm {
         return match encrypt_bytes(&key, true, plaintext) {
-            Some(bytes) => format!("{}{}", ENCRYPT_V3_PREFIX, STANDARD.encode([salt.as_slice(), &bytes].concat())),
+            Some(bytes) => format!(
+                "{}{}",
+                ENCRYPT_V3_PREFIX,
+                STANDARD.encode([salt.as_slice(), &bytes].concat())
+            ),
             None => String::new(),
         };
     }
@@ -483,7 +577,11 @@ pub fn encrypt(mode: &str, plaintext: &[u8], key_pass: &str) -> String {
         Some(bytes) => {
             let data = [salt.as_slice(), &bytes].concat();
             let tag = cbc_v4_mac(&mac_key, &data).finalize().into_bytes();
-            format!("{}{}", ENCRYPT_V4_PREFIX, STANDARD.encode([data.as_slice(), &tag].concat()))
+            format!(
+                "{}{}",
+                ENCRYPT_V4_PREFIX,
+                STANDARD.encode([data.as_slice(), &tag].concat())
+            )
         }
         None => String::new(),
     }
@@ -504,22 +602,32 @@ pub fn decrypt(mode: &str, encrypted_text: &str, key_pass: &str) -> Vec<u8> {
 
 const DECRYPT_INVALID_BASE64: &str = "invalid base64 ciphertext";
 const DECRYPT_TOO_SHORT: &str = "ciphertext is too short";
-const DECRYPT_BAD_LENGTH: &str = "ciphertext length does not match a CBC mode (encrypted with GCM?)";
+const DECRYPT_BAD_LENGTH: &str =
+    "ciphertext length does not match a CBC mode (encrypted with GCM?)";
 const DECRYPT_FAILED: &str = "authentication failed (wrong key or corrupted ciphertext)";
 
-fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str) -> Result<Vec<u8>, &'static str> {
+fn decrypt_text(
+    key_len: usize,
+    gcm: bool,
+    encrypted_text: &str,
+    key_pass: &str,
+) -> Result<Vec<u8>, &'static str> {
     if let Some(encoded) = encrypted_text.strip_prefix(ENCRYPT_V4_PREFIX) {
         if gcm {
             return Err("`v4:` ciphertext requires a CBC mode");
         }
-        let data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+        let data = STANDARD
+            .decode(encoded.trim())
+            .map_err(|_| DECRYPT_INVALID_BASE64)?;
         if data.len() <= SALT_LEN + CBC_TAG_LEN {
             return Err(DECRYPT_TOO_SHORT);
         }
         // the tag is verified (in constant time) before any decryption: no padding oracle
         let (data, tag) = data.split_at(data.len() - CBC_TAG_LEN);
         let (enc_key, mac_key) = cbc_v4_keys(&derive_key(key_pass, &data[..SALT_LEN], key_len));
-        cbc_v4_mac(&mac_key, data).verify_slice(tag).map_err(|_| DECRYPT_FAILED)?;
+        cbc_v4_mac(&mac_key, data)
+            .verify_slice(tag)
+            .map_err(|_| DECRYPT_FAILED)?;
         return decrypt_bytes(&enc_key, false, &data[SALT_LEN..]).ok_or(DECRYPT_FAILED);
     }
     if encrypted_text.trim().is_empty() {
@@ -528,9 +636,16 @@ fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str)
     }
     let (salt, encoded) = match encrypted_text.strip_prefix(ENCRYPT_V3_PREFIX) {
         Some(encoded) => (true, encoded),
-        None => (false, encrypted_text.strip_prefix(ENCRYPT_V2_PREFIX).unwrap_or(encrypted_text)),
+        None => (
+            false,
+            encrypted_text
+                .strip_prefix(ENCRYPT_V2_PREFIX)
+                .unwrap_or(encrypted_text),
+        ),
     };
-    let mut data = STANDARD.decode(encoded.trim()).map_err(|_| DECRYPT_INVALID_BASE64)?;
+    let mut data = STANDARD
+        .decode(encoded.trim())
+        .map_err(|_| DECRYPT_INVALID_BASE64)?;
     let salt = if salt {
         if data.len() <= SALT_LEN {
             return Err(DECRYPT_TOO_SHORT);
@@ -542,13 +657,21 @@ fn decrypt_text(key_len: usize, gcm: bool, encrypted_text: &str, key_pass: &str)
     check_ciphertext_shape(gcm, &data)?;
     // only well-formed input of an old format gets the notices below, not garbage or a wrong mode
     if !gcm {
-        crate::runtime::stdlib_notice("decrypt", "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it");
+        crate::runtime::stdlib_notice(
+            "decrypt",
+            "CBC ciphertext without `v4:` prefix has no integrity check, please re-encrypt it",
+        );
     }
     let key = match salt {
         Some(salt) => derive_key(key_pass, &salt, key_len),
-        None if encrypted_text.starts_with(ENCRYPT_V2_PREFIX) => derive_key(key_pass, PBKDF2_V2_SALT, key_len),
+        None if encrypted_text.starts_with(ENCRYPT_V2_PREFIX) => {
+            derive_key(key_pass, PBKDF2_V2_SALT, key_len)
+        }
         None => {
-            crate::runtime::stdlib_notice("decrypt", "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it");
+            crate::runtime::stdlib_notice(
+                "decrypt",
+                "legacy ciphertext without `v3:` prefix is deprecated, please re-encrypt it",
+            );
             legacy_key(key_pass, key_len)
         }
     };
@@ -576,10 +699,10 @@ fn check_ciphertext_shape(gcm: bool, data: &[u8]) -> Result<(), &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::BufReader;
-    use jsonwebtoken::jwk::JwkSet;
-    use crate::runtime::encoding::encode;
     use super::*;
+    use crate::runtime::encoding::encode;
+    use jsonwebtoken::jwk::JwkSet;
+    use std::io::BufReader;
 
     #[test]
     fn test_jwt_invalid_input() {
@@ -601,8 +724,24 @@ mod tests {
         for text in ["42", "-7", "0", "1.5", "-0.25"] {
             assert!(claim_value(text.to_string()).is_number(), "{text}");
         }
-        for text in ["007", "+8613800000000", "1e3", "1.50", "1.0", "-0", ".5", "nan", "inf", " 1", "abc"] {
-            assert_eq!(claim_value(text.to_string()), Value::String(text.to_string()), "{text}");
+        for text in [
+            "007",
+            "+8613800000000",
+            "1e3",
+            "1.50",
+            "1.0",
+            "-0",
+            ".5",
+            "nan",
+            "inf",
+            " 1",
+            "abc",
+        ] {
+            assert_eq!(
+                claim_value(text.to_string()),
+                Value::String(text.to_string()),
+                "{text}"
+            );
         }
         let claims: StrMap<Str> = StrMap::default();
         claims.insert(Str::from("sub"), Str::from("007"));
@@ -612,8 +751,12 @@ mod tests {
         claims.insert(Str::from("exp"), Str::from("4102444800"));
         let token = jwt("HS256", "key", &claims);
         let payload = token.split('.').nth(1).unwrap();
-        let payload = String::from_utf8(crate::runtime::encoding::decode("base64url", payload)).unwrap();
-        assert_eq!(payload, r#"{"age":48,"exp":4102444800,"phone":"+8613800000000","sub":"007","zip":"1e3"}"#);
+        let payload =
+            String::from_utf8(crate::runtime::encoding::decode("base64url", payload)).unwrap();
+        assert_eq!(
+            payload,
+            r#"{"age":48,"exp":4102444800,"phone":"+8613800000000","sub":"007","zip":"1e3"}"#
+        );
     }
 
     #[test]
@@ -649,18 +792,31 @@ mod tests {
 
     #[test]
     fn test_hmac_sha_256() {
-        let signature = hmac("HmacSha256", b"7f4ebc75-7476-453e-b8d2-bebe17352b0a", b"hello");
+        let signature = hmac(
+            "HmacSha256",
+            b"7f4ebc75-7476-453e-b8d2-bebe17352b0a",
+            b"hello",
+        );
         println!("{}", signature);
     }
 
     #[test]
     fn test_hmac_algorithms() {
         // RFC 4231 test case 2
-        let (key, text) = (b"Jefe".as_slice(), b"what do ya want for nothing?".as_slice());
+        let (key, text) = (
+            b"Jefe".as_slice(),
+            b"what do ya want for nothing?".as_slice(),
+        );
         let sha256 = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
         let sha384 = "af45d2e376484031617f78d2b58a6b1b9c7ef464f5a01b47e42ec3736322445e8e2240ca5e69e2c78b3239ecfab21649";
         let sha512 = "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737";
-        for name in ["HmacSHA256", "hmacsha256", "sha256", "SHA-256", "hmac-sha256"] {
+        for name in [
+            "HmacSHA256",
+            "hmacsha256",
+            "sha256",
+            "SHA-256",
+            "hmac-sha256",
+        ] {
             assert_eq!(hmac(name, key, text), sha256, "{name}");
         }
         assert_eq!(hmac("HmacSHA384", key, text), sha384);
@@ -674,7 +830,10 @@ mod tests {
     #[test]
     fn test_jwt_hs256() {
         let header_payload = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ";
-        let jwt_token = encode("hex-base64url", hmac("HmacSha256", b"123456", header_payload.as_bytes()).as_bytes());
+        let jwt_token = encode(
+            "hex-base64url",
+            hmac("HmacSha256", b"123456", header_payload.as_bytes()).as_bytes(),
+        );
         println!("{}", jwt_token);
     }
 
@@ -714,7 +873,10 @@ mod tests {
     fn test_jwt() {
         let payload: StrMap<Str> = StrMap::default();
         payload.insert(Str::from("name"), Str::from("John Doe"));
-        payload.insert(Str::from("user_uuid"), Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"));
+        payload.insert(
+            Str::from("user_uuid"),
+            Str::from("8456ea54-62e8-4a31-9cce-18de7a6a890d"),
+        );
         payload.insert(Str::from("user_id"), Str::from("112344"));
         payload.insert(Str::from("rate"), Str::from("11.11"));
         payload.insert(Str::from("exp"), Str::from("1208234234234"));
@@ -769,7 +931,11 @@ mod tests {
         let token = jwt("HS256", "secret", &payload);
         crate::runtime::set_errno(String::new());
         assert_eq!(dejwt("secret", &token).len(), 0);
-        assert!(crate::runtime::errno().contains("ExpiredSignature"), "{}", crate::runtime::errno());
+        assert!(
+            crate::runtime::errno().contains("ExpiredSignature"),
+            "{}",
+            crate::runtime::errno()
+        );
         // wrong secret
         crate::runtime::set_errno(String::new());
         assert_eq!(dejwt("other", &token).len(), 0);
@@ -782,7 +948,9 @@ mod tests {
         assert!(is_trusted_jwks_url("https://example.com/jwks.json#kid"));
         assert!(is_trusted_jwks_url("http://localhost:8000/jwks.json#kid"));
         assert!(!is_trusted_jwks_url("http://example.com/jwks.json#kid"));
-        assert!(!is_trusted_jwks_url("http://localhost.evil.com/jwks.json#kid"));
+        assert!(!is_trusted_jwks_url(
+            "http://localhost.evil.com/jwks.json#kid"
+        ));
     }
 
     #[test]
@@ -805,7 +973,9 @@ mod tests {
         let decoding_key = DecodingKey::from_jwk(jwk).unwrap();
         let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjEyMDgyMzQyMzQyMzQsIm5hbWUiOiJKb2huIERvZSIsInJhdGUiOjExLjExLCJ1c2VyX2lkIjoxMTIzNDQsInVzZXJfdXVpZCI6Ijg0NTZlYTU0LTYyZTgtNGEzMS05Y2NlLTE4ZGU3YTZhODkwZCJ9.rgIm0ep_VZ1LaoySp0U4dktnMtIhrrXtoo2udzpmYhh_1hQS8-LqgC5j4FRYaXtu8piSZfhCod1aarO_cYDh9Q";
         let validation = Validation::new(Algorithm::ES256);
-        let token_data = jsonwebtoken::decode::<BTreeMap<String, Value>>(token, &decoding_key, &validation).unwrap();
+        let token_data =
+            jsonwebtoken::decode::<BTreeMap<String, Value>>(token, &decoding_key, &validation)
+                .unwrap();
         println!("{:?}", token_data.claims);
     }
 
@@ -846,7 +1016,10 @@ mod tests {
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let encrypted_text = encrypt(mode, long_text.as_bytes(), key_pass);
             assert!(encrypted_text.starts_with(if mode.ends_with("gcm") { "v3:" } else { "v4:" }));
-            assert_eq!(decrypt(mode, &encrypted_text, key_pass), long_text.as_bytes());
+            assert_eq!(
+                decrypt(mode, &encrypted_text, key_pass),
+                long_text.as_bytes()
+            );
             assert!(decrypt(mode, &encrypted_text, "wrong").is_empty());
             assert!(decrypt(mode, "", key_pass).is_empty());
             assert!(decrypt(mode, "v2:AAAA", key_pass).is_empty());
@@ -870,7 +1043,12 @@ mod tests {
             check(mode, "v3:AAAA", "k1", DECRYPT_TOO_SHORT);
         }
         let text = encrypt("aes-128-cbc", b"hello", "k1");
-        check("aes-128-gcm", &text, "k1", "`v4:` ciphertext requires a CBC mode");
+        check(
+            "aes-128-gcm",
+            &text,
+            "k1",
+            "`v4:` ciphertext requires a CBC mode",
+        );
         check("aes-128-cbc", "v4:!!", "k1", DECRYPT_INVALID_BASE64);
         check("aes-128-cbc", "v4:AAAA", "k1", DECRYPT_TOO_SHORT);
         // GCM `v3:` ciphertext decrypted with a CBC mode is rejected before any deprecation notice
@@ -888,7 +1066,10 @@ mod tests {
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let (key_len, gcm) = parse_cipher_mode(mode).unwrap();
             let bytes = encrypt_bytes(&legacy_key(key_pass, key_len), gcm, b"Hello World").unwrap();
-            assert_eq!(decrypt(mode, &STANDARD.encode(bytes), key_pass), b"Hello World");
+            assert_eq!(
+                decrypt(mode, &STANDARD.encode(bytes), key_pass),
+                b"Hello World"
+            );
         }
     }
 
@@ -902,10 +1083,20 @@ mod tests {
             for i in 0..data.len() {
                 let mut tampered = data.clone();
                 tampered[i] ^= 1;
-                assert!(decrypt(mode, &format!("v4:{}", STANDARD.encode(&tampered)), "pass").is_empty(), "{mode} byte {i}");
+                assert!(
+                    decrypt(mode, &format!("v4:{}", STANDARD.encode(&tampered)), "pass").is_empty(),
+                    "{mode} byte {i}"
+                );
             }
             // truncated tag, or a v4 ciphertext with a GCM mode
-            assert!(decrypt(mode, &format!("v4:{}", STANDARD.encode(&data[..data.len() - 1])), "pass").is_empty());
+            assert!(
+                decrypt(
+                    mode,
+                    &format!("v4:{}", STANDARD.encode(&data[..data.len() - 1])),
+                    "pass"
+                )
+                .is_empty()
+            );
             assert!(decrypt("aes-256-gcm", &text, "pass").is_empty());
         }
     }
@@ -916,7 +1107,8 @@ mod tests {
         let salt = [3u8; SALT_LEN];
         for mode in ["aes-128-cbc", "aes-256-cbc"] {
             let (key_len, _) = parse_cipher_mode(mode).unwrap();
-            let bytes = encrypt_bytes(&derive_key("pass", &salt, key_len), false, b"Hello World").unwrap();
+            let bytes =
+                encrypt_bytes(&derive_key("pass", &salt, key_len), false, b"Hello World").unwrap();
             let text = format!("v3:{}", STANDARD.encode([salt.as_slice(), &bytes].concat()));
             assert_eq!(decrypt(mode, &text, "pass"), b"Hello World");
         }
@@ -927,7 +1119,12 @@ mod tests {
         let key_pass = "0123456789abcdef";
         for mode in ["aes-128-cbc", "aes-256-cbc", "aes-128-gcm", "aes-256-gcm"] {
             let (key_len, gcm) = parse_cipher_mode(mode).unwrap();
-            let bytes = encrypt_bytes(&derive_key(key_pass, PBKDF2_V2_SALT, key_len), gcm, b"Hello World").unwrap();
+            let bytes = encrypt_bytes(
+                &derive_key(key_pass, PBKDF2_V2_SALT, key_len),
+                gcm,
+                b"Hello World",
+            )
+            .unwrap();
             let text = format!("v2:{}", STANDARD.encode(bytes));
             assert_eq!(decrypt(mode, &text, key_pass), b"Hello World");
         }
@@ -936,7 +1133,9 @@ mod tests {
     #[test]
     fn test_encrypt_v3_salt() {
         let encrypted_text = encrypt("aes-256-gcm", b"Hello World", "pass");
-        let data = STANDARD.decode(encrypted_text.strip_prefix("v3:").unwrap()).unwrap();
+        let data = STANDARD
+            .decode(encrypted_text.strip_prefix("v3:").unwrap())
+            .unwrap();
         // salt + nonce + ciphertext + tag
         assert_eq!(data.len(), SALT_LEN + 12 + 11 + 16);
         assert_ne!(&data[..SALT_LEN], PBKDF2_V2_SALT);

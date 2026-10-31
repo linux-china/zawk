@@ -1,25 +1,23 @@
 use crate::builtins;
 use crate::bytecode;
-use crate::cfg::{self, is_unused, Function, Ident, PrimExpr, PrimStmt, PrimVal, ProgramContext};
+use crate::cfg::{self, Function, Ident, PrimExpr, PrimStmt, PrimVal, ProgramContext, is_unused};
 use crate::codegen;
-use crate::common::{
-    CancelSignal, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList,
-};
+use crate::common::{CancelSignal, Either, Graph, NodeIx, NumTy, Result, Stage, WorkList};
 use crate::cross_stage;
-use crate::strnum_analysis::StrnumAnalysis;
 use crate::pushdown::{FieldSet, UsedFieldAnalysis};
 use crate::runtime::{self, Str};
 use crate::string_constants::{self, StringConstantAnalysis};
+use crate::strnum_analysis::StrnumAnalysis;
 use crate::types;
 
-use hashbrown::{hash_map::Entry, HashMap, HashSet};
+use hashbrown::{HashMap, HashSet, hash_map::Entry};
 use smallvec::smallvec;
 
+use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 use std::collections::VecDeque;
 use std::mem;
 use std::rc::Rc;
 use std::sync::Arc;
-use crate::compile::Ty::{MapIntFloat, MapIntInt, MapIntStr, MapStrFloat, MapStrInt, MapStrStr};
 
 pub(crate) const UNUSED: u32 = u32::MAX;
 pub(crate) const NULL_REG: u32 = UNUSED - 1;
@@ -272,7 +270,7 @@ pub(crate) struct Typer<'a> {
     id_map: HashMap<
         // TODO: make newtypes for these different Ids?
         (
-            NumTy, /* cfg-level func id */
+            NumTy,        /* cfg-level func id */
             SmallVec<Ty>, /* arg types */
         ),
         NumTy, /* bytecode-level func id */
@@ -355,7 +353,7 @@ pub(crate) struct Frame<'a> {
 impl<'a> Frame<'a> {
     fn load_slots(
         &mut self,
-        regs: impl Iterator<Item=(NumTy, Ty)>,
+        regs: impl Iterator<Item = (NumTy, Ty)>,
         ctr: &mut SlotCounter,
     ) -> Result<()> {
         let stream = self.cfg.node_weight_mut(self.entry).unwrap();
@@ -369,7 +367,7 @@ impl<'a> Frame<'a> {
     }
     fn store_slots(
         &mut self,
-        regs: impl Iterator<Item=(NumTy, Ty)>,
+        regs: impl Iterator<Item = (NumTy, Ty)>,
         ctr: &mut SlotCounter,
     ) -> Result<()> {
         let stream = self.cfg.node_weight_mut(self.exit).unwrap();
@@ -450,11 +448,11 @@ fn accum(inst: &Instr, mut f: impl FnMut(NumTy, Ty)) {
     match inst {
         Left(ll) => ll.accum(f),
         Right(Call {
-                  dst_reg,
-                  dst_ty,
-                  args,
-                  ..
-              }) => {
+            dst_reg,
+            dst_ty,
+            args,
+            ..
+        }) => {
             f(*dst_reg, *dst_ty);
             for (reg, ty) in args.iter().cloned() {
                 f(reg, ty)
@@ -556,11 +554,11 @@ impl<'a> Typer<'a> {
                     match stmt {
                         Either::Left(ll) => instrs.push(ll.clone()),
                         Either::Right(Call {
-                                          func_id,
-                                          dst_reg,
-                                          dst_ty,
-                                          args,
-                                      }) => {
+                            func_id,
+                            dst_reg,
+                            dst_ty,
+                            args,
+                        }) => {
                             // args have already been normalized, and return type already matches.
                             // All we need to do is push local variables (to avoid clobbers) and
                             // push args onto the stack.
@@ -754,7 +752,7 @@ impl<'a> Typer<'a> {
                 func_info: &generator.func_info,
                 stream: &mut stream,
             }
-                .process_function(&pc.funcs[src_func])?;
+            .process_function(&pc.funcs[src_func])?;
         }
         // TODO: mark used frames first and then exclude them from the analyses?
         generator.run_analyses()?;
@@ -772,7 +770,12 @@ impl<'a> Typer<'a> {
                 .iter()
                 .zip(self.func_info.iter())
                 .map(|(frame, info)| {
-                    frame.arg_regs.iter().cloned().zip(info.arg_tys.iter().cloned()).collect()
+                    frame
+                        .arg_regs
+                        .iter()
+                        .cloned()
+                        .zip(info.arg_tys.iter().cloned())
+                        .collect()
                 })
                 .collect(),
         );
@@ -782,14 +785,20 @@ impl<'a> Typer<'a> {
         let sets_ignorecase = self.frames.iter().any(|frame| {
             frame.cfg.raw_nodes().iter().any(|bb| {
                 bb.weight.insts.iter().any(|stmt| {
-                    matches!(stmt, Either::Left(LL::StoreVarInt(builtins::Variable::IGNORECASE, _)))
+                    matches!(
+                        stmt,
+                        Either::Left(LL::StoreVarInt(builtins::Variable::IGNORECASE, _))
+                    )
                 })
             })
         });
         self.uses_procinfo = self.frames.iter().any(|frame| {
             frame.cfg.raw_nodes().iter().any(|bb| {
                 bb.weight.insts.iter().any(|stmt| {
-                    matches!(stmt, Either::Left(LL::LoadVarStrStrMap(_, builtins::Variable::PROCINFO)))
+                    matches!(
+                        stmt,
+                        Either::Left(LL::LoadVarStrStrMap(_, builtins::Variable::PROCINFO))
+                    )
                 })
             })
         });
@@ -845,8 +854,11 @@ impl<'a> Typer<'a> {
                     if strs.len() != 1 {
                         continue;
                     }
-                    let inst = &self.frames[frame].cfg.node_weight(NodeIx::new(bb)).unwrap().insts
-                        [stmt];
+                    let inst = &self.frames[frame]
+                        .cfg
+                        .node_weight(NodeIx::new(bb))
+                        .unwrap()
+                        .insts[stmt];
                     // split() treats an empty separator, " " and single characters specially
                     // rather than as regexes (see `RegexCache::split_internal`).
                     let is_split = matches!(
@@ -854,7 +866,10 @@ impl<'a> Typer<'a> {
                         Either::Left(
                             LL::SplitInt(..)
                                 | LL::SplitStr(..)
-                                | LL::SplitSeps { patsplit: false, .. }
+                                | LL::SplitSeps {
+                                    patsplit: false,
+                                    ..
+                                }
                         )
                     );
                     // Invalid patterns are left to the runtime, which reports errors only if
@@ -941,7 +956,11 @@ impl<'a> Typer<'a> {
         use runtime::compare::StrKind;
         let refine = |sna: &mut StrnumAnalysis, kind: &mut StrKind, reg: NumTy| {
             if *kind == StrKind::Strnum && !sna.may_be_strnum(reg) {
-                *kind = if sna.may_be_uninit(reg) { StrKind::MaybeUninit } else { StrKind::Str };
+                *kind = if sna.may_be_uninit(reg) {
+                    StrKind::MaybeUninit
+                } else {
+                    StrKind::Str
+                };
             }
         };
         for frame in self.frames.iter_mut() {
@@ -965,12 +984,20 @@ impl<'a> Typer<'a> {
                         // strnum or not, so `if (s)` agrees with `s ?? d`.
                         Either::Left(LL::AwkStrtonum(_, text, strnum))
                         | Either::Left(LL::TypeOfString(_, text, strnum)) => {
-                            let mut kind =
-                                if *strnum { StrKind::Strnum } else { StrKind::Str };
+                            let mut kind = if *strnum {
+                                StrKind::Strnum
+                            } else {
+                                StrKind::Str
+                            };
                             refine(sna, &mut kind, text.reflect().0);
                             *strnum = kind == StrKind::Strnum;
                         }
-                        Either::Left(LL::Asort { src, src_ty, strnum, .. }) => {
+                        Either::Left(LL::Asort {
+                            src,
+                            src_ty,
+                            strnum,
+                            ..
+                        }) => {
                             if *strnum && src_ty.val().ok() == Some(Ty::Str) {
                                 *strnum = sna.map_may_have_strnums(*src, *src_ty);
                             }
@@ -978,8 +1005,11 @@ impl<'a> Typer<'a> {
                         Either::Left(LL::Printf { args, strnum, .. })
                         | Either::Left(LL::Sprintf { args, strnum, .. }) => {
                             for ((reg, _), strnum) in args.iter().zip(strnum.iter_mut()) {
-                                let mut kind =
-                                    if *strnum { StrKind::Strnum } else { StrKind::Str };
+                                let mut kind = if *strnum {
+                                    StrKind::Strnum
+                                } else {
+                                    StrKind::Str
+                                };
                                 refine(sna, &mut kind, *reg);
                                 *strnum = kind == StrKind::Strnum;
                             }
@@ -1310,7 +1340,11 @@ impl<'a, 'b> View<'a, 'b> {
                 // Normally reported during type inference, e.g. as arrays of different types
                 // passed to the same function parameter.
                 if dst.is_array() && src.is_array() {
-                    return err!("cannot use an array of type {:?} where an array of type {:?} is expected", src, dst);
+                    return err!(
+                        "cannot use an array of type {:?} where an array of type {:?} is expected",
+                        src,
+                        dst
+                    );
                 }
                 return err!(
                     "invalid attempt to convert or move dst={:?} src={:?}",
@@ -1509,7 +1543,11 @@ impl<'a, 'b> View<'a, 'b> {
                 Ty::Float => {
                     let zero = self.regs.stats.reg_of_ty(Ty::Float);
                     self.pushl(LL::StoreConstFloat(zero.into(), 0.0));
-                    self.pushl(LL::EQFloat(res_reg.into(), conv_regs[0].into(), zero.into()))
+                    self.pushl(LL::EQFloat(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        zero.into(),
+                    ))
                 }
                 _ => {
                     debug_assert_eq!(conv_tys[0], Ty::Int);
@@ -1539,52 +1577,52 @@ impl<'a, 'b> View<'a, 'b> {
             // Comparisons with a string operand follow awk's strnum rules. Strings start out as
             // possible strnums; `run_analyses` refines this with the strnum analysis.
             Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ)
-            if conv_tys[0] == Ty::Str || conv_tys[1] == Ty::Str =>
-                {
-                    use runtime::compare::{CmpOp, StrKind};
-                    if res_reg != UNUSED {
-                        let op = match bf {
-                            Binop(LT) => CmpOp::Lt,
-                            Binop(GT) => CmpOp::Gt,
-                            Binop(LTE) => CmpOp::Lte,
-                            Binop(GTE) => CmpOp::Gte,
-                            _ => CmpOp::Eq,
-                        };
-                        let kind = |ty: Ty| {
-                            if ty == Ty::Null {
-                                StrKind::Uninit
-                            } else {
-                                StrKind::Strnum
-                            }
-                        };
-                        self.pushl(match (conv_tys[0], conv_tys[1]) {
-                            (Ty::Str, Ty::Str) => LL::CmpStr {
-                                op,
-                                dst: res_reg.into(),
-                                l: conv_regs[0].into(),
-                                r: conv_regs[1].into(),
-                                l_kind: kind(args_tys[0]),
-                                r_kind: kind(args_tys[1]),
-                            },
-                            (Ty::Str, _) => LL::CmpStrNum {
-                                op,
-                                dst: res_reg.into(),
-                                s: conv_regs[0].into(),
-                                n: conv_regs[1].into(),
-                                s_kind: kind(args_tys[0]),
-                                str_on_right: false,
-                            },
-                            (_, _) => LL::CmpStrNum {
-                                op,
-                                dst: res_reg.into(),
-                                s: conv_regs[1].into(),
-                                n: conv_regs[0].into(),
-                                s_kind: kind(args_tys[1]),
-                                str_on_right: true,
-                            },
-                        });
-                    }
+                if conv_tys[0] == Ty::Str || conv_tys[1] == Ty::Str =>
+            {
+                use runtime::compare::{CmpOp, StrKind};
+                if res_reg != UNUSED {
+                    let op = match bf {
+                        Binop(LT) => CmpOp::Lt,
+                        Binop(GT) => CmpOp::Gt,
+                        Binop(LTE) => CmpOp::Lte,
+                        Binop(GTE) => CmpOp::Gte,
+                        _ => CmpOp::Eq,
+                    };
+                    let kind = |ty: Ty| {
+                        if ty == Ty::Null {
+                            StrKind::Uninit
+                        } else {
+                            StrKind::Strnum
+                        }
+                    };
+                    self.pushl(match (conv_tys[0], conv_tys[1]) {
+                        (Ty::Str, Ty::Str) => LL::CmpStr {
+                            op,
+                            dst: res_reg.into(),
+                            l: conv_regs[0].into(),
+                            r: conv_regs[1].into(),
+                            l_kind: kind(args_tys[0]),
+                            r_kind: kind(args_tys[1]),
+                        },
+                        (Ty::Str, _) => LL::CmpStrNum {
+                            op,
+                            dst: res_reg.into(),
+                            s: conv_regs[0].into(),
+                            n: conv_regs[1].into(),
+                            s_kind: kind(args_tys[0]),
+                            str_on_right: false,
+                        },
+                        (_, _) => LL::CmpStrNum {
+                            op,
+                            dst: res_reg.into(),
+                            s: conv_regs[1].into(),
+                            n: conv_regs[0].into(),
+                            s_kind: kind(args_tys[1]),
+                            str_on_right: true,
+                        },
+                    });
                 }
+            }
             Binop(LT) => gen_op!(LT, [Float, LTFloat], [Int, LTInt], [Str, LTStr]),
             Binop(GT) => gen_op!(GT, [Float, GTFloat], [Int, GTInt], [Str, GTStr]),
             Binop(LTE) => gen_op!(LTE, [Float, LTEFloat], [Int, LTEInt], [Str, LTEStr]),
@@ -1594,8 +1632,18 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match ff.arity() {
                         1 => self.pushl(LL::Float1(*ff, res_reg.into(), conv_regs[0].into())),
-                        2 => self.pushl(LL::Float2(*ff, res_reg.into(), conv_regs[0].into(), conv_regs[1].into())),
-                        a => return err!("only known float functions have arity 1 and 2, but this one has arity {}", a),
+                        2 => self.pushl(LL::Float2(
+                            *ff,
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        a => {
+                            return err!(
+                                "only known float functions have arity 1 and 2, but this one has arity {}",
+                                a
+                            );
+                        }
                     }
                 }
             }
@@ -1603,8 +1651,18 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     match bw.arity() {
                         1 => self.pushl(LL::Int1(*bw, res_reg.into(), conv_regs[0].into())),
-                        2 => self.pushl(LL::Int2(*bw, res_reg.into(), conv_regs[0].into(), conv_regs[1].into())),
-                        a => return err!("only known float functions have arity 1 and 2, but this one has arity {}", a),
+                        2 => self.pushl(LL::Int2(
+                            *bw,
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        a => {
+                            return err!(
+                                "only known float functions have arity 1 and 2, but this one has arity {}",
+                                a
+                            );
+                        }
                     }
                 }
             }
@@ -1808,17 +1866,18 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Chars => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Chars(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Chars(res_reg.into(), conv_regs[0].into()))
                 }
             }
             ToInt => match conv_tys[0] {
                 Ty::Float | Ty::Str => {
                     if res_reg != UNUSED {
                         self.convert(res_reg, Ty::Float, conv_regs[0], conv_tys[0])?;
-                        self.pushl(LL::Float1(builtins::FloatFunc::Trunc, res_reg.into(), res_reg.into()));
+                        self.pushl(LL::Float1(
+                            builtins::FloatFunc::Trunc,
+                            res_reg.into(),
+                            res_reg.into(),
+                        ));
                     }
                 }
                 _ => self.convert(res_reg, Ty::Int, conv_regs[0], conv_tys[0])?,
@@ -2034,18 +2093,12 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Uuid => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Uuid(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Uuid(res_reg.into(), conv_regs[0].into()))
                 }
             }
             SnowFlake => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::SnowFlake(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::SnowFlake(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Ulid => {
@@ -2251,10 +2304,7 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Strtonum => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Strtonum(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Strtonum(res_reg.into(), conv_regs[0].into()))
                 }
             }
             // The argument may be a strnum; `refine_string_comparisons` clears the flag when the
@@ -2266,18 +2316,12 @@ impl<'a, 'b> View<'a, 'b> {
             }
             FormatBytes => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::FormatBytes(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::FormatBytes(res_reg.into(), conv_regs[0].into()))
                 }
             }
             ToBytes => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::ToBytes(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::ToBytes(res_reg.into(), conv_regs[0].into()))
                 }
             }
             StartsWith => {
@@ -2309,66 +2353,42 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Capitalize => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Capitalize(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Capitalize(res_reg.into(), conv_regs[0].into()))
                 }
             }
             UnCapitalize => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::UnCapitalize(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::UnCapitalize(res_reg.into(), conv_regs[0].into()))
                 }
             }
             CamelCase => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::CamelCase(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::CamelCase(res_reg.into(), conv_regs[0].into()))
                 }
             }
             KebabCase => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::KebabCase(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::KebabCase(res_reg.into(), conv_regs[0].into()))
                 }
             }
             SnakeCase => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::SnakeCase(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::SnakeCase(res_reg.into(), conv_regs[0].into()))
                 }
             }
             TitleCase => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::TitleCase(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::TitleCase(res_reg.into(), conv_regs[0].into()))
                 }
             }
             PascalCase => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::PascalCase(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::PascalCase(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Figlet => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Figlet(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Figlet(res_reg.into(), conv_regs[0].into()))
                 }
             }
             PadLeft => {
@@ -2412,15 +2432,16 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Similar => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Similar(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::Similar(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             Mask => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Mask(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Mask(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Repeat => {
@@ -2488,34 +2509,22 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Quote => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Quote(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Quote(res_reg.into(), conv_regs[0].into()))
                 }
             }
             DoubleQuote => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::DoubleQuote(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::DoubleQuote(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Words => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Words(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Words(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Lines => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Lines(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Lines(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Mktime => {
@@ -2530,10 +2539,7 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Duration => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Duration(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::Duration(res_reg.into(), conv_regs[0].into()))
                 }
             }
             DateAdd => {
@@ -2567,7 +2573,11 @@ impl<'a, 'b> View<'a, 'b> {
             }
             DateTrunc => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::DateTrunc(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::DateTrunc(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             ToIso8601 => {
@@ -2577,18 +2587,12 @@ impl<'a, 'b> View<'a, 'b> {
             }
             MkBool => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::MkBool(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::MkBool(res_reg.into(), conv_regs[0].into()))
                 }
             }
             MkPassword => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::MkPassword(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                    ))
+                    self.pushl(LL::MkPassword(res_reg.into(), conv_regs[0].into()))
                 }
             }
             Systime => {
@@ -2605,15 +2609,21 @@ impl<'a, 'b> View<'a, 'b> {
             Eval => {
                 if res_reg != UNUSED {
                     match conv_tys[1] {
-                        Ty::MapStrInt => {
-                            self.pushl(LL::MapStrIntEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapStrFloat => {
-                            self.pushl(LL::MapStrFloatEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapStrStr => {
-                            self.pushl(LL::MapStrStrEval(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
+                        Ty::MapStrInt => self.pushl(LL::MapStrIntEval(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        Ty::MapStrFloat => self.pushl(LL::MapStrFloatEval(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        Ty::MapStrStr => self.pushl(LL::MapStrStrEval(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
                         Ty::Int | Ty::Null => {
                             self.pushl(LL::Eval(res_reg.into(), conv_regs[0].into()))
                         }
@@ -2622,7 +2632,7 @@ impl<'a, 'b> View<'a, 'b> {
                                 "eval only support MapStrInt, MapStrFloat, MapStrStr called with malformed types: {:?} => {:?}",
                                 &conv_tys[..],
                                 dst_ty
-                             );
+                            );
                         }
                     }
                 }
@@ -2634,8 +2644,12 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Pairs => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Pairs(res_reg.into(), conv_regs[0].into(),
-                                         conv_regs[1].into(), conv_regs[2].into()))
+                    self.pushl(LL::Pairs(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
                 }
             }
             Record => {
@@ -2695,7 +2709,12 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Rgb2Hex => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Rgb2Hex(res_reg.into(), conv_regs[0].into(),conv_regs[1].into(),conv_regs[2].into()))
+                    self.pushl(LL::Rgb2Hex(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
                 }
             }
             Variant => {
@@ -2713,22 +2732,38 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::HttpGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::HttpGet(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                ))
             }
             HttpPost => {
                 // a request is sent even when the result is unused
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::HttpPost(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::HttpPost(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
-            SendMail => {
-                self.pushl(LL::SendMail(conv_regs[0].into(), conv_regs[1].into(),
-                                     conv_regs[2].into(), conv_regs[3].into(), conv_regs[4].into()))
-            }
+            SendMail => self.pushl(LL::SendMail(
+                conv_regs[0].into(),
+                conv_regs[1].into(),
+                conv_regs[2].into(),
+                conv_regs[3].into(),
+                conv_regs[4].into(),
+            )),
             S3Get => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::S3Get(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::S3Get(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             S3Put => {
@@ -2736,86 +2771,111 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::S3Put(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::S3Put(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             KvGet => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::KvGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::KvGet(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
-            KvPut => {
-                self.pushl(LL::KvPut(conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
-            }
-            KvDelete => {
-                self.pushl(LL::KvDelete(conv_regs[0].into(), conv_regs[1].into()))
-            }
-            KvClear => {
-                self.pushl(LL::KvClear(conv_regs[0].into()))
-            }
+            KvPut => self.pushl(LL::KvPut(
+                conv_regs[0].into(),
+                conv_regs[1].into(),
+                conv_regs[2].into(),
+            )),
+            KvDelete => self.pushl(LL::KvDelete(conv_regs[0].into(), conv_regs[1].into())),
+            KvClear => self.pushl(LL::KvClear(conv_regs[0].into())),
             ReadAll => {
                 if res_reg != UNUSED {
                     self.pushl(LL::ReadAll(res_reg.into(), conv_regs[0].into()))
                 }
             }
-            WriteAll => {
-                self.pushl(LL::WriteAll(conv_regs[0].into(), conv_regs[1].into()))
-            }
+            WriteAll => self.pushl(LL::WriteAll(conv_regs[0].into(), conv_regs[1].into())),
             ReadConfig => {
                 if res_reg != UNUSED {
                     self.pushl(LL::ReadConfig(res_reg.into(), conv_regs[0].into()))
                 }
             }
-            LogDebug => {
-                self.pushl(LL::LogDebug(conv_regs[0].into()))
-            }
-            LogInfo => {
-                self.pushl(LL::LogInfo(conv_regs[0].into()))
-            }
-            LogWarn => {
-                self.pushl(LL::LogWarn(conv_regs[0].into()))
-            }
-            LogError => {
-                self.pushl(LL::LogError(conv_regs[0].into()))
-            }
+            LogDebug => self.pushl(LL::LogDebug(conv_regs[0].into())),
+            LogInfo => self.pushl(LL::LogInfo(conv_regs[0].into())),
+            LogWarn => self.pushl(LL::LogWarn(conv_regs[0].into())),
+            LogError => self.pushl(LL::LogError(conv_regs[0].into())),
             SqliteQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::SqliteQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::SqliteQuery(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             SqliteExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::SqliteExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::SqliteExecute(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             MysqlQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::MysqlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::MysqlQuery(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             MysqlExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::MysqlExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::MysqlExecute(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             PgQuery => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::PgQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::PgQuery(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             PgExecute => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::PgExecute(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::PgExecute(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
-            Publish => {
-                self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into()))
-            }
+            Publish => self.pushl(LL::Publish(conv_regs[0].into(), conv_regs[1].into())),
             FromJson => {
                 if res_reg != UNUSED {
                     self.pushl(LL::FromJson(res_reg.into(), conv_regs[0].into()))
@@ -2847,46 +2907,56 @@ impl<'a, 'b> View<'a, 'b> {
                         Ty::MapStrStr => {
                             self.pushl(LL::MapStrStrToJson(res_reg.into(), conv_regs[0].into()))
                         }
-                        Ty::Str => {
-                            self.pushl(LL::StrToJson(res_reg.into(), conv_regs[0].into()))
-                        }
-                        Ty::Int => {
-                            self.pushl(LL::IntToJson(res_reg.into(), conv_regs[0].into()))
-                        }
+                        Ty::Str => self.pushl(LL::StrToJson(res_reg.into(), conv_regs[0].into())),
+                        Ty::Int => self.pushl(LL::IntToJson(res_reg.into(), conv_regs[0].into())),
                         Ty::Float => {
                             self.pushl(LL::FloatToJson(res_reg.into(), conv_regs[0].into()))
                         }
-                        Ty::Null => {
-                            self.pushl(LL::NullToJson(res_reg.into()))
-                        }
+                        Ty::Null => self.pushl(LL::NullToJson(res_reg.into())),
                         _ => {
                             return err!(
                                 "ToJson only support strstrMap, intStrMap, Str, Int, Float called with malformed types: {:?} => {:?}",
                                 &conv_tys[..],
                                 dst_ty
-                             );
+                            );
                         }
                     }
                 }
             }
             JsonValue => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::JsonValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::JsonValue(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             JsonQuery => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::JsonQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::JsonQuery(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             JsonHas => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::JsonHas(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::JsonHas(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             JsonGet => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::JsonGet(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::JsonGet(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             JsonSet => {
@@ -2901,68 +2971,68 @@ impl<'a, 'b> View<'a, 'b> {
             }
             JsonDel => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::JsonDel(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::JsonDel(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             HtmlValue => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::HtmlValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::HtmlValue(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             HtmlQuery => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::HtmlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::HtmlQuery(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             XmlValue => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::XmlValue(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::XmlValue(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             XmlQuery => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::XmlQuery(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::XmlQuery(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             VarDump => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::DumpMapIntInt(conv_regs[0].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::DumpMapIntFloat(conv_regs[0].into()))
-                        }
-                        Ty::MapIntStr => {
-                            self.pushl(LL::DumpMapIntStr(conv_regs[0].into()))
-                        }
-                        Ty::MapStrInt => {
-                            self.pushl(LL::DumpMapStrInt(conv_regs[0].into()))
-                        }
-                        Ty::MapStrFloat => {
-                            self.pushl(LL::DumpMapStrFloat(conv_regs[0].into()))
-                        }
-                        Ty::MapStrStr => {
-                            self.pushl(LL::DumpMapStrStr(conv_regs[0].into()))
-                        }
-                        Ty::Str => {
-                            self.pushl(LL::DumpStr(conv_regs[0].into()))
-                        }
-                        Ty::Int => {
-                            self.pushl(LL::DumpInt(conv_regs[0].into()))
-                        }
-                        Ty::Float => {
-                            self.pushl(LL::DumpFloat(conv_regs[0].into()))
-                        }
-                        Ty::Null => {
-                            self.pushl(LL::DumpNull())
-                        }
+                        Ty::MapIntInt => self.pushl(LL::DumpMapIntInt(conv_regs[0].into())),
+                        Ty::MapIntFloat => self.pushl(LL::DumpMapIntFloat(conv_regs[0].into())),
+                        Ty::MapIntStr => self.pushl(LL::DumpMapIntStr(conv_regs[0].into())),
+                        Ty::MapStrInt => self.pushl(LL::DumpMapStrInt(conv_regs[0].into())),
+                        Ty::MapStrFloat => self.pushl(LL::DumpMapStrFloat(conv_regs[0].into())),
+                        Ty::MapStrStr => self.pushl(LL::DumpMapStrStr(conv_regs[0].into())),
+                        Ty::Str => self.pushl(LL::DumpStr(conv_regs[0].into())),
+                        Ty::Int => self.pushl(LL::DumpInt(conv_regs[0].into())),
+                        Ty::Float => self.pushl(LL::DumpFloat(conv_regs[0].into())),
+                        Ty::Null => self.pushl(LL::DumpNull()),
                         _ => {
                             return err!(
                                 "VarDump only support strstrMap, intStrMap, Str, Int, Float called with malformed types: {:?} => {:?}",
                                 &conv_tys[..],
                                 dst_ty
-                             );
+                            );
                         }
                     }
                 }
@@ -2985,7 +3055,10 @@ impl<'a, 'b> View<'a, 'b> {
                             self.pushl(LL::MapIntStrToCsv(res_reg.into(), conv_regs[0].into()))
                         }
                         _ => {
-                            return err!("to_csv: argument 1 must be an array with integer keys, got {:?}", conv_tys[0]);
+                            return err!(
+                                "to_csv: argument 1 must be an array with integer keys, got {:?}",
+                                conv_tys[0]
+                            );
                         }
                     }
                 }
@@ -3012,7 +3085,8 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                if !(conv_tys[0].is_array() && matches!(conv_tys[1], Ty::MapIntStr | Ty::MapStrStr)) {
+                if !(conv_tys[0].is_array() && matches!(conv_tys[1], Ty::MapIntStr | Ty::MapStrStr))
+                {
                     return err!("invalid input types to asorti: {:?}", &conv_tys[..]);
                 }
                 self.pushl(LL::Asorti {
@@ -3060,12 +3134,17 @@ impl<'a, 'b> View<'a, 'b> {
                     })
                 }
             }
-            BloomFilterInsert => {
-                self.pushl(LL::BloomFilterInsert(conv_regs[0].into(), conv_regs[1].into()))
-            }
+            BloomFilterInsert => self.pushl(LL::BloomFilterInsert(
+                conv_regs[0].into(),
+                conv_regs[1].into(),
+            )),
             BloomFilterContains => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::BloomFilterContains(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::BloomFilterContains(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             BloomFilterContainsWithInsert => {
@@ -3073,67 +3152,80 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::BloomFilterContainsWithInsert(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::BloomFilterContainsWithInsert(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                ))
             }
             Jev => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::Jev(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::Jev(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             JevProb => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::JevProb(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                self.pushl(LL::JevProb(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                ))
             }
             JevChoice => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::JevChoice(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::JevChoice(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             JevScore => {
                 if res_reg == UNUSED {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
-                self.pushl(LL::JevScore(res_reg.into(), conv_regs[0].into(), conv_regs[1].into(), conv_regs[2].into()))
+                self.pushl(LL::JevScore(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                ))
             }
             Fake => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Fake(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::Fake(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             TypeOfVariable | TypeOfUntyped => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
-                        MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
-                            self.pushl(LL::TypeOfArray(
-                                res_reg.into(),
-                            ))
-                        }
-                        Ty::Int | Ty::Float => {
-                            self.pushl(LL::TypeOfNumber(
-                                res_reg.into(),
-                            ))
-                        }
+                        MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat
+                        | MapStrStr => self.pushl(LL::TypeOfArray(res_reg.into())),
+                        Ty::Int | Ty::Float => self.pushl(LL::TypeOfNumber(res_reg.into())),
                         Ty::Str => {
                             // "strnum" or "string"; `refine_string_comparisons` clears the
                             // flag when the argument cannot be a strnum.
-                            self.pushl(LL::TypeOfString(
-                                res_reg.into(),
-                                conv_regs[0].into(),
-                                true,
-                            ))
+                            self.pushl(LL::TypeOfString(res_reg.into(), conv_regs[0].into(), true))
                         }
-                        _ if *bf == TypeOfUntyped => {
-                            self.pushl(LL::StoreConstStr(res_reg.into(), Str::from("untyped").into()))
-                        }
-                        _ => {
-                            self.pushl(LL::TypeOfUnassigned(
-                                res_reg.into(),
-                            ))
-                        }
+                        _ if *bf == TypeOfUntyped => self.pushl(LL::StoreConstStr(
+                            res_reg.into(),
+                            Str::from("untyped").into(),
+                        )),
+                        _ => self.pushl(LL::TypeOfUnassigned(res_reg.into())),
                     };
                 }
             }
@@ -3141,63 +3233,37 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     let is_array = conv_tys[0].is_array();
                     if is_array {
-                        self.pushl(LL::IsArrayTrue(
-                            res_reg.into(),
-                        ))
+                        self.pushl(LL::IsArrayTrue(res_reg.into()))
                     } else {
-                        self.pushl(LL::IsArrayFalse(
-                            res_reg.into(),
-                        ))
+                        self.pushl(LL::IsArrayFalse(res_reg.into()))
                     }
                 }
             }
             IsInt => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
-                        Ty::Int => {
-                            self.pushl(LL::IsIntTrue(
-                                res_reg.into(),
-                            ))
-                        }
-                        Ty::Str => {
-                            self.pushl(LL::IsStrInt(
-                                res_reg.into(),
-                                conv_regs[0].into(),
-                            ))
-                        }
-                        _ => {
-                            self.pushl(LL::IsIntFalse(
-                                res_reg.into(),
-                            ))
-                        }
+                        Ty::Int => self.pushl(LL::IsIntTrue(res_reg.into())),
+                        Ty::Str => self.pushl(LL::IsStrInt(res_reg.into(), conv_regs[0].into())),
+                        _ => self.pushl(LL::IsIntFalse(res_reg.into())),
                     };
                 }
             }
             IsNum => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
-                        Ty::Int | Ty::Float => {
-                            self.pushl(LL::IsNumTrue(
-                                res_reg.into(),
-                            ))
-                        }
-                        Ty::Str => {
-                            self.pushl(LL::IsStrNum(
-                                res_reg.into(),
-                                conv_regs[0].into(),
-                            ))
-                        }
-                        _ => {
-                            self.pushl(LL::IsNumFalse(
-                                res_reg.into(),
-                            ))
-                        }
+                        Ty::Int | Ty::Float => self.pushl(LL::IsNumTrue(res_reg.into())),
+                        Ty::Str => self.pushl(LL::IsStrNum(res_reg.into(), conv_regs[0].into())),
+                        _ => self.pushl(LL::IsNumFalse(res_reg.into())),
                     };
                 }
             }
             IsFormat => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::IsFormat(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
+                    self.pushl(LL::IsFormat(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
                 }
             }
             IsNull => {
@@ -3218,13 +3284,27 @@ impl<'a, 'b> View<'a, 'b> {
                 if res_reg != UNUSED {
                     let (res, map) = (res_reg, conv_regs[0]);
                     match (bf, conv_tys[0]) {
-                        (ArrayMax, Ty::MapIntInt) => self.pushl(LL::MapIntIntMax(res.into(), map.into())),
-                        (ArrayMax, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMax(res.into(), map.into())),
-                        (ArrayMin, Ty::MapIntInt) => self.pushl(LL::MapIntIntMin(res.into(), map.into())),
-                        (ArrayMin, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMin(res.into(), map.into())),
-                        (ArraySum, Ty::MapIntInt) => self.pushl(LL::MapIntIntSum(res.into(), map.into())),
-                        (ArraySum, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatSum(res.into(), map.into())),
-                        (ArrayMean, Ty::MapIntFloat) => self.pushl(LL::MapIntFloatMean(res.into(), map.into())),
+                        (ArrayMax, Ty::MapIntInt) => {
+                            self.pushl(LL::MapIntIntMax(res.into(), map.into()))
+                        }
+                        (ArrayMax, Ty::MapIntFloat) => {
+                            self.pushl(LL::MapIntFloatMax(res.into(), map.into()))
+                        }
+                        (ArrayMin, Ty::MapIntInt) => {
+                            self.pushl(LL::MapIntIntMin(res.into(), map.into()))
+                        }
+                        (ArrayMin, Ty::MapIntFloat) => {
+                            self.pushl(LL::MapIntFloatMin(res.into(), map.into()))
+                        }
+                        (ArraySum, Ty::MapIntInt) => {
+                            self.pushl(LL::MapIntIntSum(res.into(), map.into()))
+                        }
+                        (ArraySum, Ty::MapIntFloat) => {
+                            self.pushl(LL::MapIntFloatSum(res.into(), map.into()))
+                        }
+                        (ArrayMean, Ty::MapIntFloat) => {
+                            self.pushl(LL::MapIntFloatMean(res.into(), map.into()))
+                        }
                         // Every other array: convert the values to numbers, see runtime::array_stats.
                         (_, map_ty) if map_ty.is_array() => {
                             use crate::runtime::array_stats::*;
@@ -3253,15 +3333,21 @@ impl<'a, 'b> View<'a, 'b> {
             IntMapJoin => {
                 if res_reg != UNUSED {
                     match conv_tys[0] {
-                        Ty::MapIntInt => {
-                            self.pushl(LL::MapIntIntJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapIntFloat => {
-                            self.pushl(LL::MapIntFloatJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
-                        Ty::MapIntStr => {
-                            self.pushl(LL::MapIntStrJoin(res_reg.into(), conv_regs[0].into(), conv_regs[1].into()))
-                        }
+                        Ty::MapIntInt => self.pushl(LL::MapIntIntJoin(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        Ty::MapIntFloat => self.pushl(LL::MapIntFloatJoin(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
+                        Ty::MapIntStr => self.pushl(LL::MapIntStrJoin(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )),
                         _ => {
                             return err!(
                                 "_join: argument 1 must be an array with integer keys, got {:?}",
@@ -3646,7 +3732,7 @@ impl<'a, 'b> View<'a, 'b> {
 /// This works as a special case for regex constant folding, where we can compile matches into
 /// simple "startswith" calls. This sort of trick is still only used in a few places.
 fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
-    use regex_syntax::ast::{parse, AssertionKind, Ast};
+    use regex_syntax::ast::{AssertionKind, Ast, parse};
     // We should only call extract_anchored_literal
     let re_ast = parse::Parser::new().parse(text).unwrap();
     if let Ast::Concat(concat) = &re_ast {

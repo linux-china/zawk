@@ -156,7 +156,11 @@ where
     K: Hash + Eq,
     V: DistinctItem,
 {
-    map.iter(|it| it.map(|(_, v)| v.distinct_key()).collect::<HashSet<_>>().len() as Int)
+    map.iter(|it| {
+        it.map(|(_, v)| v.distinct_key())
+            .collect::<HashSet<_>>()
+            .len() as Int
+    })
 }
 
 /// `_top(a, k)`: the (at most) `k` keys of `map` with the largest (numeric) values, from the
@@ -171,7 +175,8 @@ where
         return res;
     }
     let mut items: Vec<(K, Float, Vec<u8>)> = map.iter(|it| {
-        it.map(|(key, v)| (key.clone(), v.sort_num(), key.sort_str().into_owned())).collect()
+        it.map(|(key, v)| (key.clone(), v.sort_num(), key.sort_str().into_owned()))
+            .collect()
     });
     let cmp = |a: &(K, Float, Vec<u8>), b: &(K, Float, Vec<u8>)| {
         cmp_num(b.1, a.1).then_with(|| a.2.cmp(&b.2))
@@ -217,7 +222,10 @@ mod tests {
         assert!((array_stat(&m, STAT_VAR, 0.0) - 32.0 / 7.0).abs() < 1e-12);
         assert!((array_stat(&m, STAT_STDDEV, 0.0) - (32.0f64 / 7.0).sqrt()).abs() < 1e-12);
         assert_eq!(array_stat(&m, STAT_MODE, 0.0), 4.0);
-        assert_eq!(array_stat(&floats(&[3.0, 1.0, 3.0, 1.0]), STAT_MODE, 0.0), 1.0);
+        assert_eq!(
+            array_stat(&floats(&[3.0, 1.0, 3.0, 1.0]), STAT_MODE, 0.0),
+            1.0
+        );
     }
 
     #[test]

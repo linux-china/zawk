@@ -42,14 +42,26 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
     // As for a run, JSON input is the default when every input file ends with `.json`.
     // Database tables and queries (`sqlite://app.db#user`) are read as CSV with a header line.
     let input_format = opts.input_format.clone().or_else(|| {
-        if opts.files.iter().any(|f| crate::runtime::splitter::database::is_db_url(f)) {
+        if opts
+            .files
+            .iter()
+            .any(|f| crate::runtime::splitter::database::is_db_url(f))
+        {
             return Some("database".to_string());
         }
-        if !opts.files.is_empty() && opts.files.iter().all(|f| crate::runtime::splitter::xlsx::is_xlsx_file(f)) {
+        if !opts.files.is_empty()
+            && opts
+                .files
+                .iter()
+                .all(|f| crate::runtime::splitter::xlsx::is_xlsx_file(f))
+        {
             return Some("xlsx".to_string());
         }
         let json = !opts.files.is_empty()
-            && opts.files.iter().all(|f| f.split('#').next().unwrap_or(f).ends_with(".json"));
+            && opts
+                .files
+                .iter()
+                .all(|f| f.split('#').next().unwrap_or(f).ends_with(".json"));
         json.then(|| "json".to_string())
     });
     let format = input_format.as_deref().map(|f| match f {
@@ -57,7 +69,10 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         "md" => "markdown",
         f => f,
     });
-    let implied_header = matches!(format, Some("json" | "jsonl" | "parquet" | "markdown" | "database"));
+    let implied_header = matches!(
+        format,
+        Some("json" | "jsonl" | "parquet" | "markdown" | "database")
+    );
     let header = opts.header || implied_header;
 
     let mut options = Vec::new();
@@ -79,19 +94,45 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         parts.extend(files.iter().cloned());
         parts.join(" ")
     };
-    let output: Vec<String> = opts.output_format.iter().map(|o| format!("-o {}", o)).collect();
+    let output: Vec<String> = opts
+        .output_format
+        .iter()
+        .map(|o| format!("-o {}", o))
+        .collect();
     let command = join("zawk", &output);
     let lint_command = join("zawk lint", &[]);
 
     let mut run = Vec::new();
-    run.push(format!("Input format: {}", input_notes(format, input_format.is_some() && opts.input_format.is_none())));
-    run.push(format!("Field separator: {}", fs_notes(format, opts.field_sep.as_ref())));
-    run.push(format!("Header: {}", header_notes(format, opts.header, implied_header)));
-    run.push(format!("Output format: {}", output_notes(opts.output_format.as_deref())));
+    run.push(format!(
+        "Input format: {}",
+        input_notes(
+            format,
+            input_format.is_some() && opts.input_format.is_none()
+        )
+    ));
+    run.push(format!(
+        "Field separator: {}",
+        fs_notes(format, opts.field_sep.as_ref())
+    ));
+    run.push(format!(
+        "Header: {}",
+        header_notes(format, opts.header, implied_header)
+    ));
+    run.push(format!(
+        "Output format: {}",
+        output_notes(opts.output_format.as_deref())
+    ));
     run.push(if files.is_empty() {
         "Input files: none, the input is read from standard input.".to_string()
     } else {
-        format!("Input files: {}.", files.iter().map(|f| format!("`{}`", f)).collect::<Vec<_>>().join(", "))
+        format!(
+            "Input files: {}.",
+            files
+                .iter()
+                .map(|f| format!("`{}`", f))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     });
 
     let mut data = String::new();
@@ -99,7 +140,9 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         data.push_str(&file_section(file, format, header, opts)?);
     }
     if data.is_empty() {
-        data.push_str("No input file is given: the program reads standard input, whose content is unknown.\n");
+        data.push_str(
+            "No input file is given: the program reads standard input, whose content is unknown.\n",
+        );
     }
 
     // The categories of the reference are headings under "Builtin functions".
@@ -132,7 +175,12 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
     while let Some(start) = rest.find("{{") {
         out.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        match after.find("}}").and_then(|end| values.iter().find(|(k, _)| *k == &after[..end]).map(|(_, v)| (end, v))) {
+        match after.find("}}").and_then(|end| {
+            values
+                .iter()
+                .find(|(k, _)| *k == &after[..end])
+                .map(|(_, v)| (end, v))
+        }) {
             Some((end, value)) => {
                 out.push_str(value);
                 rest = &after[end + 2..];
@@ -148,7 +196,12 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
 }
 
 /// The section of an input file.
-fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) -> io::Result<String> {
+fn file_section(
+    file: &str,
+    format: Option<&str>,
+    header: bool,
+    opts: &Options,
+) -> io::Result<String> {
     let mut out = format!("## `{}`\n\n", crate::runtime::network::redact_url(file));
     if file == "-" {
         out.push_str("Standard input: its content is unknown.\n\n");
@@ -184,19 +237,42 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
         None => None,
     };
     // A workbook or a database has no lines of text.
-    if !matches!(structured, Some(Format::Parquet | Format::Database | Format::Xlsx)) {
+    if !matches!(
+        structured,
+        Some(Format::Parquet | Format::Database | Format::Xlsx)
+    ) {
         let lines = match &sections {
             Some(sections) => sections.lines.clone(),
-            None => match inspect::sample(file, None, header && format != Some("markdown"), opts.sample_rows)? {
+            None => match inspect::sample(
+                file,
+                None,
+                header && format != Some("markdown"),
+                opts.sample_rows,
+            )? {
                 Sample::Lines(lines) => lines,
                 Sample::Fields { .. } => Vec::new(),
             },
         };
-        out.push_str(&format!("First {} lines (the raw text of the file):\n\n", lines.len()));
-        out.push_str(&fence("text", &lines.iter().map(|l| truncate(l)).collect::<Vec<_>>().join("\n")));
+        out.push_str(&format!(
+            "First {} lines (the raw text of the file):\n\n",
+            lines.len()
+        ));
+        out.push_str(&fence(
+            "text",
+            &lines
+                .iter()
+                .map(|l| truncate(l))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ));
         if format.is_none() {
-            if let Some(nf) = fields_per_line(&lines, opts.field_sep.as_ref().map(|(_, fs)| fs.as_str())) {
-                out.push_str(&format!("Fields per line (NF) with this FS in these lines: {}.\n\n", nf));
+            if let Some(nf) =
+                fields_per_line(&lines, opts.field_sep.as_ref().map(|(_, fs)| fs.as_str()))
+            {
+                out.push_str(&format!(
+                    "Fields per line (NF) with this FS in these lines: {}.\n\n",
+                    nf
+                ));
             }
         }
     }
@@ -204,15 +280,24 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
         return Ok(out);
     };
     let rows = if sections.limited {
-        format!("at least {} (only the first {} rows were read for the summary)", sections.rows, sections.rows)
+        format!(
+            "at least {} (only the first {} rows were read for the summary)",
+            sections.rows, sections.rows
+        )
     } else {
         sections.rows.to_string()
     };
     out.push_str(&format!("Rows: {}\n\n", rows));
     out.push_str("Schema (the field number, the column name and its type):\n\n");
     out.push_str(&sections.schema);
-    if matches!(structured, Format::Parquet | Format::Database | Format::Xlsx) {
-        out.push_str(&format!("\nFirst {} rows, as awk sees the fields:\n\n", sections.sample.lines().count().saturating_sub(2)));
+    if matches!(
+        structured,
+        Format::Parquet | Format::Database | Format::Xlsx
+    ) {
+        out.push_str(&format!(
+            "\nFirst {} rows, as awk sees the fields:\n\n",
+            sections.sample.lines().count().saturating_sub(2)
+        ));
         out.push_str(&sections.sample);
     }
     out.push_str("\nSummary of the columns:\n\n");
@@ -228,18 +313,37 @@ fn file_section(file: &str, format: Option<&str>, header: bool, opts: &Options) 
 fn input_notes(format: Option<&str>, by_default: bool) -> String {
     let text = match format {
         None => "text (no `-i`): every line is a record, split into fields by FS",
-        Some("csv") => "CSV (`-i csv`): every CSV row is a record, its fields unescaped (quoted fields may contain commas and newlines); $0 is the unescaped row; assigning to fields does nothing",
-        Some("tsv") => "TSV (`-i tsv`): every line is a record, split at tabs, with `\\t`, `\\n` and `\\\\` unescaped",
-        Some("json") => "JSON (`-i json`): each element of the top-level array (or the object) is a record, read as JSON Lines; `file.json#$.data` selects the records with a JSONPath",
-        Some("jsonl") => "JSON Lines (`-i jsonl`): every line is a JSON object and a record; its values are the fields, in the order the keys are first seen (a key first seen in a later record is appended, and NF grows from that record on); $0 is the JSON line",
-        Some("parquet") => "Parquet (`-i parquet`): every row is a record, the columns are the fields; $0 is the row as a JSON object",
-        Some("markdown") => "Markdown (`-i markdown`): the first table of the file is read as CSV rows; the header row gives the column names (without `:TYPE` suffixes)",
-        Some("database") => "a database table or query (`sqlite://app.db#user`, `mysql://...#select ...`): every row is a record, read as CSV with a header line of the column names (FI); NULL and BLOB values are empty",
-        Some("xlsx") => "a sheet of an Excel workbook (`-i xlsx`, the default for `.xlsx` files; `book.xlsx#Sheet2` selects a sheet, the first one by default), read as CSV rows from column A; with -H the first row is the header (FI); dates are `2024-01-05`, booleans 1/0, empty cells empty",
+        Some("csv") => {
+            "CSV (`-i csv`): every CSV row is a record, its fields unescaped (quoted fields may contain commas and newlines); $0 is the unescaped row; assigning to fields does nothing"
+        }
+        Some("tsv") => {
+            "TSV (`-i tsv`): every line is a record, split at tabs, with `\\t`, `\\n` and `\\\\` unescaped"
+        }
+        Some("json") => {
+            "JSON (`-i json`): each element of the top-level array (or the object) is a record, read as JSON Lines; `file.json#$.data` selects the records with a JSONPath"
+        }
+        Some("jsonl") => {
+            "JSON Lines (`-i jsonl`): every line is a JSON object and a record; its values are the fields, in the order the keys are first seen (a key first seen in a later record is appended, and NF grows from that record on); $0 is the JSON line"
+        }
+        Some("parquet") => {
+            "Parquet (`-i parquet`): every row is a record, the columns are the fields; $0 is the row as a JSON object"
+        }
+        Some("markdown") => {
+            "Markdown (`-i markdown`): the first table of the file is read as CSV rows; the header row gives the column names (without `:TYPE` suffixes)"
+        }
+        Some("database") => {
+            "a database table or query (`sqlite://app.db#user`, `mysql://...#select ...`): every row is a record, read as CSV with a header line of the column names (FI); NULL and BLOB values are empty"
+        }
+        Some("xlsx") => {
+            "a sheet of an Excel workbook (`-i xlsx`, the default for `.xlsx` files; `book.xlsx#Sheet2` selects a sheet, the first one by default), read as CSV rows from column A; with -H the first row is the header (FI); dates are `2024-01-05`, booleans 1/0, empty cells empty"
+        }
         Some(f) => return format!("`{}`", f),
     };
     if by_default {
-        format!("{} (the default, as every input file ends with `.json`)", text)
+        format!(
+            "{} (the default, as every input file ends with `.json`)",
+            text
+        )
     } else {
         text.to_string()
     }
@@ -265,10 +369,22 @@ fn fs_notes(format: Option<&str>, fs: Option<&(String, String)>) -> String {
 fn header_notes(format: Option<&str>, given: bool, implied: bool) -> String {
     let fi = "`FI` maps each column name to its field number, so `$FI[\"age\"]` is the value of the `age` column and `FI[\"age\"]` its number; prefer `$FI[\"name\"]` to `$N` for readability";
     if implied {
-        let how = if format == Some("markdown") { "the header row of the table is not a record" } else { "the column names come from the data" };
-        format!("implied by `-i {}` ({}): {}; NR counts the data records only", format.unwrap_or_default(), how, fi)
+        let how = if format == Some("markdown") {
+            "the header row of the table is not a record"
+        } else {
+            "the column names come from the data"
+        };
+        format!(
+            "implied by `-i {}` ({}): {}; NR counts the data records only",
+            format.unwrap_or_default(),
+            how,
+            fi
+        )
     } else if given {
-        format!("`-H`: the first line is the header and not a record (NR is 1 on the first data line); {}", fi)
+        format!(
+            "`-H`: the first line is the header and not a record (NR is 1 on the first data line); {}",
+            fi
+        )
     } else {
         "no `-H`: the first line is the first record (NR == 1), `FI` is empty, fields are `$1`, `$2`... (if the first line looks like a header, skip it with `NR > 1`)".to_string()
     }
@@ -296,14 +412,22 @@ fn output_notes(format: Option<&str>) -> String {
 /// one-character FS.
 fn fields_per_line(lines: &[String], fs: Option<&str>) -> Option<String> {
     let counts: Vec<usize> = match fs {
-        None | Some(" ") => lines.iter().map(|l| l.split([' ', '\t']).filter(|s| !s.is_empty()).count()).collect(),
-        Some(fs) if fs.chars().count() == 1 => {
-            lines.iter().map(|l| if l.is_empty() { 0 } else { l.split(fs).count() }).collect()
-        }
+        None | Some(" ") => lines
+            .iter()
+            .map(|l| l.split([' ', '\t']).filter(|s| !s.is_empty()).count())
+            .collect(),
+        Some(fs) if fs.chars().count() == 1 => lines
+            .iter()
+            .map(|l| if l.is_empty() { 0 } else { l.split(fs).count() })
+            .collect(),
         _ => return None,
     };
     let (min, max) = (*counts.iter().min()?, *counts.iter().max()?);
-    Some(if min == max { min.to_string() } else { format!("{} to {}", min, max) })
+    Some(if min == max {
+        min.to_string()
+    } else {
+        format!("{} to {}", min, max)
+    })
 }
 
 fn truncate(line: &str) -> String {
@@ -328,7 +452,8 @@ fn fence(lang: &str, text: &str) -> String {
 /// Quotes `s` for a POSIX shell when needed.
 fn shell_quote(s: &str) -> String {
     let safe = !s.is_empty()
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
     if safe {
         s.to_string()
     } else {
@@ -354,7 +479,10 @@ mod tests {
     fn fields() {
         let lines = vec!["a b  c".to_string(), " d e ".to_string()];
         assert_eq!(fields_per_line(&lines, None).as_deref(), Some("2 to 3"));
-        assert_eq!(fields_per_line(&["a:b:c".to_string()], Some(":")).as_deref(), Some("3"));
+        assert_eq!(
+            fields_per_line(&["a:b:c".to_string()], Some(":")).as_deref(),
+            Some("3")
+        );
         assert_eq!(fields_per_line(&lines, Some("[,;]")), None);
     }
 

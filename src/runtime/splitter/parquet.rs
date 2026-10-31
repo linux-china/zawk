@@ -19,16 +19,18 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::sync::Arc;
 
-use bytes::Bytes;
 use ::parquet::basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType};
-use ::parquet::data_type::Decimal;
 use ::parquet::bloom_filter::Sbbf;
 use ::parquet::column::page::PageReader;
-use ::parquet::file::metadata::{ColumnChunkMetaData, FileMetaData, ParquetMetaData, RowGroupMetaData};
+use ::parquet::data_type::Decimal;
+use ::parquet::file::metadata::{
+    ColumnChunkMetaData, FileMetaData, ParquetMetaData, RowGroupMetaData,
+};
 use ::parquet::file::reader::{FileReader, RowGroupReader, SerializedFileReader};
-use ::parquet::record::reader::RowIter;
 use ::parquet::record::Field;
+use ::parquet::record::reader::RowIter;
 use ::parquet::schema::types::{SchemaDescriptor, Type, TypePtr};
+use bytes::Bytes;
 
 use crate::inspect::Cell;
 
@@ -82,21 +84,32 @@ impl ParquetJson {
         ParquetJson::new(Source::Stdin)
     }
     fn new(source: Source) -> ParquetJson {
-        ParquetJson { source, rows: None, buf: Vec::new(), pos: 0, done: false }
+        ParquetJson {
+            source,
+            rows: None,
+            buf: Vec::new(),
+            pos: 0,
+            done: false,
+        }
     }
 
     /// Check up front that `path` is a Parquet file that can be read, so that problems are
     /// reported clearly before any input is processed (rather than as a read error).
     pub fn check(path: &str) -> std::result::Result<(), String> {
         use ::parquet::basic::Compression;
-        let error = |e: &dyn std::fmt::Display| format!("cannot read parquet file `{}': {}", path, e);
+        let error =
+            |e: &dyn std::fmt::Display| format!("cannot read parquet file `{}': {}", path, e);
         // S3 objects are checked by the caller (`s3::check_object`), and remote objects are not
         // checked here: reading the metadata would download the whole object an extra time.
         if crate::runtime::s3::is_s3_url(path) || crate::runtime::http::is_http_url(path) {
             return Ok(());
         }
         let file = File::open(path).map_err(|e| {
-            format!("zawk: {}{}", crate::common::FATAL_PREFIX, crate::common::InputOpenError::new_io(path, &e))
+            format!(
+                "zawk: {}{}",
+                crate::common::FATAL_PREFIX,
+                crate::common::InputOpenError::new_io(path, &e)
+            )
         })?;
         let reader = SerializedFileReader::new(file).map_err(|e| error(&e))?;
         for row_group in reader.metadata().row_groups() {
@@ -139,7 +152,8 @@ impl ParquetJson {
         let mut reader: Box<dyn FileReader> = match &self.source {
             Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
                 // Parquet needs random access: read the whole object into memory.
-                let data = crate::runtime::s3::read_object_bytes(path).map_err(|e| self.error(e))?;
+                let data =
+                    crate::runtime::s3::read_object_bytes(path).map_err(|e| self.error(e))?;
                 Box::new(SerializedFileReader::new(data).map_err(|e| self.error(e))?)
             }
             Source::File(path) if crate::runtime::http::is_http_url(path) => {
@@ -152,7 +166,9 @@ impl ParquetJson {
             }
             Source::Stdin => {
                 let mut data = Vec::new();
-                io::stdin().read_to_end(&mut data).map_err(|e| self.error(e))?;
+                io::stdin()
+                    .read_to_end(&mut data)
+                    .map_err(|e| self.error(e))?;
                 Box::new(SerializedFileReader::new(Bytes::from(data)).map_err(|e| self.error(e))?)
             }
         };
@@ -171,7 +187,11 @@ impl ParquetJson {
             if *bad {
                 crate::runtime::stdlib_warning(
                     "parquet",
-                    format!("column `{}' of `{}' has an unsupported type, it is read as empty", column.name(), self.name()),
+                    format!(
+                        "column `{}' of `{}' has an unsupported type, it is read as empty",
+                        column.name(),
+                        self.name()
+                    ),
                 );
             }
         }
@@ -191,8 +211,15 @@ impl ParquetJson {
         } else {
             None
         };
-        let iter = RowIter::from_file_into(reader).project(projection).map_err(|e| self.error(e))?;
-        Ok(Rows { iter, columns, formats, unsupported })
+        let iter = RowIter::from_file_into(reader)
+            .project(projection)
+            .map_err(|e| self.error(e))?;
+        Ok(Rows {
+            iter,
+            columns,
+            formats,
+            unsupported,
+        })
     }
 
     /// Append the next rows (about 64KB) to the buffer as JSON Lines.
@@ -250,14 +277,19 @@ struct RenamedReader {
 }
 
 impl RenamedReader {
-    fn new(inner: Box<dyn FileReader>, names: &[String]) -> ::parquet::errors::Result<RenamedReader> {
+    fn new(
+        inner: Box<dyn FileReader>,
+        names: &[String],
+    ) -> ::parquet::errors::Result<RenamedReader> {
         let file = inner.metadata().file_metadata();
         let schema = file.schema();
         let mut fields = Vec::with_capacity(names.len());
         for (field, name) in schema.get_fields().iter().zip(names) {
             fields.push(Arc::new(renamed(field, name)?));
         }
-        let schema = Type::group_type_builder(schema.name()).with_fields(fields).build()?;
+        let schema = Type::group_type_builder(schema.name())
+            .with_fields(fields)
+            .build()?;
         let descr = Arc::new(SchemaDescriptor::new(Arc::new(schema)));
         let mut row_groups = Vec::with_capacity(inner.num_row_groups());
         for row_group in inner.metadata().row_groups() {
@@ -290,7 +322,10 @@ impl RenamedReader {
             descr,
             file.column_orders().cloned(),
         );
-        Ok(RenamedReader { inner, metadata: ParquetMetaData::new(file, row_groups) })
+        Ok(RenamedReader {
+            inner,
+            metadata: ParquetMetaData::new(file, row_groups),
+        })
     }
 }
 
@@ -299,17 +334,21 @@ fn renamed(t: &Type, name: &str) -> ::parquet::errors::Result<Type> {
     let info = t.get_basic_info();
     let id = if info.has_id() { Some(info.id()) } else { None };
     match t {
-        Type::PrimitiveType { physical_type, type_length, scale, precision, .. } => {
-            Type::primitive_type_builder(name, *physical_type)
-                .with_repetition(info.repetition())
-                .with_converted_type(info.converted_type())
-                .with_logical_type(info.logical_type_ref().cloned())
-                .with_length(*type_length)
-                .with_precision(*precision)
-                .with_scale(*scale)
-                .with_id(id)
-                .build()
-        }
+        Type::PrimitiveType {
+            physical_type,
+            type_length,
+            scale,
+            precision,
+            ..
+        } => Type::primitive_type_builder(name, *physical_type)
+            .with_repetition(info.repetition())
+            .with_converted_type(info.converted_type())
+            .with_logical_type(info.logical_type_ref().cloned())
+            .with_length(*type_length)
+            .with_precision(*precision)
+            .with_scale(*scale)
+            .with_id(id)
+            .build(),
         Type::GroupType { fields, .. } => Type::group_type_builder(name)
             .with_repetition(info.repetition())
             .with_converted_type(info.converted_type())
@@ -328,7 +367,10 @@ impl FileReader for RenamedReader {
         self.inner.num_row_groups()
     }
     fn get_row_group(&self, i: usize) -> ::parquet::errors::Result<Box<dyn RowGroupReader + '_>> {
-        Ok(Box::new(RenamedRowGroup { inner: self.inner.get_row_group(i)?, metadata: &self.metadata.row_groups()[i] }))
+        Ok(Box::new(RenamedRowGroup {
+            inner: self.inner.get_row_group(i)?,
+            metadata: &self.metadata.row_groups()[i],
+        }))
     }
     fn get_row_iter(&self, projection: Option<Type>) -> ::parquet::errors::Result<RowIter<'_>> {
         RowIter::from_file(projection, self)
@@ -367,14 +409,21 @@ pub struct ParquetTable {
 impl ParquetJson {
     pub fn table(self) -> io::Result<ParquetTable> {
         let rows = self.open()?;
-        Ok(ParquetTable { rows, name: self.name().to_string() })
+        Ok(ParquetTable {
+            rows,
+            name: self.name().to_string(),
+        })
     }
 }
 
 impl ParquetTable {
     /// The top-level column names and their types (`INT64`, `STRING`, `DECIMAL(10,2)`, ...).
     pub fn columns(&self) -> Vec<(String, String)> {
-        self.rows.columns.iter().map(|c| (c.name().to_string(), type_name(c))).collect()
+        self.rows
+            .columns
+            .iter()
+            .map(|c| (c.name().to_string(), type_name(c)))
+            .collect()
     }
 
     pub fn next_row(&mut self) -> Option<io::Result<Vec<Cell>>> {
@@ -521,16 +570,32 @@ fn supported(t: &Type) -> bool {
     use ConvertedType as C;
     let converted = t.get_basic_info().converted_type();
     match t.get_physical_type() {
-        PhysicalType::BOOLEAN | PhysicalType::INT96 | PhysicalType::FLOAT | PhysicalType::DOUBLE => true,
+        PhysicalType::BOOLEAN
+        | PhysicalType::INT96
+        | PhysicalType::FLOAT
+        | PhysicalType::DOUBLE => true,
         PhysicalType::INT32 => matches!(
             converted,
-            C::NONE | C::INT_8 | C::INT_16 | C::INT_32 | C::UINT_8 | C::UINT_16 | C::UINT_32
-                | C::DATE | C::TIME_MILLIS | C::DECIMAL
+            C::NONE
+                | C::INT_8
+                | C::INT_16
+                | C::INT_32
+                | C::UINT_8
+                | C::UINT_16
+                | C::UINT_32
+                | C::DATE
+                | C::TIME_MILLIS
+                | C::DECIMAL
         ),
         PhysicalType::INT64 => matches!(
             converted,
-            C::NONE | C::INT_64 | C::UINT_64 | C::TIME_MICROS | C::TIMESTAMP_MILLIS
-                | C::TIMESTAMP_MICROS | C::DECIMAL
+            C::NONE
+                | C::INT_64
+                | C::UINT_64
+                | C::TIME_MICROS
+                | C::TIMESTAMP_MILLIS
+                | C::TIMESTAMP_MICROS
+                | C::DECIMAL
         ),
         PhysicalType::BYTE_ARRAY => matches!(
             converted,
@@ -616,7 +681,13 @@ fn scalar_text(field: &Field) -> (String, Kind) {
 /// and NaN are not JSON numbers: they are written as null in JSON.
 fn float_text(v: f64, single: Option<f32>) -> (String, Kind) {
     if !v.is_finite() {
-        let text = if v.is_nan() { "nan" } else if v > 0.0 { "inf" } else { "-inf" };
+        let text = if v.is_nan() {
+            "nan"
+        } else if v > 0.0 {
+            "inf"
+        } else {
+            "-inf"
+        };
         return (text.to_string(), Kind::Null);
     }
     let mut buf = ryu::Buffer::new();
@@ -625,7 +696,10 @@ fn float_text(v: f64, single: Option<f32>) -> (String, Kind) {
         Some(f) => buf.format_finite(f),
         None => buf.format_finite(v),
     };
-    (text.strip_suffix(".0").unwrap_or(text).to_string(), Kind::Raw)
+    (
+        text.strip_suffix(".0").unwrap_or(text).to_string(),
+        Kind::Raw,
+    )
 }
 
 /// Write a value as JSON (nested values: LIST as an array, MAP and STRUCT as an object).
@@ -709,7 +783,14 @@ fn hex(bytes: &[u8]) -> String {
 
 fn uuid(b: &[u8]) -> String {
     let h = hex(b);
-    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
 }
 
 fn date(days: i32) -> String {
@@ -720,7 +801,9 @@ fn date(days: i32) -> String {
 
 /// `2024-01-15 10:30:00`, with the fraction of a second only when it is not zero.
 fn timestamp_nanos(nanos: i64) -> String {
-    chrono::DateTime::from_timestamp_nanos(nanos).naive_utc().to_string()
+    chrono::DateTime::from_timestamp_nanos(nanos)
+        .naive_utc()
+        .to_string()
 }
 
 fn time_nanos(nanos: i64) -> String {
@@ -742,24 +825,45 @@ mod tests {
 
     #[test]
     fn decimals_are_exact() {
-        assert_eq!(decimal_text(&Decimal::from_i32(1234567, 9, 2)).unwrap(), "12345.67");
-        assert_eq!(decimal_text(&Decimal::from_i64(-50, 18, 2)).unwrap(), "-0.50");
+        assert_eq!(
+            decimal_text(&Decimal::from_i32(1234567, 9, 2)).unwrap(),
+            "12345.67"
+        );
+        assert_eq!(
+            decimal_text(&Decimal::from_i64(-50, 18, 2)).unwrap(),
+            "-0.50"
+        );
         assert_eq!(decimal_text(&Decimal::from_i32(5, 9, 0)).unwrap(), "5");
-        assert_eq!(decimal_text(&Decimal::from_i32(-7, 9, 3)).unwrap(), "-0.007");
+        assert_eq!(
+            decimal_text(&Decimal::from_i32(-7, 9, 3)).unwrap(),
+            "-0.007"
+        );
         let big = Decimal::from_bytes(ByteArray::from(i128::MAX.to_be_bytes().to_vec()), 38, 10);
-        assert_eq!(decimal_text(&big).unwrap(), "17014118346046923173168730371.5884105727");
+        assert_eq!(
+            decimal_text(&big).unwrap(),
+            "17014118346046923173168730371.5884105727"
+        );
     }
 
     #[test]
     fn scalars() {
         assert_eq!(float_text(3.5, None), ("3.5".to_string(), Kind::Raw));
         assert_eq!(float_text(100.0, None), ("100".to_string(), Kind::Raw));
-        assert_eq!(float_text(1.1f32 as f64, Some(1.1f32)), ("1.1".to_string(), Kind::Raw));
+        assert_eq!(
+            float_text(1.1f32 as f64, Some(1.1f32)),
+            ("1.1".to_string(), Kind::Raw)
+        );
         assert_eq!(float_text(f64::NAN, None).1, Kind::Null);
         assert_eq!(time_nanos(49_530_500_000_000), "13:45:30.5");
         assert_eq!(time_nanos(3_600_000_000_000), "01:00:00");
-        assert_eq!(timestamp_nanos(1_705_314_600_123_456_789), "2024-01-15 10:30:00.123456789");
-        assert_eq!(scalar_text(&Field::Bool(true)), ("1".to_string(), Kind::Bool));
+        assert_eq!(
+            timestamp_nanos(1_705_314_600_123_456_789),
+            "2024-01-15 10:30:00.123456789"
+        );
+        assert_eq!(
+            scalar_text(&Field::Bool(true)),
+            ("1".to_string(), Kind::Bool)
+        );
         assert_eq!(scalar_text(&Field::Null), (String::new(), Kind::Null));
     }
 

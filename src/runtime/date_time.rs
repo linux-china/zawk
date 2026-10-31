@@ -1,6 +1,9 @@
 use crate::runtime;
 use crate::runtime::{Int, Str, StrMap};
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike, Utc};
+use chrono::{
+    DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone,
+    Timelike, Utc,
+};
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
@@ -103,7 +106,12 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
             Some(0) => {
                 let spec = &rest[1..];
                 let skip = spec
-                    .find(|c: char| !matches!(c, '-' | '_' | '0' | '^' | '#' | ':' | '.' | '1'..='9' | 'E' | 'O'))
+                    .find(|c: char| {
+                        !matches!(
+                            c,
+                            '-' | '_' | '0' | '^' | '#' | ':' | '.' | '1'..='9' | 'E' | 'O'
+                        )
+                    })
                     .unwrap_or(spec.len());
                 1 + skip + spec[skip..].chars().next().map_or(0, char::len_utf8)
             }
@@ -132,7 +140,12 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
 /// awk's `strftime(format, timestamp, utc)`, with the arguments filled in by the compiler: the
 /// timestamp is [`STRFTIME_NOW`] when it is not given, and `flags` holds [`STRFTIME_UTC`] and
 /// [`STRFTIME_PROCINFO_FORMAT`]. An empty format gives an empty string, as in gawk.
-pub(crate) fn awk_strftime(procinfo: &StrMap<Str>, format: &Str, timestamp: Int, flags: Int) -> String {
+pub(crate) fn awk_strftime(
+    procinfo: &StrMap<Str>,
+    format: &Str,
+    timestamp: Int,
+    flags: Int,
+) -> String {
     let format = if flags & STRFTIME_PROCINFO_FORMAT != 0 {
         let key = Str::from("strftime");
         if procinfo.contains(&key) {
@@ -177,7 +190,9 @@ pub fn mktime(date_time_text: &str, utc: bool, timezone: i64) -> i64 {
 
 fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
     // gawk format first, so that the lenient parsers below cannot misread it
-    if let Some(naive) = parse_gawk_date_time(date_time_text).or_else(|| parse_iso_local_date_time(date_time_text)) {
+    if let Some(naive) =
+        parse_gawk_date_time(date_time_text).or_else(|| parse_iso_local_date_time(date_time_text))
+    {
         return local_timestamp(tz, &naive);
     }
     if let Some(timestamp) = chrono_systemd_time::parse_timestamp_tz(date_time_text, tz.clone())
@@ -191,7 +206,10 @@ fn mktime_tz<Tz: TimeZone>(date_time_text: &str, tz: &Tz) -> Option<i64> {
         return Some(date_time.timestamp());
     }
     // fend date format: Thursday, 20 May 2021
-    if let Some(space) = date_time_text.find(' ').filter(|_| is_fend_date(date_time_text)) {
+    if let Some(space) = date_time_text
+        .find(' ')
+        .filter(|_| is_fend_date(date_time_text))
+    {
         let adjusted_dt_text = &date_time_text[space + 1..];
         if let Ok(date_time) = dateparser::parse_with(adjusted_dt_text, tz, NaiveTime::MIN) {
             return Some(date_time.timestamp());
@@ -219,7 +237,13 @@ fn local_timestamp<Tz: TimeZone>(tz: &Tz, naive: &NaiveDateTime) -> Option<i64> 
         let utc = *naive - offset;
         (tz.offset_from_utc_datetime(&utc).fix() == offset).then(|| utc.and_utc().timestamp())
     };
-    let candidates = [before, after, tz.offset_from_local_datetime(naive).earliest().map(|o| o.fix())];
+    let candidates = [
+        before,
+        after,
+        tz.offset_from_local_datetime(naive)
+            .earliest()
+            .map(|o| o.fix()),
+    ];
     candidates
         .into_iter()
         .flatten()
@@ -237,7 +261,9 @@ fn parse_gawk_date_time(text: &str) -> Option<NaiveDateTime> {
         .map(|field| field.parse::<i64>().ok())
         .collect::<Option<Vec<i64>>>()?;
     let [year, month, day, hour, minute, second] = match fields.len() {
-        6 | 7 => [fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]],
+        6 | 7 => [
+            fields[0], fields[1], fields[2], fields[3], fields[4], fields[5],
+        ],
         _ => return None,
     };
     let months = year.checked_mul(12)?.checked_add(month.checked_sub(1)?)?;
@@ -285,7 +311,10 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
         match mktime_tz(date_time_text, &Local) {
             Some(timestamp) => datetime2(timestamp),
             None => {
-                runtime::stdlib_warning("datetime", format!("invalid date time {:?}", date_time_text));
+                runtime::stdlib_warning(
+                    "datetime",
+                    format!("invalid date time {:?}", date_time_text),
+                );
                 runtime::StrMap::default()
             }
         }
@@ -313,7 +342,8 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result
 }
 
-static DURATION_TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)").unwrap());
+static DURATION_TOKEN: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)").unwrap());
 
 /// Map a time unit (Go-style short form or full word) to a unit fend understands.
 /// `m` always means minutes in a duration context, never meters.
@@ -338,7 +368,11 @@ fn normalize_duration(text: &str) -> String {
     for caps in DURATION_TOKEN.captures_iter(text) {
         let m = caps.get(0).unwrap();
         // skip tokens glued to a preceding identifier/number, e.g. `x1h`, but allow `1h30m`
-        let glued = !(prev_token && m.start() == last) && text[..m.start()].chars().next_back().map_or(false, |c| c.is_alphanumeric() || c == '.' || c == '_');
+        let glued = !(prev_token && m.start() == last)
+            && text[..m.start()]
+                .chars()
+                .next_back()
+                .map_or(false, |c| c.is_alphanumeric() || c == '.' || c == '_');
         let unit = match duration_unit(&caps[2]) {
             Some(unit) if !glued => unit,
             _ => {
@@ -438,7 +472,11 @@ impl DateUnit {
 }
 
 fn local_naive(timestamp: i64) -> Option<NaiveDateTime> {
-    Some(DateTime::from_timestamp(timestamp, 0)?.with_timezone(&Local).naive_local())
+    Some(
+        DateTime::from_timestamp(timestamp, 0)?
+            .with_timezone(&Local)
+            .naive_local(),
+    )
 }
 
 /// Add months to a date time; the day is clamped to the end of a shorter month (Jan 31 + 1 month
@@ -460,7 +498,11 @@ fn try_date_add(timestamp: i64, n: i64, unit: DateUnit) -> Option<i64> {
     let naive = match unit.months() {
         Some(months) => add_months(naive, n.checked_mul(months)?)?,
         None => {
-            let days = if unit == DateUnit::Week { n.checked_mul(7)? } else { n };
+            let days = if unit == DateUnit::Week {
+                n.checked_mul(7)?
+            } else {
+                n
+            };
             naive.checked_add_signed(chrono::TimeDelta::try_days(days)?)?
         }
     };
@@ -475,7 +517,10 @@ pub fn date_add(timestamp: Int, n: Int, unit: &str) -> Int {
         return -1;
     };
     try_date_add(timestamp, n, date_unit).unwrap_or_else(|| {
-        runtime::stdlib_warning("date_add", format!("date out of range: {} {} {}", timestamp, n, unit));
+        runtime::stdlib_warning(
+            "date_add",
+            format!("date out of range: {} {} {}", timestamp, n, unit),
+        );
         -1
     })
 }
@@ -489,7 +534,10 @@ pub fn date_add_str(date_time_text: &str, n: Int, unit: &str) -> Int {
         None => match mktime_tz(date_time_text, &Local) {
             Some(timestamp) => timestamp,
             None => {
-                runtime::stdlib_warning("date_add", format!("invalid date time {:?}", date_time_text));
+                runtime::stdlib_warning(
+                    "date_add",
+                    format!("invalid date time {:?}", date_time_text),
+                );
                 return -1;
             }
         },
@@ -504,9 +552,14 @@ fn try_date_diff(unit: DateUnit, start: i64, end: i64) -> Option<i64> {
     let (start, end) = (local_naive(start)?, local_naive(end)?);
     let Some(unit_months) = unit.months() else {
         let days = (end - start).num_days();
-        return Some(if unit == DateUnit::Week { days / 7 } else { days });
+        return Some(if unit == DateUnit::Week {
+            days / 7
+        } else {
+            days
+        });
     };
-    let mut months = (end.year() as i64 - start.year() as i64) * 12 + end.month() as i64 - start.month() as i64;
+    let mut months =
+        (end.year() as i64 - start.year() as i64) * 12 + end.month() as i64 - start.month() as i64;
     // only complete months count, as MySQL: compare the (day, time) rest without clamping month
     // ends, so swapping `start` and `end` only negates the result
     let (start_rest, end_rest) = ((start.day(), start.time()), (end.day(), end.time()));
@@ -534,7 +587,11 @@ pub fn date_diff(unit: &str, start: Int, end: Int) -> Int {
 fn try_date_trunc(unit: DateUnit, timestamp: i64) -> Option<i64> {
     if let Some(seconds) = unit.seconds() {
         // truncate by the offset at this instant, so both fall back hours keep their own offset
-        let offset = DateTime::from_timestamp(timestamp, 0)?.with_timezone(&Local).offset().fix().local_minus_utc();
+        let offset = DateTime::from_timestamp(timestamp, 0)?
+            .with_timezone(&Local)
+            .offset()
+            .fix()
+            .local_minus_utc();
         let local = timestamp.checked_add(offset as i64)?;
         return timestamp.checked_sub(local.rem_euclid(seconds));
     }
@@ -542,7 +599,9 @@ fn try_date_trunc(unit: DateUnit, timestamp: i64) -> Option<i64> {
     let date = match unit {
         DateUnit::Day => date,
         // weeks start on Monday, as ISO 8601
-        DateUnit::Week => date - chrono::TimeDelta::days(date.weekday().num_days_from_monday() as i64),
+        DateUnit::Week => {
+            date - chrono::TimeDelta::days(date.weekday().num_days_from_monday() as i64)
+        }
         _ => {
             let unit_months = unit.months()? as u32;
             let month0 = date.month0() / unit_months * unit_months;
@@ -605,17 +664,55 @@ mod tests {
     fn test_date_diff_months_symmetric() {
         // month ends are not clamped: Jan 31 to Feb 28 and Feb 29 to the next Feb 28 are not complete
         for (unit, start, end, expected) in [
-            (DateUnit::Month, "2023 01 31 00 00 00", "2023 02 28 00 00 00", 0),
-            (DateUnit::Month, "2023 01 31 00 00 00", "2023 03 31 00 00 00", 2),
-            (DateUnit::Month, "2023 01 31 10 00 00", "2023 03 31 09 59 59", 1),
-            (DateUnit::Year, "2020 02 29 00 00 00", "2021 02 28 00 00 00", 0),
-            (DateUnit::Year, "2020 02 29 00 00 00", "2021 03 01 00 00 00", 1),
-            (DateUnit::Quarter, "2023 11 30 00 00 00", "2024 02 29 00 00 00", 0),
+            (
+                DateUnit::Month,
+                "2023 01 31 00 00 00",
+                "2023 02 28 00 00 00",
+                0,
+            ),
+            (
+                DateUnit::Month,
+                "2023 01 31 00 00 00",
+                "2023 03 31 00 00 00",
+                2,
+            ),
+            (
+                DateUnit::Month,
+                "2023 01 31 10 00 00",
+                "2023 03 31 09 59 59",
+                1,
+            ),
+            (
+                DateUnit::Year,
+                "2020 02 29 00 00 00",
+                "2021 02 28 00 00 00",
+                0,
+            ),
+            (
+                DateUnit::Year,
+                "2020 02 29 00 00 00",
+                "2021 03 01 00 00 00",
+                1,
+            ),
+            (
+                DateUnit::Quarter,
+                "2023 11 30 00 00 00",
+                "2024 02 29 00 00 00",
+                0,
+            ),
         ] {
             let local = |text| mktime(text, false, MKTIME_LOCAL_TIMEZONE);
             let (start, end) = (local(start), local(end));
-            assert_eq!(try_date_diff(unit, start, end), Some(expected), "{unit:?} {start} {end}");
-            assert_eq!(try_date_diff(unit, end, start), Some(-expected), "{unit:?} {end} {start}");
+            assert_eq!(
+                try_date_diff(unit, start, end),
+                Some(expected),
+                "{unit:?} {start} {end}"
+            );
+            assert_eq!(
+                try_date_diff(unit, end, start),
+                Some(-expected),
+                "{unit:?} {end} {start}"
+            );
         }
     }
 
@@ -630,7 +727,10 @@ mod tests {
 
     #[test]
     fn test_strftime_utc() {
-        assert_eq!(strftime_tz("%Y-%m-%d %H:%M:%S", 1621530000, true), "2021-05-20 17:00:00");
+        assert_eq!(
+            strftime_tz("%Y-%m-%d %H:%M:%S", 1621530000, true),
+            "2021-05-20 17:00:00"
+        );
         assert_eq!(strftime_tz("%Ey/%Od", 1621530000, true), "21/20");
     }
 
@@ -666,7 +766,7 @@ mod tests {
         let datetime_info = datetime("2026-10-25 10:11:12");
         assert_eq!(datetime_info.get(&Str::from("hour")), 10);
         // Sunday should be 0
-        assert_eq!(datetime_info.get(&Str::from("weekday")),0);
+        assert_eq!(datetime_info.get(&Str::from("weekday")), 0);
     }
 
     #[test]
@@ -700,14 +800,29 @@ mod tests {
     #[test]
     fn test_mktime_gawk() {
         // utc flag, as gawk's mktime(spec, utc-flag)
-        assert_eq!(mktime("1970 01 02 00 00 00", true, MKTIME_LOCAL_TIMEZONE), 86400);
-        assert_eq!(mktime("2024-01-01 10:00:00", true, MKTIME_LOCAL_TIMEZONE), 1704103200);
+        assert_eq!(
+            mktime("1970 01 02 00 00 00", true, MKTIME_LOCAL_TIMEZONE),
+            86400
+        );
+        assert_eq!(
+            mktime("2024-01-01 10:00:00", true, MKTIME_LOCAL_TIMEZONE),
+            1704103200
+        );
         // the timezone wins over the utc flag
         assert_eq!(mktime("2024 01 01 10 00 00", true, 8), 1704074400);
         // optional DST field, unpadded and out-of-range values are normalized
-        assert_eq!(mktime("1970 1 2 0 0 0 -1", true, MKTIME_LOCAL_TIMEZONE), 86400);
-        assert_eq!(mktime("1969 13 1 24 0 0", true, MKTIME_LOCAL_TIMEZONE), 86400);
-        assert_eq!(mktime("1970 01 01 00 00 -1", true, MKTIME_LOCAL_TIMEZONE), -1);
+        assert_eq!(
+            mktime("1970 1 2 0 0 0 -1", true, MKTIME_LOCAL_TIMEZONE),
+            86400
+        );
+        assert_eq!(
+            mktime("1969 13 1 24 0 0", true, MKTIME_LOCAL_TIMEZONE),
+            86400
+        );
+        assert_eq!(
+            mktime("1970 01 01 00 00 -1", true, MKTIME_LOCAL_TIMEZONE),
+            -1
+        );
         // invalid text is -1
         assert_eq!(mktime("not a date", true, MKTIME_LOCAL_TIMEZONE), -1);
         assert_eq!(mktime("", false, MKTIME_LOCAL_TIMEZONE), -1);
@@ -733,24 +848,54 @@ mod tests {
 
     #[test]
     fn test_mktime_iso_local() {
-        assert_eq!(mktime("2021-05-01T01:17:02", true, MKTIME_LOCAL_TIMEZONE), 1619831822);
-        assert_eq!(mktime("2021-05-01T01:17", true, MKTIME_LOCAL_TIMEZONE), 1619831820);
-        assert_eq!(mktime("2021-05-01T01:17:02.500", true, MKTIME_LOCAL_TIMEZONE), 1619831822);
-        assert_eq!(mktime("2021-05-01T01:17:02", false, 8), 1619831822 - 8 * 3600);
-        assert_ne!(mktime("2021-05-01T01:17:02", false, MKTIME_LOCAL_TIMEZONE), -1);
+        assert_eq!(
+            mktime("2021-05-01T01:17:02", true, MKTIME_LOCAL_TIMEZONE),
+            1619831822
+        );
+        assert_eq!(
+            mktime("2021-05-01T01:17", true, MKTIME_LOCAL_TIMEZONE),
+            1619831820
+        );
+        assert_eq!(
+            mktime("2021-05-01T01:17:02.500", true, MKTIME_LOCAL_TIMEZONE),
+            1619831822
+        );
+        assert_eq!(
+            mktime("2021-05-01T01:17:02", false, 8),
+            1619831822 - 8 * 3600
+        );
+        assert_ne!(
+            mktime("2021-05-01T01:17:02", false, MKTIME_LOCAL_TIMEZONE),
+            -1
+        );
         // explicit offsets still win
         assert_eq!(mktime("2021-05-01T01:17:02Z", false, 8), 1619831822);
-        assert_eq!(mktime("2021-05-01T01:17:02+08:00", true, MKTIME_LOCAL_TIMEZONE), 1619831822 - 8 * 3600);
+        assert_eq!(
+            mktime("2021-05-01T01:17:02+08:00", true, MKTIME_LOCAL_TIMEZONE),
+            1619831822 - 8 * 3600
+        );
     }
 
     #[test]
     fn test_mktime_date_only_is_midnight() {
         // 2024-01-15 00:00:00 UTC, independent of the time of day the test runs
-        assert_eq!(mktime("2024/01/15", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
-        assert_eq!(mktime("2024-01-15", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
-        assert_eq!(mktime("Monday, 15 January 2024", true, MKTIME_LOCAL_TIMEZONE), 1705276800);
+        assert_eq!(
+            mktime("2024/01/15", true, MKTIME_LOCAL_TIMEZONE),
+            1705276800
+        );
+        assert_eq!(
+            mktime("2024-01-15", true, MKTIME_LOCAL_TIMEZONE),
+            1705276800
+        );
+        assert_eq!(
+            mktime("Monday, 15 January 2024", true, MKTIME_LOCAL_TIMEZONE),
+            1705276800
+        );
         assert_eq!(mktime("2024/01/15", false, 8), 1705276800 - 8 * 3600);
-        assert_eq!(datetime2(mktime("2024/01/15", false, MKTIME_LOCAL_TIMEZONE)).get(&Str::from("hour")), 0);
+        assert_eq!(
+            datetime2(mktime("2024/01/15", false, MKTIME_LOCAL_TIMEZONE)).get(&Str::from("hour")),
+            0
+        );
     }
 
     #[test]

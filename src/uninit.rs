@@ -159,7 +159,9 @@ where
     fn builtin(&self, f: &Either<I, Function>) -> Option<Function> {
         match f {
             Either::Right(bi) => Some(*bi),
-            Either::Left(name) if !self.udfs.contains(name) => Function::try_from(name.clone()).ok(),
+            Either::Left(name) if !self.udfs.contains(name) => {
+                Function::try_from(name.clone()).ok()
+            }
             Either::Left(_) => None,
         }
     }
@@ -179,7 +181,9 @@ where
             Var(i) if crate::ast::is_uninit_var(&i.to_string()) => true,
             Var(i) => self.global(i, params) && !self.bad_vars.contains(i),
             // An element of an array only assigned numbers.
-            Index(..) => self.global_map(e, params).is_some_and(|m| !self.bad_maps.contains(&m)),
+            Index(..) => self
+                .global_map(e, params)
+                .is_some_and(|m| !self.bad_maps.contains(&m)),
             Call(Either::Left(f), _) if self.udfs.contains(f) => !self.bad_funcs.contains(f),
             Call(f, _) => self.builtin(f).is_some_and(numeric_builtin),
             StrLit(_) => false,
@@ -208,7 +212,12 @@ where
         }
     }
 
-    fn assign(&mut self, lhs: &'a Expr<'a, 'b, I>, rhs: Option<&'a Expr<'a, 'b, I>>, params: &'a [I]) {
+    fn assign(
+        &mut self,
+        lhs: &'a Expr<'a, 'b, I>,
+        rhs: Option<&'a Expr<'a, 'b, I>>,
+        params: &'a [I],
+    ) {
         let target = if let Some(v) = self.global_var(lhs, params) {
             self.assigned_vars.insert(v.clone());
             Target::Var(v)
@@ -230,7 +239,11 @@ where
     }
 
     fn scalar_ref(&mut self, i: &I, params: &[I]) {
-        let func = if params.contains(i) { self.cur_fn.clone() } else { None };
+        let func = if params.contains(i) {
+            self.cur_fn.clone()
+        } else {
+            None
+        };
         self.scalar_refs.insert((func, i.clone()));
     }
 
@@ -288,7 +301,9 @@ where
                 }
                 match (bi, args) {
                     (Some(Function::Contains), [arr, _]) => self.array_use(arr, params),
-                    (Some(Function::Delete | Function::Clear), [arr, ..]) => self.array_use(arr, params),
+                    (Some(Function::Delete | Function::Clear), [arr, ..]) => {
+                        self.array_use(arr, params)
+                    }
                     _ => {}
                 }
                 if let (Some(Function::Sub | Function::GSub), [_, _, target, ..]) = (bi, args) {
@@ -297,14 +312,17 @@ where
                 // An array passed to a function may be assigned there.
                 let keeps_arrays = matches!(
                     bi,
-                    Some(Function::Length | Function::Contains | Function::Delete | Function::Clear)
+                    Some(
+                        Function::Length | Function::Contains | Function::Delete | Function::Clear
+                    )
                 );
                 // typeof, isarray and user-defined functions do not read a variable passed to them
                 // (in gawk it stays "untyped").
-                let inspects = match f {
-                    Either::Left(name) => self.udfs.contains(name),
-                    Either::Right(_) => false,
-                } || matches!(bi, Some(Function::TypeOfVariable | Function::IsArray));
+                let inspects =
+                    match f {
+                        Either::Left(name) => self.udfs.contains(name),
+                        Either::Right(_) => false,
+                    } || matches!(bi, Some(Function::TypeOfVariable | Function::IsArray));
                 if let (Some(Function::TypeOfVariable), [a]) = (bi, args) {
                     if let Some(v) = self.global_var(a, params) {
                         self.typeof_vars.insert(v);
@@ -423,9 +441,12 @@ where
             Switch(e, cases) => {
                 self.expr(e, params);
                 // A variable is compared with string and regex case labels as a string.
-                let str_case = cases
-                    .iter()
-                    .any(|(l, _)| matches!(l, Some(crate::ast::Expr::StrLit(_) | crate::ast::Expr::PatLit(_))));
+                let str_case = cases.iter().any(|(l, _)| {
+                    matches!(
+                        l,
+                        Some(crate::ast::Expr::StrLit(_) | crate::ast::Expr::PatLit(_))
+                    )
+                });
                 if str_case && matches!(e, crate::ast::Expr::Var(_)) {
                     self.string_read(e, params);
                 }

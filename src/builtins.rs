@@ -388,7 +388,8 @@ impl FloatFunc {
         match self {
             Atan2 => x.atan2(y),
             IntDiv0 => intdiv0(x, y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => {
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round
+            | Trunc => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -418,7 +419,8 @@ impl FloatFunc {
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round | Trunc => 1,
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round
+            | Trunc => 1,
             Atan2 | IntDiv0 => 2,
         }
     }
@@ -665,7 +667,11 @@ impl<'a> TryFrom<&'a str> for Function {
 impl Function {
     /// The name of the function in awk programs, if it has one (used in error messages).
     pub(crate) fn awk_name(&self) -> Option<&'static str> {
-        FUNCTIONS.iter().filter(|(_, f)| *f == self).map(|(name, _)| *name).min()
+        FUNCTIONS
+            .iter()
+            .filter(|(_, f)| *f == self)
+            .map(|(name, _)| *name)
+            .min()
     }
 }
 
@@ -679,7 +685,13 @@ pub(crate) fn arity_error(name: &str, got: usize, arity: usize) -> CompileError 
         _ => format!("{} to {}", min, max),
     };
     let noun = if max == 1 { "argument" } else { "arguments" };
-    err_raw!("function `{}` expects {} {}, got {}", name, expected, noun, got)
+    err_raw!(
+        "function `{}` expects {} {}, got {}",
+        name,
+        expected,
+        noun,
+        got
+    )
 }
 
 /// The builtin functions of POSIX awk and gawk that zawk implements. A user-defined function may
@@ -729,7 +741,8 @@ impl Function {
         match self {
             // An array `F` gets the type of the result (as with `res = F`).
             Function::TryElse => {
-                ctx.nw.add_dep(res, args[1], Constraint::FlowsIfMap((), args[1]));
+                ctx.nw
+                    .add_dep(res, args[1], Constraint::FlowsIfMap((), args[1]));
             }
             Function::Split => {
                 let arg1 = ctx.constant(
@@ -737,7 +750,7 @@ impl Function {
                         key: BaseTy::Int,
                         val: BaseTy::Str,
                     }
-                        .abs(),
+                    .abs(),
                 );
                 ctx.nw.add_dep(arg1, args[1], Constraint::Flows(()));
             }
@@ -748,7 +761,7 @@ impl Function {
                             key: BaseTy::Int,
                             val: BaseTy::Str,
                         }
-                            .abs(),
+                        .abs(),
                     );
                     ctx.nw.add_dep(map, arg, Constraint::Flows(()));
                 }
@@ -760,19 +773,24 @@ impl Function {
                         key: BaseTy::Str,
                         val: BaseTy::Str,
                     }
-                        .abs(),
+                    .abs(),
                 );
-                ctx.nw.add_dep(map, args[args.len() - 1], Constraint::Flows(()));
+                ctx.nw
+                    .add_dep(map, args[args.len() - 1], Constraint::Flows(()));
             }
             // the positional parameters of the database functions
-            Function::SqliteQuery | Function::SqliteExecute
-            | Function::MysqlQuery | Function::MysqlExecute | Function::PgQuery | Function::PgExecute => {
+            Function::SqliteQuery
+            | Function::SqliteExecute
+            | Function::MysqlQuery
+            | Function::MysqlExecute
+            | Function::PgQuery
+            | Function::PgExecute => {
                 let map = ctx.constant(
                     Map {
                         key: BaseTy::Int,
                         val: BaseTy::Str,
                     }
-                        .abs(),
+                    .abs(),
                 );
                 ctx.nw.add_dep(map, args[2], Constraint::Flows(()));
             }
@@ -783,7 +801,7 @@ impl Function {
                         key: BaseTy::Str,
                         val: BaseTy::Str,
                     }
-                        .abs(),
+                    .abs(),
                 );
                 ctx.nw.add_dep(arg2, args[2], Constraint::Flows(()));
             }
@@ -865,13 +883,15 @@ impl Function {
         // TODO make the return type optional?
     ) -> Result<(SmallVec<compile::Ty>, compile::Ty)> {
         use {
+            Function::*,
             ast::{Binop::*, Unop::*},
             compile::Ty::*,
-            Function::*,
         };
         if let Some(a) = self.arity() {
             if incoming.len() != a {
-                let name = self.awk_name().map_or_else(|| self.to_string(), String::from);
+                let name = self
+                    .awk_name()
+                    .map_or_else(|| self.to_string(), String::from);
                 return Err(arity_error(&name, incoming.len(), a));
             }
         }
@@ -921,14 +941,16 @@ impl Function {
                 Int,
             ),
             LastPart => (smallvec![Str, Str], Str),
-            Min | Max => (smallvec![Str,Str,Str], Str),
-            StrCmp => (smallvec![Str,Str], Int),
+            Min | Max => (smallvec![Str, Str, Str], Str),
+            StrCmp => (smallvec![Str, Str], Int),
             Similar => (smallvec![Str, Str], Float),
-            GetEnv => (smallvec![Str,Str], Str),
-            DefaultIfEmpty => (smallvec![Str,Str], Str),
-            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => (smallvec![Str,Str], Str),
+            GetEnv => (smallvec![Str, Str], Str),
+            DefaultIfEmpty => (smallvec![Str, Str], Str),
+            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => {
+                (smallvec![Str, Str], Str)
+            }
             Quote | DoubleQuote => (smallvec![Str], Str),
-            Seq => (smallvec![Float,Float,Float], MapIntFloat),
+            Seq => (smallvec![Float, Float, Float], MapIntFloat),
             Uniq => (smallvec![MapIntStr, Str], MapIntStr),
             // Products of integers easily exceed the 64-bit range (e.g. factorials), and awk
             // numbers are doubles: multiply in floating point.
@@ -939,7 +961,17 @@ impl Function {
             // where it comes from.
             Contains | Delete => match incoming[0] {
                 MapIntInt | MapIntStr | MapIntFloat => (smallvec![incoming[0], Int], Int),
-                _ => (smallvec![if incoming[0].is_array() { incoming[0] } else { MapStrStr }, Str], Int),
+                _ => (
+                    smallvec![
+                        if incoming[0].is_array() {
+                            incoming[0]
+                        } else {
+                            MapStrStr
+                        },
+                        Str
+                    ],
+                    Int,
+                ),
             },
             IncMap => {
                 let map = incoming[0];
@@ -956,7 +988,14 @@ impl Function {
                     res,
                 )
             }
-            Clear => (smallvec![if incoming[0].is_array() { incoming[0] } else { MapStrStr }], Int),
+            Clear => (
+                smallvec![if incoming[0].is_array() {
+                    incoming[0]
+                } else {
+                    MapStrStr
+                }],
+                Int,
+            ),
             Srand => (smallvec![Int], Int),
             System | HexToInt => (smallvec![Str], Int),
             System2 => (smallvec![Str], MapStrStr),
@@ -1000,7 +1039,10 @@ impl Function {
             Mktime => (smallvec![Str, Int, Int], Int),
             Duration => (smallvec![Str], Int),
             // date text is parsed as mktime does; other values are timestamps
-            DateAdd => (smallvec![if incoming[0] == Str { Str } else { Int }, Int, Str], Int),
+            DateAdd => (
+                smallvec![if incoming[0] == Str { Str } else { Int }, Int, Str],
+                Int,
+            ),
             DateDiff => (smallvec![Str, Int, Int], Int),
             DateTrunc => (smallvec![Str, Int], Int),
             ToIso8601 => (smallvec![Int], Str),
@@ -1009,7 +1051,7 @@ impl Function {
             Fend => (smallvec![Str], Str),
             Eval => (smallvec![Str, incoming[1]], Float),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
-            Pairs => (smallvec![Str,Str,Str], MapStrStr),
+            Pairs => (smallvec![Str, Str, Str], MapStrStr),
             Parse => (smallvec![Str, Str], MapStrStr),
             RegexParse => (smallvec![Str, Str], MapIntStr),
             Record => (smallvec![Str], MapStrStr),
@@ -1030,8 +1072,8 @@ impl Function {
             SmtpSend => (smallvec![Str, Str, Str, Str, Str], Null),
             S3Get => (smallvec![Str, Str], Str),
             S3Put => (smallvec![Str, Str, Str], Str),
-            KvGet => (smallvec![Str, Str ], Str),
-            KvPut => (smallvec![Str, Str,Str], Null),
+            KvGet => (smallvec![Str, Str], Str),
+            KvPut => (smallvec![Str, Str, Str], Null),
             KvDelete => (smallvec![Str, Str], Null),
             KvClear => (smallvec![Str], Null),
             LogDebug | LogInfo | LogWarn | LogError => (smallvec![Str], Null),
@@ -1040,15 +1082,15 @@ impl Function {
             Publish => (smallvec![Str, Str], Null),
             FromJson | JsonFlatten => (smallvec![Str], MapStrStr),
             ToJson => (smallvec![incoming[0]], Str),
-            JsonValue => (smallvec![Str,Str], Str),
-            JsonQuery => (smallvec![Str,Str], MapIntStr),
-            JsonHas => (smallvec![Str,Str], Int),
-            JsonGet | JsonDel => (smallvec![Str,Str], Str),
-            JsonSet => (smallvec![Str,Str,Str], Str),
-            HtmlValue => (smallvec![Str,Str], Str),
-            HtmlQuery => (smallvec![Str,Str], MapIntStr),
-            XmlValue => (smallvec![Str,Str], Str),
-            XmlQuery => (smallvec![Str,Str], MapIntStr),
+            JsonValue => (smallvec![Str, Str], Str),
+            JsonQuery => (smallvec![Str, Str], MapIntStr),
+            JsonHas => (smallvec![Str, Str], Int),
+            JsonGet | JsonDel => (smallvec![Str, Str], Str),
+            JsonSet => (smallvec![Str, Str, Str], Str),
+            HtmlValue => (smallvec![Str, Str], Str),
+            HtmlQuery => (smallvec![Str, Str], MapIntStr),
+            XmlValue => (smallvec![Str, Str], Str),
+            XmlQuery => (smallvec![Str, Str], MapIntStr),
             VarDump => (smallvec![incoming[0]], Null),
             ReadAll => (smallvec![Str], Str),
             WriteAll => (smallvec![Str, Str], Null),
@@ -1067,7 +1109,8 @@ impl Function {
             StartsWith => (smallvec![Str, Str], Int),
             EndsWith => (smallvec![Str, Str], Int),
             TextContains => (smallvec![Str, Str], Int),
-            Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase | PascalCase | Figlet => (smallvec![Str], Str),
+            Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase
+            | PascalCase | Figlet => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
             Mask => (smallvec![Str], Str),
             Repeat | Wrap => (smallvec![Str, Int], Str),
@@ -1129,7 +1172,11 @@ impl Function {
             Strnum => (smallvec![Str], Str),
             ToFloat => (smallvec![Float], Float),
             OfmtStr => (
-                smallvec![if matches!(incoming[0], Int | Float) { incoming[0] } else { Str }],
+                smallvec![if matches!(incoming[0], Int | Float) {
+                    incoming[0]
+                } else {
+                    Str
+                }],
                 Str,
             ),
             Sub | GSub => (smallvec![Str, Str, Str], Int),
@@ -1187,8 +1234,8 @@ impl Function {
             SplitSeps | PatSplit => &[1, 3],
             MatchArr | HttpPost | Jwt => &[2],
             SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => &[2],
-            ArrayStat | ArrayCountDistinct | ArrayTop | ArrayMax | ArrayMin | ArraySum | ArrayMean
-            | IntMapJoin | ToCsv | Uniq => &[0],
+            ArrayStat | ArrayCountDistinct | ArrayTop | ArrayMax | ArrayMin | ArraySum
+            | ArrayMean | IntMapJoin | ToCsv | Uniq => &[0],
             _ => &[],
         }
     }
@@ -1202,12 +1249,16 @@ impl Function {
         Some(match self {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
-            UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | RecordCSV | RecordTSV | Systime | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
-            | ReadLineStdinFused | Exiting => 0,
+            UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | RecordCSV | RecordTSV | Systime
+            | ReseedRng | ReadErrStdin | NextlineStdin | NextFile | ReadLineStdinFused
+            | Exiting => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
-            Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt | ToInt | EscapeCSV
-            | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr | ReadErrCmd | Nextline | NextlineCmd
-            | Uuid | SnowFlake | Fend | Url | SemVer | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func | ToJson | FromJson | JsonFlatten | ToCsv | FromCsv | TypeOfVariable | TypeOfUntyped | IsArray | Unop(_) => 1,
+            Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt
+            | ToInt | EscapeCSV | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr
+            | ReadErrCmd | Nextline | NextlineCmd | Uuid | SnowFlake | Fend | Url | SemVer
+            | Path | DataUrl | DateTime | Shlex | Tuple | Variant | Flags | ParseArray | Func
+            | ToJson | FromJson | JsonFlatten | ToCsv | FromCsv | TypeOfVariable
+            | TypeOfUntyped | IsArray | Unop(_) => 1,
             SetFI | SetExit | SubstrIndex | SubstrLastIndex | Match | Setcol | Binop(_) => 2,
             MatchArr => 4,
             JoinCSV | JoinTSV | Delete | Contains => 2,
@@ -1249,7 +1300,8 @@ impl Function {
             MkBool => 1,
             MkPassword => 1,
             Trim => 2,
-            Capitalize | UnCapitalize | Mask | Strtonum | AwkStrtonum | CamelCase | KebabCase | SnakeCase | TitleCase | PascalCase | Words | Lines => 1,
+            Capitalize | UnCapitalize | Mask | Strtonum | AwkStrtonum | CamelCase | KebabCase
+            | SnakeCase | TitleCase | PascalCase | Words | Lines => 1,
             Figlet => 1,
             Repeat | Wrap => 2,
             Min | Max => 3,
@@ -1287,9 +1339,9 @@ impl Function {
 
     pub(crate) fn step(&self, args: &[types::State]) -> Result<types::State> {
         use {
+            Function::*,
             ast::{Binop::*, Unop::*},
             types::{BaseTy, TVar::*},
-            Function::*,
         };
         fn step_arith(x: &types::State, y: &types::State) -> types::State {
             use BaseTy::*;
@@ -1320,10 +1372,14 @@ impl Function {
             Min | Max => Ok(Scalar(BaseTy::Str).abs()),
             Rand | Binop(Div) | Binop(Pow) | Binop(Mult) => Ok(Scalar(BaseTy::Float).abs()),
             Setcol => Ok(Scalar(BaseTy::Null).abs()),
-            Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not) | Binop(IsMatch) | Binop(LT)
-            | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ) | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr
-            | ReadErrCmd | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime | Mktime | Duration | DateAdd | DateDiff | DateTrunc
-            | System | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
+            Clear | SubstrIndex | SubstrLastIndex | Srand | ReseedRng | Unop(Not)
+            | Binop(IsMatch) | Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ)
+            | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr | ReadErrCmd
+            | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime
+            | Mktime | Duration | DateAdd | DateDiff | DateTrunc | System | HexToInt | Asort
+            | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => {
+                Ok(Scalar(BaseTy::Int).abs())
+            }
             // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
             TryElse => match (&args[0], &args[1]) {
                 (Some(Map { .. }), Some(Map { .. })) => Ok(args[1]),
@@ -1331,35 +1387,37 @@ impl Function {
                 (Some(_), _) => Ok(args[1]),
                 (None, _) => Ok(None),
             },
-            ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => Ok(Scalar(BaseTy::Float).abs()),
+            ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => {
+                Ok(Scalar(BaseTy::Float).abs())
+            }
             ArrayTop => Ok(Map {
                 key: BaseTy::Int,
                 val: BaseTy::Str,
-            }.abs()),
+            }
+            .abs()),
             System2 => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,
-            }.abs()),
-            ToUpper | ToLower | JoinCSV | JoinTSV | RecordCSV | RecordTSV | Uuid | Ulid | Tsid | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols
-            | EscapeCSV | EscapeTSV | Escape
-            | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin | GenSub | Substr | CharAt
-            | Encode | Decode | Digest | Hmac | Jwt | ToJson | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv | TypeOfVariable | TypeOfUntyped | IntMapJoin => {
-                Ok(Scalar(BaseTy::Str).abs())
             }
+            .abs()),
+            ToUpper | ToLower | JoinCSV | JoinTSV | RecordCSV | RecordTSV | Uuid | Ulid | Tsid
+            | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols | EscapeCSV | EscapeTSV
+            | Escape | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin
+            | GenSub | Substr | CharAt | Encode | Decode | Digest | Hmac | Jwt | ToJson
+            | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv
+            | TypeOfVariable | TypeOfUntyped | IntMapJoin => Ok(Scalar(BaseTy::Str).abs()),
             Chars => Ok(Map {
                 key: BaseTy::Int,
                 val: BaseTy::Str,
-            }.abs()),
+            }
+            .abs()),
             Eval => Ok(Scalar(BaseTy::Float).abs()),
-            JsonQuery | HtmlQuery | XmlQuery => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            JsonQuery | HtmlQuery | XmlQuery => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            MkPassword | ToIso8601 => {
-                Ok(Scalar(BaseTy::Str).abs())
-            }
+            .abs()),
+            MkPassword | ToIso8601 => Ok(Scalar(BaseTy::Str).abs()),
             Encrypt | Decrypt => Ok(Scalar(BaseTy::Str).abs()),
             Fake => Ok(Scalar(BaseTy::Str).abs()),
             Jev => Ok(Scalar(BaseTy::Int).abs()),
@@ -1368,136 +1426,110 @@ impl Function {
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome | GetEnv => {
                 Ok(Scalar(BaseTy::Str).abs())
             }
-            LastPart => {
-                Ok(Scalar(BaseTy::Str).abs())
-            }
-            FormatBytes => {
-                Ok(Scalar(BaseTy::Str).abs())
-            }
-            ToBytes => {
-                Ok(Scalar(BaseTy::Int).abs())
-            }
-            StartsWith | EndsWith | TextContains | JsonHas => {
-                Ok(Scalar(BaseTy::Int).abs())
-            }
+            LastPart => Ok(Scalar(BaseTy::Str).abs()),
+            FormatBytes => Ok(Scalar(BaseTy::Str).abs()),
+            ToBytes => Ok(Scalar(BaseTy::Int).abs()),
+            StartsWith | EndsWith | TextContains | JsonHas => Ok(Scalar(BaseTy::Int).abs()),
             BloomFilterInsert => Ok(None),
-            BloomFilterContains | BloomFilterContainsWithInsert => {
-                Ok(Scalar(BaseTy::Int).abs())
-            }
+            BloomFilterContains | BloomFilterContainsWithInsert => Ok(Scalar(BaseTy::Int).abs()),
             Strtonum | AwkStrtonum => Ok(Scalar(BaseTy::Float).abs()),
-            Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase | PascalCase | Figlet | Repeat | Wrap => Ok(Scalar(BaseTy::Str).abs()),
+            Capitalize | UnCapitalize | Mask | CamelCase | KebabCase | SnakeCase | TitleCase
+            | PascalCase | Figlet | Repeat | Wrap => Ok(Scalar(BaseTy::Str).abs()),
             DefaultIfEmpty => Ok(Scalar(BaseTy::Str).abs()),
-            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => Ok(Scalar(BaseTy::Str).abs()),
+            AppendIfMissing | PrependIfMissing | RemoveIfEnd | RemoveIfBegin => {
+                Ok(Scalar(BaseTy::Str).abs())
+            }
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt | IsFormat | IsNull => Ok(Scalar(BaseTy::Int).abs()),
-            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Str,
-                }.abs())
+            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
             }
-            Words | Lines => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            Words | Lines => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            DateTime => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Int,
-                }.abs())
+            .abs()),
+            DateTime => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Int,
             }
-            RegexParse => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            RegexParse => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            Parse => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            Parse => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
             }
-            Shlex | Func | Tuple | ParseArray => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            Shlex | Func | Tuple | ParseArray => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            Hex2Rgb => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Int,
-                }.abs())
+            .abs()),
+            Hex2Rgb => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Int,
             }
-            Rgb2Hex => {
-                Ok(Scalar(BaseTy::Str).abs())
+            .abs()),
+            Rgb2Hex => Ok(Scalar(BaseTy::Str).abs()),
+            Flags => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Int,
             }
-            Flags => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Int,
-                }.abs())
+            .abs()),
+            Variant => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
             }
-            Variant => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            SqliteQuery | MysqlQuery | PgQuery => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            SqliteQuery | MysqlQuery | PgQuery  => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
-            }
+            .abs()),
             SqliteExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
             ToFloat => Ok(Scalar(BaseTy::Float).abs()),
             OfmtStr => Ok(Scalar(BaseTy::Str).abs()),
-            Uniq => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            Uniq => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            HttpGet | HttpPost => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            HttpGet | HttpPost => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
             }
+            .abs()),
             SmtpSend | SendMail => Ok(None),
             S3Get | S3Put => Ok(Scalar(BaseTy::Str).abs()),
-            FromJson | JsonFlatten => {
-                Ok(Map {
-                    key: BaseTy::Str,
-                    val: BaseTy::Str,
-                }.abs())
+            FromJson | JsonFlatten => Ok(Map {
+                key: BaseTy::Str,
+                val: BaseTy::Str,
             }
-            FromCsv => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Str,
-                }.abs())
+            .abs()),
+            FromCsv => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Str,
             }
-            Seq => {
-                Ok(Map {
-                    key: BaseTy::Int,
-                    val: BaseTy::Float,
-                }.abs())
+            .abs()),
+            Seq => Ok(Map {
+                key: BaseTy::Int,
+                val: BaseTy::Float,
             }
+            .abs()),
             PadLeft | PadRight | PadBoth => Ok(Scalar(BaseTy::Str).abs()),
             ArrayMax | ArrayMin | ArraySum | ArrayMean => match &args[0] {
                 Some(Map {
-                         key: Some(BaseTy::Int),
-                         val: Some(BaseTy::Int)
-                     }) if *self != ArrayMean => {
-                    Ok(Scalar(BaseTy::Int).abs())
-                }
-                _ => { Ok(Scalar(BaseTy::Float).abs()) }
+                    key: Some(BaseTy::Int),
+                    val: Some(BaseTy::Int),
+                }) if *self != ArrayMean => Ok(Scalar(BaseTy::Int).abs()),
+                _ => Ok(Scalar(BaseTy::Float).abs()),
             },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             Similar => Ok(Scalar(BaseTy::Float).abs()),
@@ -1510,7 +1542,8 @@ impl Function {
             ReadConfig => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,
-            }.abs()),
+            }
+            .abs()),
             KvPut | KvDelete | KvClear => Ok(None),
             VarDump => Ok(None),
             LogDebug | LogInfo | LogWarn | LogError => Ok(None),
@@ -1554,7 +1587,9 @@ impl From<Variable> for compile::Ty {
     fn from(v: Variable) -> compile::Ty {
         use Variable::*;
         match v {
-            FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => compile::Ty::Str,
+            FS | OFS | ORS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => {
+                compile::Ty::Str
+            }
             PID | ARGC | NF | NR | FNR | RSTART | RLENGTH | IGNORECASE => compile::Ty::Int,
             ARGV => compile::Ty::MapIntStr,
             FI => compile::Ty::MapStrInt,
@@ -1712,7 +1747,9 @@ impl<'a> Variables<'a> {
     /// Load the message being read (if any) into MSG_SUBJECT, MSG_HEADERS and MSG_BODY. Each
     /// message is an input file of its own: this runs when the input file changes.
     pub(crate) fn load_message(&mut self) {
-        let Some(msg) = crate::runtime::splitter::message::current_message() else { return };
+        let Some(msg) = crate::runtime::splitter::message::current_message() else {
+            return;
+        };
         self.msg_subject = msg.subject.clone().into();
         self.msg_body = msg.body.clone().into();
         let headers = StrMap::default();
@@ -1741,7 +1778,10 @@ impl<'a> Variables<'a> {
             RLENGTH => self.rlength,
             PID => self.pid,
             IGNORECASE => self.ignorecase,
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT
+            | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => {
+                return err!("var {} not an int", var);
+            }
         })
     }
 
@@ -1759,7 +1799,10 @@ impl<'a> Variables<'a> {
                 crate::runtime::awk_regex::set_ignore_case(i != 0);
                 self.ignorecase = i;
             }
-            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => return err!("var {} not an int", var),
+            FI | ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT
+            | MSG_HEADERS | MSG_BODY | ARGV | ENVIRON | PROCINFO => {
+                return err!("var {} not an int", var);
+            }
         }
         Ok(())
     }
@@ -1777,7 +1820,8 @@ impl<'a> Variables<'a> {
             ERRNO => crate::runtime::errno().into(),
             MSG_SUBJECT => self.msg_subject.clone(),
             MSG_BODY => self.msg_body.clone(),
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE | MSG_HEADERS => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO
+            | IGNORECASE | MSG_HEADERS => {
                 return err!("var {} not a string", var);
             }
         })
@@ -1822,7 +1866,8 @@ impl<'a> Variables<'a> {
             ERRNO => crate::runtime::set_errno(s.as_str().to_string()),
             MSG_SUBJECT => self.msg_subject = s,
             MSG_BODY => self.msg_body = s,
-            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE | MSG_HEADERS => {
+            FI | PID | ARGC | ARGV | NF | NR | FNR | RSTART | RLENGTH | ENVIRON | PROCINFO
+            | IGNORECASE | MSG_HEADERS => {
                 return err!("var {} not a string", var);
             }
         };
@@ -1833,7 +1878,9 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             ARGV => Ok(self.argv.clone()),
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON
+            | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1846,7 +1893,9 @@ impl<'a> Variables<'a> {
                 self.argv = m;
                 Ok(())
             }
-            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON | PROCINFO | IGNORECASE => {
+            FI | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | RLENGTH | ENVIRON
+            | PROCINFO | IGNORECASE => {
                 err!("var {} is not an int-keyed map", var)
             }
         }
@@ -1856,7 +1905,8 @@ impl<'a> Variables<'a> {
         use Variable::*;
         match var {
             FI => Ok(self.fi.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1870,7 +1920,8 @@ impl<'a> Variables<'a> {
                 self.fi = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_HEADERS | MSG_BODY | RSTART | ENVIRON | PROCINFO
             | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
@@ -1883,8 +1934,8 @@ impl<'a> Variables<'a> {
             ENVIRON => Ok(self.environ.clone()),
             PROCINFO => Ok(self.procinfo.clone()),
             MSG_HEADERS => Ok(self.msg_headers.clone()),
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI
-            | RLENGTH | IGNORECASE => {
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1906,8 +1957,8 @@ impl<'a> Variables<'a> {
                 self.msg_headers = m;
                 Ok(())
             }
-            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI
-            | RLENGTH | IGNORECASE => {
+            ARGV | PID | ORS | OFS | ARGC | NF | NR | FNR | FS | RS | FILENAME | CONVFMT | OFMT
+            | ERRNO | MSG_SUBJECT | MSG_BODY | RSTART | FI | RLENGTH | IGNORECASE => {
                 err!("var {} is not a string-keyed map", var)
             }
         }
@@ -1960,7 +2011,9 @@ impl Variable {
                 key: types::BaseTy::Str,
                 val: types::BaseTy::Str,
             },
-            ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => types::TVar::Scalar(types::BaseTy::Str),
+            ORS | OFS | FS | RS | FILENAME | CONVFMT | OFMT | ERRNO | MSG_SUBJECT | MSG_BODY => {
+                types::TVar::Scalar(types::BaseTy::Str)
+            }
         }
     }
 }

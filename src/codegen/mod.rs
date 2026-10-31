@@ -396,8 +396,7 @@ pub(crate) trait CodeGenerator: Backend {
         strnum: &[bool],
     ) -> Result<()>;
 
-    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref], strnum: &[bool])
-        -> Result<()>;
+    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref], strnum: &[bool]) -> Result<()>;
 
     fn print_all(&mut self, output: &Option<(StrReg, FileSpec)>, args: &[StrReg]) -> Result<()>;
 
@@ -918,8 +917,10 @@ pub(crate) trait CodeGenerator: Backend {
                 let sv = self.get_val(s.reflect())?;
                 let howv = self.get_val(how.reflect())?;
                 let in_sv = self.get_val(in_s.reflect())?;
-                let resv = self
-                    .call_intrinsic(intrinsic!(gen_subst_const), &mut [rt, patv, sv, howv, in_sv])?;
+                let resv = self.call_intrinsic(
+                    intrinsic!(gen_subst_const),
+                    &mut [rt, patv, sv, howv, in_sv],
+                )?;
                 self.bind_val(res.reflect(), resv)
             }
             EscapeCSV(dst, s) => self.unop(intrinsic!(escape_csv), dst, s),
@@ -931,15 +932,15 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(substr), &mut [basev, lv, rv])?;
                 self.bind_val(res.reflect(), resv)
             }
-            CharAt(res, text,index) => {
+            CharAt(res, text, index) => {
                 let text = self.get_val(text.reflect())?;
                 let index = self.get_val(index.reflect())?;
                 //panic!("invalid index for chat_at: {}, should start with 1", index)
                 let resv = self.call_intrinsic(intrinsic!(char_at), &mut [text, index])?;
                 self.bind_val(res.reflect(), resv)
             }
-            Chars(dst,text) => self.unop(intrinsic!(chars), dst, text),
-            LastPart(res, s,sep) => {
+            Chars(dst, text) => self.unop(intrinsic!(chars), dst, text),
+            LastPart(res, s, sep) => {
                 let s = self.get_val(s.reflect())?;
                 let sep = self.get_val(sep.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(last_part), &mut [s, sep])?;
@@ -1029,131 +1030,133 @@ pub(crate) trait CodeGenerator: Backend {
             Uuid(dst, version) => {
                 let version = self.get_val(version.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(uuid), &mut [version])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             SnowFlake(dst, machine_id) => {
                 let machine_id = self.get_val(machine_id.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(snowflake), &mut [machine_id])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Ulid(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(ulid), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Tsid(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(tsid), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Whoami(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(whoami), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Version(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(version), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Os(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(os), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             OsFamily(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(os_family), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Arch(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(arch), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Pwd(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(pwd), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             UserHome(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(user_home), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            GetEnv(dst,name, default_value) => {
+            GetEnv(dst, name, default_value) => {
                 let name = self.get_val(name.reflect())?;
                 let default_value = self.get_val(default_value.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(getenv), &mut [name, default_value])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             LocalIp(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(local_ip), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Systime(dst) => {
                 let rt = self.runtime_val();
                 let resv = self.call_intrinsic(intrinsic!(systime), &mut [rt])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Encode(dst,format, text) => {
+            Encode(dst, format, text) => {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(encode), &mut [format, text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Decode(dst,format, text) => {
+            Decode(dst, format, text) => {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(decode), &mut [format, text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Escape(dst,format, text) => {
+            Escape(dst, format, text) => {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(escape), &mut [format, text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Digest(dst,algorithm, text) => {
+            Digest(dst, algorithm, text) => {
                 let algorithm = self.get_val(algorithm.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(digest), &mut [algorithm, text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Hmac(dst,algorithm,key, text) => {
+            Hmac(dst, algorithm, key, text) => {
                 let algorithm = self.get_val(algorithm.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(hmac), &mut [algorithm, key, text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Jwt(dst,algorithm,key, payload) => {
+            Jwt(dst, algorithm, key, payload) => {
                 let algorithm = self.get_val(algorithm.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let payload = self.get_val(payload.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(jwt), &mut [algorithm, key, payload])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Dejwt(dst,key, token) => {
+            Dejwt(dst, key, token) => {
                 let key = self.get_val(key.reflect())?;
                 let token = self.get_val(token.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(dejwt), &mut [key, token])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Encrypt(dst,mode,plain_text,key) => {
+            Encrypt(dst, mode, plain_text, key) => {
                 let mode = self.get_val(mode.reflect())?;
                 let plain_text = self.get_val(plain_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(encrypt), &mut [mode,plain_text, key])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(encrypt), &mut [mode, plain_text, key])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            Decrypt(dst,mode,encrypted_text,key) => {
+            Decrypt(dst, mode, encrypted_text, key) => {
                 let mode = self.get_val(mode.reflect())?;
                 let encrypted_text = self.get_val(encrypted_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(decrypt), &mut [mode,encrypted_text, key])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(decrypt), &mut [mode, encrypted_text, key])?;
+                self.bind_val(dst.reflect(), resv)
             }
             Strftime(dst, format, timestamp, flags) => {
                 let format = self.get_val(format.reflect())?;
@@ -1162,16 +1165,17 @@ pub(crate) trait CodeGenerator: Backend {
                 let rt = self.runtime_val();
                 let resv =
                     self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp, flags])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Mktime(dst, date_time_text, utc, timezone) => {
                 let date_time_text = self.get_val(date_time_text.reflect())?;
                 let utc = self.get_val(utc.reflect())?;
                 let timezone = self.get_val(timezone.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, utc, timezone])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            Duration(dst,expr) => self.unop(intrinsic!(duration), dst, expr),
+                let resv =
+                    self.call_intrinsic(intrinsic!(mktime), &mut [date_time_text, utc, timezone])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            Duration(dst, expr) => self.unop(intrinsic!(duration), dst, expr),
             DateAdd(dst, timestamp, n, unit) => {
                 let timestamp = self.get_val(timestamp.reflect())?;
                 let n = self.get_val(n.reflect())?;
@@ -1183,7 +1187,8 @@ pub(crate) trait CodeGenerator: Backend {
                 let date_time_text = self.get_val(date_time_text.reflect())?;
                 let n = self.get_val(n.reflect())?;
                 let unit = self.get_val(unit.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(date_add_str), &mut [date_time_text, n, unit])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(date_add_str), &mut [date_time_text, n, unit])?;
                 self.bind_val(dst.reflect(), resv)
             }
             DateDiff(dst, unit, start, end) => {
@@ -1200,46 +1205,49 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             ToIso8601(dst, timestamp) => self.unop(intrinsic!(to_iso8601), dst, timestamp),
-            MkBool(dst,text) => self.unop(intrinsic!(mkbool), dst, text),
-            MkPassword(dst,len) => self.unop(intrinsic!(mkpass), dst, len),
-            Fend(dst,src) => self.unop(intrinsic!(fend), dst, src),
-            MapStrIntEval(dst,formula, context) => {
+            MkBool(dst, text) => self.unop(intrinsic!(mkbool), dst, text),
+            MkPassword(dst, len) => self.unop(intrinsic!(mkpass), dst, len),
+            Fend(dst, src) => self.unop(intrinsic!(fend), dst, src),
+            MapStrIntEval(dst, formula, context) => {
                 let formula = self.get_val(formula.reflect())?;
                 let context = self.get_val(context.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(eval_int_context), &mut [formula, context])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(eval_int_context), &mut [formula, context])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MapStrFloatEval(dst,formula, context) => {
+            MapStrFloatEval(dst, formula, context) => {
                 let formula = self.get_val(formula.reflect())?;
                 let context = self.get_val(context.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(eval_float_context), &mut [formula, context])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(eval_float_context), &mut [formula, context])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MapStrStrEval(dst,formula, context) => {
+            MapStrStrEval(dst, formula, context) => {
                 let formula = self.get_val(formula.reflect())?;
                 let context = self.get_val(context.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(eval_context), &mut [formula, context])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(eval_context), &mut [formula, context])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Eval(dst,formula) => {
+            Eval(dst, formula) => {
                 let formula = self.get_val(formula.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(eval), &mut [formula])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Url(dst,src) => self.unop(intrinsic!(url), dst, src),
-            Record(dst,src) => self.unop(intrinsic!(record), dst, src),
-            Message(dst,src) => self.unop(intrinsic!(message), dst, src),
-            Pairs(dst,src, pair_sep,kv_sep) => {
+            Url(dst, src) => self.unop(intrinsic!(url), dst, src),
+            Record(dst, src) => self.unop(intrinsic!(record), dst, src),
+            Message(dst, src) => self.unop(intrinsic!(message), dst, src),
+            Pairs(dst, src, pair_sep, kv_sep) => {
                 let src = self.get_val(src.reflect())?;
                 let pair_sep = self.get_val(pair_sep.reflect())?;
                 let kv_sep = self.get_val(kv_sep.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(pairs), &mut [src, pair_sep, kv_sep])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            SemVer(dst,src) => self.unop(intrinsic!(semver), dst, src),
-            Path(dst,src) => self.unop(intrinsic!(path), dst, src),
-            DataUrl(dst,src) => self.unop(intrinsic!(data_url), dst, src),
-            DateTime(dst,timestamp) => self.unop(intrinsic!(datetime), dst, timestamp),
+            SemVer(dst, src) => self.unop(intrinsic!(semver), dst, src),
+            Path(dst, src) => self.unop(intrinsic!(path), dst, src),
+            DataUrl(dst, src) => self.unop(intrinsic!(data_url), dst, src),
+            DateTime(dst, timestamp) => self.unop(intrinsic!(datetime), dst, timestamp),
             TypeOfArray(dst) => {
                 let resv = self.call_intrinsic(intrinsic!(type_of_array), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
@@ -1273,7 +1281,7 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(is_int_false), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            IsStrInt(dst,text) => {
+            IsStrInt(dst, text) => {
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(is_str_int), &mut [text])?;
                 self.bind_val(dst.reflect(), resv)
@@ -1286,241 +1294,251 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(is_num_false), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            IsStrNum(dst,text) => {
+            IsStrNum(dst, text) => {
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(is_str_num), &mut [text])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            IsFormat(dst,format, text) => {
+            IsFormat(dst, format, text) => {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(is_format), &mut [format, text])?;
                 self.bind_val(dst.reflect(), resv)
             }
             IsNull(dst, text) => self.unop(intrinsic!(is_null), dst, text),
-            Shlex(dst,text) => self.unop(intrinsic!(shlex), dst, text),
-            Tuple(dst,text) => self.unop(intrinsic!(tuple), dst, text),
-            Flags(dst,text) => self.unop(intrinsic!(flags), dst, text),
-            ParseArray(dst,text) => self.unop(intrinsic!(parse_array), dst, text),
-            Hex2Rgb(dst,text) => self.unop(intrinsic!(hex2rgb), dst, text),
-            Rgb2Hex(dst,red, green, blue) => {
+            Shlex(dst, text) => self.unop(intrinsic!(shlex), dst, text),
+            Tuple(dst, text) => self.unop(intrinsic!(tuple), dst, text),
+            Flags(dst, text) => self.unop(intrinsic!(flags), dst, text),
+            ParseArray(dst, text) => self.unop(intrinsic!(parse_array), dst, text),
+            Hex2Rgb(dst, text) => self.unop(intrinsic!(hex2rgb), dst, text),
+            Rgb2Hex(dst, red, green, blue) => {
                 let red = self.get_val(red.reflect())?;
                 let green = self.get_val(green.reflect())?;
                 let blue = self.get_val(blue.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(rgb2hex), &mut [red, green, blue])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Variant(dst,text) => self.unop(intrinsic!(variant), dst, text),
-            Func(dst,text) => self.unop(intrinsic!(func), dst, text),
-            SqliteQuery(dst,db_path,sql,params) => {
+            Variant(dst, text) => self.unop(intrinsic!(variant), dst, text),
+            Func(dst, text) => self.unop(intrinsic!(func), dst, text),
+            SqliteQuery(dst, db_path, sql, params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(sqlite_query), &mut [db_path, sql, params])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(sqlite_query), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            SqliteExecute(dst,db_path,sql,params) => {
+            SqliteExecute(dst, db_path, sql, params) => {
                 let db_path = self.get_val(db_path.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(sqlite_execute), &mut [db_path, sql, params])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(sqlite_execute), &mut [db_path, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MysqlQuery(dst,db_url,sql,params) => {
+            MysqlQuery(dst, db_url, sql, params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mysql_query), &mut [db_url, sql, params])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(mysql_query), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            MysqlExecute(dst,db_url,sql,params) => {
+            MysqlExecute(dst, db_url, sql, params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(mysql_execute), &mut [db_url, sql, params])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(mysql_execute), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            PgQuery(dst,db_url,sql,params) => {
+            PgQuery(dst, db_url, sql, params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(pg_query), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            PgExecute(dst,db_url,sql,params) => {
+            PgExecute(dst, db_url, sql, params) => {
                 let db_url = self.get_val(db_url.reflect())?;
                 let sql = self.get_val(sql.reflect())?;
                 let params = self.get_val(params.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(pg_execute), &mut [db_url, sql, params])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(pg_execute), &mut [db_url, sql, params])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            FromJson(dst,src) => self.unop(intrinsic!(from_json), dst, src),
-            JsonFlatten(dst,src) => self.unop(intrinsic!(json_flatten), dst, src),
-            MapIntIntToJson(dst,arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
-            MapIntFloatToJson(dst,arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),
-            MapIntStrToJson(dst,arr) => self.unop(intrinsic!(map_int_str_to_json), dst, arr),
-            MapStrIntToJson(dst,arr) => self.unop(intrinsic!(map_str_int_to_json), dst, arr),
-            MapStrFloatToJson(dst,arr) => self.unop(intrinsic!(map_str_float_to_json), dst, arr),
-            MapStrStrToJson(dst,arr) => self.unop(intrinsic!(map_str_str_to_json), dst, arr),
-            StrToJson(dst,text) => self.unop(intrinsic!(str_to_json), dst, text),
-            IntToJson(dst,num) => self.unop(intrinsic!(int_to_json), dst, num),
-            FloatToJson(dst,num) => self.unop(intrinsic!(float_to_json), dst, num),
+            FromJson(dst, src) => self.unop(intrinsic!(from_json), dst, src),
+            JsonFlatten(dst, src) => self.unop(intrinsic!(json_flatten), dst, src),
+            MapIntIntToJson(dst, arr) => self.unop(intrinsic!(map_int_int_to_json), dst, arr),
+            MapIntFloatToJson(dst, arr) => self.unop(intrinsic!(map_int_float_to_json), dst, arr),
+            MapIntStrToJson(dst, arr) => self.unop(intrinsic!(map_int_str_to_json), dst, arr),
+            MapStrIntToJson(dst, arr) => self.unop(intrinsic!(map_str_int_to_json), dst, arr),
+            MapStrFloatToJson(dst, arr) => self.unop(intrinsic!(map_str_float_to_json), dst, arr),
+            MapStrStrToJson(dst, arr) => self.unop(intrinsic!(map_str_str_to_json), dst, arr),
+            StrToJson(dst, text) => self.unop(intrinsic!(str_to_json), dst, text),
+            IntToJson(dst, num) => self.unop(intrinsic!(int_to_json), dst, num),
+            FloatToJson(dst, num) => self.unop(intrinsic!(float_to_json), dst, num),
             NullToJson(dst) => {
                 let resv = self.call_intrinsic(intrinsic!(null_to_json), &mut [])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             JsonValue(dst, json_text, json_path) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let json_path = self.get_val(json_path.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(json_value), &mut [json_text, json_path])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(json_value), &mut [json_text, json_path])?;
+                self.bind_val(dst.reflect(), resv)
             }
             JsonHas(dst, json_text, key) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(json_has), &mut [json_text, key])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             JsonGet(dst, json_text, key) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(json_get), &mut [json_text, key])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             JsonSet(dst, json_text, key, value) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let value = self.get_val(value.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(json_set), &mut [json_text, key, value])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(json_set), &mut [json_text, key, value])?;
+                self.bind_val(dst.reflect(), resv)
             }
             JsonDel(dst, json_text, key) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(json_del), &mut [json_text, key])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             JsonQuery(dst, json_text, json_path) => {
                 let json_text = self.get_val(json_text.reflect())?;
                 let json_path = self.get_val(json_path.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(json_query), &mut [json_text, json_path])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(json_query), &mut [json_text, json_path])?;
+                self.bind_val(dst.reflect(), resv)
             }
             HtmlValue(dst, html_text, selector) => {
                 let html_text = self.get_val(html_text.reflect())?;
                 let selector = self.get_val(selector.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(html_value), &mut [html_text, selector])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(html_value), &mut [html_text, selector])?;
+                self.bind_val(dst.reflect(), resv)
             }
             HtmlQuery(dst, html_text, selector) => {
                 let html_text = self.get_val(html_text.reflect())?;
                 let selector = self.get_val(selector.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(html_query), &mut [html_text, selector])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(html_query), &mut [html_text, selector])?;
+                self.bind_val(dst.reflect(), resv)
             }
             XmlValue(dst, xml_text, xpath) => {
                 let xml_text = self.get_val(xml_text.reflect())?;
                 let xpath = self.get_val(xpath.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(xml_value), &mut [xml_text, xpath])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             XmlQuery(dst, xml_text, xpath) => {
                 let xml_text = self.get_val(xml_text.reflect())?;
                 let xpath = self.get_val(xpath.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(xml_query), &mut [xml_text, xpath])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             DumpMapIntInt(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_int), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpMapIntFloat(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_float), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpMapIntStr(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_int_str), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpMapStrInt(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_str_int), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpMapStrFloat(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_str_float), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpMapStrStr(arr) => {
                 let arr = self.get_val(arr.reflect())?;
                 self.call_void(external!(dump_map_str_str), &mut [arr])?;
                 Ok(())
-            },
+            }
             DumpStr(text) => {
                 let text = self.get_val(text.reflect())?;
                 self.call_void(external!(dump_str), &mut [text])?;
                 Ok(())
-            },
+            }
             DumpInt(num) => {
                 let num = self.get_val(num.reflect())?;
                 self.call_void(external!(dump_int), &mut [num])?;
                 Ok(())
-            },
+            }
             DumpFloat(num) => {
                 let num = self.get_val(num.reflect())?;
                 self.call_void(external!(dump_float), &mut [num])?;
                 Ok(())
-            },
+            }
             DumpNull() => {
                 self.call_void(external!(dump_null), &mut [])?;
                 Ok(())
             }
-            MapIntIntJoin(dst, arr,sep) => {
+            MapIntIntJoin(dst, arr, sep) => {
                 let arr = self.get_val(arr.reflect())?;
                 let sep = self.get_val(sep.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(map_int_int_join), &mut [arr, sep])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            MapIntFloatJoin(dst, arr,sep) => {
+                self.bind_val(dst.reflect(), resv)
+            }
+            MapIntFloatJoin(dst, arr, sep) => {
                 let arr = self.get_val(arr.reflect())?;
                 let sep = self.get_val(sep.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(map_int_float_join), &mut [arr, sep])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            MapIntStrJoin(dst, arr,sep) => {
+                self.bind_val(dst.reflect(), resv)
+            }
+            MapIntStrJoin(dst, arr, sep) => {
                 let arr = self.get_val(arr.reflect())?;
                 let sep = self.get_val(sep.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(map_int_str_join), &mut [arr, sep])?;
-                self.bind_val(dst.reflect(),resv)
-            },
-            MapIntIntMax(dst,arr) => self.unop(intrinsic!(map_int_int_max), dst, arr),
-            MapIntFloatMax(dst,arr) => self.unop(intrinsic!(map_int_float_max), dst, arr),
-            MapIntIntMin(dst,arr) => self.unop(intrinsic!(map_int_int_min), dst, arr),
-            MapIntFloatMin(dst,arr) => self.unop(intrinsic!(map_int_float_min), dst, arr),
-            MapIntIntSum(dst,arr) => self.unop(intrinsic!(map_int_int_sum), dst, arr),
-            MapIntFloatSum(dst,arr) => self.unop(intrinsic!(map_int_float_sum), dst, arr),
-            MapIntFloatMean(dst,arr) => self.unop(intrinsic!(map_int_float_mean), dst, arr),
-            FromCsv(dst,src) => self.unop(intrinsic!(from_csv), dst, src),
-            MapIntIntToCsv(dst,arr) => self.unop(intrinsic!(map_int_int_to_csv), dst, arr),
-            MapIntFloatToCsv(dst,arr) => self.unop(intrinsic!(map_int_float_to_csv), dst, arr),
-            MapIntStrToCsv(dst,arr) => self.unop(intrinsic!(map_int_str_to_csv), dst, arr),
-            HttpGet(dst, url,headers) => {
+                self.bind_val(dst.reflect(), resv)
+            }
+            MapIntIntMax(dst, arr) => self.unop(intrinsic!(map_int_int_max), dst, arr),
+            MapIntFloatMax(dst, arr) => self.unop(intrinsic!(map_int_float_max), dst, arr),
+            MapIntIntMin(dst, arr) => self.unop(intrinsic!(map_int_int_min), dst, arr),
+            MapIntFloatMin(dst, arr) => self.unop(intrinsic!(map_int_float_min), dst, arr),
+            MapIntIntSum(dst, arr) => self.unop(intrinsic!(map_int_int_sum), dst, arr),
+            MapIntFloatSum(dst, arr) => self.unop(intrinsic!(map_int_float_sum), dst, arr),
+            MapIntFloatMean(dst, arr) => self.unop(intrinsic!(map_int_float_mean), dst, arr),
+            FromCsv(dst, src) => self.unop(intrinsic!(from_csv), dst, src),
+            MapIntIntToCsv(dst, arr) => self.unop(intrinsic!(map_int_int_to_csv), dst, arr),
+            MapIntFloatToCsv(dst, arr) => self.unop(intrinsic!(map_int_float_to_csv), dst, arr),
+            MapIntStrToCsv(dst, arr) => self.unop(intrinsic!(map_int_str_to_csv), dst, arr),
+            HttpGet(dst, url, headers) => {
                 let url = self.get_val(url.reflect())?;
                 let headers = self.get_val(headers.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(http_get), &mut [url, headers])?;
-                self.bind_val(dst.reflect(),resv)
-            },
+                self.bind_val(dst.reflect(), resv)
+            }
             HttpPost(dst, url, body, headers) => {
                 let url = self.get_val(url.reflect())?;
                 let headers = self.get_val(headers.reflect())?;
                 let body = self.get_val(body.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(http_post), &mut [url, headers, body])?;
-                self.bind_val(dst.reflect(),resv)
-            },
+                self.bind_val(dst.reflect(), resv)
+            }
             SendMail(from, to, subject, body, url) => {
                 let from = self.get_val(from.reflect())?;
                 let to = self.get_val(to.reflect())?;
@@ -1530,86 +1548,87 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(send_mail), &mut [from, to, subject, body, url])?;
                 Ok(())
             }
-            S3Get(dst,bucket, object_name) => {
+            S3Get(dst, bucket, object_name) => {
                 let bucket = self.get_val(bucket.reflect())?;
                 let object_name = self.get_val(object_name.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(s3_get), &mut [bucket, object_name])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            S3Put(dst,bucket, object_name, body) => {
+            S3Put(dst, bucket, object_name, body) => {
                 let bucket = self.get_val(bucket.reflect())?;
                 let object_name = self.get_val(object_name.reflect())?;
                 let body = self.get_val(body.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(s3_put), &mut [bucket, object_name, body])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(s3_put), &mut [bucket, object_name, body])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            Trim(dst,src, pat) => {
+            Trim(dst, src, pat) => {
                 let src = self.get_val(src.reflect())?;
                 let pat = self.get_val(pat.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(trim), &mut [src, pat])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Strtonum(dst,text) => self.unop(intrinsic!(strtonum), dst, text),
+            Strtonum(dst, text) => self.unop(intrinsic!(strtonum), dst, text),
             AwkStrtonum(dst, text, strnum) => {
                 let textv = self.get_val(text.reflect())?;
                 let strnumv = self.const_int(*strnum as i64);
                 let res = self.call_intrinsic(intrinsic!(awk_strtonum), &mut [textv, strnumv])?;
                 self.bind_val(dst.reflect(), res)
             }
-            FormatBytes(dst,size) => self.unop(intrinsic!(format_bytes), dst, size),
-            ToBytes(dst,text) => self.unop(intrinsic!(to_bytes), dst, text),
-            StartsWith(dst,text, prefix) => {
+            FormatBytes(dst, size) => self.unop(intrinsic!(format_bytes), dst, size),
+            ToBytes(dst, text) => self.unop(intrinsic!(to_bytes), dst, text),
+            StartsWith(dst, text, prefix) => {
                 let text = self.get_val(text.reflect())?;
                 let prefix = self.get_val(prefix.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(starts_with), &mut [text, prefix])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            EndsWith(dst,text, suffix) => {
+            EndsWith(dst, text, suffix) => {
                 let text = self.get_val(text.reflect())?;
                 let suffix = self.get_val(suffix.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(ends_with), &mut [text, suffix])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            TextContains(dst,text, child) => {
+            TextContains(dst, text, child) => {
                 let text = self.get_val(text.reflect())?;
                 let child = self.get_val(child.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(text_contains), &mut [text, child])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Capitalize(dst,text) => self.unop(intrinsic!(capitalize), dst, text),
-            UnCapitalize(dst,text) => self.unop(intrinsic!(uncapitalize), dst, text),
-            CamelCase(dst,text) => self.unop(intrinsic!(camel_case), dst, text),
-            KebabCase(dst,text) => self.unop(intrinsic!(kebab_case), dst, text),
-            SnakeCase(dst,text) => self.unop(intrinsic!(snake_case), dst, text),
-            TitleCase(dst,text) => self.unop(intrinsic!(title_case), dst, text),
-            PascalCase(dst,text) => self.unop(intrinsic!(pascal_case), dst, text),
-            Figlet(dst,text) => self.unop(intrinsic!(figlet), dst, text),
-            PadLeft(dst,text, len, pad) => {
+            Capitalize(dst, text) => self.unop(intrinsic!(capitalize), dst, text),
+            UnCapitalize(dst, text) => self.unop(intrinsic!(uncapitalize), dst, text),
+            CamelCase(dst, text) => self.unop(intrinsic!(camel_case), dst, text),
+            KebabCase(dst, text) => self.unop(intrinsic!(kebab_case), dst, text),
+            SnakeCase(dst, text) => self.unop(intrinsic!(snake_case), dst, text),
+            TitleCase(dst, text) => self.unop(intrinsic!(title_case), dst, text),
+            PascalCase(dst, text) => self.unop(intrinsic!(pascal_case), dst, text),
+            Figlet(dst, text) => self.unop(intrinsic!(figlet), dst, text),
+            PadLeft(dst, text, len, pad) => {
                 let text = self.get_val(text.reflect())?;
                 let len = self.get_val(len.reflect())?;
                 let pad = self.get_val(pad.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(pad_left), &mut [text, len, pad])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            PadRight(dst,text, len, pad) => {
+            PadRight(dst, text, len, pad) => {
                 let text = self.get_val(text.reflect())?;
                 let len = self.get_val(len.reflect())?;
                 let pad = self.get_val(pad.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(pad_right), &mut [text, len, pad])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            PadBoth(dst,text, len, pad) => {
+            PadBoth(dst, text, len, pad) => {
                 let text = self.get_val(text.reflect())?;
                 let len = self.get_val(len.reflect())?;
                 let pad = self.get_val(pad.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(pad_both), &mut [text, len, pad])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            StrCmp(dst,text1, text2) => {
+            StrCmp(dst, text1, text2) => {
                 let text1 = self.get_val(text1.reflect())?;
                 let text2 = self.get_val(text2.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(strcmp), &mut [text1, text2])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Similar(dst, text1, text2) => {
                 let text1 = self.get_val(text1.reflect())?;
@@ -1617,87 +1636,91 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(similar), &mut [text1, text2])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Mask(dst,text) => self.unop(intrinsic!(mask), dst, text),
-            Repeat(dst,text,n) => {
+            Mask(dst, text) => self.unop(intrinsic!(mask), dst, text),
+            Repeat(dst, text, n) => {
                 let text = self.get_val(text.reflect())?;
                 let n = self.get_val(n.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(repeat), &mut [text, n])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Wrap(dst,text,width) => {
+            Wrap(dst, text, width) => {
                 let text = self.get_val(text.reflect())?;
                 let width = self.get_val(width.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(wrap), &mut [text, width])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            DefaultIfEmpty(dst,text,default_value) => {
+            DefaultIfEmpty(dst, text, default_value) => {
                 let text = self.get_val(text.reflect())?;
                 let default_value = self.get_val(default_value.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(default_if_empty), &mut [text, default_value])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(default_if_empty), &mut [text, default_value])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            AppendIfMissing(dst,text,suffix) => {
+            AppendIfMissing(dst, text, suffix) => {
                 let text = self.get_val(text.reflect())?;
                 let suffix = self.get_val(suffix.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(append_if_missing), &mut [text, suffix])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(append_if_missing), &mut [text, suffix])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            PrependIfMissing(dst,text,prefix) => {
+            PrependIfMissing(dst, text, prefix) => {
                 let text = self.get_val(text.reflect())?;
                 let prefix = self.get_val(prefix.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(prepend_if_missing), &mut [text, prefix])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(prepend_if_missing), &mut [text, prefix])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            RemoveIfBegin(dst,text,prefix) => {
+            RemoveIfBegin(dst, text, prefix) => {
                 let text = self.get_val(text.reflect())?;
                 let prefix = self.get_val(prefix.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(remove_if_begin), &mut [text, prefix])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            RemoveIfEnd(dst,text,suffix) => {
+            RemoveIfEnd(dst, text, suffix) => {
                 let text = self.get_val(text.reflect())?;
                 let suffix = self.get_val(suffix.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(remove_if_end), &mut [text, suffix])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Quote(dst,text) => {
+            Quote(dst, text) => {
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(quote), &mut [text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            DoubleQuote(dst,text) => {
+            DoubleQuote(dst, text) => {
                 let text = self.get_val(text.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(double_quote), &mut [text])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Words(dst,text) => self.unop(intrinsic!(words), dst, text),
-            Lines(dst,text) => self.unop(intrinsic!(lines), dst, text),
-            Truncate(dst,src, len, place_holder) => {
+            Words(dst, text) => self.unop(intrinsic!(words), dst, text),
+            Lines(dst, text) => self.unop(intrinsic!(lines), dst, text),
+            Truncate(dst, src, len, place_holder) => {
                 let src = self.get_val(src.reflect())?;
                 let len = self.get_val(len.reflect())?;
                 let place_holder = self.get_val(place_holder.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
-                self.bind_val(dst.reflect(),resv)
+                let resv =
+                    self.call_intrinsic(intrinsic!(truncate), &mut [src, len, place_holder])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            Parse(dst,text, template) => {
+            Parse(dst, text, template) => {
                 let text = self.get_val(text.reflect())?;
                 let template = self.get_val(template.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(parse), &mut [text, template])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            RegexParse(dst,text, template) => {
+            RegexParse(dst, text, template) => {
                 let text = self.get_val(text.reflect())?;
                 let template = self.get_val(template.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(rparse), &mut [text, template])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            KvGet(dst,namespace, key) => {
+            KvGet(dst, namespace, key) => {
                 let namespace = self.get_val(namespace.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(kv_get), &mut [namespace, key])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            KvPut(namespace, key,value) => {
+            KvPut(namespace, key, value) => {
                 let namespace = self.get_val(namespace.reflect())?;
                 let key = self.get_val(key.reflect())?;
                 let value = self.get_val(value.reflect())?;
@@ -1715,10 +1738,10 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(kv_clear), &mut [namespace])?;
                 Ok(())
             }
-            ReadAll(dst,path) => {
+            ReadAll(dst, path) => {
                 let path = self.get_val(path.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(read_all), &mut [path])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             WriteAll(path, content) => {
                 let path = self.get_val(path.reflect())?;
@@ -1726,10 +1749,10 @@ pub(crate) trait CodeGenerator: Backend {
                 self.call_void(external!(write_all), &mut [path, content])?;
                 Ok(())
             }
-            ReadConfig(dst,path) => {
+            ReadConfig(dst, path) => {
                 let path = self.get_val(path.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(read_config), &mut [path])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             LogDebug(message) => {
                 let message = self.get_val(message.reflect())?;
@@ -1771,73 +1794,77 @@ pub(crate) trait CodeGenerator: Backend {
                 let item = self.get_val(item.reflect())?;
                 let group = self.get_val(group.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(bf_contains), &mut [item, group])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             BloomFilterContainsWithInsert(dst, item, group) => {
                 let item = self.get_val(item.reflect())?;
                 let group = self.get_val(group.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(bf_icontains), &mut [item, group])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             Jev(dst, record, instructions, threshold) => {
                 let record = self.get_val(record.reflect())?;
                 let instructions = self.get_val(instructions.reflect())?;
                 let threshold = self.get_val(threshold.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(jev), &mut [record, instructions, threshold])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(jev), &mut [record, instructions, threshold])?;
                 self.bind_val(dst.reflect(), resv)
             }
             JevProb(dst, record, instructions) => {
                 let record = self.get_val(record.reflect())?;
                 let instructions = self.get_val(instructions.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(jev_prob), &mut [record, instructions])?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(jev_prob), &mut [record, instructions])?;
                 self.bind_val(dst.reflect(), resv)
             }
             JevChoice(dst, record, instructions, options) => {
                 let record = self.get_val(record.reflect())?;
                 let instructions = self.get_val(instructions.reflect())?;
                 let options = self.get_val(options.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(jev_choice), &mut [record, instructions, options])?;
+                let resv = self
+                    .call_intrinsic(intrinsic!(jev_choice), &mut [record, instructions, options])?;
                 self.bind_val(dst.reflect(), resv)
             }
             JevScore(dst, record, instructions, levels) => {
                 let record = self.get_val(record.reflect())?;
                 let instructions = self.get_val(instructions.reflect())?;
                 let levels = self.get_val(levels.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(jev_score), &mut [record, instructions, levels])?;
+                let resv = self
+                    .call_intrinsic(intrinsic!(jev_score), &mut [record, instructions, levels])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Fake(dst, data, locale) => {
                 let data = self.get_val(data.reflect())?;
                 let locale = self.get_val(locale.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(fake), &mut [data, locale])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Min(dst,first, second,third) => {
-               let first = self.get_val(first.reflect())?;
-               let second = self.get_val(second.reflect())?;
-               let third = self.get_val(third.reflect())?;
-               let resv = self.call_intrinsic(intrinsic!(min), &mut [first, second,third])?;
-               self.bind_val(dst.reflect(),resv)
+            Min(dst, first, second, third) => {
+                let first = self.get_val(first.reflect())?;
+                let second = self.get_val(second.reflect())?;
+                let third = self.get_val(third.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(min), &mut [first, second, third])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            Max(dst,first, second,third) => {
-               let first = self.get_val(first.reflect())?;
-               let second = self.get_val(second.reflect())?;
-               let third = self.get_val(third.reflect())?;
-               let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second, third])?;
-               self.bind_val(dst.reflect(),resv)
+            Max(dst, first, second, third) => {
+                let first = self.get_val(first.reflect())?;
+                let second = self.get_val(second.reflect())?;
+                let third = self.get_val(third.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second, third])?;
+                self.bind_val(dst.reflect(), resv)
             }
-            Seq(dst,start, step,end) => {
+            Seq(dst, start, step, end) => {
                 let start = self.get_val(start.reflect())?;
                 let step = self.get_val(step.reflect())?;
                 let end = self.get_val(end.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(seq), &mut [start, step, end])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
-            Uniq(dst,src, param) => {
+            Uniq(dst, src, param) => {
                 let src = self.get_val(src.reflect())?;
                 let param = self.get_val(param.reflect())?;
                 let resv = self.call_intrinsic(intrinsic!(uniq), &mut [src, param])?;
-                self.bind_val(dst.reflect(),resv)
+                self.bind_val(dst.reflect(), resv)
             }
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();
@@ -1873,7 +1900,17 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(split_str_const), &mut [tsv, arrv, patv])?;
                 self.bind_val(flds.reflect(), fldsv)
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, patsplit, re: None } => {
+            SplitSeps {
+                res,
+                to_split,
+                arr_ty,
+                arr,
+                pat,
+                seps_ty,
+                seps,
+                patsplit,
+                re: None,
+            } => {
                 use compile::Ty::{MapIntStr, MapStrStr};
                 let func = match (arr_ty, seps_ty, patsplit) {
                     (MapIntStr, MapIntStr, false) => intrinsic!(split_seps_int_int),
@@ -1894,7 +1931,17 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(func, &mut [rt, tsv, arrv, patv, sepsv])?;
                 self.bind_val(res.reflect(), resv)
             }
-            SplitSeps { res, to_split, arr_ty, arr, seps_ty, seps, patsplit, re: Some(re), .. } => {
+            SplitSeps {
+                res,
+                to_split,
+                arr_ty,
+                arr,
+                seps_ty,
+                seps,
+                patsplit,
+                re: Some(re),
+                ..
+            } => {
                 use compile::Ty::{MapIntStr, MapStrStr};
                 let func = match (arr_ty, seps_ty, patsplit) {
                     (MapIntStr, MapIntStr, false) => intrinsic!(split_seps_const_int_int),
@@ -2063,22 +2110,51 @@ pub(crate) trait CodeGenerator: Backend {
             ),
             Delete { map_ty, map, key } => self.delete_map((*map, *map_ty), (*key, map_ty.key()?)),
             Clear { map_ty, map } => self.clear_map((*map, *map_ty)),
-            Asort { res, src_ty, src, dst_ty, dst, strnum, how } => {
-                self.asort((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect(), *strnum)
-            }
-            Asorti { res, src_ty, src, dst_ty, dst, how } => {
-                self.asorti((*src, *src_ty), (*dst, *dst_ty), how.reflect(), res.reflect())
-            }
+            Asort {
+                res,
+                src_ty,
+                src,
+                dst_ty,
+                dst,
+                strnum,
+                how,
+            } => self.asort(
+                (*src, *src_ty),
+                (*dst, *dst_ty),
+                how.reflect(),
+                res.reflect(),
+                *strnum,
+            ),
+            Asorti {
+                res,
+                src_ty,
+                src,
+                dst_ty,
+                dst,
+                how,
+            } => self.asorti(
+                (*src, *src_ty),
+                (*dst, *dst_ty),
+                how.reflect(),
+                res.reflect(),
+            ),
             Len { map_ty, map, dst } => self.len_map((*map, *map_ty), (*dst, compile::Ty::Int)),
-            ArrayStat { res, map_ty, map, kind, q } => {
-                self.array_stat((*map, *map_ty), kind.reflect(), q.reflect(), res.reflect())
-            }
+            ArrayStat {
+                res,
+                map_ty,
+                map,
+                kind,
+                q,
+            } => self.array_stat((*map, *map_ty), kind.reflect(), q.reflect(), res.reflect()),
             ArrayCountDistinct { res, map_ty, map } => {
                 self.array_count_distinct((*map, *map_ty), res.reflect())
             }
-            ArrayTop { res, map_ty, map, k } => {
-                self.array_top((*map, *map_ty), k.reflect(), res.reflect())
-            }
+            ArrayTop {
+                res,
+                map_ty,
+                map,
+                k,
+            } => self.array_top((*map, *map_ty), k.reflect(), res.reflect()),
             Store {
                 map_ty,
                 map,

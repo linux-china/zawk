@@ -3,9 +3,11 @@ use lalrpop_util::lalrpop_mod;
 lalrpop_mod!(pub syntax);
 
 use crate::arena::Arena;
-use crate::ast::{expr_key, uninit_var, Binop, Expr, Pattern, Prog, Stmt};
+use crate::ast::{Binop, Expr, Pattern, Prog, Stmt, expr_key, uninit_var};
 use crate::builtins::{Function, Variable};
-use crate::common::{fatal_message, CompileError, Either, FileSpec, Stage, FATAL_PREFIX, SYNTAX_PREFIX};
+use crate::common::{
+    CompileError, Either, FATAL_PREFIX, FileSpec, SYNTAX_PREFIX, Stage, fatal_message,
+};
 use crate::lexer::{self, Loc, Tok};
 use lalrpop_util::ParseError;
 
@@ -42,7 +44,9 @@ pub(crate) fn check_switch_cases<'a>(
                 continue;
             }
             Some(Expr::ILit(n)) => n.to_string().into_bytes(),
-            Some(Expr::FLit(f)) => crate::runtime::numfmt::with_number_bytes(*f, false, |b| b.to_vec()),
+            Some(Expr::FLit(f)) => {
+                crate::runtime::numfmt::with_number_bytes(*f, false, |b| b.to_vec())
+            }
             Some(Expr::StrLit(s)) => s.to_vec(),
             Some(_) => continue,
         };
@@ -89,10 +93,16 @@ pub(crate) fn match_bind<'a>(
     prog: &mut Prog<'a, 'a, &'a str>,
 ) -> ParseResult<'a, MatchBind<'a>> {
     if kw != "as" {
-        return user_error(loc, format!("expected `as` after the regex of a match arm, got `{}'", kw));
+        return user_error(
+            loc,
+            format!("expected `as` after the regex of a match arm, got `{}'", kw),
+        );
     }
     if Variable::try_from(name).is_ok() || name == "length" || name == "SUBSEP" {
-        return user_error(loc, format!("cannot bind the special variable `{}' in a match arm", name));
+        return user_error(
+            loc,
+            format!("cannot bind the special variable `{}' in a match arm", name),
+        );
     }
     prog.locals.count += 1;
     let new: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
@@ -126,7 +136,10 @@ pub(crate) fn match_default<'a>(
     if ident != "_" {
         return user_error(
             loc,
-            format!("a match pattern is a number, a string, a regex or `_', got `{}'", ident),
+            format!(
+                "a match pattern is a number, a string, a regex or `_', got `{}'",
+                ident
+            ),
         );
     }
     Ok((loc, MatchPat::Default, value))
@@ -151,7 +164,10 @@ pub(crate) fn match_expr<'a>(
         .skip(1)
         .find(|(_, p, _)| matches!(p, MatchPat::Default))
     {
-        return user_error(*loc, "`_' must be the last arm of a match expression".into());
+        return user_error(
+            *loc,
+            "`_' must be the last arm of a match expression".into(),
+        );
     }
     let num_tests: usize = arms
         .iter()
@@ -183,8 +199,13 @@ pub(crate) fn match_expr<'a>(
             MatchPat::Lits(lits) => {
                 let mut test: Option<&'a Expr<'a, 'a, &'a str>> = None;
                 for lit in lits.iter() {
-                    let op = if matches!(lit, Expr::PatLit(_)) { Binop::IsMatch } else { Binop::EQ };
-                    let t: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Binop(op, next_subj(), lit));
+                    let op = if matches!(lit, Expr::PatLit(_)) {
+                        Binop::IsMatch
+                    } else {
+                        Binop::EQ
+                    };
+                    let t: &'a Expr<'a, 'a, &'a str> =
+                        arena.alloc(Expr::Binop(op, next_subj(), lit));
                     test = Some(match test {
                         None => t,
                         Some(prev) => arena.alloc(Expr::Or(prev, t)),
@@ -206,7 +227,8 @@ pub(crate) fn match_expr<'a>(
     }
     // With only a `_` arm (or none), the subject is still evaluated.
     if let Some(subject) = subj {
-        let always: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Or(subject, arena.alloc(Expr::ILit(1))));
+        let always: &'a Expr<'a, 'a, &'a str> =
+            arena.alloc(Expr::Or(subject, arena.alloc(Expr::ILit(1))));
         return Ok(arena.alloc(Expr::ITE(always, res, arena.alloc(Expr::StrLit(b"")))));
     }
     for (test, value) in tests.into_iter().rev() {
@@ -244,17 +266,25 @@ pub(crate) fn foreach_kv<'a>(
     prog: &Prog<'a, 'a, &'a str>,
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
     if !matches!(arr, Expr::Var(_)) {
-        return user_error(loc, "for (k, v in arr) expects an array variable after `in`".into());
+        return user_error(
+            loc,
+            "for (k, v in arr) expects an array variable after `in`".into(),
+        );
     }
     if k == v {
-        return user_error(loc, format!("for (k, v in arr) needs two different variables, got `{k}` twice"));
+        return user_error(
+            loc,
+            format!("for (k, v in arr) needs two different variables, got `{k}` twice"),
+        );
     }
     check_loop_var(k, loc)?;
     check_loop_var(v, loc)?;
     let (k, v) = (local_name(k, prog), local_name(v, prog));
     let key: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(k));
     let val: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(v));
-    let set_v: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(arena.alloc(Expr::Assign(val, arena.alloc(Expr::Index(arr, key))))));
+    let set_v: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(
+        arena.alloc(Expr::Assign(val, arena.alloc(Expr::Index(arr, key)))),
+    ));
     let body = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[set_v, body])));
     Ok(arena.alloc(Stmt::ForEach(k, arr, body)))
 }
@@ -287,7 +317,10 @@ pub(crate) fn delete<'a>(
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
     check_array_operand(arr, "delete", loc, prog)?;
     let call = match key {
-        Some(key) => Expr::Call(Either::Right(Function::Delete), arena.alloc_slice(&[arr, key])),
+        Some(key) => Expr::Call(
+            Either::Right(Function::Delete),
+            arena.alloc_slice(&[arr, key]),
+        ),
         None => Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[arr])),
     };
     Ok(arena.alloc(Stmt::Expr(arena.alloc(call))))
@@ -303,9 +336,16 @@ fn check_array_operand<'a>(
 ) -> ParseResult<'a, ()> {
     use Expr::*;
     match arr {
-        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Unop(..) | Binop(..) | And(..) | Or(..) | Nullish(..) | Try(..) => {
+        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Unop(..) | Binop(..) | And(..) | Or(..)
+        | Nullish(..) | Try(..) => {
             let loc = prog.locs.get(&expr_key(arr)).copied().unwrap_or(loc);
-            user_error(loc, format!("attempt to use a scalar value as an array: `{}` expects an array", what))
+            user_error(
+                loc,
+                format!(
+                    "attempt to use a scalar value as an array: `{}` expects an array",
+                    what
+                ),
+            )
         }
         _ => Ok(()),
     }
@@ -324,13 +364,22 @@ pub(crate) fn for_range<'a>(
     prog: &Prog<'a, 'a, &'a str>,
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
     check_loop_var(i, loc)?;
-    Ok(arena.alloc(Stmt::ForRange(local_name(i, prog), start, end, inclusive, body)))
+    Ok(arena.alloc(Stmt::ForRange(
+        local_name(i, prog),
+        start,
+        end,
+        inclusive,
+        body,
+    )))
 }
 
 /// A for-in loop assigns scalars to its variables, so they cannot be builtin arrays such as ARGV.
 fn check_loop_var<'a>(name: &'a str, loc: Loc) -> ParseResult<'a, ()> {
     match Variable::try_from(name) {
-        Ok(v) if v.is_array() => user_error(loc, format!("attempt to use array `{name}` in a scalar context")),
+        Ok(v) if v.is_array() => user_error(
+            loc,
+            format!("attempt to use array `{name}` in a scalar context"),
+        ),
         _ => Ok(()),
     }
 }
@@ -357,7 +406,10 @@ pub(crate) fn declare_local<'a>(
 ) -> ParseResult<'a, LocalDecl<'a>> {
     // SUBSEP is an ordinary variable for the rest of the compiler, but `a[i, j]` reads the global.
     if Variable::try_from(name).is_ok() || name == "length" || name == "SUBSEP" {
-        return user_error(loc, format!("cannot declare the special variable `{}' as local", name));
+        return user_error(
+            loc,
+            format!("cannot declare the special variable `{}' as local", name),
+        );
     }
     prog.locals.count += 1;
     let new: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
@@ -381,7 +433,10 @@ fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a,
     let e = if array {
         Expr::Call(Either::Right(Function::Clear), arena.alloc_slice(&[v]))
     } else {
-        Expr::Assign(v, arena.alloc(Expr::Var(arena.alloc_str(&uninit_var(name)))))
+        Expr::Assign(
+            v,
+            arena.alloc(Expr::Var(arena.alloc_str(&uninit_var(name)))),
+        )
     };
     arena.alloc(Stmt::Expr(arena.alloc(e)))
 }
@@ -399,14 +454,27 @@ pub(crate) fn expr_stmt<'a>(
         return Ok(arena.alloc(Stmt::Expr(e)));
     };
     let &[cond, msg] = args else {
-        return user_error(loc, format!("assert expects 2 arguments (condition, message), got {}", args.len()));
+        return user_error(
+            loc,
+            format!(
+                "assert expects 2 arguments (condition, message), got {}",
+                args.len()
+            ),
+        );
     };
     let stderr: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::StrLit(b"/dev/stderr"));
-    let print: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Print(arena.alloc_slice(&[msg]), Some((stderr, FileSpec::Trunc))));
+    let print: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Print(
+        arena.alloc_slice(&[msg]),
+        Some((stderr, FileSpec::Trunc)),
+    ));
     let code: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::ILit(2));
     let exit: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Abort(code));
     let fail = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[print, exit])));
-    Ok(arena.alloc(Stmt::If(cond, arena.alloc(Stmt::Block(arena.new_vec())), Some(fail))))
+    Ok(arena.alloc(Stmt::If(
+        cond,
+        arena.alloc(Stmt::Block(arena.new_vec())),
+        Some(fail),
+    )))
 }
 
 pub(crate) fn local_stmt<'a>(
@@ -416,14 +484,21 @@ pub(crate) fn local_stmt<'a>(
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
     for (i, (name, loc, _)) in decls.iter().enumerate() {
         if decls[..i].iter().any(|(prev, _, _)| prev == name) {
-            return user_error(*loc, format!("local variable `{}' is declared twice in the same statement", name));
+            return user_error(
+                *loc,
+                format!(
+                    "local variable `{}' is declared twice in the same statement",
+                    name
+                ),
+            );
         }
     }
     if decls.len() == 1 {
         return Ok(decls[0].2);
     }
     let stmts: Vec<_> = decls.iter().map(|d| d.2).collect();
-    let stmt: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&stmts[..])));
+    let stmt: &'a Stmt<'a, 'a, &'a str> =
+        arena.alloc(Stmt::Block(arena.new_vec_from_slice(&stmts[..])));
     let n = prog.locals.decls.len();
     for d in prog.locals.decls[n - decls.len()..].iter_mut() {
         d.2 = expr_key(stmt);
@@ -436,7 +511,10 @@ pub(crate) fn local_stmt<'a>(
 pub(crate) fn check_local_names<'a>(prog: &Prog<'a, 'a, &'a str>) -> ParseResult<'a, ()> {
     for (name, loc) in prog.locals.declared.iter() {
         if prog.decs.iter().any(|d| d.name == *name) {
-            return user_error(*loc, format!("function `{}' cannot be declared as a local variable", name));
+            return user_error(
+                *loc,
+                format!("function `{}' cannot be declared as a local variable", name),
+            );
         }
     }
     Ok(())
@@ -549,14 +627,18 @@ pub(crate) fn parse_fstring_literal<'a>(
                 let src = &lit[start..expr_end];
                 if src.trim().is_empty() {
                     if colon.is_some() {
-                        return Err(error(start, "empty expression in f-string placeholder".into()));
+                        return Err(error(
+                            start,
+                            "empty expression in f-string placeholder".into(),
+                        ));
                     }
                     text.push_str(&lit[i..start + end + 1]);
                     i = start + end + 1;
                     continue;
                 }
                 flush(&mut text, &mut parts, buf);
-                let e = parse_placeholder(src, loc.advance("f\"").advance(&lit[..start]), arena, prog)?;
+                let e =
+                    parse_placeholder(src, loc.advance("f\"").advance(&lit[..start]), arena, prog)?;
                 let e = match colon {
                     Some(c) => format_spec(e, &lit[start + c + 1..start + end], arena)
                         .map_err(|desc| error(start + c + 1, desc))?,
@@ -577,7 +659,11 @@ pub(crate) fn parse_fstring_literal<'a>(
     // Start from a string literal so that the result is always a string, as in `f"{x}"`.
     let mut res: &'a Expr<'a, 'a, &'a str> = match parts.next() {
         Some(e @ Expr::StrLit(_)) => e,
-        Some(e) => arena.alloc(Expr::Binop(Binop::Concat, arena.alloc(Expr::StrLit(b"")), e)),
+        Some(e) => arena.alloc(Expr::Binop(
+            Binop::Concat,
+            arena.alloc(Expr::StrLit(b"")),
+            e,
+        )),
         None => arena.alloc(Expr::StrLit(b"")),
     };
     for e in parts {
@@ -635,16 +721,25 @@ fn parse_placeholder<'a>(
     };
     let mut inner = Prog::from_stage(arena, Stage::Main(()));
     inner.locals.names = prog.locals.names.clone();
-    let parsed = syntax::ProgParser::new().parse(arena, &mut Vec::new(), &mut inner, lexer::Tokenizer::new(text));
+    let parsed = syntax::ProgParser::new().parse(
+        arena,
+        &mut Vec::new(),
+        &mut inner,
+        lexer::Tokenizer::new(text),
+    );
     let e = match (parsed, inner.pats.first()) {
         (Ok(()), Some((Pattern::Bool(e), None))) if inner.pats.len() == 1 => *e,
         (Ok(()), _) => {
             return Err(ParseError::User {
                 error: lexer::Error {
                     location: loc,
-                    desc: format!("invalid expression in f-string placeholder `{{{}}}`", src.trim()).into(),
+                    desc: format!(
+                        "invalid expression in f-string placeholder `{{{}}}`",
+                        src.trim()
+                    )
+                    .into(),
                 },
-            })
+            });
         }
         (Err(err), _) => {
             let (l, mut desc) = describe_parse_error(text, &err);
@@ -660,7 +755,8 @@ fn parse_placeholder<'a>(
             });
         }
     };
-    prog.locs.extend(inner.locs.into_iter().map(|(k, l)| (k, map(l))));
+    prog.locs
+        .extend(inner.locs.into_iter().map(|(k, l)| (k, map(l))));
     Ok(e)
 }
 
@@ -745,13 +841,20 @@ fn format_spec<'a>(
     flags.extend(group);
     let (conv, suffix, arg) = match ty {
         'i' => ('d', "", e),
-        '%' => ('f', "%%", &*arena.alloc(Expr::Binop(Binop::Mult, e, arena.alloc(Expr::ILit(100))))),
+        '%' => (
+            'f',
+            "%%",
+            &*arena.alloc(Expr::Binop(Binop::Mult, e, arena.alloc(Expr::ILit(100)))),
+        ),
         c => (c, "", e),
     };
     let precision = precision.map_or(String::new(), |p| format!(".{}", p));
     let sprintf = |fmt: String| -> &'a Expr<'a, 'a, &'a str> {
         let fmt = arena.alloc(Expr::StrLit(arena.alloc_bytes(fmt.as_bytes())));
-        arena.alloc(Expr::Call(Either::Left("sprintf"), arena.alloc_slice(&[&*fmt, arg])))
+        arena.alloc(Expr::Call(
+            Either::Left("sprintf"),
+            arena.alloc_slice(&[&*fmt, arg]),
+        ))
     };
     // printf pads with spaces (or zeros); other fills, centering and zero-padding a value of
     // unknown type (`%05s` pads with spaces) use the pad functions.
@@ -767,14 +870,20 @@ fn format_spec<'a>(
         let width = arena.alloc(Expr::ILit(width.parse().map_err(|_| invalid())?));
         let fill = fill.unwrap_or(' ').to_string();
         let fill = arena.alloc(Expr::StrLit(arena.alloc_bytes(fill.as_bytes())));
-        return Ok(arena.alloc(Expr::Call(Either::Left(pad_fn), arena.alloc_slice(&[s, &*width, &*fill]))));
+        return Ok(arena.alloc(Expr::Call(
+            Either::Left(pad_fn),
+            arena.alloc_slice(&[s, &*width, &*fill]),
+        )));
     }
     if align == Some('<') {
         flags.push('-');
     } else if zero {
         flags.push('0');
     }
-    Ok(sprintf(format!("%{}{}{}{}{}", flags, width, precision, conv, suffix)))
+    Ok(sprintf(format!(
+        "%{}{}{}{}{}",
+        flags, width, precision, conv, suffix
+    )))
 }
 
 /// The name of the `n`th (1-based) `-e` source in messages, when the program has other sources:
@@ -808,7 +917,9 @@ impl SourceMap {
             .iter()
             .rev()
             .find(|(_, start, _)| *start <= loc.line)
-            .map_or((None, 0, 0), |(name, start, first)| (name.as_deref(), *start, *first));
+            .map_or((None, 0, 0), |(name, start, first)| {
+                (name.as_deref(), *start, *first)
+            });
         let line = loc.line - start + first + 1;
         let col = match prog.lines().nth(loc.line) {
             Some(text) => text.get(..loc.col).unwrap_or(text).chars().count() + 1,
@@ -847,7 +958,12 @@ pub fn syntax_error(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>) -> Str
         || SourceMap::default().describe(prog, loc),
         |sources| sources.describe(prog, loc),
     );
-    format!("zawk: syntax error at {}: {}{}", at, desc, excerpt(prog, loc))
+    format!(
+        "zawk: syntax error at {}: {}{}",
+        at,
+        desc,
+        excerpt(prog, loc)
+    )
 }
 
 /// The location of a parse error and what went wrong.
@@ -865,7 +981,11 @@ pub fn describe_parse_error(prog: &str, err: &ParseError<Loc, Tok, lexer::Error>
             Some(msg) => (*l, msg),
             None => (
                 *l,
-                format!("unexpected {}{}", token_text(prog, l, r), expected_tokens(expected)),
+                format!(
+                    "unexpected {}{}",
+                    token_text(prog, l, r),
+                    expected_tokens(expected)
+                ),
             ),
         },
         ParseError::ExtraToken { token: (l, _, r) } => {
@@ -883,7 +1003,11 @@ pub fn unsupported_field_operand(prog: &str, l: &Loc, r: &Loc) -> Option<String>
     if !matches!(op, "$" | "++" | "--" | "-" | "+" | "!") {
         return None;
     }
-    if !prog.get(..l.offset())?.trim_end_matches([' ', '\t']).ends_with('$') {
+    if !prog
+        .get(..l.offset())?
+        .trim_end_matches([' ', '\t'])
+        .ends_with('$')
+    {
         return None;
     }
     let operand = match op {
@@ -956,7 +1080,9 @@ fn token_text(prog: &str, l: &Loc, r: &Loc) -> String {
     let text = prog.get(l.offset()..r.offset()).unwrap_or("").trim();
     // A `;` the lexer inserts before a `}` is empty: show the character at its location.
     let text = if text.is_empty() {
-        prog.get(l.offset()..).and_then(|s| s.chars().next()).map_or(String::new(), String::from)
+        prog.get(l.offset()..)
+            .and_then(|s| s.chars().next())
+            .map_or(String::new(), String::from)
     } else {
         text.to_string()
     };
@@ -989,7 +1115,11 @@ fn expected_tokens(expected: &[String]) -> String {
         0 => String::new(),
         1..=4 => format!(
             ", expected {}",
-            names.iter().map(|n| format!("`{}`", n)).collect::<Vec<_>>().join(" or ")
+            names
+                .iter()
+                .map(|n| format!("`{}`", n))
+                .collect::<Vec<_>>()
+                .join(" or ")
         ),
         _ => String::new(),
     }

@@ -4,11 +4,11 @@
 //! ring is the only crypto provider: reqwest is built with `rustls-no-provider`, so it uses the
 //! default provider installed by [`install_default_provider`].
 
-use std::sync::Arc;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
+use std::sync::Arc;
 
 fn provider() -> Arc<CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())

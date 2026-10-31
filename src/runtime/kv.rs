@@ -1,6 +1,6 @@
-use std::sync::LazyLock;
 use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::stdlib_warning;
+use std::sync::LazyLock;
 
 /// Errors of the kv functions are reported as warnings: kv_get then returns an empty string.
 type KvResult<T> = std::result::Result<T, String>;
@@ -13,59 +13,75 @@ fn report<T: Default>(func: &str, res: KvResult<T>) -> T {
 }
 
 pub(crate) fn kv_get(namespace: &str, key: &str) -> String {
-    report("kv_get", if is_redis_url(namespace) {
-        redis_kv::kv_get(namespace, key)
-    } else if is_nats_url(namespace) {
-        nats_kv::kv_get(namespace, key)
-    } else if let Some(err) = unknown_scheme(namespace) {
-        Err(err)
-    } else {
-        sqlite_kv::kv_get(namespace, key)
-    })
+    report(
+        "kv_get",
+        if is_redis_url(namespace) {
+            redis_kv::kv_get(namespace, key)
+        } else if is_nats_url(namespace) {
+            nats_kv::kv_get(namespace, key)
+        } else if let Some(err) = unknown_scheme(namespace) {
+            Err(err)
+        } else {
+            sqlite_kv::kv_get(namespace, key)
+        },
+    )
 }
 
 pub(crate) fn kv_put(namespace: &str, key: &str, value: &str) {
-    report("kv_put", if is_redis_url(namespace) {
-        redis_kv::kv_put(namespace, key, value)
-    } else if is_nats_url(namespace) {
-        nats_kv::kv_put(namespace, key, value)
-    } else if let Some(err) = unknown_scheme(namespace) {
-        Err(err)
-    } else {
-        sqlite_kv::kv_put(namespace, key, value)
-    })
+    report(
+        "kv_put",
+        if is_redis_url(namespace) {
+            redis_kv::kv_put(namespace, key, value)
+        } else if is_nats_url(namespace) {
+            nats_kv::kv_put(namespace, key, value)
+        } else if let Some(err) = unknown_scheme(namespace) {
+            Err(err)
+        } else {
+            sqlite_kv::kv_put(namespace, key, value)
+        },
+    )
 }
 
 pub(crate) fn kv_delete(namespace: &str, key: &str) {
-    report("kv_delete", if is_redis_url(namespace) {
-        redis_kv::kv_delete(namespace, key)
-    } else if is_nats_url(namespace) {
-        nats_kv::kv_delete(namespace, key)
-    } else if let Some(err) = unknown_scheme(namespace) {
-        Err(err)
-    } else {
-        sqlite_kv::kv_delete(namespace, key)
-    })
+    report(
+        "kv_delete",
+        if is_redis_url(namespace) {
+            redis_kv::kv_delete(namespace, key)
+        } else if is_nats_url(namespace) {
+            nats_kv::kv_delete(namespace, key)
+        } else if let Some(err) = unknown_scheme(namespace) {
+            Err(err)
+        } else {
+            sqlite_kv::kv_delete(namespace, key)
+        },
+    )
 }
 
 pub(crate) fn kv_clear(namespace: &str) {
-    report("kv_clear", if is_redis_url(namespace) {
-        redis_kv::kv_clear(namespace)
-    } else if is_nats_url(namespace) {
-        nats_kv::kv_clear(namespace)
-    } else if let Some(err) = unknown_scheme(namespace) {
-        Err(err)
-    } else {
-        sqlite_kv::kv_clear(namespace)
-    })
+    report(
+        "kv_clear",
+        if is_redis_url(namespace) {
+            redis_kv::kv_clear(namespace)
+        } else if is_nats_url(namespace) {
+            nats_kv::kv_clear(namespace)
+        } else if let Some(err) = unknown_scheme(namespace) {
+            Err(err)
+        } else {
+            sqlite_kv::kv_clear(namespace)
+        },
+    )
 }
 
-static SQLITE_CONNECTIONS: LazyLock<ConnSlots<rusqlite::Connection>> = LazyLock::new(ConnSlots::new);
+static SQLITE_CONNECTIONS: LazyLock<ConnSlots<rusqlite::Connection>> =
+    LazyLock::new(ConnSlots::new);
 static REDIS_CONNECTIONS: LazyLock<ConnPool<redis::Connection>> = LazyLock::new(ConnPool::new);
-static NATS_STORES: LazyLock<ConnSlots<async_nats::jetstream::kv::Store>> = LazyLock::new(ConnSlots::new);
+static NATS_STORES: LazyLock<ConnSlots<async_nats::jetstream::kv::Store>> =
+    LazyLock::new(ConnSlots::new);
 
 fn is_redis_url(namespace: &str) -> bool {
-    ["redis://", "rediss://", "redis+tls://"].iter().any(|scheme| namespace.starts_with(scheme))
+    ["redis://", "rediss://", "redis+tls://"]
+        .iter()
+        .any(|scheme| namespace.starts_with(scheme))
 }
 
 fn is_nats_url(namespace: &str) -> bool {
@@ -77,7 +93,9 @@ fn is_nats_url(namespace: &str) -> bool {
 fn unknown_scheme(namespace: &str) -> Option<String> {
     let (scheme, _) = namespace.split_once("://")?;
     let is_scheme = !scheme.is_empty()
-        && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
     is_scheme.then(|| format!(
         "unsupported namespace scheme {:?}, expected redis://, rediss://, redis+tls://, nats://, nats+tls:// or a SQLite name",
         scheme,
@@ -87,17 +105,22 @@ fn unknown_scheme(namespace: &str) -> Option<String> {
 /// Split `scheme://host/name` into the connection URL and the last path segment (the hash key
 /// or bucket name).
 fn split_name(url_text: &str) -> KvResult<(&str, &str)> {
-    let rest = url_text.split_once("://").map_or(url_text, |(_, rest)| rest);
+    let rest = url_text
+        .split_once("://")
+        .map_or(url_text, |(_, rest)| rest);
     match rest.rsplit_once('/') {
         Some((host, name)) if !host.is_empty() && !name.is_empty() => {
             Ok((&url_text[..url_text.len() - name.len() - 1], name))
         }
-        _ => Err(format!("invalid namespace {:?}, expected scheme://host/name", crate::runtime::network::redact_url(url_text))),
+        _ => Err(format!(
+            "invalid namespace {:?}, expected scheme://host/name",
+            crate::runtime::network::redact_url(url_text)
+        )),
     }
 }
 
 mod redis_kv {
-    use super::{split_name, KvResult, REDIS_CONNECTIONS};
+    use super::{KvResult, REDIS_CONNECTIONS, split_name};
     use redis::Commands;
 
     fn connect(conn_url: &str) -> KvResult<redis::Connection> {
@@ -105,14 +128,22 @@ mod redis_kv {
         // `redis+tls://` is an alias of `rediss://`, the only TLS scheme the redis crate parses
         let conn_url = &conn_url.replacen("redis+tls://", "rediss://", 1);
         redis::Client::open(conn_url.as_str())
-            .and_then(|client| client.get_connection_with_timeout(crate::runtime::network::CONNECT_TIMEOUT))
+            .and_then(|client| {
+                client.get_connection_with_timeout(crate::runtime::network::CONNECT_TIMEOUT)
+            })
             .and_then(|conn| {
                 // the kv commands are all quick: a silent server must not hang the program
                 conn.set_read_timeout(Some(crate::runtime::network::READ_TIMEOUT))?;
                 conn.set_write_timeout(Some(crate::runtime::network::READ_TIMEOUT))?;
                 Ok(conn)
             })
-            .map_err(|e| format!("failed to connect to {}: {}", crate::runtime::network::redact_url(conn_url), e))
+            .map_err(|e| {
+                format!(
+                    "failed to connect to {}: {}",
+                    crate::runtime::network::redact_url(conn_url),
+                    e
+                )
+            })
     }
 
     /// Run `f` with a (pooled) connection, and the name of the hash in the namespace URL.
@@ -131,7 +162,8 @@ mod redis_kv {
         match f(&mut conn, hash_key) {
             Err(e) if reused && is_broken(&e) => {
                 drop(conn);
-                let mut conn = connect(conn_url).map_err(|reconnect| format!("{} ({})", e, reconnect))?;
+                let mut conn =
+                    connect(conn_url).map_err(|reconnect| format!("{} ({})", e, reconnect))?;
                 let result = f(&mut conn, hash_key);
                 if !matches!(&result, Err(e) if is_broken(e)) {
                     REDIS_CONNECTIONS.put(conn_url, conn);
@@ -152,28 +184,35 @@ mod redis_kv {
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
         with_conn(url_text, |conn, hash_key| {
-            conn.hget::<_, _, Option<String>>(hash_key, key).map(Option::unwrap_or_default)
+            conn.hget::<_, _, Option<String>>(hash_key, key)
+                .map(Option::unwrap_or_default)
         })
     }
 
     pub(crate) fn kv_put(url_text: &str, key: &str, value: &str) -> KvResult<()> {
-        with_conn(url_text, |conn, hash_key| conn.hset::<_, _, _, i32>(hash_key, key, value).map(drop))
+        with_conn(url_text, |conn, hash_key| {
+            conn.hset::<_, _, _, i32>(hash_key, key, value).map(drop)
+        })
     }
 
     pub(crate) fn kv_delete(url_text: &str, key: &str) -> KvResult<()> {
-        with_conn(url_text, |conn, hash_key| conn.hdel::<_, _, i32>(hash_key, key).map(drop))
+        with_conn(url_text, |conn, hash_key| {
+            conn.hdel::<_, _, i32>(hash_key, key).map(drop)
+        })
     }
 
     pub(crate) fn kv_clear(url_text: &str) -> KvResult<()> {
-        with_conn(url_text, |conn, hash_key| conn.del::<_, i32>(hash_key).map(drop))
+        with_conn(url_text, |conn, hash_key| {
+            conn.del::<_, i32>(hash_key).map(drop)
+        })
     }
 }
 
 mod nats_kv {
+    use super::{KvResult, NATS_STORES, split_name};
+    use crate::runtime::network::{nats_block_on, nats_client};
     use async_nats::jetstream::kv::{Config, Store};
     use futures_util::TryStreamExt;
-    use crate::runtime::network::{nats_block_on, nats_client};
-    use super::{split_name, KvResult, NATS_STORES};
 
     /// The (pooled) key-value store named in the namespace URL, created if needed.
     fn store(url_text: &str) -> KvResult<Store> {
@@ -188,15 +227,25 @@ mod nats_kv {
             let jetstream = async_nats::jetstream::new(client);
             match jetstream.get_key_value(bucket).await {
                 Ok(store) => Ok(store),
-                Err(_) => jetstream.create_key_value(Config { bucket: bucket.to_string(), ..Default::default() }).await,
+                Err(_) => {
+                    jetstream
+                        .create_key_value(Config {
+                            bucket: bucket.to_string(),
+                            ..Default::default()
+                        })
+                        .await
+                }
             }
-        }).map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))
+        })
+        .map_err(|e| format!("failed to create bucket {:?}: {}", bucket, e))
     }
 
     pub(crate) fn kv_get(url_text: &str, key: &str) -> KvResult<String> {
         let store = store(url_text)?;
         let value = nats_block_on(store.get(key))?;
-        Ok(value.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default())
+        Ok(value
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default())
     }
 
     pub(crate) fn kv_put(url_text: &str, key: &str, value: &str) -> KvResult<()> {
@@ -213,7 +262,13 @@ mod nats_kv {
     pub(crate) fn kv_clear(url_text: &str) -> KvResult<()> {
         let store = store(url_text)?;
         let keys: Vec<String> = nats_block_on(async {
-            store.keys().await.map_err(|e| e.to_string())?.try_collect().await.map_err(|e| e.to_string())
+            store
+                .keys()
+                .await
+                .map_err(|e| e.to_string())?
+                .try_collect()
+                .await
+                .map_err(|e| e.to_string())
         })?;
         // one timeout per key: a big bucket is not a stuck server
         for key in keys {
@@ -224,18 +279,23 @@ mod nats_kv {
 }
 
 mod sqlite_kv {
-    use rusqlite::{Connection, OptionalExtension};
     use super::{KvResult, SQLITE_CONNECTIONS};
+    use rusqlite::{Connection, OptionalExtension};
 
     /// Run `f` with the local SQLite database (~/.awk/sqlite.db).
     fn with_conn<T>(f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> KvResult<T> {
-        SQLITE_CONNECTIONS.with_conn("local", create_sqlite_kv_conn, |conn| f(conn).map_err(|e| e.to_string()))
+        SQLITE_CONNECTIONS.with_conn("local", create_sqlite_kv_conn, |conn| {
+            f(conn).map_err(|e| e.to_string())
+        })
     }
 
     pub(crate) fn kv_get(namespace: &str, key: &str) -> KvResult<String> {
         with_conn(|conn| {
-            let mut stmt = conn.prepare_cached("SELECT value FROM kv_store WHERE ns = ? AND key = ?")?;
-            let value: Option<String> = stmt.query_row(rusqlite::params![namespace, key], |row| row.get(0)).optional()?;
+            let mut stmt =
+                conn.prepare_cached("SELECT value FROM kv_store WHERE ns = ? AND key = ?")?;
+            let value: Option<String> = stmt
+                .query_row(rusqlite::params![namespace, key], |row| row.get(0))
+                .optional()?;
             Ok(value.unwrap_or_default())
         })
     }
@@ -250,15 +310,19 @@ mod sqlite_kv {
 
     pub(crate) fn kv_clear(namespace: &str) -> KvResult<()> {
         with_conn(|conn| {
-            conn.prepare_cached("DELETE FROM kv_store WHERE ns = ?")?.execute(rusqlite::params![namespace]).map(drop)
+            conn.prepare_cached("DELETE FROM kv_store WHERE ns = ?")?
+                .execute(rusqlite::params![namespace])
+                .map(drop)
         })
     }
 
     pub(crate) fn kv_put(namespace: &str, key: &str, value: &str) -> KvResult<()> {
         with_conn(|conn| {
-            conn.prepare_cached("INSERT OR REPLACE INTO kv_store (ns, key, value) VALUES (?, ?, ?)")?
-                .execute(rusqlite::params![namespace, key, value])
-                .map(drop)
+            conn.prepare_cached(
+                "INSERT OR REPLACE INTO kv_store (ns, key, value) VALUES (?, ?, ?)",
+            )?
+            .execute(rusqlite::params![namespace, key, value])
+            .map(drop)
         })
     }
 
@@ -267,9 +331,12 @@ mod sqlite_kv {
     /// the legacy table itself is left untouched.
     fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         let exists = |table: &str| -> rusqlite::Result<bool> {
-            conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", [table], |row| {
-                row.get::<_, i64>(0)
-            }).map(|n| n > 0)
+            conn.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
         };
         if exists("kv_store")? {
             return Ok(());
@@ -292,7 +359,9 @@ mod sqlite_kv {
     }
 
     fn create_sqlite_kv_conn() -> KvResult<Connection> {
-        let awk_config_dir = dirs::home_dir().ok_or("cannot find the home directory")?.join(".awk");
+        let awk_config_dir = dirs::home_dir()
+            .ok_or("cannot find the home directory")?
+            .join(".awk");
         std::fs::create_dir_all(&awk_config_dir)
             .map_err(|e| format!("cannot create {}: {}", awk_config_dir.display(), e))?;
         let sqlite_kv_db = awk_config_dir.join("sqlite.db");
@@ -305,7 +374,6 @@ mod sqlite_kv {
         open().map_err(|e| format!("cannot open {}: {}", sqlite_kv_db.display(), e))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -337,8 +405,14 @@ mod tests {
 
     #[test]
     fn test_split_name() {
-        assert_eq!(split_name("redis://localhost:6379/demo1"), Ok(("redis://localhost:6379", "demo1")));
-        assert_eq!(split_name("nats://localhost:4222/bucket1"), Ok(("nats://localhost:4222", "bucket1")));
+        assert_eq!(
+            split_name("redis://localhost:6379/demo1"),
+            Ok(("redis://localhost:6379", "demo1"))
+        );
+        assert_eq!(
+            split_name("nats://localhost:4222/bucket1"),
+            Ok(("nats://localhost:4222", "bucket1"))
+        );
         assert!(split_name("redis://localhost:6379").is_err());
         assert!(split_name("redis://localhost:6379/").is_err());
     }
@@ -411,12 +485,20 @@ mod tests {
     #[test]
     fn test_nats_store_does_not_block_other_urls() {
         let (port, requests) = nats_server_ignoring_requests();
-        std::thread::spawn(move || nats_kv::kv_get(&format!("nats://127.0.0.1:{}/bucket", port), "k"));
-        requests.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        std::thread::spawn(move || {
+            nats_kv::kv_get(&format!("nats://127.0.0.1:{}/bucket", port), "k")
+        });
+        requests
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         // the bucket above is still waiting for the server: this call must not wait for it
         let start = std::time::Instant::now();
         assert!(nats_kv::kv_get("nats://127.0.0.1:1/bucket", "k").is_err());
-        assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]

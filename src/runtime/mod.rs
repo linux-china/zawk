@@ -2,8 +2,8 @@ use crate::common::{CancelSignal, ExecutionStrategy, FileSpec, Result};
 use command::CommandReader;
 // Fixed-seed hasher: keeps `for (k in a)` order reproducible across runs and backends.
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::FixedState>;
-use regex::bytes::Regex;
 use awk_regex::AwkRegex;
+use regex::bytes::Regex;
 use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::hash::Hash;
@@ -15,54 +15,54 @@ use std::str;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub(crate) mod command;
+pub(crate) mod array_stats;
 pub(crate) mod awk_regex;
-pub(crate) mod regex_memory;
+pub(crate) mod command;
 pub(crate) mod compare;
-pub(crate) mod numfmt;
+pub mod crypto;
+pub mod date_time;
+pub mod encoding;
 pub mod float_parse;
+pub mod math_util;
+pub(crate) mod numfmt;
+pub mod parquet_writer;
 pub mod printf;
+pub(crate) mod regex_memory;
+pub(crate) mod sorted_in;
 pub mod splitter;
+pub mod stats;
+pub mod str_escape;
 pub mod str_impl;
 pub mod string_search;
 pub mod utf8;
 pub mod writers;
-pub mod stats;
-pub mod parquet_writer;
-pub mod date_time;
-pub mod encoding;
-pub mod crypto;
-pub mod str_escape;
-pub mod math_util;
-pub(crate) mod sorted_in;
-pub(crate) mod array_stats;
 
-pub mod json;
-pub mod network;
-pub mod kv;
-pub mod s3;
-pub mod http;
-pub mod decompress;
-pub mod os_util;
-pub mod csv;
+pub mod config_util;
 pub(crate) mod conn_pool;
-pub mod sqlite;
-pub mod mysql;
-pub mod postgres;
-pub mod logging;
-pub(crate) mod tls;
-pub mod string_util;
+pub mod csv;
+pub mod decompress;
 pub mod faker;
 pub mod html;
-pub mod config_util;
+pub mod http;
 pub mod jev;
 pub mod jev_functions;
+pub mod json;
+pub mod kv;
+pub mod logging;
+pub mod mysql;
+pub mod network;
+pub mod os_util;
+pub mod postgres;
+pub mod s3;
+pub mod sqlite;
+pub mod string_util;
+pub(crate) mod tls;
 
 use crate::pushdown::FieldSet;
+use splitter::ReaderState;
 use splitter::batch::CSVReader;
 use splitter::chunk::{ChunkProducer, OffsetChunk};
 use splitter::regex::RegexSplitter;
-use splitter::ReaderState;
 
 pub(crate) use crate::builtins::Variables;
 pub use command::run_command;
@@ -72,8 +72,8 @@ pub(crate) use float_parse::{
 };
 pub(crate) use printf::FormatArg;
 pub use splitter::{
-    batch::{escape_csv, escape_tsv},
     ChainedReader, Line, LineReader,
+    batch::{escape_csv, escape_tsv},
 };
 pub use str_impl::{Str, UniqueStr};
 
@@ -150,9 +150,7 @@ fn literal_regex(c: &str) -> Result<AwkRegex> {
 /// Whether `pat` is a single character (other than " "), which awk treats literally when used
 /// as a field separator, in FS and in split().
 fn is_literal_separator(pat: &Str) -> bool {
-    pat.with_bytes(|bs| {
-        bs != b" " && std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1)
-    })
+    pat.with_bytes(|bs| bs != b" " && std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1))
 }
 
 /// The blanks that separate fields under the default FS (`" "`). This is the same set the
@@ -231,7 +229,12 @@ fn split_byte<'a>(s: &Str<'a>, sep: u8, used_fields: &FieldSet, mut push: impl F
 }
 
 /// Splits `s` at the matches of `re`, as split() does for a regex separator.
-fn split_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>, used_fields: &FieldSet, mut push: impl FnMut(Str<'a>)) {
+fn split_with<'a>(
+    re: &(impl awk_regex::Search + ?Sized),
+    s: &Str<'a>,
+    used_fields: &FieldSet,
+    mut push: impl FnMut(Str<'a>),
+) {
     s.split(
         re,
         |s, _| {
@@ -269,7 +272,10 @@ fn split_seps_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>) -> F
 }
 
 /// The fields and separators of `patsplit(s, arr, re, seps)` (see `RegexCache::patsplit_seps`).
-fn patsplit_seps_with<'a>(re: &(impl awk_regex::Search + ?Sized), s: &Str<'a>) -> FieldsAndSeps<'a> {
+fn patsplit_seps_with<'a>(
+    re: &(impl awk_regex::Search + ?Sized),
+    s: &Str<'a>,
+) -> FieldsAndSeps<'a> {
     let mut flds = Vec::new();
     let mut seps = Vec::new();
     if s.is_empty() {
@@ -331,7 +337,11 @@ impl RegexCache {
             self.3.sync_budget(round);
         }
     }
-    pub(crate) fn with_regex<T>(&mut self, pat: &Str, mut f: impl FnMut(&AwkRegex) -> T) -> Result<T> {
+    pub(crate) fn with_regex<T>(
+        &mut self,
+        pat: &Str,
+        mut f: impl FnMut(&AwkRegex) -> T,
+    ) -> Result<T> {
         self.sync();
         self.0.get(
             pat,
@@ -423,7 +433,11 @@ impl RegexCache {
             None => {
                 // Measure the memory of the matcher with the engine its first use builds.
                 let (m, measured) = regex_memory::measure(|| {
-                    let mut m = pat.with_bytes(|bs| str::from_utf8(bs).ok().and_then(awk_regex::LightMatcher::new))?;
+                    let mut m = pat.with_bytes(|bs| {
+                        str::from_utf8(bs)
+                            .ok()
+                            .and_then(awk_regex::LightMatcher::new)
+                    })?;
                     m.prepare(hay);
                     Some(m)
                 });
@@ -545,20 +559,16 @@ impl RegexCache {
             Ok(())
         } else if is_literal_separator(pat) {
             self.sync();
-            self.1.get(
-                pat,
-                literal_regex,
-                |re| {
-                    s.split(
-                        re,
-                        |s, _| {
-                            push(s);
-                            1
-                        },
-                        used_fields,
-                    )
-                },
-            )
+            self.1.get(pat, literal_regex, |re| {
+                s.split(
+                    re,
+                    |s, _| {
+                        push(s);
+                        1
+                    },
+                    used_fields,
+                )
+            })
         } else {
             self.with_search(pat, s, |re| split_with(re, s, used_fields, &mut push))
         }
@@ -699,8 +709,11 @@ impl RegexCache {
         K1: Hash + Eq + From<Int>,
         K2: Hash + Eq + From<Int>,
     {
-        let (flds, sep_list) =
-            if patsplit { self.patsplit_seps(pat, s)? } else { self.split_seps(pat, s)? };
+        let (flds, sep_list) = if patsplit {
+            self.patsplit_seps(pat, s)?
+        } else {
+            self.split_seps(pat, s)?
+        };
         Ok(fill_seps_maps(flds, sep_list, arr, seps))
     }
 
@@ -717,8 +730,11 @@ impl RegexCache {
         K1: Hash + Eq + From<Int>,
         K2: Hash + Eq + From<Int>,
     {
-        let (flds, sep_list) =
-            if patsplit { patsplit_seps_with(re, s) } else { split_seps_with(re, s) };
+        let (flds, sep_list) = if patsplit {
+            patsplit_seps_with(re, s)
+        } else {
+            split_seps_with(re, s)
+        };
         fill_seps_maps(flds, sep_list, arr, seps)
     }
 
@@ -781,7 +797,8 @@ impl RegexCache {
     ) -> Result<Int> {
         self.with_search_fallible(pat, s, |re| {
             let caps = s.with_bytes(|bs| {
-                awk_regex::find_at(re, bs, 0).and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
+                awk_regex::find_at(re, bs, 0)
+                    .and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
             });
             let groups: Vec<(usize, usize, usize)> = match &caps {
                 Some(caps) => caps
@@ -976,7 +993,10 @@ pub(crate) fn set_multi_file_headers(multi: bool) {
 }
 
 impl<LR: LineReader> FileRead<LR> {
-    pub(crate) fn try_resize(&self, size: usize) -> Vec<impl FnOnce() -> Option<Self> + Send + use<LR>> {
+    pub(crate) fn try_resize(
+        &self,
+        size: usize,
+    ) -> Vec<impl FnOnce() -> Option<Self> + Send + use<LR>> {
         self.stdin
             .request_handles(size)
             .into_iter()
@@ -1007,7 +1027,11 @@ impl<LR: LineReader> FileRead<LR> {
     /// `None` if `path` was not open for input.
     pub(crate) fn close(&mut self, path: &Str) -> Option<Int> {
         let file = self.inputs.files.remove(path);
-        let cmd = self.inputs.commands.take(path).map(|mut c| c.inner_mut().close());
+        let cmd = self
+            .inputs
+            .commands
+            .take(path)
+            .map(|mut c| c.inner_mut().close());
         cmd.or(if file { Some(0) } else { None })
     }
 
@@ -1090,7 +1114,8 @@ impl<LR: LineReader> FileRead<LR> {
 
     /// Adds the columns named after the header (see `LineReader::new_columns`) to `fi`.
     pub(crate) fn sync_named_columns<'a>(&mut self, fi: &StrMap<'a, Int>) {
-        self.stdin.new_columns(&mut |name, col| fi.insert(name.upcast(), col));
+        self.stdin
+            .new_columns(&mut |name, col| fi.insert(name.upcast(), col));
     }
 
     pub(crate) fn stdin_filename(&self) -> Str<'static> {
@@ -1156,16 +1181,17 @@ impl<LR: LineReader> FileRead<LR> {
                 let file = InputFile::open(s);
                 Ok(match ifmt {
                     // A file that failed to open stays a plain reader: its read error is -1.
-                    Some(ifmt) if !matches!(file, InputFile::Failed(..)) => {
-                        GetlineFile::Csv(CSVReader::new(
+                    Some(ifmt) if !matches!(file, InputFile::Failed(..)) => GetlineFile::Csv(
+                        CSVReader::new(
                             std::iter::once((file, s.to_string())),
                             ifmt,
                             CHUNK_SIZE,
                             check_utf8,
                             ExecutionStrategy::Serial,
                             CancelSignal::default(),
-                        ), None)
-                    }
+                        ),
+                        None,
+                    ),
                     _ => GetlineFile::Lines(RegexSplitter::new(
                         file,
                         CHUNK_SIZE,
@@ -1185,7 +1211,10 @@ pub(crate) enum GetlineFile {
     Lines(RegexSplitter<InputFile>),
     // The read state once a read failed: as for plain lines, getline then returns -1 rather than
     // failing the program.
-    Csv(CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>, Option<Int>),
+    Csv(
+        CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>,
+        Option<Int>,
+    ),
 }
 
 impl GetlineFile {
@@ -1342,7 +1371,12 @@ impl<V> StrLru<V> {
         }
         self.clock += 1;
         self.used += cost;
-        &self.cached.entry(key).insert((v, self.clock, cost)).into_mut().0
+        &self
+            .cached
+            .entry(key)
+            .insert((v, self.clock, cost))
+            .into_mut()
+            .0
     }
     /// The value for `key`, created by `new` when it is not cached.
     pub(crate) fn get_or_try_insert<E>(
@@ -1454,7 +1488,9 @@ impl<T> Registry<T> {
     /// its key and its slot in the table (twice, as the table can be half empty).
     fn cost(&self, key_len: usize, measured: Option<usize>) -> usize {
         let slot = 2 * mem::size_of::<(Str<'static>, (T, u64, usize))>() + key_len;
-        self.limit.map_or(0, |limit| measured.map_or_else(|| limit.estimate.cost(key_len), |m| m + slot))
+        self.limit.map_or(0, |limit| {
+            measured.map_or_else(|| limit.estimate.cost(key_len), |m| m + slot)
+        })
     }
     fn remove(&mut self, s: &Str) -> bool {
         self.take(s).is_some()
@@ -1507,7 +1543,8 @@ impl<T> Registry<T> {
             }
             regex_memory::charge(cost);
         }
-        self.cached.insert(s.clone().unmoor(), (val, self.clock, cost));
+        self.cached
+            .insert(s.clone().unmoor(), (val, self.clock, cost));
         self.used += cost;
     }
     fn get<R>(
@@ -1662,7 +1699,9 @@ fn warn_once(msg: &str) {
 
 /// Report, once, how many stdlib warnings [`warn_once`] did not print.
 pub(crate) fn report_suppressed_warnings() {
-    let suppressed = WARNINGS.lock().map_or(0, |mut w| mem::take(&mut w.suppressed));
+    let suppressed = WARNINGS
+        .lock()
+        .map_or(0, |mut w| mem::take(&mut w.suppressed));
     if suppressed > 0 {
         eprintln_ignore!(
             "zawk: warning: {} more stdlib warning{} not shown (each message is shown once); test ERRNO after a call to detect each failure",
@@ -1710,7 +1749,9 @@ fn try_begin() {
 fn try_end() -> Int {
     let frame = TRY_STACK.with(|t| t.borrow_mut().pop());
     debug_assert!(frame.is_some(), "try_end without try_begin");
-    let Some((old, failures)) = frame else { return 1 };
+    let Some((old, failures)) = frame else {
+        return 1;
+    };
     if FAILURES.with(Cell::get) == failures {
         ERRNO.with(|e| *e.borrow_mut() = old);
         1
@@ -1770,13 +1811,20 @@ pub(crate) const MAX_RESULT_LEN: usize = 64 << 20;
 /// [`MAX_RESULT_LEN`].
 pub(crate) fn check_result_len(func: &str, what: &str, len: Float) -> Result<()> {
     if len > MAX_RESULT_LEN as Float {
-        return err!("{}: {} {} is too large (maximum {})", func, what, len, MAX_RESULT_LEN);
+        return err!(
+            "{}: {} {} is too large (maximum {})",
+            func,
+            what,
+            len,
+            MAX_RESULT_LEN
+        );
     }
     Ok(())
 }
 
 /// Error reported when integer addition or subtraction leaves the 64-bit range.
-pub(crate) const INT_OVERFLOW_MSG: &str = "integer overflow: result exceeds the 64-bit integer range";
+pub(crate) const INT_OVERFLOW_MSG: &str =
+    "integer overflow: result exceeds the 64-bit integer range";
 
 pub(crate) trait Inc {
     fn inc_int(&mut self, by: Int);
@@ -1903,7 +1951,9 @@ impl<'a> From<Shuttle<HashMap<UniqueStr<'a>, Int>>> for StrMap<'a, Int> {
 impl<'a> From<Shuttle<HashMap<UniqueStr<'a>, UniqueStr<'a>>>> for StrMap<'a, Str<'a>> {
     fn from(sh: Shuttle<HashMap<UniqueStr<'a>, UniqueStr<'a>>>) -> Self {
         SharedMap(Rc::new(RefCell::new(
-            sh.0.into_iter().map(|(x, y)| (x.into_str(), y.into_str())).collect(),
+            sh.0.into_iter()
+                .map(|(x, y)| (x.into_str(), y.into_str()))
+                .collect(),
         )))
     }
 }
@@ -2124,7 +2174,10 @@ mod tests {
 
     #[test]
     fn str_lru_is_bounded() {
-        const COST: CostModel = CostModel { base: 100, per_byte: 1 };
+        const COST: CostModel = CostModel {
+            base: 100,
+            per_byte: 1,
+        };
         let budget = 100 * COST.cost(8);
         let mut lru = StrLru::new(budget, COST);
         lru.insert("hot".to_owned(), 0);
@@ -2176,16 +2229,24 @@ mod tests {
         for i in 0..200 {
             let pat = Str::from(format!("[[:alpha:]]+x{}", i));
             assert!(!rc.with_regex(&pat, |re| re.is_match(b"x")).unwrap());
-            assert!(!rc.is_regex_match(&Str::from(format!("[[:alpha:]]+y{}", i)), &hay).unwrap());
+            assert!(
+                !rc.is_regex_match(&Str::from(format!("[[:alpha:]]+y{}", i)), &hay)
+                    .unwrap()
+            );
             assert!(regex_memory::used() <= TEST_BUDGET);
         }
         if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
-            assert!(rc.0.cached.len() < 40, "{} regexes cached", rc.0.cached.len());
+            assert!(
+                rc.0.cached.len() < 40,
+                "{} regexes cached",
+                rc.0.cached.len()
+            );
         }
         // The longest-match machinery, built on the first search, counts against the budget too.
         for i in 0..200 {
             let pat = Str::from(format!("[[:alpha:]]+(a|ab){}", i));
-            rc.with_regex(&pat, |re| awk_regex::find_at(re, b"ab0", 0)).unwrap();
+            rc.with_regex(&pat, |re| awk_regex::find_at(re, b"ab0", 0))
+                .unwrap();
             assert!(regex_memory::used() <= TEST_BUDGET);
         }
     }
@@ -2254,7 +2315,9 @@ mod tests {
         assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (1, 0));
         assert!(rc.is_regex_match(&pat, &Str::from("uber")).unwrap());
         // Invalid patterns report the error of `compile`.
-        let err = rc.is_regex_match(&Str::from("a("), &Str::from("a")).unwrap_err();
+        let err = rc
+            .is_regex_match(&Str::from("a("), &Str::from("a"))
+            .unwrap_err();
         assert!(format!("{}", err).contains("invalid regex /a(/"), "{}", err);
     }
 
@@ -2266,7 +2329,9 @@ mod tests {
             rc.with_search(&Str::from(pat), &s, |re| {
                 s.with_bytes(|bs| {
                     let spans: Vec<_> = awk_regex::find_iter(re, bs).collect();
-                    let groups = spans.first().and_then(|&(from, to)| awk_regex::captures_at(re, bs, from, to));
+                    let groups = spans
+                        .first()
+                        .and_then(|&(from, to)| awk_regex::captures_at(re, bs, from, to));
                     (spans, groups.map(|g| g.iter().collect::<Vec<_>>()))
                 })
             })
@@ -2274,20 +2339,54 @@ mod tests {
         };
         // The same results from the light matcher (ASCII and other text, and text its literals
         // rule out), and from the compiled regex once the pattern has been used `LIGHT_USES` times.
-        let cases: &[(&str, &str, Vec<(usize, usize)>, Option<Vec<Option<(usize, usize)>>>)] = &[
-            ("(x|xy)(z?)", "a xyz xz", vec![(2, 5), (6, 8)], Some(vec![Some((2, 5)), Some((2, 4)), Some((4, 5))])),
-            ("(x|xy)(z?)", "é xyz xz", vec![(3, 6), (7, 9)], Some(vec![Some((3, 6)), Some((3, 5)), Some((5, 6))])),
+        let cases: &[(
+            &str,
+            &str,
+            Vec<(usize, usize)>,
+            Option<Vec<Option<(usize, usize)>>>,
+        )] = &[
+            (
+                "(x|xy)(z?)",
+                "a xyz xz",
+                vec![(2, 5), (6, 8)],
+                Some(vec![Some((2, 5)), Some((2, 4)), Some((4, 5))]),
+            ),
+            (
+                "(x|xy)(z?)",
+                "é xyz xz",
+                vec![(3, 6), (7, 9)],
+                Some(vec![Some((3, 6)), Some((3, 5)), Some((5, 6))]),
+            ),
             ("(x|xy)(z?)", "abc", vec![], None),
-            ("^(a+)(b)?", "aab", vec![(0, 3)], Some(vec![Some((0, 3)), Some((0, 2)), Some((2, 3))])),
+            (
+                "^(a+)(b)?",
+                "aab",
+                vec![(0, 3)],
+                Some(vec![Some((0, 3)), Some((0, 2)), Some((2, 3))]),
+            ),
         ];
         for (pat, s, spans, groups) in cases {
             for i in 0..=LIGHT_USES {
-                assert_eq!(&find(&mut rc, pat, s), &(spans.clone(), groups.clone()), "/{}/ on {:?}", pat, s);
-                assert_eq!(rc.0.cached.len() == 1, i == LIGHT_USES, "/{}/ use {}", pat, i + 1);
+                assert_eq!(
+                    &find(&mut rc, pat, s),
+                    &(spans.clone(), groups.clone()),
+                    "/{}/ on {:?}",
+                    pat,
+                    s
+                );
+                assert_eq!(
+                    rc.0.cached.len() == 1,
+                    i == LIGHT_USES,
+                    "/{}/ use {}",
+                    pat,
+                    i + 1
+                );
             }
             rc.0.cached.clear();
         }
-        let err = rc.with_search(&Str::from("a("), &Str::from("a"), |_| ()).unwrap_err();
+        let err = rc
+            .with_search(&Str::from("a("), &Str::from("a"), |_| ())
+            .unwrap_err();
         assert!(format!("{}", err).contains("invalid regex /a(/"), "{}", err);
     }
 }

@@ -39,7 +39,10 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     let path_buf = PathBuf::from(text);
     let mut insert = |key: &str, value: &std::ffi::OsStr| {
         if let Some(value_text) = value.to_str() {
-            map.insert(Str::from(key.to_string()), Str::from(value_text.to_string()));
+            map.insert(
+                Str::from(key.to_string()),
+                Str::from(value_text.to_string()),
+            );
         }
     };
     // full_path needs canonicalize, so it is only available for existing paths;
@@ -127,11 +130,17 @@ mod tests {
         let map = path("/zawk_not_exists/b/c.tar.gz");
         assert_eq!(map.get(&Str::from("exists")).to_string(), "0");
         assert_eq!(map.get(&Str::from("full_path")).to_string(), "");
-        assert_eq!(map.get(&Str::from("parent")).to_string(), "/zawk_not_exists/b");
+        assert_eq!(
+            map.get(&Str::from("parent")).to_string(),
+            "/zawk_not_exists/b"
+        );
         assert_eq!(map.get(&Str::from("file_name")).to_string(), "c.tar.gz");
         assert_eq!(map.get(&Str::from("file_stem")).to_string(), "c.tar");
         assert_eq!(map.get(&Str::from("file_ext")).to_string(), "gz");
-        assert_eq!(map.get(&Str::from("content_type")).to_string(), "application/gzip");
+        assert_eq!(
+            map.get(&Str::from("content_type")).to_string(),
+            "application/gzip"
+        );
     }
 
     #[test]

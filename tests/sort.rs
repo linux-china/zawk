@@ -119,7 +119,9 @@ fn procinfo_sorted_in() {
             .unwrap();
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("user-defined comparison functions"));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("user-defined comparison functions")
+        );
     }
 }
 
@@ -143,14 +145,22 @@ fn array_statistics() {
             r#"{ c[$1]++ } END { t = _top(c, 3); for (i = 1; i <= length(t); i++) print t[i], c[t[i]]; print _count_distinct(c), length(_top(c, 0)), length(_top(c, 99)) }"#,
             "a 3\nb 2\nc 1\n3 0 4\n",
         ),
-        ("", r#"BEGIN { print _median(e), _stddev(e), _mode(e), _count_distinct(e), length(_top(e, 3)) }"#, "0 0 0 0 0\n"),
+        (
+            "",
+            r#"BEGIN { print _median(e), _stddev(e), _mode(e), _count_distinct(e), length(_top(e, 3)) }"#,
+            "0 0 0 0 0\n",
+        ),
         // _sum/_mean/_max/_min accept any array, not only map[int]num.
         (
             "a 1\nb -2.5\na 4\n",
             r#"{ a[NR] = $2; s[$1] += $2; i[NR] = int($2) } END { print _sum(a), _mean(a), _max(a), _min(a); print _sum(s), _mean(s), _max(s), _min(s); print _sum(i), _mean(i), _max(i), _min(i) }"#,
             "2.5 0.833333 4 -2.5\n2.5 1.25 5 -2.5\n3 1 4 -2\n",
         ),
-        ("", r#"BEGIN { a[5] = -3; a[7] = -1; print _sum(e), _mean(e), _max(e), _min(e), _max(a), _min(a) }"#, "0 0 0 0 -1 -3\n"),
+        (
+            "",
+            r#"BEGIN { a[5] = -3; a[7] = -1; print _sum(e), _mean(e), _max(e), _min(e), _max(a), _min(a) }"#,
+            "0 0 0 0 -1 -3\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (input, prog, expected) in cases {

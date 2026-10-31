@@ -7,12 +7,12 @@
 ///
 /// TODO explain more about what is going on here.
 use crate::pushdown::FieldSet;
-use crate::runtime::{str_to_num, Float, Int, SharedMap, IntMap};
+use crate::runtime::{Float, Int, IntMap, SharedMap, str_to_num};
 
 use super::awk_regex::{Groups, Search};
 use smallvec::SmallVec;
 
-use std::alloc::{alloc_zeroed, dealloc, realloc, Layout};
+use std::alloc::{Layout, alloc_zeroed, dealloc, realloc};
 use std::borrow::Cow;
 use std::cell::{Cell, UnsafeCell};
 use std::hash::{Hash, Hasher};
@@ -27,15 +27,15 @@ fn likely(b: bool) -> bool {
     b
 }
 
-use std::{mem};
+use crate::runtime;
+use crate::runtime::str_escape::escape;
+use std::mem;
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::str;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
-use crate::runtime;
-use crate::runtime::str_escape::escape;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(usize)]
@@ -346,7 +346,7 @@ impl<'a> UniqueStr<'a> {
                             buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
                             len: bs.len() as u64,
                         }
-                            .into(),
+                        .into(),
                     )
                 })
             },
@@ -507,7 +507,7 @@ impl<'a> Str<'a> {
         buf.into_str()
     }
 
-    pub fn join(&self, mut ss: impl Iterator<Item=Str<'a>>) -> Str<'a> {
+    pub fn join(&self, mut ss: impl Iterator<Item = Str<'a>>) -> Str<'a> {
         let mut res = if let Some(s) = ss.next() {
             s
         } else {
@@ -532,7 +532,7 @@ impl<'a> Str<'a> {
         let mut context = fend_core::Context::new();
         let expr = self.to_string();
         return match fend_core::evaluate(&expr, &mut context) {
-            Ok(result) => { Str::from(result.get_main_result().to_string()) }
+            Ok(result) => Str::from(result.get_main_result().to_string()),
             Err(error) => {
                 crate::runtime::stdlib_warning("fend", format!("{:?}: {}", expr, error));
                 Str::default()
@@ -545,7 +545,11 @@ impl<'a> Str<'a> {
         self.with_bytes(|bs| {
             let (mut i, mut start) = (1, 0);
             while start < bs.len() {
-                let w = if characters_as_bytes() { 1 } else { char_width(&bs[start..]) };
+                let w = if characters_as_bytes() {
+                    1
+                } else {
+                    char_width(&bs[start..])
+                };
                 map.insert(i, Str::from_bytes(&bs[start..start + w]));
                 i += 1;
                 start += w;
@@ -562,12 +566,19 @@ impl<'a> Str<'a> {
         let parsed = Url::parse(&url_text);
         if let Err(e) = &parsed {
             if !url_text.is_empty() {
-                runtime::stdlib_warning("url", format!("invalid URL {:?}: {}", self.to_string(), e));
+                runtime::stdlib_warning(
+                    "url",
+                    format!("invalid URL {:?}: {}", self.to_string(), e),
+                );
             }
         }
         if let Ok(url) = &parsed {
             // userinfo is percent-encoded in the URL, decode it as MQTT/NATS connections do
-            let decode = |s: &str| urlencoding::decode(s).map(|s| s.into_owned()).unwrap_or_else(|_| s.to_string());
+            let decode = |s: &str| {
+                urlencoding::decode(s)
+                    .map(|s| s.into_owned())
+                    .unwrap_or_else(|_| s.to_string())
+            };
             if url.scheme() != "" {
                 map.insert(Str::from("schema"), Str::from(url.scheme().to_string()));
             }
@@ -603,7 +614,13 @@ impl<'a> Str<'a> {
     pub fn trim<'b>(&self, pat: &Str<'b>) -> Str<'b> {
         let pat = pat.as_str();
         let chars: Vec<char> = pat.chars().collect();
-        let matches = |c: char| if pat == " " { c.is_whitespace() } else { chars.contains(&c) };
+        let matches = |c: char| {
+            if pat == " " {
+                c.is_whitespace()
+            } else {
+                chars.contains(&c)
+            }
+        };
         self.with_bytes(|bs| {
             let mut start = 0;
             while start < bs.len() {
@@ -644,8 +661,8 @@ impl<'a> Str<'a> {
         let mut i: i64 = 1;
         for line in src.lines() {
             if !line.trim().is_empty() {
-              map.insert(i, Str::from_text(line));
-              i = i + 1;
+                map.insert(i, Str::from_text(line));
+                i = i + 1;
             }
         }
         map
@@ -854,11 +871,21 @@ impl<'a> Str<'a> {
     pub fn mask<'b>(&self) -> Str<'b> {
         let src = self.as_text();
         let src_len = src.chars().count();
-        let keep = if src_len <= 4 { 0 } else { (src_len / 4).min(3) };
+        let keep = if src_len <= 4 {
+            0
+        } else {
+            (src_len / 4).min(3)
+        };
         let result: String = src
             .chars()
             .enumerate()
-            .map(|(i, c)| if i < keep || i >= src_len - keep { c } else { '*' })
+            .map(|(i, c)| {
+                if i < keep || i >= src_len - keep {
+                    c
+                } else {
+                    '*'
+                }
+            })
             .collect();
         Str::from_text(result)
     }
@@ -867,7 +894,11 @@ impl<'a> Str<'a> {
     /// [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) bytes is an error.
     pub fn repeat<'b>(&self, n: Int) -> crate::common::Result<Str<'b>> {
         let n = n.max(0);
-        crate::runtime::check_result_len("repeat", "result length", self.bytes_len() as Float * n as Float)?;
+        crate::runtime::check_result_len(
+            "repeat",
+            "result length",
+            self.bytes_len() as Float * n as Float,
+        )?;
         Ok(self.with_bytes(|bs| Buf::read_from_bytes(&bs.repeat(n as usize)).into_str()))
     }
 
@@ -897,7 +928,9 @@ impl<'a> Str<'a> {
         let text = self.sub_str(0, keep);
         text.with_bytes(|head| match suffix {
             None => Buf::read_from_bytes(head).into_str(),
-            Some(ph) => ph.with_bytes(|tail| Buf::read_from_bytes(&[head, tail].concat()).into_str()),
+            Some(ph) => {
+                ph.with_bytes(|tail| Buf::read_from_bytes(&[head, tail].concat()).into_str())
+            }
         })
     }
 
@@ -955,7 +988,11 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub(crate) fn subst_first(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> (Str<'a>, bool) {
+    pub(crate) fn subst_first(
+        &self,
+        pat: &(impl Search + ?Sized),
+        subst: &Str<'a>,
+    ) -> (Str<'a>, bool) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 if let Some((start, end)) = super::awk_regex::find_at(pat, s, 0) {
@@ -971,7 +1008,11 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub(crate) fn subst_all(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>) -> (Str<'a>, Int) {
+    pub(crate) fn subst_all(
+        &self,
+        pat: &(impl Search + ?Sized),
+        subst: &Str<'a>,
+    ) -> (Str<'a>, Int) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 let mut buf = DynamicBuf::default();
@@ -1000,7 +1041,12 @@ impl<'a> Str<'a> {
         })
     }
 
-    pub(crate) fn gen_subst_dynamic(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>, how: &Str<'a>) -> Str<'a> {
+    pub(crate) fn gen_subst_dynamic(
+        &self,
+        pat: &(impl Search + ?Sized),
+        subst: &Str<'a>,
+        how: &Str<'a>,
+    ) -> Str<'a> {
         how.with_bytes(|how| {
             if !how.is_empty() && matches!(how[0], b'g' | b'G') {
                 self.gen_subst_all(pat, subst)
@@ -1011,7 +1057,10 @@ impl<'a> Str<'a> {
                 if !(which >= 1.0) {
                     super::stdlib_notice(
                         "gensub",
-                        format!("third argument `{}' treated as 1", String::from_utf8_lossy(how)),
+                        format!(
+                            "third argument `{}' treated as 1",
+                            String::from_utf8_lossy(how)
+                        ),
                     );
                 }
                 let which = if which >= 1.0 { which as Int } else { 1 };
@@ -1054,7 +1103,12 @@ impl<'a> Str<'a> {
 
     /// Handle the general substitution for a case of integer value in "how"
     /// Will replace match number `which` (indexed from 1)
-    pub(crate) fn gen_subst_n(&self, pat: &(impl Search + ?Sized), subst: &Str<'a>, which: Int) -> Str<'a> {
+    pub(crate) fn gen_subst_n(
+        &self,
+        pat: &(impl Search + ?Sized),
+        subst: &Str<'a>,
+        which: Int,
+    ) -> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 // Match against the whole string (not a suffix) so that anchors and word
@@ -1113,7 +1167,10 @@ impl<'a> Str<'a> {
                 return None;
             }
             let cached = CHAR_CURSOR.with(|cursor| {
-                cursor.borrow().as_ref().and_then(|c| c.chars.map(|n| (c.ptr, c.len, n)))
+                cursor
+                    .borrow()
+                    .as_ref()
+                    .and_then(|c| c.chars.map(|n| (c.ptr, c.len, n)))
             });
             let mut total = 0;
             let mut todo = SmallVec::<[*const Str<'a>; 16]>::new();
@@ -1124,7 +1181,10 @@ impl<'a> Str<'a> {
                 let rep = s.rep_mut();
                 if rep.get_tag() == StrTag::Concat {
                     let (l, r) = rep.view_as(|c: &Concat<'a>| {
-                        (&c.inner.left as *const Str<'a>, &c.inner.right as *const Str<'a>)
+                        (
+                            &c.inner.left as *const Str<'a>,
+                            &c.inner.right as *const Str<'a>,
+                        )
                     });
                     todo.push(r);
                     todo.push(l);
@@ -1197,7 +1257,11 @@ impl<'a> Str<'a> {
         // A concatenation is a string, never the uninitialized value.
         if left.is_empty() {
             mem::forget(left);
-            return if right.is_uninit() { Str::default() } else { right };
+            return if right.is_uninit() {
+                Str::default()
+            } else {
+                right
+            };
         }
         if right.is_empty() {
             mem::forget(right);
@@ -1236,7 +1300,9 @@ impl<'a> Str<'a> {
             return Str::default();
         }
         if total > MAX_FLAT_LEN {
-            return pieces.iter().fold(Str::default(), |acc, p| Str::concat(acc, (*p).clone()));
+            return pieces
+                .iter()
+                .fold(Str::default(), |acc, p| Str::concat(acc, (*p).clone()));
         }
         let mut nonempty = pieces.iter().filter(|p| !p.is_empty());
         if let (Some(only), None) = (nonempty.next(), nonempty.next()) {
@@ -1292,7 +1358,7 @@ impl<'a> Str<'a> {
                     end,
                     buf: s.buf.clone(),
                 }
-                    .into()
+                .into()
             }),
             StrTag::Boxed => rep.view_as(|b: &Boxed| {
                 Shared {
@@ -1300,7 +1366,7 @@ impl<'a> Str<'a> {
                     end: to as u32,
                     buf: b.buf.clone(),
                 }
-                    .into()
+                .into()
             }),
             StrTag::Literal => rep.view_as(|l: &Literal| {
                 let new_ptr = l.ptr.add(from);
@@ -1310,7 +1376,7 @@ impl<'a> Str<'a> {
                     ptr: new_ptr,
                     _marker: PhantomData,
                 }
-                    .into()
+                .into()
             }),
             StrTag::Inline | StrTag::Concat => unreachable!(),
         };
@@ -1364,7 +1430,7 @@ impl<'a> Str<'a> {
                     len: new_len as u64,
                     buf,
                 }
-                    .into()
+                .into()
             }));
         }
 
@@ -1477,7 +1543,7 @@ impl<'a> Str<'a> {
                     len: len as u64,
                     buf: res.into_buf(),
                 }
-                    .into();
+                .into();
             };
         };
         *self.rep_mut() = new_rep;
@@ -1523,7 +1589,10 @@ impl<'a> Str<'a> {
                 let rep = s.rep_mut();
                 if rep.get_tag() == StrTag::Concat {
                     let (l, r) = rep.view_as(|c: &Concat<'a>| {
-                        (&c.inner.left as *const Str<'a>, &c.inner.right as *const Str<'a>)
+                        (
+                            &c.inner.left as *const Str<'a>,
+                            &c.inner.right as *const Str<'a>,
+                        )
                     });
                     todo.push(r);
                     todo.push(l);
@@ -1658,7 +1727,9 @@ fn title_words(text: &str) -> Vec<&str> {
     let mut chars = text.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
         let in_word = c.is_alphanumeric()
-            || (is_apostrophe(c) && start.is_some() && chars.peek().is_some_and(|&(_, n)| n.is_alphanumeric()));
+            || (is_apostrophe(c)
+                && start.is_some()
+                && chars.peek().is_some_and(|&(_, n)| n.is_alphanumeric()));
         if in_word {
             start.get_or_insert(i);
         } else if let Some(s) = start.take() {
@@ -1816,9 +1887,7 @@ impl<'a> From<Float> for Str<'a> {
 impl<'a> Str<'a> {
     /// A number as written by `print`, which uses OFMT rather than CONVFMT.
     pub fn from_float_output(f: Float) -> Str<'a> {
-        crate::runtime::numfmt::with_number_bytes(f, true, |bs| {
-            Buf::read_from_bytes(bs).into_str()
-        })
+        crate::runtime::numfmt::with_number_bytes(f, true, |bs| Buf::read_from_bytes(bs).into_str())
     }
 }
 
@@ -2042,7 +2111,7 @@ impl UniqueBuf {
             size + mem::size_of::<BufHeader>(),
             mem::align_of::<BufHeader>(),
         )
-            .unwrap()
+        .unwrap()
     }
     pub fn new(size: usize) -> UniqueBuf {
         let layout = UniqueBuf::layout(size);
@@ -2083,7 +2152,7 @@ impl Buf {
                 len: self.len() as u64,
                 buf: self,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -2138,7 +2207,7 @@ impl Buf {
                     start: from as u32,
                     end: to as u32,
                 }
-                    .into(),
+                .into(),
             )
         } else {
             self.clone().into_str().slice(from, to)
@@ -2176,7 +2245,10 @@ struct CharBoundary<'s> {
 
 impl<'s> CharBoundary<'s> {
     fn new(s: &'s [u8]) -> Self {
-        CharBoundary { s, valid_utf8: None }
+        CharBoundary {
+            s,
+            valid_utf8: None,
+        }
     }
 
     fn splits_char(&mut self, start: usize, end: usize) -> bool {
@@ -2236,7 +2308,12 @@ fn process_match(matched: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result
 }
 
 /// Helper function for `subst_gen` function; handles the syntax for &, \0, \1, etc...
-fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result<()> {
+fn process_match_gen(
+    matched: &Groups,
+    hay: &[u8],
+    subst: &[u8],
+    w: &mut impl Write,
+) -> io::Result<()> {
     let mut start = 0;
     let mut escaped = false;
     for (i, b) in subst.iter().cloned().enumerate() {
@@ -2252,7 +2329,11 @@ fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Wr
                     } else if n >= matched.len() {
                         runtime::stdlib_notice(
                             "gensub",
-                            format!("\\{} refers to a nonexistent group, the regex has {}", n, matched.len() - 1),
+                            format!(
+                                "\\{} refers to a nonexistent group, the regex has {}",
+                                n,
+                                matched.len() - 1
+                            ),
                         );
                     }
                 } else {
@@ -2291,8 +2372,8 @@ fn process_match_gen(matched: &Groups, hay: &[u8], subst: &[u8], w: &mut impl Wr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use regex::bytes::Regex;
     use crate::runtime::awk_regex::AwkRegex;
+    use regex::bytes::Regex;
 
     #[test]
     fn test_url_decodes_userinfo() {
@@ -2318,7 +2399,10 @@ mod tests {
             let s = Str::from(bs);
             let text = s.as_text();
             assert_eq!(text.chars().filter(|&c| c == '\u{FFFD}').count(), 0);
-            assert_eq!(Str::from_text(text.into_owned()).with_bytes(|out| out.to_vec()), bs);
+            assert_eq!(
+                Str::from_text(text.into_owned()).with_bytes(|out| out.to_vec()),
+                bs
+            );
         }
         assert!(matches!(Str::from("café").as_text(), Cow::Borrowed(_)));
     }
@@ -2357,7 +2441,10 @@ mod tests {
             s = Str::concat(s, "é".into());
             assert_eq!(s.len(), 600 + i);
         }
-        let s = Str::concat(Str::concat("ab".into(), "é".repeat(700).into()), "你好".into());
+        let s = Str::concat(
+            Str::concat("ab".into(), "é".repeat(700).into()),
+            "你好".into(),
+        );
         assert_eq!(s.len(), 704);
         // A truncated char completed by the next piece is one char, not two invalid sequences.
         let s = Str::concat(bytes(&[b'x'; 20]), bytes(b"\xc3"));
@@ -2371,13 +2458,18 @@ mod tests {
     #[test]
     fn non_utf8_stdlib_keeps_bytes() {
         let s: Str = Buf::read_from_bytes(b" \t\xe3\x80\x80ab\xffcd \n").into_str();
-        s.trim(&" ".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
+        s.trim(&" ".into())
+            .with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
         let s: Str = Buf::read_from_bytes(b"xxab\xffxx").into_str();
-        s.trim(&"x".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
+        s.trim(&"x".into())
+            .with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
         let s: Str = Buf::read_from_bytes(b"ab\xffcd").into_str();
-        s.truncate(3, &"...".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
-        s.truncate(4, &"..".into()).with_bytes(|bs| assert_eq!(bs, b"ab.."));
-        s.truncate(9, &"..".into()).with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
+        s.truncate(3, &"...".into())
+            .with_bytes(|bs| assert_eq!(bs, b"ab\xff"));
+        s.truncate(4, &"..".into())
+            .with_bytes(|bs| assert_eq!(bs, b"ab.."));
+        s.truncate(9, &"..".into())
+            .with_bytes(|bs| assert_eq!(bs, b"ab\xffcd"));
         let cjk: Str = "你好世界".into();
         assert_eq!(cjk.truncate(3, &"…".into()).as_str(), "你好…");
         assert_eq!(s.to_string(), "ab\u{FFFD}cd");
@@ -2389,10 +2481,24 @@ mod tests {
         let bytes: &[u8] = b"a\xff\xfeb\xe4\xb8\xad\xe6\x96\x87\xe4\xb8";
         let s: Str = Buf::read_from_bytes(bytes).into_str();
         assert_eq!(s.len(), 7);
-        let chars: Vec<&[u8]> = vec![b"a", b"\xff", b"\xfe", b"b", "中".as_bytes(), "文".as_bytes(), b"\xe4\xb8"];
+        let chars: Vec<&[u8]> = vec![
+            b"a",
+            b"\xff",
+            b"\xfe",
+            b"b",
+            "中".as_bytes(),
+            "文".as_bytes(),
+            b"\xe4\xb8",
+        ];
         let check = |l: usize, r: usize| {
-            let want: Vec<u8> = chars.iter().skip(l).take(r).flat_map(|c| c.iter().copied()).collect();
-            s.sub_str(l, r).with_bytes(|bs| assert_eq!(bs, &want[..], "sub_str({l}, {r})"));
+            let want: Vec<u8> = chars
+                .iter()
+                .skip(l)
+                .take(r)
+                .flat_map(|c| c.iter().copied())
+                .collect();
+            s.sub_str(l, r)
+                .with_bytes(|bs| assert_eq!(bs, &want[..], "sub_str({l}, {r})"));
         };
         // forward, backward and random access exercise the cached cursor
         for l in 0..9 {
@@ -2432,7 +2538,11 @@ mod tests {
             assert_eq!(n, char_count(&bytes[..x]), "offset {x}");
             if i % 97 == 0 {
                 let l = (i * 7) % (total + 2);
-                let want = String::from_utf8_lossy(&bytes).chars().skip(l).take(3).count();
+                let want = String::from_utf8_lossy(&bytes)
+                    .chars()
+                    .skip(l)
+                    .take(3)
+                    .count();
                 assert_eq!(s.sub_str(l, 3).len(), want, "sub_str({l}, 3)");
             }
         }
@@ -2541,7 +2651,7 @@ mod tests {
             &mut d,
             "This is the first part of the string with formatting and everything!"
         )
-            .unwrap();
+        .unwrap();
         write!(&mut d, "And this is the second part").unwrap();
         let s = d.into_str();
         s.with_bytes(|bs| {
@@ -2642,7 +2752,7 @@ mod bench {
     extern crate test;
 
     use super::*;
-    use test::{black_box, Bencher};
+    use test::{Bencher, black_box};
 
     fn bench_max_min(b: &mut Bencher, min: i64, max: i64) {
         use rand::RngExt;
@@ -2790,7 +2900,8 @@ mod formatting {
     }
 }
 
-static CHARACTERS_AS_BYTES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CHARACTERS_AS_BYTES: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// `-b`/`--characters-as-bytes`, as in gawk: `length()`, `substr()`, `index()`, `match()` and
 /// printf widths/precisions count bytes instead of chars.

@@ -21,16 +21,16 @@ use cranelift::prelude::*;
 use cranelift_codegen::entity::SecondaryMap;
 use cranelift_codegen::ir::StackSlot;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use hashbrown::HashMap;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::builtins;
 use crate::bytecode::Accum;
 use crate::codegen::{
-    intrinsics, Backend, CodeGenerator, Config, Handles, Jit, Op, Ref, Sig, StrReg,
+    Backend, CodeGenerator, Config, Handles, Jit, Op, Ref, Sig, StrReg, intrinsics,
 };
-use crate::common::{traverse, CompileError, Either, FileSpec, NodeIx, NumTy, Result, Stage};
+use crate::common::{CompileError, Either, FileSpec, NodeIx, NumTy, Result, Stage, traverse};
 use crate::compile::{self, Typer};
 use crate::runtime::{self, UniqueStr};
 
@@ -575,7 +575,7 @@ macro_rules! external {
 impl<'a> View<'a> {
     fn stack_slot_bytes(&mut self, bytes: u32) -> StackSlot {
         debug_assert!(bytes > 0); // This signals a bug; all frawk types have positive size.
-        let data = StackSlotData::new(StackSlotKind::ExplicitSlot, bytes,0);
+        let data = StackSlotData::new(StackSlotKind::ExplicitSlot, bytes, 0);
         self.builder.create_sized_stack_slot(data)
     }
 
@@ -680,11 +680,7 @@ impl<'a> View<'a> {
                     for inst in &nodes[next.index()].weight.insts {
                         if let Either::Right(compile::HighLevel::Phi(dst_reg, ty, preds)) = inst {
                             for src_reg in preds.iter().filter_map(|(bb, reg)| {
-                                if bb.index() == i {
-                                    Some(*reg)
-                                } else {
-                                    None
-                                }
+                                if bb.index() == i { Some(*reg) } else { None }
                             }) {
                                 self.mov_inner(*ty, *dst_reg, src_reg, /*skip_drop=*/ false)?;
                             }
@@ -912,7 +908,10 @@ impl<'a> View<'a> {
                 }
                 if let compile::Ty::Str = ty {
                     let str_ty = self.get_ty(*ty);
-                    v = self.builder.ins().load(str_ty, MemFlagsData::trusted(), v, 0);
+                    v = self
+                        .builder
+                        .ins()
+                        .load(str_ty, MemFlagsData::trusted(), v, 0);
                 }
                 self.drop_all();
                 self.builder.ins().return_(&[v]);
@@ -972,7 +971,9 @@ impl<'a> View<'a> {
         let ptr_ty = self.ptr_to(str_ty);
         // We get an error if we do a direct stack_store here
         let addr = self.builder.ins().stack_addr(ptr_ty, ss, 0);
-        self.builder.ins().store(MemFlagsData::trusted(), v, addr, 0);
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), v, addr, 0);
     }
 
     /// Read the current value of a variable. For local strings this is the (constant) address of
@@ -987,7 +988,9 @@ impl<'a> View<'a> {
         } else if let Some(offset) = self.f.global_offsets[var] {
             let ptr_ty = self.void_ptr_ty();
             let slot = self.f.globals_slot.unwrap();
-            self.builder.ins().stack_load(ptr_ty, ptr_ty, slot, offset as i32)
+            self.builder
+                .ins()
+                .stack_load(ptr_ty, ptr_ty, slot, offset as i32)
         } else {
             self.builder.use_var(var)
         }
@@ -1211,7 +1214,9 @@ impl<'a> View<'a> {
                 (b, true)
             }
         };
-        self.builder.ins().brif(cond, fail_block, &[], cont_block, &[]);
+        self.builder
+            .ins()
+            .brif(cond, fail_block, &[], cont_block, &[]);
         if is_new {
             // The block is left unsealed so that later checks can branch to it; it reads no
             // variables, so sealing it at the end of the function costs nothing.
@@ -1308,12 +1313,18 @@ impl<'a> View<'a> {
                 } else {
                     self.builder.ins().ushr(args[0], args[1])
                 };
-                let in_range = self.builder.ins().icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
+                let in_range = self
+                    .builder
+                    .ins()
+                    .icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
                 let zero = self.builder.ins().iconst(types::I64, 0);
                 self.builder.ins().select(in_range, shifted, zero)
             }
             ArithmeticRightShift => {
-                let in_range = self.builder.ins().icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
+                let in_range = self
+                    .builder
+                    .ins()
+                    .icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
                 let max = self.builder.ins().iconst(types::I64, 63);
                 let count = self.builder.ins().select(in_range, args[1], max);
                 self.builder.ins().sshr(args[0], count)
@@ -1399,9 +1410,12 @@ impl<'a> View<'a> {
             self.builder
                 .ins()
                 .stack_store(void_ptr_ty, arg, arg_slot, ix * slot_size);
-            self.builder
-                .ins()
-                .stack_store(void_ptr_ty, ty, type_slot, ix * mem::size_of::<u32>() as i32);
+            self.builder.ins().stack_store(
+                void_ptr_ty,
+                ty,
+                type_slot,
+                ix * mem::size_of::<u32>() as i32,
+            );
         }
         let num_args = self.const_int(len as _);
         Ok((arg_slot, type_slot, num_args))
@@ -1447,10 +1461,10 @@ impl<'a> View<'a> {
                 if let VarKind::Global = kind {
                     // Drop the value currently in the pointer
                     let p = self.var_val(var);
-                    let pointee = self
-                        .builder
-                        .ins()
-                        .load(types::I64, MemFlagsData::trusted(), p, 0);
+                    let pointee =
+                        self.builder
+                            .ins()
+                            .load(types::I64, MemFlagsData::trusted(), p, 0);
                     self.drop_val(r.1, pointee);
 
                     // And slot the new value in
@@ -1481,7 +1495,10 @@ impl<'a> View<'a> {
             Str => {
                 self.call_external_void(external!(ref_str), &[src]);
                 let str_ty = self.get_ty(Str);
-                let loaded = self.builder.ins().load(str_ty, MemFlagsData::trusted(), src, 0);
+                let loaded = self
+                    .builder
+                    .ins()
+                    .load(str_ty, MemFlagsData::trusted(), src, 0);
                 self.bind_val_inner((dst, Str), loaded, skip_drop)?;
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
@@ -1590,7 +1607,9 @@ impl<'a> Backend for View<'a> {
             .shared
             .module
             .declare_function(name, Linkage::Import, cl_sig)
-            .map_err(|e| CompileError::new(format!("error declaring {} in module: {}", name, e,)))?;
+            .map_err(|e| {
+                CompileError::new(format!("error declaring {} in module: {}", name, e,))
+            })?;
         self.shared.external_funcs.insert(addr, id);
         Ok(())
     }
@@ -1720,13 +1739,7 @@ impl<'a> CodeGenerator for View<'a> {
         Ok(())
     }
 
-    fn sprintf(
-        &mut self,
-        dst: &StrReg,
-        fmt: &StrReg,
-        args: &[Ref],
-        strnum: &[bool],
-    ) -> Result<()> {
+    fn sprintf(&mut self, dst: &StrReg, fmt: &StrReg, args: &[Ref], strnum: &[bool]) -> Result<()> {
         let (arg_slot, type_slot, num_args) = self.bundle_printf_args(args, strnum)?;
 
         let rt = self.runtime_val();
@@ -1781,7 +1794,7 @@ impl<'a> CodeGenerator for View<'a> {
             MapStrStr => (external!(len_strstr), external!(iter_strstr)),
             MapStrFloat => (external!(len_strfloat), external!(iter_strfloat)),
             IterInt | IterStr | Int | Float | Str | Null => {
-                return err!("iterating over non-map type: {:?}", map.1)
+                return err!("iterating over non-map type: {:?}", map.1);
             }
         };
         let key_ty = self.get_ty(dst.1.iter()?);

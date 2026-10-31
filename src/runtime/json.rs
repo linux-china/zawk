@@ -1,18 +1,20 @@
+use crate::runtime::str_escape::escape_json;
+use crate::runtime::{CostModel, Float, Int, IntMap, Str, StrLru, StrMap, stdlib_warning};
+use miniserde::json;
+use miniserde::json::Value;
+use serde_json_path::JsonPath;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex};
-use miniserde::json;
-use miniserde::json::{Value};
-use serde_json_path::JsonPath;
-use crate::runtime::{stdlib_warning, CostModel, Int, Str, StrLru, StrMap, IntMap, Float};
-use crate::runtime::str_escape::escape_json;
-
 
 /// Encode int-keyed entries: a JSON array when the keys are exactly `1..n` (or empty),
 /// otherwise a JSON object with keys in numeric order, so `from_json` keeps the keys.
 fn int_entries_to_json<T: miniserde::Serialize>(mut entries: Vec<(Int, T)>) -> String {
     entries.sort_by_key(|(key, _)| *key);
-    let is_list = entries.iter().enumerate().all(|(i, (key, _))| *key == i as Int + 1);
+    let is_list = entries
+        .iter()
+        .enumerate()
+        .all(|(i, (key, _))| *key == i as Int + 1);
     if is_list {
         let items: Vec<T> = entries.into_iter().map(|(_, value)| value).collect();
         return json::to_string(&items);
@@ -98,7 +100,13 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
         return StrMap::from(map);
     }
     let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(new_json_text) else {
-        stdlib_warning("from_json", format!("not a JSON object or array: {:?}", json_snippet(new_json_text)));
+        stdlib_warning(
+            "from_json",
+            format!(
+                "not a JSON object or array: {:?}",
+                json_snippet(new_json_text)
+            ),
+        );
         return StrMap::from(map);
     };
     for (key, value) in json_obj {
@@ -136,7 +144,9 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
 /// Empty, invalid (with a warning) or scalar JSON text gives an empty array.
 pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     let map = StrMap::default();
-    if let Some(json @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) = parse_json("json_flatten", json_text) {
+    if let Some(json @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) =
+        parse_json("json_flatten", json_text)
+    {
         flatten_json_value(&json, &mut String::new(), &map);
     }
     map
@@ -188,7 +198,10 @@ fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
         return StrMap::from(map);
     }
     let Ok(json_array) = json::from_str::<Vec<Value>>(json_text) else {
-        stdlib_warning("from_json", format!("invalid JSON array: {:?}", json_snippet(json_text)));
+        stdlib_warning(
+            "from_json",
+            format!("invalid JSON array: {:?}", json_snippet(json_text)),
+        );
         return StrMap::from(map);
     };
     for (index, json_value) in json_array.iter().enumerate() {
@@ -231,9 +244,14 @@ const JSON_PATH_COST: CostModel = CostModel {
     per_byte: 32,
 };
 
-static JSON_PATHS: LazyLock<Mutex<StrLru<JsonPath>>> = LazyLock::new(|| Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST)));
+static JSON_PATHS: LazyLock<Mutex<StrLru<JsonPath>>> =
+    LazyLock::new(|| Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST)));
 
-fn compiled_json_path<'p>(pool: &'p mut StrLru<JsonPath>, func: &str, json_path: &str) -> Option<&'p JsonPath> {
+fn compiled_json_path<'p>(
+    pool: &'p mut StrLru<JsonPath>,
+    func: &str,
+    json_path: &str,
+) -> Option<&'p JsonPath> {
     pool.get_or_try_insert(json_path, || JsonPath::parse(json_path))
         .map_err(|e| stdlib_warning(func, format!("{:?}: {}", json_path, e)))
         .ok()
@@ -257,7 +275,12 @@ fn parse_json(func: &str, json_text: &str) -> Option<serde_json::Value> {
         return None;
     }
     serde_json::from_str::<serde_json::Value>(text)
-        .map_err(|e| stdlib_warning(func, format!("invalid JSON {:?}: {}", json_snippet(text), e)))
+        .map_err(|e| {
+            stdlib_warning(
+                func,
+                format!("invalid JSON {:?}: {}", json_snippet(text), e),
+            )
+        })
         .ok()
 }
 
@@ -269,7 +292,11 @@ pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
     let Some(json_path) = compiled_json_path(&mut pool, "json_value", json_path) else {
         return "".to_owned();
     };
-    json_path.query(&json).first().map(|node| json_node_text(node)).unwrap_or_default()
+    json_path
+        .query(&json)
+        .first()
+        .map(|node| json_node_text(node))
+        .unwrap_or_default()
 }
 
 pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
@@ -298,14 +325,20 @@ fn json_object(func: &str, json_text: &str) -> Option<serde_json::Map<String, se
 
 /// Top-level JSON object of the text to modify; `Err` with the text to return unchanged when it
 /// is invalid JSON or not an object, both reported with a warning. Empty text is a new object.
-fn json_object_to_modify(func: &str, json_text: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+fn json_object_to_modify(
+    func: &str,
+    json_text: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     if json_text.trim().is_empty() {
         return Ok(serde_json::Map::new());
     }
     match parse_json(func, json_text) {
         Some(serde_json::Value::Object(obj)) => Ok(obj),
         Some(_) => {
-            stdlib_warning(func, format!("not a JSON object: {:?}", json_snippet(json_text.trim())));
+            stdlib_warning(
+                func,
+                format!("not a JSON object: {:?}", json_snippet(json_text.trim())),
+            );
             Err(json_text.to_owned())
         }
         None => Err(json_text.to_owned()),
@@ -347,7 +380,6 @@ pub(crate) fn json_del(json_text: &str, key: &str) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,9 +407,18 @@ mod tests {
     fn test_int_entries_to_json() {
         assert_eq!(int_entries_to_json::<Int>(vec![]), "[]");
         assert_eq!(int_entries_to_json(vec![(2, 20), (1, 10)]), "[10,20]");
-        assert_eq!(int_entries_to_json(vec![(1, 1), (3, 3)]), r#"{"1":1,"3":3}"#);
-        assert_eq!(int_entries_to_json(vec![(10, 1), (2, 2)]), r#"{"2":2,"10":1}"#);
-        assert_eq!(int_entries_to_json(vec![(0, "a".to_string()), (-1, "b".to_string())]), r#"{"-1":"b","0":"a"}"#);
+        assert_eq!(
+            int_entries_to_json(vec![(1, 1), (3, 3)]),
+            r#"{"1":1,"3":3}"#
+        );
+        assert_eq!(
+            int_entries_to_json(vec![(10, 1), (2, 2)]),
+            r#"{"2":2,"10":1}"#
+        );
+        assert_eq!(
+            int_entries_to_json(vec![(0, "a".to_string()), (-1, "b".to_string())]),
+            r#"{"-1":"b","0":"a"}"#
+        );
     }
 
     #[test]

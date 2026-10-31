@@ -21,16 +21,18 @@ use std::sync::atomic::AtomicUsize;
 use crate::common::{CancelSignal, ExecutionStrategy, Result};
 use crate::pushdown::FieldSet;
 use crate::runtime::{
-    str_impl::{Buf, DynamicBuf, Str, UniqueBuf},
     Int, RegexCache,
+    str_impl::{Buf, DynamicBuf, Str, UniqueBuf},
 };
 
 use super::{
+    DefaultLine, LineReader, ReaderState,
     chunk::{
         self, CancellableChunkProducer, Chunk, ChunkProducer, OffsetChunk, ParallelChunkProducer,
         ShardedChunkProducer,
     },
-    display_name, input_warning, field_from_end_offset, normalize_join_indexes, resolve_negative_col, DefaultLine, LineReader, ReaderState,
+    display_name, field_from_end_offset, input_warning, normalize_join_indexes,
+    resolve_negative_col,
 };
 
 pub struct CSVReader<P> {
@@ -274,7 +276,11 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> CSVReader<P> {
                 Some(n) => format!("{}: record {}", display_name(name), n),
                 None => display_name(name).to_string(),
             };
-            input_warning(&UNTERMINATED, loc, "unterminated quoted field runs to the end of the file");
+            input_warning(
+                &UNTERMINATED,
+                loc,
+                "unterminated quoted field runs to the end of the file",
+            );
         }
         if st != State::Done {
             line.promote();
@@ -411,7 +417,7 @@ impl<'a> super::Line<'a> for Line {
                         "attempt to assign field $(-{}); only {} fields",
                         field_from_end_offset(col),
                         self.fields.len()
-                    )
+                    );
                 }
             }
         } else {
@@ -572,7 +578,8 @@ impl<'a> Stepper<'a> {
     unsafe fn is_blank_line(&self, bs: &[u8], line_start: usize, ix: usize) -> bool {
         self.line.len == 0
             && self.line.fields.is_empty()
-            && (ix == line_start || (ix == line_start + 1 && *bs.get_unchecked(line_start) == b'\r'))
+            && (ix == line_start
+                || (ix == line_start + 1 && *bs.get_unchecked(line_start) == b'\r'))
     }
 
     fn get(&mut self, line_start: usize, j: usize, cur: usize) -> usize {
@@ -1064,13 +1071,16 @@ pub fn escape_csv<'a>(s: &Str<'a>) -> Str<'a> {
 /// Escape a field for `-o tsv`: a backslash, tab, newline or carriage return becomes `\\`, `\t`,
 /// `\n` or `\r`, the escapes that `-i tsv` reverses. The `--null` text is written as `\N`.
 pub fn escape_tsv<'a>(s: &Str<'a>) -> Str<'a> {
+    use crate::runtime::str_escape::{TSV_NULL, is_null};
     use std::io::Write;
-    use crate::runtime::str_escape::{is_null, TSV_NULL};
     s.with_bytes(|bs| {
         if is_null(bs) {
             return Str::from(TSV_NULL);
         }
-        let escapes = bs.iter().filter(|b| matches!(b, b'\\' | b'\t' | b'\n' | b'\r')).count();
+        let escapes = bs
+            .iter()
+            .filter(|b| matches!(b, b'\\' | b'\t' | b'\n' | b'\r'))
+            .count();
         if escapes == 0 {
             return s.clone();
         }
@@ -1107,7 +1117,12 @@ mod escape_tests {
             ("", ""),
         ];
         for (input, expected) in cases {
-            assert_eq!(escape_csv(&Str::from(input)), Str::from(expected), "input: {:?}", input);
+            assert_eq!(
+                escape_csv(&Str::from(input)),
+                Str::from(expected),
+                "input: {:?}",
+                input
+            );
         }
     }
 
@@ -1608,7 +1623,7 @@ mod generic {
 
 #[cfg(target_arch = "x86_64")]
 mod sse2 {
-    use super::generic::{default_x86_find_quote_mask, Vector};
+    use super::generic::{Vector, default_x86_find_quote_mask};
     // This is in a large part based on geofflangdale/simdcsv, which is an adaptation of some of
     // the techniques from the simdjson paper (by that paper's authors, it appears) to CSV parsing.
     use std::arch::x86_64::*;
@@ -1670,7 +1685,7 @@ mod sse2 {
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use super::generic::{default_x86_find_quote_mask, Vector};
+    use super::generic::{Vector, default_x86_find_quote_mask};
     // This is in a large part based on geofflangdale/simdcsv, which is an adaptation of some of
     // the techniques from the simdjson paper (by that paper's authors, it appears) to CSV parsing.
     use std::arch::x86_64::*;
@@ -2400,9 +2415,8 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             want_prev = (naive as i64).wrapping_shr(63) as u64;
 
             let mut got_prev = prev;
-            let (in_quotes, quotes) = unsafe {
-                generic::Impl::fill_input(buf.as_ptr()).find_quote_mask(&mut got_prev)
-            };
+            let (in_quotes, quotes) =
+                unsafe { generic::Impl::fill_input(buf.as_ptr()).find_quote_mask(&mut got_prev) };
             assert_eq!(quotes, quote_mask);
             assert_eq!(in_quotes, naive, "buf={:?} prev={prev:#x}", buf);
             assert_eq!(got_prev, want_prev);
@@ -2413,7 +2427,10 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         let mut _cache = RegexCache::default();
         let _pat = Str::default();
         let mut reader = CSVReader::new(
-            iter::once((std::io::Cursor::new(corpus.to_string()), String::from("fake-stdin"))),
+            iter::once((
+                std::io::Cursor::new(corpus.to_string()),
+                String::from("fake-stdin"),
+            )),
             InputFormat::CSV,
             chunk_size,
             /*check_utf8=*/ true,
@@ -2450,13 +2467,25 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             ("a\"\"b,c\n", &[&["a\"\"b", "c"]]),
             ("\"ab\"cd\",e\n", &[&["ab\"cd", "e"]]),
             ("\"{\\\"a\\\":1}\",x\n", &[&["{\\\"a\\\":1}", "x"]]),
-            ("\"a\"\"b\",\"\"\r\nx\"y,\"z\"\n", &[&["a\"b", ""], &["x\"y", "z"]]),
+            (
+                "\"a\"\"b\",\"\"\r\nx\"y,\"z\"\n",
+                &[&["a\"b", ""], &["x\"y", "z"]],
+            ),
             ("\"a\nb\",c\"\nd,\"e\"", &[&["a\nb", "c\""], &["d", "e"]]),
             // After a literal quote, a newline outside quotes (by parity) ends the record.
-            ("\"a\"b,c\nnext,line\nthird,x\n", &[&["a\"b,c"], &["next", "line"], &["third", "x"]]),
+            (
+                "\"a\"b,c\nnext,line\nthird,x\n",
+                &[&["a\"b,c"], &["next", "line"], &["third", "x"]],
+            ),
             ("\"a\"b\r\nx,y\n", &[&["a\"b"], &["x", "y"]]),
-            ("\"a\"b \"x\ny\" z\nq,r\n", &[&["a\"b \"x\ny\" z"], &["q", "r"]]),
-            ("\"a\"b,\"c\",d\r\nlast,1\n", &[&["a\"b,\"c", "d"], &["last", "1"]]),
+            (
+                "\"a\"b \"x\ny\" z\nq,r\n",
+                &[&["a\"b \"x\ny\" z"], &["q", "r"]],
+            ),
+            (
+                "\"a\"b,\"c\",d\r\nlast,1\n",
+                &[&["a\"b,\"c", "d"], &["last", "1"]],
+            ),
         ];
         for (input, expected) in cases {
             let expected: Vec<Vec<String>> = expected
@@ -2480,7 +2509,13 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         let got = csv_read_all(&corpus, 1024);
         assert_eq!(got.len(), 1000);
         for pair in got.chunks(2) {
-            assert_eq!(pair, [vec!["a\"b,c".to_string()], vec!["x".to_string(), "y".to_string()]]);
+            assert_eq!(
+                pair,
+                [
+                    vec!["a\"b,c".to_string()],
+                    vec!["x".to_string(), "y".to_string()]
+                ]
+            );
         }
     }
 

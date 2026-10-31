@@ -1,12 +1,12 @@
-use std::sync::LazyLock;
-use std::time::Duration;
-use rusqlite::{params_from_iter, Connection};
-use rusqlite::types::{Value};
-use crate::runtime::{stdlib_warning, Int, IntMap, Str};
 use crate::runtime::conn_pool::ConnSlots;
 use crate::runtime::csv::vec_to_csv;
-use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::numfmt::float_to_text;
+use crate::runtime::str_escape::{is_null, null_input};
+use crate::runtime::{Int, IntMap, Str, stdlib_warning};
+use rusqlite::types::Value;
+use rusqlite::{Connection, params_from_iter};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnSlots::new);
 
@@ -15,7 +15,9 @@ static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnS
 const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Opens `db_path` with a busy timeout, so concurrent writers wait instead of failing at once.
-pub(crate) fn open_connection<P: AsRef<std::path::Path>>(db_path: P) -> rusqlite::Result<Connection> {
+pub(crate) fn open_connection<P: AsRef<std::path::Path>>(
+    db_path: P,
+) -> rusqlite::Result<Connection> {
     let conn = Connection::open(db_path)?;
     conn.busy_timeout(SQLITE_BUSY_TIMEOUT)?;
     Ok(conn)
@@ -48,7 +50,10 @@ fn sqlite_param(text: &str) -> Value {
 }
 
 fn sqlite_params(params: &IntMap<Str>) -> Vec<Value> {
-    positional_params(params).iter().map(|s| sqlite_param(s)).collect()
+    positional_params(params)
+        .iter()
+        .map(|s| sqlite_param(s))
+        .collect()
 }
 
 pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
@@ -59,11 +64,25 @@ pub(crate) fn sqlite_query<'a>(db_path: &str, sql: &str, params: &IntMap<Str>) -
     map
 }
 
-fn sqlite_query_into(db_path: &str, sql: &str, params: &[Value], map: &IntMap<Str>) -> rusqlite::Result<()> {
-    SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| query_into(conn, sql, params, map))
+fn sqlite_query_into(
+    db_path: &str,
+    sql: &str,
+    params: &[Value],
+    map: &IntMap<Str>,
+) -> rusqlite::Result<()> {
+    SQLITE_CONNECTIONS.with_conn(
+        db_path,
+        || open_connection(db_path),
+        |conn| query_into(conn, sql, params, map),
+    )
 }
 
-fn query_into(conn: &Connection, sql: &str, params: &[Value], map: &IntMap<Str>) -> rusqlite::Result<()> {
+fn query_into(
+    conn: &Connection,
+    sql: &str,
+    params: &[Value],
+    map: &IntMap<Str>,
+) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare_cached(sql)?;
     let colum_count = stmt.column_count();
     let mut index = 1;
@@ -74,11 +93,11 @@ fn query_into(conn: &Connection, sql: &str, params: &[Value], map: &IntMap<Str>)
         while i < colum_count {
             let value = row.get::<_, Value>(i)?;
             let text_value = match value {
-                Value::Null => { null_input().to_owned() }
-                Value::Integer(num) => { num.to_string() }
-                Value::Real(num) => { float_to_text(num) }
-                Value::Text(text) => { text.to_string() }
-                Value::Blob(_) => { "".to_owned() }
+                Value::Null => null_input().to_owned(),
+                Value::Integer(num) => num.to_string(),
+                Value::Real(num) => float_to_text(num),
+                Value::Text(text) => text.to_string(),
+                Value::Blob(_) => "".to_owned(),
             };
             items.push(text_value);
             i += 1;
@@ -92,9 +111,11 @@ fn query_into(conn: &Connection, sql: &str, params: &[Value], map: &IntMap<Str>)
 
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = sqlite_params(params);
-    let result = SQLITE_CONNECTIONS.with_conn(db_path, || open_connection(db_path), |conn| {
-        conn.execute(sql, params_from_iter(&params))
-    });
+    let result = SQLITE_CONNECTIONS.with_conn(
+        db_path,
+        || open_connection(db_path),
+        |conn| conn.execute(sql, params_from_iter(&params)),
+    );
     match result {
         Ok(n) => n as Int,
         Err(e) => {
@@ -126,17 +147,42 @@ mod tests {
         let sql = "CREATE TABLE IF NOT EXISTS user (nick VARCHAR UNIQUE, email VARCHAR, age INT)";
         assert_eq!(sqlite_execute(db_path, sql, &none), 0);
         let insert = "INSERT INTO user (nick, email, age) VALUES (?, ?, ?)";
-        assert_eq!(sqlite_execute(db_path, insert, &params(&["jackie", "jackie@example.com", "30"])), 1);
-        assert_eq!(sqlite_execute(db_path, insert, &params(&["linux", "linux@example.com", "42"])), 1);
+        assert_eq!(
+            sqlite_execute(
+                db_path,
+                insert,
+                &params(&["jackie", "jackie@example.com", "30"])
+            ),
+            1
+        );
+        assert_eq!(
+            sqlite_execute(
+                db_path,
+                insert,
+                &params(&["linux", "linux@example.com", "42"])
+            ),
+            1
+        );
         // the UNIQUE constraint fails: a warning, no row inserted
-        assert_eq!(sqlite_execute(db_path, insert, &params(&["linux", "dup@example.com", "1"])), 0);
+        assert_eq!(
+            sqlite_execute(db_path, insert, &params(&["linux", "dup@example.com", "1"])),
+            0
+        );
 
-        let rows = sqlite_query(db_path, "SELECT nick, email, age FROM user ORDER BY age", &none);
+        let rows = sqlite_query(
+            db_path,
+            "SELECT nick, email, age FROM user ORDER BY age",
+            &none,
+        );
         assert_eq!(rows.len(), 2);
         assert_eq!(rows.get(&1).to_string(), "jackie,jackie@example.com,30");
         assert_eq!(rows.get(&2).to_string(), "linux,linux@example.com,42");
 
-        let rows = sqlite_query(db_path, "SELECT nick FROM user WHERE age > ?", &params(&["35"]));
+        let rows = sqlite_query(
+            db_path,
+            "SELECT nick FROM user WHERE age > ?",
+            &params(&["35"]),
+        );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows.get(&1).to_string(), "linux");
 
@@ -149,11 +195,17 @@ mod tests {
         assert_eq!(sqlite_param("5"), Value::Integer(5));
         assert_eq!(sqlite_param("-12"), Value::Integer(-12));
         assert_eq!(sqlite_param("1.5"), Value::Real(1.5));
-        for text in ["007", "+5", "5.0", "1e3", ".5", "inf", "nan", "abc", "", " 5"] {
+        for text in [
+            "007", "+5", "5.0", "1e3", ".5", "inf", "nan", "abc", "", " 5",
+        ] {
             assert_eq!(sqlite_param(text), Value::Text(text.to_owned()), "{text}");
         }
 
-        let rows = sqlite_query(":memory:", "SELECT ? > 10, typeof(?1), typeof(?2), ?2 < 2", &params(&["5", "1.5"]));
+        let rows = sqlite_query(
+            ":memory:",
+            "SELECT ? > 10, typeof(?1), typeof(?2), ?2 < 2",
+            &params(&["5", "1.5"]),
+        );
         assert_eq!(rows.get(&1).to_string(), "0,integer,real,1");
         let rows = sqlite_query(":memory:", "SELECT typeof(?)", &params(&["007"]));
         assert_eq!(rows.get(&1).to_string(), "text");
@@ -167,7 +219,9 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
 
         let holder = open_connection(&db_path).unwrap();
-        holder.execute_batch("CREATE TABLE t(v INTEGER); BEGIN IMMEDIATE; INSERT INTO t VALUES (1);").unwrap();
+        holder
+            .execute_batch("CREATE TABLE t(v INTEGER); BEGIN IMMEDIATE; INSERT INTO t VALUES (1);")
+            .unwrap();
         let releaser = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(300));
             holder.execute_batch("COMMIT").unwrap();
@@ -177,7 +231,9 @@ mod tests {
         let writer = open_connection(&db_path).unwrap();
         assert_eq!(writer.execute("INSERT INTO t VALUES (2)", []).unwrap(), 1);
         releaser.join().unwrap();
-        let count: i64 = writer.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).unwrap();
+        let count: i64 = writer
+            .query_row("SELECT count(*) FROM t", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(count, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -6,8 +6,8 @@ use crate::compile::{HighLevel, Ty};
 
 use hashbrown::{HashMap, HashSet};
 use petgraph::{
-    visit::{Dfs, EdgeRef},
     Direction,
+    visit::{Dfs, EdgeRef},
 };
 
 use std::convert::TryFrom;
@@ -137,8 +137,8 @@ pub(crate) enum Key {
 }
 
 impl<T> From<&Reg<T>> for Key
-    where
-        Reg<T>: Accum,
+where
+    Reg<T>: Accum,
 {
     fn from(r: &Reg<T>) -> Key {
         let (reg, ty) = r.reflect();

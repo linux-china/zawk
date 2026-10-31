@@ -12,12 +12,16 @@ use std::process::{Command, Stdio};
 const BACKEND_ARGS: &[&str] = &["-Binterp", "-Bcranelift"];
 
 fn compat_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("compat")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("compat")
 }
 
 fn directive<'a>(program: &'a str, name: &str) -> Option<&'a str> {
     let prefix = format!("# {}: ", name);
-    program.lines().find_map(|line| line.strip_prefix(prefix.as_str()))
+    program
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
 }
 
 /// Known failures: case name => reason.
@@ -37,7 +41,10 @@ fn known_failures(dir: &Path) -> HashMap<String, String> {
 fn run_case(dir: &Path, awk_file: &Path, backend: &str) -> Option<String> {
     let program = fs::read_to_string(awk_file).unwrap();
     let expected = fs::read(awk_file.with_extension("out")).unwrap_or_else(|_| {
-        panic!("missing expected output of {}, run tests/compat/regen.sh", awk_file.display())
+        panic!(
+            "missing expected output of {}, run tests/compat/regen.sh",
+            awk_file.display()
+        )
     });
     let expected_code: i32 = directive(&program, "exit").map_or(0, |code| code.parse().unwrap());
     let split = |name| directive(&program, name).map_or(vec![], |s| s.split_whitespace().collect());
@@ -107,7 +114,10 @@ fn awk_compatibility() {
         }
     }
     for name in known.keys() {
-        errors.push(format!("{}: listed in known_failures.txt but the case does not exist", name));
+        errors.push(format!(
+            "{}: listed in known_failures.txt but the case does not exist",
+            name
+        ));
     }
     assert!(
         errors.is_empty(),

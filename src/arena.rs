@@ -58,7 +58,7 @@ impl Arena {
 mod bench {
     use super::*;
     extern crate test;
-    use test::{black_box, Bencher};
+    use test::{Bencher, black_box};
     enum Arith1 {
         N(i64),
         Add(Box<Arith1>, Box<Arith1>),

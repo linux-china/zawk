@@ -46,14 +46,14 @@ impl SortedIn {
                     "{}: `{}' is not a valid sort order",
                     what,
                     String::from_utf8_lossy(s)
-                )
+                );
             }
             _ => {
                 return err!(
                     "{}: user-defined comparison functions (`{}') are not supported, use one of the predefined orders such as \"@ind_str_asc\"",
                     what,
                     String::from_utf8_lossy(s)
-                )
+                );
             }
         };
         Ok(SortedIn(Some((key, s.ends_with(b"_desc")))))
@@ -139,7 +139,8 @@ where
             |a, b| cmp_num(a.0, b.0).then_with(|| a.1.cmp(&b.1)),
         ),
         Key::ValStr | Key::ValNum | Key::ValType => {
-            let pairs: Vec<(K, V)> = map.iter(|it| it.map(|(k, v)| (k.clone(), v.clone())).collect());
+            let pairs: Vec<(K, V)> =
+                map.iter(|it| it.map(|(k, v)| (k.clone(), v.clone())).collect());
             let mut items: Vec<(K, ValKey, Vec<u8>)> = pairs
                 .into_iter()
                 .map(|(k, v)| {
@@ -192,7 +193,11 @@ where
 /// `how` (the elements are ordered as `for (k in src)` would visit them with
 /// `PROCINFO["sorted_in"] = how`), indexed from 1, and returns their number. `src` and `dst` may
 /// be the same array.
-pub(crate) fn asort<K1, V, K2>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, how: &Str) -> Result<Int>
+pub(crate) fn asort<K1, V, K2>(
+    src: &SharedMap<K1, V>,
+    dst: &SharedMap<K2, V>,
+    how: &Str,
+) -> Result<Int>
 where
     K1: Hash + Eq + SortItem,
     V: SortItem + Uninit,
@@ -226,7 +231,11 @@ impl ValKey {
     }
 }
 
-fn sort_by_cached<K, C>(keys: Vec<K>, f: impl Fn(&K) -> C, cmp: impl Fn(&C, &C) -> Ordering) -> Vec<K> {
+fn sort_by_cached<K, C>(
+    keys: Vec<K>,
+    f: impl Fn(&K) -> C,
+    cmp: impl Fn(&C, &C) -> Ordering,
+) -> Vec<K> {
     let mut items: Vec<(C, K)> = keys.into_iter().map(|k| (f(&k), k)).collect();
     items.sort_by(|a, b| cmp(&a.0, &b.0));
     items.into_iter().map(|(_, k)| k).collect()
@@ -283,11 +292,20 @@ mod tests {
     #[test]
     fn str_values() {
         let m: StrMap<Str> = StrMap::default();
-        for (k, v) in [("a", "pear"), ("b", "10"), ("c", "9"), ("d", "apple"), ("e", "9")] {
+        for (k, v) in [
+            ("a", "pear"),
+            ("b", "10"),
+            ("c", "9"),
+            ("d", "apple"),
+            ("e", "9"),
+        ] {
             m.insert(k.into(), v.into());
         }
         let keys = |o| -> Vec<String> {
-            sorted_keys(&m, order(o)).iter().map(|k| k.to_string()).collect()
+            sorted_keys(&m, order(o))
+                .iter()
+                .map(|k| k.to_string())
+                .collect()
         };
         assert_eq!(keys("@val_str_asc"), vec!["b", "c", "e", "d", "a"]);
         assert_eq!(keys("@val_type_asc"), vec!["c", "e", "b", "d", "a"]);

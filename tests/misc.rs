@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use std::fs::{read_to_string, File};
+use std::fs::{File, read_to_string};
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -106,7 +106,8 @@ fn fi_header_per_file() {
     std::fs::write(&h0, "id,name\n").unwrap();
     // Excel writes a UTF-8 byte order mark.
     std::fs::write(&bom, "\u{feff}id,name\n5,e\n").unwrap();
-    let prog = r#"{print FILENAME ~ /h2/, NR, FNR, $FI["id"], $FI["name"], $FI["x"]} END {print NR, FNR}"#;
+    let prog =
+        r#"{print FILENAME ~ /h2/, NR, FNR, $FI["id"], $FI["name"], $FI["x"]} END {print NR, FNR}"#;
     let expected = "0 1 1 1 a p\n1 2 1 3 c q\n1 3 2 4 d r\n3 0\n";
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -117,7 +118,12 @@ fn fi_header_per_file() {
             .stdout(expected);
         Command::cargo_bin("zawk")
             .unwrap()
-            .args([*backend_arg, "-icsv", "-H", r#"{print $FI["id"] $FI["name"]}"#])
+            .args([
+                *backend_arg,
+                "-icsv",
+                "-H",
+                r#"{print $FI["id"] $FI["name"]}"#,
+            ])
             .args([&bom, &h1, &bom])
             .assert()
             .stdout("5e\n1a\n5e\n");
@@ -136,7 +142,11 @@ fn fi_header_after_begin() {
         (&[], r#"BEGIN{FS=","} {print $FI["b"]}"#, "2\n"),
         (&["-F,"], r#"{print $FI["b"]}"#, "2\n"),
         (&["-F,"], r#"END{print FI["b"], NR}"#, "2 1\n"),
-        (&["-F,"], r#"BEGIN{exit} END{print length(FI), NR}"#, "0 0\n"),
+        (
+            &["-F,"],
+            r#"BEGIN{exit} END{print length(FI), NR}"#,
+            "0 0\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (args, prog, out) in cases {
@@ -332,15 +342,27 @@ fn include_files() {
     let dir = tmpdir.path();
     std::fs::create_dir(dir.join("lib")).unwrap();
     // `base` includes `util` back: each file is loaded once, which also ends the cycle.
-    std::fs::write(dir.join("lib/util.awk"), "@include \"base\"\nfunction twice(x) { return 2 * x }\n").unwrap();
-    std::fs::write(dir.join("lib/base.awk"), "@include \"util.awk\"\nfunction inc(x) { return x + 1 }\n").unwrap();
+    std::fs::write(
+        dir.join("lib/util.awk"),
+        "@include \"base\"\nfunction twice(x) { return 2 * x }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("lib/base.awk"),
+        "@include \"util.awk\"\nfunction inc(x) { return x + 1 }\n",
+    )
+    .unwrap();
     std::fs::write(
         dir.join("main.awk"),
         "@include \"util.awk\"\nBEGIN { printf \"a\" }\n@include \"util\"  # again\nBEGIN { print twice(inc(3)) }\n",
     )
     .unwrap();
     std::fs::write(dir.join("lib/leaf.awk"), "function leaf() { return 2 }\n").unwrap();
-    std::fs::write(dir.join("bad.awk"), "@include \"util\"\nBEGIN {\n  print 1 +\n}\n").unwrap();
+    std::fs::write(
+        dir.join("bad.awk"),
+        "@include \"util\"\nBEGIN {\n  print 1 +\n}\n",
+    )
+    .unwrap();
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -354,7 +376,14 @@ fn include_files() {
             .unwrap()
             .current_dir(dir)
             .env("AWKPATH", "lib")
-            .args([backend_arg, "--include", "util", "--include", "base.awk", "BEGIN { print twice(5) }"])
+            .args([
+                backend_arg,
+                "--include",
+                "util",
+                "--include",
+                "base.awk",
+                "BEGIN { print twice(5) }",
+            ])
             .assert()
             .stdout("10\n");
         // A file name with a root is not searched.
@@ -363,7 +392,10 @@ fn include_files() {
             .current_dir(dir)
             .env("AWKPATH", "lib")
             .arg(backend_arg)
-            .arg(format!("@include \"{}\"\nBEGIN {{ print inc(1) }}", dir.join("lib/base.awk").display()))
+            .arg(format!(
+                "@include \"{}\"\nBEGIN {{ print inc(1) }}",
+                dir.join("lib/base.awk").display()
+            ))
             .assert()
             .stdout("2\n");
         // A relative path with a separator is found from the current directory before `AWKPATH`.
@@ -394,21 +426,47 @@ fn include_files() {
     // An included file must hold complete rules and functions: a missing `}` is reported at its
     // end, not in the program that includes it.
     std::fs::write(dir.join("open.awk"), "function lf() { return \"lib\"\n").unwrap();
-    std::fs::write(dir.join("use-open.awk"), "@include \"open.awk\"\nBEGIN { print 1 }\n").unwrap();
+    std::fs::write(
+        dir.join("use-open.awk"),
+        "@include \"open.awk\"\nBEGIN { print 1 }\n",
+    )
+    .unwrap();
     let err = stderr(Some("."), "use-open.awk", 1);
-    assert!(err.contains("syntax error at ./open.awk:1:29: unexpected end of file: missing `}`"), "{}", err);
-    std::fs::write(dir.join("inside.awk"), "BEGIN {\n@include \"lib/base.awk\"\n}\n").unwrap();
+    assert!(
+        err.contains("syntax error at ./open.awk:1:29: unexpected end of file: missing `}`"),
+        "{}",
+        err
+    );
+    std::fs::write(
+        dir.join("inside.awk"),
+        "BEGIN {\n@include \"lib/base.awk\"\n}\n",
+    )
+    .unwrap();
     let err = stderr(Some("."), "inside.awk", 1);
-    assert!(err.contains("syntax error at inside.awk:2:1: unexpected `@include` inside a rule or function"), "{}", err);
+    assert!(
+        err.contains(
+            "syntax error at inside.awk:2:1: unexpected `@include` inside a rule or function"
+        ),
+        "{}",
+        err
+    );
     let err = stderr(None, "main.awk", 2);
-    assert!(err.contains("main.awk:1: can't open source file `util.awk' for reading"), "{}", err);
+    assert!(
+        err.contains("main.awk:1: can't open source file `util.awk' for reading"),
+        "{}",
+        err
+    );
 }
 
 #[test]
 fn exec_ends_options() {
     let tmpdir = tempdir().unwrap();
     let prog_fname = tmpdir.path().join("prog.awk");
-    std::fs::write(&prog_fname, "BEGIN { for (i = 1; i < ARGC; i++) print ARGV[i] }\n").unwrap();
+    std::fs::write(
+        &prog_fname,
+        "BEGIN { for (i = 1; i < ARGC; i++) print ARGV[i] }\n",
+    )
+    .unwrap();
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -426,19 +484,38 @@ fn exec_ends_options() {
 fn program_file_version_flag() {
     let tmpdir = tempdir().unwrap();
     let prog_fname = tmpdir.path().join("prog.awk");
-    std::fs::write(&prog_fname, "# @meta version 1.2.3\nBEGIN { print \"x=\" x }\n").unwrap();
+    std::fs::write(
+        &prog_fname,
+        "# @meta version 1.2.3\nBEGIN { print \"x=\" x }\n",
+    )
+    .unwrap();
     let run = |args: &[&str]| {
-        Command::cargo_bin("zawk").unwrap().arg("-f").arg(&prog_fname).args(args).assert()
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("-f")
+            .arg(&prog_fname)
+            .args(args)
+            .assert()
     };
     run(&["--version"]).success().stdout("1.2.3\n");
     // With `-f`, a trailing `-v` is the assignment option missing its value.
     let out = run(&["-v"]).failure().get_output().stderr.clone();
-    assert!(String::from_utf8_lossy(&out).contains("a value is required"), "{}", String::from_utf8_lossy(&out));
+    assert!(
+        String::from_utf8_lossy(&out).contains("a value is required"),
+        "{}",
+        String::from_utf8_lossy(&out)
+    );
     // A trailing `-v` that is the value of a preceding `-v` is an assignment, not a version request.
     run(&["-v", "-v"]).failure();
     // With `-E`, the arguments after the program file are the script's own.
-    Command::cargo_bin("zawk").unwrap().arg("-E").arg(&prog_fname).arg("-v")
-        .assert().success().stdout("1.2.3\n");
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-E")
+        .arg(&prog_fname)
+        .arg("-v")
+        .assert()
+        .success()
+        .stdout("1.2.3\n");
 }
 
 #[test]
@@ -747,8 +824,8 @@ fn multi_rc() {
     let (dir, data) = file_from_string("inputs", &text);
     let out = dir.path().join("out");
     let prog = format!(
-      "BEGIN {{ print \"should flush\" > \"{}\"; }} PID == 2 && NR == 100 {{ print \"hi\"; exit 2; }} PREPARE {{ m[PID] = NR; }} END {{ for (k in m) print k, m[k]; }}",
-      fname_to_string(&out),
+        "BEGIN {{ print \"should flush\" > \"{}\"; }} PID == 2 && NR == 100 {{ print \"hi\"; exit 2; }} PREPARE {{ m[PID] = NR; }} END {{ for (k in m) print k, m[k]; }}",
+        fname_to_string(&out),
     );
     eprintln!("data={:?}", data);
     for backend_arg in BACKEND_ARGS {
@@ -866,7 +943,9 @@ fn non_utf8_input_does_not_panic() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
-            .arg(String::from(r#"{ print length($0), length(digest("md5", $0)), substr($0, 1, 3) }"#))
+            .arg(String::from(
+                r#"{ print length($0), length(digest("md5", $0)), substr($0, 1, 3) }"#,
+            ))
             .write_stdin(&b"caf\xe9\n"[..])
             .assert()
             .success()
@@ -884,7 +963,11 @@ fn exit_runs_end_block() {
         (r#"{exit 1; print "dead"} END{print "e"}"#, "e\n", 1),
         // `exit` without code in END keeps the earlier code, `exit code` in END exits at once
         (r#"{exit 4} END{print "end"; exit}"#, "end\n", 4),
-        (r#"{exit 4} END{print "end"; exit 5; print "no"}"#, "end\n", 5),
+        (
+            r#"{exit 4} END{print "end"; exit 5; print "no"}"#,
+            "end\n",
+            5,
+        ),
         // `exit` inside (nested) user defined functions
         (
             r#"function f(x){ if (x==2) exit 7; return x*10 } {print f($1)} END{print "end", NR}"#,
@@ -896,7 +979,11 @@ fn exit_runs_end_block() {
             "end\n",
             9,
         ),
-        (r#"function f(){ exit 6 } END{print "in end"; f(); print "no"}"#, "in end\n", 6),
+        (
+            r#"function f(){ exit 6 } END{print "in end"; f(); print "no"}"#,
+            "in end\n",
+            6,
+        ),
         // without END block
         (r#"{print; exit 2}"#, "1\n", 2),
     ];
@@ -919,13 +1006,38 @@ fn assert_exits_with_message() {
     // (program, expected stdout, expected stderr, expected exit code)
     let cases: &[(&str, &str, &str, i32)] = &[
         // a failed assert exits at once, without running END
-        (r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#, "1\n2\n", "line 3: too big\n", 2),
-        (r#"function f(x) { assert(x < 2, "f " x); return x } { print f($1) } END{print "end"}"#, "1\n", "f 2\n", 2),
-        (r#"BEGIN { assert(0, "begin") } END{print "end"}"#, "", "begin\n", 2),
+        (
+            r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#,
+            "1\n2\n",
+            "line 3: too big\n",
+            2,
+        ),
+        (
+            r#"function f(x) { assert(x < 2, "f " x); return x } { print f($1) } END{print "end"}"#,
+            "1\n",
+            "f 2\n",
+            2,
+        ),
+        (
+            r#"BEGIN { assert(0, "begin") } END{print "end"}"#,
+            "",
+            "begin\n",
+            2,
+        ),
         (r#"END { assert(0, "end"); print "after" }"#, "", "end\n", 2),
-        (r#"{ assert(NF == 1, f"bad {NR}") } END{print "end"}"#, "end\n", "", 0),
+        (
+            r#"{ assert(NF == 1, f"bad {NR}") } END{print "end"}"#,
+            "end\n",
+            "",
+            0,
+        ),
         // the condition is tested as by `if`: a regex matches $0
-        (r#"{ assert(/[12]/, "no match at " NR); print }"#, "1\n2\n", "no match at 3\n", 2),
+        (
+            r#"{ assert(/[12]/, "no match at " NR); print }"#,
+            "1\n2\n",
+            "no match at 3\n",
+            2,
+        ),
     ];
     for (prog, out, err, code) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -941,7 +1053,11 @@ fn assert_exits_with_message() {
         }
     }
     for prog in ["BEGIN { assert(1) }", "function assert(c, m) { } BEGIN { }"] {
-        Command::cargo_bin("zawk").unwrap().arg(prog).assert().code(1);
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .assert()
+            .code(1);
     }
 }
 
@@ -949,10 +1065,22 @@ fn assert_exits_with_message() {
 fn foreach_key_value() {
     // (program, expected stdout); output is sorted where the iteration order is not fixed
     let cases: &[(&str, &str)] = &[
-        (r#"{ c[$1] += $2 } END { for (k, v in c) print k, v | "sort" }"#, "a 4\nb 2\n"),
-        (r#"END { n = split("x y z", a); for (i, x in a) s[i] = x; print s[1] s[2] s[3] }"#, "xyz\n"),
-        (r#"END { c["p"] = 1; for (k, v in c) { if (v) continue; print "no" } print k, v }"#, "p 1\n"),
-        (r#"function sum(arr,   k, v, s) { for (k, v in arr) s += v; return s } { c[NR] = $2 } END { print sum(c) "|" k v "|" }"#, "6||\n"),
+        (
+            r#"{ c[$1] += $2 } END { for (k, v in c) print k, v | "sort" }"#,
+            "a 4\nb 2\n",
+        ),
+        (
+            r#"END { n = split("x y z", a); for (i, x in a) s[i] = x; print s[1] s[2] s[3] }"#,
+            "xyz\n",
+        ),
+        (
+            r#"END { c["p"] = 1; for (k, v in c) { if (v) continue; print "no" } print k, v }"#,
+            "p 1\n",
+        ),
+        (
+            r#"function sum(arr,   k, v, s) { for (k, v in arr) s += v; return s } { c[NR] = $2 } END { print sum(c) "|" k v "|" }"#,
+            "6||\n",
+        ),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -971,7 +1099,11 @@ fn foreach_key_value() {
         "BEGIN { for (k, k in a) print k }",
     ];
     for prog in errors {
-        Command::cargo_bin("zawk").unwrap().arg(prog).assert().code(1);
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .assert()
+            .code(1);
     }
 }
 
@@ -979,24 +1111,63 @@ fn foreach_key_value() {
 fn for_range() {
     // (program, expected stdout)
     let cases: &[(&str, &str)] = &[
-        (r#"BEGIN { for (i in 1..4) printf "%d ", i; print "" }"#, "1 2 3 \n"),
-        (r#"BEGIN { for (i in 1..=4) printf "%d ", i; print "" }"#, "1 2 3 4 \n"),
-        (r#"BEGIN { for (i in -3..0) printf "%d ", i; for (i in -12..=-10) printf "%d ", i; print "" }"#, "-3 -2 -1 -12 -11 -10 \n"),
-        (r#"BEGIN { for (i in 3..1) print "no"; for (i in 2..2) print "no"; for (i in 2..=2) print i }"#, "2\n"),
+        (
+            r#"BEGIN { for (i in 1..4) printf "%d ", i; print "" }"#,
+            "1 2 3 \n",
+        ),
+        (
+            r#"BEGIN { for (i in 1..=4) printf "%d ", i; print "" }"#,
+            "1 2 3 4 \n",
+        ),
+        (
+            r#"BEGIN { for (i in -3..0) printf "%d ", i; for (i in -12..=-10) printf "%d ", i; print "" }"#,
+            "-3 -2 -1 -12 -11 -10 \n",
+        ),
+        (
+            r#"BEGIN { for (i in 3..1) print "no"; for (i in 2..2) print "no"; for (i in 2..=2) print i }"#,
+            "2\n",
+        ),
         // Bounds are strnums truncated to integers.
-        (r#"BEGIN { for (i in 2.9..=4.7) printf "%d ", i; for (i in "2x".."4") printf "%d ", i; print "" }"#, "2 3 4 2 3 \n"),
-        (r#"NR == 1 { for (i in 1..=NF) printf "%s|", $i; for (i in $2..$3) printf "%d ", i; print "" }"#, "a|1|3|1 2 \n"),
+        (
+            r#"BEGIN { for (i in 2.9..=4.7) printf "%d ", i; for (i in "2x".."4") printf "%d ", i; print "" }"#,
+            "2 3 4 2 3 \n",
+        ),
+        (
+            r#"NR == 1 { for (i in 1..=NF) printf "%s|", $i; for (i in $2..$3) printf "%d ", i; print "" }"#,
+            "a|1|3|1 2 \n",
+        ),
         // The end is evaluated once, and assigning the loop variable does not change the iterations.
-        (r#"END { n = 3; for (i in 1..=n++) printf "%d ", i; print n }"#, "1 2 3 4\n"),
-        (r#"END { for (i in 1..=9) { if (i % 2) continue; if (i > 6) break; i = i * 10; printf "%d ", i } print i }"#, "20 40 60 8\n"),
-        (r#"function sum(n,   i, s) { for (i in 1..=n) s += i; return s } END { print sum(100) }"#, "5050\n"),
-        (r#"END { for (i in 1..=3) for (j in i..=3) printf "%d%d ", i, j; print "" }"#, "11 12 13 22 23 33 \n"),
+        (
+            r#"END { n = 3; for (i in 1..=n++) printf "%d ", i; print n }"#,
+            "1 2 3 4\n",
+        ),
+        (
+            r#"END { for (i in 1..=9) { if (i % 2) continue; if (i > 6) break; i = i * 10; printf "%d ", i } print i }"#,
+            "20 40 60 8\n",
+        ),
+        (
+            r#"function sum(n,   i, s) { for (i in 1..=n) s += i; return s } END { print sum(100) }"#,
+            "5050\n",
+        ),
+        (
+            r#"END { for (i in 1..=3) for (j in i..=3) printf "%d%d ", i, j; print "" }"#,
+            "11 12 13 22 23 33 \n",
+        ),
         (r#"END { print 1. "x", 1.5 }"#, "1x 1.5\n"),
         // Outside a `for (i in ...)` header `..` is not an operator: `1..3` is `1.` `.3`, as in POSIX awk.
-        (r#"END { print 1..3; x = 2..5; print x; for (i in a) print 1..2 }"#, "10.3\n20.5\n"),
-        (r#"END { for (i in length("ab")..=4) printf "%d ", i; print 1..2 }"#, "2 3 4 10.2\n"),
+        (
+            r#"END { print 1..3; x = 2..5; print x; for (i in a) print 1..2 }"#,
+            "10.3\n20.5\n",
+        ),
+        (
+            r#"END { for (i in length("ab")..=4) printf "%d ", i; print 1..2 }"#,
+            "2 3 4 10.2\n",
+        ),
         // An inclusive end of INT64_MAX stops without overflowing the counter.
-        (r#"END { for (i in 9223372036854775807..=9223372036854775807) { if (++c > 3) break; continue } print c }"#, "1\n"),
+        (
+            r#"END { for (i in 9223372036854775807..=9223372036854775807) { if (++c > 3) break; continue } print c }"#,
+            "1\n",
+        ),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -1010,7 +1181,11 @@ fn for_range() {
                 .stdout(String::from(*out));
         }
     }
-    Command::cargo_bin("zawk").unwrap().arg("BEGIN { for (ARGV in 1..3) print }").assert().code(1);
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("BEGIN { for (ARGV in 1..3) print }")
+        .assert()
+        .code(1);
 }
 
 #[test]
@@ -1018,9 +1193,18 @@ fn not_in_operator() {
     // (program, expected stdout)
     let cases: &[(&str, &str)] = &[
         (r#"$1 !in seen { seen[$1]; print $2 }"#, "1\n2\n"),
-        (r#"{ a[$1, $2] } END { print ((("a", 1) !in a)) ((("a", 2) !in a)) }"#, "01\n"),
-        (r#"END { a["x"]; print "x" !in a, "y" !in a, !("y" !in a) }"#, "0 1 0\n"),
-        (r#"END { inside = 1; index_ = 2; print !inside, !index("ab", "b") }"#, "0 0\n"),
+        (
+            r#"{ a[$1, $2] } END { print ((("a", 1) !in a)) ((("a", 2) !in a)) }"#,
+            "01\n",
+        ),
+        (
+            r#"END { a["x"]; print "x" !in a, "y" !in a, !("y" !in a) }"#,
+            "0 1 0\n",
+        ),
+        (
+            r#"END { inside = 1; index_ = 2; print !inside, !index("ab", "b") }"#,
+            "0 0\n",
+        ),
         (r#"END { a[1]; if (2 !in a && 1 in a) print "ok" }"#, "ok\n"),
     ];
     for (prog, out) in cases {
@@ -1059,7 +1243,11 @@ fn negative_field_index() {
     }
     // Only a literal negative index counts from the end: a computed one is an error, as in gawk,
     // instead of silently reading another field (`$(NF-2)` on a one-field record).
-    for prog in [r#"{ print $(NF-2) }"#, r#"{ k = 1; print $(-k) }"#, r#"{ $(NF-3) = "z" }"#] {
+    for prog in [
+        r#"{ print $(NF-2) }"#,
+        r#"{ k = 1; print $(-k) }"#,
+        r#"{ $(NF-3) = "z" }"#,
+    ] {
         for backend_arg in BACKEND_ARGS {
             let out = Command::cargo_bin("zawk")
                 .unwrap()
@@ -1072,7 +1260,12 @@ fn negative_field_index() {
                 .stderr
                 .clone();
             let err = String::from_utf8_lossy(&out);
-            assert!(err.contains("attempt to access field -"), "{}: {}", prog, err);
+            assert!(
+                err.contains("attempt to access field -"),
+                "{}: {}",
+                prog,
+                err
+            );
         }
     }
 }
@@ -1167,8 +1360,14 @@ fn integer_overflow() {
         // Integer literals beyond 2^53 are floats, and sums of two non-constant values are
         // computed in floating point, so they neither wrap around nor halt (as in gawk).
         for (prog, expected) in [
-            (r#"BEGIN { x = 9223372036854775807; print x + 1 }"#, "9223372036854775808\n"),
-            (r#"BEGIN { x = -9223372036854775807; print x - 2 }"#, "-9223372036854775808\n"),
+            (
+                r#"BEGIN { x = 9223372036854775807; print x + 1 }"#,
+                "9223372036854775808\n",
+            ),
+            (
+                r#"BEGIN { x = -9223372036854775807; print x - 2 }"#,
+                "-9223372036854775808\n",
+            ),
             (
                 r#"BEGIN { a = 0; b = 1; for (i = 0; i < 100; i++) { c = a + b; a = b; b = c }
                            x = 1; for (i = 0; i < 70; i++) x += x
@@ -1220,7 +1419,10 @@ fn integer_overflow_halts_before_wrapped_value_is_used() {
         assert_eq!(out.status.code(), Some(2), "{backend_arg}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{backend_arg}");
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("integer overflow"), "{backend_arg}: {stderr}");
+        assert!(
+            stderr.contains("integer overflow"),
+            "{backend_arg}: {stderr}"
+        );
     }
 }
 
@@ -1302,7 +1504,10 @@ fn many_closed_output_files() {
         .success()
         .stdout(format!("{}\n", N));
     assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), N);
-    assert_eq!(read_to_string(tmp.path().join(format!("o{}", N))).unwrap(), format!("{}\n", N));
+    assert_eq!(
+        read_to_string(tmp.path().join(format!("o{}", N))).unwrap(),
+        format!("{}\n", N)
+    );
 }
 
 #[test]
@@ -1368,7 +1573,9 @@ fn close_output_command() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
-            .arg(String::from(r#"BEGIN { print "b\na" | "sleep 0.2; sort" }"#))
+            .arg(String::from(
+                r#"BEGIN { print "b\na" | "sleep 0.2; sort" }"#,
+            ))
             .assert()
             .success()
             .stdout(String::from("a\nb\n"));
@@ -1415,7 +1622,9 @@ fn system_flushes_output() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
-            .arg(String::from(r#"BEGIN { printf "a"; system("echo b"); print "c" }"#))
+            .arg(String::from(
+                r#"BEGIN { printf "a"; system("echo b"); print "c" }"#,
+            ))
             .assert()
             .success()
             .stdout(String::from("ab\nc\n"));
@@ -1486,9 +1695,18 @@ fn match_with_array_subsep() {
     // The "start"/"length" keys are joined with the current SUBSEP, and are written even when the
     // array is only ever indexed by numbers.
     let cases: &[(&str, &str)] = &[
-        (r#"BEGIN { SUBSEP = ":"; match("foo123", /[0-9]+/, m); print m[0, "start"], m["0:length"] }"#, "4 3\n"),
-        (r#"BEGIN { print match("ab", /(a)(b)/, m), length(m), m[1], m[2] }"#, "1 9 a b\n"),
-        (r#"BEGIN { match("xab", /(a)(b)/, m); for (i = 0; i < 3; i++) printf "%s ", m[i]; print "" }"#, "ab a b \n"),
+        (
+            r#"BEGIN { SUBSEP = ":"; match("foo123", /[0-9]+/, m); print m[0, "start"], m["0:length"] }"#,
+            "4 3\n",
+        ),
+        (
+            r#"BEGIN { print match("ab", /(a)(b)/, m), length(m), m[1], m[2] }"#,
+            "1 9 a b\n",
+        ),
+        (
+            r#"BEGIN { match("xab", /(a)(b)/, m); for (i = 0; i < 3; i++) printf "%s ", m[i]; print "" }"#,
+            "ab a b \n",
+        ),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -1512,12 +1730,27 @@ fn match_with_named_groups() {
             "12 12 3 2 9\n",
         ),
         // a dynamic regex, and one needing the leftmost-longest match
-        (r#"BEGIN { re = "(?P<k>[a-z]+)=(?P<v>[0-9]*)"; match("x a=17", re, m); print m["k"], m["v"] }"#, "a 17\n"),
-        (r#"BEGIN { match("abcd", /(?P<w>a|ab|abc)(?P<r>d?)/, m); print m["w"], m["r"] }"#, "abc d\n"),
+        (
+            r#"BEGIN { re = "(?P<k>[a-z]+)=(?P<v>[0-9]*)"; match("x a=17", re, m); print m["k"], m["v"] }"#,
+            "a 17\n",
+        ),
+        (
+            r#"BEGIN { match("abcd", /(?P<w>a|ab|abc)(?P<r>d?)/, m); print m["w"], m["r"] }"#,
+            "abc d\n",
+        ),
         // a group that did not participate is absent, as for numbered groups
-        (r#"BEGIN { match("ab", /a(?P<x>z)?b/, m); print ("x" in m), (2 in m), length(m) }"#, "0 0 3\n"),
-        (r#"BEGIN { print match("1.2.3.4 - \"GET /a\"", /(?P<ip>\S+) .* "(?P<method>\w+) (?P<path>\S+)"/, m), m["ip"], m["method"], m["path"] }"#, "1 1.2.3.4 GET /a\n"),
-        (r#"BEGIN { print match "k=v" { /(?P<key>\w+)=(?P<val>\w+)/ as m => m["key"] "|" m["val"], _ => "none" } }"#, "k|v\n"),
+        (
+            r#"BEGIN { match("ab", /a(?P<x>z)?b/, m); print ("x" in m), (2 in m), length(m) }"#,
+            "0 0 3\n",
+        ),
+        (
+            r#"BEGIN { print match("1.2.3.4 - \"GET /a\"", /(?P<ip>\S+) .* "(?P<method>\w+) (?P<path>\S+)"/, m), m["ip"], m["method"], m["path"] }"#,
+            "1 1.2.3.4 GET /a\n",
+        ),
+        (
+            r#"BEGIN { print match "k=v" { /(?P<key>\w+)=(?P<val>\w+)/ as m => m["key"] "|" m["val"], _ => "none" } }"#,
+            "k|v\n",
+        ),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -1540,8 +1773,14 @@ fn redirect_open_failure_is_fatal() {
     let bad = tmp.path().join("missing-dir").join("out.txt");
     let bad = bad.to_str().unwrap();
     let progs = [
-        format!(r#"BEGIN {{ print "before"; print "x" > "{}"; print "after" }}"#, bad),
-        format!(r#"BEGIN {{ print "before"; printf "%s\n", "x" >> "{}"; print "after" }}"#, bad),
+        format!(
+            r#"BEGIN {{ print "before"; print "x" > "{}"; print "after" }}"#,
+            bad
+        ),
+        format!(
+            r#"BEGIN {{ print "before"; printf "%s\n", "x" >> "{}"; print "after" }}"#,
+            bad
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for prog in &progs {
@@ -1552,9 +1791,19 @@ fn redirect_open_failure_is_fatal() {
                 .output()
                 .unwrap();
             assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
-            assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n", "{}", backend_arg);
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                "before\n",
+                "{}",
+                backend_arg
+            );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("cannot redirect to"), "{}: {}", backend_arg, stderr);
+            assert!(
+                stderr.contains("cannot redirect to"),
+                "{}: {}",
+                backend_arg,
+                stderr
+            );
         }
         // Reopening a file after close() truncates it again for `>`, and appends for `>>`.
         let out = tmp.path().join("ok.txt");
@@ -1642,7 +1891,13 @@ fn exit_codes_follow_gawk() {
                 .args(*args)
                 .output()
                 .unwrap();
-            assert_eq!(output.status.code(), Some(*code), "{} {:?}", backend_arg, args);
+            assert_eq!(
+                output.status.code(),
+                Some(*code),
+                "{} {:?}",
+                backend_arg,
+                args
+            );
         }
     }
 }
@@ -1667,7 +1922,13 @@ fn div_by_zero_is_fatal() {
             assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
             assert!(output.stdout.is_empty());
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("division by zero attempted"), "{} {}: {}", backend_arg, prog, stderr);
+            assert!(
+                stderr.contains("division by zero attempted"),
+                "{} {}: {}",
+                backend_arg,
+                prog,
+                stderr
+            );
         }
     }
 }
@@ -1734,15 +1995,39 @@ fn json_input() {
     let doc = dir.join("demo.json").to_str().unwrap().to_string();
     let data = format!("{}#$.data", doc);
     let cases: [(&[&str], &str, String); 8] = [
-        (&["-i", "json"], r#"{ print NR, $FI["name"], $3, NF }"#, array.clone()),
-        (&["-i", "json"], r#"{ print NR, $FI["name"], $3, NF }"#, data.clone()),
+        (
+            &["-i", "json"],
+            r#"{ print NR, $FI["name"], $3, NF }"#,
+            array.clone(),
+        ),
+        (
+            &["-i", "json"],
+            r#"{ print NR, $FI["name"], $3, NF }"#,
+            data.clone(),
+        ),
         // `.json` files are read as JSON without `-i`.
         (&[], r#"{ print NR, $FI["name"], $3, NF }"#, data.clone()),
         (&[], "NR == 2", array.clone()),
-        (&[], r#"{ print $FI["msg"], $FI["success"]; print $FI["data"] }"#, doc.clone()),
-        (&[], r#"{ print $0 "|" $1 "|" NF }"#, format!("{}#$.msg", doc)),
-        (&[], r#"{ print $FI["name"] }"#, format!("{}#$.data[?@.age > 18]", doc)),
-        (&[], r#"{ print FILENAME == ARGV[1] }"#, format!("{}#$.data[0]", doc)),
+        (
+            &[],
+            r#"{ print $FI["msg"], $FI["success"]; print $FI["data"] }"#,
+            doc.clone(),
+        ),
+        (
+            &[],
+            r#"{ print $0 "|" $1 "|" NF }"#,
+            format!("{}#$.msg", doc),
+        ),
+        (
+            &[],
+            r#"{ print $FI["name"] }"#,
+            format!("{}#$.data[?@.age > 18]", doc),
+        ),
+        (
+            &[],
+            r#"{ print FILENAME == ARGV[1] }"#,
+            format!("{}#$.data[0]", doc),
+        ),
     ];
     let expected = [
         "1 Jackie 18 3\n2 John 20 3\n",
@@ -1791,7 +2076,10 @@ fn json_lines_and_text_in_json_files() {
     // `[` is read as text without `-i`.
     let tmp = tempdir().unwrap();
     let lines = tmp.path().join("lines.json");
-    File::create(&lines).unwrap().write_all(b"{\"a\":1}\n{\"a\":2.50}\n").unwrap();
+    File::create(&lines)
+        .unwrap()
+        .write_all(b"{\"a\":1}\n{\"a\":2.50}\n")
+        .unwrap();
     let text = tmp.path().join("text.json");
     File::create(&text).unwrap().write_all(b"a b c\n").unwrap();
     for backend_arg in BACKEND_ARGS {
@@ -1844,9 +2132,22 @@ fn unreadable_input_is_fatal_with_regex_separators() {
                     .args(&files)
                     .output()
                     .unwrap();
-                assert_eq!(output.status.code(), Some(2), "{} {:?} {:?}", backend_arg, args, files);
+                assert_eq!(
+                    output.status.code(),
+                    Some(2),
+                    "{} {:?} {:?}",
+                    backend_arg,
+                    args,
+                    files
+                );
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                assert!(stderr.contains("missing.txt"), "{} {:?}: {}", backend_arg, args, stderr);
+                assert!(
+                    stderr.contains("missing.txt"),
+                    "{} {:?}: {}",
+                    backend_arg,
+                    args,
+                    stderr
+                );
             }
         }
         // `getline < file` still returns -1 rather than failing; a failing command that prints
@@ -1874,7 +2175,9 @@ fn default_fs_records_across_buffers() {
     let mut input = String::new();
     let mut seed = 7u64;
     let mut next = |n: u64| {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (seed >> 33) % n
     };
     for _ in 0..200 {
@@ -1939,20 +2242,36 @@ fn empty_input_files_do_not_end_input() {
     // ends only that file: the following files are still read.
     let tmp = tempdir().unwrap();
     let path = |name: &str| tmp.path().join(name).to_str().unwrap().to_string();
-    let (empty, f1, f2, exact) = (path("empty.txt"), path("f1.txt"), path("f2.txt"), path("exact.txt"));
+    let (empty, f1, f2, exact) = (
+        path("empty.txt"),
+        path("f1.txt"),
+        path("f2.txt"),
+        path("exact.txt"),
+    );
     File::create(&empty).unwrap();
     File::create(&f1).unwrap().write_all(b"a,1\nb,2\n").unwrap();
     File::create(&f2).unwrap().write_all(b"c,3\n").unwrap();
     // 64 bytes: with --chunk-size 64, the input ends exactly at the end of the first buffer.
-    File::create(&exact).unwrap().write_all(format!("{}\n", "x".repeat(63)).as_bytes()).unwrap();
+    File::create(&exact)
+        .unwrap()
+        .write_all(format!("{}\n", "x".repeat(63)).as_bytes())
+        .unwrap();
     let prog = "{ print $1 } END { print NR }";
     let cases: &[(&[&str], Vec<&String>, &str)] = &[
         (&[], vec![&empty, &f1, &empty, &f2], "a,1\nb,2\nc,3\n3\n"),
         (&["-F,"], vec![&empty, &f1, &empty, &f2], "a\nb\nc\n3\n"),
         (&["-icsv"], vec![&empty, &f1, &empty, &f2], "a\nb\nc\n3\n"),
         (&["-F,"], vec![&empty, &empty], "0\n"),
-        (&["--chunk-size", "64"], vec![&exact, &f2], &format!("{}\nc,3\n2\n", "x".repeat(63))),
-        (&["--chunk-size", "64", "-F,"], vec![&exact, &f2], &format!("{}\nc\n2\n", "x".repeat(63))),
+        (
+            &["--chunk-size", "64"],
+            vec![&exact, &f2],
+            &format!("{}\nc,3\n2\n", "x".repeat(63)),
+        ),
+        (
+            &["--chunk-size", "64", "-F,"],
+            vec![&exact, &f2],
+            &format!("{}\nc\n2\n", "x".repeat(63)),
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (opts, files, expected) in cases {
@@ -1975,11 +2294,18 @@ fn awk_builtins_cannot_be_redefined() {
     // tests/compat/cases/08-function-shadows-stdlib.awk).
     for name in ["length", "substr", "split", "gsub", "sprintf", "gensub"] {
         let prog = format!("function {}(s) {{ return 1 }} BEGIN {{ print 1 }}", name);
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .output()
+            .unwrap();
         assert!(!output.status.success(), "{}", name);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains(&format!("`{}' is a built-in function, it cannot be redefined", name)),
+            stderr.contains(&format!(
+                "`{}' is a built-in function, it cannot be redefined",
+                name
+            )),
             "{}: {}",
             name,
             stderr
@@ -1993,10 +2319,20 @@ fn special_variables_cannot_be_parameters() {
     // argument and resolve the name to the global, so assignments clobbered it).
     for (prog, name) in [
         ("function f(NR) { return NR } BEGIN { print f(3) }", "NR"),
-        ("function f(x, NR) { NR = 5; return x } { f(1, 2); print NR }", "NR"),
-        ("function f(NF, FS) { return NF \"-\" FS } BEGIN { print f(3, \":\") }", "NF"),
+        (
+            "function f(x, NR) { NR = 5; return x } { f(1, 2); print NR }",
+            "NR",
+        ),
+        (
+            "function f(NF, FS) { return NF \"-\" FS } BEGIN { print f(3, \":\") }",
+            "NF",
+        ),
     ] {
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .output()
+            .unwrap();
         assert!(!output.status.success(), "{}", prog);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
@@ -2015,9 +2351,22 @@ fn special_variables_cannot_be_parameters() {
 fn special_variables_cannot_be_function_names() {
     // As in gawk, a function cannot share its name with a special variable, including the ones
     // zawk adds (zawk used to accept these, leaving `NR` and `NR()` as two unrelated names).
-    for name in ["NR", "FS", "ENVIRON", "PID", "FI", "MSG_SUBJECT", "MSG_HEADERS", "MSG_BODY"] {
+    for name in [
+        "NR",
+        "FS",
+        "ENVIRON",
+        "PID",
+        "FI",
+        "MSG_SUBJECT",
+        "MSG_HEADERS",
+        "MSG_BODY",
+    ] {
         let prog = format!("function {}() {{ return 1 }} BEGIN {{ print 1 }}", name);
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .output()
+            .unwrap();
         assert!(!output.status.success(), "{}", name);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
@@ -2100,7 +2449,9 @@ fn malformed_input_warnings() {
             .clone();
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(stderr.lines().count(), 6, "{}", stderr);
-        assert!(stderr.ends_with("-:5: invalid JSON\nzawk: warning: further `invalid JSON' warnings suppressed\n"));
+        assert!(stderr.ends_with(
+            "-:5: invalid JSON\nzawk: warning: further `invalid JSON' warnings suppressed\n"
+        ));
         // With and without the quoted field used by the program.
         for prog in [r#"{ print NR, "[" $2 "]" }"#, "{ print NR }"] {
             Command::cargo_bin("zawk")
@@ -2272,10 +2623,18 @@ fn parquet_duplicate_columns() {
         .success();
     Command::cargo_bin("zawk")
         .unwrap()
-        .args(["-iparquet", r#"{ print; print $1, $3, $4, NF, FI["a_1_1"] }"#, out])
+        .args([
+            "-iparquet",
+            r#"{ print; print $1, $3, $4, NF, FI["a_1_1"] }"#,
+            out,
+        ])
         .assert()
         .success()
-        .stdout(concat!(r#"{"a":1,"b":"x","a_1":"10","a_1_1":"y"}"#, "\n", "1 10 y 4 4\n"));
+        .stdout(concat!(
+            r#"{"a":1,"b":"x","a_1":"10","a_1_1":"y"}"#,
+            "\n",
+            "1 10 y 4 4\n"
+        ));
     Command::cargo_bin("zawk")
         .unwrap()
         .args(["-ojsonl", r#"BEGIN { print "a", "a"; print 1, 2 }"#])
@@ -2325,7 +2684,12 @@ fn unicode_identifiers_and_hex() {
 #[test]
 fn return_outside_function() {
     for prog in ["BEGIN { return 1 }", "{ return }", "END { return }"] {
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .write_stdin("")
+            .output()
+            .unwrap();
         assert_eq!(output.status.code(), Some(1), "{}", prog);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
@@ -2346,11 +2710,23 @@ fn stdlib_invalid_input_warns() {
         a = rparse("a", "(b)?(a)"); print "[" a[1] "]" a[2]
     }"#;
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .output()
+            .unwrap();
         assert!(output.status.success());
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "[] 0 []\n[] [] []\n0 0\n[]a\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "[] 0 []\n[] [] []\n0 0\n[]a\n"
+        );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("zawk: warning: encode: hex-base64"), "{}", stderr);
+        assert!(
+            stderr.contains("zawk: warning: encode: hex-base64"),
+            "{}",
+            stderr
+        );
     }
 }
 
@@ -2359,8 +2735,17 @@ fn func_keyword_alias() {
     // `func` is accepted as an alias of `function` (gawk, BWK awk)
     let prog = "func f(x){return x*2} function g(y){return f(y)+1} BEGIN{print f(2), g(3)}";
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "4 7\n");
     }
 }
@@ -2370,8 +2755,17 @@ fn function_name_space_before_paren() {
     // whitespace is allowed between the function name and `(` in a declaration
     let prog = "function f (a) {return a*2} func g\t(x, y){return x+y} BEGIN{print f(3), g(1, 2)}";
     for backend_arg in BACKEND_ARGS {
-        let output = Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "6 3\n");
     }
 }
@@ -2389,18 +2783,43 @@ fn input_file_operands() {
         for fs in ["-F ", "-F,", "-F::"] {
             let output = Command::cargo_bin("zawk")
                 .unwrap()
-                .args([backend_arg, fs, "{print FILENAME == \"-\", $0} END{print NR}", hdr, dir, "", "-"])
+                .args([
+                    backend_arg,
+                    fs,
+                    "{print FILENAME == \"-\", $0} END{print NR}",
+                    hdr,
+                    dir,
+                    "",
+                    "-",
+                ])
                 .write_stdin("a\nb\n")
                 .output()
                 .unwrap();
-            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-            assert_eq!(String::from_utf8_lossy(&output.stdout), "0 h\n1 a\n1 b\n3\n");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                "0 h\n1 a\n1 b\n3\n"
+            );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains(&format!("zawk: warning: command line argument `{}' is a directory: skipped", dir)), "{}", stderr);
+            assert!(
+                stderr.contains(&format!(
+                    "zawk: warning: command line argument `{}' is a directory: skipped",
+                    dir
+                )),
+                "{}",
+                stderr
+            );
         }
         let output = Command::cargo_bin("zawk")
             .unwrap()
-            .args([backend_arg, "BEGIN{while ((getline l < \"-\") > 0) print \"got\", l}"])
+            .args([
+                backend_arg,
+                "BEGIN{while ((getline l < \"-\") > 0) print \"got\", l}",
+            ])
             .write_stdin("a\nb\n")
             .output()
             .unwrap();
@@ -2428,12 +2847,21 @@ fn input_file_cannot_open() {
 #[test]
 fn empty_match_respects_utf8_boundaries() {
     let cases = [
-        (r#"BEGIN{s="中文"; n=gsub(//, "-", s); print n, s}"#, "3 -中-文-\n"),
-        (r#"BEGIN{s="中文"; gsub(/x*/, "-", s); print s}"#, "-中-文-\n"),
+        (
+            r#"BEGIN{s="中文"; n=gsub(//, "-", s); print n, s}"#,
+            "3 -中-文-\n",
+        ),
+        (
+            r#"BEGIN{s="中文"; gsub(/x*/, "-", s); print s}"#,
+            "-中-文-\n",
+        ),
         (r#"BEGIN{print gensub(//, "-", "g", "中文")}"#, "-中-文-\n"),
         (r#"BEGIN{print gensub(//, "-", 2, "中文")}"#, "中-文\n"),
         (r#"BEGIN{print gensub(/^a/, "X", 2, "aaa")}"#, "aaa\n"),
-        (r#"BEGIN{print gensub(/\<a/, "X", 2, "aaa ab")}"#, "aaa Xb\n"),
+        (
+            r#"BEGIN{print gensub(/\<a/, "X", 2, "aaa ab")}"#,
+            "aaa Xb\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (prog, expected) in cases {
@@ -2442,7 +2870,13 @@ fn empty_match_respects_utf8_boundaries() {
                 .args([backend_arg, prog])
                 .output()
                 .unwrap();
-            assert_eq!(String::from_utf8_lossy(&output.stdout), expected, "{} {}", backend_arg, prog);
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                expected,
+                "{} {}",
+                backend_arg,
+                prog
+            );
         }
     }
 }
@@ -2453,11 +2887,24 @@ fn gensub_unmatched_and_missing_groups() {
         // An optional group that did not participate is silently replaced by "" (as in gawk).
         let output = Command::cargo_bin("zawk")
             .unwrap()
-            .args([backend_arg, r#"BEGIN{print gensub(/(a)(b)?/, "<\\2>", "g", "ab a")}"#])
+            .args([
+                backend_arg,
+                r#"BEGIN{print gensub(/(a)(b)?/, "<\\2>", "g", "ab a")}"#,
+            ])
             .output()
             .unwrap();
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "<b> <>\n", "{}", backend_arg);
-        assert_eq!(String::from_utf8_lossy(&output.stderr), "", "{}", backend_arg);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "<b> <>\n",
+            "{}",
+            backend_arg
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "",
+            "{}",
+            backend_arg
+        );
 
         // A group the regex does not have is also replaced by "", with a single notice.
         let output = Command::cargo_bin("zawk")
@@ -2466,9 +2913,20 @@ fn gensub_unmatched_and_missing_groups() {
             .write_stdin("a\na\na\n")
             .output()
             .unwrap();
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "<a>\n<a>\n<a>\n", "{}", backend_arg);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "<a>\n<a>\n<a>\n",
+            "{}",
+            backend_arg
+        );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(stderr.matches("nonexistent group").count(), 1, "{} {}", backend_arg, stderr);
+        assert_eq!(
+            stderr.matches("nonexistent group").count(),
+            1,
+            "{} {}",
+            backend_arg,
+            stderr
+        );
     }
 }
 
@@ -2480,9 +2938,15 @@ fn extension_functions_reject_invalid_args_without_panic() {
         (r#"BEGIN{print mask("1234")}"#, "****\n"),
         (r#"BEGIN{print mask("secret")}"#, "s****t\n"),
         (r#"BEGIN{print mask("13800138000")}"#, "13*******00\n"),
-        (r#"BEGIN{print mask("abc@example.com")}"#, "abc*********com\n"),
+        (
+            r#"BEGIN{print mask("abc@example.com")}"#,
+            "abc*********com\n",
+        ),
         (r#"BEGIN{print mask("中文字符串")}"#, "中***串\n"),
-        (r#"BEGIN{print truncate("中文字符串", 4, "..")}"#, "中文..\n"),
+        (
+            r#"BEGIN{print truncate("中文字符串", 4, "..")}"#,
+            "中文..\n",
+        ),
         (r#"BEGIN{print truncate("abcdef", 1, "...")}"#, "a\n"),
         (r#"BEGIN{print truncate("abcdef", 5, "..")}"#, "abc..\n"),
         (r#"BEGIN{print "[" repeat("a", -1) "]"}"#, "[]\n"),
@@ -2496,7 +2960,13 @@ fn extension_functions_reject_invalid_args_without_panic() {
                 .args([backend_arg, prog])
                 .output()
                 .unwrap();
-            assert_eq!(String::from_utf8_lossy(&output.stdout), expected, "{} {}", backend_arg, prog);
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                expected,
+                "{} {}",
+                backend_arg,
+                prog
+            );
         }
     }
 }
@@ -2516,13 +2986,17 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { x = assert(1, "m") }"#,
             2,
-            &["zawk: fatal: line 1, column 13: `assert` is a statement, it can't be used in an expression"],
+            &[
+                "zawk: fatal: line 1, column 13: `assert` is a statement, it can't be used in an expression",
+            ],
         ),
         // Only arrays with integer keys can be converted to CSV.
         (
             r#"BEGIN { a["k"] = "v"; print to_csv(a) }"#,
             2,
-            &["zawk: fatal: line 1, column 29: to_csv: argument 1 must be an array with integer keys (a[1], a[2], ...)"],
+            &[
+                "zawk: fatal: line 1, column 29: to_csv: argument 1 must be an array with integer keys (a[1], a[2], ...)",
+            ],
         ),
         (
             r#"BEGIN { x = -1; $x = 1 }"#,
@@ -2581,7 +3055,9 @@ fn error_messages_are_gawk_style() {
         (
             "BEGIN { switch (x) { default: break; default: break } }",
             1,
-            &["zawk: syntax error at line 1, column 38: duplicate `default' detected in switch body"],
+            &[
+                "zawk: syntax error at line 1, column 38: duplicate `default' detected in switch body",
+            ],
         ),
         (
             "BEGIN { switch (x) { case y: break } }",
@@ -2620,16 +3096,35 @@ fn error_messages_are_gawk_style() {
                 .output()
                 .unwrap();
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert_eq!(output.status.code(), Some(*code), "{} {}: {}", backend_arg, prog, stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(*code),
+                "{} {}: {}",
+                backend_arg,
+                prog,
+                stderr
+            );
             // Locations in the zawk sources are only reported by debug builds.
             let stderr = if cfg!(debug_assertions) {
                 strip_source_locations(&stderr)
             } else {
-                assert!(!stderr.contains("[src/"), "{} {}: {}", backend_arg, prog, stderr);
+                assert!(
+                    !stderr.contains("[src/"),
+                    "{} {}: {}",
+                    backend_arg,
+                    prog,
+                    stderr
+                );
                 stderr.to_string()
             };
             for part in *parts {
-                assert!(stderr.contains(part), "{} {}: {}", backend_arg, prog, stderr);
+                assert!(
+                    stderr.contains(part),
+                    "{} {}: {}",
+                    backend_arg,
+                    prog,
+                    stderr
+                );
             }
         }
     }
@@ -2646,11 +3141,17 @@ fn static_errors_have_locations() {
         path.into_os_string().into_string().unwrap()
     };
     let ok = write("ok.awk", "BEGIN { x = 1 }\n");
-    let split = write("split.awk", "BEGIN {\n  n = split(s, arr, \" \", x, y)\n}\n");
+    let split = write(
+        "split.awk",
+        "BEGIN {\n  n = split(s, arr, \" \", x, y)\n}\n",
+    );
     let substr = write("substr.awk", "BEGIN {\n\tx = substr(\"abc\")\n}\n");
     let array = write("array.awk", "BEGIN {\n  a[1] = 1\n  print a\n}\n");
     let scalar = write("scalar.awk", "BEGIN {\n  x = 1\n  x[1] = 2\n}\n");
-    let param = write("param.awk", "function f(a) {\n  return a + 1\n}\nBEGIN { z[1]; f(z) }\n");
+    let param = write(
+        "param.awk",
+        "function f(a) {\n  return a + 1\n}\nBEGIN { z[1]; f(z) }\n",
+    );
     let unknown = write("unknown.awk", "BEGIN {\n  print 1\n  undefined_fn(1)\n}\n");
     let syntax = write("syntax.awk", "BEGIN {\n  print 1 +\n}\n");
     let cases: Vec<(Vec<&str>, i32, String)> = vec![
@@ -2751,8 +3252,21 @@ fn static_errors_have_locations() {
                 .output()
                 .unwrap();
             let stderr = strip_source_locations(&String::from_utf8_lossy(&output.stderr));
-            assert_eq!(output.status.code(), Some(*code), "{} {:?}: {}", backend_arg, args, stderr);
-            assert!(stderr.starts_with(expected.as_str()), "{} {:?}: {}", backend_arg, args, stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(*code),
+                "{} {:?}: {}",
+                backend_arg,
+                args,
+                stderr
+            );
+            assert!(
+                stderr.starts_with(expected.as_str()),
+                "{} {:?}: {}",
+                backend_arg,
+                args,
+                stderr
+            );
         }
     }
 }
@@ -2783,8 +3297,21 @@ fn assert_fatal(prog: &str, expected: &str) {
             .output()
             .unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(output.status.code(), Some(2), "{} {}: {}", backend_arg, prog, stderr);
-        assert!(stderr.contains(expected), "{} {}: {}", backend_arg, prog, stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{} {}: {}",
+            backend_arg,
+            prog,
+            stderr
+        );
+        assert!(
+            stderr.contains(expected),
+            "{} {}: {}",
+            backend_arg,
+            prog,
+            stderr
+        );
     }
 }
 
@@ -2807,22 +3334,41 @@ fn deep_recursion() {
         let output = Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
-            .arg(format!(r#"{} BEGIN {{ print "start"; print rec(100000000) }}"#, rec))
+            .arg(format!(
+                r#"{} BEGIN {{ print "start"; print rec(100000000) }}"#,
+                rec
+            ))
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(2), "{}", backend_arg);
         assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("function call nesting too deep"), "{}", stderr);
+        assert!(
+            stderr.contains("function call nesting too deep"),
+            "{}",
+            stderr
+        );
     }
 }
 
 #[test]
 fn printf_width_and_precision_limits() {
-    assert_fatal(r#"BEGIN { printf "%999999999999d", 1 }"#, "field width 999999999999 is too large");
-    assert_fatal(r#"BEGIN { printf "%*d", 2^40, 1 }"#, "field width 1099511627776 is too large");
-    assert_fatal(r#"BEGIN { x = sprintf("%-*s", 2^40, "a") }"#, "is too large");
-    assert_fatal(r#"BEGIN { printf "%.999999999999f", 1 }"#, "precision 999999999999 is too large");
+    assert_fatal(
+        r#"BEGIN { printf "%999999999999d", 1 }"#,
+        "field width 999999999999 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { printf "%*d", 2^40, 1 }"#,
+        "field width 1099511627776 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { x = sprintf("%-*s", 2^40, "a") }"#,
+        "is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { printf "%.999999999999f", 1 }"#,
+        "precision 999999999999 is too large",
+    );
     // A string precision only truncates.
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -2837,13 +3383,31 @@ fn printf_width_and_precision_limits() {
 
 #[test]
 fn stdlib_result_size_limits() {
-    assert_fatal(r#"BEGIN { x = repeat("ab", 1e12) }"#, "repeat: result length 2000000000000 is too large");
-    assert_fatal(r#"BEGIN { x = pad_end("a", 1e12, "*") }"#, "pad_end: length 1000000000000 is too large");
-    assert_fatal(r#"BEGIN { x = pad_start("a", 1e12, "*") }"#, "pad_start: length");
+    assert_fatal(
+        r#"BEGIN { x = repeat("ab", 1e12) }"#,
+        "repeat: result length 2000000000000 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { x = pad_end("a", 1e12, "*") }"#,
+        "pad_end: length 1000000000000 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { x = pad_start("a", 1e12, "*") }"#,
+        "pad_start: length",
+    );
     assert_fatal(r#"BEGIN { x = pad("a", 1e12, "*") }"#, "pad: length");
-    assert_fatal(r#"BEGIN { a = seq(1, 1, 1e12) }"#, "seq: element count 1000000000000 is too large");
-    assert_fatal(r#"BEGIN { a = seq(1, 0, 10) }"#, "seq: step must not be zero, got 0");
-    assert_fatal(r#"BEGIN { a = seq(1e17, 1, 1e17+10) }"#, "seq: step 1 is too small to change start");
+    assert_fatal(
+        r#"BEGIN { a = seq(1, 1, 1e12) }"#,
+        "seq: element count 1000000000000 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { a = seq(1, 0, 10) }"#,
+        "seq: step must not be zero, got 0",
+    );
+    assert_fatal(
+        r#"BEGIN { a = seq(1e17, 1, 1e17+10) }"#,
+        "seq: step 1 is too small to change start",
+    );
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -2877,7 +3441,12 @@ fn stdlib_failures_return_empty_with_warning() {
             .unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{}: {}", backend_arg, stderr);
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "[][][][0][]\nhi 3\n", "{}", backend_arg);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "[][][][0][]\nhi 3\n",
+            "{}",
+            backend_arg
+        );
         for expected in [
             "zawk: warning: decode: base64:",
             r#"zawk: warning: encode: unsupported format "nosuch""#,
@@ -2900,10 +3469,19 @@ fn array_scalar_errors_name_the_variable() {
         "function g(a) { return a[1] } BEGIN { print g(1) }",
         "attempt to use scalar `a` (parameter of function `g`) as an array",
     );
-    assert_fatal("BEGIN { x[1] = 1; print x }", "attempt to use array `x` in a scalar context");
-    assert_fatal("BEGIN { x = 1; x[1] = 2 }", "attempt to use scalar `x` as an array");
+    assert_fatal(
+        "BEGIN { x[1] = 1; print x }",
+        "attempt to use array `x` in a scalar context",
+    );
+    assert_fatal(
+        "BEGIN { x = 1; x[1] = 2 }",
+        "attempt to use scalar `x` as an array",
+    );
     // Assigning a scalar to an array variable.
-    assert_fatal("BEGIN { x[1] = 1; x = 2; print x }", "attempt to use array `x` in a scalar context");
+    assert_fatal(
+        "BEGIN { x[1] = 1; x = 2; print x }",
+        "attempt to use array `x` in a scalar context",
+    );
     assert_fatal(
         r#"BEGIN { split("a", x); y = "s"; x = y }"#,
         "attempt to use array `x` in a scalar context",
@@ -2920,7 +3498,10 @@ fn array_scalar_errors_name_the_variable() {
         r#"BEGIN { print from_json("{bad") }"#,
         "attempt to use array returned by `from_json()` in a scalar context",
     );
-    assert_fatal("BEGIN { a[1][2] = 3 }", "arrays of arrays such as `a[i][j]` are not supported");
+    assert_fatal(
+        "BEGIN { a[1][2] = 3 }",
+        "arrays of arrays such as `a[i][j]` are not supported",
+    );
     // Reported as a syntax error, with exit code 1, as in gawk.
     for backend_arg in BACKEND_ARGS {
         let output = Command::cargo_bin("zawk")
@@ -2942,9 +3523,18 @@ fn array_scalar_errors_name_the_variable() {
 
 #[test]
 fn builtin_variable_and_array_argument_errors_are_located() {
-    assert_fatal("BEGIN { ARGV = 1 }", "line 1, column 9: attempt to use array `ARGV` in a scalar context");
-    assert_fatal("BEGIN { NR[1] = 2 }", "line 1, column 9: attempt to use scalar `NR` as an array");
-    assert_fatal("BEGIN { for (k in NF) n++ }", "line 1, column 19: attempt to use scalar `NF` as an array");
+    assert_fatal(
+        "BEGIN { ARGV = 1 }",
+        "line 1, column 9: attempt to use array `ARGV` in a scalar context",
+    );
+    assert_fatal(
+        "BEGIN { NR[1] = 2 }",
+        "line 1, column 9: attempt to use scalar `NR` as an array",
+    );
+    assert_fatal(
+        "BEGIN { for (k in NF) n++ }",
+        "line 1, column 19: attempt to use scalar `NF` as an array",
+    );
     assert_fatal(
         r#"BEGIN { k["a"] = 5; sqlite_execute("t.db", "insert into t values(?)", k) }"#,
         "line 1, column 21: sqlite_execute: argument 3 must be an array with integer keys (a[1], a[2], ...) \
@@ -2972,11 +3562,23 @@ fn builtin_variable_and_array_argument_errors_are_located() {
         "split: argument 2 must be an array, but `a` (parameter of function `f`) is a scalar",
     );
     // A for-in loop variable cannot be a builtin array: reported as a syntax error.
-    for prog in ["BEGIN { x[1] = 1; for (k, ARGV in x) n++ }", "BEGIN { x[1] = 1; for (ENVIRON in x) n++ }"] {
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+    for prog in [
+        "BEGIN { x[1] = 1; for (k, ARGV in x) n++ }",
+        "BEGIN { x[1] = 1; for (ENVIRON in x) n++ }",
+    ] {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .output()
+            .unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{}: {}", prog, stderr);
-        assert!(stderr.contains("line 1, column 19: attempt to use array `"), "{}: {}", prog, stderr);
+        assert!(
+            stderr.contains("line 1, column 19: attempt to use array `"),
+            "{}: {}",
+            prog,
+            stderr
+        );
     }
 }
 
@@ -2986,15 +3588,30 @@ fn udf_array_params_of_different_types() {
     // results are typed only while inferring types.
     let prog = r#"function dump(arr, k) { for (k in arr) print k } BEGIN { dump(from_json("{\"q\":1}")); dump(lines("a")) }"#;
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).assert().stdout("q\n1\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("q\n1\n");
     }
     let prog = r#"function fill(a) { a[1] = "x" } BEGIN { fill(m); for (k in m) print k, m[k] }"#;
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(prog).assert().stdout("1 x\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1 x\n");
     }
     // An untyped variable passed to `_join` is an empty array.
     for backend_arg in BACKEND_ARGS {
-        Command::cargo_bin("zawk").unwrap().arg(backend_arg).arg(r#"BEGIN { print "[" _join(e) "]" }"#).assert().stdout("[]\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(r#"BEGIN { print "[" _join(e) "]" }"#)
+            .assert()
+            .stdout("[]\n");
     }
     assert_fatal(
         "BEGIN { print _join(5) }",
@@ -3010,19 +3627,32 @@ fn udf_array_params_of_different_types() {
         ("BEGIN { delete 5[1] }", "`delete`"),
         ("BEGIN { for (k in 5) print k }", "`for (k in arr)`"),
     ] {
-        let output = Command::cargo_bin("zawk").unwrap().arg(prog).output().unwrap();
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .output()
+            .unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{}: {}", prog, stderr);
-        let expected = format!("line 1, column 9: attempt to use a scalar value as an array: {} expects an array", what);
+        let expected = format!(
+            "line 1, column 9: attempt to use a scalar value as an array: {} expects an array",
+            what
+        );
         assert!(stderr.contains(&expected), "{}: {}", prog, stderr);
     }
 }
 
 #[test]
 fn functions_subcommand_lists_builtins() {
-    let out = Command::cargo_bin("zawk").unwrap().args(["functions", "--json"]).output().unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["functions", "--json"])
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let docs: Vec<serde_json::Value> = String::from_utf8(out.stdout).unwrap().lines()
+    let docs: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let trim = docs.iter().find(|f| f["name"] == "trim").unwrap();
@@ -3036,13 +3666,30 @@ fn functions_subcommand_lists_builtins() {
     for f in docs {
         let example = f["example"].as_str().unwrap();
         let prog = format!("BEGIN {{ if (ARGC > 100) {{ {} }} }}", example);
-        let out = Command::cargo_bin("zawk").unwrap().arg("-Binterp").arg(&prog).output().unwrap();
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("-Binterp")
+            .arg(&prog)
+            .output()
+            .unwrap();
         if !out.status.success() {
-            failures.push(format!("{}: {}", example, String::from_utf8_lossy(&out.stderr).trim()));
+            failures.push(format!(
+                "{}: {}",
+                example,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
         }
     }
-    assert!(failures.is_empty(), "examples that do not compile:\n{}", failures.join("\n"));
-    let out = Command::cargo_bin("zawk").unwrap().args(["functions", "Bitwise"]).output().unwrap();
+    assert!(
+        failures.is_empty(),
+        "examples that do not compile:\n{}",
+        failures.join("\n")
+    );
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["functions", "Bitwise"])
+        .output()
+        .unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.starts_with("# Bitwise\n") && text.contains("xor(a: int, b: int) -> int"));
 }
@@ -3131,13 +3778,36 @@ fn array_result_assigned_in_function() {
 #[test]
 fn expressions_as_statements() {
     let exprs = [
-        "1", "-1", "1.5", "\"s\"", "i", "f", "s", "-i", "!f", "!s", "i + 1", "f * 2.5",
-        "s \"t\"", "i < f", "length(s)", "substr(s, 1)", "sqrt(f)", "int(f)", "(i, s) in m",
-        "m[s]", "i ? f : s", "i++", "f += 1", "s = s \"x\"",
+        "1",
+        "-1",
+        "1.5",
+        "\"s\"",
+        "i",
+        "f",
+        "s",
+        "-i",
+        "!f",
+        "!s",
+        "i + 1",
+        "f * 2.5",
+        "s \"t\"",
+        "i < f",
+        "length(s)",
+        "substr(s, 1)",
+        "sqrt(f)",
+        "int(f)",
+        "(i, s) in m",
+        "m[s]",
+        "i ? f : s",
+        "i++",
+        "f += 1",
+        "s = s \"x\"",
     ];
     for expr in exprs {
-        let prog = format!(r#"BEGIN {{ i = 2; f = 2.5; s = "a"; m["k"] = 1; {expr}; {expr}
-            print "ok" }}"#);
+        let prog = format!(
+            r#"BEGIN {{ i = 2; f = 2.5; s = "a"; m["k"] = 1; {expr}; {expr}
+            print "ok" }}"#
+        );
         for backend_arg in BACKEND_ARGS {
             Command::cargo_bin("zawk")
                 .unwrap()
@@ -3174,7 +3844,12 @@ fn single_byte_fs_unterminated_last_record() {
                 if let Some(p) = parallel {
                     cmd.args([p, "-j2"]);
                 }
-                cmd.arg("-F,").arg(prog).write_stdin(*input).assert().success().stdout(*expected);
+                cmd.arg("-F,")
+                    .arg(prog)
+                    .write_stdin(*input)
+                    .assert()
+                    .success()
+                    .stdout(*expected);
             }
         }
     }
@@ -3199,7 +3874,11 @@ fn output_files_beyond_fd_limit() {
             .args([backend_arg, prog])
             .output()
             .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         assert_eq!(read_to_string(tmpdir.path().join("f0")).unwrap(), "c\n");
         for i in 1..300 {
             let data = read_to_string(tmpdir.path().join(format!("f{i}"))).unwrap();
@@ -3268,8 +3947,8 @@ fn stdout_broken_pipe_under_load() {
     // CPUs busy while running `zawk '{print}' file | head -1` repeatedly.
     use std::io::{BufRead, BufReader};
     use std::process::{Command as StdCommand, Stdio};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     let dir = tempdir().unwrap();
     let path = dir.path().join("big.csv");
     {
@@ -3322,7 +4001,8 @@ fn ignorecase_parallel() {
     // IGNORECASE (set with -v or in BEGIN) applies on the worker threads of -p, to regexes,
     // string comparisons and index().
     let input: String = "ABC x\nabc y\nAbC z\nabd w\n".repeat(500);
-    let prog = r#"/^abc/ { re++ } $1 == "abc" { eq++ } index($1, "B") { ix++ } END { print re, eq, ix }"#;
+    let prog =
+        r#"/^abc/ { re++ } $1 == "abc" { eq++ } index($1, "B") { ix++ } END { print re, eq, ix }"#;
     for backend_arg in BACKEND_ARGS {
         for begin in [false, true] {
             let mut cmd = Command::cargo_bin("zawk").unwrap();
@@ -3333,7 +4013,11 @@ fn ignorecase_parallel() {
                 cmd.args(["-v", "IGNORECASE=1"]);
                 prog.to_string()
             };
-            cmd.arg(prog).write_stdin(input.clone()).assert().success().stdout("1500 1500 2000\n");
+            cmd.arg(prog)
+                .write_stdin(input.clone())
+                .assert()
+                .success()
+                .stdout("1500 1500 2000\n");
         }
     }
 }
@@ -3345,11 +4029,26 @@ fn parallel_begin_values_counted_once() {
     let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
     let cases = [
         (r#"BEGIN { n = 10 } { n++ } END { print n }"#, "20010\n"),
-        (r#"BEGIN { t = 100 } { t -= 1 } END { print t }"#, "-19900\n"),
-        (r#"BEGIN { f = 0.5 } { f += 1 } END { printf "%.1f\n", f }"#, "20000.5\n"),
-        (r#"BEGIN { n = 10; s = "a" } { x++ } END { print n, s, x }"#, "10 a 20000\n"),
-        (r#"BEGIN { a["x"] = 10; a["y"] = 5 } { a["x"]++ } END { print a["x"], a["y"], length(a) }"#, "20010 5 2\n"),
-        (r#"BEGIN { s = "init" } NR == 5 { s = "set" } END { print s }"#, "set\n"),
+        (
+            r#"BEGIN { t = 100 } { t -= 1 } END { print t }"#,
+            "-19900\n",
+        ),
+        (
+            r#"BEGIN { f = 0.5 } { f += 1 } END { printf "%.1f\n", f }"#,
+            "20000.5\n",
+        ),
+        (
+            r#"BEGIN { n = 10; s = "a" } { x++ } END { print n, s, x }"#,
+            "10 a 20000\n",
+        ),
+        (
+            r#"BEGIN { a["x"] = 10; a["y"] = 5 } { a["x"]++ } END { print a["x"], a["y"], length(a) }"#,
+            "20010 5 2\n",
+        ),
+        (
+            r#"BEGIN { s = "init" } NR == 5 { s = "set" } END { print s }"#,
+            "set\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (prog, expected) in cases {
@@ -3371,14 +4070,42 @@ fn parallel_exit_runs_end() {
     // with the code of `exit` (or of a later `exit code` in END), as in serial mode.
     let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
     let cases = [
-        (r#"$1 == 100 { exit } END { print (NR >= 100), "end" }"#, "1 end\n", 0),
+        (
+            r#"$1 == 100 { exit } END { print (NR >= 100), "end" }"#,
+            "1 end\n",
+            0,
+        ),
         (r#"$1 == 100 { exit 3 } END { print "end" }"#, "end\n", 3),
-        (r#"$1 == 100 { exit 3 } END { print "end"; exit }"#, "end\n", 3),
-        (r#"$1 == 100 { exit 3 } END { print "end"; exit 5; print "no" }"#, "end\n", 5),
-        (r#"/^5000$/ { found = 1; exit 1 } END { print found }"#, "1\n", 1),
-        (r#"function f() { exit 4; print "no" } $1 == 100 { f(); print "no" } END { print "end" }"#, "end\n", 4),
-        (r#"function f() { exit 6 } END { print "end"; f(); print "no" }"#, "end\n", 6),
-        (r#"BEGIN { exit 2 } { print "no" } END { print "end" }"#, "end\n", 2),
+        (
+            r#"$1 == 100 { exit 3 } END { print "end"; exit }"#,
+            "end\n",
+            3,
+        ),
+        (
+            r#"$1 == 100 { exit 3 } END { print "end"; exit 5; print "no" }"#,
+            "end\n",
+            5,
+        ),
+        (
+            r#"/^5000$/ { found = 1; exit 1 } END { print found }"#,
+            "1\n",
+            1,
+        ),
+        (
+            r#"function f() { exit 4; print "no" } $1 == 100 { f(); print "no" } END { print "end" }"#,
+            "end\n",
+            4,
+        ),
+        (
+            r#"function f() { exit 6 } END { print "end"; f(); print "no" }"#,
+            "end\n",
+            6,
+        ),
+        (
+            r#"BEGIN { exit 2 } { print "no" } END { print "end" }"#,
+            "end\n",
+            2,
+        ),
         (r#"$1 == 100 { exit 7 }"#, "", 7),
     ];
     for backend_arg in BACKEND_ARGS {
@@ -3406,13 +4133,19 @@ fn parallel_input_errors() {
 
     let good = path("good");
     let input: String = (1..=20000).map(|i| format!("{}\n", i)).collect();
-    File::create(&good).unwrap().write_all(input.as_bytes()).unwrap();
+    File::create(&good)
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
 
     let truncated = path("truncated.gz");
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(input.as_bytes()).unwrap();
     let gz = encoder.finish().unwrap();
-    File::create(&truncated).unwrap().write_all(&gz[..gz.len() / 2]).unwrap();
+    File::create(&truncated)
+        .unwrap()
+        .write_all(&gz[..gz.len() / 2])
+        .unwrap();
 
     let cases: [(&[&str], &[&str], &str); 4] = [
         (&[], &[&missing], "cannot open file"),
@@ -3447,7 +4180,10 @@ fn lint_before_run() {
     // Errors: the report goes to stderr and the program does not run.
     let out = Command::cargo_bin("zawk")
         .unwrap()
-        .args(["--lint", "BEGIN { print \"ran\"; print substring(\"abc\", 1) }"])
+        .args([
+            "--lint",
+            "BEGIN { print \"ran\"; print substring(\"abc\", 1) }",
+        ])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
@@ -3476,7 +4212,11 @@ fn lint_before_run() {
     assert!(String::from_utf8(out.stderr).unwrap().contains("\"W201\""));
 
     // `zawk lint --deny-warnings`: warnings give exit code 1.
-    Command::cargo_bin("zawk").unwrap().args(["lint", "BEGIN { print NRR }"]).assert().success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["lint", "BEGIN { print NRR }"])
+        .assert()
+        .success();
     Command::cargo_bin("zawk")
         .unwrap()
         .args(["lint", "--deny-warnings", "BEGIN { print NRR }"])
@@ -3504,13 +4244,26 @@ fn lint_before_run() {
 fn inspect_files() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let inspect = |args: &[&str]| {
-        let out = Command::cargo_bin("zawk").unwrap().arg("inspect").args(args).output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("inspect")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8(out.stdout).unwrap()
     };
     let csv = dir.join("demo.csv");
     let report = inspect(&[csv.to_str().unwrap()]);
-    assert!(report.contains("Format:  csv (read with: zawk -i csv -H"), "{}", report);
+    assert!(
+        report.contains("Format:  csv (read with: zawk -i csv -H"),
+        "{}",
+        report
+    );
     assert!(report.contains("│ $3    │ age  │ INT64  │"), "{}", report);
     assert!(report.contains("│ age         │ INT64       │ 8      │ 49    │             5 │ 27.8 │ 19.8796 │  10 │  24 │  48 │     5 │           0.00% │"), "{}", report);
 
@@ -3520,47 +4273,121 @@ fn inspect_files() {
 
     let parquet = dir.join("types.parquet");
     let report = inspect(&["-o", "markdown", parquet.to_str().unwrap()]);
-    assert!(report.contains("| $8 | amount | DECIMAL(10,2) |"), "{}", report);
-    assert!(report.contains("| active | BOOLEAN | 0 | 1 | 2 |"), "{}", report);
+    assert!(
+        report.contains("| $8 | amount | DECIMAL(10,2) |"),
+        "{}",
+        report
+    );
+    assert!(
+        report.contains("| active | BOOLEAN | 0 | 1 | 2 |"),
+        "{}",
+        report
+    );
 }
 
 #[test]
 fn llm_prompt() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let llm = |args: &[&str]| {
-        let out = Command::cargo_bin("zawk").unwrap().current_dir(&dir).arg("llm").args(args).output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .current_dir(&dir)
+            .arg("llm")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8(out.stdout).unwrap()
     };
     // CSV with -H: the run and lint command lines, the raw lines, the schema and the summary,
     // the function reference, and the question last.
     let prompt = llm(&["-i", "csv", "-H", "demo.csv", "how many adults?"]);
-    assert!(prompt.contains("```sh\nzawk -i csv -H '<PROGRAM>' demo.csv\n```"), "{}", prompt);
-    assert!(prompt.contains("```sh\nzawk lint -i csv -H '<PROGRAM>' demo.csv\n```"), "{}", prompt);
-    assert!(prompt.contains("- Header: `-H`: the first line is the header"), "{}", prompt);
-    assert!(prompt.contains("```text\nid,name,age\n1,Jackie,48\n"), "{}", prompt);
+    assert!(
+        prompt.contains("```sh\nzawk -i csv -H '<PROGRAM>' demo.csv\n```"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("```sh\nzawk lint -i csv -H '<PROGRAM>' demo.csv\n```"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("- Header: `-H`: the first line is the header"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("```text\nid,name,age\n1,Jackie,48\n"),
+        "{}",
+        prompt
+    );
     assert!(prompt.contains("| $3 | age | INT64 |"), "{}", prompt);
-    assert!(prompt.contains("| age | INT64 | 8 | 49 | 5 | 27.8 |"), "{}", prompt);
-    assert!(prompt.contains("## Text\nlength([x: any]) -> int\n"), "{}", prompt);
-    assert!(prompt.ends_with("# Question\n\nhow many adults?\n"), "{}", prompt);
+    assert!(
+        prompt.contains("| age | INT64 | 8 | 49 | 5 | 27.8 |"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("## Text\nlength([x: any]) -> int\n"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.ends_with("# Question\n\nhow many adults?\n"),
+        "{}",
+        prompt
+    );
 
     // Parquet: the rows as awk sees them, as there are no text lines.
     let prompt = llm(&["-i", "parquet", "demo.parquet", "average age"]);
-    assert!(prompt.contains("- Header: implied by `-i parquet`"), "{}", prompt);
-    assert!(prompt.contains("First 5 rows, as awk sees the fields:\n\n| id | name | age |"), "{}", prompt);
+    assert!(
+        prompt.contains("- Header: implied by `-i parquet`"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("First 5 rows, as awk sees the fields:\n\n| id | name | age |"),
+        "{}",
+        prompt
+    );
     assert!(!prompt.contains("raw text of the file"), "{}", prompt);
 
     // Text: the field separator and the number of fields; no summary.
     let prompt = llm(&["-F", ",", "-o", "jsonl", "-n", "2", "demo.csv", "names"]);
-    assert!(prompt.contains("zawk -F , -o jsonl '<PROGRAM>' demo.csv"), "{}", prompt);
-    assert!(prompt.contains("```text\nid,name,age\n1,Jackie,48\n```"), "{}", prompt);
-    assert!(prompt.contains("Fields per line (NF) with this FS in these lines: 3."), "{}", prompt);
+    assert!(
+        prompt.contains("zawk -F , -o jsonl '<PROGRAM>' demo.csv"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("```text\nid,name,age\n1,Jackie,48\n```"),
+        "{}",
+        prompt
+    );
+    assert!(
+        prompt.contains("Fields per line (NF) with this FS in these lines: 3."),
+        "{}",
+        prompt
+    );
     assert!(prompt.contains("- Output format: `-o jsonl`"), "{}", prompt);
     assert!(!prompt.contains("Summary of the columns"), "{}", prompt);
 
     // The question is required, and the input files must be readable.
-    Command::cargo_bin("zawk").unwrap().args(["llm", "demo.csv", " "]).assert().code(2);
-    Command::cargo_bin("zawk").unwrap().args(["llm", "missing.csv", "q"]).assert().code(2);
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["llm", "demo.csv", " "])
+        .assert()
+        .code(2);
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["llm", "missing.csv", "q"])
+        .assert()
+        .code(2);
 }
 
 #[test]
@@ -3586,7 +4413,9 @@ BEGIN {
             .arg(prog)
             .write_stdin("0 abc\n")
             .assert()
-            .stdout("Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d e 0.5\nnone abc none\n");
+            .stdout(
+                "Guest\nHello Guest\nGuest\nHello Bob\nz\n42\nv 1\na b c d e 0.5\nnone abc none\n",
+            );
     }
 }
 
@@ -3754,7 +4583,11 @@ BEGIN {
 fn try_else_errors() {
     // `try` needs `else`, and is a keyword.
     for prog in ["BEGIN { x = try f() }", "BEGIN { try += 1 }"] {
-        Command::cargo_bin("zawk").unwrap().arg(prog).assert().failure();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .assert()
+            .failure();
     }
     // `++`/`--` and a regex starting with `=` can still start the expression of `try`.
     Command::cargo_bin("zawk")
@@ -3774,7 +4607,14 @@ fn try_else_errors() {
         (&["-v", "try=1", "BEGIN { }"], "reserved word"),
         (&["BEGIN { }", "try=1"], "reserved word"),
     ] {
-        let out = Command::cargo_bin("zawk").unwrap().args(args).assert().failure().get_output().stderr.clone();
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone();
         let err = String::from_utf8(out).unwrap();
         assert!(err.contains(msg), "{:?}: {}", args, err);
     }
@@ -3838,10 +4678,22 @@ fn default_fs_blanks_are_the_same_everywhere() {
 fn stdlib_bad_arguments_do_not_panic() {
     // Arguments that used to panic (or abort on a huge allocation) inside stdlib functions.
     let cases = [
-        (r#"BEGIN { print length(sprintf("%.*f", 70000, 1)) }"#, "70002\n"),
-        (r#"BEGIN { print length(parse("a b", "{x} {y")), length(parse("", "{")) }"#, "0 0\n"),
-        (r#"BEGIN { m = variant("("); print "[" m["name"] "][" m["value"] "]" }"#, "[][]\n"),
-        (r#"BEGIN { m = variant(" week(5) "); print m["name"], m["value"] }"#, "week 5\n"),
+        (
+            r#"BEGIN { print length(sprintf("%.*f", 70000, 1)) }"#,
+            "70002\n",
+        ),
+        (
+            r#"BEGIN { print length(parse("a b", "{x} {y")), length(parse("", "{")) }"#,
+            "0 0\n",
+        ),
+        (
+            r#"BEGIN { m = variant("("); print "[" m["name"] "][" m["value"] "]" }"#,
+            "[][]\n",
+        ),
+        (
+            r#"BEGIN { m = variant(" week(5) "); print m["name"], m["value"] }"#,
+            "week 5\n",
+        ),
         (r#"BEGIN { print length(hex2rgb("\xff\xfe")) }"#, "0\n"),
     ];
     for backend_arg in BACKEND_ARGS {
@@ -3882,7 +4734,10 @@ fn char_at_out_of_range_is_empty() {
 #[test]
 fn index_with_regex_literal_is_error() {
     // `index(s, /re/)` used to search for "0" or "1" (the value of `$0 ~ /re/`) and return 0.
-    for prog in [r#"BEGIN { print index("abc", /b/) }"#, r#"BEGIN { print last_index("abc", /b/) }"#] {
+    for prog in [
+        r#"BEGIN { print index("abc", /b/) }"#,
+        r#"BEGIN { print last_index("abc", /b/) }"#,
+    ] {
         for backend_arg in BACKEND_ARGS {
             let out = Command::cargo_bin("zawk")
                 .unwrap()
@@ -3892,13 +4747,19 @@ fn index_with_regex_literal_is_error() {
                 .stdout("")
                 .get_output()
                 .clone();
-            assert!(String::from_utf8_lossy(&out.stderr).contains("regexp constant as second argument is not allowed"));
+            assert!(
+                String::from_utf8_lossy(&out.stderr)
+                    .contains("regexp constant as second argument is not allowed")
+            );
         }
     }
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
-            .args([*backend_arg, r#"BEGIN { print index("abc", "b"), match("abc", /b/) }"#])
+            .args([
+                *backend_arg,
+                r#"BEGIN { print index("abc", "b"), match("abc", /b/) }"#,
+            ])
             .assert()
             .success()
             .stdout("2 2\n");
@@ -3923,15 +4784,42 @@ fn uninitialized_values_are_strnums() {
     // Missing elements and unassigned variables compare as 0 with numbers and as "" with strings,
     // whatever the type of the array or variable; copies keep that, other strings do not.
     let cases = [
-        (r#"BEGIN { a["j"] = "s"; print (a["k"] == 0), (a["k"] == ""), (a["k"] < "a") }"#, "1 1 1\n"),
-        (r#"BEGIN { n = split("", arr); print (arr[1] == 0) }"#, "1\n"),
-        (r#"BEGIN { if (0) x = "a"; y = x; print (x == 0), (y == 0), (("" x) == 0) }"#, "1 1 0\n"),
-        (r#"BEGIN { getline x < "/dev/null"; print (x == 0) }"#, "1\n"),
-        (r#"BEGIN { x = "10"; a["j"] = "10"; print (x < 9), (a["j"] < 9) }"#, "1 1\n"),
-        (r#"BEGIN { a[1] = 5; b = a[2]; c = b; print "[" b "]" "[" c "]", (b == 0) }"#, "[][] 1\n"),
-        (r#"BEGIN { a[1] = 5; for (i = 1; i <= 2; i++) { b = a[i]; print "[" b "]" } }"#, "[5]\n[]\n"),
-        (r#"function f(n) { if (n) return n * 2 } BEGIN { x = f(0); print "[" f(3) "]" "[" f(0) "]" "[" x "]" }"#, "[6][][]\n"),
-        (r#"function f(n) { if (n > 0) { f(n - 1); return } return n } BEGIN { print "[" f(2) "]" "[" f(0) "]" }"#, "[][0]\n"),
+        (
+            r#"BEGIN { a["j"] = "s"; print (a["k"] == 0), (a["k"] == ""), (a["k"] < "a") }"#,
+            "1 1 1\n",
+        ),
+        (
+            r#"BEGIN { n = split("", arr); print (arr[1] == 0) }"#,
+            "1\n",
+        ),
+        (
+            r#"BEGIN { if (0) x = "a"; y = x; print (x == 0), (y == 0), (("" x) == 0) }"#,
+            "1 1 0\n",
+        ),
+        (
+            r#"BEGIN { getline x < "/dev/null"; print (x == 0) }"#,
+            "1\n",
+        ),
+        (
+            r#"BEGIN { x = "10"; a["j"] = "10"; print (x < 9), (a["j"] < 9) }"#,
+            "1 1\n",
+        ),
+        (
+            r#"BEGIN { a[1] = 5; b = a[2]; c = b; print "[" b "]" "[" c "]", (b == 0) }"#,
+            "[][] 1\n",
+        ),
+        (
+            r#"BEGIN { a[1] = 5; for (i = 1; i <= 2; i++) { b = a[i]; print "[" b "]" } }"#,
+            "[5]\n[]\n",
+        ),
+        (
+            r#"function f(n) { if (n) return n * 2 } BEGIN { x = f(0); print "[" f(3) "]" "[" f(0) "]" "[" x "]" }"#,
+            "[6][][]\n",
+        ),
+        (
+            r#"function f(n) { if (n > 0) { f(n - 1); return } return n } BEGIN { print "[" f(2) "]" "[" f(0) "]" }"#,
+            "[][0]\n",
+        ),
     ];
     for (prog, expected) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -4079,7 +4967,12 @@ fn for_in_order_is_reproducible() {
     let prog = r#"{ a[$1]; b[NR] = $1 } END { for (k in a) printf "%s", k; for (k in b) printf " %s", k; print "" }"#;
     let input = "x\ny\nz\nw\nv\nfoo\nbar\nbaz\n";
     let run = |backend_arg: &str| {
-        let out = Command::cargo_bin("zawk").unwrap().args([backend_arg, prog]).write_stdin(input).output().unwrap();
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, prog])
+            .write_stdin(input)
+            .output()
+            .unwrap();
         assert!(out.status.success());
         String::from_utf8(out.stdout).unwrap()
     };
@@ -4108,7 +5001,11 @@ fn tsv_escapes_round_trip() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(String::from(*backend_arg))
-            .args(["-i", "tsv", r#"{ for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }"#])
+            .args([
+                "-i",
+                "tsv",
+                r#"{ for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }"#,
+            ])
             .write_stdin(String::from(escaped) + "x\\\\\\\\y\tq\\\ttail\n")
             .assert()
             .success()
@@ -4136,13 +5033,43 @@ fn csv_tsv_field_assignment() {
     // Assigning fields, NF or $0 (including through sub/gsub) works for CSV and TSV input:
     // fields keep the new value and $0 is rebuilt with OFS.
     let cases: &[(&str, &str, &str, &str)] = &[
-        ("csv", r#"{ sub(/a/, "X"); print; gsub(/b/, "Y", $2); print $2; print }"#, "a,b\n", "X,b\nY\nX Y\n"),
-        ("tsv", r#"{ $2 = "Y"; print $1, $2; print }"#, "a\tb\n", "a Y\na Y\n"),
+        (
+            "csv",
+            r#"{ sub(/a/, "X"); print; gsub(/b/, "Y", $2); print $2; print }"#,
+            "a,b\n",
+            "X,b\nY\nX Y\n",
+        ),
+        (
+            "tsv",
+            r#"{ $2 = "Y"; print $1, $2; print }"#,
+            "a\tb\n",
+            "a Y\na Y\n",
+        ),
         ("csv", r#"{ $2 = "Y"; print }"#, "a,b,c\n", "a Y c\n"),
-        ("csv", r#"BEGIN { OFS = "," } { NF = 2; print; $5 = "e"; print NF, $0 }"#, "a,b,c\n", "a,b\n5,a,b,,,e\n"),
-        ("csv", r#"{ $0 = "x,\"y,z\",w"; print NF, $2 }"#, "a\n", "3 y,z\n"),
-        ("tsv", r#"{ $0 = "p\\tq\tr"; print NF, $1 }"#, "a\n", "2 p\tq\n"),
-        ("csv", r#"{ gsub(/"/, "", $2); print $2 }"#, "a,\"b\"\"c\",d\n", "bc\n"),
+        (
+            "csv",
+            r#"BEGIN { OFS = "," } { NF = 2; print; $5 = "e"; print NF, $0 }"#,
+            "a,b,c\n",
+            "a,b\n5,a,b,,,e\n",
+        ),
+        (
+            "csv",
+            r#"{ $0 = "x,\"y,z\",w"; print NF, $2 }"#,
+            "a\n",
+            "3 y,z\n",
+        ),
+        (
+            "tsv",
+            r#"{ $0 = "p\\tq\tr"; print NF, $1 }"#,
+            "a\n",
+            "2 p\tq\n",
+        ),
+        (
+            "csv",
+            r#"{ gsub(/"/, "", $2); print $2 }"#,
+            "a,\"b\"\"c\",d\n",
+            "bc\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (ifmt, prog, input, expected) in cases {
@@ -4240,7 +5167,11 @@ fn folded_regex_constants_in_sub_and_split() {
         }
         Command::cargo_bin("zawk")
             .unwrap()
-            .args([*backend_arg, "-O3", r#"BEGIN { IGNORECASE = 1 } { gsub(/a/, "x"); print $0, split("1A2a3", P, /a/) }"#])
+            .args([
+                *backend_arg,
+                "-O3",
+                r#"BEGIN { IGNORECASE = 1 } { gsub(/a/, "x"); print $0, split("1A2a3", P, /a/) }"#,
+            ])
             .write_stdin("AaA\n")
             .assert()
             .success()
@@ -4251,7 +5182,8 @@ fn folded_regex_constants_in_sub_and_split() {
 #[test]
 fn user_input_in_commands() {
     // As in gawk, input may be used in commands run by pipes and system().
-    let prog = r#"{ cmd = "echo " $1; cmd | getline x; print x; system("echo " $2); print $1 | "cat" }"#;
+    let prog =
+        r#"{ cmd = "echo " $1; cmd | getline x; print x; system("echo " $2); print $1 | "cat" }"#;
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -4281,13 +5213,19 @@ fn local_variables() {
             r#"{ if (NR == 2) { local x = "set" } print "[" x "]" }"#,
             "[]\n[set]\n",
         ),
-        ("{ for (i = 0; i < 3; i++) { local n; n++; printf \"%d \", n } print \"\" }", "1 1 1 \n1 1 1 \n"),
+        (
+            "{ for (i = 0; i < 3; i++) { local n; n++; printf \"%d \", n } print \"\" }",
+            "1 1 1 \n1 1 1 \n",
+        ),
         // The scope starts after the declaration, and its initializer reads the outer variable.
         (
             "BEGIN { a = 10 } { print a; local a = a + 1; print a } END { print a }",
             "10\n11\n10\n11\n10\n",
         ),
-        ("{ local a = 1, b = a + 1, m[]; m[1]; print a, b, length(m) }", "1 2 1\n1 2 1\n"),
+        (
+            "{ local a = 1, b = a + 1, m[]; m[1]; print a, b, length(m) }",
+            "1 2 1\n1 2 1\n",
+        ),
         // Locals of a function are new on each call, and are not globals.
         (
             "function f(n) { local acc[]; local s = 0; for (i = 1; i <= n; i++) { acc[i] = i; s += i } return s \":\" length(acc) } { print f(NR) }",
@@ -4297,7 +5235,10 @@ fn local_variables() {
             "function fact(n) { local r = 1; if (n > 1) r = n * fact(n - 1); return r } { print fact(NR + 3) }",
             "24\n120\n",
         ),
-        (r#"function g() { return x } { local x = 7; print "[" g() "]" }"#, "[]\n[]\n"),
+        (
+            r#"function g() { return x } { local x = 7; print "[" g() "]" }"#,
+            "[]\n[]\n",
+        ),
         (r#"{ local x = NR; print f"x={x}" }"#, "x=1\nx=2\n"),
         // Extra arguments do not land in the slots of the callee's locals, but are evaluated.
         (
@@ -4308,7 +5249,10 @@ fn local_variables() {
             r#"function f(a) { local tmp[]; tmp["k"] = 1; return length(tmp) } { data["x"]; data["y"]; print f(1, data), length(data) }"#,
             "1 2\n1 2\n",
         ),
-        ("function f(a) { local x; return a x } { n = 0; print f(1, n++), n }", "1 1\n1 1\n"),
+        (
+            "function f(a) { local x; return a x } { n = 0; print f(1, n++), n }",
+            "1 1\n1 1\n",
+        ),
     ];
     for (prog, expected) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -4329,12 +5273,28 @@ fn local_variables() {
         .unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("cannot declare the special variable `NR' as local"), "{}", stderr);
+    assert!(
+        stderr.contains("cannot declare the special variable `NR' as local"),
+        "{}",
+        stderr
+    );
     let errors = [
-        ("BEGIN { local SUBSEP = \"x\" }", "cannot declare the special variable `SUBSEP' as local"),
-        ("function f() { return 1 } BEGIN { local f = 2 }", "function `f' cannot be declared as a local variable"),
-        ("BEGIN { local f = 2 } function f() { return 1 }", "function `f' cannot be declared as a local variable"),
-        ("BEGIN { local x = 1, x = 2 }", "local variable `x' is declared twice in the same statement"),
+        (
+            "BEGIN { local SUBSEP = \"x\" }",
+            "cannot declare the special variable `SUBSEP' as local",
+        ),
+        (
+            "function f() { return 1 } BEGIN { local f = 2 }",
+            "function `f' cannot be declared as a local variable",
+        ),
+        (
+            "BEGIN { local f = 2 } function f() { return 1 }",
+            "function `f' cannot be declared as a local variable",
+        ),
+        (
+            "BEGIN { local x = 1, x = 2 }",
+            "local variable `x' is declared twice in the same statement",
+        ),
         (
             "BEGIN { local x; x[1] = 1; print length(x) }",
             "line 1, column 18: attempt to use scalar `x` as an array (declare it with `local x[]`)",
@@ -4345,7 +5305,12 @@ fn local_variables() {
         ),
     ];
     for (prog, expected) in errors {
-        let out = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .write_stdin("")
+            .output()
+            .unwrap();
         assert!(!out.status.success(), "{}", prog);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains(expected), "{}: {}", prog, stderr);
@@ -4376,17 +5341,29 @@ print level }"#,
             "ok\nslow\nok\nwarn\ninfo\n",
         ),
         // Without `_`, no match is "". Arms may be separated by newlines.
-        ("{ print \"[\" match $2 {\n  \"info\" => \"I\"\n  /^E/ => \"E\"\n} \"]\" }", "[I]\n[]\n[E]\n[]\n[]\n"),
+        (
+            "{ print \"[\" match $2 {\n  \"info\" => \"I\"\n  /^E/ => \"E\"\n} \"]\" }",
+            "[I]\n[]\n[E]\n[]\n[]\n",
+        ),
         // The subject is evaluated once; a parenthesized subject is not a call of match().
-        ("{ n = 0; r = match (++n) { 2 => \"a\", 1 => \"b\" }; print r, n }", "b 1\nb 1\nb 1\nb 1\nb 1\n"),
-        ("NR == 1 { print match $2 { _ => \"d\" }, match $2 {} \"|\" }", "d |\n"),
+        (
+            "{ n = 0; r = match (++n) { 2 => \"a\", 1 => \"b\" }; print r, n }",
+            "b 1\nb 1\nb 1\nb 1\nb 1\n",
+        ),
+        (
+            "NR == 1 { print match $2 { _ => \"d\" }, match $2 {} \"|\" }",
+            "d |\n",
+        ),
         // `m` is local to its arm, and match() is still the builtin.
         (
             r#"NR == 1 { m = "keep"; print match $0 { /(i)nfo/ as m => m[1] }, m, match($0, /info/) }"#,
             "i keep 3\n",
         ),
         // Nested matches, and a match in a pattern and in a recursive function.
-        ("NR <= 2 { print match $2 { \"info\" => match NR { 1 => \"one\" }, _ => \"other\" } }", "one\nother\n"),
+        (
+            "NR <= 2 { print match $2 { \"info\" => match NR { 1 => \"one\" }, _ => \"other\" } }",
+            "one\nother\n",
+        ),
         ("match $2 { /^[0-9]/ => 1 } { print $2 }", "3.0\n"),
         (
             r#"function f(s) { return match s { /^d(.*)/ as g => g[1], "" => "-", _ => f(substr(s, 2)) } } NR == 4 { print f("xxdz"), f("xx") }"#,
@@ -4405,13 +5382,30 @@ print level }"#,
         }
     }
     let errors = [
-        ("BEGIN { print match 1 { _ => 1, 2 => 3 } }", "`_' must be the last arm of a match expression"),
-        ("BEGIN { print match 1 { x => 1 } }", "a match pattern is a number, a string, a regex or `_', got `x'"),
-        ("BEGIN { print match 1 { /a/ ass m => 1 } }", "expected `as` after the regex of a match arm, got `ass'"),
-        ("BEGIN { print match 1 { /a/ as NR => 1 } }", "cannot bind the special variable `NR' in a match arm"),
+        (
+            "BEGIN { print match 1 { _ => 1, 2 => 3 } }",
+            "`_' must be the last arm of a match expression",
+        ),
+        (
+            "BEGIN { print match 1 { x => 1 } }",
+            "a match pattern is a number, a string, a regex or `_', got `x'",
+        ),
+        (
+            "BEGIN { print match 1 { /a/ ass m => 1 } }",
+            "expected `as` after the regex of a match arm, got `ass'",
+        ),
+        (
+            "BEGIN { print match 1 { /a/ as NR => 1 } }",
+            "cannot bind the special variable `NR' in a match arm",
+        ),
     ];
     for (prog, expected) in errors {
-        let out = Command::cargo_bin("zawk").unwrap().arg(prog).write_stdin("").output().unwrap();
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .write_stdin("")
+            .output()
+            .unwrap();
         assert!(!out.status.success(), "{}", prog);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains(expected), "{}: {}", prog, stderr);
@@ -4451,10 +5445,22 @@ END {
 fn udf_array_params_shared_instance() {
     // several call sites passing untyped variables to the same function must all become maps
     let cases: &[(&str, &str)] = &[
-        (r#"function add(arr, k) { arr[k]++ } { add(cnt, $1); add(tot, $2) } END { print length(cnt), length(tot) }"#, "2 3\n"),
-        (r#"function f(x) { x["k"] = 1 } BEGIN { f(y); f(z); print length(y), length(z) }"#, "1 1\n"),
-        (r#"function inner(a) { a["k"] = 1 } function outer(b) { inner(b) } BEGIN { outer(p); outer(q); print length(p), length(q) }"#, "1 1\n"),
-        (r#"function f(x) { x["k"] = 1 } function g(  a, b) { f(a); f(b); print length(a), length(b) } BEGIN { g() }"#, "1 1\n"),
+        (
+            r#"function add(arr, k) { arr[k]++ } { add(cnt, $1); add(tot, $2) } END { print length(cnt), length(tot) }"#,
+            "2 3\n",
+        ),
+        (
+            r#"function f(x) { x["k"] = 1 } BEGIN { f(y); f(z); print length(y), length(z) }"#,
+            "1 1\n",
+        ),
+        (
+            r#"function inner(a) { a["k"] = 1 } function outer(b) { inner(b) } BEGIN { outer(p); outer(q); print length(p), length(q) }"#,
+            "1 1\n",
+        ),
+        (
+            r#"function f(x) { x["k"] = 1 } function g(  a, b) { f(a); f(b); print length(a), length(b) } BEGIN { g() }"#,
+            "1 1\n",
+        ),
     ];
     for (prog, out) in cases {
         for backend_arg in BACKEND_ARGS {
@@ -4496,10 +5502,22 @@ fn opt_level_minus_one_forces_interp() {
 #[test]
 fn output_format_ignores_ofs_ors() {
     let cases: &[(&[&str], &str, &str)] = &[
-        (&["-o", "csv"], r#"BEGIN{OFS=";"; ORS="|"; print "a;b","c,d"}"#, "a;b,\"c,d\"\n"),
+        (
+            &["-o", "csv"],
+            r#"BEGIN{OFS=";"; ORS="|"; print "a;b","c,d"}"#,
+            "a;b,\"c,d\"\n",
+        ),
         (&["-o", "tsv"], r#"BEGIN{OFS=","; print "a","b"}"#, "a\tb\n"),
-        (&["-o", "jsonl"], r#"BEGIN{OFS=","; print "a","b"; print 1,2}"#, "{\"a\":\"1\",\"b\":\"2\"}\n"),
-        (&["-v", "OFS=,", "-o", "jsonl"], r#"BEGIN{print "a","b"; print 1,2}"#, "{\"a\":\"1\",\"b\":\"2\"}\n"),
+        (
+            &["-o", "jsonl"],
+            r#"BEGIN{OFS=","; print "a","b"; print 1,2}"#,
+            "{\"a\":\"1\",\"b\":\"2\"}\n",
+        ),
+        (
+            &["-v", "OFS=,", "-o", "jsonl"],
+            r#"BEGIN{print "a","b"; print 1,2}"#,
+            "{\"a\":\"1\",\"b\":\"2\"}\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (args, prog, out) in cases {
@@ -4518,12 +5536,18 @@ fn output_format_ignores_ofs_ors() {
 #[test]
 fn invalid_constant_regex_in_unreachable_code() {
     let cases: &[(&str, &str)] = &[
-        (r#"BEGIN{print "x"; if (0) { print "(a" ~ "(a" } else print "fine"}"#, "x\nfine\n"),
+        (
+            r#"BEGIN{print "x"; if (0) { print "(a" ~ "(a" } else print "fine"}"#,
+            "x\nfine\n",
+        ),
         (
             r#"function f(){ return "(a" ~ "(a" } BEGIN{print "x"; if (ARGC > 5) print f(); print "ok"}"#,
             "x\nok\n",
         ),
-        (r#"BEGIN{s="x"; if (0) { sub("(a", "b", s); gsub("[", "b", s) } print s}"#, "x\n"),
+        (
+            r#"BEGIN{s="x"; if (0) { sub("(a", "b", s); gsub("[", "b", s) } print s}"#,
+            "x\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (prog, out) in cases {
@@ -4638,9 +5662,16 @@ fn markdown_program() {
     let md = tmpdir.path().join("prog.awk.md");
     // The first awk block is the program; its lines keep their numbers in errors.
     let text = "Swap the fields:\n\n```sh\nzawk '$2,$1'\n```\n\n```awk\n{ print $2, $1 }\n```\n\n```awk\n{ print }\n```\n";
-    File::create(&md).unwrap().write_all(text.as_bytes()).unwrap();
+    File::create(&md)
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
     for backend_arg in BACKEND_ARGS {
-        for args in [vec!["-f", md.to_str().unwrap()], vec![text], vec!["-e", text]] {
+        for args in [
+            vec!["-f", md.to_str().unwrap()],
+            vec![text],
+            vec!["-e", text],
+        ] {
             Command::cargo_bin("zawk")
                 .unwrap()
                 .arg(backend_arg)
@@ -4652,13 +5683,33 @@ fn markdown_program() {
         }
     }
     let bad = tmpdir.path().join("bad.md");
-    File::create(&bad).unwrap().write_all(b"x\n\n```zawk\nBEGIN { print (1 }\n```\n").unwrap();
-    let out = Command::cargo_bin("zawk").unwrap().arg("-f").arg(&bad).output().unwrap();
+    File::create(&bad)
+        .unwrap()
+        .write_all(b"x\n\n```zawk\nBEGIN { print (1 }\n```\n")
+        .unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-f")
+        .arg(&bad)
+        .output()
+        .unwrap();
     assert!(String::from_utf8_lossy(&out.stderr).contains("bad.md:4:18"));
     let none = tmpdir.path().join("none.md");
-    File::create(&none).unwrap().write_all(b"no code\n").unwrap();
-    Command::cargo_bin("zawk").unwrap().arg("-f").arg(&none).assert().failure();
-    Command::cargo_bin("zawk").unwrap().args(["fmt", md.to_str().unwrap()]).assert().code(2);
+    File::create(&none)
+        .unwrap()
+        .write_all(b"no code\n")
+        .unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-f")
+        .arg(&none)
+        .assert()
+        .failure();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["fmt", md.to_str().unwrap()])
+        .assert()
+        .code(2);
     // Programs that are not Markdown are left alone.
     Command::cargo_bin("zawk")
         .unwrap()
@@ -4681,12 +5732,27 @@ fn database_input_sqlite() {
         sqlite_execute("{db}", "INSERT INTO user VALUES ('jackie', 30, 'a,b', x'0102'), ('linux', 42, NULL, NULL)")
     }}"#
     );
-    Command::cargo_bin("zawk").unwrap().arg(setup).assert().success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(setup)
+        .assert()
+        .success();
     let table = format!("sqlite://{}#user", db);
-    let query = format!("sqlite://{}#select nick, age * 2 as a2 from user where age > 35", db);
+    let query = format!(
+        "sqlite://{}#select nick, age * 2 as a2 from user where age > 35",
+        db
+    );
     let cases: &[(&str, &str, &str)] = &[
-        (r#"{ print NR, NF, $FI["nick"], $FI["age"] + 1, "[" $3 "]", "[" $4 "]" }"#, &table, "1 4 jackie 31 [a,b] []\n2 4 linux 43 [] []\n"),
-        (r#"{ print $0 }"#, &table, "jackie,30,\"a,b\",\nlinux,42,,\n"),
+        (
+            r#"{ print NR, NF, $FI["nick"], $FI["age"] + 1, "[" $3 "]", "[" $4 "]" }"#,
+            &table,
+            "1 4 jackie 31 [a,b] []\n2 4 linux 43 [] []\n",
+        ),
+        (
+            r#"{ print $0 }"#,
+            &table,
+            "jackie,30,\"a,b\",\nlinux,42,,\n",
+        ),
         (r#"{ print $FI["nick"], $FI["a2"] }"#, &query, "linux 84\n"),
     ];
     for (prog, input, out) in cases {
@@ -4703,14 +5769,32 @@ fn database_input_sqlite() {
     }
 
     let run = |args: &[&str]| {
-        let out = Command::cargo_bin("zawk").unwrap().args(args).output().unwrap();
-        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
     };
 
     // --summary
-    let (ok, summary, err) = run(&["-o", "markdown", "--summary", r#"NR == 1 { print "nick", "age" } { print $1, $2 }"#, &table]);
+    let (ok, summary, err) = run(&[
+        "-o",
+        "markdown",
+        "--summary",
+        r#"NR == 1 { print "nick", "age" } { print $1, $2 }"#,
+        &table,
+    ]);
     assert!(ok, "{}", err);
-    assert!(summary.contains("| age | number | 2 | 2 | 30 | 42 | 72 | 36 |"), "{}", summary);
+    assert!(
+        summary.contains("| age | number | 2 | 2 | 30 | 42 | 72 | 36 |"),
+        "{}",
+        summary
+    );
 
     // inspect: the column types of the database
     let (ok, report, err) = run(&["inspect", "-o", "md", &table]);
@@ -4721,7 +5805,10 @@ fn database_input_sqlite() {
     assert!(report.contains("| jackie | 30 | a,b |  |"), "{}", report);
 
     // a missing table, or a URL without `#`, is fatal
-    for bad in [format!("sqlite://{}#nosuch", db), format!("sqlite://{}", db)] {
+    for bad in [
+        format!("sqlite://{}#nosuch", db),
+        format!("sqlite://{}", db),
+    ] {
         let (ok, _, err) = run(&["{ print }", &bad]);
         assert!(!ok && err.contains("cannot read `sqlite://"), "{}", err);
     }
@@ -4738,11 +5825,23 @@ fn xlsx_input() {
     let cases: &[(&[&str], &str, &str)] = &[
         (&[], "{ print $1 }", "name\nJackie\nLove\n"),
         (&["-i", "xlsx"], "{ print $1 }", "id\n1\n2\n"),
-        (&["-H"], r#"{ print NR, $FI["name"], $FI["age"] + 1 }"#, "1 Jackie 49\n2 Love 50\n"),
-        (&["-H"], r#"{ print $FI["nick"], $FI["status"] }"#, "Jackie 1\nLove 2\n"),
+        (
+            &["-H"],
+            r#"{ print NR, $FI["name"], $FI["age"] + 1 }"#,
+            "1 Jackie 49\n2 Love 50\n",
+        ),
+        (
+            &["-H"],
+            r#"{ print $FI["nick"], $FI["status"] }"#,
+            "Jackie 1\nLove 2\n",
+        ),
     ];
     for (i, (args, prog, out)) in cases.iter().enumerate() {
-        let file = if i == 0 || i == 2 { demo } else { sheet2.as_str() };
+        let file = if i == 0 || i == 2 {
+            demo
+        } else {
+            sheet2.as_str()
+        };
         for backend_arg in BACKEND_ARGS {
             Command::cargo_bin("zawk")
                 .unwrap()
@@ -4756,24 +5855,60 @@ fn xlsx_input() {
         }
     }
     let run = |args: &[&str]| {
-        let out = Command::cargo_bin("zawk").unwrap().args(args).output().unwrap();
-        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
     };
 
     // --summary
-    let (ok, summary, err) = run(&["-H", "-o", "markdown", "--summary", r#"NR == 1 { print "name", "age" } { print $FI["name"], $FI["age"] }"#, demo]);
+    let (ok, summary, err) = run(&[
+        "-H",
+        "-o",
+        "markdown",
+        "--summary",
+        r#"NR == 1 { print "name", "age" } { print $FI["name"], $FI["age"] }"#,
+        demo,
+    ]);
     assert!(ok, "{}", err);
-    assert!(summary.contains("| age | number | 2 | 2 | 48 | 49 | 97 | 48.5 |"), "{}", summary);
+    assert!(
+        summary.contains("| age | number | 2 | 2 | 48 | 49 | 97 | 48.5 |"),
+        "{}",
+        summary
+    );
 
     // inspect: the first row is the header
-    let (ok, report, err) = run(&["inspect", "-o", "md", &format!("{}/types.xlsx", dir.display())]);
+    let (ok, report, err) = run(&[
+        "inspect",
+        "-o",
+        "md",
+        &format!("{}/types.xlsx", dir.display()),
+    ]);
     assert!(ok, "{}", err);
-    assert!(report.contains("- Format: xlsx (read with `zawk -i xlsx -H"), "{}", report);
+    assert!(
+        report.contains("- Format: xlsx (read with `zawk -i xlsx -H"),
+        "{}",
+        report
+    );
     assert!(report.contains("| $5 | active | BOOLEAN |"), "{}", report);
-    assert!(report.contains("| Jackie | 1978-01-05 | 08:30:00 | 2024-01-05 13:45:10 | 1 | 1.5 | a,b |"), "{}", report);
+    assert!(
+        report.contains("| Jackie | 1978-01-05 | 08:30:00 | 2024-01-05 13:45:10 | 1 | 1.5 | a,b |"),
+        "{}",
+        report
+    );
 
     let (ok, _, err) = run(&["{ print }", &format!("{}#nosuch", demo)]);
-    assert!(!ok && err.contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"), "{}", err);
+    assert!(
+        !ok && err.contains("no sheet `nosuch' (the sheets are Sheet1, Sheet2)"),
+        "{}",
+        err
+    );
 
     // A workbook mixed with other files, or read with -i csv/tsv, is converted per file rather
     // than read as raw ZIP bytes; the other files are read as CSV.
@@ -4810,7 +5945,11 @@ fn warnings_respect_try_and_dedup() {
             .stderr
             .clone();
         let err = String::from_utf8_lossy(&out);
-        assert_eq!(err.matches("is not an open file or pipe").count(), 1, "{err}");
+        assert_eq!(
+            err.matches("is not an open file or pipe").count(),
+            1,
+            "{err}"
+        );
 
         Command::cargo_bin("zawk")
             .unwrap()
@@ -4862,7 +6001,10 @@ fn null_text() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("n.db");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch("CREATE TABLE t (a TEXT, b INT); INSERT INTO t VALUES (NULL, NULL), ('', 1);").unwrap();
+    conn.execute_batch(
+        "CREATE TABLE t (a TEXT, b INT); INSERT INTO t VALUES (NULL, NULL), ('', 1);",
+    )
+    .unwrap();
     let url = format!("sqlite://{}#t", db.display());
     let parquet = dir.path().join("n.parquet");
     let jsonl = dir.path().join("n.jsonl");
@@ -4871,13 +6013,37 @@ fn null_text() {
     let header = r#"BEGIN{print "a","b:number"}{print $1,$2}"#;
     let cases: Vec<(Vec<&str>, &str, String)> = vec![
         // without --null, NULL is the empty string
-        (vec!["-o", "jsonl"], header, "{\"a\":\"\",\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into()),
-        (vec![], r#"{print isnull($1), isnull("")}"#, "0 0\n0 0\n".into()),
-        ([&null[..], &["-o", "jsonl"]].concat(), header, "{\"a\":null,\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into()),
-        (null.to_vec(), r#"{print isnull($1), isnull($2), "[" $1 "]"}"#, "1 1 [\\N]\n0 0 []\n".into()),
-        ([&null[..], &["-o", "tsv"]].concat(), "{print $1,$2}", "\\N\t\\N\n\t1\n".into()),
+        (
+            vec!["-o", "jsonl"],
+            header,
+            "{\"a\":\"\",\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into(),
+        ),
+        (
+            vec![],
+            r#"{print isnull($1), isnull("")}"#,
+            "0 0\n0 0\n".into(),
+        ),
+        (
+            [&null[..], &["-o", "jsonl"]].concat(),
+            header,
+            "{\"a\":null,\"b\":null}\n{\"a\":\"\",\"b\":1}\n".into(),
+        ),
+        (
+            null.to_vec(),
+            r#"{print isnull($1), isnull($2), "[" $1 "]"}"#,
+            "1 1 [\\N]\n0 0 []\n".into(),
+        ),
+        (
+            [&null[..], &["-o", "tsv"]].concat(),
+            "{print $1,$2}",
+            "\\N\t\\N\n\t1\n".into(),
+        ),
         // a string that is not the --null text keeps its escaping
-        ([&null[..], &["-o", "tsv"]].concat(), r#"END{print "\\\\N"}"#, "\\\\\\\\N\n".into()),
+        (
+            [&null[..], &["-o", "tsv"]].concat(),
+            r#"END{print "\\\\N"}"#,
+            "\\\\\\\\N\n".into(),
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (args, prog, out) in &cases {
@@ -4896,7 +6062,11 @@ fn null_text() {
             .unwrap()
             .arg(String::from(*backend_arg))
             .args(null)
-            .args(["-o", "parquet", r#"BEGIN{print "a","b:INT32"}{print $1,$2}"#])
+            .args([
+                "-o",
+                "parquet",
+                r#"BEGIN{print "a","b:INT32"}{print $1,$2}"#,
+            ])
             .arg(&url)
             .output()
             .unwrap();
@@ -4923,10 +6093,20 @@ fn null_text() {
             r#"BEGIN{{p[1]="\\N"; p[2]=""; sqlite_execute("{}", "insert into u values(?, ?)", p)}}"#,
             db.display()
         );
-        conn.execute_batch("DROP TABLE IF EXISTS u; CREATE TABLE u (a TEXT, b TEXT);").unwrap();
-        Command::cargo_bin("zawk").unwrap().arg(String::from(*backend_arg)).args(null).arg(prog).assert().success();
-        let row: (bool, String) =
-            conn.query_row("SELECT a IS NULL, b FROM u", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        conn.execute_batch("DROP TABLE IF EXISTS u; CREATE TABLE u (a TEXT, b TEXT);")
+            .unwrap();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(null)
+            .arg(prog)
+            .assert()
+            .success();
+        let row: (bool, String) = conn
+            .query_row("SELECT a IS NULL, b FROM u", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!(row, (true, String::new()));
     }
 }
@@ -4937,19 +6117,42 @@ fn null_text() {
 fn run_stats() {
     // the counts, without the timing fields
     fn counts(stderr: &[u8]) -> String {
-        let line = String::from_utf8_lossy(stderr).lines().last().unwrap_or_default().to_string();
+        let line = String::from_utf8_lossy(stderr)
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .to_string();
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert!(v["elapsed_secs"].is_number() && v["records_per_sec"].is_number(), "{}", line);
+        assert!(
+            v["elapsed_secs"].is_number() && v["records_per_sec"].is_number(),
+            "{}",
+            line
+        );
         format!(
             "{} {} {} {}",
             v["input_records"], v["output_records"], v["rejected_records"], v["exit_code"]
         )
     }
     let cases: &[(&[&str], &str, &str, &str)] = &[
-        (&[], "$1 % 2 {print} END{printf \"a\\nb\\n\"}", "1\n2\n3\n4\n5\n", "5 5 0 0"),
+        (
+            &[],
+            "$1 % 2 {print} END{printf \"a\\nb\\n\"}",
+            "1\n2\n3\n4\n5\n",
+            "5 5 0 0",
+        ),
         (&[], "NR==2{exit 3}", "1\n2\n3\n", "2 0 0 3"),
-        (&["-i", "csv", "-H"], "{print $FI[\"a\"]}", "a\n1\n2\n", "2 2 0 0"),
-        (&["-i", "jsonl", "-o", "jsonl"], "BEGIN{print \"a\"}{print $FI[\"a\"]}", "{\"a\":1}\nbad\n{\"a\":2}\n", "2 2 1 0"),
+        (
+            &["-i", "csv", "-H"],
+            "{print $FI[\"a\"]}",
+            "a\n1\n2\n",
+            "2 2 0 0",
+        ),
+        (
+            &["-i", "jsonl", "-o", "jsonl"],
+            "BEGIN{print \"a\"}{print $FI[\"a\"]}",
+            "{\"a\":1}\nbad\n{\"a\":2}\n",
+            "2 2 1 0",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (args, prog, input, expected) in cases {
@@ -4962,7 +6165,14 @@ fn run_stats() {
                 .write_stdin(*input)
                 .output()
                 .unwrap();
-            assert_eq!(counts(&out.stderr), *expected, "{} {:?} {}", backend_arg, args, prog);
+            assert_eq!(
+                counts(&out.stderr),
+                *expected,
+                "{} {:?} {}",
+                backend_arg,
+                args,
+                prog
+            );
         }
     }
     // without --stats, nothing is written to stderr

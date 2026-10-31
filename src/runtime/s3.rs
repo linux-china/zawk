@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use futures_util::StreamExt;
+use opendal::Operator;
 use opendal::layers::RetryLayer;
 use opendal::services::S3;
-use opendal::Operator;
 use std::collections::HashMap;
 use std::io;
 use std::sync::{LazyLock, Mutex};
@@ -36,17 +36,24 @@ static S3_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 /// The value of the first environment variable of `names` that is set: the `S3_*` names, then
 /// the OpenDAL and AWS style ones.
 fn env_any(names: &[&str]) -> Option<String> {
-    names.iter().find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+    names
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
 }
 
 fn env_required(names: &[&str]) -> Result<String, BoxError> {
-    env_any(names).ok_or_else(|| format!("environment variable {} is not set", names.join(" or ")).into())
+    env_any(names)
+        .ok_or_else(|| format!("environment variable {} is not set", names.join(" or ")).into())
 }
 
 fn s3_config() -> Result<S3Config, BoxError> {
     Ok(S3Config {
         endpoint: env_required(&["S3_ENDPOINT", "OPENDAL_S3_ENDPOINT", "AWS_ENDPOINT_URL"])?,
-        access_key_id: env_required(&["S3_ACCESS_KEY_ID", "OPENDAL_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"])?,
+        access_key_id: env_required(&[
+            "S3_ACCESS_KEY_ID",
+            "OPENDAL_S3_ACCESS_KEY_ID",
+            "AWS_ACCESS_KEY_ID",
+        ])?,
         secret_access_key: env_required(&[
             "S3_ACCESS_KEY_SECRET",
             "OPENDAL_S3_SECRET_ACCESS_KEY",
@@ -60,7 +67,9 @@ fn build_s3_operator(bucket: &str) -> Result<Operator, BoxError> {
     // Installs the HTTP transport (the `auto-register-services` feature is off); the first call
     // wins. reqwest is built without a rustls provider, so ring must be the default one.
     crate::runtime::tls::install_default_provider();
-    opendal::HttpTransporter::install_default(opendal_http_transport_reqwest::ReqwestTransport::default());
+    opendal::HttpTransporter::install_default(
+        opendal_http_transport_reqwest::ReqwestTransport::default(),
+    );
     let config = s3_config()?;
     // Only the settings above are used: no config files nor instance metadata.
     let builder = S3::default()
@@ -92,9 +101,15 @@ pub fn is_s3_url(path: &str) -> bool {
 
 /// Splits `s3://bucket/key` into the bucket and the object key.
 pub fn parse_s3_url(url: &str) -> Result<(&str, &str), String> {
-    match url.strip_prefix("s3://").and_then(|rest| rest.split_once('/')) {
+    match url
+        .strip_prefix("s3://")
+        .and_then(|rest| rest.split_once('/'))
+    {
         Some((bucket, key)) if !bucket.is_empty() && !key.is_empty() => Ok((bucket, key)),
-        _ => Err(format!("invalid S3 URL `{}': expected s3://bucket/key", url)),
+        _ => Err(format!(
+            "invalid S3 URL `{}': expected s3://bucket/key",
+            url
+        )),
     }
 }
 
@@ -165,7 +180,11 @@ pub struct S3Reader {
 
 impl S3Reader {
     pub fn new(url: impl Into<String>) -> S3Reader {
-        S3Reader { url: url.into(), parts: None, part: Bytes::new() }
+        S3Reader {
+            url: url.into(),
+            parts: None,
+            part: Bytes::new(),
+        }
     }
 
     fn start(&self) -> io::Result<tokio::sync::mpsc::Receiver<io::Result<Bytes>>> {
@@ -197,7 +216,9 @@ async fn download(
     let parts = (0..size).step_by(PART_SIZE as usize).map(|offset| {
         let (op, key, etag) = (op.clone(), key.clone(), etag.clone());
         async move {
-            let mut read = op.read_with(&key).range(offset..(offset + PART_SIZE).min(size));
+            let mut read = op
+                .read_with(&key)
+                .range(offset..(offset + PART_SIZE).min(size));
             if let Some(etag) = &etag {
                 read = read.if_match(etag);
             }
@@ -237,7 +258,10 @@ impl io::Read for S3Reader {
 /// awk's `s3_get`: the object as text, or empty with a warning (and `ERRNO` set) on failure.
 pub(crate) fn s3_get(bucket_name: &str, object_name: &str) -> String {
     get_object(bucket_name, object_name).unwrap_or_else(|e| {
-        crate::runtime::stdlib_warning("s3_get", format!("s3://{}/{}: {}", bucket_name, object_name, e));
+        crate::runtime::stdlib_warning(
+            "s3_get",
+            format!("s3://{}/{}: {}", bucket_name, object_name, e),
+        );
         String::new()
     })
 }
@@ -245,7 +269,10 @@ pub(crate) fn s3_get(bucket_name: &str, object_name: &str) -> String {
 /// awk's `s3_put`: the ETag of the new object, or empty with a warning (and `ERRNO` set) on failure.
 pub(crate) fn s3_put(bucket_name: &str, object_name: &str, body: &str) -> String {
     put_object(bucket_name, object_name, body).unwrap_or_else(|e| {
-        crate::runtime::stdlib_warning("s3_put", format!("s3://{}/{}: {}", bucket_name, object_name, e));
+        crate::runtime::stdlib_warning(
+            "s3_put",
+            format!("s3://{}/{}: {}", bucket_name, object_name, e),
+        );
         String::new()
     })
 }
@@ -264,7 +291,11 @@ pub fn put_object(bucket_name: &str, object_name: &str, body: &str) -> Result<St
     let body = body.to_string();
     S3_RUNTIME.block_on(async {
         let metadata = op.write(object_name, body).await?;
-        Ok(metadata.etag().unwrap_or_default().trim_matches('"').to_string())
+        Ok(metadata
+            .etag()
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string())
     })
 }
 
@@ -278,8 +309,14 @@ mod tests {
 
     #[test]
     fn test_parse_s3_url() {
-        assert_eq!(parse_s3_url("s3://bucket1/demo.csv"), Ok(("bucket1", "demo.csv")));
-        assert_eq!(parse_s3_url("s3://bucket1/a/b/c.csv"), Ok(("bucket1", "a/b/c.csv")));
+        assert_eq!(
+            parse_s3_url("s3://bucket1/demo.csv"),
+            Ok(("bucket1", "demo.csv"))
+        );
+        assert_eq!(
+            parse_s3_url("s3://bucket1/a/b/c.csv"),
+            Ok(("bucket1", "a/b/c.csv"))
+        );
         assert!(parse_s3_url("s3://bucket1").is_err());
         assert!(parse_s3_url("s3://bucket1/").is_err());
         assert!(parse_s3_url("s3:///demo.csv").is_err());
@@ -296,7 +333,9 @@ mod tests {
         assert!(body.len() as u64 > PART_SIZE);
         put_object("bucket1", "parts.txt", &body).unwrap();
         let mut text = String::new();
-        S3Reader::new("s3://bucket1/parts.txt").read_to_string(&mut text).unwrap();
+        S3Reader::new("s3://bucket1/parts.txt")
+            .read_to_string(&mut text)
+            .unwrap();
         assert_eq!(text, body);
     }
 

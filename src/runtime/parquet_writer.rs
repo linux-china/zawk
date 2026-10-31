@@ -32,8 +32,8 @@ use ::parquet::file::writer::SerializedFileWriter;
 use ::parquet::schema::types::Type;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 
-use super::writers::FileFactory;
 use super::command::CommandEnv;
+use super::writers::FileFactory;
 use crate::common::FileSpec;
 
 /// The number of rows buffered before a row group is written.
@@ -157,7 +157,13 @@ impl Column {
             Kind::String | Kind::Json => Values::Bytes(Vec::new()),
             Kind::Uuid => Values::Fixed(Vec::new()),
         };
-        Column { name, kind, values, defs: Vec::new(), invalid: 0 }
+        Column {
+            name,
+            kind,
+            values,
+            defs: Vec::new(),
+            invalid: 0,
+        }
     }
 
     /// Appends a value, given as TSV-escaped text.
@@ -180,17 +186,27 @@ impl Column {
                 self.defs.push(0);
                 return;
             }
-            (Values::I32(v), kind) => push_some(v, match kind {
-                Kind::Int8 => parse_int(&text).and_then(|i| i8::try_from(i).ok()).map(i32::from),
-                Kind::Int16 => parse_int(&text).and_then(|i| i16::try_from(i).ok()).map(i32::from),
-                Kind::Date => parse_date(&text),
-                _ => parse_int(&text).and_then(|i| i32::try_from(i).ok()),
-            }),
-            (Values::I64(v), kind) => push_some(v, match kind {
-                Kind::Time => parse_time(&text),
-                Kind::Timestamp => parse_timestamp(&text),
-                _ => parse_int(&text),
-            }),
+            (Values::I32(v), kind) => push_some(
+                v,
+                match kind {
+                    Kind::Int8 => parse_int(&text)
+                        .and_then(|i| i8::try_from(i).ok())
+                        .map(i32::from),
+                    Kind::Int16 => parse_int(&text)
+                        .and_then(|i| i16::try_from(i).ok())
+                        .map(i32::from),
+                    Kind::Date => parse_date(&text),
+                    _ => parse_int(&text).and_then(|i| i32::try_from(i).ok()),
+                },
+            ),
+            (Values::I64(v), kind) => push_some(
+                v,
+                match kind {
+                    Kind::Time => parse_time(&text),
+                    Kind::Timestamp => parse_timestamp(&text),
+                    _ => parse_int(&text),
+                },
+            ),
             (Values::F32(v), _) => push_some(v, parse_float(&text).map(|f| f as f32)),
             (Values::F64(v), _) => push_some(v, parse_float(&text)),
             (Values::Bytes(v), _) => {
@@ -227,7 +243,9 @@ impl Column {
             Values::F32(v) => cw.typed::<FloatType>().write_batch(v, defs, None)?,
             Values::F64(v) => cw.typed::<DoubleType>().write_batch(v, defs, None)?,
             Values::Bytes(v) => cw.typed::<ByteArrayType>().write_batch(v, defs, None)?,
-            Values::Fixed(v) => cw.typed::<FixedLenByteArrayType>().write_batch(v, defs, None)?,
+            Values::Fixed(v) => cw
+                .typed::<FixedLenByteArrayType>()
+                .write_batch(v, defs, None)?,
         };
         cw.close()?;
         match &mut self.values {
@@ -258,9 +276,9 @@ fn push_some<T>(v: &mut Vec<T>, x: Option<T>) -> bool {
 fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
     match String::from_utf8_lossy(raw) {
         std::borrow::Cow::Borrowed(text) => crate::runtime::str_escape::unescape_tsv(text),
-        std::borrow::Cow::Owned(text) => {
-            crate::runtime::str_escape::unescape_tsv(&text).into_owned().into()
-        }
+        std::borrow::Cow::Owned(text) => crate::runtime::str_escape::unescape_tsv(&text)
+            .into_owned()
+            .into(),
     }
 }
 
@@ -380,7 +398,7 @@ fn parse_column(index: usize, raw: &[u8]) -> io::Result<Column> {
                          TIMESTAMP, JSON or UUID",
                         ty, text
                     ),
-                ))
+                ));
             }
         },
         None => (&*text, Kind::String),
@@ -427,7 +445,11 @@ impl Encoder {
             .build();
         let writer = SerializedFileWriter::new(Vec::new(), Arc::new(schema), Arc::new(props))
             .map_err(to_io)?;
-        Ok(Encoder { columns, writer, rows: 0 })
+        Ok(Encoder {
+            columns,
+            writer,
+            rows: 0,
+        })
     }
 
     fn push_row(&mut self, line: &[u8]) {
@@ -607,7 +629,11 @@ mod tests {
         assert!(got[0].contains("ok: true"), "{}", got[0]);
         assert!(got[0].contains("d: 2024-01-02"), "{}", got[0]);
         assert!(got[0].contains("ts: 2024-01-02 03:04:05"), "{}", got[0]);
-        assert!(got[0].contains("j: {\"a\":1}") || got[0].contains("j: \"{"), "{}", got[0]);
+        assert!(
+            got[0].contains("j: {\"a\":1}") || got[0].contains("j: \"{"),
+            "{}",
+            got[0]
+        );
         assert!(got[1].contains("age: null"), "{}", got[1]);
         assert!(got[1].contains("ok: false"), "{}", got[1]);
         assert!(got[1].contains("d: 1970-01-02"), "{}", got[1]);
@@ -630,7 +656,10 @@ mod tests {
         assert!(parse_bool("yes") && parse_bool("2") && !parse_bool("0.0") && !parse_bool("FALSE"));
         assert!(!parse_bool("0x0") && !parse_bool(" ") && !parse_bool(" -0 ") && parse_bool("abc"));
         assert_eq!(parse_time("01:00"), Some(3600 * MICROS_PER_SEC));
-        assert_eq!(parse_timestamp("1970-01-01T00:00:01Z"), Some(MICROS_PER_SEC));
+        assert_eq!(
+            parse_timestamp("1970-01-01T00:00:01Z"),
+            Some(MICROS_PER_SEC)
+        );
         assert_eq!(parse_timestamp("1000"), Some(1000 * MICROS_PER_SEC));
         assert_eq!(parse_date("1970-01-03"), Some(2));
     }

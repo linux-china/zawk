@@ -39,7 +39,11 @@ impl MarkdownCsv {
         MarkdownCsv::new(Source::Stdin)
     }
     fn new(source: Source) -> MarkdownCsv {
-        MarkdownCsv { source, buf: None, pos: 0 }
+        MarkdownCsv {
+            source,
+            buf: None,
+            pos: 0,
+        }
     }
 
     fn name(&self) -> &str {
@@ -50,7 +54,11 @@ impl MarkdownCsv {
     }
 
     fn error(&self, e: impl std::fmt::Display) -> io::Error {
-        io::Error::other(format!("cannot read markdown file `{}': {}", self.name(), e))
+        io::Error::other(format!(
+            "cannot read markdown file `{}': {}",
+            self.name(),
+            e
+        ))
     }
 
     fn load(&self) -> io::Result<Vec<u8>> {
@@ -63,18 +71,23 @@ impl MarkdownCsv {
                 data = crate::runtime::http::read_bytes(path)?.to_vec();
             }
             Source::File(path) => {
-                data = fs::read(path)
-                    .map_err(|e| crate::common::InputOpenError::new_io(path, &e))?
+                data =
+                    fs::read(path).map_err(|e| crate::common::InputOpenError::new_io(path, &e))?
             }
             Source::Stdin => {
-                io::stdin().read_to_end(&mut data).map_err(|e| self.error(e))?;
+                io::stdin()
+                    .read_to_end(&mut data)
+                    .map_err(|e| self.error(e))?;
             }
         }
         let data = data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&data);
         let text = String::from_utf8_lossy(data);
         let csv = first_table_csv(&text);
         if csv.is_none() {
-            crate::runtime::stdlib_warning("markdown", format!("no table found in `{}'", self.name()));
+            crate::runtime::stdlib_warning(
+                "markdown",
+                format!("no table found in `{}'", self.name()),
+            );
         }
         Ok(csv.unwrap_or_default().into_bytes())
     }

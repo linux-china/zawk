@@ -131,7 +131,7 @@ mod tests {
 mod bench {
     extern crate test;
     use std::sync::LazyLock;
-    use test::{black_box, Bencher};
+    use test::{Bencher, black_box};
 
     const LEN: usize = 50_000;
 

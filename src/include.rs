@@ -32,13 +32,24 @@ impl Includer {
     /// Adds a source named `name` (`None` for a program given on the command line), expanding its
     /// `@include` lines. `path` is the local file it was read from, if any, so that including it
     /// again does nothing.
-    pub fn add_source(&mut self, name: Option<String>, text: &str, path: Option<&Path>) -> Result<(), String> {
+    pub fn add_source(
+        &mut self,
+        name: Option<String>,
+        text: &str,
+        path: Option<&Path>,
+    ) -> Result<(), String> {
         self.add(name, text, path, false)
     }
 
     /// `add_source`, `included` telling whether the source is an included file, which must end
     /// outside of any rule, function or literal.
-    fn add(&mut self, name: Option<String>, text: &str, path: Option<&Path>, included: bool) -> Result<(), String> {
+    fn add(
+        &mut self,
+        name: Option<String>,
+        text: &str,
+        path: Option<&Path>,
+        included: bool,
+    ) -> Result<(), String> {
         if let Some(path) = path {
             self.seen.insert(canonical(path));
         }
@@ -71,17 +82,31 @@ impl Includer {
                 None => format!("line {}: {}", i + 1, e),
             })?;
             if let Some((path, text)) = loaded {
-                self.add(Some(path.to_string_lossy().into_owned()), &text, Some(&path), true)?;
+                self.add(
+                    Some(path.to_string_lossy().into_owned()),
+                    &text,
+                    Some(&path),
+                    true,
+                )?;
             }
         }
-        let check = if included { Check::EndOfFile } else { Check::None };
+        let check = if included {
+            Check::EndOfFile
+        } else {
+            Check::None
+        };
         self.push(&name, &lines, start, lines.len(), expanded, check)
     }
 
     /// Splices in the file `file`, unless it was loaded already (`--include file`).
     pub fn include(&mut self, file: &str) -> Result<(), String> {
         match self.load(file)? {
-            Some((path, text)) => self.add(Some(path.to_string_lossy().into_owned()), &text, Some(&path), true),
+            Some((path, text)) => self.add(
+                Some(path.to_string_lossy().into_owned()),
+                &text,
+                Some(&path),
+                true,
+            ),
             None => Ok(()),
         }
     }
@@ -89,14 +114,21 @@ impl Includer {
     /// The path and text of the file `file`, or `None` if it was loaded already.
     fn load(&self, file: &str) -> Result<Option<(PathBuf, String)>, String> {
         if file.starts_with("http://") || file.starts_with("https://") || file.starts_with("gh:") {
-            return Err(format!("can't include remote source file `{}': not supported", file));
+            return Err(format!(
+                "can't include remote source file `{}': not supported",
+                file
+            ));
         }
         let path = resolve(file)?;
         if self.seen.contains(&canonical(&path)) {
             return Ok(None);
         }
         let text = std::fs::read_to_string(&path).map_err(|e| {
-            format!("can't open source file `{}' for reading: {}", file, common::io_error_reason(&e))
+            format!(
+                "can't open source file `{}' for reading: {}",
+                file,
+                common::io_error_reason(&e)
+            )
         })?;
         Ok(Some((path, text)))
     }
@@ -171,16 +203,21 @@ fn incomplete(text: &str, first_line: usize) -> Option<(usize, usize, String)> {
     // Columns count characters, as in `SourceMap::describe`.
     let pos = |line: usize, col: usize| {
         let text = text.split('\n').nth(line).unwrap_or("");
-        (first_line + line + 1, text.get(..col).unwrap_or(text).chars().count() + 1)
+        (
+            first_line + line + 1,
+            text.get(..col).unwrap_or(text).chars().count() + 1,
+        )
     };
     let mut open = Vec::new();
     for tok in Tokenizer::new(text) {
         match tok {
             Ok((l, Tok::LBrace, _)) => open.push((l, '}')),
             // The lexer folds `(` into calls, `print(`, `printf(` and `exit(`.
-            Ok((l, Tok::LParen | Tok::CallStart(_) | Tok::PrintLP | Tok::PrintfLP | Tok::ExitLP, _)) => {
-                open.push((l, ')'))
-            }
+            Ok((
+                l,
+                Tok::LParen | Tok::CallStart(_) | Tok::PrintLP | Tok::PrintfLP | Tok::ExitLP,
+                _,
+            )) => open.push((l, ')')),
             Ok((_, tok @ (Tok::RBrace | Tok::RParen), _)) => {
                 let close = if tok == Tok::RBrace { '}' } else { ')' };
                 if open.pop().map(|(_, c)| c) != Some(close) {
@@ -228,7 +265,12 @@ fn inside_token(text: &str, offset: usize) -> bool {
 /// (`./lib.awk`, `lib/x.awk`) first from the current directory, then like a plain file name, the
 /// first match in `AWKPATH` (as gawk does).
 fn resolve(file: &str) -> Result<PathBuf, String> {
-    let not_found = || format!("can't open source file `{}' for reading: No such file or directory", file);
+    let not_found = || {
+        format!(
+            "can't open source file `{}' for reading: No such file or directory",
+            file
+        )
+    };
     if file.is_empty() {
         return Err(not_found());
     }
@@ -242,24 +284,45 @@ fn resolve(file: &str) -> Result<PathBuf, String> {
         v
     };
     if rooted {
-        return candidates(path).into_iter().find(|p| p.is_file()).ok_or_else(not_found);
+        return candidates(path)
+            .into_iter()
+            .find(|p| p.is_file())
+            .ok_or_else(not_found);
     }
     let has_separator = file.contains('/') || (cfg!(windows) && file.contains('\\'));
-    let local = if has_separator { candidates(path) } else { Vec::new() };
+    let local = if has_separator {
+        candidates(path)
+    } else {
+        Vec::new()
+    };
     local
         .into_iter()
-        .chain(search_path().into_iter().flat_map(|dir| candidates(&dir.join(file))))
+        .chain(
+            search_path()
+                .into_iter()
+                .flat_map(|dir| candidates(&dir.join(file))),
+        )
         .find(|p| p.is_file())
         .ok_or_else(not_found)
 }
 
 /// The directories of `AWKPATH`, an empty entry being the current directory.
 fn search_path() -> Vec<PathBuf> {
-    let default = if cfg!(windows) { "." } else { ".:/usr/local/share/awk" };
+    let default = if cfg!(windows) {
+        "."
+    } else {
+        ".:/usr/local/share/awk"
+    };
     let awkpath = std::env::var_os("AWKPATH").filter(|p| !p.is_empty());
     let awkpath = awkpath.unwrap_or_else(|| default.into());
     std::env::split_paths(&awkpath)
-        .map(|dir| if dir.as_os_str().is_empty() { PathBuf::from(".") } else { dir })
+        .map(|dir| {
+            if dir.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                dir
+            }
+        })
         .collect()
 }
 
@@ -274,7 +337,10 @@ mod tests {
     #[test]
     fn directive() {
         assert_eq!(include_directive(r#"@include "lib.awk""#), Some("lib.awk"));
-        assert_eq!(include_directive(r#"  @include	"a b.awk" ;  # lib"#), Some("a b.awk"));
+        assert_eq!(
+            include_directive(r#"  @include	"a b.awk" ;  # lib"#),
+            Some("a b.awk")
+        );
         assert_eq!(include_directive("@include \"lib\"\r"), Some("lib"));
         assert_eq!(include_directive(r#"# @include "lib.awk""#), None);
         assert_eq!(include_directive(r#"@include "lib.awk" BEGIN {}"#), None);
@@ -298,20 +364,37 @@ mod tests {
         assert_eq!(incomplete("function f() { return 1 }\n", 0), None);
         assert_eq!(
             incomplete("BEGIN { x = 1\n", 2),
-            Some((3, 14, "unexpected end of file: missing `}` for the one at line 3, column 7".into()))
+            Some((
+                3,
+                14,
+                "unexpected end of file: missing `}` for the one at line 3, column 7".into()
+            ))
         );
-        assert_eq!(incomplete("BEGIN { s = \"a\n", 0).map(|(l, c, _)| (l, c)), Some((1, 14)));
+        assert_eq!(
+            incomplete("BEGIN { s = \"a\n", 0).map(|(l, c, _)| (l, c)),
+            Some((1, 14))
+        );
         // Mismatched or extra closing brackets are reported by the parser, where they are.
         assert_eq!(incomplete("BEGIN { f(1 }", 0), None);
         assert_eq!(incomplete("BEGIN { } }", 0), None);
         // Parentheses folded into call, `print(`, `printf(` and `exit(` tokens are matched too.
         assert_eq!(incomplete("function f(x) { return toupper(x) }\n", 0), None);
-        assert_eq!(incomplete("BEGIN { print(1); printf(\"%s\", 2); exit(0) }\n", 0), None);
+        assert_eq!(
+            incomplete("BEGIN { print(1); printf(\"%s\", 2); exit(0) }\n", 0),
+            None
+        );
         assert_eq!(
             incomplete("function f(x) {\n  return toupper(x)\n", 0),
-            Some((2, 20, "unexpected end of file: missing `}` for the one at line 1, column 15".into()))
+            Some((
+                2,
+                20,
+                "unexpected end of file: missing `}` for the one at line 1, column 15".into()
+            ))
         );
-        assert_eq!(incomplete("BEGIN { print(f(1)\n", 0).map(|(l, c, _)| (l, c)), Some((1, 19)));
+        assert_eq!(
+            incomplete("BEGIN { print(f(1)\n", 0).map(|(l, c, _)| (l, c)),
+            Some((1, 19))
+        );
     }
 
     #[test]
@@ -325,7 +408,8 @@ mod tests {
             lib.display()
         );
         let mut inc = Includer::default();
-        inc.add_source(Some("main.awk".into()), &main, None).unwrap();
+        inc.add_source(Some("main.awk".into()), &main, None)
+            .unwrap();
         let pieces: Vec<(Option<&str>, &str, usize)> = inc
             .pieces
             .iter()
@@ -340,8 +424,14 @@ mod tests {
                 (Some("main.awk"), "BEGIN { print f() }", 3),
             ]
         );
-        let err = inc.add_source(None, "@include \"no-such-lib-zawk\"", None).unwrap_err();
-        assert!(err.starts_with("line 1: can't open source file `no-such-lib-zawk'"), "{}", err);
+        let err = inc
+            .add_source(None, "@include \"no-such-lib-zawk\"", None)
+            .unwrap_err();
+        assert!(
+            err.starts_with("line 1: can't open source file `no-such-lib-zawk'"),
+            "{}",
+            err
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -14,7 +14,7 @@
 
 use std::collections::VecDeque;
 use std::io::{self, Read};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
 /// A value of a column.
 #[derive(Clone, Debug, PartialEq)]
@@ -68,7 +68,11 @@ pub fn is_db_url(name: &str) -> bool {
 
 /// An error reading `url`, reported as an input that cannot be opened.
 fn read_error(url: &str, e: impl std::fmt::Display) -> io::Error {
-    let msg = format!("cannot read `{}': {}", crate::runtime::network::redact_url(url), e);
+    let msg = format!(
+        "cannot read `{}': {}",
+        crate::runtime::network::redact_url(url),
+        e
+    );
     io::Error::other(crate::common::InputOpenError(msg))
 }
 
@@ -89,7 +93,9 @@ impl Source {
         let after = userinfo.map_or(0, |(_, at)| at + 1);
         let (conn, target) = match url[after..].find('#').map(|i| url.split_at(after + i)) {
             Some((conn, target)) if !target[1..].trim().is_empty() => (conn, target[1..].trim()),
-            _ => return Err("expected `#table' or `#select ...' after the database URL".to_string()),
+            _ => {
+                return Err("expected `#table' or `#select ...' after the database URL".to_string());
+            }
         };
         let conn = match (kind, userinfo) {
             // `sqlite://./data.db`, `sqlite:///abs/data.db`
@@ -162,7 +168,11 @@ impl Sink {
         self.batch.len() < BATCH_ROWS || self.flush()
     }
     fn flush(&mut self) -> bool {
-        self.batch.is_empty() || self.tx.send(Msg::Rows(std::mem::take(&mut self.batch))).is_ok()
+        self.batch.is_empty()
+            || self
+                .tx
+                .send(Msg::Rows(std::mem::take(&mut self.batch)))
+                .is_ok()
     }
 }
 
@@ -185,7 +195,10 @@ impl DbTable {
         std::thread::Builder::new()
             .name("zawk-db-input".to_string())
             .spawn(move || {
-                let mut sink = Sink { tx: tx.clone(), batch: Vec::new() };
+                let mut sink = Sink {
+                    tx: tx.clone(),
+                    batch: Vec::new(),
+                };
                 let result = match source.kind {
                     Kind::Sqlite => sqlite::query(&source, &mut sink),
                     Kind::Mysql => mysql::query(&source, &mut sink),
@@ -200,7 +213,13 @@ impl DbTable {
                     }
                 }
             })?;
-        let mut table = DbTable { columns: Vec::new(), rx, pending: VecDeque::new(), url: url.to_string(), done: false };
+        let mut table = DbTable {
+            columns: Vec::new(),
+            rx,
+            pending: VecDeque::new(),
+            url: url.to_string(),
+            done: false,
+        };
         match table.rx.recv() {
             Ok(Msg::Columns(columns)) => table.columns = columns,
             Ok(Msg::Error(e)) => return Err(error(e)),
@@ -245,12 +264,18 @@ pub struct DbCsv {
 
 impl DbCsv {
     pub fn new(url: String) -> DbCsv {
-        DbCsv { url, table: None, buf: Vec::new(), pos: 0 }
+        DbCsv {
+            url,
+            table: None,
+            buf: Vec::new(),
+            pos: 0,
+        }
     }
 
     fn push_record<'a>(&mut self, fields: impl Iterator<Item = &'a str>) {
         let fields: Vec<&str> = fields.collect();
-        self.buf.extend_from_slice(crate::runtime::csv::vec_to_csv(&fields).as_bytes());
+        self.buf
+            .extend_from_slice(crate::runtime::csv::vec_to_csv(&fields).as_bytes());
         self.buf.push(b'\n');
     }
 
@@ -303,12 +328,17 @@ mod sqlite {
 
     pub(super) fn query(source: &Source, sink: &mut Sink) -> Result<(), String> {
         // Read only: a missing file is an error, rather than a new empty database.
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(&source.conn, flags).map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(&source.sql).map_err(|e| e.to_string())?;
         let columns: Vec<DbColumn> = stmt
             .columns()
-            .map(|c| DbColumn { name: c.name().to_string(), db_type: c.decl_type().map(str::to_uppercase) })
+            .map(|c| DbColumn {
+                name: c.name().to_string(),
+                db_type: c.decl_type().map(str::to_uppercase),
+            })
             .collect();
         let n = columns.len();
         if !sink.columns(columns) {
@@ -358,7 +388,10 @@ mod mysql {
         let columns: Vec<Column> = result.columns().as_ref().to_vec();
         let db_columns = columns
             .iter()
-            .map(|c| DbColumn { name: c.name_str().into_owned(), db_type: Some(type_name(c).to_string()) })
+            .map(|c| DbColumn {
+                name: c.name_str().into_owned(),
+                db_type: Some(type_name(c).to_string()),
+            })
             .collect();
         if !sink.columns(db_columns) {
             abandon(result);
@@ -369,7 +402,11 @@ mod mysql {
         if let Some(mut set) = result.iter() {
             while let Some(row) = set.next() {
                 let row = row.map_err(error_text)?;
-                let values = columns.iter().enumerate().map(|(i, c)| value(c, row.as_ref(i))).collect();
+                let values = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| value(c, row.as_ref(i)))
+                    .collect();
                 if !sink.row(values) {
                     stopped = true;
                     break;
@@ -423,7 +460,12 @@ mod mysql {
         };
         match t {
             // BIT(n): the bits as a number
-            MYSQL_TYPE_BIT => DbValue::Num(bytes.iter().fold(0u64, |n, b| (n << 8) | *b as u64).to_string()),
+            MYSQL_TYPE_BIT => DbValue::Num(
+                bytes
+                    .iter()
+                    .fold(0u64, |n, b| (n << 8) | *b as u64)
+                    .to_string(),
+            ),
             MYSQL_TYPE_GEOMETRY => DbValue::Text(String::new()),
             _ if is_number(t) => DbValue::Num(String::from_utf8_lossy(bytes).into_owned()),
             // a JSON column has the binary character set, but is text
@@ -471,8 +513,18 @@ mod mysql {
             MYSQL_TYPE_VAR_STRING | MYSQL_TYPE_VARCHAR => "VARCHAR",
             MYSQL_TYPE_STRING if binary => "BINARY",
             MYSQL_TYPE_STRING => "CHAR",
-            MYSQL_TYPE_TINY_BLOB | MYSQL_TYPE_MEDIUM_BLOB | MYSQL_TYPE_LONG_BLOB | MYSQL_TYPE_BLOB if binary => "BLOB",
-            MYSQL_TYPE_TINY_BLOB | MYSQL_TYPE_MEDIUM_BLOB | MYSQL_TYPE_LONG_BLOB | MYSQL_TYPE_BLOB => "TEXT",
+            MYSQL_TYPE_TINY_BLOB
+            | MYSQL_TYPE_MEDIUM_BLOB
+            | MYSQL_TYPE_LONG_BLOB
+            | MYSQL_TYPE_BLOB
+                if binary =>
+            {
+                "BLOB"
+            }
+            MYSQL_TYPE_TINY_BLOB
+            | MYSQL_TYPE_MEDIUM_BLOB
+            | MYSQL_TYPE_LONG_BLOB
+            | MYSQL_TYPE_BLOB => "TEXT",
             _ => "UNKNOWN",
         }
     }
@@ -485,11 +537,16 @@ mod postgres {
 
     pub(super) fn query(source: &Source, sink: &mut Sink) -> Result<(), String> {
         let mut client = crate::runtime::postgres::connect(&source.conn)?;
-        let stmt = client.prepare(&source.sql).map_err(crate::runtime::postgres::error_text)?;
+        let stmt = client
+            .prepare(&source.sql)
+            .map_err(crate::runtime::postgres::error_text)?;
         let columns = stmt
             .columns()
             .iter()
-            .map(|c| DbColumn { name: c.name().to_string(), db_type: Some(c.type_().name().to_string()) })
+            .map(|c| DbColumn {
+                name: c.name().to_string(),
+                db_type: Some(c.type_().name().to_string()),
+            })
             .collect();
         if !sink.columns(columns) {
             return Ok(());
@@ -520,7 +577,16 @@ mod postgres {
     }
 
     fn is_number(ty: &Type) -> bool {
-        [Type::INT2, Type::INT4, Type::INT8, Type::FLOAT4, Type::FLOAT8, Type::NUMERIC, Type::OID].contains(ty)
+        [
+            Type::INT2,
+            Type::INT4,
+            Type::INT8,
+            Type::FLOAT4,
+            Type::FLOAT8,
+            Type::NUMERIC,
+            Type::OID,
+        ]
+        .contains(ty)
     }
 }
 
@@ -577,9 +643,25 @@ mod tests {
 
         let mut table = DbTable::open(&url).unwrap();
         let types: Vec<_> = table.columns().iter().map(|c| c.db_type.clone()).collect();
-        assert_eq!(types, [Some("VARCHAR".into()), Some("INT".into()), Some("REAL".into()), Some("BLOB".into())]);
+        assert_eq!(
+            types,
+            [
+                Some("VARCHAR".into()),
+                Some("INT".into()),
+                Some("REAL".into()),
+                Some("BLOB".into())
+            ]
+        );
         let row = table.next_row().unwrap().unwrap();
-        assert_eq!(row, [DbValue::Text("jackie".into()), DbValue::Num("30".into()), DbValue::Num("1.5".into()), DbValue::Text("".into())]);
+        assert_eq!(
+            row,
+            [
+                DbValue::Text("jackie".into()),
+                DbValue::Num("30".into()),
+                DbValue::Num("1.5".into()),
+                DbValue::Text("".into())
+            ]
+        );
         assert_eq!(table.next_row().unwrap().unwrap()[1], DbValue::Null);
         assert!(table.next_row().is_none());
 
@@ -588,14 +670,18 @@ mod tests {
         DbCsv::new(url).read_to_string(&mut text).unwrap();
         assert_eq!(text, "n\n2\n");
 
-        let err = DbTable::open(&format!("sqlite://{}#missing", path.display())).err().unwrap();
+        let err = DbTable::open(&format!("sqlite://{}#missing", path.display()))
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("no such table"), "{}", err);
         assert!(DbTable::open("sqlite:///no/such/dir/x.db#t").is_err());
     }
 
     fn csv_of(url: &str) -> String {
         let mut text = String::new();
-        DbCsv::new(url.to_string()).read_to_string(&mut text).unwrap();
+        DbCsv::new(url.to_string())
+            .read_to_string(&mut text)
+            .unwrap();
         text
     }
 
@@ -605,12 +691,29 @@ mod tests {
         let url = "mysql://root:123456@127.0.0.1:3306/test";
         assert!(csv_of(&format!("{}#people", url)).starts_with("id,name,age\n1,Jackie,48\n"));
         let sql = "select cast('ab' as binary) as b, cast(null as char) as n, 1.50 as d, date('2024-01-05') as dt, 'x,y' as s";
-        assert_eq!(csv_of(&format!("{}#{}", url, sql)), "b,n,d,dt,s\n,,1.50,2024-01-05,\"x,y\"\n");
+        assert_eq!(
+            csv_of(&format!("{}#{}", url, sql)),
+            "b,n,d,dt,s\n,,1.50,2024-01-05,\"x,y\"\n"
+        );
         let table = DbTable::open(&format!("{}#{}", url, sql)).unwrap();
-        let types: Vec<_> = table.columns().iter().map(|c| c.db_type.clone().unwrap()).collect();
-        assert_eq!(types, ["VARBINARY", "VARCHAR", "DECIMAL", "DATE", "VARCHAR"]);
-        let err = DbTable::open("mysql://root:wrong@127.0.0.1:3306/test#people").err().unwrap().to_string();
-        assert!(err.starts_with("cannot read `mysql://root:***@") && err.contains("ERROR 1045"), "{}", err);
+        let types: Vec<_> = table
+            .columns()
+            .iter()
+            .map(|c| c.db_type.clone().unwrap())
+            .collect();
+        assert_eq!(
+            types,
+            ["VARBINARY", "VARCHAR", "DECIMAL", "DATE", "VARCHAR"]
+        );
+        let err = DbTable::open("mysql://root:wrong@127.0.0.1:3306/test#people")
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            err.starts_with("cannot read `mysql://root:***@") && err.contains("ERROR 1045"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -636,7 +739,10 @@ mod tests {
         };
         let start = std::time::Instant::now();
         while running() {
-            assert!(start.elapsed() < std::time::Duration::from_secs(3), "the query still runs");
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(3),
+                "the query still runs"
+            );
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
@@ -647,9 +753,16 @@ mod tests {
         let url = "postgresql://postgres:123456@127.0.0.1:15432/demo_db";
         assert!(csv_of(&format!("{}#people", url)).starts_with("id,name,age\n1,Jackie,48\n"));
         let sql = "select '\\x0102'::bytea as b, null::int as n, 1.50::numeric as d, date '2024-01-05' as dt, 'x,y' as s";
-        assert_eq!(csv_of(&format!("{}#{}", url, sql)), "b,n,d,dt,s\n,,1.50,2024-01-05,\"x,y\"\n");
+        assert_eq!(
+            csv_of(&format!("{}#{}", url, sql)),
+            "b,n,d,dt,s\n,,1.50,2024-01-05,\"x,y\"\n"
+        );
         let mut table = DbTable::open(&format!("{}#{}", url, sql)).unwrap();
-        let types: Vec<_> = table.columns().iter().map(|c| c.db_type.clone().unwrap()).collect();
+        let types: Vec<_> = table
+            .columns()
+            .iter()
+            .map(|c| c.db_type.clone().unwrap())
+            .collect();
         assert_eq!(types, ["bytea", "int4", "numeric", "date", "text"]);
         let row = table.next_row().unwrap().unwrap();
         assert_eq!(row[1], DbValue::Null);

@@ -3,7 +3,7 @@
 //! If a frawk program executes its main loop in parallel, we need some mechanism for computing
 //! which variables need to be propagated between stages.
 use crate::common::{NumTy, Result};
-use crate::compile::{Ty, LL};
+use crate::compile::{LL, Ty};
 use hashbrown::HashSet;
 
 type SlotSet = HashSet<(NumTy, Ty)>;

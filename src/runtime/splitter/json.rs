@@ -37,7 +37,12 @@ pub fn split_path(arg: &str) -> (&str, Option<&str>) {
 /// Whether `file` (with an optional `#path`) names a JSON document by its extension, after a
 /// compression extension.
 pub fn is_json_file(file: &str) -> bool {
-    let name = split_path(file).0.split('?').next().unwrap_or_default().to_ascii_lowercase();
+    let name = split_path(file)
+        .0
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let mut name = name.as_str();
     for ext in [".gz", ".zst", ".zstd", ".bz2", ".xz", ".lz4"] {
         if let Some(n) = name.strip_suffix(ext) {
@@ -115,13 +120,19 @@ pub fn to_jsonl(data: &[u8], path: Option<&str>) -> Result<Vec<u8>, String> {
         None => push_records(doc, &mut records)?,
         Some(path) => {
             let singular = is_singular(path);
-            let path = JsonPath::parse(path).map_err(|e| format!("invalid JSONPath `{}': {}", path, e))?;
+            let path =
+                JsonPath::parse(path).map_err(|e| format!("invalid JSONPath `{}': {}", path, e))?;
             // The path is evaluated on a `Value` copy of the document, whose nodes map back to
             // their original text by address.
             let mut raws = HashMap::new();
             let tree = build(doc, &mut raws)?;
             raws.insert(&tree as *const Value, doc);
-            let nodes: Vec<&RawValue> = path.query(&tree).all().into_iter().map(|node| raws[&(node as *const Value)]).collect();
+            let nodes: Vec<&RawValue> = path
+                .query(&tree)
+                .all()
+                .into_iter()
+                .map(|node| raws[&(node as *const Value)])
+                .collect();
             // A singular path (`$.data`, `$.a[0]`) selects at most one node, whose elements are the
             // records; any other path (`[*]`, `..`, slices, filters, unions) is one record per node,
             // whatever the number of nodes.
@@ -130,7 +141,10 @@ pub fn to_jsonl(data: &[u8], path: Option<&str>) -> Result<Vec<u8>, String> {
                 nodes => records.extend(nodes),
             }
             if records.is_empty() {
-                crate::runtime::stdlib_warning("json", format!("JSONPath `{}' selects no records", path));
+                crate::runtime::stdlib_warning(
+                    "json",
+                    format!("JSONPath `{}' selects no records", path),
+                );
             }
         }
     }
@@ -146,7 +160,10 @@ pub fn to_jsonl(data: &[u8], path: Option<&str>) -> Result<Vec<u8>, String> {
 /// `None` if it is not one.
 fn value_stream(data: &str) -> Option<Vec<u8>> {
     let values = serde_json::Deserializer::from_str(data).into_iter::<&RawValue>();
-    let values = values.collect::<Result<Vec<_>, _>>().ok().filter(|values| values.len() > 1)?;
+    let values = values
+        .collect::<Result<Vec<_>, _>>()
+        .ok()
+        .filter(|values| values.len() > 1)?;
     let mut out = Vec::new();
     for value in values {
         compact(value.get(), &mut out);
@@ -171,7 +188,9 @@ pub fn looks_like_json(file: &str) -> bool {
         Ok(n) => n,
         Err(_) => return true,
     };
-    let head = head[..n].strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&head[..n]);
+    let head = head[..n]
+        .strip_prefix(b"\xEF\xBB\xBF")
+        .unwrap_or(&head[..n]);
     match head.iter().find(|b| !b.is_ascii_whitespace()) {
         Some(b) => matches!(b, b'{' | b'['),
         None => true,
@@ -223,12 +242,18 @@ impl<'de> Deserialize<'de> for Members<'de> {
 
 /// `raw` as a `Value` to evaluate a JSONPath on, recording the original text of each array element
 /// and object member in `raws`. A number that does not fit an `f64` saturates (only filters see it).
-fn build<'a>(raw: &'a RawValue, raws: &mut HashMap<*const Value, &'a RawValue>) -> Result<Value, String> {
+fn build<'a>(
+    raw: &'a RawValue,
+    raws: &mut HashMap<*const Value, &'a RawValue>,
+) -> Result<Value, String> {
     let text = raw.get();
     let value = match text.as_bytes()[0] {
         b'[' => {
             let items: Vec<&RawValue> = serde_json::from_str(text).map_err(|e| e.to_string())?;
-            let values = items.iter().map(|item| build(item, raws)).collect::<Result<Vec<_>, _>>()?;
+            let values = items
+                .iter()
+                .map(|item| build(item, raws))
+                .collect::<Result<Vec<_>, _>>()?;
             // The elements stay at these addresses: moving the `Vec` does not move its buffer.
             for (value, item) in values.iter().zip(items) {
                 raws.insert(value as *const Value, item);
@@ -250,7 +275,9 @@ fn build<'a>(raw: &'a RawValue, raws: &mut HashMap<*const Value, &'a RawValue>) 
         b'-' | b'0'..=b'9' => match serde_json::from_str(text) {
             Ok(value) => value,
             Err(_) => {
-                let n: f64 = text.parse().map_err(|_| format!("invalid number `{}'", text))?;
+                let n: f64 = text
+                    .parse()
+                    .map_err(|_| format!("invalid number `{}'", text))?;
                 Value::from(n.clamp(f64::MIN, f64::MAX))
             }
         },
@@ -291,8 +318,12 @@ mod tests {
 
     #[test]
     fn array_of_objects() {
-        let doc = "[\n {\"id\": 1, \"name\": \"Jackie\", \"tags\": {\"a\": [1, 2]}},\n {\"id\": 2}\n]";
-        assert_eq!(lines(doc, None), "{\"id\":1,\"name\":\"Jackie\",\"tags\":{\"a\":[1,2]}}\n{\"id\":2}\n");
+        let doc =
+            "[\n {\"id\": 1, \"name\": \"Jackie\", \"tags\": {\"a\": [1, 2]}},\n {\"id\": 2}\n]";
+        assert_eq!(
+            lines(doc, None),
+            "{\"id\":1,\"name\":\"Jackie\",\"tags\":{\"a\":[1,2]}}\n{\"id\":2}\n"
+        );
     }
 
     #[test]
@@ -301,7 +332,13 @@ mod tests {
         assert_eq!(lines(doc, Some("$.data")), "{\"id\":1}\n{\"id\":2}\n");
         assert_eq!(lines(doc, Some("$.data[*]")), "{\"id\":1}\n{\"id\":2}\n");
         assert_eq!(lines(doc, Some("$.data[1]")), "{\"id\":2}\n");
-        assert_eq!(lines(doc, Some("$")), format!("{}\n", serde_json::to_string(&serde_json::from_str::<Value>(doc).unwrap()).unwrap()));
+        assert_eq!(
+            lines(doc, Some("$")),
+            format!(
+                "{}\n",
+                serde_json::to_string(&serde_json::from_str::<Value>(doc).unwrap()).unwrap()
+            )
+        );
         assert_eq!(lines(doc, Some("$.msg")), "\"a\\nb\"\n");
         assert_eq!(lines(doc, Some("$.n")), "3\n");
         assert_eq!(lines(doc, Some("$.missing")), "");
@@ -335,28 +372,56 @@ mod tests {
     fn singular_path() {
         // Only a singular path expands an array; other paths keep one record per node, however many.
         assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[*]")), "[1,2]\n");
-        assert_eq!(lines(r#"{"rows":[[1,2],[3,4]]}"#, Some("$.rows[*]")), "[1,2]\n[3,4]\n");
+        assert_eq!(
+            lines(r#"{"rows":[[1,2],[3,4]]}"#, Some("$.rows[*]")),
+            "[1,2]\n[3,4]\n"
+        );
         assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[0]")), "1\n2\n");
-        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$['rows'][-1]")), "1\n2\n");
+        assert_eq!(
+            lines(r#"{"rows":[[1,2]]}"#, Some("$['rows'][-1]")),
+            "1\n2\n"
+        );
         assert_eq!(lines(r#"{"a":{"b":[1,2]}}"#, Some("$..b")), "[1,2]\n");
         assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[0:1]")), "[1,2]\n");
-        assert_eq!(lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[?@[0] == 1]")), "[1,2]\n");
-        for (path, singular) in [("$", true), ("$.a", true), ("$.a[0].b", true), ("$[\"a'b\"]", true), ("$[*]", false), ("$..a", false), ("$['a','b']", false), ("$[0:1]", false), ("$[?@.a]", false)] {
+        assert_eq!(
+            lines(r#"{"rows":[[1,2]]}"#, Some("$.rows[?@[0] == 1]")),
+            "[1,2]\n"
+        );
+        for (path, singular) in [
+            ("$", true),
+            ("$.a", true),
+            ("$.a[0].b", true),
+            ("$[\"a'b\"]", true),
+            ("$[*]", false),
+            ("$..a", false),
+            ("$['a','b']", false),
+            ("$[0:1]", false),
+            ("$[?@.a]", false),
+        ] {
             assert_eq!(is_singular(path), singular, "{}", path);
         }
     }
 
     #[test]
     fn json_lines() {
-        assert_eq!(lines("{\"a\": 1.50}\n{\"a\": [2]}\n", None), "{\"a\":1.50}\n{\"a\":[2]}\n");
+        assert_eq!(
+            lines("{\"a\": 1.50}\n{\"a\": [2]}\n", None),
+            "{\"a\":1.50}\n{\"a\":[2]}\n"
+        );
         assert_eq!(lines("{\"a\":1} [1, 2]", None), "{\"a\":1}\n[1,2]\n");
         assert!(to_jsonl(b"{\"a\":1}\n{\"a\":", None).is_err());
     }
 
     #[test]
     fn split() {
-        assert_eq!(split_path("tests/demo.json#$.data"), ("tests/demo.json", Some("$.data")));
-        assert_eq!(split_path("https://x/a.json#$.a#$.b"), ("https://x/a.json#$.a", Some("$.b")));
+        assert_eq!(
+            split_path("tests/demo.json#$.data"),
+            ("tests/demo.json", Some("$.data"))
+        );
+        assert_eq!(
+            split_path("https://x/a.json#$.a#$.b"),
+            ("https://x/a.json#$.a", Some("$.b"))
+        );
         assert_eq!(split_path("tests/demo.json"), ("tests/demo.json", None));
         assert_eq!(split_path("a.json#x"), ("a.json#x", None));
         assert!(is_json_file("tests/demo.json#$.data"));

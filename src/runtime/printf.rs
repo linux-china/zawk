@@ -11,7 +11,7 @@
 //! (`%'010d` of 1234 is `00,001,234`).
 use crate::common::Result;
 use crate::runtime::compare::looks_numeric;
-use crate::runtime::{convert, Float, Int, Str};
+use crate::runtime::{Float, Int, Str, convert};
 
 use std::fmt;
 use std::io::Write;
@@ -108,7 +108,10 @@ impl Spec {
     /// The (NUL-terminated) C format string for this spec, for a numeric conversion `conv` with
     /// optional length modifier `len` (e.g. "ll").
     fn c_format(&self, len: &[u8], conv: u8) -> CFormat {
-        let mut f = CFormat { buf: [0; 64], len: 0 };
+        let mut f = CFormat {
+            buf: [0; 64],
+            len: 0,
+        };
         f.push(b"%");
         for (set, c) in [
             (self.minus, b"-"),
@@ -213,7 +216,10 @@ impl Spec {
         } else {
             b""
         };
-        let fill = self.width.unwrap_or(0).saturating_sub(sign.len() + digits.len());
+        let fill = self
+            .width
+            .unwrap_or(0)
+            .saturating_sub(sign.len() + digits.len());
         if self.minus {
             write_bytes(&mut w, sign)?;
             write_bytes(&mut w, digits)?;
@@ -361,7 +367,11 @@ fn take_chars(bs: &[u8], n: usize) -> &[u8] {
 /// Infinities and NaNs are written as in gawk (and padded like strings).
 fn special_float(f: f64) -> Option<&'static [u8]> {
     if f.is_nan() {
-        Some(if f.is_sign_negative() { b"-nan" } else { b"+nan" })
+        Some(if f.is_sign_negative() {
+            b"-nan"
+        } else {
+            b"+nan"
+        })
     } else if f.is_infinite() {
         Some(if f < 0.0 { b"-inf" } else { b"+inf" })
     } else {
@@ -390,7 +400,11 @@ impl<'a> FormatArg<'a> {
 /// result never starts with a separator). Returns `None` if `s` does not start with digits after
 /// an optional sign.
 fn group_digits(s: &[u8], sep: u8, zero: bool, width: usize) -> Option<Vec<u8>> {
-    let sign = s.iter().take_while(|c| matches!(c, b'+' | b'-' | b' ')).count().min(1);
+    let sign = s
+        .iter()
+        .take_while(|c| matches!(c, b'+' | b'-' | b' '))
+        .count()
+        .min(1);
     let digits = s[sign..].iter().take_while(|c| c.is_ascii_digit()).count();
     if digits == 0 {
         return None;
@@ -409,7 +423,11 @@ fn group_digits(s: &[u8], sep: u8, zero: bool, width: usize) -> Option<Vec<u8>> 
         if k > 0 && (n - k) % 3 == 0 {
             res.push(sep);
         }
-        res.push(if k < n - digits { b'0' } else { int[k - (n - digits)] });
+        res.push(if k < n - digits {
+            b'0'
+        } else {
+            int[k - (n - digits)]
+        });
     }
     res.extend_from_slice(rest);
     Some(res)
@@ -417,8 +435,17 @@ fn group_digits(s: &[u8], sep: u8, zero: bool, width: usize) -> Option<Vec<u8>> 
 
 fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
     if let Some(sep) = spec.group {
-        if matches!(spec.conv, b'd' | b'i' | b'u' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b's') {
-            let plain = Spec { group: None, width: None, minus: false, zero: false, ..*spec };
+        if matches!(
+            spec.conv,
+            b'd' | b'i' | b'u' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b's'
+        ) {
+            let plain = Spec {
+                group: None,
+                width: None,
+                minus: false,
+                zero: false,
+                ..*spec
+            };
             let mut buf = Vec::new();
             process_spec(&mut buf, &plain, arg)?;
             // Strings are grouped (and zero-padded) only if they look like numbers.
@@ -438,7 +465,10 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 Some(s) => spec.pad(w, s, s.len()),
                 // Integral values beyond the range of an i64.
                 None => {
-                    let fmt = Spec { precision: Some(0), ..*spec };
+                    let fmt = Spec {
+                        precision: Some(0),
+                        ..*spec
+                    };
                     snprintf_with(w, &fmt.c_format(b"", b'f'), CArg::Double(f))
                 }
             },
@@ -582,7 +612,12 @@ fn parse_spec(
             None
         } else {
             // Numbers too large for a usize saturate; they are rejected by `check_limits`.
-            Some(str::from_utf8(&fmt[start..*i]).ok()?.parse().unwrap_or(usize::MAX))
+            Some(
+                str::from_utf8(&fmt[start..*i])
+                    .ok()?
+                    .parse()
+                    .unwrap_or(usize::MAX),
+            )
         }
     };
     if fmt.get(i) == Some(&b'*') {
@@ -609,14 +644,31 @@ fn parse_spec(
         }
     }
     // Length modifiers are accepted and ignored.
-    while matches!(fmt.get(i), Some(b'h' | b'l' | b'L' | b'q' | b'j' | b'z' | b't')) {
+    while matches!(
+        fmt.get(i),
+        Some(b'h' | b'l' | b'L' | b'q' | b'j' | b'z' | b't')
+    ) {
         i += 1;
     }
     let conv = *fmt.get(i)?;
     if !matches!(
         conv,
-        b'd' | b'i' | b'o' | b'u' | b'x' | b'X' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a'
-            | b'A' | b'c' | b's' | b'%'
+        b'd' | b'i'
+            | b'o'
+            | b'u'
+            | b'x'
+            | b'X'
+            | b'e'
+            | b'E'
+            | b'f'
+            | b'F'
+            | b'g'
+            | b'G'
+            | b'a'
+            | b'A'
+            | b'c'
+            | b's'
+            | b'%'
     ) {
         return None;
     }
@@ -631,12 +683,20 @@ const MAX_WIDTH: usize = 64 << 20;
 impl Spec {
     fn check_limits(&self) -> Result<()> {
         if let Some(w) = self.width.filter(|w| *w > MAX_WIDTH) {
-            return err!("printf: field width {} is too large (maximum {})", w, MAX_WIDTH);
+            return err!(
+                "printf: field width {} is too large (maximum {})",
+                w,
+                MAX_WIDTH
+            );
         }
         // A string precision only truncates, so any value is harmless.
         if self.conv != b's' {
             if let Some(p) = self.precision.filter(|p| *p > MAX_WIDTH) {
-                return err!("printf: precision {} is too large (maximum {})", p, MAX_WIDTH);
+                return err!(
+                    "printf: precision {} is too large (maximum {})",
+                    p,
+                    MAX_WIDTH
+                );
             }
         }
         Ok(())
@@ -779,10 +839,22 @@ mod tests {
     #[test]
     fn unsigned_out_of_range() {
         let (inf, nan) = (f64::INFINITY, f64::NAN);
-        assert_eq!(sprintf!(b"%x|%x|%o|%u", -inf, inf, nan, -inf), "-inf|+inf|+nan|-inf");
-        assert_eq!(sprintf!(b"%x|%u|%x", -1e30, 1e30, -1e19), "-1e+30|1e+30|-1e+19");
-        assert_eq!(sprintf!(b"[%10x][%-6u][%#x]", 1e30, nan, 1e30), "[     1e+30][+nan  ][1.00000e+30]");
-        assert_eq!(sprintf!(b"%x|%x|%x", 1.5e19, -1, 2f64.powi(64)), "d02ab486cedc0000|ffffffffffffffff|ffffffffffffffff");
+        assert_eq!(
+            sprintf!(b"%x|%x|%o|%u", -inf, inf, nan, -inf),
+            "-inf|+inf|+nan|-inf"
+        );
+        assert_eq!(
+            sprintf!(b"%x|%u|%x", -1e30, 1e30, -1e19),
+            "-1e+30|1e+30|-1e+19"
+        );
+        assert_eq!(
+            sprintf!(b"[%10x][%-6u][%#x]", 1e30, nan, 1e30),
+            "[     1e+30][+nan  ][1.00000e+30]"
+        );
+        assert_eq!(
+            sprintf!(b"%x|%x|%x", 1.5e19, -1, 2f64.powi(64)),
+            "d02ab486cedc0000|ffffffffffffffff|ffffffffffffffff"
+        );
     }
 
     #[test]
@@ -790,7 +862,10 @@ mod tests {
         // Expected values are gawk's output.
         assert_eq!(sprintf!(b"%2$s %1$s", "a", "b"), "b a");
         assert_eq!(sprintf!(b"%1$s-%1$s", "x"), "x-x");
-        assert_eq!(sprintf!(b"[%2$*1$d][%3$.*1$f]", 5, 42, 1.23456), "[   42][1.23456]");
+        assert_eq!(
+            sprintf!(b"[%2$*1$d][%3$.*1$f]", 5, 42, 1.23456),
+            "[   42][1.23456]"
+        );
         assert_eq!(sprintf!(b"[%1$-5s|%1$05d]", 7), "[7    |00007]");
         // A missing argument is empty; `0$` is not a positional reference.
         assert_eq!(sprintf!(b"[%3$s][%0$s]", "a"), "[][%0$s]");
@@ -825,8 +900,20 @@ mod tests {
 
     #[test]
     fn digit_grouping() {
-        let s = sprintf!(b"%'d|%_d|%'010.2f|%-'10d|%'s|%'s|%'d", 1234567, 1234567, 1234.5, 1234, "9876543", "abc12345", -999);
-        assert_eq!(s.as_str(), "1,234,567|1_234_567|001,234.50|1,234     |9,876,543|abc12345|-999");
+        let s = sprintf!(
+            b"%'d|%_d|%'010.2f|%-'10d|%'s|%'s|%'d",
+            1234567,
+            1234567,
+            1234.5,
+            1234,
+            "9876543",
+            "abc12345",
+            -999
+        );
+        assert_eq!(
+            s.as_str(),
+            "1,234,567|1_234_567|001,234.50|1,234     |9,876,543|abc12345|-999"
+        );
         let s = sprintf!(b"%'08d|%'+d|%'14.1f|%'e", 1234, 1000, -1234567.25, 1234.5);
         assert_eq!(s.as_str(), "0,001,234|+1,000|  -1,234,567.2|1.234500e+03");
     }
@@ -843,7 +930,17 @@ mod tests {
     fn c_conversions() {
         // Expected values are gawk's output.
         assert_eq!(
-            sprintf!(b"%e %E %.2e %g %G %g %g %#g", 12345.678, 1e-10, 0, 100000, 1e-10, 0.0001, 123456789, 1),
+            sprintf!(
+                b"%e %E %.2e %g %G %g %g %#g",
+                12345.678,
+                1e-10,
+                0,
+                100000,
+                1e-10,
+                0.0001,
+                123456789,
+                1
+            ),
             "1.234568e+04 1.000000E-10 0.00e+00 100000 1E-10 0.0001 1.23457e+08 1.00000"
         );
         assert_eq!(
@@ -854,8 +951,14 @@ mod tests {
             sprintf!(b"[%*d][%-*d][%.*f][%*d]", 5, 42, 4, 42, 2, 1.23456, -4, 7),
             "[   42][42  ][1.23][7   ]"
         );
-        assert_eq!(sprintf!(b"[%d][%x][%5%][%z]", 9.223372036854775808e18, -1), "[9223372036854775808][ffffffffffffffff][%][%z]");
-        assert_eq!(sprintf!(b"[%f][%5.1f]", f64::INFINITY, f64::NAN), "[+inf][ +nan]");
+        assert_eq!(
+            sprintf!(b"[%d][%x][%5%][%z]", 9.223372036854775808e18, -1),
+            "[9223372036854775808][ffffffffffffffff][%][%z]"
+        );
+        assert_eq!(
+            sprintf!(b"[%f][%5.1f]", f64::INFINITY, f64::NAN),
+            "[+inf][ +nan]"
+        );
     }
 
     #[test]
@@ -904,8 +1007,28 @@ mod tests {
     #[test]
     fn native_fixed_matches_snprintf() {
         let mut values = vec![
-            0.0, -0.0, 0.5, 1.5, 2.5, -2.5, 0.125, 0.375, 2.375, -0.001, 1e-7, 0.1, 0.7, 1.005,
-            123456.789, -98765.4321, 1e15, 1.7976931348623157e308, 5e-324, 9.999999, 0.05, 0.45,
+            0.0,
+            -0.0,
+            0.5,
+            1.5,
+            2.5,
+            -2.5,
+            0.125,
+            0.375,
+            2.375,
+            -0.001,
+            1e-7,
+            0.1,
+            0.7,
+            1.005,
+            123456.789,
+            -98765.4321,
+            1e15,
+            1.7976931348623157e308,
+            5e-324,
+            9.999999,
+            0.05,
+            0.45,
         ];
         let mut x: u64 = 0x9e3779b97f4a7c15;
         for _ in 0..2000 {
@@ -954,10 +1077,22 @@ mod tests {
     #[test]
     fn strings_and_chars() {
         assert_eq!(
-            sprintf!(b"[%05s][%.2s][%5.1s][%c][%c][%c][%3c]", "ab", "h\u{e9}llo", "xyz", "hello", 65, 256, "x"),
+            sprintf!(
+                b"[%05s][%.2s][%5.1s][%c][%c][%c][%3c]",
+                "ab",
+                "h\u{e9}llo",
+                "xyz",
+                "hello",
+                65,
+                256,
+                "x"
+            ),
             "[   ab][h\u{e9}][    x][h][A][\u{100}][  x]"
         );
-        assert_eq!(sprintf!(b"%5s|%-5s|", "\u{4f60}\u{597d}", "\u{4f60}\u{597d}"), "   \u{4f60}\u{597d}|\u{4f60}\u{597d}   |");
+        assert_eq!(
+            sprintf!(b"%5s|%-5s|", "\u{4f60}\u{597d}", "\u{4f60}\u{597d}"),
+            "   \u{4f60}\u{597d}|\u{4f60}\u{597d}   |"
+        );
         assert_eq!(sprintf!(b"[%c]", ""), "[\0]");
     }
 

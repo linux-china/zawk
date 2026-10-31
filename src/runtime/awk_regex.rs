@@ -22,13 +22,13 @@
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use regex_automata::hybrid::dfa::{Cache, DFA};
 use regex_automata::nfa::thompson::pikevm::PikeVM;
-use regex_automata::{Anchored, Input, MatchKind};
 use regex_automata::util::pool::Pool;
+use regex_automata::{Anchored, Input, MatchKind};
 use std::cell::{OnceCell, RefCell};
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 thread_local! {
     // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`). Worker
@@ -94,8 +94,14 @@ impl AwkRegex {
     /// Wraps `re` (in the syntax of `regex`).
     pub(crate) fn new(re: Regex) -> AwkRegex {
         // A pattern compiled under IGNORECASE starts with `(?i)`, so it is never literal here.
-        let literal = literal_parts(re.as_str().as_bytes()).map(|(kind, lit)| LiteralSearch::new(kind, lit).into_owned());
-        AwkRegex { re, longest: OnceLock::new(), charged: None, literal }
+        let literal = literal_parts(re.as_str().as_bytes())
+            .map(|(kind, lit)| LiteralSearch::new(kind, lit).into_owned());
+        AwkRegex {
+            re,
+            longest: OnceLock::new(),
+            charged: None,
+            literal,
+        }
     }
 
     /// Counts the memory of what is built for leftmost-longest matches against `regex_memory`,
@@ -198,10 +204,19 @@ impl Pike {
     /// The capture groups of the first match of `input`.
     fn groups(&self, input: &Input) -> Option<Groups> {
         let mut caps = self.vm.create_captures();
-        self.vm.search(&mut self.cache.borrow_mut(), input, &mut caps);
+        self.vm
+            .search(&mut self.cache.borrow_mut(), input, &mut caps);
         caps.is_match().then(|| {
-            let names = Groups::named(caps.group_info().pattern_names(regex_automata::PatternID::ZERO));
-            Groups((0..caps.group_len()).map(|i| caps.get_group(i).map(|s| (s.start, s.end))).collect(), names)
+            let names = Groups::named(
+                caps.group_info()
+                    .pattern_names(regex_automata::PatternID::ZERO),
+            );
+            Groups(
+                (0..caps.group_len())
+                    .map(|i| caps.get_group(i).map(|s| (s.start, s.end)))
+                    .collect(),
+                names,
+            )
         })
     }
 }
@@ -306,7 +321,10 @@ impl LightEngine {
         self.with_first_cache(|cache| self.first.is_match(cache, input))
     }
 
-    fn with_first_cache<T>(&self, f: impl FnOnce(&mut regex_automata::nfa::thompson::pikevm::Cache) -> T) -> T {
+    fn with_first_cache<T>(
+        &self,
+        f: impl FnOnce(&mut regex_automata::nfa::thompson::pikevm::Cache) -> T,
+    ) -> T {
         FIRST_CACHE.with_borrow_mut(|c| {
             let (id, cache) = c.get_or_insert_with(|| (self.id, self.first.create_cache()));
             if *id != self.id {
@@ -320,13 +338,19 @@ impl LightEngine {
 
 impl Search for LightEngine {
     fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)> {
-        let m = self.with_first_cache(|cache| self.first.find(cache, Input::new(hay).range(start..)))?;
+        let m =
+            self.with_first_cache(|cache| self.first.find(cache, Input::new(hay).range(start..)))?;
         if !self.longest {
             return Some((m.start(), m.end()));
         }
-        let all = self.all.get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::All));
+        let all = self
+            .all
+            .get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::All));
         let input = Input::new(hay).range(m.start()..).anchored(Anchored::Yes);
-        let end = all.vm.find(&mut all.cache.borrow_mut(), input).map_or(m.end(), |l| l.end().max(m.end()));
+        let end = all
+            .vm
+            .find(&mut all.cache.borrow_mut(), input)
+            .map_or(m.end(), |l| l.end().max(m.end()));
         Some((m.start(), end))
     }
 
@@ -345,7 +369,9 @@ impl Search for LightEngine {
                 }
             }
         }
-        let groups = self.groups.get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::LeftmostFirst));
+        let groups = self
+            .groups
+            .get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::LeftmostFirst));
         groups.groups(&Input::new(hay).range(from..))
     }
 }
@@ -354,7 +380,11 @@ impl Search for LightEngine {
 /// that are not valid UTF-8) it matches the same as `hir`. When `chars` is ASCII, Unicode word
 /// boundaries become ASCII ones too, which the lazy DFA handles without giving up. Byte classes
 /// are left alone.
-fn restrict(hir: &regex_syntax::hir::Hir, chars: &regex_syntax::hir::ClassUnicode, ascii: bool) -> regex_syntax::hir::Hir {
+fn restrict(
+    hir: &regex_syntax::hir::Hir,
+    chars: &regex_syntax::hir::ClassUnicode,
+    ascii: bool,
+) -> regex_syntax::hir::Hir {
     use regex_syntax::hir::{Capture, Class, Hir, HirKind, Look, Repetition};
     match hir.kind() {
         HirKind::Class(Class::Unicode(c)) => {
@@ -380,7 +410,9 @@ fn restrict(hir: &regex_syntax::hir::Hir, chars: &regex_syntax::hir::ClassUnicod
             ..c.clone()
         }),
         HirKind::Concat(hs) => Hir::concat(hs.iter().map(|h| restrict(h, chars, ascii)).collect()),
-        HirKind::Alternation(hs) => Hir::alternation(hs.iter().map(|h| restrict(h, chars, ascii)).collect()),
+        HirKind::Alternation(hs) => {
+            Hir::alternation(hs.iter().map(|h| restrict(h, chars, ascii)).collect())
+        }
         _ => hir.clone(),
     }
 }
@@ -425,7 +457,10 @@ fn may_be_too_big(hir: &regex_syntax::hir::Hir) -> bool {
 
 /// Literals one of which every match of `hir` starts with (or ends with, for
 /// `ExtractKind::Suffix`), when there are a few, none empty.
-fn required_literals(hir: &regex_syntax::hir::Hir, kind: regex_syntax::hir::literal::ExtractKind) -> Option<Vec<Vec<u8>>> {
+fn required_literals(
+    hir: &regex_syntax::hir::Hir,
+    kind: regex_syntax::hir::literal::ExtractKind,
+) -> Option<Vec<Vec<u8>>> {
     let mut extractor = regex_syntax::hir::literal::Extractor::new();
     extractor.kind(kind).limit_total(64);
     let seq = extractor.extract(hir);
@@ -440,7 +475,7 @@ impl LightMatcher {
     /// A matcher for the awk regex `pat`, or `None` when it does not parse (or may be too big,
     /// see `may_be_too_big`); the caller then goes through `compile`, which reports errors.
     pub(crate) fn new(pat: &str) -> Option<LightMatcher> {
-        use regex_syntax::hir::{literal::ExtractKind, Look};
+        use regex_syntax::hir::{Look, literal::ExtractKind};
         let hir = regex_syntax::ParserBuilder::new()
             .utf8(false)
             .dot_matches_new_line(true)
@@ -469,10 +504,22 @@ impl LightMatcher {
     /// with; `false` means that it does not match.
     pub(crate) fn may_match(&self, hay: &[u8]) -> bool {
         let prefix = |(lits, start): &(Vec<Vec<u8>>, bool)| {
-            lits.iter().any(|l| if *start { hay.starts_with(l) } else { memchr::memmem::find(hay, l).is_some() })
+            lits.iter().any(|l| {
+                if *start {
+                    hay.starts_with(l)
+                } else {
+                    memchr::memmem::find(hay, l).is_some()
+                }
+            })
         };
         let suffix = |(lits, end): &(Vec<Vec<u8>>, bool)| {
-            lits.iter().any(|l| if *end { hay.ends_with(l) } else { memchr::memmem::find(hay, l).is_some() })
+            lits.iter().any(|l| {
+                if *end {
+                    hay.ends_with(l)
+                } else {
+                    memchr::memmem::find(hay, l).is_some()
+                }
+            })
         };
         self.prefixes.as_ref().is_none_or(prefix) && self.suffixes.as_ref().is_none_or(suffix)
     }
@@ -488,14 +535,20 @@ impl LightMatcher {
     fn ascii_engine(&mut self) -> Option<&LightEngine> {
         let (hir, longest) = (&self.hir, self.longest);
         self.ascii
-            .get_or_insert_with(|| LightEngine::new(restrict(hir, &ascii_chars(), true), longest).map(Box::new))
+            .get_or_insert_with(|| {
+                LightEngine::new(restrict(hir, &ascii_chars(), true), longest).map(Box::new)
+            })
             .as_deref()
     }
 
     /// Runs `f` with the engine for `hay` (and other text made of the same characters), or
     /// returns `None` when it cannot be built; the caller then goes through `compile`, which
     /// reports the error.
-    pub(crate) fn with_engine<T>(&mut self, hay: &[u8], f: impl FnOnce(&LightEngine) -> T) -> Option<T> {
+    pub(crate) fn with_engine<T>(
+        &mut self,
+        hay: &[u8],
+        f: impl FnOnce(&LightEngine) -> T,
+    ) -> Option<T> {
         if hay.is_ascii() {
             return self.ascii_engine().map(f);
         }
@@ -541,7 +594,10 @@ fn literal_parts(pat: &[u8]) -> Option<(Literal, &[u8])> {
     if std::str::from_utf8(pat).is_err() {
         return None;
     }
-    let pat = pat.strip_prefix(b"(?:").and_then(|p| p.strip_suffix(b")")).unwrap_or(pat);
+    let pat = pat
+        .strip_prefix(b"(?:")
+        .and_then(|p| p.strip_suffix(b")"))
+        .unwrap_or(pat);
     let (start, rest) = match pat.strip_prefix(b"^") {
         Some(rest) => (true, rest),
         None => (false, pat),
@@ -553,7 +609,20 @@ fn literal_parts(pat: &[u8]) -> Option<(Literal, &[u8])> {
     let is_meta = |b: &u8| {
         matches!(
             b,
-            b'\\' | b'.' | b'[' | b']' | b'(' | b')' | b'*' | b'+' | b'?' | b'{' | b'}' | b'|' | b'^' | b'$'
+            b'\\'
+                | b'.'
+                | b'['
+                | b']'
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b'?'
+                | b'{'
+                | b'}'
+                | b'|'
+                | b'^'
+                | b'$'
         )
     };
     if lit.iter().any(is_meta) {
@@ -589,11 +658,17 @@ pub(crate) struct LiteralSearch<'p> {
 
 impl<'p> LiteralSearch<'p> {
     pub(crate) fn new(kind: Literal, lit: &'p [u8]) -> LiteralSearch<'p> {
-        LiteralSearch { kind, finder: memchr::memmem::Finder::new(lit) }
+        LiteralSearch {
+            kind,
+            finder: memchr::memmem::Finder::new(lit),
+        }
     }
 
     fn into_owned(self) -> LiteralSearch<'static> {
-        LiteralSearch { kind: self.kind, finder: self.finder.into_owned() }
+        LiteralSearch {
+            kind: self.kind,
+            finder: self.finder.into_owned(),
+        }
     }
 }
 
@@ -603,9 +678,14 @@ impl Search for LiteralSearch<'_> {
         let n = lit.len();
         // `^` and `$` anchor at the ends of `hay`, not at `start` (as with `Regex::find_at`).
         match self.kind {
-            Literal::Contains => self.finder.find(hay.get(start..)?).map(|i| (start + i, start + i + n)),
+            Literal::Contains => self
+                .finder
+                .find(hay.get(start..)?)
+                .map(|i| (start + i, start + i + n)),
             Literal::Prefix => (start == 0 && hay.starts_with(lit)).then_some((0, n)),
-            Literal::Suffix => (hay.len() >= start + n && hay.ends_with(lit)).then(|| (hay.len() - n, hay.len())),
+            Literal::Suffix => {
+                (hay.len() >= start + n && hay.ends_with(lit)).then(|| (hay.len() - n, hay.len()))
+            }
             Literal::Exact => (start == 0 && hay == lit).then_some((0, n)),
         }
     }
@@ -647,7 +727,13 @@ struct Longest {
     dfa: DFA,
     cache: Pool<Cache, CacheFn<Cache>>,
     /// The same as a PikeVM, for when the lazy DFA gives up; built on first use.
-    pike: OnceLock<(PikeVM, Pool<regex_automata::nfa::thompson::pikevm::Cache, CacheFn<regex_automata::nfa::thompson::pikevm::Cache>>)>,
+    pike: OnceLock<(
+        PikeVM,
+        Pool<
+            regex_automata::nfa::thompson::pikevm::Cache,
+            CacheFn<regex_automata::nfa::thompson::pikevm::Cache>,
+        >,
+    )>,
     nfa: regex_automata::nfa::thompson::NFA,
     /// The pattern anchored at the end, `(?:pat)\z`, to get capture groups of a given span.
     exact: OnceLock<Option<Regex>>,
@@ -664,7 +750,11 @@ const LONGEST_COST: super::CostModel = super::CostModel {
 /// `regex_memory`. A cache in use is skipped: it is the one adding an entry, which evicts by
 /// itself.
 pub(crate) fn evict_caches() {
-    EXTENDERS.with(|cell| cell.try_borrow_mut().map(|mut cache| cache.evict_lru()).ok());
+    EXTENDERS.with(|cell| {
+        cell.try_borrow_mut()
+            .map(|mut cache| cache.evict_lru())
+            .ok()
+    });
 }
 
 /// Whether the leftmost-first match of `pat` (in the syntax of `regex`) can be shorter than the
@@ -686,7 +776,9 @@ fn hir_needs_longest(hir: &regex_syntax::hir::Hir) -> bool {
     fn one_char(h: &Hir) -> bool {
         match h.kind() {
             HirKind::Class(_) => true,
-            HirKind::Literal(lit) => std::str::from_utf8(&lit.0).map_or(lit.0.len() == 1, |s| s.chars().count() == 1),
+            HirKind::Literal(lit) => {
+                std::str::from_utf8(&lit.0).map_or(lit.0.len() == 1, |s| s.chars().count() == 1)
+            }
             HirKind::Capture(c) => one_char(&c.sub),
             _ => false,
         }
@@ -705,25 +797,39 @@ fn hir_needs_longest(hir: &regex_syntax::hir::Hir) -> bool {
 
 impl Longest {
     fn new(pat: &str) -> Option<Longest> {
-        use regex_automata::nfa::thompson::{Config, WhichCaptures, NFA};
+        use regex_automata::nfa::thompson::{Config, NFA, WhichCaptures};
         let nfa = NFA::compiler()
             .syntax(
                 regex_automata::util::syntax::Config::new()
                     .utf8(false)
                     .dot_matches_new_line(true),
             )
-            .configure(Config::new().utf8(false).which_captures(WhichCaptures::Implicit))
+            .configure(
+                Config::new()
+                    .utf8(false)
+                    .which_captures(WhichCaptures::Implicit),
+            )
             .build(pat)
             .ok()?;
         let dfa = DFA::builder()
-            .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
+            .configure(
+                DFA::config()
+                    .match_kind(MatchKind::All)
+                    .unicode_word_boundary(true),
+            )
             .build_from_nfa(nfa.clone())
             .ok()?;
         let cache = {
             let dfa = dfa.clone();
             Pool::new(Box::new(move || dfa.create_cache()) as CacheFn<Cache>)
         };
-        Some(Longest { dfa, cache, pike: OnceLock::new(), nfa, exact: OnceLock::new() })
+        Some(Longest {
+            dfa,
+            cache,
+            pike: OnceLock::new(),
+            nfa,
+            exact: OnceLock::new(),
+        })
     }
 }
 
@@ -756,7 +862,10 @@ pub(crate) struct Groups(Vec<Option<(usize, usize)>>, Vec<(usize, Box<str>)>);
 
 impl Groups {
     fn named<'n>(names: impl Iterator<Item = Option<&'n str>>) -> Vec<(usize, Box<str>)> {
-        names.enumerate().filter_map(|(i, n)| n.map(|n| (i, n.into()))).collect()
+        names
+            .enumerate()
+            .filter_map(|(i, n)| n.map(|n| (i, n.into())))
+            .collect()
     }
     /// The range of group `i` (0 for the whole match).
     pub(crate) fn get(&self, i: usize) -> Option<(usize, usize)> {
@@ -814,7 +923,10 @@ impl Search for AwkRegex {
             return lit.groups_at(hay, from, to);
         }
         let groups = |c: Captures| {
-            Groups(c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect(), Groups::named(self.re.capture_names()))
+            Groups(
+                c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect(),
+                Groups::named(self.re.capture_names()),
+            )
         };
         if let Some(l) = self.longest() {
             let exact = l.exact.get_or_init(|| {
@@ -837,7 +949,11 @@ impl Search for AwkRegex {
 }
 
 /// The leftmost-longest match of `re` in `hay` starting at or after `start`, as (start, end).
-pub(crate) fn find_at<S: Search + ?Sized>(re: &S, hay: &[u8], start: usize) -> Option<(usize, usize)> {
+pub(crate) fn find_at<S: Search + ?Sized>(
+    re: &S,
+    hay: &[u8],
+    start: usize,
+) -> Option<(usize, usize)> {
     re.search_at(hay, start)
 }
 
@@ -863,7 +979,14 @@ struct Extender {
 fn first_bytes(dfa: &DFA) -> Box<[bool; 256]> {
     let mut cache = dfa.create_cache();
     let mut first = Box::new([false; 256]);
-    for behind in [None, Some(b'\n'), Some(b'\r'), Some(b'a'), Some(b' '), Some(0x80)] {
+    for behind in [
+        None,
+        Some(b'\n'),
+        Some(b'\r'),
+        Some(b'a'),
+        Some(b' '),
+        Some(0x80),
+    ] {
         let config = regex_automata::util::start::Config::new()
             .anchored(Anchored::Yes)
             .look_behind(behind);
@@ -893,7 +1016,11 @@ thread_local! {
 /// The extension-check machinery for `re`, or `None` when the DFA cannot be built.
 fn extender(re: &Regex) -> Option<Rc<Extender>> {
     let pat = re.as_str();
-    if let Some(x) = LAST_EXTENDER.with_borrow(|last| last.as_ref().filter(|(p, _)| p == pat).map(|(_, x)| x.clone())) {
+    if let Some(x) = LAST_EXTENDER.with_borrow(|last| {
+        last.as_ref()
+            .filter(|(p, _)| p == pat)
+            .map(|(_, x)| x.clone())
+    }) {
         return x;
     }
     let x = extender_uncached(pat);
@@ -915,7 +1042,11 @@ fn extender_uncached(pat: &str) -> Option<Rc<Extender>> {
                 .ok()
                 .and_then(|h| h.properties().maximum_len());
             DFA::builder()
-                .configure(DFA::config().match_kind(MatchKind::All).unicode_word_boundary(true))
+                .configure(
+                    DFA::config()
+                        .match_kind(MatchKind::All)
+                        .unicode_word_boundary(true),
+                )
                 .syntax(
                     regex_automata::util::syntax::Config::new()
                         .utf8(false)
@@ -929,10 +1060,17 @@ fn extender_uncached(pat: &str) -> Option<Rc<Extender>> {
                     let few: Vec<u8> = (0..=255u8).filter(|&b| first[b as usize]).collect();
                     let few_first = (few.len() <= 3).then_some(few);
                     let cache = RefCell::new(dfa.create_cache());
-                    Rc::new(Extender { dfa, cache, max_len, first, few_first })
+                    Rc::new(Extender {
+                        dfa,
+                        cache,
+                        max_len,
+                        first,
+                        few_first,
+                    })
                 })
         });
-        cell.borrow_mut().insert_measured(pat.to_owned(), x.clone(), measured);
+        cell.borrow_mut()
+            .insert_measured(pat.to_owned(), x.clone(), measured);
         x
     })
 }
@@ -993,7 +1131,11 @@ pub(crate) fn next_char(hay: &[u8], pos: usize) -> usize {
         Some(&b) if b >= 0xC0 => 2,
         _ => 1,
     };
-    if n > 1 && hay.get(pos..pos + n).is_some_and(|c| std::str::from_utf8(c).is_ok()) {
+    if n > 1
+        && hay
+            .get(pos..pos + n)
+            .is_some_and(|c| std::str::from_utf8(c).is_ok())
+    {
         pos + n
     } else {
         pos + 1
@@ -1008,23 +1150,30 @@ pub(crate) fn find_iter<'h, S: Search + ?Sized>(
 ) -> impl Iterator<Item = (usize, usize)> + 'h {
     let mut pos = 0;
     let mut last_end = None;
-    std::iter::from_fn(move || loop {
-        if pos > hay.len() {
-            return None;
+    std::iter::from_fn(move || {
+        loop {
+            if pos > hay.len() {
+                return None;
+            }
+            let (from, to) = find_at(re, hay, pos)?;
+            if from == to && last_end == Some(to) {
+                pos = next_char(hay, to);
+                continue;
+            }
+            pos = to;
+            last_end = Some(to);
+            return Some((from, to));
         }
-        let (from, to) = find_at(re, hay, pos)?;
-        if from == to && last_end == Some(to) {
-            pos = next_char(hay, to);
-            continue;
-        }
-        pos = to;
-        last_end = Some(to);
-        return Some((from, to));
     })
 }
 
 /// The capture groups of `re` for the match `from..to` of `hay` (as found by `find_at`).
-pub(crate) fn captures_at<S: Search + ?Sized>(re: &S, hay: &[u8], from: usize, to: usize) -> Option<Groups> {
+pub(crate) fn captures_at<S: Search + ?Sized>(
+    re: &S,
+    hay: &[u8],
+    from: usize,
+    to: usize,
+) -> Option<Groups> {
     re.groups_at(hay, from, to)
 }
 
@@ -1241,7 +1390,12 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<
                             let name: String = chars[j + 2..end].iter().collect();
                             match posix_class(&name) {
                                 Some(class) => res.push_str(class),
-                                None => return Err(format!("invalid character class name [:{}:]", name)),
+                                None => {
+                                    return Err(format!(
+                                        "invalid character class name [:{}:]",
+                                        name
+                                    ));
+                                }
                             }
                             j = end + 2;
                         }
@@ -1252,7 +1406,10 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<
                     }
                 }
                 // Collating symbols and equivalence classes of one character, e.g. [.-.].
-                Some('.') | Some('=') if chars.get(j + 3) == Some(&chars[j + 1]) && chars.get(j + 4) == Some(&']') => {
+                Some('.') | Some('=')
+                    if chars.get(j + 3) == Some(&chars[j + 1])
+                        && chars.get(j + 4) == Some(&']') =>
+                {
                     push_literal(&mut res, chars[j + 2]);
                     j += 5;
                 }
@@ -1291,7 +1448,9 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<
         let body = &res[if negated { 2 } else { 1 }..res.len() - 1];
         let neg = if negated { "^" } else { "" };
         let byte_safe = body.is_ascii()
-            && !["\\p", "\\P", "\\w", "\\W", "\\d", "\\D", "\\s", "\\S"].iter().any(|e| body.contains(e));
+            && !["\\p", "\\P", "\\w", "\\W", "\\d", "\\D", "\\s", "\\S"]
+                .iter()
+                .any(|e| body.contains(e));
         if byte_safe {
             // ASCII is the same with Unicode mode on or off, so the whole class can be bytes.
             out.push_str(&format!("(?-u:[{}{}{}])", neg, body, bytes));
@@ -1428,7 +1587,10 @@ mod tests {
         assert_eq!(translate("[[]").unwrap(), r"[\[]");
         assert_eq!(translate("[]a]").unwrap(), r"[\]a]");
         assert_eq!(translate("[^]a]").unwrap(), r"[^\]a]");
-        assert_eq!(translate("[[:alpha:]_]").unwrap(), r"[\p{Alphabetic}[\p{Nd}--0-9]_]");
+        assert_eq!(
+            translate("[[:alpha:]_]").unwrap(),
+            r"[\p{Alphabetic}[\p{Nd}--0-9]_]"
+        );
         assert_eq!(translate("[^[:digit:]]").unwrap(), "[^0-9]");
         assert_eq!(translate("[a&&b]").unwrap(), r"[a\&\&b]");
         assert_eq!(translate("(?:.)").unwrap(), "(?:.)");
@@ -1437,10 +1599,16 @@ mod tests {
         assert_eq!(translate(r"\x41\xg").unwrap(), r"\x{41}xg");
         assert_eq!(translate(r"\x{e9}").unwrap(), r"\x{e9}");
         assert_eq!(translate(r"\p{Greek}+").unwrap(), r"\p{Greek}+");
-        assert_eq!(translate(r"[\P{Greek}\x{e9}]").unwrap(), r"[\P{Greek}\x{e9}]");
+        assert_eq!(
+            translate(r"[\P{Greek}\x{e9}]").unwrap(),
+            r"[\P{Greek}\x{e9}]"
+        );
         assert_eq!(translate(r"\pL").unwrap(), r"\pL");
         assert!(translate("[[:foo:]]").is_err());
-        assert_eq!(syntax_error("[[:foo:]]").unwrap(), "invalid character class name [:foo:]");
+        assert_eq!(
+            syntax_error("[[:foo:]]").unwrap(),
+            "invalid character class name [:foo:]"
+        );
         assert!(compile("a|[^[:nope:]]").is_err());
         assert_eq!(translate(r"[a\351]").unwrap(), r"(?-u:[a\xE9])");
         assert_eq!(translate(r"[^\200-\377]").unwrap(), r"(?-u:[^\x80-\xFF])");
@@ -1456,7 +1624,11 @@ mod tests {
         assert!(is_match(r"\xc3\xa9", "é"));
         assert!(!is_match(r"^\351", "é"));
         assert!(compile(r"^\351$").unwrap().is_match(b"\xe9"));
-        assert!(compile(r"^[\200-\377]+$").unwrap().is_match("中文".as_bytes()));
+        assert!(
+            compile(r"^[\200-\377]+$")
+                .unwrap()
+                .is_match("中文".as_bytes())
+        );
         assert!(!is_match(r"[\200-\377]", "abc"));
         assert!(is_match(r"^[^\200-\377]+$", "abc"));
         assert!(is_match(r"^[[:alpha:]\351]$", "é"));
@@ -1524,13 +1696,44 @@ mod tests {
     #[test]
     fn light_matcher_agrees_with_compile() {
         let pats = [
-            "^[a-z]+ ab", "[[:alpha:]]+ x$", "[[:upper:]]", "[^a]b", "^.$", "^..$", "\\<caf\\>",
-            "\\yab\\y", "\\Bé", "(a|ab)(c|bcd)", "[[:space:]]+", "\\303\\251", "^\\351", "\\p{Greek}+",
-            "[^[:alnum:]]", "x*", "^$", "[é-ë]", "数据|data", "\\w+\\s\\w+$", "a{2,3}", ".{100}",
+            "^[a-z]+ ab",
+            "[[:alpha:]]+ x$",
+            "[[:upper:]]",
+            "[^a]b",
+            "^.$",
+            "^..$",
+            "\\<caf\\>",
+            "\\yab\\y",
+            "\\Bé",
+            "(a|ab)(c|bcd)",
+            "[[:space:]]+",
+            "\\303\\251",
+            "^\\351",
+            "\\p{Greek}+",
+            "[^[:alnum:]]",
+            "x*",
+            "^$",
+            "[é-ë]",
+            "数据|data",
+            "\\w+\\s\\w+$",
+            "a{2,3}",
+            ".{100}",
         ];
         let hays: [&[u8]; 14] = [
-            b"", b"ab", b"xab", b"abc x", b"caf\xc3\xa9", b"caf", b"na\xc3\xafve caf\xc3\xa9 ab", b"\xce\xb1\xce\xb2",
-            b"\xe6\x95\xb0\xe6\x8d\xae", b"Ab", b"\xe9", b"\xe2\x80\x83 x", b"aa", b"word word",
+            b"",
+            b"ab",
+            b"xab",
+            b"abc x",
+            b"caf\xc3\xa9",
+            b"caf",
+            b"na\xc3\xafve caf\xc3\xa9 ab",
+            b"\xce\xb1\xce\xb2",
+            b"\xe6\x95\xb0\xe6\x8d\xae",
+            b"Ab",
+            b"\xe9",
+            b"\xe2\x80\x83 x",
+            b"aa",
+            b"word word",
         ];
         for ic in [false, true] {
             set_ignore_case(ic);
@@ -1541,7 +1744,14 @@ mod tests {
                     continue;
                 };
                 for hay in hays {
-                    assert_eq!(light.is_match(hay), Some(re.is_match(hay)), "{:?} ~ /{}/ ic={}", hay, pat, ic);
+                    assert_eq!(
+                        light.is_match(hay),
+                        Some(re.is_match(hay)),
+                        "{:?} ~ /{}/ ic={}",
+                        hay,
+                        pat,
+                        ic
+                    );
                 }
             }
         }
@@ -1553,14 +1763,45 @@ mod tests {
     #[test]
     fn light_search_agrees_with_compile() {
         let pats = [
-            "^[a-z]+ ab", "[[:alpha:]]+", "(a|ab)(c|bcd)", "x|xy", "(x|xy)(z?)", "(ab)?(abcd)?", "\\<(a|ab)",
-            "(a|ab)\\B", "\\y(a|ab)", "\\<(中|中文)", "(x|xy)\\y", "x*", "y|", "[^ ]+", "(.)(.)", "^$", "$",
-            "数据|data", "(é+)(b)?", "a{2,3}", "\\351", "(foo)?bar$", "^(user[0-9]+) ([^ ]+)",
+            "^[a-z]+ ab",
+            "[[:alpha:]]+",
+            "(a|ab)(c|bcd)",
+            "x|xy",
+            "(x|xy)(z?)",
+            "(ab)?(abcd)?",
+            "\\<(a|ab)",
+            "(a|ab)\\B",
+            "\\y(a|ab)",
+            "\\<(中|中文)",
+            "(x|xy)\\y",
+            "x*",
+            "y|",
+            "[^ ]+",
+            "(.)(.)",
+            "^$",
+            "$",
+            "数据|data",
+            "(é+)(b)?",
+            "a{2,3}",
+            "\\351",
+            "(foo)?bar$",
+            "^(user[0-9]+) ([^ ]+)",
         ];
         let hays: [&[u8]; 14] = [
-            b"", b"abcd", b"xyz", b"ab c", b"abc", b"\xc3\xa9 ab", b"\xe8\xaf\xb4 \xe4\xb8\xad\xe6\x96\x87",
-            b"\xc3\xa9 xy \xc3\xa9", b"\xc3\xa9\xc3\xa9b aaa", b"foobar", b"user12 x\xe4\xb8\xad y", b"\xe9a",
-            b"\xe6\x95\xb0\xe6\x8d\xae data", b"aaaa",
+            b"",
+            b"abcd",
+            b"xyz",
+            b"ab c",
+            b"abc",
+            b"\xc3\xa9 ab",
+            b"\xe8\xaf\xb4 \xe4\xb8\xad\xe6\x96\x87",
+            b"\xc3\xa9 xy \xc3\xa9",
+            b"\xc3\xa9\xc3\xa9b aaa",
+            b"foobar",
+            b"user12 x\xe4\xb8\xad y",
+            b"\xe9a",
+            b"\xe6\x95\xb0\xe6\x8d\xae data",
+            b"aaaa",
         ];
         for ic in [false, true] {
             set_ignore_case(ic);
@@ -1569,8 +1810,13 @@ mod tests {
                 let mut light = LightMatcher::new(pat).unwrap();
                 for hay in hays {
                     let want: Vec<_> = find_iter(&re, hay).collect();
-                    let groups = |s: &dyn Search, spans: &[(usize, usize)]| -> Vec<Vec<Option<(usize, usize)>>> {
-                        spans.iter().map(|&(f, t)| captures_at(s, hay, f, t).unwrap().iter().collect()).collect()
+                    let groups = |s: &dyn Search,
+                                  spans: &[(usize, usize)]|
+                     -> Vec<Vec<Option<(usize, usize)>>> {
+                        spans
+                            .iter()
+                            .map(|&(f, t)| captures_at(s, hay, f, t).unwrap().iter().collect())
+                            .collect()
                     };
                     let want_groups = groups(&re, &want);
                     let ctx = format!("/{}/ on {:?} ic={}", pat, hay, ic);
@@ -1639,7 +1885,13 @@ mod tests {
     fn leftmost_first_is_longest_when_skipped() {
         let atoms = ["a", "b", "a?", "b?", "a*", "b+", "[ab]?", "(a)?", ".?"];
         let hays: Vec<String> = (0..4)
-            .flat_map(|n| (0..1 << n).map(move |m| (0..n).map(|i| if m >> i & 1 == 1 { 'b' } else { 'a' }).collect()))
+            .flat_map(|n| {
+                (0..1 << n).map(move |m| {
+                    (0..n)
+                        .map(|i| if m >> i & 1 == 1 { 'b' } else { 'a' })
+                        .collect()
+                })
+            })
             .collect();
         for x in atoms {
             for y in atoms {
@@ -1650,7 +1902,13 @@ mod tests {
                     let l = Longest::new(&pat).unwrap();
                     for hay in &hays {
                         if let Some(m) = re.find(hay.as_bytes()) {
-                            assert_eq!(longest_end(&l, hay.as_bytes(), m.start()), Some(m.end()), "/{}/ {:?}", pat, hay);
+                            assert_eq!(
+                                longest_end(&l, hay.as_bytes(), m.start()),
+                                Some(m.end()),
+                                "/{}/ {:?}",
+                                pat,
+                                hay
+                            );
                         }
                     }
                 }
@@ -1717,8 +1975,12 @@ mod tests {
 
     #[test]
     fn literal_search_matches_regex() {
-        let pats = ["a", "(?:a)", "ab", "^a", "a$", "^ab$", "", "^", "$", "^$", "é", " ", "(?: )"];
-        let hays = ["", "a", "ab", "aab", "abab", "ba", "xaby", "aaa", "é", "aéa", "a b", "  "];
+        let pats = [
+            "a", "(?:a)", "ab", "^a", "a$", "^ab$", "", "^", "$", "^$", "é", " ", "(?: )",
+        ];
+        let hays = [
+            "", "a", "ab", "aab", "abab", "ba", "xaby", "aaa", "é", "aéa", "a b", "  ",
+        ];
         for pat in pats {
             let (kind, lit) = as_literal(pat.as_bytes()).unwrap();
             let lit = LiteralSearch::new(kind, lit);
@@ -1727,7 +1989,14 @@ mod tests {
                 let hay = hay.as_bytes();
                 for start in 0..=hay.len() {
                     let want = re.find_at(hay, start).map(|m| (m.start(), m.end()));
-                    assert_eq!(lit.search_at(hay, start), want, "{:?} in {:?} from {}", pat, hay, start);
+                    assert_eq!(
+                        lit.search_at(hay, start),
+                        want,
+                        "{:?} in {:?} from {}",
+                        pat,
+                        hay,
+                        start
+                    );
                 }
                 let all: Vec<_> = find_iter(&lit, hay).collect();
                 let mut full = AwkRegex::new(re.clone());
@@ -1736,7 +2005,17 @@ mod tests {
                 assert_eq!(all, want, "{:?} in {:?}", pat, hay);
             }
         }
-        for pat in [".", "a.", "a|b", "(?:a)|(?:b)", "(?:.)", "(?i)a", "a*", "[a]", "\\a"] {
+        for pat in [
+            ".",
+            "a.",
+            "a|b",
+            "(?:a)|(?:b)",
+            "(?:.)",
+            "(?i)a",
+            "a*",
+            "[a]",
+            "\\a",
+        ] {
             assert!(compile(pat).unwrap().literal.is_none(), "{}", pat);
         }
         assert!(compile("(?:x)").unwrap().literal.is_some());

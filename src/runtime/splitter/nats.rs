@@ -11,8 +11,8 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use url::Url;
 
-use super::message::{catch_sigint, MessageSource, Received, INTERRUPTED, WAITING};
-use crate::runtime::network::{nats_block_on, nats_client, redact_url, NATS_RUNTIME};
+use super::message::{INTERRUPTED, MessageSource, Received, WAITING, catch_sigint};
+use crate::runtime::network::{NATS_RUNTIME, nats_block_on, nats_client, redact_url};
 
 /// Whether `path` is a NATS subject to read messages from.
 pub fn is_nats_url(path: &str) -> bool {
@@ -35,13 +35,16 @@ impl Drop for Subscription {
 
 impl Subscription {
     pub fn new(url: &str) -> std::result::Result<Subscription, String> {
-        let parsed = Url::parse(url).map_err(|e| format!("invalid URL {:?}: {}", redact_url(url), e))?;
+        let parsed =
+            Url::parse(url).map_err(|e| format!("invalid URL {:?}: {}", redact_url(url), e))?;
         if parsed.host().is_none() {
             return Err(format!("missing host in {:?}", redact_url(url)));
         }
         // `>` (and spaces) are percent-encoded in the path of a URL
         let path = parsed.path().strip_prefix('/').unwrap_or(parsed.path());
-        let subject = urlencoding::decode(path).map_err(|e| e.to_string())?.into_owned();
+        let subject = urlencoding::decode(path)
+            .map_err(|e| e.to_string())?
+            .into_owned();
         if subject.is_empty() {
             return Err(format!("missing subject in {:?}", redact_url(url)));
         }
@@ -49,7 +52,13 @@ impl Subscription {
         for (name, value) in parsed.query_pairs() {
             match &*name {
                 "queue" if !value.is_empty() => queue = Some(value.into_owned()),
-                _ => return Err(format!("unsupported query parameter {:?} in {:?}", name, redact_url(url))),
+                _ => {
+                    return Err(format!(
+                        "unsupported query parameter {:?} in {:?}",
+                        name,
+                        redact_url(url)
+                    ));
+                }
             }
         }
         let conn_url = parsed[..url::Position::BeforePath].replacen("nats+tls://", "tls://", 1);
@@ -59,13 +68,18 @@ impl Subscription {
                 Some(queue) => client.queue_subscribe(subject.clone(), queue).await,
                 None => client.subscribe(subject.clone()).await,
             }
-                .map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
+            .map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
             // the server knows about the subscription once the SUB is flushed
-            client.flush().await.map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
+            client
+                .flush()
+                .await
+                .map_err(|e| format!("failed to subscribe to {:?}: {}", subject, e))?;
             Ok::<_, String>(subscriber)
         })?;
         catch_sigint();
-        Ok(Subscription { subscriber: Some(subscriber) })
+        Ok(Subscription {
+            subscriber: Some(subscriber),
+        })
     }
 
     fn next_message(&mut self) -> Option<async_nats::Message> {
@@ -75,8 +89,9 @@ impl Subscription {
             }
             let subscriber = self.subscriber.as_mut()?;
             WAITING.store(true, Ordering::SeqCst);
-            let next = NATS_RUNTIME
-                .block_on(async { tokio::time::timeout(Duration::from_millis(100), subscriber.next()).await });
+            let next = NATS_RUNTIME.block_on(async {
+                tokio::time::timeout(Duration::from_millis(100), subscriber.next()).await
+            });
             WAITING.store(false, Ordering::SeqCst);
             match next {
                 Ok(Some(msg)) => return Some(msg),
@@ -110,15 +125,21 @@ impl MessageSource for Subscription {
                     .collect()
             })
             .unwrap_or_default();
-        Some(Received { subject: msg.subject.to_string(), headers, payload: msg.payload.to_vec() })
+        Some(Received {
+            subject: msg.subject.to_string(),
+            headers,
+            payload: msg.payload.to_vec(),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::splitter::message::{chunk_size, current_message, payload_reader, MessageReader};
     use crate::runtime::splitter::LineReader;
+    use crate::runtime::splitter::message::{
+        MessageReader, chunk_size, current_message, payload_reader,
+    };
     use crate::runtime::{RegexCache, Str};
 
     #[test]
@@ -130,25 +151,53 @@ mod tests {
 
     #[test]
     fn test_missing_subject() {
-        assert!(Subscription::new("nats://127.0.0.1:14222").err().unwrap().contains("missing subject"));
-        assert!(Subscription::new("nats://127.0.0.1:14222/").err().unwrap().contains("missing subject"));
+        assert!(
+            Subscription::new("nats://127.0.0.1:14222")
+                .err()
+                .unwrap()
+                .contains("missing subject")
+        );
+        assert!(
+            Subscription::new("nats://127.0.0.1:14222/")
+                .err()
+                .unwrap()
+                .contains("missing subject")
+        );
     }
 
     #[test]
     fn test_unsupported_query() {
-        let err = Subscription::new("nats://127.0.0.1:14222/logs?group=a").err().unwrap();
-        assert!(err.contains("unsupported query parameter \"group\""), "{}", err);
-        let err = Subscription::new("nats://127.0.0.1:14222/logs?queue=").err().unwrap();
-        assert!(err.contains("unsupported query parameter \"queue\""), "{}", err);
+        let err = Subscription::new("nats://127.0.0.1:14222/logs?group=a")
+            .err()
+            .unwrap();
+        assert!(
+            err.contains("unsupported query parameter \"group\""),
+            "{}",
+            err
+        );
+        let err = Subscription::new("nats://127.0.0.1:14222/logs?queue=")
+            .err()
+            .unwrap();
+        assert!(
+            err.contains("unsupported query parameter \"queue\""),
+            "{}",
+            err
+        );
     }
 
     #[test]
     fn test_read_messages() {
         use crate::runtime::splitter::regex::RegexSplitter;
         let subscription = Subscription::new("nats://127.0.0.1:14222/zawk.test.%3E").unwrap();
-        let mut reader = MessageReader::new(Box::new(subscription), false, false, |payload, subject| {
-            RegexSplitter::new(payload_reader(payload), chunk_size(1 << 20, 0), subject, false)
-        });
+        let mut reader =
+            MessageReader::new(Box::new(subscription), false, false, |payload, subject| {
+                RegexSplitter::new(
+                    payload_reader(payload),
+                    chunk_size(1 << 20, 0),
+                    subject,
+                    false,
+                )
+            });
         crate::runtime::network::publish("nats://127.0.0.1:14222/zawk.test.a", "a1\na2");
         crate::runtime::network::publish("nats://127.0.0.1:14222/zawk.test.empty", "");
         crate::runtime::network::publish("nats://127.0.0.1:14222/zawk.test.b.c", "b1");
@@ -156,8 +205,15 @@ mod tests {
         let mut records = Vec::new();
         for _ in 0..3 {
             let (changed, line) = reader.read_line(&Str::from("\n"), &mut rc).unwrap();
-            records.push((changed, reader.filename().to_string(), line.line.to_string()));
-            assert_eq!(current_message().unwrap().subject, reader.filename().to_string());
+            records.push((
+                changed,
+                reader.filename().to_string(),
+                line.line.to_string(),
+            ));
+            assert_eq!(
+                current_message().unwrap().subject,
+                reader.filename().to_string()
+            );
         }
         assert_eq!(
             records,

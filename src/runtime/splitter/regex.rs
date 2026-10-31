@@ -101,7 +101,10 @@ impl<R: Read> RegexSplitter<R> {
         match self.error.take() {
             // The error already names the file.
             Some(e) if e.is_fatal() => Err(e),
-            Some(e) => Err(CompileError::new(format!("cannot read `{}': {}", self.name, e))),
+            Some(e) => Err(CompileError::new(format!(
+                "cannot read `{}': {}",
+                self.name, e
+            ))),
             None => Ok(()),
         }
     }
@@ -324,10 +327,11 @@ mod tests {
     // need to benchmark batched splitting vs. regular splitting to get a feel for things.
     use super::*;
     use regex::bytes::Regex;
-    use std::sync::LazyLock;
     use std::io::Cursor;
+    use std::sync::LazyLock;
 
-    static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
+    static STR: LazyLock<String> =
+        LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
     static LINE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("\n").unwrap()));
     static SPACE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new(" ").unwrap()));
     static BS: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("b+").unwrap()));
@@ -375,7 +379,8 @@ mod tests {
         let split = |re: &str, input: &str| {
             let re = AwkRegex::new(Regex::new(re).unwrap());
             let c = Cursor::new(String::from(input));
-            let mut rdr = RegexSplitter::new(c, /*chunk_size=*/ 4, "", /*check_utf8=*/ false);
+            let mut rdr =
+                RegexSplitter::new(c, /*chunk_size=*/ 4, "", /*check_utf8=*/ false);
             let mut lines = Vec::new();
             while !rdr.reader.is_eof() {
                 lines.push(rdr.read_line_regex(&re).upcast().to_string());
@@ -402,14 +407,47 @@ mod tests {
             }
             lines
         };
-        let recs = |sep: &str, n: usize| (0..n).map(|i| format!("r{}{}", "q".repeat(i % 7), sep)).collect::<String>();
-        let want = |n: usize| (0..n).map(|i| format!("r{}", "q".repeat(i % 7))).collect::<Vec<_>>();
+        let recs = |sep: &str, n: usize| {
+            (0..n)
+                .map(|i| format!("r{}{}", "q".repeat(i % 7), sep))
+                .collect::<String>()
+        };
+        let want = |n: usize| {
+            (0..n)
+                .map(|i| format!("r{}", "q".repeat(i % 7)))
+                .collect::<Vec<_>>()
+        };
         for chunk_size in [4, 5, 7, 16, 33] {
-            assert_eq!(split("a|abc", &recs("abc", 40), chunk_size), want(40), "chunk {}", chunk_size);
-            assert_eq!(split("中+", &recs("中中", 40), chunk_size), want(40), "chunk {}", chunk_size);
-            assert_eq!(split("x\\>", &recs("x", 40), chunk_size).len(), 1, "chunk {}", chunk_size);
-            assert_eq!(split("abcd|c", "xxabcdyyabcdzz", chunk_size), vec!["xx", "yy", "zz"], "chunk {}", chunk_size);
-            assert_eq!(split("\n\n+", "a\n\n\n\nb\n\nc", chunk_size), vec!["a", "b", "c"], "chunk {}", chunk_size);
+            assert_eq!(
+                split("a|abc", &recs("abc", 40), chunk_size),
+                want(40),
+                "chunk {}",
+                chunk_size
+            );
+            assert_eq!(
+                split("中+", &recs("中中", 40), chunk_size),
+                want(40),
+                "chunk {}",
+                chunk_size
+            );
+            assert_eq!(
+                split("x\\>", &recs("x", 40), chunk_size).len(),
+                1,
+                "chunk {}",
+                chunk_size
+            );
+            assert_eq!(
+                split("abcd|c", "xxabcdyyabcdzz", chunk_size),
+                vec!["xx", "yy", "zz"],
+                "chunk {}",
+                chunk_size
+            );
+            assert_eq!(
+                split("\n\n+", "a\n\n\n\nb\n\nc", chunk_size),
+                vec!["a", "b", "c"],
+                "chunk {}",
+                chunk_size
+            );
         }
     }
 
@@ -549,7 +587,7 @@ mod tests {
 
     fn bytes(n: usize, line_pct: f64, space_pct: f64) -> Vec<u8> {
         let mut res = Vec::with_capacity(n);
-        use rand::distr::{Uniform, Distribution};
+        use rand::distr::{Distribution, Uniform};
         let between = Uniform::new_inclusive(0.0, 1.0).unwrap();
         let ascii = Uniform::new_inclusive(33u8, 126u8).unwrap();
         let mut rng = rand::rng();
@@ -573,9 +611,10 @@ mod bench {
     extern crate test;
     use regex::bytes::Regex;
     use std::sync::LazyLock;
-    use test::{black_box, Bencher};
+    use test::{Bencher, black_box};
 
-    static STR: LazyLock<String> = LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
+    static STR: LazyLock<String> =
+        LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
     static LINE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("\n").unwrap()));
     static SPACE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new(" ").unwrap()));
     static BS: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("b+").unwrap()));

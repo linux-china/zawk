@@ -12,13 +12,12 @@ use crate::{
     parsing::syntax,
     pushdown::FieldSet,
     runtime::{
-        self,
+        self, ChainedReader,
         splitter::{
             batch::{ByteReader, CSVReader, InputFormat},
             regex::RegexSplitter,
         },
         writers::testing::FakeFs,
-        ChainedReader,
     },
     types::{self, get_types},
 };
@@ -1508,7 +1507,7 @@ function do_something(v) {
 mod bench {
     extern crate test;
     use super::*;
-    use test::{black_box, Bencher};
+    use test::{Bencher, black_box};
 
     // TODO if we ever want to benchmark stdin, the program_only benchmarks here will not work,
     // because "reset" does not work on stdin today.

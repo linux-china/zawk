@@ -1,10 +1,12 @@
-use crate::runtime::{stdlib_warning, IntMap, Str};
+use crate::runtime::{IntMap, Str, stdlib_warning};
 use sxd_document::parser;
-use sxd_xpath::{evaluate_xpath, Value};
+use sxd_xpath::{Value, evaluate_xpath};
 
 pub(crate) fn html_value(html_text: &str, query: &str) -> String {
     if !html_text.is_empty() {
-        let Some(dom) = parse_html("html_value", html_text) else { return "".to_owned() };
+        let Some(dom) = parse_html("html_value", html_text) else {
+            return "".to_owned();
+        };
         let parser = dom.parser();
         match dom.query_selector(query) {
             Some(mut nodes) => {
@@ -21,7 +23,9 @@ pub(crate) fn html_value(html_text: &str, query: &str) -> String {
 pub(crate) fn html_query<'a>(html_text: &str, query: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     if !html_text.is_empty() {
-        let Some(dom) = parse_html("html_query", html_text) else { return map };
+        let Some(dom) = parse_html("html_query", html_text) else {
+            return map;
+        };
         let parser = dom.parser();
         match dom.query_selector(query) {
             Some(nodes) => {
@@ -59,7 +63,9 @@ fn eval_xpath(func: &str, xml_text: &str, xpath: &str) -> Option<Vec<String>> {
         Ok(Value::Boolean(bool)) => Some(vec![bool.to_string()]),
         Ok(Value::Number(num)) => Some(vec![num.to_string()]),
         Ok(Value::String(text)) => Some(vec![text]),
-        Ok(Value::Nodeset(node_set)) => Some(node_set.iter().map(|node| node.string_value()).collect()),
+        Ok(Value::Nodeset(node_set)) => {
+            Some(node_set.iter().map(|node| node.string_value()).collect())
+        }
         Err(e) => {
             stdlib_warning(func, format!("{:?}: {}", xpath, e));
             None
@@ -79,7 +85,11 @@ pub(crate) fn xml_value(xml_text: &str, xpath: &str) -> String {
 pub(crate) fn xml_query<'a>(xml_text: &str, xpath: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     if !xml_text.is_empty() {
-        for (i, value) in eval_xpath("xml_query", xml_text, xpath).unwrap_or_default().into_iter().enumerate() {
+        for (i, value) in eval_xpath("xml_query", xml_text, xpath)
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+        {
             map.insert((i + 1) as i64, Str::from(value));
         }
     }
@@ -114,7 +124,8 @@ mod tests {
 
     #[test]
     fn test_xml_query() {
-        let xml_text = "<books><book><title>title1</title></book><book><title>title2</title></book></books>";
+        let xml_text =
+            "<books><book><title>title1</title></book><book><title>title2</title></book></books>";
         println!("{:?}", xml_query(xml_text, "//title"));
     }
 }

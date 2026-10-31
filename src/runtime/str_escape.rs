@@ -115,7 +115,7 @@ pub fn escape_json(text: &str) -> String {
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
             c if (c as u32) < 0x20 => result.push_str(&format!("\\u{:04x}", c as u32)),
-            _ => result.push(c)
+            _ => result.push(c),
         }
     }
     return result;
@@ -138,7 +138,7 @@ pub fn escape_xml(text: &str) -> String {
             '&' => result.push_str("&amp;"),
             '"' => result.push_str("&quot;"),
             '\'' => result.push_str("&apos;"),
-            _ => result.push(c)
+            _ => result.push(c),
         }
     }
     return result;

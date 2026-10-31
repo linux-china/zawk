@@ -10,13 +10,13 @@ use hashbrown::{HashMap, HashSet};
 use petgraph::Direction;
 use smallvec::smallvec; // macro
 
+use crate::runtime::Int;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::Hash;
 use std::io;
 use std::mem;
-use crate::runtime::{Int};
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
@@ -171,8 +171,8 @@ pub(crate) enum PrimExpr<'a> {
 #[derive(Debug)]
 pub(crate) enum PrimStmt<'a> {
     AsgnIndex(
-        Ident, /* map */
-        PrimVal<'a>, /* index */
+        Ident,        /* map */
+        PrimVal<'a>,  /* index */
         PrimExpr<'a>, /* assign to */
     ),
     AsgnVar(Ident /* var */, PrimExpr<'a>),
@@ -364,7 +364,7 @@ impl<'a, I> ProgramContext<'a, I> {
     pub fn main_stage(&self) -> &Stage<usize> {
         &self.main_offset
     }
-    pub fn main_offsets(&self) -> impl Iterator<Item=usize> + '_ + use<'_, I> {
+    pub fn main_offsets(&self) -> impl Iterator<Item = usize> + '_ + use<'_, I> {
         self.main_offset.iter().cloned()
     }
 }
@@ -398,10 +398,10 @@ pub enum SepAssign<'a> {
 }
 
 impl<'a, I> ProgramContext<'a, I>
-    where
-        builtins::Variable: TryFrom<I>,
-        builtins::Function: TryFrom<I>,
-        I: IsSprintf
+where
+    builtins::Variable: TryFrom<I>,
+    builtins::Function: TryFrom<I>,
+    I: IsSprintf
         + FromStatic
         + Hash
         + Eq
@@ -459,7 +459,7 @@ impl<'a, I> ProgramContext<'a, I>
                     (builtins::Variable::FS, &mut field_sep),
                     (builtins::Variable::RS, &mut record_sep),
                 ]
-                    .iter_mut()
+                .iter_mut()
                 {
                     if let Some(v) = f.vars.get(&Some(*bi)) {
                         let num_assigns = v.len();
@@ -556,8 +556,13 @@ impl<'a, I> ProgramContext<'a, I>
             // POSIX and gawk builtins cannot be redefined; zawk's stdlib functions are shadowed by
             // the user-defined function (see `call`).
             // `assert` is desugared by the parser, so a user-defined one would never be called.
-            if builtins::is_awk_builtin(&fundec.name.to_string()) || fundec.name.to_string() == "assert" {
-                return syntax_err!("`{}' is a built-in function, it cannot be redefined", fundec.name);
+            if builtins::is_awk_builtin(&fundec.name.to_string())
+                || fundec.name.to_string() == "assert"
+            {
+                return syntax_err!(
+                    "`{}' is a built-in function, it cannot be redefined",
+                    fundec.name
+                );
             }
             // Special variables (NR, FS, ...) are always resolved to the global builtin, so using
             // one as a parameter would silently ignore the argument and clobber the global.
@@ -663,7 +668,7 @@ impl<'a, I> ProgramContext<'a, I>
                 locs: &p.locs,
                 typed_vars: Default::default(),
             }
-                .fill(fundec.body)?;
+            .fill(fundec.body)?;
         }
 
         // Bind the main function
@@ -806,7 +811,7 @@ pub(crate) struct Arg<I> {
 // Variable assignments, used to extract fast paths for splitting.
 // None indicates a call to `getline`.
 type VarAssigns<'a> =
-HashMap<Option<builtins::Variable>, Vec<(/* basic block */ usize, Option<&'a [u8]>)>>;
+    HashMap<Option<builtins::Variable>, Vec<(/* basic block */ usize, Option<&'a [u8]>)>>;
 
 #[derive(Debug)]
 pub(crate) struct Function<'a, I> {
@@ -879,10 +884,7 @@ pub(crate) fn is_unused(i: Ident) -> bool {
 
 /// Push the operands of a chain of concatenations `e` (or `e` itself, if it is not one) onto
 /// `out`, left to right.
-fn flatten_concat<'a, 'c, 'b, I>(
-    e: &'a Expr<'c, 'b, I>,
-    out: &mut SmallVec<&'a Expr<'c, 'b, I>>,
-) {
+fn flatten_concat<'a, 'c, 'b, I>(e: &'a Expr<'c, 'b, I>, out: &mut SmallVec<&'a Expr<'c, 'b, I>>) {
     match e {
         Expr::Binop(ast::Binop::Concat, l, r) => {
             flatten_concat(l, out);
@@ -904,17 +906,20 @@ fn record_ident(
 }
 
 impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debug> View<'a, 'b, I>
-    where
-        builtins::Variable: TryFrom<I>,
-        builtins::Function: TryFrom<I>,
-        I: IsSprintf + FromStatic,
+where
+    builtins::Variable: TryFrom<I>,
+    builtins::Function: TryFrom<I>,
+    I: IsSprintf + FromStatic,
 {
     fn fill<'c>(&mut self, stmt: &'c Stmt<'c, 'b, I>) -> Result<()> {
         if self.ctx.exit_to_end && self.f.name.is_main() {
             // Initialize the hidden exit variables, so they are always typed as integers.
             let (exiting, code) = self.exit_vars();
             for id in [exiting, code] {
-                self.add_stmt(self.f.entry, PrimStmt::AsgnVar(id, PrimExpr::Val(PrimVal::ILit(0))))?;
+                self.add_stmt(
+                    self.f.entry,
+                    PrimStmt::AsgnVar(id, PrimExpr::Val(PrimVal::ILit(0))),
+                )?;
             }
         }
         // Add a Cfg corresponding to `stmt`
@@ -1020,7 +1025,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 )?;
                 current_open
             }
-            &Expr(&ast::Expr::Call(Either::Right(builtins::Function::Exit), args)) if args.len() <= 1 => {
+            &Expr(&ast::Expr::Call(Either::Right(builtins::Function::Exit), args))
+                if args.len() <= 1 =>
+            {
                 self.do_exit(args.first().copied(), current_open)?
             }
             Expr(e) => {
@@ -1110,8 +1117,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 };
                 if whole_record {
                     let record = match self.ctx.esc {
-                        Escaper::CSV => PrimExpr::CallBuiltin(builtins::Function::RecordCSV, smallvec![]),
-                        Escaper::TSV => PrimExpr::CallBuiltin(builtins::Function::RecordTSV, smallvec![]),
+                        Escaper::CSV => {
+                            PrimExpr::CallBuiltin(builtins::Function::RecordCSV, smallvec![])
+                        }
+                        Escaper::TSV => {
+                            PrimExpr::CallBuiltin(builtins::Function::RecordTSV, smallvec![])
+                        }
                         Escaper::Identity => PrimExpr::CallBuiltin(
                             builtins::Function::Unop(Unop::Column),
                             smallvec![PrimVal::ILit(0)],
@@ -1146,8 +1157,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let mut arg_leaves = SmallVec::<(usize, bool)>::new();
                 for v in vs.iter() {
                     let start = leaves.len();
-                    if matches!(self.ctx.esc, Escaper::Identity) && self.uninit_flag(v).is_none()
-                    {
+                    if matches!(self.ctx.esc, Escaper::Identity) && self.uninit_flag(v).is_none() {
                         flatten_concat(v, &mut leaves);
                     } else {
                         leaves.push(*v);
@@ -1162,7 +1172,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         let (next, mut to_print) = if split {
                             let (next, v) =
                                 self.convert_str_operand(leaf, current_open, /*ofmt=*/ false)?;
-                            if matches!(leaf, ast::Expr::StrLit(_) | ast::Expr::Unop(Unop::Column, _)) {
+                            if matches!(
+                                leaf,
+                                ast::Expr::StrLit(_) | ast::Expr::Unop(Unop::Column, _)
+                            ) {
                                 (next, v)
                             } else {
                                 // Convert numbers with CONVFMT (`v ""` is `v` as a string).
@@ -1302,23 +1315,35 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.ctx.may_rename.push(counter);
                 self.add_stmt(
                     current_open,
-                    PrimStmt::AsgnVar(counter, PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![start_val])),
+                    PrimStmt::AsgnVar(
+                        counter,
+                        PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![start_val]),
+                    ),
                 )?;
                 let limit = self.fresh_local();
                 self.add_stmt(
                     current_open,
-                    PrimStmt::AsgnVar(limit, PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![end_val])),
+                    PrimStmt::AsgnVar(
+                        limit,
+                        PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![end_val]),
+                    ),
                 )?;
 
                 // The header checks the counter against the limit.
-                let cmp = if *inclusive { ast::Binop::LTE } else { ast::Binop::LT };
+                let cmp = if *inclusive {
+                    ast::Binop::LTE
+                } else {
+                    ast::Binop::LT
+                };
                 let cond = PrimExpr::CallBuiltin(
                     builtins::Function::Binop(cmp),
                     smallvec![PrimVal::Var(counter), PrimVal::Var(limit)],
                 );
                 let cond_block = self.f.cfg.add_node(Default::default());
                 let cond_v = self.to_val(cond, cond_block)?;
-                self.f.cfg.add_edge(current_open, cond_block, Transition::null());
+                self.f
+                    .cfg
+                    .add_edge(current_open, cond_block, Transition::null());
 
                 // `continue` jumps to the update, which increments the counter.
                 let footer = self.f.cfg.add_node(Default::default());
@@ -1343,14 +1368,23 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     smallvec![PrimVal::Var(counter), PrimVal::ILit(1)],
                 );
                 self.add_stmt(incr_block, PrimStmt::AsgnVar(counter, incr))?;
-                self.f.cfg.add_edge(incr_block, cond_block, Transition::null());
-                self.f.loop_ctx.push((cond_block, footer, Some(update), false));
+                self.f
+                    .cfg
+                    .add_edge(incr_block, cond_block, Transition::null());
+                self.f
+                    .loop_ctx
+                    .push((cond_block, footer, Some(update), false));
 
                 let body_start = self.f.cfg.add_node(Default::default());
-                self.add_stmt(body_start, PrimStmt::AsgnVar(v_id, PrimExpr::Val(PrimVal::Var(counter))))?;
+                self.add_stmt(
+                    body_start,
+                    PrimStmt::AsgnVar(v_id, PrimExpr::Val(PrimVal::Var(counter))),
+                )?;
                 self.mark_assigned(&ast::Expr::Var(v.clone()), None, body_start)?;
                 let body_end = self.convert_stmt(body, body_start)?;
-                self.f.cfg.add_edge(cond_block, body_start, Transition::new(cond_v));
+                self.f
+                    .cfg
+                    .add_edge(cond_block, body_start, Transition::new(cond_v));
                 self.f.cfg.add_edge(cond_block, footer, Transition::null());
                 self.f.cfg.add_edge(body_end, update, Transition::null());
 
@@ -1368,13 +1402,18 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.guarded_else(current_open, entry);
                 // `exit` called while running END exits immediately.
                 let (exiting, code) = self.exit_vars();
-                self.add_stmt(entry, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(0))))?;
+                self.add_stmt(
+                    entry,
+                    PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(0))),
+                )?;
                 self.f.in_end = true;
                 let end = self.convert_stmt(body, entry)?;
                 self.f.in_end = false;
                 // Exit with the non-zero code of an earlier `exit`, if any.
                 let exit_now = self.exit_now_node()?;
-                self.f.cfg.add_edge(end, exit_now, Transition::new(PrimVal::Var(code)));
+                self.f
+                    .cfg
+                    .add_edge(end, exit_now, Transition::new(PrimVal::Var(code)));
                 let next = self.f.cfg.add_node(Default::default());
                 self.f.cfg.add_edge(end, next, Transition::null());
                 self.seal(end);
@@ -1432,7 +1471,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             Index(arr, _)
             | Assign(Index(arr, _), _)
             | AssignOp(Index(arr, _), _, _)
-            | Inc { x: Index(arr, _), .. } => self.record_array_use(arr),
+            | Inc {
+                x: Index(arr, _), ..
+            } => self.record_array_use(arr),
             Assign(x @ Var(_), _) | AssignOp(x @ Var(_), _, _) | Inc { x: x @ Var(_), .. } => {
                 self.record_var_use(x, /*scalar=*/ true)
             }
@@ -1485,7 +1526,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// Reject using the builtin variable `var` as an array if `as_array`, or as a scalar.
     fn check_builtin_var<'c>(&self, var: &'c Expr<'c, 'b, I>, as_array: bool) -> Result<()> {
         let Expr::Var(name) = var else { return Ok(()) };
-        let Ok(b) = builtins::Variable::try_from(name.clone()) else { return Ok(()) };
+        let Ok(b) = builtins::Variable::try_from(name.clone()) else {
+            return Ok(());
+        };
         if b.is_array() == as_array {
             return Ok(());
         }
@@ -1576,7 +1619,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 PrimExpr::Val(PrimVal::Var(id))
             }
             Unop(ast::Unop::Column, Index(fi @ Var(id), ix))
-                if matches!(builtins::Variable::try_from(id.clone()), Ok(builtins::Variable::FI)) =>
+                if matches!(
+                    builtins::Variable::try_from(id.clone()),
+                    Ok(builtins::Variable::FI)
+                ) =>
             {
                 return self.column_by_name(fi, ix, current_open);
             }
@@ -1584,7 +1630,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let (next, v) = self.convert_column_index(e, current_open)?;
                 return Ok((
                     next,
-                    PrimExpr::CallBuiltin(builtins::Function::Unop(ast::Unop::Column), smallvec![v]),
+                    PrimExpr::CallBuiltin(
+                        builtins::Function::Unop(ast::Unop::Column),
+                        smallvec![v],
+                    ),
                 ));
             }
             Unop(op, e) => {
@@ -1731,7 +1780,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let join = self.f.cfg.add_node(Default::default());
                 self.add_stmt(t_node, PrimStmt::AsgnVar(res, PrimExpr::Val(lv.clone())))?;
                 self.add_stmt(fend, PrimStmt::AsgnVar(res, fe))?;
-                self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(cond)));
+                self.f
+                    .cfg
+                    .add_edge(next, t_node, Transition::new(PrimVal::Var(cond)));
                 self.f.cfg.add_edge(next, fstart, Transition::null());
                 self.f.cfg.add_edge(t_node, join, Transition::null());
                 self.f.cfg.add_edge(fend, join, Transition::null());
@@ -1740,10 +1791,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             Try(e, f) => {
                 // try_scope(1); res = e; ok = try_scope(0); if (!ok) res = try_else(res, f)
                 use builtins::Function::TryScope;
-                let scope = |begin| PrimExpr::CallBuiltin(TryScope, smallvec![PrimVal::ILit(begin)]);
+                let scope =
+                    |begin| PrimExpr::CallBuiltin(TryScope, smallvec![PrimVal::ILit(begin)]);
                 let ok = self.fresh_local();
                 self.add_stmt(current_open, PrimStmt::AsgnVar(ok, scope(1)))?;
-                let (next, ev) = self.convert_expr_inner(e, current_open, /*in_cond=*/ false)?;
+                let (next, ev) =
+                    self.convert_expr_inner(e, current_open, /*in_cond=*/ false)?;
                 let res = self.fresh_local();
                 self.ctx.may_rename.push(res);
                 self.add_stmt(next, PrimStmt::AsgnVar(res, ev))?;
@@ -1759,7 +1812,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 self.add_stmt(fend, PrimStmt::AsgnVar(res, fallback))?;
                 let t_node = self.f.cfg.add_node(Default::default());
                 let join = self.f.cfg.add_node(Default::default());
-                self.f.cfg.add_edge(next, t_node, Transition::new(PrimVal::Var(ok)));
+                self.f
+                    .cfg
+                    .add_edge(next, t_node, Transition::new(PrimVal::Var(ok)));
                 self.f.cfg.add_edge(next, fstart, Transition::null());
                 self.f.cfg.add_edge(t_node, join, Transition::null());
                 self.f.cfg.add_edge(fend, join, Transition::null());
@@ -1802,7 +1857,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // Adding a non-constant amount is done in floating point, as in
                     // `widen_sum_operand`.
                     let by = &Expr::Call(Either::Right(builtins::Function::ToFloat), &[to]);
-                    let by = if matches!(to, ILit(_) | FLit(_)) { to } else { by };
+                    let by = if matches!(to, ILit(_) | FLit(_)) {
+                        to
+                    } else {
+                        by
+                    };
                     return self.convert_expr(
                         &Expr::Call(Either::Right(builtins::Function::IncMap), &[arr, ix, by]),
                         current_open,
@@ -1835,8 +1894,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let (next, arr_v) = self.convert_val(arr, current_open)?;
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 // Check membership first: the lookup creates the element, as in awk.
-                let present =
-                    PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+                let present = PrimExpr::CallBuiltin(
+                    Function::Contains,
+                    smallvec![arr_v.clone(), ix_v.clone()],
+                );
                 let present = self.to_val(present, next)?;
                 let to_e = PrimExpr::Index(arr_v, ix_v);
                 let (next, res) = self.do_assign_hint(x, |_| to_e, None, next)?;
@@ -1858,7 +1919,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             AssignOp(x, op, to) => {
                 let (next, to_v) = self.convert_val(to, current_open)?;
                 // `x` is not a constant: `x += y` is done in floating point unless `y` is one.
-                let to_v = self.widen_sum_operand(*op, to_v, &PrimVal::Var(Ident::unused()), next)?;
+                let to_v =
+                    self.widen_sum_operand(*op, to_v, &PrimVal::Var(Ident::unused()), next)?;
                 let (next, res) = self.do_assign(
                     x,
                     |v| {
@@ -2265,7 +2327,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// a call is read after the call.
     fn uninit_flag<'c>(&self, e: &'c Expr<'c, 'b, I>) -> Option<I> {
         match e {
-            Expr::Var(x) if !self.f.args_map.contains_key(x) => self.ctx.uninit.vars.get(x).cloned(),
+            Expr::Var(x) if !self.f.args_map.contains_key(x) => {
+                self.ctx.uninit.vars.get(x).cloned()
+            }
             Expr::Call(Either::Left(f), _) => self.ctx.uninit.funcs.get(f).cloned(),
             _ => None,
         }
@@ -2323,7 +2387,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let val = match rhs.and_then(|rhs| self.uninit_flag(rhs)) {
             Some(src) => PrimVal::Var(self.get_identifier(&src)),
             // `local x` makes `x` uninitialized again.
-            None if matches!(rhs, Some(Expr::Var(v)) if ast::is_uninit_var(&v.to_string())) => PrimVal::ILit(0),
+            None if matches!(rhs, Some(Expr::Var(v)) if ast::is_uninit_var(&v.to_string())) => {
+                PrimVal::ILit(0)
+            }
             None => PrimVal::ILit(1),
         };
         let flag = self.get_identifier(&flag);
@@ -2378,10 +2444,18 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     Some(flag) => flag,
                     None => return Ok(None),
                 };
-                let otherwise: &'static [u8] =
-                    if self.scalar_referenced(x) { b"unassigned" } else { b"untyped" };
+                let otherwise: &'static [u8] = if self.scalar_referenced(x) {
+                    b"unassigned"
+                } else {
+                    b"untyped"
+                };
                 let (next, v) = self.convert_val(e, current_open)?;
-                (next, PrimVal::Var(self.get_identifier(&flag)), type_of(v), otherwise)
+                (
+                    next,
+                    PrimVal::Var(self.get_identifier(&flag)),
+                    type_of(v),
+                    otherwise,
+                )
             }
             Expr::Index(arr, ix) => {
                 let (next, arr_v) = self.convert_val(arr, current_open)?;
@@ -2397,10 +2471,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let (next, n_v) = self.convert_column_index(n, current_open)?;
                 let n_v = self.to_val(PrimExpr::CallBuiltin(ToInt, smallvec![n_v]), next)?;
                 let nf = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NF), next)?;
-                let in_range = PrimExpr::CallBuiltin(
-                    Bin(ast::Binop::LTE),
-                    smallvec![n_v.clone(), nf],
-                );
+                let in_range =
+                    PrimExpr::CallBuiltin(Bin(ast::Binop::LTE), smallvec![n_v.clone(), nf]);
                 let in_range = self.to_val(in_range, next)?;
                 // $0 is "unassigned" until a record is read or it is set; approximate that with
                 // `NR == 0 && $0 == ""`, i.e. require `n + NR + length($0) > 0` as well.
@@ -2416,8 +2488,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     ),
                     next,
                 )?;
-                let len =
-                    self.to_val(PrimExpr::CallBuiltin(Function::Length, smallvec![line]), next)?;
+                let len = self.to_val(
+                    PrimExpr::CallBuiltin(Function::Length, smallvec![line]),
+                    next,
+                )?;
                 let assigned = self.to_val(
                     PrimExpr::CallBuiltin(Bin(ast::Binop::Plus), smallvec![n_nr, len]),
                     next,
@@ -2453,8 +2527,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let next = self.f.cfg.add_node(Default::default());
         self.add_stmt(t_node, PrimStmt::AsgnVar(res, t))?;
         self.add_stmt(f_node, PrimStmt::AsgnVar(res, f))?;
-        self.f.cfg.add_edge(current_open, t_node, Transition::new(cond));
-        self.f.cfg.add_edge(current_open, f_node, Transition::null());
+        self.f
+            .cfg
+            .add_edge(current_open, t_node, Transition::new(cond));
+        self.f
+            .cfg
+            .add_edge(current_open, f_node, Transition::null());
         self.f.cfg.add_edge(t_node, next, Transition::null());
         self.f.cfg.add_edge(f_node, next, Transition::null());
         Ok((next, PrimVal::Var(res)))
@@ -2473,7 +2551,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         use builtins::Function;
         let (next, arr_v) = self.convert_val(fi, current_open)?;
         let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
-        let present = PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+        let present =
+            PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
         let present = self.to_val(present, next)?;
         let res = self.fresh_local();
         self.ctx.may_rename.push(res);
@@ -2483,9 +2562,15 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let col = self.to_val(PrimExpr::Index(arr_v, ix_v), found)?;
         self.add_stmt(
             found,
-            PrimStmt::AsgnVar(res, PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Column), smallvec![col])),
+            PrimStmt::AsgnVar(
+                res,
+                PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Column), smallvec![col]),
+            ),
         )?;
-        self.add_stmt(missing, PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))))?;
+        self.add_stmt(
+            missing,
+            PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))),
+        )?;
         self.f.cfg.add_edge(next, found, Transition::new(present));
         self.f.cfg.add_edge(next, missing, Transition::null());
         self.f.cfg.add_edge(found, join, Transition::null());
@@ -2512,8 +2597,13 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             PrimExpr::Val(v)
         };
         self.add_stmt(set, PrimStmt::AsgnVar(res, v))?;
-        self.add_stmt(empty, PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))))?;
-        self.f.cfg.add_edge(current_open, set, Transition::new(cond));
+        self.add_stmt(
+            empty,
+            PrimStmt::AsgnVar(res, PrimExpr::Val(PrimVal::StrLit(b""))),
+        )?;
+        self.f
+            .cfg
+            .add_edge(current_open, set, Transition::new(cond));
         self.f.cfg.add_edge(current_open, empty, Transition::null());
         self.f.cfg.add_edge(set, next, Transition::null());
         self.f.cfg.add_edge(empty, next, Transition::null());
@@ -2535,7 +2625,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         use builtins::Function;
         let (next, arr_v) = self.convert_val(arr, current_open)?;
         let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
-        let present = PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+        let present =
+            PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
         let present = self.to_val(present, next)?;
         let val = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
         let val_str = PrimExpr::CallBuiltin(
@@ -2550,10 +2641,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let empty = self.to_val(empty, next)?;
         let missing = PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Not), smallvec![present]);
         let missing = self.to_val(missing, next)?;
-        let either = PrimExpr::CallBuiltin(
-            Function::Binop(ast::Binop::Plus),
-            smallvec![missing, empty],
-        );
+        let either =
+            PrimExpr::CallBuiltin(Function::Binop(ast::Binop::Plus), smallvec![missing, empty]);
         let either = self.to_val(either, next)?;
         Ok((
             next,
@@ -2670,7 +2759,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// `exit [code]`. When the END block must run first (POSIX), record the exit code and jump
     /// to END, returning an unreachable node for any statements following `exit`. `exit` without
     /// a code exits with 0, or with the code of an earlier `exit` when called from END.
-    fn do_exit<'c>(&mut self, code: Option<&'c Expr<'c, 'b, I>>, current_open: NodeIx) -> Result<NodeIx> {
+    fn do_exit<'c>(
+        &mut self,
+        code: Option<&'c Expr<'c, 'b, I>>,
+        current_open: NodeIx,
+    ) -> Result<NodeIx> {
         let (current_open, code_v) = match code {
             Some(code) => {
                 let (next, v) = self.convert_val(code, current_open)?;
@@ -2696,7 +2789,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 current_open,
                 PrimStmt::AsgnVar(
                     Ident::unused(),
-                    PrimExpr::CallBuiltin(builtins::Function::SetExit, smallvec![code_v, PrimVal::ILit(keep)]),
+                    PrimExpr::CallBuiltin(
+                        builtins::Function::SetExit,
+                        smallvec![code_v, PrimVal::ILit(keep)],
+                    ),
                 ),
             )?;
             let target = self.return_node()?;
@@ -2715,14 +2811,20 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
         let (exiting, code) = self.exit_vars();
         let code_e = match code_v {
-            Some(v) => Some(PrimExpr::CallBuiltin(builtins::Function::ToInt, smallvec![v])),
+            Some(v) => Some(PrimExpr::CallBuiltin(
+                builtins::Function::ToInt,
+                smallvec![v],
+            )),
             None if self.f.in_end => None,
             None => Some(PrimExpr::Val(PrimVal::ILit(0))),
         };
         if let Some(code_e) = code_e {
             self.add_stmt(current_open, PrimStmt::AsgnVar(code, code_e))?;
         }
-        self.add_stmt(current_open, PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(1))))?;
+        self.add_stmt(
+            current_open,
+            PrimStmt::AsgnVar(exiting, PrimExpr::Val(PrimVal::ILit(1))),
+        )?;
         let target = self.exit_target()?;
         self.jump_to(current_open, target)
     }
@@ -2749,7 +2851,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             next = n;
             vs.push(self.snapshot_before(v, &leaves[i + 1..], next)?);
         }
-        Ok((next, PrimExpr::CallBuiltin(builtins::Function::Binop(ast::Binop::Concat), vs)))
+        Ok((
+            next,
+            PrimExpr::CallBuiltin(builtins::Function::Binop(ast::Binop::Concat), vs),
+        ))
     }
 
     fn widen_sum_operand(
@@ -2792,30 +2897,46 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// never-taken branch into that block keeps those statements well-formed.
     fn jump_to(&mut self, current_open: NodeIx, target: NodeIx) -> Result<NodeIx> {
         let never = self.fresh_local();
-        self.add_stmt(current_open, PrimStmt::AsgnVar(never, PrimExpr::Val(PrimVal::ILit(0))))?;
+        self.add_stmt(
+            current_open,
+            PrimStmt::AsgnVar(never, PrimExpr::Val(PrimVal::ILit(0))),
+        )?;
         let dead = self.f.cfg.add_node(Default::default());
-        self.f.cfg.add_edge(current_open, dead, Transition::new(PrimVal::Var(never)));
-        self.f.cfg.add_edge(current_open, target, Transition::null());
+        self.f
+            .cfg
+            .add_edge(current_open, dead, Transition::new(PrimVal::Var(never)));
+        self.f
+            .cfg
+            .add_edge(current_open, target, Transition::null());
         self.seal(current_open);
         Ok(dead)
     }
 
     /// Evaluate a call to a user defined function, then leave if it called `exit`.
-    fn after_udf_call(&mut self, call: PrimExpr<'b>, current_open: NodeIx) -> Result<(NodeIx, PrimExpr<'b>)> {
+    fn after_udf_call(
+        &mut self,
+        call: PrimExpr<'b>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimExpr<'b>)> {
         let res = self.fresh_local();
         self.add_stmt(current_open, PrimStmt::AsgnVar(res, call))?;
         let (exiting, target) = if self.ctx.par_exit {
             let exiting = self.fresh_local();
             self.add_stmt(
                 current_open,
-                PrimStmt::AsgnVar(exiting, PrimExpr::CallBuiltin(builtins::Function::Exiting, smallvec![])),
+                PrimStmt::AsgnVar(
+                    exiting,
+                    PrimExpr::CallBuiltin(builtins::Function::Exiting, smallvec![]),
+                ),
             )?;
             (exiting, self.return_node()?)
         } else {
             (self.exit_vars().0, self.exit_target()?)
         };
         let next = self.f.cfg.add_node(Default::default());
-        self.f.cfg.add_edge(current_open, target, Transition::new(PrimVal::Var(exiting)));
+        self.f
+            .cfg
+            .add_edge(current_open, target, Transition::new(PrimVal::Var(exiting)));
         self.f.cfg.add_edge(current_open, next, Transition::null());
         self.seal(current_open);
         Ok((next, PrimExpr::Val(PrimVal::Var(res))))
@@ -2866,7 +2987,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         let str_v = match self.uninit_flag(e) {
             Some(flag) if str_case => {
                 let flag = PrimVal::Var(self.get_identifier(&flag));
-                let (next, v) = self.str_or_empty(flag, num_v.clone(), /*ofmt=*/ false, current_open)?;
+                let (next, v) =
+                    self.str_or_empty(flag, num_v.clone(), /*ofmt=*/ false, current_open)?;
                 current_open = next;
                 v
             }
@@ -2891,16 +3013,21 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 Some(Expr::PatLit(s)) => (ast::Binop::IsMatch, &str_v, PrimVal::StrLit(s)),
                 Some(_) => return err!("invalid case label in switch body"),
             };
-            let cond = PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![v.clone(), lit]);
+            let cond =
+                PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![v.clone(), lit]);
             let cond = self.to_val(cond, current_open)?;
             let next = self.f.cfg.add_node(Default::default());
-            self.f.cfg.add_edge(current_open, *b_start, Transition::new(cond));
+            self.f
+                .cfg
+                .add_edge(current_open, *b_start, Transition::new(cond));
             self.f.cfg.add_edge(current_open, next, Transition::null());
             current_open = next;
         }
         // No label matched.
         let fallback = default.map_or(footer, |i| bodies[i].0);
-        self.f.cfg.add_edge(current_open, fallback, Transition::null());
+        self.f
+            .cfg
+            .add_edge(current_open, fallback, Transition::null());
 
         // Each body falls through to the next one.
         for (i, (_, b_end)) in bodies.iter().enumerate() {
@@ -2976,7 +3103,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let u = Some(self.f.cfg.add_node(Default::default()));
                 self.convert_stmt(update, u.unwrap())?;
                 u
-            },
+            }
             None => None,
         };
         self.f.loop_ctx.push((h, f, u, false));
@@ -2987,9 +3114,7 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         // The body is a standalone graph.
         let (b_start, b_end) = if let Some(u) = u {
             let (start, mid) = self.standalone_block(body)?;
-            self.f
-                .cfg
-                .add_edge(mid, u, Transition::null());
+            self.f.cfg.add_edge(mid, u, Transition::null());
             let end = u;
             (start, end)
         } else {
@@ -3039,8 +3164,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
     /// Whether evaluating `e` may assign a variable: an assignment, an increment, getline, sub or
     /// gsub, or a call of a user-defined function (which may assign globals).
     fn may_assign<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
-        use builtins::Function::{GSub, Sub};
         use Expr::*;
+        use builtins::Function::{GSub, Sub};
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Var(_) | Cond(_) => false,
             Unop(_, e) => self.may_assign(e),
@@ -3055,7 +3180,8 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 let assigns = match f {
                     Either::Left(name) if name.is_sprintf() => false,
                     Either::Left(name) => {
-                        self.func_table.contains_key(&FunctionName::Named(name.clone()))
+                        self.func_table
+                            .contains_key(&FunctionName::Named(name.clone()))
                             || !matches!(
                                 builtins::Function::try_from(name.clone()),
                                 Ok(bi) if !matches!(bi, Sub | GSub)
@@ -3094,10 +3220,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
             }
             // A user-defined function shadows a zawk stdlib function of the same name.
             Either::Left(fname)
-            if self.func_table.contains_key(&FunctionName::Named(fname.clone())) =>
-                {
-                    Either::Left(fname.clone())
-                }
+                if self
+                    .func_table
+                    .contains_key(&FunctionName::Named(fname.clone())) =>
+            {
+                Either::Left(fname.clone())
+            }
             Either::Left(fname) => {
                 if let Ok(bi) = builtins::Function::try_from(fname.clone()) {
                     // Okay, there's a builtin in here.
@@ -3115,11 +3243,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         // index(s, /re/): a regex literal as a value is `$0 ~ /re/`, so this would silently search
         // for "0" or "1". gawk rejects it, so do we.
         if let (
-            Either::Right(f @ (builtins::Function::SubstrIndex | builtins::Function::SubstrLastIndex)),
+            Either::Right(
+                f @ (builtins::Function::SubstrIndex | builtins::Function::SubstrLastIndex),
+            ),
             [_, Expr::PatLit(_)],
         ) = (&bi, args)
         {
-            let name = if *f == builtins::Function::SubstrIndex { "index" } else { "last_index" };
+            let name = if *f == builtins::Function::SubstrIndex {
+                "index"
+            } else {
+                "last_index"
+            };
             return err!(
                 "{}: regexp constant as second argument is not allowed; use `match(s, /re/)` to find the position of a regex match",
                 name
@@ -3140,11 +3274,10 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
         }
         // typeof(x) of a variable that is never read anywhere: "untyped", as in gawk.
         let bi = match (bi, args) {
-            (Either::Right(builtins::Function::TypeOfVariable), [Expr::Var(x) | Expr::Index(Expr::Var(x), _)])
-            if !self.scalar_referenced(x) =>
-                {
-                    Either::Right(builtins::Function::TypeOfUntyped)
-                }
+            (
+                Either::Right(builtins::Function::TypeOfVariable),
+                [Expr::Var(x) | Expr::Index(Expr::Var(x), _)],
+            ) if !self.scalar_referenced(x) => Either::Right(builtins::Function::TypeOfUntyped),
             (bi, _) => bi,
         };
         let mut prim_args = SmallVec::with_capacity(args.len());
@@ -3332,9 +3465,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         use builtins::Function::*;
                         let expected = if bi == ArrayQuantile { 2 } else { 1 };
                         if args_len != expected {
-                            return Err(builtins::arity_error(&call_name(fname), args_len, expected));
+                            return Err(builtins::arity_error(
+                                &call_name(fname),
+                                args_len,
+                                expected,
+                            ));
                         }
-                        let q = if bi == ArrayQuantile { prim_args.pop().unwrap() } else { PrimVal::FLit(0.5) };
+                        let q = if bi == ArrayQuantile {
+                            prim_args.pop().unwrap()
+                        } else {
+                            PrimVal::FLit(0.5)
+                        };
                         let kind = match bi {
                             ArrayVar => STAT_VAR,
                             ArrayStddev => STAT_STDDEV,
@@ -3371,7 +3512,11 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                         if args_len < 2 {
                             prim_args.push(PrimVal::ILit(STRFTIME_NOW));
                         }
-                        let flags = if args_len == 0 { STRFTIME_PROCINFO_FORMAT } else { 0 };
+                        let flags = if args_len == 0 {
+                            STRFTIME_PROCINFO_FORMAT
+                        } else {
+                            0
+                        };
                         prim_args.push(PrimVal::ILit(flags));
                     }
                     // The utc flag is true when it is nonzero or a nonempty string: `!!utc`, which
@@ -3419,13 +3564,17 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // jev_prob(record, instructions) => jev_prob(to_json(record), instructions)
                     // jev_choice(record, instructions, options) => jev_choice(to_json(record), instructions, to_json(options))
                     // Arity is checked later; with fewer than 2 args, skip the rewrite so the check reports it.
-                    builtins::Function::Jev | builtins::Function::JevProb | builtins::Function::JevChoice | builtins::Function::JevScore
+                    builtins::Function::Jev
+                    | builtins::Function::JevProb
+                    | builtins::Function::JevChoice
+                    | builtins::Function::JevScore
                         if args_len >= 2 =>
                     {
                         let json_args: &[usize] = if args_len >= 3 { &[0, 2] } else { &[0] };
                         for &i in json_args {
                             let arg = prim_args[i].clone();
-                            let json = PrimExpr::CallBuiltin(builtins::Function::ToJson, smallvec![arg]);
+                            let json =
+                                PrimExpr::CallBuiltin(builtins::Function::ToJson, smallvec![arg]);
                             prim_args[i] = self.to_val(json, open)?;
                         }
                         if bi == builtins::Function::Jev && args_len == 2 {
@@ -3486,9 +3635,12 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     // sqlite_query(db, sql) => sqlite_query(db, sql, params), with no parameters: a
                     // fresh local that `Function::feedback` types as a map; the same for the other
                     // database functions.
-                    builtins::Function::SqliteQuery | builtins::Function::SqliteExecute
-                    | builtins::Function::MysqlQuery | builtins::Function::MysqlExecute
-                    | builtins::Function::PgQuery | builtins::Function::PgExecute
+                    builtins::Function::SqliteQuery
+                    | builtins::Function::SqliteExecute
+                    | builtins::Function::MysqlQuery
+                    | builtins::Function::MysqlExecute
+                    | builtins::Function::PgQuery
+                    | builtins::Function::PgExecute
                         if args_len == 2 =>
                     {
                         prim_args.push(PrimVal::Var(self.fresh_local()));
@@ -3554,7 +3706,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                     let to_set_var = PrimExpr::Val(PrimVal::Var(to_set));
                     let set = self.f.cfg.add_node(Default::default());
                     let next = self.f.cfg.add_node(Default::default());
-                    self.f.cfg.add_edge(open, set, Transition::new(PrimVal::Var(res)));
+                    self.f
+                        .cfg
+                        .add_edge(open, set, Transition::new(PrimVal::Var(res)));
                     self.f.cfg.add_edge(open, next, Transition::null());
                     let (set_end, _) = match assignee {
                         Expr::Unop(_, _) => self.do_assign(assignee, |_| to_set_var, set),
@@ -3604,8 +3758,9 @@ impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debu
                 if let Some(arity) = bi.arity() {
                     if prim_args.len() != arity {
                         // Not counting the SUBSEP the parser adds to match(s, re, arr, ...).
-                        let implicit = matches!(bi, builtins::Function::Match | builtins::Function::MatchArr)
-                            && args.len() >= 4;
+                        let implicit =
+                            matches!(bi, builtins::Function::Match | builtins::Function::MatchArr)
+                                && args.len() >= 4;
                         let got = args.len() - implicit as usize;
                         return Err(builtins::arity_error(&call_name(fname), got, arity));
                     }

@@ -10,8 +10,8 @@ pub mod chunk;
 pub mod database;
 pub mod json;
 pub mod jsonl;
-pub mod markdown;
 pub mod kafka;
+pub mod markdown;
 pub mod message;
 pub mod nats;
 pub mod parquet;
@@ -371,7 +371,7 @@ impl<'a> Line<'a> for DefaultLine {
                         "attempt to assign field $(-{}); only {} fields",
                         field_from_end_offset(col),
                         self.fields.len()
-                    )
+                    );
                 }
             }
         } else {

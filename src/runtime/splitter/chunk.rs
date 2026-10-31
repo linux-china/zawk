@@ -3,16 +3,16 @@ use std::io::Read;
 use std::mem;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 
 use crate::common::{CancelSignal, CompileError, Result};
 use crate::runtime::{
     splitter::{
-        batch::{
-            get_find_indexes, BytesIndexKernel, InputFormat, Offsets, WhitespaceIndexKernel,
-            WhitespaceOffsets,
-        },
         Reader,
+        batch::{
+            BytesIndexKernel, InputFormat, Offsets, WhitespaceIndexKernel, WhitespaceOffsets,
+            get_find_indexes,
+        },
     },
     str_impl::UniqueBuf,
 };
@@ -405,8 +405,10 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                             // at the newline, so these are complete start/end pairs, the end of
                             // the last field included (e.g. the tab in "x\t\n").
                             let fields = &chunk.off.0.rel.fields;
-                            let keep =
-                                fields.iter().rposition(|&off| off <= nl_off).map_or(0, |i| i + 1);
+                            let keep = fields
+                                .iter()
+                                .rposition(|&off| off <= nl_off)
+                                .map_or(0, |i| i + 1);
                             (false, keep, buf_end)
                         } else {
                             (true, 0, 0)
@@ -620,7 +622,10 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             if now >= deadline {
                 return false;
             }
-            match self.start.recv_timeout((deadline - now).min(Duration::from_millis(20))) {
+            match self
+                .start
+                .recv_timeout((deadline - now).min(Duration::from_millis(20)))
+            {
                 Ok(()) => return true,
                 Err(RecvTimeoutError::Disconnected) => return false,
                 Err(RecvTimeoutError::Timeout) => {}
@@ -635,7 +640,12 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             Ok(false)
         } else {
             // All chunks are consumed. One consumer takes the error; the others just stop.
-            match self.error.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            match self
+                .error
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+            {
                 Some(e) => Err(e),
                 None => Ok(true),
             }
@@ -866,7 +876,10 @@ mod tests {
         }
 
         assert_eq!(got, (0..30).collect::<Vec<_>>());
-        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
+        assert_eq!(
+            names,
+            vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]
+        );
     }
 
     #[test]
@@ -894,7 +907,10 @@ mod tests {
         }
 
         assert_eq!(got, vec![0, 10, 20]);
-        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
+        assert_eq!(
+            names,
+            vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]
+        );
     }
 
     #[test]
@@ -925,7 +941,10 @@ mod tests {
         }
 
         assert_eq!(got, vec![0, 10, 20]);
-        assert_eq!(names, vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]);
+        assert_eq!(
+            names,
+            vec![Arc::<str>::from("file1"), "file2".into(), "file3".into()]
+        );
     }
 
     #[test]

@@ -296,7 +296,12 @@ pub(crate) fn nats_block_on<T, E: std::fmt::Display>(
 ) -> std::result::Result<T, String> {
     NATS_RUNTIME
         .block_on(async { tokio::time::timeout(NATS_TIMEOUT, request).await })
-        .map_err(|_| format!("timed out after {:?} waiting for the NATS server", NATS_TIMEOUT))?
+        .map_err(|_| {
+            format!(
+                "timed out after {:?} waiting for the NATS server",
+                NATS_TIMEOUT
+            )
+        })?
         .map_err(|e| e.to_string())
 }
 
@@ -322,7 +327,11 @@ static NATS_CONNECTIONS: LazyLock<ConnSlots<async_nats::Client>> = LazyLock::new
 
 /// The pooled NATS client of `conn_url` (`nats://[user:password@]host[:port]` or `tls://...`), connected if needed.
 pub(crate) fn nats_client(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
-    NATS_CONNECTIONS.with_conn(conn_url, || nats_connect(conn_url), |client| Ok(client.clone()))
+    NATS_CONNECTIONS.with_conn(
+        conn_url,
+        || nats_connect(conn_url),
+        |client| Ok(client.clone()),
+    )
 }
 
 fn nats_connect(conn_url: &str) -> std::result::Result<async_nats::Client, String> {
@@ -385,7 +394,10 @@ fn kafka_producer(
         ),
         (ProducerConfig::ACKS_CONFIG.to_string(), "all".to_string()),
         // `publish` waits for each ack: there is no batch to wait for
-        (ProducerConfig::LINGER_MS_CONFIG.to_string(), "0".to_string()),
+        (
+            ProducerConfig::LINGER_MS_CONFIG.to_string(),
+            "0".to_string(),
+        ),
         (
             ProducerConfig::MAX_BLOCK_MS_CONFIG.to_string(),
             KAFKA_MAX_BLOCK_MS.to_string(),
@@ -970,7 +982,11 @@ mod tests {
         try_publish(&url, "first").unwrap();
         // let the client see the closed connection: it now reconnects forever
         std::thread::sleep(Duration::from_millis(200));
-        assert!(try_publish(&url, "second").unwrap_err().contains("timed out"));
+        assert!(
+            try_publish(&url, "second")
+                .unwrap_err()
+                .contains("timed out")
+        );
     }
 
     /// A server that accepts connections and never answers, so that a client waits for its timeout.
@@ -1001,7 +1017,11 @@ mod tests {
         );
         let start = std::time::Instant::now();
         nats_client(&url).unwrap();
-        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     /// An MQTT 3.1.1 broker that accepts connections and takes any message.
@@ -1037,7 +1057,11 @@ mod tests {
         let url = format!("mqtt://127.0.0.1:{}/t?version=3.1.1", mqtt_broker());
         let start = std::time::Instant::now();
         try_publish(&url, "hello").unwrap();
-        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
         // the connection went back to the pool, and is used again
         try_publish(&url, "hello again").unwrap();
     }

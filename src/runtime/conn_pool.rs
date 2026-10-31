@@ -16,12 +16,18 @@ pub(crate) struct ConnPool<C> {
 
 impl<C> ConnPool<C> {
     pub(crate) fn new() -> Self {
-        ConnPool { idle: Mutex::new(HashMap::new()) }
+        ConnPool {
+            idle: Mutex::new(HashMap::new()),
+        }
     }
 
     /// An idle connection for `key`, removed from the pool until it is given back with `put`.
     pub(crate) fn take(&self, key: &str) -> Option<C> {
-        self.idle.lock().unwrap_or_else(PoisonError::into_inner).get_mut(key).and_then(Vec::pop)
+        self.idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(key)
+            .and_then(Vec::pop)
     }
 
     /// Give back a connection that is still usable.
@@ -46,7 +52,9 @@ pub(crate) struct ConnSlots<C> {
 
 impl<C> ConnSlots<C> {
     pub(crate) fn new() -> Self {
-        ConnSlots { slots: Mutex::new(HashMap::new()) }
+        ConnSlots {
+            slots: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Run `f` with the connection for `key`, opened by `open` on first use. Only the lock of
@@ -104,11 +112,15 @@ mod tests {
         let busy = {
             let slots = slots.clone();
             thread::spawn(move || {
-                slots.with_conn("slow", || Ok::<_, ()>(1), |_| {
-                    started_tx.send(()).unwrap();
-                    release_rx.recv().unwrap();
-                    Ok(())
-                })
+                slots.with_conn(
+                    "slow",
+                    || Ok::<_, ()>(1),
+                    |_| {
+                        started_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        Ok(())
+                    },
+                )
             })
         };
         started_rx.recv().unwrap();

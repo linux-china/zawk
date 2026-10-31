@@ -74,7 +74,7 @@ pub(crate) fn measure<T>(f: impl FnOnce() -> T) -> (T, Option<usize>) {
 /// counters started).
 #[cfg(target_family = "unix")]
 fn live_bytes() -> Option<u64> {
-    use tikv_jemalloc_ctl::thread::{allocatedp, deallocatedp, ThreadLocal};
+    use tikv_jemalloc_ctl::thread::{ThreadLocal, allocatedp, deallocatedp};
     thread_local! {
         static COUNTERS: Option<(ThreadLocal<u64>, ThreadLocal<u64>)> = counters();
     }

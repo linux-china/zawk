@@ -1,8 +1,8 @@
-use std::str;
+use crate::runtime::str_escape::escape_csv;
+use crate::runtime::{Float, Int, IntMap, Str, stdlib_warning};
 use csv::{ReaderBuilder, WriterBuilder};
 use prometheus_parse::{Labels, Value};
-use crate::runtime::{stdlib_warning, Float, Int, IntMap, Str};
-use crate::runtime::str_escape::escape_csv;
+use std::str;
 
 pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
@@ -50,7 +50,6 @@ pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
     vec_to_csv(&items)
 }
 
-
 pub fn vec_to_csv(csv: &[&str]) -> String {
     let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
     let mut record = csv::StringRecord::new();
@@ -59,7 +58,9 @@ pub fn vec_to_csv(csv: &[&str]) -> String {
     }
     wtr.write_record(&record).unwrap();
     let bytes = wtr.into_inner().unwrap();
-    str::from_utf8(&bytes[0..bytes.len() - 1]).unwrap().to_string()
+    str::from_utf8(&bytes[0..bytes.len() - 1])
+        .unwrap()
+        .to_string()
 }
 
 pub fn parse_prometheus(url_or_file: &str) -> String {
@@ -95,19 +96,28 @@ pub fn parse_prometheus_text(text: &str) -> String {
         };
         match metric.value {
             Value::Counter(counter) => {
-                items.push(format!("{}, {}, counter, {},", metric.metric, labels, counter));
+                items.push(format!(
+                    "{}, {}, counter, {},",
+                    metric.metric, labels, counter
+                ));
             }
             Value::Gauge(gauge) => {
                 items.push(format!("{}, {}, gauge, {},", metric.metric, labels, gauge));
             }
             Value::Histogram(histogram) => {
                 if let Some(histogram_count) = histogram.first() {
-                    items.push(format!("{}, {}, histogram, {}, {}", metric.metric, labels, histogram_count.less_than, histogram_count.count));
+                    items.push(format!(
+                        "{}, {}, histogram, {}, {}",
+                        metric.metric, labels, histogram_count.less_than, histogram_count.count
+                    ));
                 }
             }
             Value::Summary(summary) => {
                 if let Some(summary_count) = summary.first() {
-                    items.push(format!("{}, {}, summary, {}, {}", metric.metric, labels, summary_count.count, summary_count.quantile));
+                    items.push(format!(
+                        "{}, {}, summary, {}, {}",
+                        metric.metric, labels, summary_count.count, summary_count.quantile
+                    ));
                 }
             }
             Value::Untyped(num) => {

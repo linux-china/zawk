@@ -468,9 +468,8 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
 
         // Desugar patterns into if statements, with the usual desugaring for an empty action.
         let mut inner = arena.vec_with_capacity(10);
-        let per_file_header = self.parse_header
-            && self.header_per_file
-            && matches!(self.stage, Stage::Main(_));
+        let per_file_header =
+            self.parse_header && self.header_per_file && matches!(self.stage, Stage::Main(_));
         let has_operand_assigns = !self.operand_assigns.is_empty();
         if has_operand_assigns {
             inner.push(operand_assigns_new_file(
@@ -549,7 +548,8 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                     // it), so a line matching only the end pattern does not run the action:
                     //   if (Cond(0) == 0) { if (/\/*/) StartCond(0); }
                     //   if (Cond(0) == 1) { if (/*\//) LastCond(0); }
-                    let cond_is = |v| arena.alloc(Binop(EQ, arena.alloc(Cond(conds)), arena.alloc(ILit(v))));
+                    let cond_is =
+                        |v| arena.alloc(Binop(EQ, arena.alloc(Cond(conds)), arena.alloc(ILit(v))));
                     let start = arena.alloc(If(l, arena.alloc(StartCond(conds)), None));
                     inner.push(arena.alloc(If(cond_is(0), start, None)));
                     let last = arena.alloc(If(r, arena.alloc(LastCond(conds)), None));
@@ -581,7 +581,8 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 // FNR = -1: the header of the first file was read after BEGIN. After the loop, a
                 // trailing header (a file without records) must not leave FNR at -1 for END.
                 let fnr = arena.alloc(Var("FNR".into()));
-                let set_fnr = |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
+                let set_fnr =
+                    |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
                 arena.alloc(Block(arena.new_vec_from_slice(&[
                     set_fnr(-1),
                     main_portion,
@@ -605,7 +606,10 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
         }
         // for -H: the header is read after BEGIN, so that FS, ARGV etc. set by `-v` or BEGIN apply to
         // it, and only when input is read at all: a BEGIN-only program does not read its input.
-        if self.parse_header && !self.header_in_main && (main_loop.is_some() || !self.end.is_empty()) {
+        if self.parse_header
+            && !self.header_in_main
+            && (main_loop.is_some() || !self.end.is_empty())
+        {
             parse_header(arena, &mut begin);
         }
         if !self.end.is_empty() {

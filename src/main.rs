@@ -11,6 +11,7 @@ pub mod bytecode;
 pub mod cfg;
 #[macro_use]
 pub mod codegen;
+pub mod awk_util;
 pub mod compile;
 pub mod cross_stage;
 pub mod dataflow;
@@ -20,24 +21,23 @@ mod fmt;
 mod function_docs;
 #[cfg(test)]
 pub mod harness;
+mod include;
 mod inspect;
-mod llm;
-mod strnum_analysis;
 pub mod interp;
 pub mod lexer;
-mod include;
 mod lint;
+mod llm;
 #[allow(unused_parens)] // Warnings appear in generated code
 #[allow(clippy::all)]
 pub mod parsing;
 pub mod pushdown;
 pub mod runtime;
 mod string_constants;
+mod strnum_analysis;
 #[cfg(test)]
 mod test_string_constants;
 pub mod types;
 mod uninit;
-pub mod awk_util;
 
 use clap::{Arg, Command};
 
@@ -46,20 +46,20 @@ use cfg::Escaper;
 use codegen::intrinsics::IntoRuntime;
 use common::{CancelSignal, ExecutionStrategy, Stage};
 use runtime::{
+    CHUNK_SIZE, ChainedReader, LineReader,
     splitter::{
         batch::{ByteReader, CSVReader, InputFormat},
         database,
         json::JsonRecords,
         jsonl::JsonlReader,
-        markdown::MarkdownCsv,
         kafka,
+        markdown::MarkdownCsv,
         message::{self, MessageReader, MessageSource},
         nats,
         parquet::ParquetJson,
         regex::RegexSplitter,
         xlsx,
     },
-    ChainedReader, LineReader, CHUNK_SIZE,
 };
 use std::fs::{File, Permissions};
 use std::io::{self, BufReader, Write};
@@ -267,9 +267,9 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
             name if runtime::http::is_http_url(name) => runtime::http::open(name)
                 .and_then(|resp| runtime::decompress::maybe_decompress(name, resp))
                 .map(Source::Http),
-            name if database::is_db_url(name) => {
-                Ok(Source::File(Box::new(database::DbCsv::new(name.to_string()))))
-            }
+            name if database::is_db_url(name) => Ok(Source::File(Box::new(database::DbCsv::new(
+                name.to_string(),
+            )))),
             name => {
                 if std::fs::metadata(raw_path(name)).map_or(false, |m| m.is_dir()) {
                     eprintln_ignore!(
@@ -292,8 +292,13 @@ fn github_raw_url(gh_path: &str) -> Option<String> {
     let mut parts = gh_path.splitn(3, '/');
     let user = parts.next().filter(|s| !s.is_empty())?;
     let repo = parts.next().filter(|s| !s.is_empty())?;
-    let file = parts.next().map(|s| s.trim_start_matches('/')).filter(|s| !s.is_empty())?;
-    Some(format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"))
+    let file = parts
+        .next()
+        .map(|s| s.trim_start_matches('/'))
+        .filter(|s| !s.is_empty())?;
+    Some(format!(
+        "https://raw.githubusercontent.com/{user}/{repo}/HEAD/{file}"
+    ))
 }
 
 /// The program given as text (the program operand or `-e`): the first awk code block of
@@ -309,7 +314,8 @@ fn program_in_file(name: &str, text: String) -> Result<String, String> {
     if !awk_util::is_markdown_file(name) {
         return Ok(text);
     }
-    awk_util::extract_awk_block(&text).ok_or_else(|| "no ```awk code block in the Markdown file".to_string())
+    awk_util::extract_awk_block(&text)
+        .ok_or_else(|| "no ```awk code block in the Markdown file".to_string())
 }
 
 /// The text of the `-f` file `prog_file`, a local file, a URL or `gh:<user>/<repo>/<path>`, with
@@ -359,7 +365,7 @@ fn chained<LR: LineReader>(lr: LR) -> ChainedReader<LR> {
 }
 
 fn get_vars<'a, 'b>(
-    vars: impl Iterator<Item=&'b str>,
+    vars: impl Iterator<Item = &'b str>,
     a: &'a Arena,
     buf: &mut Vec<u8>,
 ) -> Vec<(&'a str, &'a ast::Expr<'a, 'a, &'a str>)> {
@@ -384,7 +390,10 @@ fn get_vars<'a, 'b>(
             );
         }
         if lexer::is_keyword(ident) {
-            fatal!("cannot assign to `{}` from the command line: it is a reserved word", ident);
+            fatal!(
+                "cannot assign to `{}` from the command line: it is a reserved word",
+                ident
+            );
         }
         let str_lit = lexer::parse_string_literal(split_buf[1], a, buf);
         let val = a.alloc(ast::Expr::StrLit(str_lit));
@@ -427,7 +436,11 @@ fn get_prelude<'a>(a: &'a Arena, raw: &RawPrelude) -> Prelude<'a> {
             .iter()
             .map(|group| get_vars(group.iter().map(|s| s.as_str()), a, &mut buf))
             .collect(),
-        operand_files: raw.operand_files.iter().map(|s| a.alloc_str(s.as_str())).collect(),
+        operand_files: raw
+            .operand_files
+            .iter()
+            .map(|s| a.alloc_str(s.as_str()))
+            .collect(),
     }
 }
 
@@ -537,10 +550,7 @@ fn run_cranelift_with_context<'a>(
 }
 
 /// Parse the command line. As in gawk, usage errors exit with code 1 (clap's default is 2).
-fn get_matches(
-    app: clap::Command,
-    args: impl IntoIterator<Item = String>,
-) -> clap::ArgMatches {
+fn get_matches(app: clap::Command, args: impl IntoIterator<Item = String>) -> clap::ArgMatches {
     match app.try_get_matches_from(args) {
         Ok(matches) => matches,
         // --help and --version are reported as "errors" that exit successfully.
@@ -555,8 +565,17 @@ fn get_matches(
 // Short options that take a value, either attached (`-F,`) or as the next argument.
 const SHORT_WITH_VALUE: &str = "efEOvFBoipj";
 const LONG_WITH_VALUE: &[&str] = &[
-    "--source", "--program-file", "--exec", "--include", "--opt-level", "--out-file", "--input-format",
-    "--field-separator", "--backend", "--output-format", "--chunk-size",
+    "--source",
+    "--program-file",
+    "--exec",
+    "--include",
+    "--opt-level",
+    "--out-file",
+    "--input-format",
+    "--field-separator",
+    "--backend",
+    "--output-format",
+    "--chunk-size",
 ];
 
 /// Whether `arg` is an option whose value is the next argument, such as `-v`, `-Hv` or `--exec`.
@@ -620,7 +639,11 @@ fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
 
 /// `zawk llm`: prints the prompt. Exits with 2 if an input file can't be read.
 fn run_llm(matches: &clap::ArgMatches) -> ! {
-    let mut files: Vec<String> = matches.get_many::<String>("args").unwrap().cloned().collect();
+    let mut files: Vec<String> = matches
+        .get_many::<String>("args")
+        .unwrap()
+        .cloned()
+        .collect();
     let question = files.pop().unwrap();
     if question.trim().is_empty() {
         eprintln!("zawk: the question (the last argument) is empty");
@@ -630,7 +653,10 @@ fn run_llm(matches: &clap::ArgMatches) -> ! {
     let field_sep = matches.get_one::<String>("field-separator").map(|fs| {
         let a = Arena::default();
         let mut buf = Vec::new();
-        (fs.clone(), String::from_utf8_lossy(lexer::parse_string_literal(fs, &a, &mut buf)).into_owned())
+        (
+            fs.clone(),
+            String::from_utf8_lossy(lexer::parse_string_literal(fs, &a, &mut buf)).into_owned(),
+        )
     });
     let opts = llm::Options {
         input_format: matches.get_one::<String>("input-format").cloned(),
@@ -700,7 +726,11 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
     let mut failed = false;
     let mut unformatted = false;
     for (name, text) in &programs {
-        let label = name.as_deref().unwrap_or(if matches.contains_id("source") { "-e" } else { "<stdin>" });
+        let label = name.as_deref().unwrap_or(if matches.contains_id("source") {
+            "-e"
+        } else {
+            "<stdin>"
+        });
         let out = match fmt::format(text, &opts) {
             Ok(out) => out,
             Err(e) => {
@@ -717,7 +747,11 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
         } else if let (true, Some(file)) = (write, name) {
             if out != *text {
                 if let Err(e) = std::fs::write(file, &out) {
-                    eprintln!("zawk: can't write {}: {}", file, common::io_error_reason(&e));
+                    eprintln!(
+                        "zawk: can't write {}: {}",
+                        file,
+                        common::io_error_reason(&e)
+                    );
                     failed = true;
                 }
             }
@@ -751,15 +785,29 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     // The sources, with whether each is a local file (`-f`), a program text (`-e`) or an
     // `--include` file (whose name is the text).
     let mut sources: Vec<(usize, lint::Source, SourceKind)> = Vec::new();
-    if let (Some(idx), Some(vals)) = (matches.indices_of("program-file"), matches.get_many::<String>("program-file")) {
+    if let (Some(idx), Some(vals)) = (
+        matches.indices_of("program-file"),
+        matches.get_many::<String>("program-file"),
+    ) {
         for (i, file) in idx.zip(vals) {
             let (text, kind) = if file == "-" {
                 (io::read_to_string(io::stdin()), SourceKind::Inline)
             } else {
                 (std::fs::read_to_string(file), SourceKind::File)
             };
-            match text.map_err(|e| common::io_error_reason(&e)).and_then(|text| program_in_file(file, text)) {
-                Ok(text) => sources.push((i, lint::Source { name: Some(file.clone()), text, line: 0 }, kind)),
+            match text
+                .map_err(|e| common::io_error_reason(&e))
+                .and_then(|text| program_in_file(file, text))
+            {
+                Ok(text) => sources.push((
+                    i,
+                    lint::Source {
+                        name: Some(file.clone()),
+                        text,
+                        line: 0,
+                    },
+                    kind,
+                )),
                 Err(e) => {
                     println!("{}", lint::file_error(file, &e));
                     std::process::exit(1)
@@ -767,24 +815,53 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
             }
         }
     }
-    if let (Some(idx), Some(vals)) = (matches.indices_of("source"), matches.get_many::<String>("source")) {
+    if let (Some(idx), Some(vals)) = (
+        matches.indices_of("source"),
+        matches.get_many::<String>("source"),
+    ) {
         sources.extend(idx.zip(vals).map(|(i, text)| {
             let text = inline_program(text).unwrap_or_else(|| text.clone());
-            (i, lint::Source { name: None, text, line: 0 }, SourceKind::Inline)
+            (
+                i,
+                lint::Source {
+                    name: None,
+                    text,
+                    line: 0,
+                },
+                SourceKind::Inline,
+            )
         }));
     }
-    if let (Some(idx), Some(vals)) = (matches.indices_of("include"), matches.get_many::<String>("include")) {
+    if let (Some(idx), Some(vals)) = (
+        matches.indices_of("include"),
+        matches.get_many::<String>("include"),
+    ) {
         sources.extend(idx.zip(vals).map(|(i, file)| {
-            (i, lint::Source { name: None, text: file.clone(), line: 0 }, SourceKind::Include)
+            (
+                i,
+                lint::Source {
+                    name: None,
+                    text: file.clone(),
+                    line: 0,
+                },
+                SourceKind::Include,
+            )
         }));
     }
     sources.sort_by_key(|(i, _, _)| *i);
-    let mut sources: Vec<(lint::Source, SourceKind)> = sources.into_iter().map(|(_, s, k)| (s, k)).collect();
-    let program_sources = sources.iter().filter(|(_, k)| *k != SourceKind::Include).count();
+    let mut sources: Vec<(lint::Source, SourceKind)> =
+        sources.into_iter().map(|(_, s, k)| (s, k)).collect();
+    let program_sources = sources
+        .iter()
+        .filter(|(_, k)| *k != SourceKind::Include)
+        .count();
     // As for a run, `-e` sources are named `-e#N` when the program has more than one source.
     if program_sources > 1 {
         let mut inline_count = 0;
-        for (src, _) in sources.iter_mut().filter(|(s, k)| s.name.is_none() && *k != SourceKind::Include) {
+        for (src, _) in sources
+            .iter_mut()
+            .filter(|(s, k)| s.name.is_none() && *k != SourceKind::Include)
+        {
             inline_count += 1;
             src.name = Some(parsing::inline_source_name(inline_count));
         }
@@ -804,8 +881,18 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     {
         // `zawk lint prog.awk data.csv`: a program operand naming an `.awk` (or Markdown) file is
         // read as -f.
-        match std::fs::read_to_string(file).map_err(|e| common::io_error_reason(&e)).and_then(|text| program_in_file(file, text)) {
-            Ok(text) => sources.push((lint::Source { name: Some(file.clone()), text, line: 0 }, SourceKind::File)),
+        match std::fs::read_to_string(file)
+            .map_err(|e| common::io_error_reason(&e))
+            .and_then(|text| program_in_file(file, text))
+        {
+            Ok(text) => sources.push((
+                lint::Source {
+                    name: Some(file.clone()),
+                    text,
+                    line: 0,
+                },
+                SourceKind::File,
+            )),
             Err(e) => {
                 println!("{}", lint::file_error(file, &e));
                 std::process::exit(1)
@@ -826,7 +913,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
                 Err(e) => fatal!("can't read program from stdin: {}", e),
             },
         };
-        sources.push((lint::Source { name: None, text, line: 0 }, SourceKind::Inline));
+        sources.push((
+            lint::Source {
+                name: None,
+                text,
+                line: 0,
+            },
+            SourceKind::Inline,
+        ));
     }
     // Splice in the included files, as for a run.
     let mut includer = include::Includer::default();
@@ -849,13 +943,32 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     let format = format.as_deref();
     let mut opts = lint_options(matches, format);
     // The data-aware checks read the first records of the first input file.
-    if let Some(file) = input_files.first().filter(|_| !matches!(format, Some("markdown" | "md"))) {
+    if let Some(file) = input_files
+        .first()
+        .filter(|_| !matches!(format, Some("markdown" | "md")))
+    {
         let rows = *matches.get_one::<usize>("sample-rows").unwrap();
-        match inspect::sample(file, format.and_then(inspect::Format::parse), opts.header, rows) {
+        match inspect::sample(
+            file,
+            format.and_then(inspect::Format::parse),
+            opts.header,
+            rows,
+        ) {
             // a database password is not shown in the diagnostics
-            Ok(sample) => opts.data = Some(lint::Data { file: runtime::network::redact_url(file).into_owned(), sample }),
+            Ok(sample) => {
+                opts.data = Some(lint::Data {
+                    file: runtime::network::redact_url(file).into_owned(),
+                    sample,
+                })
+            }
             Err(e) => {
-                println!("{}", lint::input_error(&runtime::network::redact_url(file), &common::io_error_reason(&e)));
+                println!(
+                    "{}",
+                    lint::input_error(
+                        &runtime::network::redact_url(file),
+                        &common::io_error_reason(&e)
+                    )
+                );
                 std::process::exit(1)
             }
         }
@@ -885,7 +998,11 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if let Some(format) = matches.get_one::<String>("input-format") {
         return Some(format.clone());
     }
-    let field_sep = matches.try_get_one::<String>("field-separator").ok().flatten().is_some()
+    let field_sep = matches
+        .try_get_one::<String>("field-separator")
+        .ok()
+        .flatten()
+        .is_some()
         || matches
             .try_get_many::<String>("var")
             .ok()
@@ -893,7 +1010,10 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
             .into_iter()
             .flatten()
             .any(|v| v.trim_start().starts_with("FS="));
-    let files: Vec<&String> = input_files.iter().filter(|f| !is_operand_assignment(f)).collect();
+    let files: Vec<&String> = input_files
+        .iter()
+        .filter(|f| !is_operand_assignment(f))
+        .collect();
     // Database tables and queries are read as CSV with a header line.
     if files.iter().any(|f| database::is_db_url(f)) {
         return Some(String::from("database"));
@@ -904,10 +1024,12 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
         let all = files.iter().all(|f| xlsx::is_xlsx_file(f));
         return Some(String::from(if all { "xlsx" } else { "csv" }));
     }
-    (!field_sep && !files.is_empty() && files.iter().all(|f| {
-        runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
-    }))
-        .then(|| String::from("json"))
+    (!field_sep
+        && !files.is_empty()
+        && files.iter().all(|f| {
+            runtime::splitter::json::is_json_file(f) && runtime::splitter::json::looks_like_json(f)
+        }))
+    .then(|| String::from("json"))
 }
 
 /// The lint options given by the `-p`, `-v` and `-H` arguments of `zawk lint` or
@@ -915,7 +1037,10 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
 fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
     // As for a run, JSON, JSON Lines, Parquet, Markdown and database input imply -H.
     let header = matches.get_flag("parse-header")
-        || matches!(format, Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md" | "database"));
+        || matches!(
+            format,
+            Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md" | "database")
+        );
     let vars = || matches.get_many::<String>("var").into_iter().flatten();
     // `-F`, or `-v FS=...`, with escapes processed as for a run.
     let field_sep = matches
@@ -933,13 +1058,21 @@ fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Optio
         header,
         field_sep,
         data: None,
-        parallel: match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
+        parallel: match matches
+            .get_one::<String>("parallel-strategy")
+            .map(|s| s.as_str())
+        {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
             Some("f") | Some("file") => Some(lint::Parallel::File),
             _ => None,
         },
         assigned: vars()
-            .map(|v| v.split_once('=').map_or(v.as_str(), |(n, _)| n).trim().to_string())
+            .map(|v| {
+                v.split_once('=')
+                    .map_or(v.as_str(), |(n, _)| n)
+                    .trim()
+                    .to_string()
+            })
             .collect(),
     }
 }
@@ -989,22 +1122,27 @@ fn real_main() {
     dotenvy::dotenv().ok();
     runtime::logging::init();
     runtime::tls::install_default_provider();
-    let dump_cmd = Command::new("dump").about("Dump text to CSV")
-        .arg(Arg::new("prometheus")
-            .long("prometheus")
-            .num_args(0)
-            .help("Parse Prometheus metrics to CSV")
+    let dump_cmd = Command::new("dump")
+        .about("Dump text to CSV")
+        .arg(
+            Arg::new("prometheus")
+                .long("prometheus")
+                .num_args(0)
+                .help("Parse Prometheus metrics to CSV"),
         )
-        .arg(Arg::new("input-file")
-            .index(1)
-            .required(true)
-            .help("Text file or URL to parse")
+        .arg(
+            Arg::new("input-file")
+                .index(1)
+                .required(true)
+                .help("Text file or URL to parse"),
         );
-    let init_cmd = Command::new("init").about("Create a new AWK file with help info")
-        .arg(Arg::new("awk-file")
-            .index(1)
-            .required(true)
-            .help("AWK file to create")
+    let init_cmd = Command::new("init")
+        .about("Create a new AWK file with help info")
+        .arg(
+            Arg::new("awk-file")
+                .index(1)
+                .required(true)
+                .help("AWK file to create"),
         );
     let functions_cmd = Command::new("functions").about("List builtin functions with signatures, descriptions and examples")
         .arg(Arg::new("json")
@@ -1325,11 +1463,20 @@ fn real_main() {
             .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
     // display help/version information from awk file
     let mut args = command_line_args();
-    if args.len() > 2 { // sub help from
+    if args.len() > 2 {
+        // sub help from
         let last_pair = args.last().unwrap();
-        if last_pair == "--help" || last_pair == "-h" || last_pair == "--version" || last_pair == "-v" {
-            let exec_supplied = args.iter().any(|item| item == "-E" || item.starts_with("--exec"));
-            let file_supplied = args.iter().any(|item| item == "-f" || item.starts_with("--program-file"));
+        if last_pair == "--help"
+            || last_pair == "-h"
+            || last_pair == "--version"
+            || last_pair == "-v"
+        {
+            let exec_supplied = args
+                .iter()
+                .any(|item| item == "-E" || item.starts_with("--exec"));
+            let file_supplied = args
+                .iter()
+                .any(|item| item == "-f" || item.starts_with("--program-file"));
             // The arguments after `-E file` are the script's own, but with `-f` a trailing `-v` is the
             // assignment option missing its value, and a flag after an option taking a value is that value.
             let sub_flag = exec_supplied
@@ -1338,7 +1485,8 @@ fn real_main() {
                 let last_pair = last_pair.clone();
                 args.remove(args.len() - 1); // remove --help and --version
                 let matches = get_matches(app, args);
-                let awk_file = matches.get_one::<String>("exec")
+                let awk_file = matches
+                    .get_one::<String>("exec")
                     .or_else(|| matches.get_one::<String>("program-file"))
                     .unwrap();
                 // Remote programs (URL, `gh:`) are fetched like for a run; a read error is fatal.
@@ -1383,8 +1531,13 @@ fn real_main() {
     // inspect sub command
     if let Some(matches) = matches.subcommand_matches("inspect") {
         let opts = inspect::Options {
-            format: matches.get_one::<String>("input-format").and_then(|f| inspect::Format::parse(f)),
-            style: match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
+            format: matches
+                .get_one::<String>("input-format")
+                .and_then(|f| inspect::Format::parse(f)),
+            style: match matches
+                .get_one::<String>("output-format")
+                .map(|s| s.as_str())
+            {
                 Some("markdown") | Some("md") => inspect::Style::Markdown,
                 _ => inspect::Style::Table,
             },
@@ -1427,14 +1580,21 @@ fn real_main() {
         println!("{} created", awk_file);
         return;
     }
-    let ifmt = match matches.get_one::<String>("input-format").map(|s| s.as_str()) {
+    let ifmt = match matches
+        .get_one::<String>("input-format")
+        .map(|s| s.as_str())
+    {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown") | Some("md") | Some("xlsx") => None,
+        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown")
+        | Some("md") | Some("xlsx") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
-    let mut exec_strategy = match matches.get_one::<String>("parallel-strategy").map(|s| s.as_str()) {
+    let mut exec_strategy = match matches
+        .get_one::<String>("parallel-strategy")
+        .map(|s| s.as_str())
+    {
         Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord,
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
         None => ExecutionStrategy::Serial,
@@ -1492,7 +1652,10 @@ fn real_main() {
     // their file they start; also the sources for `--lint`.
     let mut includer = include::Includer::default();
     // `--include` files are libraries: alone, they do not replace the program operand.
-    let program_sources = sources.iter().filter(|(_, kind, _)| *kind != SourceKind::Include).count();
+    let program_sources = sources
+        .iter()
+        .filter(|(_, kind, _)| *kind != SourceKind::Include)
+        .count();
     if program_sources > 0 {
         // We specified the program with options, so the "program" will be
         // interpreted as another input file.
@@ -1549,12 +1712,20 @@ fn real_main() {
     let mut source_map = parsing::SourceMap::default();
     let mut program_code = String::new();
     for piece in &includer.pieces {
-        source_map.push(piece.name.clone(), program_code.matches('\n').count(), piece.line);
+        source_map.push(
+            piece.name.clone(),
+            program_code.matches('\n').count(),
+            piece.line,
+        );
         program_code.push_str(&piece.text);
         program_code.push('\n');
     }
     if matches.get_flag("lint") || matches.get_flag("deny-warnings") {
-        lint_before_run(&includer.pieces, &matches, input_format(&matches, &input_files).as_deref());
+        lint_before_run(
+            &includer.pieces,
+            &matches,
+            input_format(&matches, &input_files).as_deref(),
+        );
     }
     parsing::set_program(&program_code, source_map);
     // Build ARGV from the final input files: with `-f`, the first operand is parsed by clap
@@ -1569,7 +1740,10 @@ fn real_main() {
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
     }
-    let (escaper, output_sep, output_record_sep) = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
+    let (escaper, output_sep, output_record_sep) = match matches
+        .get_one::<String>("output-format")
+        .map(|s| s.as_str())
+    {
         Some("csv") => (Escaper::CSV, Some(","), Some("\n")),
         Some("tsv") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and converted to JSON objects by `JsonlFactory`.
@@ -1599,24 +1773,52 @@ fn real_main() {
     let database = matches!(input_format.as_deref(), Some("database"));
     // A sheet of an Excel workbook is read as CSV; with -H, its first row is the header.
     let xlsx = matches!(input_format.as_deref(), Some("xlsx"));
-    if input_files.iter().any(|f| database::is_db_url(f)) && !(database || ifmt == Some(InputFormat::CSV)) {
-        fail!("database input is read as CSV: -i {} is not supported", input_format.as_deref().unwrap_or_default());
+    if input_files.iter().any(|f| database::is_db_url(f))
+        && !(database || ifmt == Some(InputFormat::CSV))
+    {
+        fail!(
+            "database input is read as CSV: -i {} is not supported",
+            input_format.as_deref().unwrap_or_default()
+        );
     }
     // Workbooks mixed with other files are read as CSV (see `input_format`).
-    let ifmt = if database || (ifmt.is_none() && input_format.as_deref() == Some("csv")) { Some(InputFormat::CSV) } else { ifmt };
+    let ifmt = if database || (ifmt.is_none() && input_format.as_deref() == Some("csv")) {
+        Some(InputFormat::CSV)
+    } else {
+        ifmt
+    };
     // JSON documents, JSON Lines records, Parquet files, Markdown tables and database tables are
     // self-describing, so FI is always populated from the first record (the column names for
     // Parquet, Markdown and database tables).
-    let parse_header = matches.get_flag("parse-header") || json || jsonl || parquet || markdown || database;
+    let parse_header =
+        matches.get_flag("parse-header") || json || jsonl || parquet || markdown || database;
     // A NATS subject or a Kafka topic: each message is an input file of its own, read until Ctrl+C.
-    let message_url = input_files.iter().find(|f| nats::is_nats_url(f) || kafka::is_kafka_url(f)).cloned();
+    let message_url = input_files
+        .iter()
+        .find(|f| nats::is_nats_url(f) || kafka::is_kafka_url(f))
+        .cloned();
     if let Some(url) = &message_url {
         if input_files.len() > 1 {
-            fail!("a {} must be the only input", if kafka::is_kafka_url(url) { "kafka:// topic" } else { "nats:// subject" });
+            fail!(
+                "a {} must be the only input",
+                if kafka::is_kafka_url(url) {
+                    "kafka:// topic"
+                } else {
+                    "nats:// subject"
+                }
+            );
         }
         if parquet || markdown || xlsx {
-            let service = if kafka::is_kafka_url(url) { "Kafka" } else { "NATS" };
-            fail!("-i {} is not supported for {} messages", input_format.as_deref().unwrap_or_default(), service);
+            let service = if kafka::is_kafka_url(url) {
+                "Kafka"
+            } else {
+                "NATS"
+            };
+            fail!(
+                "-i {} is not supported for {} messages",
+                input_format.as_deref().unwrap_or_default(),
+                service
+            );
         }
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
@@ -1640,10 +1842,15 @@ fn real_main() {
         Some("0") => 0,
         Some("-1") => -1,
         None => DEFAULT_OPT_LEVEL,
-        Some(x) => panic!("this case should be covered by clap argument validation: found unexpected opt-level value {}", x),
+        Some(x) => panic!(
+            "this case should be covered by clap argument validation: found unexpected opt-level value {}",
+            x
+        ),
     };
     let raw = RawPrelude {
-        field_sep: matches.get_one::<String>("field-separator").map(String::from),
+        field_sep: matches
+            .get_one::<String>("field-separator")
+            .map(String::from),
         var_decs: matches
             .get_many::<String>("var")
             .map(|x| x.map(String::from).collect())
@@ -1659,7 +1866,11 @@ fn real_main() {
         },
         output_record_sep,
         argv,
-        operand_files: if operand_assigns.is_empty() { Vec::new() } else { input_files.clone() },
+        operand_files: if operand_assigns.is_empty() {
+            Vec::new()
+        } else {
+            input_files.clone()
+        },
         operand_assigns,
     };
     let opt_dump_bytecode = matches.get_flag("dump-bytecode");
@@ -1717,38 +1928,46 @@ fn real_main() {
                 if json || jsonl {
                     let fi_names = awk_util::fi_constant_keys(&program_code);
                     let signal = signal.clone();
-                    let $inp = MessageReader::new(source, json, check_utf8, move |payload, subject| {
-                        let chunk_size = message::chunk_size(chunk_size, payload.len());
-                        let reader = JsonlReader::new(
-                            once((message::payload_reader(payload), subject)),
-                            fi_names.clone(),
-                            chunk_size,
-                            false,
-                            ExecutionStrategy::Serial,
-                            signal.clone(),
-                        );
-                        if json { reader.scalar_text() } else { reader }
-                    });
+                    let $inp =
+                        MessageReader::new(source, json, check_utf8, move |payload, subject| {
+                            let chunk_size = message::chunk_size(chunk_size, payload.len());
+                            let reader = JsonlReader::new(
+                                once((message::payload_reader(payload), subject)),
+                                fi_names.clone(),
+                                chunk_size,
+                                false,
+                                ExecutionStrategy::Serial,
+                                signal.clone(),
+                            );
+                            if json { reader.scalar_text() } else { reader }
+                        });
                     $body
                 } else if let Some(ifmt) = ifmt {
                     let signal = signal.clone();
-                    let $inp = MessageReader::new(source, false, check_utf8, move |payload, subject| {
-                        let chunk_size = message::chunk_size(chunk_size, payload.len());
-                        CSVReader::new(
-                            once((message::payload_reader(payload), subject)),
-                            ifmt,
-                            chunk_size,
-                            false,
-                            ExecutionStrategy::Serial,
-                            signal.clone(),
-                        )
-                    });
+                    let $inp =
+                        MessageReader::new(source, false, check_utf8, move |payload, subject| {
+                            let chunk_size = message::chunk_size(chunk_size, payload.len());
+                            CSVReader::new(
+                                once((message::payload_reader(payload), subject)),
+                                ifmt,
+                                chunk_size,
+                                false,
+                                ExecutionStrategy::Serial,
+                                signal.clone(),
+                            )
+                        });
                     $body
                 } else {
-                    let $inp = MessageReader::new(source, false, check_utf8, move |payload, subject| {
-                        let chunk_size = message::chunk_size(chunk_size, payload.len());
-                        RegexSplitter::new(message::payload_reader(payload), chunk_size, subject, false)
-                    });
+                    let $inp =
+                        MessageReader::new(source, false, check_utf8, move |payload, subject| {
+                            let chunk_size = message::chunk_size(chunk_size, payload.len());
+                            RegexSplitter::new(
+                                message::payload_reader(payload),
+                                chunk_size,
+                                subject,
+                                false,
+                            )
+                        });
                     $body
                 }
             } else if markdown {
@@ -1779,7 +1998,10 @@ fn real_main() {
                 let sources: Vec<(xlsx::XlsxCsv, String)> = if input_files.len() == 0 {
                     vec![(xlsx::XlsxCsv::new(String::from("-")), String::from("-"))]
                 } else {
-                    input_files.iter().map(|file| (xlsx::XlsxCsv::new(file.clone()), file.clone())).collect()
+                    input_files
+                        .iter()
+                        .map(|file| (xlsx::XlsxCsv::new(file.clone()), file.clone()))
+                        .collect()
                 };
                 let $inp = CSVReader::new(
                     sources.into_iter(),
@@ -1823,13 +2045,19 @@ fn real_main() {
                 // JSON documents are read as JSON Lines, a JSONPath (`file.json#$.data`) selecting
                 // the records.
                 let fi_names = awk_util::fi_constant_keys(&program_code);
-                let operands: Vec<String> =
-                    if input_files.len() == 0 { vec![String::from("-")] } else { input_files.clone() };
+                let operands: Vec<String> = if input_files.len() == 0 {
+                    vec![String::from("-")]
+                } else {
+                    input_files.clone()
+                };
                 let sources: Vec<_> = operands
                     .into_iter()
                     .map(|operand| {
                         let file = runtime::splitter::json::split_path(&operand).0.to_string();
-                        (JsonRecords::new(open_file_read(file.as_str()), &operand), file)
+                        (
+                            JsonRecords::new(open_file_read(file.as_str()), &operand),
+                            file,
+                        )
                     })
                     .collect();
                 let $inp = JsonlReader::new(
@@ -2024,11 +2252,8 @@ fn real_main() {
     }
 
     // validate AWK code by comment tags
-    let passed = awk_util::validate_awk_code(
-        &program_code,
-        &raw.var_decs,
-        &raw.operand_assigns.concat(),
-    );
+    let passed =
+        awk_util::validate_awk_code(&program_code, &raw.var_decs, &raw.operand_assigns.concat());
     if !passed {
         std::process::exit(1);
     }
@@ -2037,7 +2262,10 @@ fn real_main() {
     let analysis_result = ctx.analyze_sep_assignments();
     let out_file = matches.get_one::<String>("out-file");
     // stdout wrappers for output formats that are not escaped text.
-    let output_format = match matches.get_one::<String>("output-format").map(|s| s.as_str()) {
+    let output_format = match matches
+        .get_one::<String>("output-format")
+        .map(|s| s.as_str())
+    {
         Some("jsonl") | Some("ndjson") => "jsonl",
         Some("markdown") | Some("md") => "markdown",
         Some("table") => "table",
@@ -2051,8 +2279,13 @@ fn real_main() {
     if matches.get_flag("stats") {
         runtime::stats::enable(start, !output_format.is_empty());
     }
-    if output_format == "parquet" && out_file.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        fatal!("refusing to write parquet output to a terminal; use --out-file FILE or redirect stdout");
+    if output_format == "parquet"
+        && out_file.is_none()
+        && std::io::IsTerminal::is_terminal(&std::io::stdout())
+    {
+        fatal!(
+            "refusing to write parquet output to a terminal; use --out-file FILE or redirect stdout"
+        );
     }
     macro_rules! with_out {
         ($factory:expr, |$inp:ident, $out:ident| $body:expr) => {
@@ -2084,8 +2317,11 @@ fn real_main() {
         (|$inp:ident, $out:ident| $body:expr) => {
             match out_file {
                 Some(oup) => with_out!(
-                    runtime::writers::factory_from_file(oup)
-                        .unwrap_or_else(|e| fatal!("failed to open {}: {}", oup, e)),
+                    runtime::writers::factory_from_file(oup).unwrap_or_else(|e| fatal!(
+                        "failed to open {}: {}",
+                        oup,
+                        e
+                    )),
                     |$inp, $out| $body
                 ),
                 None => with_out!(runtime::writers::default_factory(), |$inp, $out| $body),
@@ -2093,8 +2329,13 @@ fn real_main() {
         };
     }
     // `-O -1` forces the bytecode interpreter.
-    let backend = match (matches.get_one::<String>("backend").map(|s| s.as_str()), opt_level) {
-        (Some("cranelift"), -1) => fail!("`-O -1` forces the bytecode interpreter and conflicts with `-B cranelift`"),
+    let backend = match (
+        matches.get_one::<String>("backend").map(|s| s.as_str()),
+        opt_level,
+    ) {
+        (Some("cranelift"), -1) => {
+            fail!("`-O -1` forces the bytecode interpreter and conflicts with `-B cranelift`")
+        }
         (None, -1) => Some("interp"),
         (b, _) => b,
     };
@@ -2146,6 +2387,13 @@ mod tests {
         // The escapes decode back to the bytes, e.g. for `-F $'\xa7'`.
         let a = Arena::default();
         let mut buf = Vec::new();
-        assert_eq!(lexer::parse_string_literal(&escape_non_utf8(std::ffi::OsStr::from_bytes(b"\xa7")), &a, &mut buf), b"\xa7");
+        assert_eq!(
+            lexer::parse_string_literal(
+                &escape_non_utf8(std::ffi::OsStr::from_bytes(b"\xa7")),
+                &a,
+                &mut buf
+            ),
+            b"\xa7"
+        );
     }
 }

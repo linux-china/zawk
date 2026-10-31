@@ -20,11 +20,7 @@ pub fn hextoi(bs: &[u8]) -> i64 {
         .iter()
         .map_while(|b| (*b as char).to_digit(16))
         .fold(0u64, |i, d| i.wrapping_mul(16).wrapping_add(d as u64)) as i64;
-    if neg {
-        i.wrapping_neg()
-    } else {
-        i
-    }
+    if neg { i.wrapping_neg() } else { i }
 }
 
 /// The value of an integer literal of the program: an integer if it is exact as a double (at most
@@ -145,7 +141,11 @@ pub fn strtod(bs: &[u8]) -> f64 {
             let word = &body[..end];
             let neg = bs[0] == b'-';
             if word.eq_ignore_ascii_case(b"inf") {
-                return if neg { f64::NEG_INFINITY } else { f64::INFINITY };
+                return if neg {
+                    f64::NEG_INFINITY
+                } else {
+                    f64::INFINITY
+                };
             }
             if word.eq_ignore_ascii_case(b"nan") {
                 return if neg { -f64::NAN } else { f64::NAN };
@@ -234,8 +234,19 @@ mod tests {
     #[test]
     fn special_values() {
         for s in [
-            "nan", "NaN", "inf", "Nancy", "information", "Infinity", "+infinity", "-infx",
-            "-inf5", "+", "-", "  info", "e5",
+            "nan",
+            "NaN",
+            "inf",
+            "Nancy",
+            "information",
+            "Infinity",
+            "+infinity",
+            "-infx",
+            "-inf5",
+            "+",
+            "-",
+            "  info",
+            "e5",
         ] {
             assert_eq!(strtod(s.as_bytes()), 0.0, "{s:?}");
         }
@@ -253,7 +264,10 @@ mod tests {
         assert_eq!(parse_int_literal(b"123"), Ok(123));
         assert_eq!(parse_int_literal(b"-9223372036854775808"), Ok(i64::MIN));
         assert_eq!(parse_int_literal(b"9223372036854775807"), Ok(i64::MAX));
-        assert_eq!(parse_int_literal(b"9223372036854775808"), Err(9223372036854775808.0));
+        assert_eq!(
+            parse_int_literal(b"9223372036854775808"),
+            Err(9223372036854775808.0)
+        );
         assert_eq!(parse_int_literal(b"100000000000000000000"), Err(1e20));
         assert_eq!(parse_int_literal(b"-100000000000000000000"), Err(-1e20));
 
@@ -261,8 +275,14 @@ mod tests {
         assert_eq!(parse_hex_literal(b"-0X10"), Ok(-16));
         assert_eq!(parse_hex_literal(b"0x7fffffffffffffff"), Ok(i64::MAX));
         assert_eq!(parse_hex_literal(b"-0x8000000000000000"), Ok(i64::MIN));
-        assert_eq!(parse_hex_literal(b"0xffffffffffffffff"), Err(18446744073709551615.0));
-        assert_eq!(parse_hex_literal(b"0x10000000000000000"), Err(18446744073709551616.0));
+        assert_eq!(
+            parse_hex_literal(b"0xffffffffffffffff"),
+            Err(18446744073709551615.0)
+        );
+        assert_eq!(
+            parse_hex_literal(b"0x10000000000000000"),
+            Err(18446744073709551616.0)
+        );
         assert_eq!(
             parse_hex_literal(b"0x1000000000000000000000000000000000"),
             Err(2f64.powi(132))

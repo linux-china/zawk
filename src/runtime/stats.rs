@@ -4,8 +4,8 @@
 //!
 //! Counting is off unless `--stats` is given; the counters are shared by all worker threads.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -59,7 +59,10 @@ pub(crate) fn output_records(n: u64) {
 #[inline]
 pub(crate) fn output_text(bs: &[u8]) {
     if enabled() {
-        OUTPUT.fetch_add(memchr::memchr_iter(b'\n', bs).count() as u64, Ordering::Relaxed);
+        OUTPUT.fetch_add(
+            memchr::memchr_iter(b'\n', bs).count() as u64,
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -77,9 +80,17 @@ pub fn report(exit_code: i32) {
         return;
     }
     let elapsed = START.get().map_or(0.0, |s| s.elapsed().as_secs_f64());
-    let input = INPUT.load(Ordering::Relaxed).saturating_sub(INPUT_HEADERS.load(Ordering::Relaxed));
-    let output = OUTPUT.load(Ordering::Relaxed).saturating_sub(OUTPUT_HEADERS.load(Ordering::Relaxed));
-    let per_sec = if elapsed > 0.0 { input as f64 / elapsed } else { 0.0 };
+    let input = INPUT
+        .load(Ordering::Relaxed)
+        .saturating_sub(INPUT_HEADERS.load(Ordering::Relaxed));
+    let output = OUTPUT
+        .load(Ordering::Relaxed)
+        .saturating_sub(OUTPUT_HEADERS.load(Ordering::Relaxed));
+    let per_sec = if elapsed > 0.0 {
+        input as f64 / elapsed
+    } else {
+        0.0
+    };
     eprintln_ignore!(
         "{{\"input_records\":{},\"output_records\":{},\"rejected_records\":{},\"elapsed_secs\":{:.3},\"records_per_sec\":{:.1},\"exit_code\":{}}}",
         input,

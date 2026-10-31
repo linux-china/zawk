@@ -1,14 +1,14 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
-use evalexpr::{DefaultNumericTypes, Value};
-use logos::Logos;
-use semver::{Version};
-use snowflake::SnowflakeIdGenerator;
-use std::hash::Hash;
-use crate::runtime::{stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
 use crate::runtime::compare::looks_numeric;
 use crate::runtime::sorted_in::SortItem;
+use crate::runtime::{Float, Int, IntMap, SharedMap, Str, StrMap, stdlib_warning};
+use evalexpr::{DefaultNumericTypes, Value};
+use logos::Logos;
+use semver::Version;
+use snowflake::SnowflakeIdGenerator;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Floating point remainder (the result has the sign of `x`, as with C's `fmod`). Integral
 /// operands, the common case (`$1 % 100`), use integer division, which is much faster than `fmod`.
@@ -34,7 +34,11 @@ pub fn max(first: &str, second: &str, third: &str) -> String {
 /// Pick the min/max item: compare as numbers if all items are numeric, otherwise as strings.
 /// An empty `third` means only 2 params; on ties the earliest item wins.
 fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
-    let items: &[&str] = if third.is_empty() { &[first, second] } else { &[first, second, third] };
+    let items: &[&str] = if third.is_empty() {
+        &[first, second]
+    } else {
+        &[first, second, third]
+    };
     let nums: Option<Vec<f64>> = items.iter().map(|item| item.parse::<f64>().ok()).collect();
     let mut best = 0;
     for i in 1..items.len() {
@@ -81,7 +85,11 @@ impl<'a> AsortValue for Str<'a> {
         for i in 0..items.len() {
             // Strings are untyped at runtime, so strings that may be strnums (such as the
             // elements created by split()) sort as numbers when they look numeric.
-            match if strnum { looks_numeric(bytes(i)) } else { None } {
+            match if strnum {
+                looks_numeric(bytes(i))
+            } else {
+                None
+            } {
                 Some(n) => nums.push((n, i)),
                 None => strs.push(i),
             }
@@ -112,7 +120,12 @@ impl<'a> AsortValue for Str<'a> {
 /// 1, and returns their number. `src` and `dst` may be the same array (`asort(arr)`). `strnum` is
 /// whether the string values of `src` may be strnums; if not, they sort as strings. A non-empty
 /// `how` sorts in that predefined order instead (see `sorted_in::asort`).
-pub(crate) fn asort<K1, K2, V>(src: &SharedMap<K1, V>, dst: &SharedMap<K2, V>, strnum: bool, how: &Str) -> crate::common::Result<Int>
+pub(crate) fn asort<K1, K2, V>(
+    src: &SharedMap<K1, V>,
+    dst: &SharedMap<K2, V>,
+    strnum: bool,
+    how: &Str,
+) -> crate::common::Result<Int>
 where
     K1: Hash + Eq + SortItem,
     K2: Hash + Eq + From<Int>,
@@ -167,7 +180,8 @@ pub(crate) fn map_int_int_max(obj: &IntMap<Int>) -> Int {
 }
 
 pub(crate) fn map_int_float_max(obj: &IntMap<Float>) -> Float {
-    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::max)).unwrap_or(0.0)
+    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::max))
+        .unwrap_or(0.0)
 }
 
 pub(crate) fn map_int_int_min(obj: &IntMap<Int>) -> Int {
@@ -175,9 +189,9 @@ pub(crate) fn map_int_int_min(obj: &IntMap<Int>) -> Int {
 }
 
 pub(crate) fn map_int_float_min(obj: &IntMap<Float>) -> Float {
-    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::min)).unwrap_or(0.0)
+    obj.iter(|it| it.map(|(_, v)| *v).reduce(Float::min))
+        .unwrap_or(0.0)
 }
-
 
 pub(crate) fn map_int_int_sum(obj: &IntMap<Int>) -> Int {
     let len = obj.len();
@@ -224,7 +238,6 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
     };
 }
 
-
 /// The truth value of a string, shared by `mkbool` and the `boolean` columns of `-o jsonl` and
 /// `-o parquet`: the words true/t/yes/y/on/✓ and false/f/no/n/off/𐄂 (in any case, with surrounding
 /// blanks ignored), and otherwise the truth value of the string as an input field in a condition,
@@ -258,7 +271,11 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Resul
         return err!("seq: step must not be zero, got {}", step);
     }
     let ascending = step > 0.0;
-    if !(if ascending { start <= end } else { start >= end }) {
+    if !(if ascending {
+        start <= end
+    } else {
+        start >= end
+    }) {
         return Ok(result);
     }
     let q = (end - start) / step;
@@ -277,11 +294,12 @@ pub(crate) fn seq(start: Float, step: Float, end: Float) -> crate::common::Resul
 pub(crate) fn uuid(version: &str) -> String {
     match version {
         "v7" => uuid::Uuid::now_v7().to_string(),
-        "v4" | &_ => uuid::Uuid::new_v4().to_string()
+        "v4" | &_ => uuid::Uuid::new_v4().to_string(),
     }
 }
 
-static SNOWFLAKES: LazyLock<Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static SNOWFLAKES: LazyLock<Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Snowflake ID for `machine_id`, which holds the 10 machine/node bits (0..=1023). Other values
 /// are reduced modulo 1024 with a notice, so each machine/node pair has exactly one generator and
@@ -289,10 +307,18 @@ static SNOWFLAKES: LazyLock<Arc<Mutex<HashMap<u16, SnowflakeIdGenerator>>>> = La
 pub(crate) fn snowflake(machine_id: Int) -> Int {
     let id = machine_id.rem_euclid(1024) as u16;
     if id as Int != machine_id {
-        crate::runtime::stdlib_notice("snowflake", format!("machine_id {} is out of range 0..=1023, using {}", machine_id, id));
+        crate::runtime::stdlib_notice(
+            "snowflake",
+            format!(
+                "machine_id {} is out of range 0..=1023, using {}",
+                machine_id, id
+            ),
+        );
     }
     let mut pool = SNOWFLAKES.lock().unwrap();
-    let generator = pool.entry(id).or_insert_with(|| SnowflakeIdGenerator::new((id >> 5) as i32, (id & 31) as i32));
+    let generator = pool
+        .entry(id)
+        .or_insert_with(|| SnowflakeIdGenerator::new((id >> 5) as i32, (id & 31) as i32));
     generator.real_time_generate() as Int
 }
 
@@ -323,13 +349,17 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         }
     }
     let decimal = |bs: &[u8]| {
-        let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+        let start = bs
+            .iter()
+            .position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
         start.map_or(0.0, |i| match strip_thousands(&bs[i..]) {
             Some(digits) => strtod(&digits),
             None => strtod(&bs[i..]),
         })
     };
-    let start = bs.iter().position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+    let start = bs
+        .iter()
+        .position(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
     let trimmed = start.map_or(&bs[bs.len()..], |i| &bs[i..]);
     let (negative, unsigned) = match trimmed {
         [b'-', rest @ ..] => (true, rest),
@@ -373,7 +403,11 @@ fn strip_thousands(bs: &[u8]) -> Option<Vec<u8>> {
         res.extend_from_slice(&bs[i + 1..i + 4]);
         i += 4;
     }
-    if i == sign + first || bs.get(i).is_some_and(|b| matches!(b, b'0'..=b'9' | b',' | b'_')) {
+    if i == sign + first
+        || bs
+            .get(i)
+            .is_some_and(|b| matches!(b, b'0'..=b'9' | b',' | b'_'))
+    {
         return None;
     }
     res.extend_from_slice(&bs[i..]);
@@ -396,7 +430,9 @@ pub(crate) fn float_to_bits(f: Float) -> Int {
 /// The hexadecimal digits of `text` if it is a `0x` number with an optional sign.
 fn hex_digits_of(text: &str) -> Option<&str> {
     let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
-    unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
+    unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))
 }
 
 pub(crate) fn is_str_int(text: &str) -> bool {
@@ -439,7 +475,13 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
             }
         }
         _ => {
-            stdlib_warning("uniq", format!("unknown order {:?}, expected \"asc\", \"desc\" or \"keep\"", how));
+            stdlib_warning(
+                "uniq",
+                format!(
+                    "unknown order {:?}, expected \"asc\", \"desc\" or \"keep\"",
+                    how
+                ),
+            );
             Str::asort_sort(&mut items, true);
         }
     }
@@ -452,7 +494,10 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
 
 pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     let args = shlex::split(text).unwrap_or_else(|| {
-        stdlib_warning("shlex", format!("unbalanced quotes or trailing backslash in {:?}", text));
+        stdlib_warning(
+            "shlex",
+            format!("unbalanced quotes or trailing backslash in {:?}", text),
+        );
         vec![]
     });
     let result: IntMap<Str> = IntMap::default();
@@ -664,7 +709,13 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
         3 | 4 => hex_text.chars().flat_map(|c| [c, c]).collect::<String>(),
         6 | 8 => hex_text.to_string(),
         _ => {
-            stdlib_warning("hex2rgb", format!("invalid hex color {:?}, expected 3, 4, 6 or 8 hex digits", text));
+            stdlib_warning(
+                "hex2rgb",
+                format!(
+                    "invalid hex color {:?}, expected 3, 4, 6 or 8 hex digits",
+                    text
+                ),
+            );
             return result;
         }
     };
@@ -676,23 +727,45 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
 }
 
 pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
-    let red = if red < 0 { 0 } else if red > 255 { 255 } else { red };
-    let green = if green < 0 { 0 } else if green > 255 { 255 } else { green };
-    let blue = if blue < 0 { 0 } else if blue > 255 { 255 } else { blue };
+    let red = if red < 0 {
+        0
+    } else if red > 255 {
+        255
+    } else {
+        red
+    };
+    let green = if green < 0 {
+        0
+    } else if green > 255 {
+        255
+    } else {
+        green
+    };
+    let blue = if blue < 0 {
+        0
+    } else if blue > 255 {
+        255
+    } else {
+        blue
+    };
     format!("#{:02X}{:02X}{:02X}", red, green, blue)
 }
 
 /// eval context with https://lib.rs/crates/evalexpr
-pub(crate)  fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
+pub(crate) fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
             let value: f64 = *value as f64;
-            eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
+            eval_context
+                .set_value(key.to_string(), Value::Float(value))
+                .unwrap();
         }
     });
-    let Some(result) = run_eval(formula, &mut eval_context) else { return 0.0 };
+    let Some(result) = run_eval(formula, &mut eval_context) else {
+        return 0.0;
+    };
     if let Ok(value) = result.as_float() {
         value
     } else if let Ok(value) = result.as_int() {
@@ -707,23 +780,26 @@ pub(crate) fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>)
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
-            eval_context.set_value(key.to_string(), Value::Float(*value)).unwrap();
+            eval_context
+                .set_value(key.to_string(), Value::Float(*value))
+                .unwrap();
         }
     });
     run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
 }
-pub(crate)  fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
+pub(crate) fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> Float {
     use evalexpr::*;
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
             let value: f64 = value.as_str().parse().unwrap_or(0.0);
-            eval_context.set_value(key.to_string(), Value::Float(value)).unwrap();
+            eval_context
+                .set_value(key.to_string(), Value::Float(value))
+                .unwrap();
         }
     });
     run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
 }
-
 
 pub fn eval(formula: &str) -> Float {
     use evalexpr::*;
@@ -751,16 +827,11 @@ fn value_to_float(value: &Value<DefaultNumericTypes>) -> Float {
     } else if let Ok(value) = value.as_int() {
         value as f64
     } else if let Ok(value) = value.as_boolean() {
-        if value {
-            1f64
-        } else {
-            0f64
-        }
+        if value { 1f64 } else { 0f64 }
     } else {
         0f64
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -834,7 +905,9 @@ mod tests {
     fn test_seq() {
         let values = |start, step, end| {
             let arr = seq(start, step, end).unwrap();
-            (1..=arr.len() as Int).map(|i| arr.get(&i)).collect::<Vec<Float>>()
+            (1..=arr.len() as Int)
+                .map(|i| arr.get(&i))
+                .collect::<Vec<Float>>()
         };
         assert_eq!(values(1.0, 1.0, 5.0), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         assert_eq!(values(3.0, -1.0, 1.0), vec![3.0, 2.0, 1.0]);
@@ -1007,7 +1080,9 @@ mod tests {
         }
         let values = |how: &str| {
             let u = uniq(&arr, how);
-            (1..=u.len() as Int).map(|i| u.get(&i).to_string()).collect::<Vec<_>>()
+            (1..=u.len() as Int)
+                .map(|i| u.get(&i).to_string())
+                .collect::<Vec<_>>()
         };
         assert_eq!(values(""), ["9", "10", "a", "b"]);
         assert_eq!(values("asc"), ["9", "10", "a", "b"]);

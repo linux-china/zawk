@@ -1,5 +1,7 @@
 use crate::common::Result;
-use crate::runtime::{check_result_len, stdlib_warning, Float, Int, IntMap, SharedMap, Str, StrMap};
+use crate::runtime::{
+    Float, Int, IntMap, SharedMap, Str, StrMap, check_result_len, stdlib_warning,
+};
 use pad::Alignment;
 use std::sync::LazyLock;
 
@@ -56,8 +58,13 @@ pub fn pad_both(text: &str, len: Int, pad: &str) -> Result<String> {
 /// bytes when a text is not valid UTF-8 (or with `-b`), so distinct invalid bytes stay distinct.
 pub fn similar(text1: &[u8], text2: &[u8]) -> f64 {
     match (std::str::from_utf8(text1), std::str::from_utf8(text2)) {
-        (Ok(a), Ok(b)) if !crate::runtime::str_impl::characters_as_bytes() => strsim::jaro_winkler(a, b),
-        _ => strsim::generic_jaro_winkler::<ByteSeq, ByteSeq, u8, u8>(&ByteSeq(text1), &ByteSeq(text2)),
+        (Ok(a), Ok(b)) if !crate::runtime::str_impl::characters_as_bytes() => {
+            strsim::jaro_winkler(a, b)
+        }
+        _ => strsim::generic_jaro_winkler::<ByteSeq, ByteSeq, u8, u8>(
+            &ByteSeq(text1),
+            &ByteSeq(text2),
+        ),
     }
 }
 
@@ -456,7 +463,10 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
     let mut name_started = false;
     for c in template.chars() {
         if c == '{' && name_started || c == '}' && !name_started {
-            stdlib_warning("parse", format!("unbalanced braces in template {:?}", template));
+            stdlib_warning(
+                "parse",
+                format!("unbalanced braces in template {:?}", template),
+            );
             return SharedMap::from(map);
         }
         if c == '{' {
@@ -474,7 +484,10 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
         }
     }
     if name_started {
-        stdlib_warning("parse", format!("unbalanced braces in template {:?}", template));
+        stdlib_warning(
+            "parse",
+            format!("unbalanced braces in template {:?}", template),
+        );
         return SharedMap::from(map);
     }
     tokens.push(sep.to_string());
@@ -511,8 +524,15 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
         Err(e) => {
             // the syntax error is a multi-line diagram ending with `error: <reason>`; keep the reason
             let e = e.to_string();
-            let reason = e.lines().last().unwrap_or_default().trim_start_matches("error: ");
-            stdlib_warning("rparse", format!("invalid regex {:?}: {}", template, reason));
+            let reason = e
+                .lines()
+                .last()
+                .unwrap_or_default()
+                .trim_start_matches("error: ");
+            stdlib_warning(
+                "rparse",
+                format!("invalid regex {:?}: {}", template, reason),
+            );
             return map;
         }
     };
@@ -549,11 +569,7 @@ pub fn is_format(format: &str, text: &str) -> Int {
             false
         }
     };
-    if result {
-        1
-    } else {
-        0
-    }
+    if result { 1 } else { 0 }
 }
 
 static DATE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -583,7 +599,8 @@ fn is_date(text: &str) -> bool {
         None | Some("Z") => true,
         Some(offset) => {
             let digits = offset[1..].replace(':', "");
-            digits[..2].parse::<u32>().is_ok_and(|h| h <= 23) && digits[2..].parse::<u32>().is_ok_and(|m| m <= 59)
+            digits[..2].parse::<u32>().is_ok_and(|h| h <= 23)
+                && digits[2..].parse::<u32>().is_ok_and(|m| m <= 59)
         }
     }
 }
@@ -600,7 +617,11 @@ fn is_idcard_cn(text: &str) -> bool {
     if chrono::NaiveDate::parse_from_str(&text[6..14], "%Y%m%d").is_err() {
         return false;
     }
-    let sum: u32 = bytes[..17].iter().zip(WEIGHTS).map(|(b, w)| (b - b'0') as u32 * w).sum();
+    let sum: u32 = bytes[..17]
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(b, w)| (b - b'0') as u32 * w)
+        .sum();
     bytes[17].to_ascii_uppercase() == CHECK_CODES[(sum % 11) as usize]
 }
 
@@ -614,7 +635,11 @@ pub fn generate_password(len: i64) -> Result<String> {
     }
     let len = len as usize;
     if len > MAX_PASSWORD_LEN {
-        return err!("mkpass: length {} is too large (maximum {})", len, MAX_PASSWORD_LEN);
+        return err!(
+            "mkpass: length {} is too large (maximum {})",
+            len,
+            MAX_PASSWORD_LEN
+        );
     }
     let pg = passwords::PasswordGenerator {
         length: len,
@@ -648,7 +673,11 @@ pub fn figlet(text: &str) -> String {
 /// one space), and a word wider than `width` (e.g. CJK text without spaces) is split.
 pub fn wrap(text: &str, width: Int) -> String {
     use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-    let width = if width <= 0 { 80 } else { usize::try_from(width).unwrap_or(usize::MAX) };
+    let width = if width <= 0 {
+        80
+    } else {
+        usize::try_from(width).unwrap_or(usize::MAX)
+    };
     let mut out = String::with_capacity(text.len() + text.len() / width + 1);
     for (i, line) in text.split('\n').enumerate() {
         if i > 0 {
@@ -706,11 +735,17 @@ mod tests {
         // A char wider than `width` still goes on its own line.
         assert_eq!(wrap("日本", 1), "日\n本");
         // Each line is judged on its own: short lines keep their whitespace.
-        assert_eq!(wrap("  keep  me\naa bb cc dd ee", 10), "  keep  me\naa bb cc\ndd ee");
+        assert_eq!(
+            wrap("  keep  me\naa bb cc dd ee", 10),
+            "  keep  me\naa bb cc\ndd ee"
+        );
         // A non-positive width means 80.
         let long = "word ".repeat(30);
         assert_eq!(wrap(&long, 0), wrap(&long, 80));
-        assert_eq!(wrap(&long, -5).lines().map(|l| l.chars().count()).max(), Some(79));
+        assert_eq!(
+            wrap(&long, -5).lines().map(|l| l.chars().count()).max(),
+            Some(79)
+        );
     }
 
     #[test]
@@ -750,7 +785,10 @@ mod tests {
     fn test_rparse_invalid_regex_sets_errno() {
         crate::runtime::set_errno(String::new());
         assert_eq!(rparse("abc", "([").len(), 0);
-        assert_eq!(crate::runtime::errno(), r#"rparse: invalid regex "([": unclosed character class"#);
+        assert_eq!(
+            crate::runtime::errno(),
+            r#"rparse: invalid regex "([": unclosed character class"#
+        );
     }
 
     #[test]
@@ -805,7 +843,7 @@ mod tests {
         let content = read_all("https://httpbin.org/ip");
         println!("{}", content);
     }
-    
+
     #[test]
     fn test_pairs() {
         let text = "name=hello;age=12";

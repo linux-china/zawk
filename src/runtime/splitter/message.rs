@@ -11,10 +11,10 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use super::{input_warning, LineReader, ReaderState};
+use super::{LineReader, ReaderState, input_warning};
 use crate::common::Result;
 use crate::pushdown::FieldSet;
-use crate::runtime::{set_errno, Int, RegexCache, Str};
+use crate::runtime::{Int, RegexCache, Str, set_errno};
 
 /// Where the messages come from: a NATS subject or a Kafka topic.
 pub trait MessageSource: Send {
@@ -114,7 +114,12 @@ impl<R: LineReader> MessageReader<R> {
 
     /// Wait for the next message and start reading it. False once the input is over.
     fn next_message(&mut self) -> bool {
-        let Some(Received { subject, headers, mut payload }) = self.source.next() else {
+        let Some(Received {
+            subject,
+            headers,
+            mut payload,
+        }) = self.source.next()
+        else {
             self.done = true;
             return false;
         };
@@ -132,14 +137,20 @@ impl<R: LineReader> MessageReader<R> {
                 Err(e) => {
                     message_warning(service, &subject, &format!("invalid JSON: {}", e));
                     // a single record of plain text: `$0` is the payload as is
-                    let mut text = serde_json::to_string(&body).unwrap_or_default().into_bytes();
+                    let mut text = serde_json::to_string(&body)
+                        .unwrap_or_default()
+                        .into_bytes();
                     text.push(b'\n');
                     text
                 }
             };
         }
         if let Ok(mut current) = CURRENT.lock() {
-            *current = Some(Arc::new(Message { subject: subject.clone(), headers, body }));
+            *current = Some(Arc::new(Message {
+                subject: subject.clone(),
+                headers,
+                body,
+            }));
         }
         let mut reader = (self.make)(payload, subject);
         reader.set_used_fields(&self.used_fields);
@@ -153,7 +164,11 @@ impl<R: LineReader> MessageReader<R> {
 fn message_warning(service: &str, subject: &str, msg: &str) {
     use std::sync::atomic::AtomicUsize;
     static INVALID: AtomicUsize = AtomicUsize::new(0);
-    input_warning(&INVALID, || format!("{} message of {}", service, subject), msg);
+    input_warning(
+        &INVALID,
+        || format!("{} message of {}", service, subject),
+        msg,
+    );
     crate::runtime::stats::rejected_record();
     set_errno(msg.to_string());
 }
@@ -161,7 +176,10 @@ fn message_warning(service: &str, subject: &str, msg: &str) {
 impl<R: LineReader + 'static> LineReader for MessageReader<R> {
     type Line = R::Line;
     fn filename(&self) -> Str<'static> {
-        self.cur.as_ref().map(LineReader::filename).unwrap_or_default()
+        self.cur
+            .as_ref()
+            .map(LineReader::filename)
+            .unwrap_or_default()
     }
     fn check_utf8(&self) -> bool {
         self.check_utf8

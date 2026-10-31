@@ -40,14 +40,14 @@
 //! the `FileFactory` trait. The `testing` module contains an implementation of this trait that
 //! writes all data in memory.
 
-use std::io::IsTerminal;
 use std::collections::VecDeque;
+use std::io::IsTerminal;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex, Once, OnceLock, Weak,
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 
 #[cfg(not(feature = "unstable"))]
@@ -60,14 +60,14 @@ use std::ops::Deref;
 
 // NB we only require mpsc semantics, but at time of writing there are a few open bugs on
 // std::sync::mpsc, while crossbeam_channel is seeing more attention.
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap;
 
 use crate::common::{CompileError, FileSpec, Notification, Result};
 use crate::runtime::str_escape::is_tsv_null;
 use crate::runtime::{
-    command::{command_env, command_for_write, exit_status_code, CommandEnv},
     Int, Str,
+    command::{CommandEnv, command_env, command_for_write, exit_status_code},
 };
 
 /// The maximum number of pending requests in the per-file channels.
@@ -626,15 +626,30 @@ impl Summary {
     }
 
     fn rows_line(&self) -> String {
-        format!("{} row{}\n", self.rows, if self.rows == 1 { "" } else { "s" })
+        format!(
+            "{} row{}\n",
+            self.rows,
+            if self.rows == 1 { "" } else { "s" }
+        )
     }
 
     /// The statistics as records, the first one being the header.
     fn records(&self) -> Vec<Vec<String>> {
-        let mut records = vec![["column", "type", "non_empty", "distinct", "min", "max", "sum", "mean"]
+        let mut records = vec![
+            [
+                "column",
+                "type",
+                "non_empty",
+                "distinct",
+                "min",
+                "max",
+                "sum",
+                "mean",
+            ]
             .iter()
             .map(|s| s.to_string())
-            .collect::<Vec<_>>()];
+            .collect::<Vec<_>>(),
+        ];
         let empty = ColumnStats::default();
         for (i, name) in self.header.iter().flatten().enumerate() {
             let stats = self.columns.get(i).unwrap_or(&empty);
@@ -684,7 +699,8 @@ mod summary_tests {
         let mut out = Vec::new();
         {
             let mut w = MarkdownWriter::new(&mut out, true);
-            w.write_all(b"name\tage\nAlice\t30\nBob\t5\nB|ob\n").unwrap();
+            w.write_all(b"name\tage\nAlice\t30\nBob\t5\nB|ob\n")
+                .unwrap();
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),
@@ -760,7 +776,11 @@ pub struct TableWriter<W: io::Write> {
 
 impl<W: io::Write> TableWriter<W> {
     pub fn new(inner: W, summary: bool) -> TableWriter<W> {
-        TableWriter { inner, buf: Vec::new(), summary }
+        TableWriter {
+            inner,
+            buf: Vec::new(),
+            summary,
+        }
     }
 
     fn render(&mut self) -> io::Result<()> {
@@ -768,9 +788,14 @@ impl<W: io::Write> TableWriter<W> {
         let text = String::from_utf8_lossy(&buf);
         let records: Vec<Vec<String>> = text
             .lines()
-            .map(|line| line.split('\t').map(|c| unescape_tsv(c.as_bytes())).collect())
+            .map(|line| {
+                line.split('\t')
+                    .map(|c| unescape_tsv(c.as_bytes()))
+                    .collect()
+            })
             .collect();
-        self.inner.write_all(crate::inspect::boxed_table(records).as_bytes())?;
+        self.inner
+            .write_all(crate::inspect::boxed_table(records).as_bytes())?;
         if self.summary {
             let mut summary = Summary::default();
             for line in text.lines() {
@@ -914,7 +939,10 @@ impl<W: io::Write> JsonlWriter<W> {
         };
         // Extra cells get positional names, as `$N` would number them.
         for i in columns.len()..cells.len() {
-            crate::runtime::splitter::push_unique_name(&mut self.names, &format!("column{}", i + 1));
+            crate::runtime::splitter::push_unique_name(
+                &mut self.names,
+                &format!("column{}", i + 1),
+            );
             columns.push((json_string(self.names.last().unwrap()), JsonType::String));
         }
         let mut row = String::with_capacity(line.len() * 2 + 16);
@@ -977,8 +1005,8 @@ fn json_column(header: &str) -> (&str, JsonType) {
 /// null and invalid; booleans are parsed as for `-o parquet` (empty, "0", "false", "no", "off", ...
 /// are false).
 fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
-    use std::fmt::Write;
     use crate::runtime::compare::looks_numeric;
+    use std::fmt::Write;
     match ty {
         JsonType::String => out.push_str(&json_string(cell)),
         JsonType::Number => match looks_numeric(cell.as_bytes()).filter(|n| n.is_finite()) {
@@ -1032,7 +1060,10 @@ impl<W: io::Write> Drop for JsonlWriter<W> {
         let _ = self.inner.flush();
         if let Some(columns) = &self.columns {
             for ((name, ty), &n) in columns.iter().zip(&self.invalid).filter(|(_, n)| **n > 0) {
-                eprintln!("zawk: jsonl column {} ({:?}): {} invalid value(s) written as null", name, ty, n);
+                eprintln!(
+                    "zawk: jsonl column {} ({:?}): {} invalid value(s) written as null",
+                    name, ty, n
+                );
             }
         }
     }
@@ -1047,21 +1078,31 @@ mod jsonl_tests {
         let mut out = Vec::new();
         {
             let mut w = JsonlWriter::new(&mut out);
-            w.write_all(b"name\tage:number\tok:Boolean\thost:port\n").unwrap();
-            w.write_all(b"Al\"ice\t30\t1\ta:1\nBob\t1.5\t0\t\tx\nCa").unwrap();
-            w.write_all(b"rol\tabc\tyes\nDan\t 0x10 \t\nFay\t1\tNo\nGus\t2\tfalse\n").unwrap();
+            w.write_all(b"name\tage:number\tok:Boolean\thost:port\n")
+                .unwrap();
+            w.write_all(b"Al\"ice\t30\t1\ta:1\nBob\t1.5\t0\t\tx\nCa")
+                .unwrap();
+            w.write_all(b"rol\tabc\tyes\nDan\t 0x10 \t\nFay\t1\tNo\nGus\t2\tfalse\n")
+                .unwrap();
             w.write_all(b"Eve\\tX").unwrap();
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),
             concat!(
-                r#"{"name":"Al\"ice","age":30,"ok":true,"host:port":"a:1"}"#, "\n",
-                r#"{"name":"Bob","age":1.5,"ok":false,"host:port":"","column5":"x"}"#, "\n",
-                r#"{"name":"Carol","age":null,"ok":true,"host:port":null,"column5":null}"#, "\n",
-                r#"{"name":"Dan","age":16,"ok":false,"host:port":null,"column5":null}"#, "\n",
-                r#"{"name":"Fay","age":1,"ok":false,"host:port":null,"column5":null}"#, "\n",
-                r#"{"name":"Gus","age":2,"ok":false,"host:port":null,"column5":null}"#, "\n",
-                r#"{"name":"Eve\tX","age":null,"ok":null,"host:port":null,"column5":null}"#, "\n",
+                r#"{"name":"Al\"ice","age":30,"ok":true,"host:port":"a:1"}"#,
+                "\n",
+                r#"{"name":"Bob","age":1.5,"ok":false,"host:port":"","column5":"x"}"#,
+                "\n",
+                r#"{"name":"Carol","age":null,"ok":true,"host:port":null,"column5":null}"#,
+                "\n",
+                r#"{"name":"Dan","age":16,"ok":false,"host:port":null,"column5":null}"#,
+                "\n",
+                r#"{"name":"Fay","age":1,"ok":false,"host:port":null,"column5":null}"#,
+                "\n",
+                r#"{"name":"Gus","age":2,"ok":false,"host:port":null,"column5":null}"#,
+                "\n",
+                r#"{"name":"Eve\tX","age":null,"ok":null,"host:port":null,"column5":null}"#,
+                "\n",
             )
         );
     }
@@ -1071,13 +1112,19 @@ mod jsonl_tests {
         let mut out = Vec::new();
         {
             let mut w = JsonlWriter::new(&mut out);
-            w.write_all(b"a	a:number	a_1	column5
+            w.write_all(
+                b"a	a:number	a_1	column5
 1	2	3	4	5	6
-").unwrap();
+",
+            )
+            .unwrap();
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            concat!(r#"{"a":"1","a_1":2,"a_1_1":"3","column5":"4","column5_1":"5","column6":"6"}"#, "\n"),
+            concat!(
+                r#"{"a":"1","a_1":2,"a_1_1":"3","column5":"4","column5_1":"5","column6":"6"}"#,
+                "\n"
+            ),
         );
     }
 }
@@ -1103,7 +1150,9 @@ impl CmdWriter {
         }
     }
     fn stdin(&mut self) -> &mut ChildStdin {
-        self.stdin.as_mut().expect("stdin of command is open until drop")
+        self.stdin
+            .as_mut()
+            .expect("stdin of command is open until drop")
     }
 }
 
@@ -1145,7 +1194,8 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
     let open = Arc::new(AtomicBool::new(false));
     let evicted = Arc::new(AtomicBool::new(false));
     let f = Arc::new(f);
-    let (thread_error, thread_open, thread_evicted) = (error.clone(), open.clone(), evicted.clone());
+    let (thread_error, thread_open, thread_evicted) =
+        (error.clone(), open.clone(), evicted.clone());
     let thread_pool = pool.clone();
     let spawn = move |slot: Weak<WriterSlot>| {
         let (sender, receiver) = bounded(IO_CHAN_SIZE);
@@ -1178,7 +1228,8 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
             open: open.clone(),
             evicted,
         }),
-        line_buffer: is_stdout && (io::stdout().is_terminal() || LINE_BUFFERED.load(Ordering::Relaxed)),
+        line_buffer: is_stdout
+            && (io::stdout().is_terminal() || LINE_BUFFERED.load(Ordering::Relaxed)),
         status,
         open,
     }
@@ -1408,7 +1459,11 @@ impl Registry {
             return Ok(());
         }
         if let Err(e) = name.with_bytes(|bs| global.check_open(bs)) {
-            return Err(CompileError::new(format!("cannot redirect to `{}': {}", name.as_str(), e)));
+            return Err(CompileError::new(format!(
+                "cannot redirect to `{}': {}",
+                name.as_str(),
+                e
+            )));
         }
         fh.checked = true;
         Ok(())
@@ -1468,7 +1523,10 @@ impl Registry {
         }
         let key = name.clone().unmoor();
         let mut found = false;
-        for fh in [self.files.get_mut(&key), self.cmds.get_mut(&key)].into_iter().flatten() {
+        for fh in [self.files.get_mut(&key), self.cmds.get_mut(&key)]
+            .into_iter()
+            .flatten()
+        {
             fh.flush()?;
             found |= fh.raw.is_open();
         }
@@ -1708,7 +1766,10 @@ impl<F: FileFactory> Root for RootImpl<F> {
     }
     fn check_open(&self, fname: &[u8]) -> io::Result<()> {
         self.pool
-            .open(|| self.file_factory.build(&bytes_path(fname), FileSpec::Append))
+            .open(|| {
+                self.file_factory
+                    .build(&bytes_path(fname), FileSpec::Append)
+            })
             .map(drop)
     }
 }
@@ -2070,7 +2131,11 @@ impl RawHandle {
     }
     /// The exit status of the command closed most recently, or 0 (e.g. for files).
     fn take_status(&self) -> Int {
-        self.status.lock().ok().and_then(|mut s| s.take()).unwrap_or(0)
+        self.status
+            .lock()
+            .ok()
+            .and_then(|mut s| s.take())
+            .unwrap_or(0)
     }
 }
 
@@ -2478,7 +2543,10 @@ mod tests {
     #[test]
     fn non_utf8_file_name() {
         use std::os::unix::ffi::OsStrExt;
-        assert_eq!(bytes_path(b"out\xff.txt").as_os_str().as_bytes(), b"out\xff.txt");
+        assert_eq!(
+            bytes_path(b"out\xff.txt").as_os_str().as_bytes(),
+            b"out\xff.txt"
+        );
         let fname = Str::from_bytes(b"/fake/out\xff.txt");
         let fs = FakeFs::default();
         let mut reg = Registry::from_factory(fs.clone());

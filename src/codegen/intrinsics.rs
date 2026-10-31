@@ -5,17 +5,18 @@
 //! underlying runtime library.
 use super::{Backend, FunctionAttr, Sig};
 use crate::runtime::{
-    self, config_util, date_time, encoding, faker, jev_functions, kv, logging, math_util, network, os_util,
+    self, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str, StrMap,
+    config_util, date_time, encoding, faker, jev_functions, kv, logging, math_util, network,
+    os_util,
     printf::FormatArg,
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
+        chunk::{ChunkProducer, OffsetChunk},
         jsonl::JsonlReader,
         message::MessageReader,
-        chunk::{ChunkProducer, OffsetChunk},
         regex::RegexSplitter,
     },
-    string_util, ChainedReader, FileRead, Float, Int, IntMap, Line, LineReader, RegexCache, Str,
-    StrMap,
+    string_util,
 };
 use crate::{
     builtins::Variable,
@@ -24,10 +25,10 @@ use crate::{
     pushdown::FieldSet,
 };
 
+use crate::runtime::awk_regex::AwkRegex;
 use libc::c_void;
 use paste::paste;
 use rand::{self, RngExt};
-use crate::runtime::awk_regex::AwkRegex;
 use smallvec;
 
 use std::convert::TryFrom;
@@ -820,7 +821,10 @@ impl_into_runtime!(ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>, V3);
 impl_into_runtime!(ChainedReader<RegexSplitter<Box<dyn io::Read + Send>>>, V4);
 impl_into_runtime!(JsonlReader, V5);
 impl_into_runtime!(MessageReader<RegexSplitter<Box<dyn io::Read + Send>>>, V6);
-impl_into_runtime!(MessageReader<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>, V7);
+impl_into_runtime!(
+    MessageReader<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>,
+    V7
+);
 impl_into_runtime!(MessageReader<JsonlReader>, V8);
 
 pub(crate) struct Runtime<'a> {
@@ -1083,7 +1087,10 @@ pub(crate) unsafe extern "C" fn match_arr_str(
         let pat = &*(pat as *mut Str);
         let subsep = &*(subsep as *mut Str);
         let core = &mut runtime.core;
-        let res = match core.regexes.regex_match_strmap(&mut core.vars, pat, s, &arr, subsep) {
+        let res = match core
+            .regexes
+            .regex_match_strmap(&mut core.vars, pat, s, &arr, subsep)
+        {
             Ok(res) => res,
             Err(e) => fail!(runtime, "{}", e),
         };
@@ -1190,11 +1197,15 @@ pub(crate) unsafe extern "C" fn join_csv(runtime: *mut c_void, start: Int, end: 
 }
 
 pub(crate) unsafe extern "C" fn record_csv(runtime: *mut c_void) -> U128 {
-    guard_panic(stringify!(record_csv), || line_record(runtime, ",", |s| runtime::escape_csv(&s)))
+    guard_panic(stringify!(record_csv), || {
+        line_record(runtime, ",", |s| runtime::escape_csv(&s))
+    })
 }
 
 pub(crate) unsafe extern "C" fn record_tsv(runtime: *mut c_void) -> U128 {
-    guard_panic(stringify!(record_tsv), || line_record(runtime, "\t", |s| runtime::escape_tsv(&s)))
+    guard_panic(stringify!(record_tsv), || {
+        line_record(runtime, "\t", |s| runtime::escape_tsv(&s))
+    })
 }
 
 unsafe fn line_record(
@@ -1229,9 +1240,7 @@ pub(crate) unsafe extern "C" fn uuid(version: *mut U128) -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn snowflake(machine_id: Int) -> Int {
-    guard_panic(stringify!(snowflake), || {
-        math_util::snowflake(machine_id)
-    })
+    guard_panic(stringify!(snowflake), || math_util::snowflake(machine_id))
 }
 
 pub(crate) unsafe extern "C" fn local_ip() -> U128 {
@@ -1350,7 +1359,8 @@ pub(crate) unsafe extern "C" fn digest(algorithm: *mut U128, text: *mut U128) ->
     guard_panic(stringify!(digest), || {
         let algorithm = &*(algorithm as *mut Str);
         let text = &*(text as *mut Str);
-        let date_time_text = text.with_bytes(|bs| runtime::crypto::digest(&*algorithm.as_str(), bs));
+        let date_time_text =
+            text.with_bytes(|bs| runtime::crypto::digest(&*algorithm.as_str(), bs));
         let res = Str::from(date_time_text);
         mem::transmute::<Str, U128>(res)
     })
@@ -1365,7 +1375,9 @@ pub(crate) unsafe extern "C" fn hmac(
         let algorithm = &*(algorithm as *mut Str);
         let key = &*(key as *mut Str);
         let text = &*(text as *mut Str);
-        let date_time_text = key.with_bytes(|key| text.with_bytes(|bs| runtime::crypto::hmac(&*algorithm.as_str(), key, bs)));
+        let date_time_text = key.with_bytes(|key| {
+            text.with_bytes(|bs| runtime::crypto::hmac(&*algorithm.as_str(), key, bs))
+        });
         let res = Str::from(date_time_text);
         mem::transmute::<Str, U128>(res)
     })
@@ -1405,7 +1417,8 @@ pub(crate) unsafe extern "C" fn encrypt(
         let mode = &*(mode as *mut Str);
         let plain_text = &*(plain_text as *mut Str);
         let key = &*(key as *mut Str);
-        let encrypted_text = plain_text.with_bytes(|bs| runtime::crypto::encrypt(&*mode.as_str(), bs, &*key.as_str()));
+        let encrypted_text = plain_text
+            .with_bytes(|bs| runtime::crypto::encrypt(&*mode.as_str(), bs, &*key.as_str()));
         let res = Str::from(encrypted_text);
         mem::transmute::<Str, U128>(res)
     })
@@ -1420,7 +1433,8 @@ pub(crate) unsafe extern "C" fn decrypt(
         let mode = &*(mode as *mut Str);
         let encrypted_text = &*(encrypted_text as *mut Str);
         let key = &*(key as *mut Str);
-        let plain_text = runtime::crypto::decrypt(&*mode.as_str(), &*encrypted_text.as_str(), &*key.as_str());
+        let plain_text =
+            runtime::crypto::decrypt(&*mode.as_str(), &*encrypted_text.as_str(), &*key.as_str());
         let res = Str::from_bytes(&plain_text);
         mem::transmute::<Str, U128>(res)
     })
@@ -1496,11 +1510,7 @@ pub(crate) unsafe extern "C" fn starts_with(text: *mut U128, prefix: *mut U128) 
     guard_panic(stringify!(starts_with), || {
         let text = &*(text as *mut Str);
         let prefix = &*(prefix as *mut Str);
-        if text.has_prefix(prefix) {
-            1
-        } else {
-            0
-        }
+        if text.has_prefix(prefix) { 1 } else { 0 }
     })
 }
 
@@ -1508,11 +1518,7 @@ pub(crate) unsafe extern "C" fn ends_with(text: *mut U128, suffix: *mut U128) ->
     guard_panic(stringify!(ends_with), || {
         let text = &*(text as *mut Str);
         let suffix = &*(suffix as *mut Str);
-        if text.has_suffix(suffix) {
-            1
-        } else {
-            0
-        }
+        if text.has_suffix(suffix) { 1 } else { 0 }
     })
 }
 
@@ -1520,11 +1526,7 @@ pub(crate) unsafe extern "C" fn text_contains(text: *mut U128, child: *mut U128)
     guard_panic(stringify!(text_contains), || {
         let text = &*(text as *mut Str);
         let child = &*(child as *mut Str);
-        if text.has_substr(child) {
-            1
-        } else {
-            0
-        }
+        if text.has_substr(child) { 1 } else { 0 }
     })
 }
 
@@ -1588,7 +1590,11 @@ pub(crate) unsafe extern "C" fn pad_left(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_left), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = or_fail(string_util::pad_left(&*text.as_text(), len, &*pad.as_text()));
+        let res = or_fail(string_util::pad_left(
+            &*text.as_text(),
+            len,
+            &*pad.as_text(),
+        ));
         mem::transmute::<Str, U128>(Str::from_text(res))
     })
 }
@@ -1597,7 +1603,11 @@ pub(crate) unsafe extern "C" fn pad_right(text: *mut U128, len: Int, pad: *mut U
     guard_panic(stringify!(pad_right), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = or_fail(string_util::pad_right(&*text.as_text(), len, &*pad.as_text()));
+        let res = or_fail(string_util::pad_right(
+            &*text.as_text(),
+            len,
+            &*pad.as_text(),
+        ));
         mem::transmute::<Str, U128>(Str::from_text(res))
     })
 }
@@ -1606,7 +1616,11 @@ pub(crate) unsafe extern "C" fn pad_both(text: *mut U128, len: Int, pad: *mut U1
     guard_panic(stringify!(pad_both), || {
         let text = &*(text as *mut Str);
         let pad = &*(pad as *mut Str);
-        let res = or_fail(string_util::pad_both(&*text.as_text(), len, &*pad.as_text()));
+        let res = or_fail(string_util::pad_both(
+            &*text.as_text(),
+            len,
+            &*pad.as_text(),
+        ));
         mem::transmute::<Str, U128>(Str::from_text(res))
     })
 }
@@ -1887,7 +1901,11 @@ pub(crate) unsafe extern "C" fn bf_icontains(item: *mut U128, group: *mut U128) 
     })
 }
 
-pub(crate) unsafe extern "C" fn jev(record: *mut U128, instructions: *mut U128, threshold: Float) -> Int {
+pub(crate) unsafe extern "C" fn jev(
+    record: *mut U128,
+    instructions: *mut U128,
+    threshold: Float,
+) -> Int {
     guard_panic(stringify!(jev), || {
         let record = &*(record as *mut Str);
         let instructions = &*(instructions as *mut Str);
@@ -1903,22 +1921,38 @@ pub(crate) unsafe extern "C" fn jev_prob(record: *mut U128, instructions: *mut U
     })
 }
 
-pub(crate) unsafe extern "C" fn jev_choice(record: *mut U128, instructions: *mut U128, options: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn jev_choice(
+    record: *mut U128,
+    instructions: *mut U128,
+    options: *mut U128,
+) -> U128 {
     guard_panic(stringify!(jev_choice), || {
         let record = &*(record as *mut Str);
         let instructions = &*(instructions as *mut Str);
         let options = &*(options as *mut Str);
-        let result = jev_functions::jev_choice(&*record.as_str(), &*instructions.as_str(), &*options.as_str());
+        let result = jev_functions::jev_choice(
+            &*record.as_str(),
+            &*instructions.as_str(),
+            &*options.as_str(),
+        );
         mem::transmute::<Str, U128>(Str::from(result))
     })
 }
 
-pub(crate) unsafe extern "C" fn jev_score(record: *mut U128, instructions: *mut U128, levels: *mut U128) -> Float {
+pub(crate) unsafe extern "C" fn jev_score(
+    record: *mut U128,
+    instructions: *mut U128,
+    levels: *mut U128,
+) -> Float {
     guard_panic(stringify!(jev_score), || {
         let record = &*(record as *mut Str);
         let instructions = &*(instructions as *mut Str);
         let levels = &*(levels as *mut Str);
-        jev_functions::jev_score(&*record.as_str(), &*instructions.as_str(), &*levels.as_str())
+        jev_functions::jev_score(
+            &*record.as_str(),
+            &*instructions.as_str(),
+            &*levels.as_str(),
+        )
     })
 }
 
@@ -1952,7 +1986,11 @@ pub(crate) unsafe extern "C" fn date_add(timestamp: Int, n: Int, unit: *mut U128
     })
 }
 
-pub(crate) unsafe extern "C" fn date_add_str(date_time_text: *mut U128, n: Int, unit: *mut U128) -> Int {
+pub(crate) unsafe extern "C" fn date_add_str(
+    date_time_text: *mut U128,
+    n: Int,
+    unit: *mut U128,
+) -> Int {
     guard_panic(stringify!(date_add_str), || {
         let date_time_text = &*(date_time_text as *mut Str);
         let unit = &*(unit as *mut Str);
@@ -2172,7 +2210,8 @@ pub(crate) unsafe extern "C" fn pairs(
         let src = &*(src as *mut Str);
         let pair_sep = &*(pair_sep as *mut Str);
         let kv_sep = &*(kv_sep as *mut Str);
-        let arr_obj = string_util::pairs(&*src.as_text(), &*pair_sep.as_text(), &*kv_sep.as_text()).from_text_all();
+        let arr_obj = string_util::pairs(&*src.as_text(), &*pair_sep.as_text(), &*kv_sep.as_text())
+            .from_text_all();
         mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
     })
 }
@@ -2230,7 +2269,10 @@ pub(crate) unsafe extern "C" fn type_of_string() -> U128 {
 pub(crate) unsafe extern "C" fn type_of_strnum(text: *mut U128) -> U128 {
     guard_panic(stringify!(type_of_strnum), || {
         let text = &*(text as *mut Str);
-        let res = if text.with_bytes(crate::runtime::compare::looks_numeric).is_some() {
+        let res = if text
+            .with_bytes(crate::runtime::compare::looks_numeric)
+            .is_some()
+        {
             "strnum"
         } else {
             "string"
@@ -2246,27 +2288,19 @@ pub(crate) unsafe extern "C" fn type_of_unassigned() -> U128 {
 }
 
 pub(crate) unsafe extern "C" fn is_array_true() -> Int {
-    guard_panic(stringify!(is_array_true), || {
-        1
-    })
+    guard_panic(stringify!(is_array_true), || 1)
 }
 
 pub(crate) unsafe extern "C" fn is_array_false() -> Int {
-    guard_panic(stringify!(is_array_false), || {
-        0
-    })
+    guard_panic(stringify!(is_array_false), || 0)
 }
 
 pub(crate) unsafe extern "C" fn is_int_true() -> Int {
-    guard_panic(stringify!(is_int_true), || {
-        1
-    })
+    guard_panic(stringify!(is_int_true), || 1)
 }
 
 pub(crate) unsafe extern "C" fn is_int_false() -> Int {
-    guard_panic(stringify!(is_int_false), || {
-        0
-    })
+    guard_panic(stringify!(is_int_false), || 0)
 }
 
 pub(crate) unsafe extern "C" fn is_str_int(text: *mut U128) -> Int {
@@ -2281,15 +2315,11 @@ pub(crate) unsafe extern "C" fn is_str_int(text: *mut U128) -> Int {
 }
 
 pub(crate) unsafe extern "C" fn is_num_true() -> Int {
-    guard_panic(stringify!(is_num_true), || {
-        1
-    })
+    guard_panic(stringify!(is_num_true), || 1)
 }
 
 pub(crate) unsafe extern "C" fn is_num_false() -> Int {
-    guard_panic(stringify!(is_num_false), || {
-        0
-    })
+    guard_panic(stringify!(is_num_false), || 0)
 }
 
 pub(crate) unsafe extern "C" fn is_str_num(text: *mut U128) -> Int {
@@ -2380,7 +2410,11 @@ pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {
     })
 }
 
-pub(crate) unsafe extern "C" fn sqlite_query(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
+pub(crate) unsafe extern "C" fn sqlite_query(
+    db_path: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> *mut c_void {
     guard_panic(stringify!(sqlite_query), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2391,7 +2425,11 @@ pub(crate) unsafe extern "C" fn sqlite_query(db_path: *mut U128, sql: *mut U128,
     })
 }
 
-pub(crate) unsafe extern "C" fn sqlite_execute(db_path: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
+pub(crate) unsafe extern "C" fn sqlite_execute(
+    db_path: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> Int {
     guard_panic(stringify!(sqlite_execute), || {
         let db_path = &*(db_path as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2402,7 +2440,11 @@ pub(crate) unsafe extern "C" fn sqlite_execute(db_path: *mut U128, sql: *mut U12
     })
 }
 
-pub(crate) unsafe extern "C" fn mysql_query(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
+pub(crate) unsafe extern "C" fn mysql_query(
+    db_url: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> *mut c_void {
     guard_panic(stringify!(mysql_query), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2413,7 +2455,11 @@ pub(crate) unsafe extern "C" fn mysql_query(db_url: *mut U128, sql: *mut U128, p
     })
 }
 
-pub(crate) unsafe extern "C" fn mysql_execute(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
+pub(crate) unsafe extern "C" fn mysql_execute(
+    db_url: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> Int {
     guard_panic(stringify!(mysql_execute), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2424,7 +2470,11 @@ pub(crate) unsafe extern "C" fn mysql_execute(db_url: *mut U128, sql: *mut U128,
     })
 }
 
-pub(crate) unsafe extern "C" fn pg_query(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> *mut c_void {
+pub(crate) unsafe extern "C" fn pg_query(
+    db_url: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> *mut c_void {
     guard_panic(stringify!(pg_query), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2435,7 +2485,11 @@ pub(crate) unsafe extern "C" fn pg_query(db_url: *mut U128, sql: *mut U128, para
     })
 }
 
-pub(crate) unsafe extern "C" fn pg_execute(db_url: *mut U128, sql: *mut U128, params: *mut c_void) -> Int {
+pub(crate) unsafe extern "C" fn pg_execute(
+    db_url: *mut U128,
+    sql: *mut U128,
+    params: *mut c_void,
+) -> Int {
     guard_panic(stringify!(pg_execute), || {
         let db_url = &*(db_url as *mut Str);
         let sql = &*(sql as *mut Str);
@@ -2568,7 +2622,11 @@ pub(crate) unsafe extern "C" fn json_get(json_text: *mut U128, key: *mut U128) -
     })
 }
 
-pub(crate) unsafe extern "C" fn json_set(json_text: *mut U128, key: *mut U128, value: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn json_set(
+    json_text: *mut U128,
+    key: *mut U128,
+    value: *mut U128,
+) -> U128 {
     guard_panic(stringify!(json_set), || {
         let json_text = &*(json_text as *mut Str);
         let key = &*(key as *mut Str);
@@ -2712,9 +2770,7 @@ pub(crate) unsafe extern "C" fn dump_float(num: Float) {
 }
 
 pub(crate) unsafe extern "C" fn dump_null() {
-    guard_panic(stringify!(dump_null), || {
-        eprintln!("Null")
-    })
+    guard_panic(stringify!(dump_null), || eprintln!("Null"))
 }
 
 // asort(src, dst, how): one intrinsic per pair of map types with the same value type. `src` and
@@ -3184,7 +3240,8 @@ pub(crate) unsafe extern "C" fn concat(s1: *mut c_void, s2: *mut c_void) -> U128
 
 pub(crate) unsafe extern "C" fn concat_n(args: *mut usize, num_args: Int) -> U128 {
     guard_panic(stringify!(concat_n), || {
-        let pieces: &[&Str] = slice::from_raw_parts(args as *const usize as *const &Str, num_args as usize);
+        let pieces: &[&Str] =
+            slice::from_raw_parts(args as *const usize as *const &Str, num_args as usize);
         mem::transmute::<Str, U128>(Str::concat_n(pieces))
     })
 }
@@ -3408,7 +3465,11 @@ pub(crate) unsafe extern "C" fn char_at(text: *mut U128, index: Int) -> U128 {
     guard_panic(stringify!(char_at), || {
         let text = &*(text as *mut Str);
         // Indexes start at 1; out-of-range indexes yield "" like substr.
-        let res = if index <= 0 { Str::default() } else { text.char_at((index - 1) as usize) };
+        let res = if index <= 0 {
+            Str::default()
+        } else {
+            text.char_at((index - 1) as usize)
+        };
         mem::transmute::<Str, U128>(res)
     })
 }
@@ -3462,9 +3523,7 @@ unsafe fn drop_map_generic<K, V>(m: *mut c_void) {
 // guarantee this.
 
 pub(crate) unsafe extern "C" fn ref_map(m: *mut c_void) {
-    guard_panic(stringify!(ref_map), || {
-        ref_map_generic::<Int, Str>(m)
-    })
+    guard_panic(stringify!(ref_map), || ref_map_generic::<Int, Str>(m))
 }
 
 pub(crate) unsafe extern "C" fn int_to_str(i: Int) -> U128 {
@@ -3666,11 +3725,11 @@ macro_rules! str_compare_inner {
             guard_panic(stringify!($name), || {
                 let s1 = &*(s1 as *mut Str);
                 let s2 = &*(s2 as *mut Str);
-                use runtime::compare::{cmp_bytes, CmpOp};
+                use runtime::compare::{CmpOp, cmp_bytes};
                 s1.with_bytes(|bs1| s2.with_bytes(|bs2| cmp_bytes(CmpOp::$op, bs1, bs2))) as Int
             })
         }
-    }
+    };
 }
 macro_rules! str_compare {
     ($($name:ident ($op:ident);)*) => { $( str_compare_inner!($name, $op); )* };
@@ -3814,7 +3873,10 @@ pub(crate) unsafe extern "C" fn printf_impl_file(
         );
         try_abort!(rt, (*rt).core.write_files.check_output(output_wrapped));
         // Like print, exit silently on write errors.
-        try_silent_abort!(rt, (*rt).core.write_files.write_printf(output_wrapped, &text))
+        try_silent_abort!(
+            rt,
+            (*rt).core.write_files.write_printf(output_wrapped, &text)
+        )
     })
 }
 
@@ -3890,7 +3952,9 @@ pub(crate) unsafe extern "C" fn div_by_zero(rt: *mut c_void) {
 // Under cfg(test) `fail!` panics without using `rt`.
 #[cfg_attr(test, allow(unused_variables))]
 pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void) {
-    guard_panic(stringify!(int_overflow), || fail!(rt, "{}", runtime::INT_OVERFLOW_MSG))
+    guard_panic(stringify!(int_overflow), || {
+        fail!(rt, "{}", runtime::INT_OVERFLOW_MSG)
+    })
 }
 
 pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) -> Int {
@@ -3904,75 +3968,51 @@ pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) -> 
 }
 
 pub(crate) unsafe extern "C" fn _frawk_cos(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_cos), || {
-        f.cos()
-    })
+    guard_panic(stringify!(_frawk_cos), || f.cos())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_sin(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_sin), || {
-        f.sin()
-    })
+    guard_panic(stringify!(_frawk_sin), || f.sin())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_log(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_log), || {
-        f.ln()
-    })
+    guard_panic(stringify!(_frawk_log), || f.ln())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_log2(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_log2), || {
-        f.log2()
-    })
+    guard_panic(stringify!(_frawk_log2), || f.log2())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_log10(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_log10), || {
-        f.log10()
-    })
+    guard_panic(stringify!(_frawk_log10), || f.log10())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_exp(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_exp), || {
-        f.exp()
-    })
+    guard_panic(stringify!(_frawk_exp), || f.exp())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_abs(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_abs), || {
-        f.abs()
-    })
+    guard_panic(stringify!(_frawk_abs), || f.abs())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_ceil(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_ceil), || {
-        f.ceil()
-    })
+    guard_panic(stringify!(_frawk_ceil), || f.ceil())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_floor(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_floor), || {
-        f.floor()
-    })
+    guard_panic(stringify!(_frawk_floor), || f.floor())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_round(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_round), || {
-        f.round()
-    })
+    guard_panic(stringify!(_frawk_round), || f.round())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_atan(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_atan), || {
-        f.atan()
-    })
+    guard_panic(stringify!(_frawk_atan), || f.atan())
 }
 
 pub(crate) unsafe extern "C" fn _frawk_atan2(x: Float, y: Float) -> Float {
-    guard_panic(stringify!(_frawk_atan2), || {
-        x.atan2(y)
-    })
+    guard_panic(stringify!(_frawk_atan2), || x.atan2(y))
 }
 
 pub(crate) unsafe extern "C" fn _frawk_intdiv0(x: Float, y: Float) -> Float {
@@ -3982,15 +4022,11 @@ pub(crate) unsafe extern "C" fn _frawk_intdiv0(x: Float, y: Float) -> Float {
 }
 
 pub(crate) unsafe extern "C" fn _frawk_pow(x: Float, y: Float) -> Float {
-    guard_panic(stringify!(_frawk_pow), || {
-        Float::powf(x, y)
-    })
+    guard_panic(stringify!(_frawk_pow), || Float::powf(x, y))
 }
 
 pub(crate) unsafe extern "C" fn _frawk_fprem(x: Float, y: Float) -> Float {
-    guard_panic(stringify!(_frawk_fprem), || {
-        math_util::fmod(x, y)
-    })
+    guard_panic(stringify!(_frawk_fprem), || math_util::fmod(x, y))
 }
 
 // And now for the shenanigans for implementing map operations. There are 48 functions here; we
@@ -4082,7 +4118,7 @@ macro_rules! map_impl {
                 guard_panic(stringify!([< alloc_ $ty >]), || {
                     let res: runtime::SharedMap<$k, $v> = Default::default();
                     mem::transmute::<runtime::SharedMap<$k, $v>, *mut c_void>(res)
-            
+
                 })
             }
 
@@ -4098,7 +4134,7 @@ macro_rules! map_impl {
                     mem::forget(map);
                     let b = iter.into_boxed_slice();
                     Box::into_raw(b) as _
-            
+
                 })
             }
 
@@ -4109,7 +4145,7 @@ macro_rules! map_impl {
                     let res = map.len();
                     mem::forget(map);
                     res as Int
-            
+
                 })
             }
 
@@ -4122,7 +4158,7 @@ macro_rules! map_impl {
                     let res = map.get(key);
                     mem::forget(map);
                     convert_out!($v, res)
-            
+
                 })
             }
 
@@ -4134,7 +4170,7 @@ macro_rules! map_impl {
                     let res = map.contains(key) as Int;
                     mem::forget(map);
                     res
-            
+
                 })
             }
 
@@ -4146,7 +4182,7 @@ macro_rules! map_impl {
                     let val = convert_in!($v, &v);
                     map.insert(key.clone(), val.clone());
                     mem::forget(map);
-            
+
                 })
             }
 
@@ -4157,7 +4193,7 @@ macro_rules! map_impl {
                     let key = convert_in!($k, &k);
                     map.delete(key);
                     mem::forget(map);
-            
+
                 })
             }
 
@@ -4167,7 +4203,7 @@ macro_rules! map_impl {
                     let map = mem::transmute::<*mut c_void, runtime::SharedMap<$k, $v>>(map);
                     map.clear();
                     mem::forget(map);
-            
+
                 })
             }
 
@@ -4175,7 +4211,7 @@ macro_rules! map_impl {
                 guard_panic(stringify!([<drop_ $ty>]), || {
                     debug_assert!(!map.is_null());
                     drop_map_generic::<$k, $v>(map)
-            
+
                 })
             }
 
@@ -4187,7 +4223,7 @@ macro_rules! map_impl {
                     let res = map.inc_int(key, by);
                     mem::forget(map);
                     convert_out!($v, res)
-            
+
                 })
             }
 
@@ -4199,7 +4235,7 @@ macro_rules! map_impl {
                     let res = map.inc_float(key, by);
                     mem::forget(map);
                     convert_out!($v, res)
-            
+
                 })
             }
         }
@@ -4220,7 +4256,7 @@ macro_rules! slot_impl {
                 guard_panic(stringify!([<load_slot_ $name>]), || {
                     let runtime = &mut *(runtime as *mut Runtime);
                     convert_out!($ty, runtime.core.[<load_ $name>](slot as usize))
-            
+
                 })
             }
 
@@ -4230,7 +4266,7 @@ macro_rules! slot_impl {
                     runtime
                         .core
                         .[<store_ $name>](slot as usize, convert_in_val!($ty, v));
-            
+
                 })
             }
         }

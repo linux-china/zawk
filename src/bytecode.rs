@@ -5,15 +5,14 @@ use std::sync::Arc;
 use crate::builtins::{Bitwise, FloatFunc, Variable};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::{self, Ty};
-use crate::interp::{index, index_mut, Storage};
+use crate::interp::{Storage, index, index_mut};
 use crate::runtime::{
-    self,
+    self, Float, Int, Str, UniqueStr,
     compare::{CmpOp, StrKind},
-    Float, Int, Str, UniqueStr,
 };
 
-use crate::runtime::awk_regex::AwkRegex;
 pub(crate) use crate::interp::Interp;
+use crate::runtime::awk_regex::AwkRegex;
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct Label(pub usize);
@@ -268,8 +267,17 @@ pub(crate) enum Instr<'a> {
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Hmac(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Jwt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
-    Dejwt( Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Jwt(
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
+    Dejwt(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
     Encrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
@@ -289,9 +297,19 @@ pub(crate) enum Instr<'a> {
     Eval(Reg<Float>, Reg<Str<'a>>),
     Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Seq(Reg<runtime::IntMap<Float>>, Reg<Float>, Reg<Float>, Reg<Float>),
+    Seq(
+        Reg<runtime::IntMap<Float>>,
+        Reg<Float>,
+        Reg<Float>,
+        Reg<Float>,
+    ),
     Url(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
-    Pairs(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Pairs(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
     Record(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Message(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     SemVer(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
@@ -306,7 +324,11 @@ pub(crate) enum Instr<'a> {
     Rgb2Hex(Reg<Str<'a>>, Reg<Int>, Reg<Int>, Reg<Int>),
     Variant(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>),
     Func(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
-    Uniq(Reg<runtime::IntMap<Str<'a>>>, Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>),
+    Uniq(
+        Reg<runtime::IntMap<Str<'a>>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+        Reg<Str<'a>>,
+    ),
     TypeOfArray(Reg<Str<'a>>),
     TypeOfNumber(Reg<Str<'a>>),
     // typeof() of a string: "strnum" if it may be a strnum (see strnum_analysis) and looks
@@ -323,9 +345,24 @@ pub(crate) enum Instr<'a> {
     IsStrNum(Reg<Int>, Reg<Str<'a>>),
     IsFormat(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     IsNull(Reg<Int>, Reg<Str<'a>>),
-    HttpGet(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
-    HttpPost(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
-    SendMail(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    HttpGet(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
+    HttpPost(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
+    SendMail(
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
     S3Get(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     S3Put(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     KvGet(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -339,12 +376,42 @@ pub(crate) enum Instr<'a> {
     LogInfo(Reg<Str<'a>>),
     LogWarn(Reg<Str<'a>>),
     LogError(Reg<Str<'a>>),
-    SqliteQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    SqliteExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    MysqlQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    MysqlExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    PgQuery(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
-    PgExecute(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    SqliteQuery(
+        Reg<runtime::IntMap<Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    SqliteExecute(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    MysqlQuery(
+        Reg<runtime::IntMap<Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    MysqlExecute(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    PgQuery(
+        Reg<runtime::IntMap<Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    PgExecute(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
     Publish(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterInsert(Reg<Str<'a>>, Reg<Str<'a>>),
     BloomFilterContains(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -403,7 +470,11 @@ pub(crate) enum Instr<'a> {
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
-    Parse(Reg<runtime::StrMap<'a, Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Parse(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
     RegexParse(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     // gawk's strtonum(); the flag is whether the argument may be a strnum (see
@@ -521,7 +592,10 @@ pub(crate) enum Instr<'a> {
     // See `builtins::Function::SetExit`: (code, keep the earlier code).
     SetExit(Reg<Int>, Reg<Int>),
     Exiting(Reg<Int>),
-    TryScope(/* 1 if `E` succeeded (on leaving) */ Reg<Int>, /* 1: enter, 0: leave */ Reg<Int>),
+    TryScope(
+        /* 1 if `E` succeeded (on leaving) */ Reg<Int>,
+        /* 1: enter, 0: leave */ Reg<Int>,
+    ),
 
     // Map operations
     Lookup {
@@ -778,8 +852,8 @@ impl<'a> Instr<'a> {
             Tsid(sr) => {
                 sr.accum(&mut f);
             }
-            Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr)
-            | Arch(sr) | Pwd(sr)| UserHome(sr)  => {
+            Whoami(sr) | Version(sr) | Os(sr) | OsFamily(sr) | Arch(sr) | Pwd(sr)
+            | UserHome(sr) => {
                 sr.accum(&mut f);
             }
             GetEnv(sr, name, default_value) => {
@@ -984,12 +1058,12 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            HttpGet(dst, url,headers) => {
+            HttpGet(dst, url, headers) => {
                 dst.accum(&mut f);
                 url.accum(&mut f);
                 headers.accum(&mut f);
             }
-            HttpPost(dst, url,body, headers) => {
+            HttpPost(dst, url, body, headers) => {
                 dst.accum(&mut f);
                 url.accum(&mut f);
                 headers.accum(&mut f);
@@ -1002,12 +1076,12 @@ impl<'a> Instr<'a> {
                 body.accum(&mut f);
                 url.accum(&mut f);
             }
-            S3Get(dst, bucket,object_name) => {
+            S3Get(dst, bucket, object_name) => {
                 dst.accum(&mut f);
                 bucket.accum(&mut f);
                 object_name.accum(&mut f);
             }
-            S3Put(dst, bucket,object_name, body) => {
+            S3Put(dst, bucket, object_name, body) => {
                 dst.accum(&mut f);
                 bucket.accum(&mut f);
                 object_name.accum(&mut f);
@@ -1018,7 +1092,7 @@ impl<'a> Instr<'a> {
                 namespace.accum(&mut f);
                 key.accum(&mut f);
             }
-            KvPut(namespace, key,value) => {
+            KvPut(namespace, key, value) => {
                 namespace.accum(&mut f);
                 key.accum(&mut f);
                 value.accum(&mut f);
@@ -1027,14 +1101,14 @@ impl<'a> Instr<'a> {
                 namespace.accum(&mut f);
                 key.accum(&mut f);
             }
-            KvClear( namespace) => {
+            KvClear(namespace) => {
                 namespace.accum(&mut f);
             }
             ReadAll(dst, path) => {
                 dst.accum(&mut f);
                 path.accum(&mut f);
             }
-            WriteAll( path, content) => {
+            WriteAll(path, content) => {
                 path.accum(&mut f);
                 content.accum(&mut f);
             }
@@ -1042,16 +1116,16 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 path.accum(&mut f);
             }
-            LogDebug( message) => {
+            LogDebug(message) => {
                 message.accum(&mut f);
             }
-            LogInfo( message) => {
+            LogInfo(message) => {
                 message.accum(&mut f);
             }
-            LogWarn( message) => {
+            LogWarn(message) => {
                 message.accum(&mut f);
             }
-            LogError( message) => {
+            LogError(message) => {
                 message.accum(&mut f);
             }
             SqliteQuery(dst, db_path, sql, params) => {
@@ -1225,7 +1299,7 @@ impl<'a> Instr<'a> {
                 xml_text.accum(&mut f);
                 xpath.accum(&mut f);
             }
-            DumpMapIntInt( arr) => {
+            DumpMapIntInt(arr) => {
                 arr.accum(&mut f);
             }
             DumpMapIntFloat(arr) => {
@@ -1252,19 +1326,18 @@ impl<'a> Instr<'a> {
             DumpFloat(num) => {
                 num.accum(&mut f);
             }
-            DumpNull() => {
-            }
-            MapIntIntJoin( dst, arr, target) => {
+            DumpNull() => {}
+            MapIntIntJoin(dst, arr, target) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
                 target.accum(&mut f);
             }
-            MapIntFloatJoin(dst, arr,sep) => {
+            MapIntFloatJoin(dst, arr, sep) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
                 sep.accum(&mut f);
             }
-            MapIntStrJoin(dst, arr,sep) => {
+            MapIntStrJoin(dst, arr, sep) => {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
                 sep.accum(&mut f);
@@ -1313,19 +1386,19 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }
-            Max(dst, first, second,third) => {
+            Max(dst, first, second, third) => {
                 dst.accum(&mut f);
                 first.accum(&mut f);
                 second.accum(&mut f);
                 third.accum(&mut f);
             }
-            Min(dst, first, second,third) => {
+            Min(dst, first, second, third) => {
                 dst.accum(&mut f);
                 first.accum(&mut f);
                 second.accum(&mut f);
                 third.accum(&mut f);
             }
-            Seq(dst, start, step,end) => {
+            Seq(dst, start, step, end) => {
                 dst.accum(&mut f);
                 start.accum(&mut f);
                 step.accum(&mut f);
@@ -1336,28 +1409,28 @@ impl<'a> Instr<'a> {
                 src.accum(&mut f);
                 param.accum(&mut f);
             }
-            Trim(dst, src, pat ) => {
+            Trim(dst, src, pat) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
                 pat.accum(&mut f);
             }
-            Truncate(dst, src, len, place_holder ) => {
+            Truncate(dst, src, len, place_holder) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
                 len.accum(&mut f);
                 place_holder.accum(&mut f);
             }
-            Parse(dst, text, template ) => {
+            Parse(dst, text, template) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 template.accum(&mut f);
             }
-            RegexParse(dst, text, template ) => {
+            RegexParse(dst, text, template) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 template.accum(&mut f);
             }
-            Strtonum(dst, text ) => {
+            Strtonum(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
@@ -1365,80 +1438,80 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            FormatBytes(dst, size ) => {
+            FormatBytes(dst, size) => {
                 dst.accum(&mut f);
                 size.accum(&mut f);
             }
-            ToBytes(dst, text ) => {
+            ToBytes(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            StartsWith(dst, text, prefix ) => {
+            StartsWith(dst, text, prefix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 prefix.accum(&mut f);
             }
-            EndsWith(dst, text, suffix ) => {
+            EndsWith(dst, text, suffix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 suffix.accum(&mut f);
             }
-            TextContains(dst, text, child ) => {
+            TextContains(dst, text, child) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 child.accum(&mut f);
             }
-            Capitalize(dst, text ) => {
+            Capitalize(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            UnCapitalize(dst, text ) => {
+            UnCapitalize(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            CamelCase(dst, text ) => {
+            CamelCase(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            KebabCase(dst, text ) => {
+            KebabCase(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            SnakeCase(dst, text ) => {
+            SnakeCase(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            TitleCase(dst, text ) => {
+            TitleCase(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            PascalCase(dst, text ) => {
+            PascalCase(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            Figlet(dst, text ) => {
+            Figlet(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            PadLeft(dst, text, len, pad ) => {
-                dst.accum(&mut f);
-                text.accum(&mut f);
-                len.accum(&mut f);
-                pad.accum(&mut f);
-            }
-            PadRight(dst, text, len, pad ) => {
+            PadLeft(dst, text, len, pad) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 len.accum(&mut f);
                 pad.accum(&mut f);
             }
-            PadBoth(dst, text, len, pad ) => {
+            PadRight(dst, text, len, pad) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 len.accum(&mut f);
                 pad.accum(&mut f);
             }
-            StrCmp(dst, text1, text2 ) => {
+            PadBoth(dst, text, len, pad) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                len.accum(&mut f);
+                pad.accum(&mut f);
+            }
+            StrCmp(dst, text1, text2) => {
                 dst.accum(&mut f);
                 text1.accum(&mut f);
                 text2.accum(&mut f);
@@ -1448,93 +1521,90 @@ impl<'a> Instr<'a> {
                 text1.accum(&mut f);
                 text2.accum(&mut f);
             }
-            Mask(dst, text ) => {
+            Mask(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            Repeat(dst, text, n ) | Wrap(dst, text, n) => {
+            Repeat(dst, text, n) | Wrap(dst, text, n) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 n.accum(&mut f);
             }
-            DefaultIfEmpty(dst, text, default_value ) => {
+            DefaultIfEmpty(dst, text, default_value) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 default_value.accum(&mut f);
             }
-            AppendIfMissing(dst, text, suffix ) => {
+            AppendIfMissing(dst, text, suffix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 suffix.accum(&mut f);
             }
-            PrependIfMissing(dst, text, prefix ) => {
+            PrependIfMissing(dst, text, prefix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 prefix.accum(&mut f);
             }
-            RemoveIfEnd(dst, text, suffix ) => {
+            RemoveIfEnd(dst, text, suffix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 suffix.accum(&mut f);
             }
-            RemoveIfBegin(dst, text, prefix ) => {
+            RemoveIfBegin(dst, text, prefix) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 prefix.accum(&mut f);
             }
-            Quote(dst, text ) => {
+            Quote(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            DoubleQuote(dst, text ) => {
+            DoubleQuote(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            Words(dst, text ) => {
+            Words(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            Lines(dst, text ) => {
+            Lines(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            TypeOfArray(_dst) => {
-            }
-            TypeOfNumber(_dst) => {
-            }
+            TypeOfArray(_dst) => {}
+            TypeOfNumber(_dst) => {}
             TypeOfString(dst, src, _) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
             }
-            TypeOfUnassigned(_dst) => {
-            }
-            IsArrayTrue(dst ) => {
+            TypeOfUnassigned(_dst) => {}
+            IsArrayTrue(dst) => {
                 dst.accum(&mut f);
             }
-            IsArrayFalse(dst ) => {
+            IsArrayFalse(dst) => {
                 dst.accum(&mut f);
             }
-            IsIntTrue(dst ) => {
+            IsIntTrue(dst) => {
                 dst.accum(&mut f);
             }
-            IsIntFalse(dst ) => {
+            IsIntFalse(dst) => {
                 dst.accum(&mut f);
             }
-            IsStrInt(dst , text) => {
-                dst.accum(&mut f);
-                text.accum(&mut f);
-            }
-            IsNumTrue(dst ) => {
-                dst.accum(&mut f);
-            }
-            IsNumFalse(dst ) => {
-                dst.accum(&mut f);
-            }
-            IsStrNum(dst , text) => {
+            IsStrInt(dst, text) => {
                 dst.accum(&mut f);
                 text.accum(&mut f);
             }
-            IsFormat(dst , format, text) => {
+            IsNumTrue(dst) => {
+                dst.accum(&mut f);
+            }
+            IsNumFalse(dst) => {
+                dst.accum(&mut f);
+            }
+            IsStrNum(dst, text) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+            }
+            IsFormat(dst, format, text) => {
                 dst.accum(&mut f);
                 format.accum(&mut f);
                 text.accum(&mut f);
@@ -1870,7 +1940,16 @@ impl<'a> Instr<'a> {
                 to_split.accum(&mut f);
                 arr.accum(&mut f);
             }
-            SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
+            SplitSeps {
+                res,
+                to_split,
+                arr_ty,
+                arr,
+                pat,
+                seps_ty,
+                seps,
+                ..
+            } => {
                 res.accum(&mut f);
                 to_split.accum(&mut f);
                 f(*arr, *arr_ty);
@@ -1960,19 +2039,40 @@ impl<'a> Instr<'a> {
                 f(*map, *map_ty);
             }
             Clear { map_ty, map } => f(*map, *map_ty),
-            Asort { res, src_ty, src, dst_ty, dst, how, .. } => {
+            Asort {
+                res,
+                src_ty,
+                src,
+                dst_ty,
+                dst,
+                how,
+                ..
+            } => {
                 res.accum(&mut f);
                 f(*src, *src_ty);
                 f(*dst, *dst_ty);
                 how.accum(&mut f);
             }
-            Asorti { res, src_ty, src, dst_ty, dst, how } => {
+            Asorti {
+                res,
+                src_ty,
+                src,
+                dst_ty,
+                dst,
+                how,
+            } => {
                 res.accum(&mut f);
                 f(*src, *src_ty);
                 f(*dst, *dst_ty);
                 how.accum(&mut f);
             }
-            ArrayStat { res, map_ty, map, kind, q } => {
+            ArrayStat {
+                res,
+                map_ty,
+                map,
+                kind,
+                q,
+            } => {
                 res.accum(&mut f);
                 f(*map, *map_ty);
                 kind.accum(&mut f);
@@ -1982,7 +2082,12 @@ impl<'a> Instr<'a> {
                 res.accum(&mut f);
                 f(*map, *map_ty);
             }
-            ArrayTop { res, map_ty, map, k } => {
+            ArrayTop {
+                res,
+                map_ty,
+                map,
+                k,
+            } => {
                 res.accum(&mut f);
                 f(*map, *map_ty);
                 k.accum(&mut f);

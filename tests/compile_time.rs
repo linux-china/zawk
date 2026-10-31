@@ -36,7 +36,11 @@ fn run(prog: &str, backend: &str) -> (String, Duration) {
         .output()
         .unwrap();
     let elapsed = start.elapsed();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     (String::from_utf8(out.stdout).unwrap(), elapsed)
 }
 
@@ -62,7 +66,9 @@ fn long_begin_block() {
 
 #[test]
 fn many_rules() {
-    let rules: Vec<_> = (0..N).map(|i| format!("NR==1 {{ {} }}", line(i, "$0"))).collect();
+    let rules: Vec<_> = (0..N)
+        .map(|i| format!("NR==1 {{ {} }}", line(i, "$0")))
+        .collect();
     let prog = format!("{}\nEND {{ print n }}", rules.join("\n"));
     check(&prog, &format!("{}\n", 3 * N));
 }
@@ -90,7 +96,11 @@ fn long_boolean_chains() {
 fn long_integer_arithmetic() {
     let n = 25000;
     let stmts: Vec<_> = (0..n).map(|i| format!("y{i} = x + {i}")).collect();
-    let prog = format!("BEGIN {{ x = 1\n{}\nprint y7, y{} }}", stmts.join("\n"), n - 1);
+    let prog = format!(
+        "BEGIN {{ x = 1\n{}\nprint y7, y{} }}",
+        stmts.join("\n"),
+        n - 1
+    );
     check(&prog, &format!("8 {n}\n"));
 }
 
@@ -99,7 +109,9 @@ fn long_integer_arithmetic() {
 #[test]
 fn thousands_of_counters() {
     let n = 3000;
-    let rules: Vec<_> = (0..n).map(|i| format!("$1 != \"k{i}\" {{ c{i}++ }}")).collect();
+    let rules: Vec<_> = (0..n)
+        .map(|i| format!("$1 != \"k{i}\" {{ c{i}++ }}"))
+        .collect();
     let prog = format!("{}\nEND {{ print c3 + c4 }}", rules.join("\n"));
     check(&prog, "2\n");
     // The same, with the counters as globals (they are read by a function).
