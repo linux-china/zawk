@@ -42,6 +42,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("title_case", "title_case($0)", None),
     ("pascal_case", "pascal_case($0)", None),
     ("is", "is(\"email\", $0)", Some(b"0")),
+    ("isnull", "isnull($0)", Some(b"0")),
     ("starts_with", "starts_with($0, \"caf\")", Some(b"1")),
     ("ends_with", "ends_with($0, substr($0, 4))", Some(b"1")),
     ("contains", "contains($0, char_at($0, 4))", Some(b"1")),
