@@ -597,6 +597,15 @@ fn is_raw_string_start(rest: &[u8]) -> bool {
     rest.get(hashes) == Some(&b'"')
 }
 
+/// The digits of a numeric literal, without the `_` separators of `1_000` and `0xFF_FF`.
+pub(crate) fn strip_digit_separators(lit: &str) -> Cow<'_, str> {
+    if lit.contains('_') {
+        Cow::Owned(lit.replace('_', ""))
+    } else {
+        Cow::Borrowed(lit)
+    }
+}
+
 pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Vec<u8>) -> &'a [u8] {
     fn hex_digit(c: char) -> Option<u8> {
         match c {
@@ -832,12 +841,17 @@ impl<'a> Tokenizer<'a> {
 
     fn num(&self) -> Option<(Tok<'a>, usize)> {
         static HEX_PATTERN: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+").unwrap());
-        static INT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[+-]?\d+").unwrap());
+            LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+(_[0-9A-Fa-f]+)*").unwrap());
+        static INT_PATTERN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[+-]?\d+(_\d+)*").unwrap());
         // Adapted from https://www.regular-expressions.info/floatingpoint.html
         static FLOAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"^[-+]?(\d+\.\d*([eE][-+]?\d+)?|\.\d+([eE][-+]?\d+)?|\d+[eE][-+]?\d+)")
-                .unwrap()
+            let digits = r"\d+(_\d+)*";
+            let exp = format!("[eE][-+]?{digits}");
+            Regex::new(&format!(
+                r"^[-+]?({digits}\.({digits})?({exp})?|\.{digits}({exp})?|{digits}{exp})"
+            ))
+            .unwrap()
         });
         let text = &self.text[self.cur..];
         if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {

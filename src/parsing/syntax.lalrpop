@@ -235,9 +235,9 @@ MatchBind: crate::parsing::MatchBind<'a> = {
 }
 
 CaseNum: &'a Expr<'a,'a,&'a str> = {
-  "INT" => arena.alloc(exact_int_literal(parse_int_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
+  "INT" => arena.alloc(exact_int_literal(parse_int_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "FLOAT" => arena.alloc(Expr::FLit(strtod(lexer::strip_digit_separators(<>).as_bytes()))),
 }
 
 // getline is an operand of the comparison operators, so its result can be assigned and compared:
@@ -664,9 +664,9 @@ LeafTerm: &'a Expr<'a,'a, &'a str> = {
   Ident,
   StrLit,
   // Integer literals that are not exact as doubles (beyond 2^53) become floating-point literals.
-  "INT" => arena.alloc(exact_int_literal(parse_int_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(<>.as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "FLOAT" => arena.alloc(Expr::FLit(strtod(<>.as_bytes()))),
+  "INT" => arena.alloc(exact_int_literal(parse_int_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "FLOAT" => arena.alloc(Expr::FLit(strtod(lexer::strip_digit_separators(<>).as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
   MatchExpr,
   // TODO: not Rparen for these next two?

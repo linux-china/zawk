@@ -1,5 +1,6 @@
 # Unreleased
 
+* Add digit separators to numeric literals: `1_000_000`, `1_000.5`, `1e1_0` and `0xFF_FF` (a `_` between two digits). Numbers read from strings and input are not affected: `"1_000" + 0` is `1`. **Behavior change**: `1_000` was the number `1` joined with the variable `_000`; write `1 _000` for that
 * Add `zawk test [PATH...] [-k TEXT]`: run the functions named `test_*` of AWK files, or of the `.awk` files under directories (the current one by default; hidden entries are skipped), e.g. `zawk test lib/price.awk -k discount`. Each test runs in a process of its own without the rules of its file, its output is only shown on a failure, and the exit code is `1` if a test fails. A test fails when it exits with a non-zero code. The tests of an `@include`d file are not run with the file including it
 * Add `assert_eq(left, right[, msg])`: like `assert(left == right, msg)`, printing `left`, `right` and `file:line:column`. Each side is evaluated once. **Behavior change**: `assert_eq` can no longer be used as a function name
 * `assert(cond, msg)`: `msg` is optional, by default the source of `cond` and its location are printed

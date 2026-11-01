@@ -6469,3 +6469,61 @@ fn fmt_keeps_assertions() {
             .contains("assert_eq(x, 1, \"m\")")
     );
 }
+
+#[test]
+fn numeric_literal_digit_separators() {
+    let run = |prog: &str| {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-v", "s=1_000", prog])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{prog}: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    for (prog, expected) in [
+        ("BEGIN { print 1_000_000 }", "1000000\n"),
+        ("BEGIN { print -1_000 }", "-1000\n"),
+        ("BEGIN { print 1_000.5 + 1e3 }", "2000.5\n"),
+        ("BEGIN { print 1_0.0_5 + 1e0_1 + .2_5 }", "20.3\n"),
+        ("BEGIN { print 0xFF_FF, 0Xf_f }", "65535 255\n"),
+        (
+            "BEGIN { print 100_000_000_000_000_000_000 }",
+            "100000000000000000000\n",
+        ),
+        ("BEGIN { for (i in 1_000..1_001) print i }", "1000\n"),
+        (
+            "BEGIN { print match 1_000 { 1_000 => \"yes\", _ => \"no\" } }",
+            "yes\n",
+        ),
+        // A separator needs a digit on both sides: `_` starts a name otherwise.
+        ("BEGIN { _ = 7; print 1_ }", "17\n"),
+        ("BEGIN { __2 = 7; print 1__2 }", "17\n"),
+        ("BEGIN { _x = 7; print 1_x }", "17\n"),
+        ("BEGIN { _ = 7; print 0xF_ }", "157\n"),
+        ("BEGIN { e_1 = 7; print 1e_1 }", "17\n"),
+        // Strings are not literals.
+        ("BEGIN { print \"1_000\" + 0, s + 0 }", "1 1\n"),
+    ] {
+        assert_eq!(run(prog), expected, "{prog}");
+    }
+}
+
+#[test]
+fn fmt_keeps_digit_separators() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("sep.awk");
+    std::fs::write(&file, "BEGIN { print 1_000.5, 0xFF_FF }\n").unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("fmt")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("1_000.5, 0xFF_FF")
+    );
+}

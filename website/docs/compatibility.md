@@ -37,6 +37,8 @@ behavior in a few places:
 - **A string that looks like zero is false**: `if ("0")`, `if ("0.0")` and `if ("0x0")` are false (gawk treats
   every non-empty string constant as true). Use `if (s != "")`.
 - **Hexadecimal numbers** are recognized in source and in input data: `0x10` is 16. A leading zero is decimal.
+- **Digit separators**: `1_000` is the number 1000 in source, not `1` joined with the variable `_000`. Write
+  `1 _000` for the latter.
 - In `for (k in a)`, `k` compares as a number when the keys are only ever numbers, and as a string otherwise.
 
 ## Regular expressions

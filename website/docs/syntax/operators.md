@@ -85,6 +85,11 @@ zawk 'NR == FNR { block[$1]; next } $1 !in block' blocklist.txt users.txt
 
 Multi-dimensional keys work with both forms: `(i, j) in arr`, `(i, j) !in arr`.
 
+## Digit separators
+
+A `_` between two digits of a numeric literal is ignored: `1_000_000`, `1_000.5`, `1e1_0`, `0xFF_FF`. This is for
+source only: `"1_000" + 0` and a field `1_000` are `1`.
+
 ## Hexadecimal numbers
 
 Hexadecimal literals are recognized in source and in input data wherever a string becomes a number:
