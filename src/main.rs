@@ -34,6 +34,7 @@ pub mod pushdown;
 pub mod runtime;
 mod string_constants;
 mod strnum_analysis;
+mod test_runner;
 #[cfg(test)]
 mod test_string_constants;
 pub mod types;
@@ -182,6 +183,8 @@ struct PreludeScalars {
     header_in_main: bool,
     escaper: Escaper,
     stage: Stage<()>,
+    // The function to run instead of the rules of the program, for `zawk test`.
+    test_entry: Option<String>,
 }
 
 struct RawPrelude {
@@ -497,6 +500,9 @@ fn get_context<'a>(
             prog.parse_header = prelude.scalars.parse_header;
             prog.header_per_file = prelude.scalars.header_per_file;
             prog.header_in_main = prelude.scalars.header_in_main;
+            if let Some(name) = &prelude.scalars.test_entry {
+                parsing::run_only_function(name, a, &mut prog);
+            }
             a.alloc(prog)
         }
         Err(e) => syntax_failed(&parsing::syntax_error(text, &e)),
@@ -576,6 +582,7 @@ const LONG_WITH_VALUE: &[&str] = &[
     "--backend",
     "--output-format",
     "--chunk-size",
+    "--test-entry",
 ];
 
 /// Whether `arg` is an option whose value is the next argument, such as `-v`, `-Hv` or `--exec`.
@@ -1248,6 +1255,24 @@ fn real_main() {
         .arg(Arg::new("files")
             .num_args(1..)
             .help("The program files to format (`-` for standard input); read from stdin when no file is given"));
+    let test_cmd = Command::new("test")
+        .about(
+            "Run the test_* functions of AWK files: each runs alone, without the rules of its file",
+        )
+        .arg(
+            Arg::new("paths")
+                .num_args(0..)
+                .value_name("path")
+                .help("AWK files, or directories to search for .awk files [default: .]"),
+        )
+        .arg(
+            Arg::new("filter")
+                .short('k')
+                .long("filter")
+                .num_args(1)
+                .value_name("text")
+                .help("Only run the tests whose function name contains this text"),
+        );
     let inspect_cmd = Command::new("inspect")
         .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines, Parquet or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
         .arg(Arg::new("input-format")
@@ -1325,6 +1350,7 @@ fn real_main() {
         .subcommand(lint_cmd)
         .subcommand(inspect_cmd)
         .subcommand(fmt_cmd)
+        .subcommand(test_cmd)
         .subcommand(llm_cmd)
         .arg(Arg::new("program-file")
             .long("program-file")
@@ -1360,6 +1386,11 @@ fn real_main() {
             .long("posix")
             .num_args(0)
             .help("POSIX compatibility: disable zawk's command-line sugar syntax (e.g. `zawk '$1,$2'`, `zawk '/re/'`). zawk extension functions remain available"))
+        .arg(Arg::new("test-entry")
+            .long("test-entry")
+            .num_args(1)
+            .hide(true)
+            .help("Run this function instead of the rules of the program (used by `zawk test`)"))
         .arg(Arg::new("lint")
             .long("lint")
             .num_args(0)
@@ -1527,6 +1558,18 @@ fn real_main() {
     // fmt sub command
     if let Some(matches) = matches.subcommand_matches("fmt") {
         run_fmt(matches);
+    }
+    // test sub command
+    if let Some(matches) = matches.subcommand_matches("test") {
+        let paths: Vec<&String> = matches
+            .get_many::<String>("paths")
+            .map_or_else(Vec::new, |paths| paths.collect());
+        let filter = matches.get_one::<String>("filter").map(String::as_str);
+        match test_runner::run(&paths, filter) {
+            Ok(true) => return,
+            Ok(false) => std::process::exit(1),
+            Err(e) => fatal!("{}", e),
+        }
     }
     // inspect sub command
     if let Some(matches) = matches.subcommand_matches("inspect") {
@@ -1863,6 +1906,7 @@ fn real_main() {
             parse_header,
             header_per_file,
             header_in_main: message_url.is_some(),
+            test_entry: matches.get_one::<String>("test-entry").cloned(),
         },
         output_record_sep,
         argv,

@@ -166,10 +166,13 @@ _Unary Operators:_
   exits with the given exit code. This means that scripts with long loop
   iterations may not exit immediately. `exit` can be called with and without
   parentheses.
-* `assert(cond, msg)`: If `cond` is false (tested as by `if`), prints `msg` to
+* `assert(cond[, msg])`: If `cond` is false (tested as by `if`), prints `msg` to
   stderr and exits at once with code `2`. Unlike `exit 2`, the `END` block is
   not run (in serial and parallel mode alike), e.g.
-  `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
+  `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`. Without `msg`,
+  it prints the source of `cond` and its location.
+* `assert_eq(left, right[, msg])`: As `assert(left == right, msg)`, printing
+  `left`, `right` and the location of the assertion. Each side is evaluated once.
 
 # Other Functions
 

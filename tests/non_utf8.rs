@@ -249,6 +249,7 @@ const EXEMPT: &[&str] = &[
     "log_warn",
     "log_error",
     "assert",
+    "assert_eq",
 ];
 
 fn run(backend: &str, expr: &str) -> Vec<u8> {

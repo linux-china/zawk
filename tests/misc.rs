@@ -1052,7 +1052,14 @@ fn assert_exits_with_message() {
                 .stderr(String::from(*err));
         }
     }
-    for prog in ["BEGIN { assert(1) }", "function assert(c, m) { } BEGIN { }"] {
+    for prog in [
+        "BEGIN { assert() }",
+        "BEGIN { assert(1, 2, 3) }",
+        "function assert(c, m) { } BEGIN { }",
+        "BEGIN { assert_eq(1) }",
+        "BEGIN { assert_eq(1, 2, 3, 4) }",
+        "function assert_eq(a, b) { } BEGIN { }",
+    ] {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(prog)
@@ -2988,6 +2995,13 @@ fn error_messages_are_gawk_style() {
             2,
             &[
                 "zawk: fatal: line 1, column 13: `assert` is a statement, it can't be used in an expression",
+            ],
+        ),
+        (
+            r#"BEGIN { x = assert_eq(1, 1) }"#,
+            2,
+            &[
+                "zawk: fatal: line 1, column 13: `assert_eq` is a statement, it can't be used in an expression",
             ],
         ),
         // Only arrays with integer keys can be converted to CSV.
@@ -6183,4 +6197,275 @@ fn run_stats() {
         .assert()
         .success()
         .stderr("");
+}
+
+#[test]
+fn assert_without_message_prints_its_condition() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.awk");
+    std::fs::write(
+        &file,
+        "function f(n) {\n  assert(n > 0)\n}\nBEGIN { f(0) }\nEND { print 1 }\n",
+    )
+    .unwrap();
+    for backend in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend)
+            .arg("-f")
+            .arg(&file)
+            .write_stdin("")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(out.stderr).unwrap(),
+            format!("assertion failed: n > 0\n  --> {}:2:3\n", file.display())
+        );
+    }
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("BEGIN { assert(1 == 1); print \"ok\" }")
+        .assert()
+        .success()
+        .stdout("ok\n")
+        .stderr("");
+}
+
+#[test]
+fn assert_eq_compares_and_reports_both_sides() {
+    let cases: &[(&str, i32, &str, &str)] = &[
+        (
+            r#"BEGIN { assert_eq(1 + 1, 2); print "ok" }"#,
+            0,
+            "ok\n",
+            "",
+        ),
+        (
+            r#"BEGIN { assert_eq("a", "a", "m"); print "ok" }"#,
+            0,
+            "ok\n",
+            "",
+        ),
+        (
+            r#"BEGIN { assert_eq(1 + 1, 3) } END { print "end" }"#,
+            2,
+            "",
+            "assertion `left == right` failed\n  left: 2\n right: 3\n  --> line 1, column 9\n",
+        ),
+        (
+            r#"BEGIN { assert_eq("a", "b", "letters " 1) }"#,
+            2,
+            "",
+            "assertion `left == right` failed: letters 1\n  left: a\n right: b\n  --> line 1, column 9\n",
+        ),
+        // Each side is evaluated once, also when printing a failure.
+        (
+            r#"function next_i() { return ++i } BEGIN { assert_eq(next_i(), 5) }"#,
+            2,
+            "",
+            "assertion `left == right` failed\n  left: 1\n right: 5\n  --> line 1, column 42\n",
+        ),
+        // The hidden variables do not clash with those of the user, or across assertions.
+        (
+            r#"BEGIN { left = 7; assert_eq(left, 7); assert_eq("s", "s"); print left }"#,
+            0,
+            "7\n",
+            "",
+        ),
+    ];
+    for (prog, code, stdout, stderr) in cases {
+        for backend in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend)
+                .arg(prog)
+                .write_stdin("")
+                .assert()
+                .code(*code)
+                .stdout(String::from(*stdout))
+                .stderr(String::from(*stderr));
+        }
+    }
+}
+
+// Runs `zawk test` in `dir`, returning the exit code and stdout.
+fn zawk_test(dir: &std::path::Path, args: &[&str]) -> (Option<i32>, String) {
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .current_dir(dir)
+        .arg("test")
+        .args(args)
+        .output()
+        .unwrap();
+    (out.status.code(), String::from_utf8(out.stdout).unwrap())
+}
+
+const PRICE_AWK: &str = r#"
+BEGIN { print "the BEGIN rule ran"; exit 3 }
+{ print "the main rule ran" }
+END { print "the END rule ran"; exit 3 }
+function discount(p) { return p * 0.9 }
+function test_discount() {
+    assert_eq(discount(100), 90)
+    assert_eq(trim(" a "), "a", "trim should strip spaces")
+}
+function test_output_is_captured() { print "not shown when passing" }
+"#;
+
+#[test]
+fn zawk_test_runs_only_the_test_functions() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("price.awk"), PRICE_AWK).unwrap();
+    let (code, out) = zawk_test(dir.path(), &["price.awk"]);
+    assert_eq!(code, Some(0), "{out}");
+    assert_eq!(
+        out,
+        "running 2 tests\n\
+         test price.awk::test_discount ... ok\n\
+         test price.awk::test_output_is_captured ... ok\n\
+         \n\
+         test result: ok. 2 passed; 0 failed; 0 filtered out\n"
+    );
+}
+
+#[test]
+fn zawk_test_filters_by_name() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("price.awk"), PRICE_AWK).unwrap();
+    let (code, out) = zawk_test(dir.path(), &["price.awk", "-k", "discount"]);
+    assert_eq!(code, Some(0), "{out}");
+    assert_eq!(
+        out,
+        "running 1 test\n\
+         test price.awk::test_discount ... ok\n\
+         \n\
+         test result: ok. 1 passed; 0 failed; 1 filtered out\n"
+    );
+}
+
+#[test]
+fn zawk_test_finds_awk_files_in_directories() {
+    let dir = tempdir().unwrap();
+    let lib = dir.path().join("lib");
+    std::fs::create_dir_all(lib.join("sub")).unwrap();
+    std::fs::write(lib.join("b.awk"), "function test_b() { }\n").unwrap();
+    std::fs::write(lib.join("sub/a.awk"), "function test_a() { }\n").unwrap();
+    std::fs::write(lib.join("notes.txt"), "function test_txt() { }\n").unwrap();
+    // A helper, not a test; a commented or quoted function header is not one either.
+    std::fs::write(
+        lib.join("c.awk"),
+        "function helper() { }\n# function test_comment() { }\nBEGIN { s = \"function test_str() {\" }\n",
+    )
+    .unwrap();
+    let (code, out) = zawk_test(dir.path(), &["lib"]);
+    assert_eq!(code, Some(0), "{out}");
+    let names: Vec<&str> = out.lines().filter(|l| l.starts_with("test ")).collect();
+    assert_eq!(
+        names,
+        [
+            "test lib/b.awk::test_b ... ok",
+            "test lib/sub/a.awk::test_a ... ok",
+            "test result: ok. 2 passed; 0 failed; 0 filtered out",
+        ]
+    );
+}
+
+#[test]
+fn zawk_test_does_not_rerun_the_tests_of_included_files() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.awk"), "function test_lib() { }\n").unwrap();
+    std::fs::write(
+        dir.path().join("use.awk"),
+        "@include \"lib.awk\"\nfunction test_use() { }\n",
+    )
+    .unwrap();
+    let (code, out) = zawk_test(dir.path(), &["use.awk"]);
+    assert_eq!(code, Some(0), "{out}");
+    assert!(out.starts_with("running 1 test\n"), "{out}");
+    assert!(out.contains("use.awk::test_use ... ok"), "{out}");
+}
+
+#[test]
+fn zawk_test_reports_failures_and_keeps_going() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("t.awk"),
+        r#"function test_bad() {
+    print "some output"
+    assert_eq(1, 2)
+}
+function test_fatal() { x = 1 / 0 }
+function test_exit() { exit 1 }
+function test_good() { }
+"#,
+    )
+    .unwrap();
+    let (code, out) = zawk_test(dir.path(), &["t.awk"]);
+    assert_eq!(code, Some(1), "{out}");
+    assert!(out.contains("test t.awk::test_bad ... FAILED\n"), "{out}");
+    assert!(out.contains("test t.awk::test_fatal ... FAILED\n"), "{out}");
+    assert!(out.contains("test t.awk::test_exit ... FAILED\n"), "{out}");
+    assert!(out.contains("test t.awk::test_good ... ok\n"), "{out}");
+    assert!(out.contains("---- t.awk::test_bad ----\n"), "{out}");
+    assert!(out.contains("some output\n"), "{out}");
+    assert!(
+        out.contains("  left: 1\n right: 2\n  --> t.awk:3:5\n"),
+        "{out}"
+    );
+    assert!(out.contains("division by zero"), "{out}");
+    assert!(
+        out.ends_with("test result: FAILED. 1 passed; 3 failed; 0 filtered out\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn zawk_test_reports_files_that_do_not_compile() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("t.awk"), "function test_a() { x = }\n").unwrap();
+    let (code, out) = zawk_test(dir.path(), &["t.awk"]);
+    assert_eq!(code, Some(1), "{out}");
+    assert!(out.contains("syntax error"), "{out}");
+}
+
+#[test]
+fn zawk_test_rejects_a_missing_path() {
+    let dir = tempdir().unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["test", "no/such.awk"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("no/such.awk"),
+    );
+}
+
+#[test]
+fn fmt_keeps_assertions() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.awk");
+    std::fs::write(
+        &file,
+        "function test_a(  x){x=1;assert(x>0);assert_eq(x,1,\"m\")}\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("fmt")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("assert_eq(x, 1, \"m\")")
+    );
 }

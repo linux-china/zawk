@@ -89,12 +89,32 @@ c b
 
 ## `assert`
 
-`assert(cond, msg)` fails fast: when `cond` is false, `msg` is printed to stderr and zawk exits at once with
+`assert(cond[, msg])` fails fast: when `cond` is false, `msg` is printed to stderr and zawk exits at once with
 code `2`. Unlike `exit 2`, the `END` block is **not** run.
 
 ```shell
 zawk -i csv '{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") } { ... }' data.csv
 ```
+
+Without `msg`, the source of `cond` and its location are printed. `assert_eq(left, right[, msg])` is
+`assert(left == right, msg)` that also prints both values, and suits the `test_*` functions run by
+`zawk test`:
+
+```awk
+# lib/price.awk
+function discount(p) { return p * 0.9 }
+
+function test_discount() {
+    assert_eq(discount(100), 90)
+}
+```
+
+```shell
+zawk test lib/                        # the test_* functions of all the .awk files under lib/
+zawk test lib/price.awk -k discount   # only the functions whose name contains "discount"
+```
+
+Each test runs in a process of its own, without the rules of its file. The exit code is `1` if a test fails.
 
 ## Field list shorthand
 

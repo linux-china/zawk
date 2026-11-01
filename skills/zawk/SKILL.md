@@ -239,6 +239,8 @@ zawk '$1 !in seen { seen[$1]; print }'             # !in: same as !(k in arr); (
 zawk '{ c[$1]++ } END { for (k, v in c) print k, v }'  # key-value loop: v = arr[k]
 zawk '{ print $(-1), $(-2) }'                      # negative field index: $NF, $(NF-1)
 zawk '{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }'  # fail fast: exit 2, END is not run
+zawk 'BEGIN { assert_eq(1 + 1, 2) }'               # on failure, prints left, right and the location
+zawk test lib/ -k discount                         # run the test_* functions of the .awk files, without their rules
 ```
 
 - `for (k, v in arr)` needs an array variable: `for (k, v in f())` is a syntax error; use `a = f(); for (k, v in a)`.

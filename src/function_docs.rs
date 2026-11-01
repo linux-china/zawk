@@ -1575,9 +1575,16 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d(
         "assert",
         MISC,
-        "assert(cond: bool, msg: str) -> void",
-        "A statement, not usable in an expression: if cond is false (tested as by if), print msg to stderr and exit with code 2.",
+        "assert(cond: bool[, msg: str]) -> void",
+        "A statement, not usable in an expression: if cond is false (tested as by if), print msg (by default the source of cond and its location) to stderr and exit with code 2.",
         "assert(NF == 5, f\"line {NR}: expect 5 fields, got {NF}\")",
+    ),
+    d(
+        "assert_eq",
+        MISC,
+        "assert_eq(left: any, right: any[, msg: str]) -> void",
+        "A statement, not usable in an expression: if left == right is false, print msg, both values and the location to stderr and exit with code 2.",
+        "assert_eq(trim(\" a \"), \"a\", \"trim should strip spaces\")",
     ),
     d(
         "exit",
@@ -1711,7 +1718,7 @@ mod tests {
     use hashbrown::HashSet;
 
     /// Builtins that are parsed as syntax rather than looked up in `FUNCTIONS`.
-    const SYNTAX_FUNCTIONS: &[&str] = &["sprintf", "assert"];
+    const SYNTAX_FUNCTIONS: &[&str] = &["sprintf", "assert", "assert_eq"];
 
     #[test]
     fn docs_cover_all_builtins() {

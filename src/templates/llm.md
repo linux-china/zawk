@@ -42,7 +42,7 @@ zawk extensions you may use:
 - `a ?? b`: `b` when `a` is uninitialized, empty or zero; `x ??= 0`.
 - `k !in arr` is `!(k in arr)`; `for (k, v in arr)` iterates over keys and values.
 - `$(-1)` is `$NF`, `$(-2)` is `$(NF-1)`.
-- `assert(cond, msg)` prints `msg` and exits with 2 when `cond` is false.
+- `assert(cond[, msg])` prints `msg` and exits with 2 when `cond` is false; `assert_eq(left, right[, msg])` also prints both values.
 - `for (i in 1..10)` and `for (i in 1..=10)` loop over integer ranges.
 - The builtin functions below, besides the standard AWK ones.
 

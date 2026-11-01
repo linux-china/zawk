@@ -326,9 +326,15 @@ surprised to discover there were bugs in zawk's parser.
   a syntax error. Only a literal index counts from the end: a negative index
   computed at runtime (e.g. `$(NF-2)` on a one-field record) is a fatal error,
   as in gawk, instead of silently reading another field.
-* zawk supports `assert(cond, msg)`: when `cond` is false, `msg` is printed to
-  stderr and zawk exits at once with code `2`; unlike `exit 2`, the `END` block
-  is not run, e.g. `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
+* zawk supports `assert(cond[, msg])`: when `cond` is false, `msg` (by default
+  the source of `cond` and its location) is printed to stderr and zawk exits at
+  once with code `2`; unlike `exit 2`, the `END` block is not run, e.g.
+  `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
+  `assert_eq(left, right[, msg])` also prints both values.
+* `zawk test [PATH...] [-k TEXT]` runs the functions named `test_*` of AWK files
+  or of the `.awk` files under directories (the current one by default), each
+  in a process of its own and without the rules of its file. `-k` keeps the
+  functions whose name contains `TEXT`. It exits with `1` if a test fails.
 * With the `-H` flag, zawk parses the first line of input (without updating
   `NR` or `FNR`) and populates the `FI` builtin variable with the contents the
   fields in the first line mapping to their index. So in a script parsing a

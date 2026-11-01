@@ -441,27 +441,43 @@ fn reset_local<'a>(name: &'a str, array: bool, arena: &'a Arena) -> &'a Stmt<'a,
     arena.alloc(Stmt::Expr(arena.alloc(e)))
 }
 
-/// The `local` statement made of the declarations `decls`, which must declare different names.
-/// An expression statement. `assert(cond, msg)` is desugared here to
-/// `if (cond) ; else { print msg > "/dev/stderr"; abort 2 }`, so that `cond` is tested as by `if`.
-/// Unlike `exit`, the abort does not run the END block.
+/// An expression statement. `assert(cond[, msg])` and `assert_eq(left, right[, msg])` are desugared
+/// here (see `assert_stmt` and `assert_eq_stmt`). `loc..end` is the text of the statement.
 pub(crate) fn expr_stmt<'a>(
     e: &'a Expr<'a, 'a, &'a str>,
     loc: Loc,
+    end: Loc,
     arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
 ) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
-    let &Expr::Call(Either::Left("assert"), args) = e else {
-        return Ok(arena.alloc(Stmt::Expr(e)));
-    };
-    let &[cond, msg] = args else {
-        return user_error(
-            loc,
-            format!(
-                "assert expects 2 arguments (condition, message), got {}",
-                args.len()
-            ),
-        );
-    };
+    match e {
+        Expr::Call(Either::Left("assert"), args) => assert_stmt(args, loc, end, arena),
+        Expr::Call(Either::Left("assert_eq"), args) => assert_eq_stmt(args, loc, end, arena, prog),
+        _ => Ok(arena.alloc(Stmt::Expr(e))),
+    }
+}
+
+/// Whether `name` is desugared by `expr_stmt`: it is only valid as a statement.
+pub(crate) fn is_assertion(name: &str) -> bool {
+    matches!(name, "assert" | "assert_eq")
+}
+
+/// The text and the location of the assertion at `loc..end`, for its failure message. They need
+/// the program registered by `set_program`: only a run does, and the location must not end up in
+/// the syntax tree that `zawk fmt` compares with the formatted program.
+fn assertion_site(loc: Loc, end: Loc) -> Option<(&'static str, String)> {
+    let (prog, sources) = PROGRAM.get()?;
+    Some((
+        prog.get(loc.offset()..end.offset())?,
+        sources.describe(prog, loc),
+    ))
+}
+
+/// `print msg > "/dev/stderr"; abort 2`. Unlike `exit`, the abort does not run the END block.
+fn assertion_failure<'a>(
+    msg: &'a Expr<'a, 'a, &'a str>,
+    arena: &'a Arena,
+) -> &'a Stmt<'a, 'a, &'a str> {
     let stderr: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::StrLit(b"/dev/stderr"));
     let print: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Print(
         arena.alloc_slice(&[msg]),
@@ -469,14 +485,148 @@ pub(crate) fn expr_stmt<'a>(
     ));
     let code: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::ILit(2));
     let exit: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Abort(code));
-    let fail = arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[print, exit])));
-    Ok(arena.alloc(Stmt::If(
+    arena.alloc(Stmt::Block(arena.new_vec_from_slice(&[print, exit])))
+}
+
+/// `if (cond) ; else fail`, so that `cond` is tested as by `if`.
+fn unless<'a>(
+    cond: &'a Expr<'a, 'a, &'a str>,
+    fail: &'a Stmt<'a, 'a, &'a str>,
+    arena: &'a Arena,
+) -> &'a Stmt<'a, 'a, &'a str> {
+    arena.alloc(Stmt::If(
         cond,
         arena.alloc(Stmt::Block(arena.new_vec())),
         Some(fail),
+    ))
+}
+
+fn str_lit<'a>(text: &str, arena: &'a Arena) -> &'a Expr<'a, 'a, &'a str> {
+    arena.alloc(Expr::StrLit(arena.alloc_str(text).as_bytes()))
+}
+
+/// `assert(cond, msg)` is `if (cond) ; else { print msg > "/dev/stderr"; abort 2 }`. Without `msg`,
+/// the message is the source of `cond` and the location of the assertion.
+fn assert_stmt<'a>(
+    args: &'a [&'a Expr<'a, 'a, &'a str>],
+    loc: Loc,
+    end: Loc,
+    arena: &'a Arena,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    let (cond, msg) = match *args {
+        [cond] => {
+            let msg = match assertion_site(loc, end) {
+                Some((text, site)) => {
+                    let cond = call_args(text).unwrap_or(text);
+                    format!("assertion failed: {}\n  --> {}", cond, site)
+                }
+                None => String::from("assertion failed"),
+            };
+            (cond, str_lit(&msg, arena))
+        }
+        [cond, msg] => (cond, msg),
+        _ => {
+            return user_error(
+                loc,
+                format!(
+                    "assert expects 1 or 2 arguments (condition, message), got {}",
+                    args.len()
+                ),
+            );
+        }
+    };
+    Ok(unless(cond, assertion_failure(msg, arena), arena))
+}
+
+/// The text between the parentheses of the call `text`.
+fn call_args(text: &str) -> Option<&str> {
+    let (open, close) = (text.find('(')?, text.rfind(')')?);
+    Some(text.get(open + 1..close)?.trim())
+}
+
+/// `assert_eq(left, right, msg)` is `l = left; r = right; if (l == r) ; else { ...; abort 2 }` over
+/// hidden locals, so that each side is evaluated once. `msg` is only evaluated on a failure.
+fn assert_eq_stmt<'a>(
+    args: &'a [&'a Expr<'a, 'a, &'a str>],
+    loc: Loc,
+    end: Loc,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> ParseResult<'a, &'a Stmt<'a, 'a, &'a str>> {
+    let (left, right, msg) = match *args {
+        [left, right] => (left, right, None),
+        [left, right, msg] => (left, right, Some(msg)),
+        _ => {
+            return user_error(
+                loc,
+                format!(
+                    "assert_eq expects 2 or 3 arguments (left, right, message), got {}",
+                    args.len()
+                ),
+            );
+        }
+    };
+    let (l, set_l) = hidden_local("assert_left", left, arena, prog);
+    let (r, set_r) = hidden_local("assert_right", right, arena, prog);
+    let mut parts = vec![str_lit("assertion `left == right` failed", arena)];
+    if let Some(msg) = msg {
+        parts.extend([str_lit(": ", arena), msg]);
+    }
+    parts.extend([
+        str_lit("\n  left: ", arena),
+        l,
+        str_lit("\n right: ", arena),
+        r,
+    ]);
+    if let Some((_, site)) = assertion_site(loc, end) {
+        parts.push(str_lit(&format!("\n  --> {}", site), arena));
+    }
+    let text = parts
+        .into_iter()
+        .reduce(|acc, e| arena.alloc(Expr::Binop(Binop::Concat, acc, e)))
+        .expect("the message has several parts");
+    let eq: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Binop(Binop::EQ, l, r));
+    let check = unless(eq, assertion_failure(text, arena), arena);
+    Ok(arena.alloc(Stmt::Block(
+        arena.new_vec_from_slice(&[set_l, set_r, check]),
     )))
 }
 
+/// A new local that no name in the program refers to, and the statement that sets it to `init`.
+fn hidden_local<'a>(
+    name: &str,
+    init: &'a Expr<'a, 'a, &'a str>,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) -> (&'a Expr<'a, 'a, &'a str>, &'a Stmt<'a, 'a, &'a str>) {
+    prog.locals.count += 1;
+    let tmp: &'a str = arena.alloc_str(&format!("{}@{}", name, prog.locals.count));
+    prog.locals.decls.push((tmp, false, 0));
+    let var: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Var(tmp));
+    let set: &'a Expr<'a, 'a, &'a str> = arena.alloc(Expr::Assign(var, init));
+    (var, arena.alloc(Stmt::Expr(set)))
+}
+
+/// Makes `prog` a run of the function `name` alone: the rules are dropped, as `zawk test` loads a
+/// file for its functions.
+pub(crate) fn run_only_function<'a>(
+    name: &str,
+    arena: &'a Arena,
+    prog: &mut Prog<'a, 'a, &'a str>,
+) {
+    let name: &'a str = arena.alloc_str(name);
+    let call: &'a Expr<'a, 'a, &'a str> =
+        arena.alloc(Expr::Call(Either::Left(name), arena.alloc_slice(&[])));
+    let call: &'a Stmt<'a, 'a, &'a str> = arena.alloc(Stmt::Expr(call));
+    prog.begin = arena.new_vec_from_slice(&[call]);
+    prog.prepare = arena.new_vec();
+    prog.beginfile = arena.new_vec();
+    prog.endfile = arena.new_vec();
+    prog.end = arena.new_vec();
+    prog.pats = arena.new_vec();
+}
+
+/// The `local` statement made of the declarations `decls`, which must declare different names.
 pub(crate) fn local_stmt<'a>(
     decls: Vec<LocalDecl<'a>>,
     arena: &'a Arena,

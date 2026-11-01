@@ -555,9 +555,10 @@ where
             }
             // POSIX and gawk builtins cannot be redefined; zawk's stdlib functions are shadowed by
             // the user-defined function (see `call`).
-            // `assert` is desugared by the parser, so a user-defined one would never be called.
+            // `assert` and `assert_eq` are desugared by the parser, so a user-defined one would
+            // never be called.
             if builtins::is_awk_builtin(&fundec.name.to_string())
-                || fundec.name.to_string() == "assert"
+                || crate::parsing::is_assertion(&fundec.name.to_string())
             {
                 return syntax_err!(
                     "`{}' is a built-in function, it cannot be redefined",
@@ -3323,9 +3324,12 @@ where
                     } else {
                         Ok((open, call))
                     }
-                } else if fname.to_string() == "assert" {
-                    // The parser desugars `assert` only in statement position.
-                    err!("`assert` is a statement, it can't be used in an expression")
+                } else if crate::parsing::is_assertion(&fname.to_string()) {
+                    // The parser desugars assertions only in statement position.
+                    err!(
+                        "`{}` is a statement, it can't be used in an expression",
+                        fname
+                    )
                 } else {
                     err!("Call to unknown function \"{}\"", fname)
                 };

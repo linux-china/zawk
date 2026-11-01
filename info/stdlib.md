@@ -1369,9 +1369,10 @@ Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
 
 - `version()`: return zawk version
 - `exit([code])`: exit with code (`0` by default), END actions are still executed, as in POSIX awk.
-- `assert(cond, msg)`: if `cond` is false (tested as by `if`), print `msg` to stderr and exit at once with code `2`.
+- `assert(cond[, msg])`: if `cond` is false (tested as by `if`), print `msg` to stderr and exit at once with code `2`. Without `msg`, print the source of `cond` and its location.
   Unlike `exit 2`, the `END` block is not run (in serial and parallel mode alike), e.g. `{ assert(NF == 5, f"line {NR}: expect 5 fields, got {NF}") }`.
   `assert` is a statement: it can't be used in an expression such as `x = assert(...)` or `c && assert(...)`.
+- `assert_eq(left, right[, msg])`: as `assert(left == right, msg)` (values compare as with `==`), printing `left`, `right` and the location of the assertion. Each side is evaluated once, and `msg` only on a failure. Also a statement.
 - `zawk functions [--json] [FILTER]`: list builtin functions with signatures, descriptions and examples.
 - `zawk inspect [-i FORMAT] [-o table|markdown] [-n ROWS] [--max-rows N] FILE...`: look at a CSV, TSV, JSON Lines or Parquet file
   before writing a program for it: the schema (field number, name and type of each column; a CSV header of `name:TYPE` declares the type),
