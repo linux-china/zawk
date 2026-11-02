@@ -458,6 +458,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(text.into()));
                 f(dst.into(), Some(child.into()));
             }
+            EqIgnoreCase(dst, left, right) => {
+                f(dst.into(), Some(left.into()));
+                f(dst.into(), Some(right.into()));
+            }
             FormatBytes(dst, size) => {
                 f(dst.into(), Some(size.into()));
             }

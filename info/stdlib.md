@@ -280,6 +280,18 @@ Most libraries include these functions, and I don't want AWK stdlib weird.
 - starts_with: `/^xxxx/`
 - ends_with: `/xxxx$/`
 
+### eq_ignore_case
+
+`eq_ignore_case(a, b)` is `1` if `a` and `b` are equal ignoring case, as `tolower(a) == tolower(b)` but without building the lowercase strings, and `0` otherwise.
+Two empty strings are equal. Non-ASCII letters are compared too, bytes that are not valid UTF-8 are compared as they are, and `IGNORECASE` is not needed.
+
+```awk
+eq_ignore_case("Hello", "hELLO")   # 1
+eq_ignore_case("CAFÉ", "café")     # 1
+eq_ignore_case("cafe", "café")     # 0
+eq_ignore_case("", "")             # 1
+```
+
 ### mask
 
 `mask("abc@example.com")`, `mask("186612347")`

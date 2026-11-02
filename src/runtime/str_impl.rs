@@ -700,6 +700,11 @@ impl<'a> Str<'a> {
         self.with_bytes(|t| child.with_bytes(|c| memchr::memmem::find(t, c).is_some()))
     }
 
+    /// Whether `tolower` makes both strings equal, without building the lowercase strings.
+    pub fn eq_ignore_case(&self, other: &Str) -> bool {
+        self.with_bytes(|l| other.with_bytes(|r| super::compare::eq_ignore_case(l, r)))
+    }
+
     pub fn append_if_missing(&self, suffix: &Str<'a>) -> Str<'a> {
         if !self.with_bytes(|text| suffix.with_bytes(|suffix| text.ends_with(suffix))) {
             return Str::concat(self.clone(), suffix.clone());

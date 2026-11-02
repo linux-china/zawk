@@ -1,5 +1,6 @@
 # Unreleased
 
+* Add `eq_ignore_case(a, b)`: `1` if `a` and `b` are equal ignoring case, as `tolower(a) == tolower(b)` without building the lowercase strings, e.g. `eq_ignore_case("CAFÉ", "café")` is `1`. Two empty strings are equal, and bytes that are not valid UTF-8 are compared as they are
 * Errors of the running program show where they happened, as compile errors do: `zawk: fatal: prog.awk:1:25: division by zero attempted`, followed by the line of the program, with both backends. Statements, arithmetic operators, function calls and `$` are located; errors reading the input are not part of a statement and have no location. **Behavior change**: `assert(cond, msg)` prints the location after `msg`
 * Add `ZAWK_BACKTRACE=1`: fatal errors also list the calls leading to them, e.g. `0: g at prog.awk:1:25`, `1: BEGIN at prog.awk:4:15`. Read when the program is compiled, it has no cost when unset
 * With `-p`, fatal errors name the worker and its input: `in worker 2 at data.txt:17` with `-pf`. With `-pr` only the file is shown, as `FNR` counts the records of the chunks a worker reads

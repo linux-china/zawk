@@ -188,6 +188,24 @@ fn folded_units(bs: &[u8]) -> Vec<(u32, usize)> {
     res
 }
 
+/// `bs` with case folded as `tolower` does: characters, then the bytes that are not valid UTF-8.
+fn fold_units(bs: &[u8]) -> impl Iterator<Item = u32> {
+    bs.utf8_chunks().flat_map(|chunk| {
+        let valid = chunk.valid().chars().map(|c| fold_char(c) as u32);
+        let invalid = chunk.invalid().iter().map(|b| 0x11_0000 + *b as u32);
+        valid.chain(invalid)
+    })
+}
+
+/// Whether `l` and `r` are equal ignoring case. An ASCII string can equal a longer non-ASCII one
+/// (`"K"` and the Kelvin sign `"\u{212A}"`), so byte lengths alone do not tell them apart.
+pub(crate) fn eq_ignore_case(l: &[u8], r: &[u8]) -> bool {
+    if l.is_ascii() && r.is_ascii() {
+        return l.eq_ignore_ascii_case(r);
+    }
+    fold_units(l).eq(fold_units(r))
+}
+
 /// Whether bytes and ASCII letters are compared, rather than Unicode characters.
 fn ascii_fold(l: &[u8], r: &[u8]) -> bool {
     characters_as_bytes() || (l.is_ascii() && r.is_ascii())
@@ -297,6 +315,39 @@ pub(crate) fn str_num_code(op: CmpOp, s_kind: StrKind, str_on_right: bool) -> In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eq_ignore_case_folds_like_tolower() {
+        let same: &[(&[u8], &[u8])] = &[
+            (b"", b""),
+            (b"Hello", b"hELLO"),
+            ("CAFÉ".as_bytes(), "café".as_bytes()),
+            ("Straße".as_bytes(), "STRAßE".as_bytes()),
+            ("ПРИВЕТ".as_bytes(), "привет".as_bytes()),
+            // Different byte lengths: the Kelvin sign is three bytes, its lowercase form one.
+            ("\u{212A}".as_bytes(), b"k"),
+            (b"caf\xe9X", b"CAF\xe9x"),
+        ];
+        for (l, r) in same {
+            assert!(eq_ignore_case(l, r), "{l:?} {r:?}");
+            assert!(eq_ignore_case(r, l), "{l:?} {r:?}");
+        }
+        let different: &[(&[u8], &[u8])] = &[
+            (b"", b"a"),
+            (b"abc", b"abcd"),
+            ("cafe".as_bytes(), "café".as_bytes()),
+            // Lowercase is several characters: unchanged, as in `tolower`.
+            ("\u{130}".as_bytes(), "i\u{307}".as_bytes()),
+            ("STRASSE".as_bytes(), "straße".as_bytes()),
+            // The invalid Latin-1 byte is not the character it would be in UTF-8.
+            (b"caf\xe9", "café".as_bytes()),
+            (b"\xe9", b"\xc9"),
+        ];
+        for (l, r) in different {
+            assert!(!eq_ignore_case(l, r), "{l:?} {r:?}");
+            assert!(!eq_ignore_case(r, l), "{l:?} {r:?}");
+        }
+    }
 
     #[test]
     fn numeric_strings() {

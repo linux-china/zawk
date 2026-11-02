@@ -87,6 +87,7 @@ pub enum Function {
     EndsWith,
     Capitalize,
     TextContains,
+    EqIgnoreCase,
     UnCapitalize,
     CamelCase,
     KebabCase,
@@ -573,6 +574,7 @@ static_map!(
     ["starts_with", Function::StartsWith],
     ["ends_with", Function::EndsWith],
     ["contains", Function::TextContains],
+    ["eq_ignore_case", Function::EqIgnoreCase],
     ["capitalize", Function::Capitalize],
     ["uncapitalize", Function::UnCapitalize],
     ["camel_case", Function::CamelCase],
@@ -1109,6 +1111,7 @@ impl Function {
             StartsWith => (smallvec![Str, Str], Int),
             EndsWith => (smallvec![Str, Str], Int),
             TextContains => (smallvec![Str, Str], Int),
+            EqIgnoreCase => (smallvec![Str, Str], Int),
             Capitalize | UnCapitalize | CamelCase | KebabCase | SnakeCase | TitleCase
             | PascalCase | Figlet => (smallvec![Str], Str),
             PadLeft | PadRight | PadBoth => (smallvec![Str, Int, Str], Str),
@@ -1278,7 +1281,7 @@ impl Function {
             Quote | DoubleQuote => 1,
             VarDump => 1,
             FormatBytes | ToBytes => 1,
-            StartsWith | EndsWith | TextContains => 2,
+            StartsWith | EndsWith | TextContains | EqIgnoreCase => 2,
             ReadAll | ReadConfig => 1,
             WriteAll => 2,
             Dejwt => 2,
@@ -1429,7 +1432,9 @@ impl Function {
             LastPart => Ok(Scalar(BaseTy::Str).abs()),
             FormatBytes => Ok(Scalar(BaseTy::Str).abs()),
             ToBytes => Ok(Scalar(BaseTy::Int).abs()),
-            StartsWith | EndsWith | TextContains | JsonHas => Ok(Scalar(BaseTy::Int).abs()),
+            StartsWith | EndsWith | TextContains | EqIgnoreCase | JsonHas => {
+                Ok(Scalar(BaseTy::Int).abs())
+            }
             BloomFilterInsert => Ok(None),
             BloomFilterContains | BloomFilterContainsWithInsert => Ok(Scalar(BaseTy::Int).abs()),
             Strtonum | AwkStrtonum => Ok(Scalar(BaseTy::Float).abs()),

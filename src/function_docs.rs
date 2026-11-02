@@ -326,6 +326,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         r#"contains("https://a.com", "//")"#,
     ),
     d(
+        "eq_ignore_case",
+        TEXT,
+        "eq_ignore_case(a: str, b: str) -> bool",
+        "1 if a and b are equal ignoring case.",
+        r#"eq_ignore_case("Hello", "hELLO")"#,
+    ),
+    d(
         "mask",
         TEXT,
         "mask(s: str) -> str",

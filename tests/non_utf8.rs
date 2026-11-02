@@ -66,6 +66,11 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("starts_with", "starts_with($0, \"caf\")", Some(b"1")),
     ("ends_with", "ends_with($0, substr($0, 4))", Some(b"1")),
     ("contains", "contains($0, char_at($0, 4))", Some(b"1")),
+    (
+        "eq_ignore_case",
+        "eq_ignore_case($0, toupper($0)) eq_ignore_case($0, \"caf\\303\\251x\")",
+        Some(b"10"),
+    ),
     ("mask", "mask($0)", Some(b"c***x")),
     ("pad", "pad($0, 7, \"*\")", Some(b"*caf\xe9x*")),
     ("pad_start", "pad_start($0, 7, \"*\")", Some(b"**caf\xe9x")),

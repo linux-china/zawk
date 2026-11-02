@@ -1597,6 +1597,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(text_contains), &mut [text, child])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            EqIgnoreCase(dst, left, right) => {
+                let left = self.get_val(left.reflect())?;
+                let right = self.get_val(right.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(eq_ignore_case), &mut [left, right])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Capitalize(dst, text) => self.unop(intrinsic!(capitalize), dst, text),
             UnCapitalize(dst, text) => self.unop(intrinsic!(uncapitalize), dst, text),
             CamelCase(dst, text) => self.unop(intrinsic!(camel_case), dst, text),

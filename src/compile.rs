@@ -2383,6 +2383,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            EqIgnoreCase => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::EqIgnoreCase(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Capitalize => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Capitalize(res_reg.into(), conv_regs[0].into()))

@@ -969,6 +969,7 @@ zawk -H -i csv -p r -j 8 '{sum += $3} END {print sum}' demo.csv
 | `truncate(s, 8)`                          | `hello...`                        |
 | `pad(s, 5)`, `pad_start(s, 3, "0")`, `pad_end(s, 5)` | Pad to a length        |
 | `starts_with(s, t)`, `ends_with(s, t)`, `contains(s, t)` | Test a substring   |
+| `eq_ignore_case(a, b)`                    | Equal ignoring case               |
 | `camel_case(s)`, `snake_case(s)`, `kebab_case(s)`, `title_case(s)` | Change case |
 | `repeat("*", 3)`                          | `***`                             |
 | `char_at(s, 2)`, `last_index(s, t)`       | Character, last position          |

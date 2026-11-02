@@ -58,6 +58,7 @@ The four identifier styles agree on word boundaries: `HTTPServer` becomes `httpS
 starts_with($1, "https://")     # 1 or 0
 ends_with($1, ".com")
 contains($1, "//")
+eq_ignore_case($1, "yes")       # 1 for yes, YES, Yes, ...
 isint("123")                    # 1
 isnum("1234.01")                # 1, same rules as strnum conversion
 is("email", "demo@example.com") # formats: email, url, phone, ip

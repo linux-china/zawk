@@ -566,6 +566,19 @@ fn case_conversions_agree_on_acronyms() {
 }
 
 #[test]
+fn eq_ignore_case_compares_without_case() {
+    let prog = r#"BEGIN { print eq_ignore_case("", ""), eq_ignore_case("", "a"), eq_ignore_case("Hello", "hELLO"), eq_ignore_case("CAFÉ", "café"), eq_ignore_case("Hello世界", "hello世界"), eq_ignore_case("cafe", "café"), eq_ignore_case("K", "k"), eq_ignore_case(10, "10") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1 0 1 1 1 0 1 1\n");
+    }
+}
+
+#[test]
 fn empty_prefix_and_substring_match() {
     let prog = r#"BEGIN { print starts_with("abc", ""), ends_with("abc", ""), contains("abc", ""), contains("", ""), starts_with("", "a"), contains("abc", "d") }"#;
     for backend_arg in BACKEND_ARGS {

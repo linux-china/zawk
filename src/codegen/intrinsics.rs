@@ -233,6 +233,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] starts_with(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] ends_with(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] text_contains(str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] eq_ignore_case(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] capitalize(str_ref_ty) -> str_ty;
         [ReadOnly] uncapitalize(str_ref_ty) -> str_ty;
         [ReadOnly] camel_case(str_ref_ty) -> str_ty;
@@ -1577,6 +1578,14 @@ pub(crate) unsafe extern "C" fn text_contains(text: *mut U128, child: *mut U128)
         let text = &*(text as *mut Str);
         let child = &*(child as *mut Str);
         if text.has_substr(child) { 1 } else { 0 }
+    })
+}
+
+pub(crate) unsafe extern "C" fn eq_ignore_case(left: *mut U128, right: *mut U128) -> Int {
+    guard_panic(stringify!(eq_ignore_case), || {
+        let left = &*(left as *mut Str);
+        let right = &*(right as *mut Str);
+        if left.eq_ignore_case(right) { 1 } else { 0 }
     })
 }
 

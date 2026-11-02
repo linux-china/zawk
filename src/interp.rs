@@ -1865,6 +1865,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    EqIgnoreCase(dst, left, right) => {
+                        let left = index(&self.strs, left);
+                        let right = index(&self.strs, right);
+                        let res = left.eq_ignore_case(right) as Int;
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Capitalize(dst, text) => {
                         let dt_text = index(&self.strs, text).capitalize();
                         *index_mut(&mut self.strs, dst) = dt_text;

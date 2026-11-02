@@ -203,6 +203,7 @@ impl Display for Function {
             StartsWith => write!(f, "starts_with"),
             EndsWith => write!(f, "ends_with"),
             TextContains => write!(f, "contains"),
+            EqIgnoreCase => write!(f, "eq_ignore_case"),
             Capitalize => write!(f, "capitalize"),
             UnCapitalize => write!(f, "uncapitalize"),
             CamelCase => write!(f, "camel_case"),
