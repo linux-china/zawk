@@ -44,9 +44,12 @@ behavior in a few places:
 ## Regular expressions
 
 zawk translates AWK regexes (POSIX ERE plus gawk's `\y`, `\<`, `\>`) to Rust's [regex](https://docs.rs/regex)
-syntax, so Perl-style classes like `\d` and `(?i)` work too. One difference: alternation is
-leftmost-**first**, not leftmost-longest. `match("xyz", /x|xy/)` sets `RLENGTH` to 1 in zawk and 2 in gawk.
-Order alternatives longest first (`/xy|x/`) for the same result.
+syntax, so Perl-style classes like `\d` and `(?i)` work too. As in gawk, a match is leftmost-longest:
+`match("xyz", /x|xy/)` sets `RLENGTH` to 2.
+
+One difference: `?` after a quantifier is not lazy as in Perl. zawk reads `a+?` as `(a+)?`, which still takes the
+longest match, while gawk stops at the shortest. `gsub(/a+?/, "<&>")` on `aab` gives `<aa>b` in zawk and `<a><a>b`
+in gawk. Spell out what a short match may contain instead: `/<[^>]+>/`, not `/<.+?>/`.
 
 ## Syntax
 

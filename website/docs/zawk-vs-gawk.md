@@ -58,8 +58,7 @@ you pick one.
 - **The script assigns to `$0`, fields or `NF`** to rebuild records, or edits `ARGV` to change the input files.
   These are read-only in zawk.
 - **You need gawk's debugger or profiler** (`--debug`, `--profile`).
-- **Exact POSIX semantics matter**, such as leftmost-longest regex alternation or treating `"0"` as a true
-  string constant.
+- **Exact POSIX semantics matter**, such as treating `"0"` as a true string constant.
 
 ## Using both
 

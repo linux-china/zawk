@@ -370,7 +370,8 @@ is without `ERRNO`, so check the status (`r = http_get(url); body = r["status"] 
 - Missing elements of numeric arrays print `0`, not an empty string, and referencing them creates them: test with
   `(k in a)`.
 - `$FI["name"]` for a column that doesn't exist is `$0`: check the header spelling (`zawk -i csv '{ print; exit }' f`).
-- Regex alternation is leftmost-first: write `/xy|x/` rather than `/x|xy/` when the longest match matters.
+- Regex matches are leftmost-longest, and `?` after a quantifier is not lazy: `a+?` is `(a+)?`, so write
+  `/<[^>]+>/` rather than `/<.+?>/` for a short match (gawk stops at the shortest there).
 - `getline line < dir "/" name` reads the concatenated path; parenthesize to be portable.
 - `next`/`nextfile` are not allowed inside functions.
 - A user-defined function with the name of a stdlib function (`trim`, `max`, ...) takes precedence over it;
