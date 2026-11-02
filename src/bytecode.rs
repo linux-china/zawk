@@ -33,7 +33,7 @@ impl From<usize> for Label {
     }
 }
 
-pub struct Reg<T>(pub u32, pub PhantomData<*const T>);
+pub struct Reg<T>(pub u32, pub PhantomData<fn() -> T>);
 
 impl<T> std::fmt::Debug for Reg<T> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -65,8 +65,6 @@ impl<T> PartialEq for Reg<T> {
     }
 }
 impl<T> Eq for Reg<T> {}
-// PhantomData gets in the way here.
-unsafe impl<T> Send for Reg<T> {}
 
 #[derive(Debug, Clone)]
 pub(crate) enum Instr<'a> {
