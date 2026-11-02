@@ -1,5 +1,6 @@
 # Unreleased
 
+* Fix `zawk fmt` rejecting programs with `@include` lines: the code around them is formatted, the lines are kept in place and the included files are not loaded
 * Fix `try E else F` losing the value of `F` when `E` has no value: `x = try publish(url, body) else "failed"` gave an empty `x`, also with a user function without `return` as `E`
 * `round(x, n)`: round to `n` decimal places, e.g. `round(3.14159, 2)` is `3.14`. `n` is `0` by default and may be negative, `round(1234.5, -2)` is `1200`. A string `x` is converted to a number as usual, `round("3.14159", 2)` is `3.14`
 * Add `eq_ignore_case(a, b)`: `1` if `a` and `b` are equal ignoring case, as `tolower(a) == tolower(b)` without building the lowercase strings, e.g. `eq_ignore_case("CAFÉ", "café")` is `1`. Two empty strings are equal, and bytes that are not valid UTF-8 are compared as they are

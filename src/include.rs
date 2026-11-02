@@ -56,23 +56,7 @@ impl Includer {
         let lines: Vec<&str> = text.split('\n').collect();
         let mut start = 0;
         let mut expanded = false;
-        // The text with the directives found so far blanked out, for the lexer to tell whether a
-        // later line starts inside a literal.
-        let mut masked = String::new();
-        let mut offset = 0;
-        for (i, line) in lines.iter().enumerate() {
-            let line_start = offset;
-            offset += line.len() + 1;
-            let Some(file) = include_directive(line) else {
-                continue;
-            };
-            if masked.is_empty() {
-                masked = text.to_string();
-            }
-            if inside_token(&masked, line_start) {
-                continue;
-            }
-            masked.replace_range(line_start..line_start + line.len(), &" ".repeat(line.len()));
+        for (i, file) in directives(text, &lines) {
             self.push(&name, &lines, start, i, expanded, Check::BeforeInclude)?;
             expanded = true;
             start = i + 1;
@@ -149,19 +133,7 @@ impl Includer {
             return Ok(());
         }
         let text = lines[start..end].join("\n");
-        if check != Check::None {
-            if let Some((mut line, mut col, mut desc)) = incomplete(&text, start) {
-                if check == Check::BeforeInclude {
-                    // The rule or function goes on after the included file.
-                    desc = desc.replace("end of file", "`@include` inside a rule or function");
-                    (line, col) = (end + 1, 1);
-                }
-                return Err(match name {
-                    Some(name) => format!("syntax error at {}:{}:{}: {}", name, line, col, desc),
-                    None => format!("syntax error at line {}, column {}: {}", line, col, desc),
-                });
-            }
-        }
+        check_complete(name, &text, start, end, check)?;
         self.pieces.push(Source {
             name: name.clone(),
             text,
@@ -169,6 +141,91 @@ impl Includer {
         });
         Ok(())
     }
+}
+
+/// A part of a source, for the tools that work on its text without loading the included files.
+pub enum Part<'a> {
+    /// An `@include` line.
+    Directive(&'a str),
+    /// The lines between two directives, the first of them being the line `line` (0-based).
+    Code { text: String, line: usize },
+}
+
+/// Splits a source at its `@include` lines. As for a source being loaded, the text before a
+/// directive must hold complete rules and functions.
+pub fn split_source(text: &str) -> Result<Vec<Part<'_>>, String> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for (i, _) in directives(text, &lines) {
+        let code = lines[start..i].join("\n");
+        check_complete(&None, &code, start, i, Check::BeforeInclude)?;
+        if start < i {
+            parts.push(Part::Code {
+                text: code,
+                line: start,
+            });
+        }
+        parts.push(Part::Directive(lines[i]));
+        start = i + 1;
+    }
+    if start == 0 || start < lines.len() {
+        parts.push(Part::Code {
+            text: lines[start..].join("\n"),
+            line: start,
+        });
+    }
+    Ok(parts)
+}
+
+/// The `@include` lines of `text`, split into `lines`: their index and file name.
+fn directives<'a>(text: &str, lines: &[&'a str]) -> Vec<(usize, &'a str)> {
+    let mut res = Vec::new();
+    // The text with the directives found so far blanked out, for the lexer to tell whether a
+    // later line starts inside a literal.
+    let mut masked = String::new();
+    let mut offset = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let line_start = offset;
+        offset += line.len() + 1;
+        let Some(file) = include_directive(line) else {
+            continue;
+        };
+        if masked.is_empty() {
+            masked = text.to_string();
+        }
+        if inside_token(&masked, line_start) {
+            continue;
+        }
+        masked.replace_range(line_start..line_start + line.len(), &" ".repeat(line.len()));
+        res.push((i, file));
+    }
+    res
+}
+
+/// Checks that `text`, the lines `start..end` of a source, is complete as `check` asks.
+fn check_complete(
+    name: &Option<String>,
+    text: &str,
+    start: usize,
+    end: usize,
+    check: Check,
+) -> Result<(), String> {
+    if check == Check::None {
+        return Ok(());
+    }
+    let Some((mut line, mut col, mut desc)) = incomplete(text, start) else {
+        return Ok(());
+    };
+    if check == Check::BeforeInclude {
+        // The rule or function goes on after the included file.
+        desc = desc.replace("end of file", "`@include` inside a rule or function");
+        (line, col) = (end + 1, 1);
+    }
+    Err(match name {
+        Some(name) => format!("syntax error at {}:{}:{}: {}", name, line, col, desc),
+        None => format!("syntax error at line {}, column {}: {}", line, col, desc),
+    })
 }
 
 /// The file name of an `@include "file"` line: the directive alone on its line, optionally

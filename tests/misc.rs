@@ -6549,6 +6549,31 @@ fn fmt_keeps_assertions() {
 }
 
 #[test]
+fn fmt_keeps_include_lines() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("m.awk");
+    // The included file does not exist: `fmt` does not load it.
+    std::fs::write(&file, "@include \"missing.awk\"\nBEGIN{print 1}\n").unwrap();
+    let fmt = |args: &[&str]| {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("fmt")
+            .args(args)
+            .arg(&file)
+            .output()
+            .unwrap()
+    };
+    let formatted = "@include \"missing.awk\"\nBEGIN {\n    print 1\n}\n";
+    let out = fmt(&[]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), formatted);
+    assert_eq!(fmt(&["--check"]).status.code(), Some(1));
+    assert!(fmt(&["-w"]).status.success());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), formatted);
+    assert_eq!(fmt(&["--check"]).status.code(), Some(0));
+}
+
+#[test]
 fn numeric_literal_digit_separators() {
     let run = |prog: &str| {
         let out = Command::cargo_bin("zawk")

@@ -9,9 +9,13 @@
 //!
 //! The formatted program is checked to parse to the same syntax tree as the original one, so a
 //! formatter bug can not silently change the meaning of a program.
+//!
+//! The lexer does not know `@include` lines: the code between them is formatted piece by piece and
+//! the lines are kept in place, without loading the included files.
 use crate::arena::Arena;
 use crate::ast;
 use crate::common::Stage;
+use crate::include::{self, Part};
 use crate::lexer::{Tok, Tokenizer};
 use crate::parsing;
 
@@ -30,7 +34,37 @@ impl Default for Options {
 
 /// Formats the program `text`, or returns why it can not be formatted (a syntax error).
 pub fn format(text: &str, opts: &Options) -> Result<String, String> {
-    let before = syntax_tree(text)?;
+    let mut out = String::new();
+    // The source has a blank line before the next directive or code.
+    let mut blank = false;
+    for part in include::split_source(text)? {
+        let is_blank = |line: Option<&str>| line.is_some_and(|l| l.trim().is_empty());
+        let (next, blank_after) = match part {
+            Part::Directive(line) => (format!("{}\n", line.trim()), false),
+            Part::Code { text, line } => {
+                let code = format_code(&text, line, opts)?;
+                blank |= is_blank(text.split('\n').next());
+                (code, is_blank(text.rsplit('\n').next()))
+            }
+        };
+        if next.is_empty() {
+            blank |= blank_after;
+            continue;
+        }
+        if blank && !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&next);
+        blank = blank_after;
+    }
+    Ok(out)
+}
+
+/// Formats `text`, the code between `@include` lines that starts at the line `first_line` (0-based)
+/// of the program.
+fn format_code(text: &str, first_line: usize, opts: &Options) -> Result<String, String> {
+    // The leading newlines make syntax errors point to the line in the program.
+    let before = syntax_tree(&format!("{}{}", "\n".repeat(first_line), text))?;
     let (toks, end) = tokens(text)?;
     let mut f = Formatter::new(&opts.indent);
     for i in 0..toks.len() {
@@ -807,6 +841,45 @@ mod tests {
                 .starts_with("syntax error")
         );
         assert!(format("BEGIN { x = \"a }", &Options::default()).is_err());
+    }
+
+    #[test]
+    fn includes() {
+        assert_eq!(
+            fmt("@include \"lib.awk\"\nBEGIN{print 1}\n"),
+            "@include \"lib.awk\"\nBEGIN {\n    print 1\n}\n"
+        );
+        // The directives stay where they are, with their `;` and comment.
+        assert_eq!(
+            fmt("BEGIN{x=1}\n  @include \"a\"; # first\t\n@include \"b\"\n{print}"),
+            "BEGIN {\n    x = 1\n}\n@include \"a\"; # first\n@include \"b\"\n{\n    print\n}\n"
+        );
+        assert_eq!(fmt("@include \"a\""), "@include \"a\"\n");
+    }
+
+    #[test]
+    fn blank_lines_around_includes() {
+        assert_eq!(
+            fmt("# lib\n\n\n@include \"a\"\n\n\n@include \"b\"\n\nBEGIN{}\n\n"),
+            "# lib\n\n@include \"a\"\n\n@include \"b\"\n\nBEGIN {}\n"
+        );
+    }
+
+    #[test]
+    fn include_text_in_a_literal() {
+        let src = "BEGIN {\n    x = \"a\\\n@include \\\"b\\\"\n\"\n}\n";
+        assert_eq!(fmt(src), src);
+    }
+
+    #[test]
+    fn syntax_errors_after_includes() {
+        let err = format(
+            "@include \"a\"\n\nBEGIN {\n  x = )\n}\n",
+            &Options::default(),
+        );
+        assert!(err.unwrap_err().contains("line 4"));
+        let err = format("BEGIN {\n@include \"a\"\n}\n", &Options::default()).unwrap_err();
+        assert!(err.contains("line 2") && err.contains("`@include` inside a rule or function"));
     }
 
     #[test]

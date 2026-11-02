@@ -103,7 +103,8 @@ zawk fmt --indent 2 demo.awk   # or --tabs
 ```
 
 Blocks are indented, one statement per line, spaces are normalized; comments, blank lines and literals are
-kept. The result is checked to parse to the same program as the original.
+kept. The result is checked to parse to the same program as the original. `@include` lines are kept in place,
+and the included files are neither loaded nor formatted.
 
 ## `zawk llm`
 
