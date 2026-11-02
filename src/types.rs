@@ -422,6 +422,12 @@ impl Constraint<State> {
                 Some(TVar::Map { .. }) => Ok(*s),
                 _ => Ok(None),
             },
+            // `E` may only be inferred as an array later: a scalar `F` must not reach the result yet.
+            Constraint::CallBuiltin(args, builtins::Function::TryElse)
+                if !tc.allow_null_try && tc.nw.read(args[0]).is_none() =>
+            {
+                Ok(None)
+            }
             Constraint::CallBuiltin(args, f) => {
                 let arg_state: SmallVec<State> = args.iter().map(|ix| *tc.nw.read(*ix)).collect();
                 f.step(&arg_state[..])
@@ -682,6 +688,8 @@ pub(crate) struct TypeContext<'a, 'b> {
     // unifies their types (e.g. arrays with int and str keys), so these calls wait for their
     // arguments to be typed first; calls whose arguments stay untyped are handled afterwards.
     allow_null_args: bool,
+    // Whether `try E else F` takes the type of `F` when `E` still has no type.
+    allow_null_try: bool,
 }
 
 struct View<'a, 'b, 'c> {
@@ -735,6 +743,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             global_names: pc.global_names(),
             use_locs: pc.use_locs(),
             allow_null_args: false,
+            allow_null_try: false,
         };
         tc.udf_nodes = (0..pc.funcs.len())
             .map(|_| tc.nw.add_rule(Rule::AlwaysNotify))
@@ -754,18 +763,13 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         let mut res = tc.solve();
         if res.is_ok() {
             tc.allow_null_args = true;
-            let calls: Vec<NodeIx> = tc
-                .nw
-                .graph
-                .raw_edges()
-                .iter()
-                .filter(|e| matches!(e.weight.constraint, Constraint::CallUDF(..)))
-                .map(|e| e.target())
-                .collect();
-            for c in calls {
-                tc.nw.wl.insert(c);
-            }
-            res = tc.solve();
+            res = tc.resolve_calls(|c| matches!(c, Constraint::CallUDF(..)));
+        }
+        if res.is_ok() {
+            tc.allow_null_try = true;
+            res = tc.resolve_calls(|c| {
+                matches!(c, Constraint::CallBuiltin(_, builtins::Function::TryElse))
+            });
         }
         if let Err(e) = res {
             // A scalar local used as an array may make another value conflict first, as may a
@@ -843,6 +847,21 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
         }
         Ok(TypeInfo { var_tys, func_tys })
+    }
+    /// Solve again from the nodes whose incoming constraint satisfies `pred`.
+    fn resolve_calls(&mut self, pred: impl Fn(&Constraint<()>) -> bool) -> Result<()> {
+        let calls: Vec<NodeIx> = self
+            .nw
+            .graph
+            .raw_edges()
+            .iter()
+            .filter(|e| pred(&e.weight.constraint))
+            .map(|e| e.target())
+            .collect();
+        for c in calls {
+            self.nw.wl.insert(c);
+        }
+        self.solve()
     }
     fn solve(&mut self) -> Result<()> {
         let mut dep_indices: SmallVec<NodeIx> = Default::default();

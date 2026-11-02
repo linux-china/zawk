@@ -4537,6 +4537,66 @@ BEGIN {
 }
 
 #[test]
+fn try_else_without_value() {
+    // an `E` with no value gives `F` when it fails, and an uninitialized value when it succeeds
+    let prog = r#"
+function noret() { }
+function send() { publish("Notification", "hello") }
+BEGIN {
+    x = try publish("Notification", "hello") else "c2"; print "[" x "]"
+    n = try send() else 5; print n + 1
+    v = try noret() else "unused"; print "[" v "]"
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("[c2]\n6\n[]\n");
+        // an array `F` is the result when `E` fails
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([
+                *backend_arg,
+                r#"BEGIN { d["a"] = 1; r = try publish("Notification", "x") else d; print length(r), r["a"] }"#,
+            ])
+            .assert()
+            .success()
+            .stdout("1 1\n");
+    }
+}
+
+#[test]
+fn try_else_late_array_inference() {
+    // a scalar `F` must not reach the result before the array type of `E` is known
+    let prog = r#"
+function g1(s) { return g2(s) }
+function g2(s) { return g3(s) }
+function g3(s) { return chars(s) }
+function rec(n) { if (n > 0) return rec(n - 1); return chars("ab") }
+function ignore(a) { return chars("abcd") }
+function viaglobal() { return G }
+function caller(s) { y = try g3(s) else ""; return y }
+BEGIN {
+    G[1] = 2
+    a = try g1("abc") else ""; print length(a)
+    b = try rec(3) else "x"; print length(b)
+    c = try ignore(unset) else ""; print length(c)
+    e = try viaglobal() else ""; print length(e)
+    f = caller("abcde"); print length(f)
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("3\n2\n4\n1\n5\n");
+    }
+}
+
+#[test]
 fn try_else_handled_failures() {
     // A failure that an inner `try` handled (in the same expression, or in a function the outer
     // `E` calls) does not make the outer `try` fail; one in an inner `F` does.

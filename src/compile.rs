@@ -1350,6 +1350,8 @@ impl<'a, 'b> View<'a, 'b> {
             (Float, Null) => LL::StoreConstFloat(dst_reg.into(), Default::default()),
             (Int, Null) => LL::StoreConstInt(dst_reg.into(), Default::default()),
             (Str, Null) => LL::StoreConstStr(dst_reg.into(), runtime::Str::uninit().into()),
+            // `try E else array` when `E` has no value.
+            (dst, Null) if dst.is_array() => LL::AllocMap(dst, dst_reg),
             (Float, Int) => LL::IntToFloat(dst_reg.into(), src_reg.into()),
             (Str, Int) => LL::IntToStr(dst_reg.into(), src_reg.into()),
 

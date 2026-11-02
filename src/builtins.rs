@@ -1414,8 +1414,7 @@ impl Function {
             TryElse => match (&args[0], &args[1]) {
                 (Some(Map { .. }), Some(Map { .. })) => Ok(args[1]),
                 (Some(Map { .. }), _) => Ok(args[0]),
-                (Some(_), _) => Ok(args[1]),
-                (None, _) => Ok(None),
+                (Some(_), _) | (None, _) => Ok(args[1]),
             },
             ArrayMedian | ArrayQuantile | ArrayVar | ArrayStddev | ArrayMode | ArrayStat => {
                 Ok(Scalar(BaseTy::Float).abs())
