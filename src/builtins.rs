@@ -274,9 +274,24 @@ pub enum Bitwise {
     Xor,
 }
 
-/// Maps a shift count to `u32`, sending negative counts out of range (≥ 64).
+/// Maps a shift count to `u32`, sending counts that do not fit out of range (≥ 64).
 fn shift_count(n: i64) -> u32 {
-    u32::try_from(n as u64).unwrap_or(u32::MAX)
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+/// `compl` of a non-negative `op`, as gawk: bits above the 53 that a float can hold, counted from
+/// the lowest set bit, are dropped (`compl(0)` is `2^53 - 1`). Bit 63 is dropped too, as with
+/// every result of a bitwise function: integers are signed here.
+pub(crate) fn complement(op: i64) -> i64 {
+    const FLOAT_BITS: u32 = 53;
+    let n = !(op as u64);
+    let kept = FLOAT_BITS + n.trailing_zeros();
+    let n = if kept < u64::BITS {
+        n & ((1 << kept) - 1)
+    } else {
+        n
+    };
+    n as i64 & i64::MAX
 }
 
 impl Bitwise {
@@ -292,27 +307,34 @@ impl Bitwise {
             Xor => "xor",
         }
     }
-    pub fn eval1(&self, op: i64) -> i64 {
+    /// `None` if `op` is negative, which is an error as in gawk.
+    pub fn eval1(&self, op: i64) -> Option<i64> {
         use Bitwise::*;
         match self {
-            Complement => !op,
+            Complement => (op >= 0).then(|| complement(op)),
             And | Or | LogicalRightShift | ArithmeticRightShift | LeftShift | Xor => {
                 panic!("bitwise: mismatched arity!")
             }
         }
     }
-    pub fn eval2(&self, lhs: i64, rhs: i64) -> i64 {
+    /// `None` if an argument is negative, which is an error as in gawk. `rshiftl` is not in gawk,
+    /// and exists for negative values: only its shift count has to be non-negative.
+    pub fn eval2(&self, lhs: i64, rhs: i64) -> Option<i64> {
         use Bitwise::*;
-        match self {
+        if rhs < 0 || (lhs < 0 && *self != LogicalRightShift) {
+            return None;
+        }
+        // Shift counts of 64 and above shift every bit out.
+        Some(match self {
             And => lhs & rhs,
             Or => lhs | rhs,
-            // Shift counts outside 0..64 (including negative ones) shift every bit out.
-            LogicalRightShift => (lhs as u64).checked_shr(shift_count(rhs)).unwrap_or(0) as i64,
-            ArithmeticRightShift => lhs >> shift_count(rhs).min(63),
-            LeftShift => lhs.checked_shl(shift_count(rhs)).unwrap_or(0),
+            LogicalRightShift | ArithmeticRightShift => {
+                (lhs as u64).checked_shr(shift_count(rhs)).unwrap_or(0) as i64
+            }
+            LeftShift => lhs.checked_shl(shift_count(rhs)).unwrap_or(0) & i64::MAX,
             Xor => lhs ^ rhs,
             Complement => panic!("bitwise: mismatched arity!"),
-        }
+        })
     }
     pub fn arity(&self) -> usize {
         use Bitwise::*;

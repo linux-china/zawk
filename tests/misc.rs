@@ -6777,3 +6777,44 @@ fn parallel_runtime_errors_name_the_worker_and_file() {
         );
     }
 }
+
+#[test]
+fn bitwise_negative_values_fail() {
+    let progs = [
+        r#"BEGIN { print compl(-1) }"#,
+        r#"BEGIN { print and(-1, 1) }"#,
+        r#"BEGIN { print and(1, -1) }"#,
+        r#"BEGIN { print or(-1, 1) }"#,
+        r#"BEGIN { print xor(1, -0.5) }"#,
+        r#"BEGIN { print lshift(1, -1) }"#,
+        r#"BEGIN { print lshift(-1, 1) }"#,
+        r#"BEGIN { print rshift(1, -1) }"#,
+        r#"BEGIN { print rshift(-1, 1) }"#,
+        r#"BEGIN { print rshiftl(1, -1) }"#,
+        r#"BEGIN { print and("-1", 1) }"#,
+        r#"BEGIN { x = -1; print and(x, 1) }"#,
+        r#"BEGIN { print and(-(2^64), 1) }"#,
+        // The result is not used.
+        r#"BEGIN { and(-1, 1) }"#,
+        r#"BEGIN { x = compl(-1) }"#,
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for prog in progs {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, prog])
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(2), "{} {}", backend_arg, prog);
+            assert!(output.stdout.is_empty());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("negative value is not allowed in a bitwise function"),
+                "{} {}: {}",
+                backend_arg,
+                prog,
+                stderr
+            );
+        }
+    }
+}

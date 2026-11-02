@@ -109,6 +109,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         float_to_str_ofmt(float_ty) -> str_ty;
         [ReadOnly] str_to_int(str_ref_ty) -> int_ty;
         [ReadOnly] float_to_bits(float_ty) -> int_ty;
+        [ReadOnly] complement(int_ty) -> int_ty;
         [ReadOnly] hex_str_to_int(str_ref_ty) -> int_ty;
         [ReadOnly] str_to_float(str_ref_ty) -> float_ty;
         [ReadOnly] str_len(str_ref_ty) -> int_ty;
@@ -187,6 +188,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         mod_by_zero(rt_ty, int_ty);
         div_by_zero(rt_ty, int_ty);
         int_overflow(rt_ty, int_ty);
+        negative_bitwise(rt_ty, int_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
         read_err_stdin(rt_ty) -> int_ty;
         next_line(rt_ty, str_ref_ty, int_ty) -> str_ty;
@@ -3614,6 +3616,10 @@ pub(crate) unsafe extern "C" fn float_to_bits(f: Float) -> Int {
     math_util::float_to_bits(f)
 }
 
+pub(crate) unsafe extern "C" fn complement(i: Int) -> Int {
+    crate::builtins::complement(i)
+}
+
 pub(crate) unsafe extern "C" fn hex_str_to_int(s: *mut c_void) -> Int {
     guard_panic(stringify!(hex_str_to_int), || {
         let s = &*(s as *mut Str);
@@ -4016,6 +4022,16 @@ pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void, site: Int) {
     guard_panic(stringify!(int_overflow), || {
         (*(rt as *mut Runtime)).site = site as u32;
         fail!(rt, "{}", runtime::INT_OVERFLOW_MSG)
+    })
+}
+
+/// Called by generated code when a bitwise function gets a negative value; does not return.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn negative_bitwise(rt: *mut c_void, site: Int) {
+    guard_panic(stringify!(negative_bitwise), || {
+        (*(rt as *mut Runtime)).site = site as u32;
+        fail!(rt, "{}", runtime::NEGATIVE_BITWISE_MSG)
     })
 }
 

@@ -1363,15 +1363,28 @@ impl<'a> View<'a> {
     /// All of the entries in `args` should be integer values.
     fn bitwise(&mut self, op: builtins::Bitwise, args: &[Value]) -> Value {
         use builtins::Bitwise::*;
+        // Negative values are an error; only the shift count of `rshiftl` is checked.
+        let checked = match op {
+            Complement => args[0],
+            LogicalRightShift => args[1],
+            _ => self.builder.ins().bor(args[0], args[1]),
+        };
+        let negative = self
+            .builder
+            .ins()
+            .icmp_imm_s(IntCC::SignedLessThan, checked, 0);
+        self.fail_if(negative, external!(negative_bitwise));
         match op {
-            Complement => self.builder.ins().bnot(args[0]),
+            Complement => self.call_external(external!(complement), args),
             And => self.builder.ins().band(args[0], args[1]),
             Or => self.builder.ins().bor(args[0], args[1]),
-            // Cranelift masks shift counts mod 64; counts outside 0..64 (negative ones compare as
-            // huge unsigned values) instead shift every bit out, matching `Bitwise::eval2`.
-            LogicalRightShift | LeftShift => {
+            // Cranelift masks shift counts mod 64; counts of 64 and above instead shift every bit
+            // out, matching `Bitwise::eval2`.
+            LogicalRightShift | ArithmeticRightShift | LeftShift => {
                 let shifted = if op == LeftShift {
-                    self.builder.ins().ishl(args[0], args[1])
+                    let shifted = self.builder.ins().ishl(args[0], args[1]);
+                    let mask = self.builder.ins().iconst(types::I64, i64::MAX);
+                    self.builder.ins().band(shifted, mask)
                 } else {
                     self.builder.ins().ushr(args[0], args[1])
                 };
@@ -1381,15 +1394,6 @@ impl<'a> View<'a> {
                     .icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
                 let zero = self.builder.ins().iconst(types::I64, 0);
                 self.builder.ins().select(in_range, shifted, zero)
-            }
-            ArithmeticRightShift => {
-                let in_range = self
-                    .builder
-                    .ins()
-                    .icmp_imm_u(IntCC::UnsignedLessThan, args[1], 64);
-                let max = self.builder.ins().iconst(types::I64, 63);
-                let count = self.builder.ins().select(in_range, args[1], max);
-                self.builder.ins().sshr(args[0], count)
             }
             Xor => self.builder.ins().bxor(args[0], args[1]),
         }

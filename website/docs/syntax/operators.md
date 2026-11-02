@@ -99,4 +99,5 @@ Hexadecimal literals are recognized in source and in input data wherever a strin
 ## Bitwise functions
 
 Following gawk, bitwise operations are functions: `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, plus
-`rshiftl` for a logical right shift. They work on 64-bit two's complement integers.
+`rshiftl` for a logical right shift of the 64-bit pattern. As in gawk, a negative value is a fatal error, except
+for the first argument of `rshiftl`, and `compl(0)` is `2^53 - 1`. Numbers and results keep their low 63 bits.

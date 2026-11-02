@@ -1,5 +1,6 @@
 # Unreleased
 
+* **Behavior change**: the bitwise functions follow gawk: a negative value is a fatal error (`and(-1, 1)`, `compl(-1)`, `lshift(1, -1)`, `rshift(-8, 1)`), also when the result is not used, and `compl(0)` is `9007199254740991`, no longer `-1`. `rshiftl` is not in gawk and still takes a negative first argument, its shift count must not be negative. Shift counts of 64 and above still give 0. Numbers and results keep their low 63 bits, so `lshift(1, 63)` is `0` (`9223372036854775808` in gawk)
 * Fix plain text files starting with `BZh9` or the bytes `\x1f\x8b` being read as compressed and failing with a fatal error: gzip input is now recognized by its first 3 bytes and bzip2 input by its first 10
 * Fix `zawk fmt` rejecting programs with `@include` lines: the code around them is formatted, the lines are kept in place and the included files are not loaded
 * Fix `try E else F` losing the value of `F` when `E` has no value: `x = try publish(url, body) else "failed"` gave an empty `x`, also with a user function without `return` as `E`

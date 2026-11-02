@@ -81,7 +81,7 @@ pub(crate) enum Instr<'a> {
     StrToInt(Reg<Int>, Reg<Str<'a>>),
     HexStrToInt(Reg<Int>, Reg<Str<'a>>),
     FloatToInt(Reg<Int>, Reg<Float>),
-    // Two's complement bit pattern of a number, for the bitwise builtins (see math_util::float_to_bits).
+    // Two's complement pattern of a number, for the bitwise builtins (see math_util::float_to_bits).
     FloatToBits(Reg<Int>, Reg<Float>),
     IntToFloat(Reg<Float>, Reg<Int>),
     StrToFloat(Reg<Float>, Reg<Str<'a>>),

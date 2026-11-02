@@ -1317,25 +1317,28 @@ this as well"#
         r#"BEGIN {
         print xor(1,3);
         print or(1, 3);
-        print compl(-2);
+        print compl(1);
         print lshift(1, 8);
         print rshift(256, 8);
-        print rshift(-1, 62);
+        print rshift(5, 1);
         print rshiftl(-1, 62);
         }"#,
-        "2\n3\n1\n256\n1\n-1\n3\n"
+        "2\n3\n18014398509481982\n256\n1\n2\n3\n"
     );
 
     test_program!(
-        bitwise_64bit_semantics,
+        bitwise_large_values,
         r#"BEGIN {
-        print and(2^63, 1), and(2^63, 2^63) == lshift(1, 63);
-        print lshift(1, 64), rshiftl(-1, 64), rshift(-8, 64), rshift(8, 64), lshift(1, -1);
+        print and(2^63, 1), and(1 + 2^62, 2^62 + 2^63) == 2^62, lshift(1, 62);
+        print lshift(1, 64), rshiftl(-1, 64), rshift(8, 64), lshift(1, 100), rshift(1, 100);
         n = 64; x = 1;
-        print lshift(x, n), rshift(-x, n), rshiftl(-x, n);
-        print compl(0), and(-1, 255), rshift(-8, 1);
+        print lshift(x, n), rshift(x, n), rshiftl(-x, n);
+        print compl(0), compl(1.5), compl(2^53), compl(2^54), compl(lshift(1, 63));
+        print and(lshift(1, 63), 1), and(-0, 1), and(lshift(3, 62), lshift(1, 62)) == 2^62;
         }"#,
-        "0 1\n0 0 -1 0 0\n0 -1 0\n-1 255 -4\n"
+        "0 1 4611686018427387904\n0 0 0 0 0\n0 0 0\n\
+         9007199254740991 18014398509481982 9007199254740991 9007199254740991 9007199254740991\n\
+         0 0 1\n"
     );
 
     test_program!(

@@ -97,13 +97,15 @@ _Unary Operators:_
   seed.
 * Bitwise operations. All of these operations coerce their operands to integers
   before being evaluated.
-  * `compl(x)`: Bitwise complement.
+  * `compl(x)`: Bitwise complement, as gawk: `compl(0)` is `2^53 - 1`.
   * `and(x, y)`: Bitwise and.
   * `or(x, y)`: Bitwise or.
   * `xor(x, y)`: Bitwise xor.
   * `lshift(x, y)`: Shift `x` left by `y` bits.
-  * `rshift(x, y)`: Arithmetic right shift of `x` by `y` bits.
-  * `rshiftl(x, y)`: Logical right shift of `x` by `y` bits.
+  * `rshift(x, y)`: Right shift of `x` by `y` bits.
+  * `rshiftl(x, y)`: Logical right shift of the 64-bit pattern of `x` by `y` bits; `x` may be negative.
+
+As in gawk, a negative value is a fatal error for all of these, except for the `x` of `rshiftl`. Numbers and results keep their low 63 bits, and shift counts of 64 and above give 0.
 
 ## String Operations
 

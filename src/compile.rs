@@ -1514,8 +1514,8 @@ impl<'a, 'b> View<'a, 'b> {
             if aty == cty {
                 *creg = areg;
             } else if matches!(bf, IntFunc(_)) && matches!(aty, Ty::Float | Ty::Str) {
-                // Bitwise builtins take the 64-bit pattern of their arguments, not the
-                // saturated integer value (so `and(2^63, 1)` is 0, not `i64::MAX & 1`).
+                // Bitwise builtins take the bit pattern of their arguments, not the saturated
+                // integer value (so `and(2^63, 1)` is 0, not `i64::MAX & 1`).
                 let freg = if aty == Ty::Float {
                     areg
                 } else {
@@ -1681,22 +1681,25 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
+            // Bitwise functions fail on negative values, so they run even when their result is
+            // unused.
             IntFunc(bw) => {
-                if res_reg != UNUSED {
-                    match bw.arity() {
-                        1 => self.pushl(LL::Int1(*bw, res_reg.into(), conv_regs[0].into())),
-                        2 => self.pushl(LL::Int2(
-                            *bw,
-                            res_reg.into(),
-                            conv_regs[0].into(),
-                            conv_regs[1].into(),
-                        )),
-                        a => {
-                            return err!(
-                                "only known float functions have arity 1 and 2, but this one has arity {}",
-                                a
-                            );
-                        }
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                match bw.arity() {
+                    1 => self.pushl(LL::Int1(*bw, res_reg.into(), conv_regs[0].into())),
+                    2 => self.pushl(LL::Int2(
+                        *bw,
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    )),
+                    a => {
+                        return err!(
+                            "only known float functions have arity 1 and 2, but this one has arity {}",
+                            a
+                        );
                     }
                 }
             }

@@ -414,16 +414,26 @@ fn strip_thousands(bs: &[u8]) -> Option<Vec<u8>> {
     Some(res)
 }
 
-/// Converts a number to the 64-bit two's complement pattern used by the bitwise functions:
-/// the value is truncated toward zero and reduced modulo 2^64, so `2^63` becomes the bit pattern
-/// `0x8000000000000000` instead of saturating to `i64::MAX`. NaN and infinities become 0.
+/// Converts a number to the two's complement pattern used by the bitwise functions: the value is
+/// truncated toward zero and reduced modulo 2^63, so `2^63` becomes 0 instead of saturating to
+/// `i64::MAX`. The sign is kept, as the bitwise functions reject negative values: `-0.5` becomes
+/// -1, not 0. NaN and positive infinity become 0.
 pub(crate) fn float_to_bits(f: Float) -> Int {
     const TWO_63: Float = 9223372036854775808.0;
     const TWO_64: Float = 18446744073709551616.0;
     if f.abs() < TWO_63 {
-        f as Int
+        if f < 0.0 {
+            (f as Int).min(-1)
+        } else {
+            f as Int
+        }
     } else {
-        f.trunc().rem_euclid(TWO_64) as u64 as Int
+        let bits = f.trunc().rem_euclid(TWO_64) as u64 as Int;
+        if f < 0.0 {
+            bits | Int::MIN
+        } else {
+            bits & Int::MAX
+        }
     }
 }
 

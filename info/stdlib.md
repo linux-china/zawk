@@ -675,8 +675,9 @@ Seeds the random number generator used by rand, returns the old seed.
 All of these operations coerce their operands to integers before being evaluated.
 
 - `and(x, y)`, `or(x, y)`, `xor(x, y)`: bitwise and/or/xor
-- `compl(x)`: bitwise complement
-- `lshift(x, n)`: shift left, `rshift(x, n)`: arithmetic shift right, `rshiftl(x, n)`: logical shift right
+- `compl(x)`: bitwise complement, as gawk: `compl(0)` is `2^53 - 1`
+- `lshift(x, n)`: shift left, `rshift(x, n)`: shift right, `rshiftl(x, n)`: logical shift right of the 64-bit pattern, `x` may be negative
+- Negative values are a fatal error, as in gawk, except for the `x` of `rshiftl`. Numbers and results keep their low 63 bits
 
 ### abs
 

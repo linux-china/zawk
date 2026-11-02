@@ -1826,6 +1826,9 @@ pub(crate) fn check_result_len(func: &str, what: &str, len: Float) -> Result<()>
 pub(crate) const INT_OVERFLOW_MSG: &str =
     "integer overflow: result exceeds the 64-bit integer range";
 
+/// Error reported when a bitwise function is given a negative value.
+pub(crate) const NEGATIVE_BITWISE_MSG: &str = "negative value is not allowed in a bitwise function";
+
 pub(crate) trait Inc {
     fn inc_int(&mut self, by: Int);
     fn inc_float(&mut self, by: Float);
