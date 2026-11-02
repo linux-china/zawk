@@ -17,6 +17,10 @@ use crate::runtime::awk_regex::AwkRegex;
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct Label(pub usize);
 
+/// The locations (see `parsing::site_of`) of the instructions of a function: each applies from the
+/// given instruction up to the next one in the list.
+pub(crate) type Sites = Vec<(usize, u32)>;
+
 impl std::fmt::Debug for Label {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(fmt, "@{}", self.0)

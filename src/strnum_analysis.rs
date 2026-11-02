@@ -125,7 +125,7 @@ impl StrnumAnalysis {
                     self.dfa.add_dep(dst, src, ())
                 }
             }),
-            DropIter(..) => {}
+            DropIter(..) | Loc(_) => {}
         }
     }
 

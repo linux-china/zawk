@@ -129,10 +129,14 @@ struct Frame {
     // The runtime parameter itself. It is defined in the entry block, so it dominates every block
     // and can be used without going through `use_var`.
     runtime_param: Value,
-    // One cold block per `fail` intrinsic, shared by every check in the function that calls it
-    // (see `fail_if`). A block per check made compile time and memory quadratic in the size of
-    // straight-line arithmetic.
-    fail_blocks: HashMap<*const u8, Block>,
+    // One cold block per `fail` intrinsic and location, shared by the checks at that location (see
+    // `fail_if`). There are at most `MAX_FAIL_BLOCKS`: unbounded, they made compile time and memory
+    // quadratic in the size of straight-line arithmetic.
+    fail_blocks: HashMap<(*const u8, u32), Block>,
+    // The location of the code being generated (see `parsing::site_of`).
+    site: u32,
+    // The location known to be in the runtime when control reaches the code being generated.
+    stored_site: Option<u32>,
     // The overflow flags of integer arithmetic emitted since the last check, or-ed together (see
     // `defer_overflow_check`).
     pending_overflow: Option<Value>,
@@ -237,6 +241,10 @@ const MAX_GLOBALS_IN_REGS: usize = 32;
 /// thousands of values live across thousands of blocks, and register allocation takes time and
 /// memory quadratic in the size of the program.
 const LARGE_FUNCTION_BLOCKS: usize = 2000;
+
+/// Functions with more arithmetic checks than this share a block for each kind of failure, whose
+/// errors have no location (see `Frame::fail_blocks`).
+const MAX_FAIL_BLOCKS: usize = 1024;
 
 /// Instructions that only compute numbers from numbers, with no side effects and no way to fail:
 /// they may run on the wrapped-around result of an integer overflow that has not been checked yet
@@ -473,6 +481,9 @@ impl Generator {
                 runtime: Variable::new(0),
                 runtime_param: Value::from_u32(0),
                 fail_blocks: Default::default(),
+                site: 0,
+                // Arguments are set up before the runtime is available, and cannot fail.
+                stored_site: Some(0),
                 pending_overflow: None,
                 n_vars: 0,
                 vars: Default::default(),
@@ -621,6 +632,12 @@ impl<'a> View<'a> {
             pending_preds[e.target().index()] += 1;
         }
         self.builder.switch_to_block(pre_block);
+        if crate::common::backtrace_enabled() {
+            let int_ty = self.get_ty(compile::Ty::Int);
+            let func = self.builder.ins().iconst(int_ty, i64::from(insts.id()));
+            let rt = self.f.runtime_param;
+            self.call_unlocated(external!(trace_enter), &[rt, func]);
+        }
         self.builder.ins().jump(bbs[0], &[]);
         for (i, n) in pending_preds.iter().enumerate() {
             if *n == 0 {
@@ -640,8 +657,18 @@ impl<'a> View<'a> {
                     continue;
                 }
                 self.builder.switch_to_block(bbs[i]);
+                self.f.site = 0;
+                self.f.stored_site = None;
                 for inst in &node.weight.insts {
                     match inst {
+                        Either::Right(compile::HighLevel::Loc(site)) => {
+                            // Overflow checks are combined within a statement only, so that they
+                            // report the right one.
+                            if self.f.fail_blocks.len() < MAX_FAIL_BLOCKS {
+                                self.flush_overflow_check();
+                            }
+                            self.f.site = *site;
+                        }
                         Either::Left(ll) => {
                             if !is_pure_numeric(ll) {
                                 self.flush_overflow_check();
@@ -868,6 +895,8 @@ impl<'a> View<'a> {
             .module
             .declare_func_in_func(func_id, self.builder.func);
         let call_inst = self.builder.ins().call(fref, &to_pass[..]);
+        // The callee moved on from this location.
+        self.f.stored_site = None;
         Ok(self
             .builder
             .inst_results(call_inst)
@@ -914,9 +943,15 @@ impl<'a> View<'a> {
                         .load(str_ty, MemFlagsData::trusted(), v, 0);
                 }
                 self.drop_all();
+                if crate::common::backtrace_enabled() {
+                    let rt = self.f.runtime_param;
+                    self.call_unlocated(external!(trace_leave), &[rt]);
+                }
                 self.builder.ins().return_(&[v]);
                 Ok(())
             }
+            // Handled by `gen_function_body`.
+            Loc(_) => Ok(()),
             DropIter(reg, ty) => {
                 use compile::Ty::*;
                 let drop_fn = match ty {
@@ -1134,7 +1169,27 @@ impl<'a> View<'a> {
         debug_assert!(self.builder.inst_results(_inst).iter().next().is_none());
     }
 
+    /// Call an external function, which can report the location of the code being generated.
     fn call_inst(&mut self, func: *const u8, args: &[Value]) -> cranelift_codegen::ir::Inst {
+        // Code zawk adds around the program has no location, and only fails reading the input,
+        // which clears the location.
+        if self.f.site != 0 && self.f.stored_site != Some(self.f.site) {
+            self.store_site(self.f.site);
+            self.f.stored_site = Some(self.f.site);
+        }
+        self.call_unlocated(func, args)
+    }
+
+    fn store_site(&mut self, site: u32) {
+        let site = self.builder.ins().iconst(types::I32, i64::from(site));
+        let rt = self.f.runtime_param;
+        let offset = std::mem::offset_of!(super::intrinsics::Runtime, site) as i32;
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), site, rt, offset);
+    }
+
+    fn call_unlocated(&mut self, func: *const u8, args: &[Value]) -> cranelift_codegen::ir::Inst {
         let id = self.shared.external_funcs[&func];
         let fref = self
             .shared
@@ -1205,12 +1260,17 @@ impl<'a> View<'a> {
     /// return) when `cond` is true. Code emitted after this call runs only when `cond` is false.
     fn fail_if(&mut self, cond: Value, fail: *const u8) {
         let cont_block = self.builder.create_block();
-        let (fail_block, is_new) = match self.f.fail_blocks.get(&fail) {
+        let site = if self.f.fail_blocks.len() < MAX_FAIL_BLOCKS {
+            self.f.site
+        } else {
+            0
+        };
+        let (fail_block, is_new) = match self.f.fail_blocks.get(&(fail, site)) {
             Some(b) => (*b, false),
             None => {
                 let b = self.builder.create_block();
                 self.builder.set_cold_block(b);
-                self.f.fail_blocks.insert(fail, b);
+                self.f.fail_blocks.insert((fail, site), b);
                 (b, true)
             }
         };
@@ -1221,8 +1281,10 @@ impl<'a> View<'a> {
             // The block is left unsealed so that later checks can branch to it; it reads no
             // variables, so sealing it at the end of the function costs nothing.
             self.builder.switch_to_block(fail_block);
+            let int_ty = self.get_ty(compile::Ty::Int);
+            let site = self.builder.ins().iconst(int_ty, i64::from(site));
             let rt = self.f.runtime_param;
-            self.call_external_void(fail, &[rt]);
+            self.call_unlocated(fail, &[rt, site]);
             // `fail` does not return; the trap only gives the block a terminator.
             self.builder.ins().trap(TrapCode::unwrap_user(1));
         }

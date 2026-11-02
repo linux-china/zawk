@@ -473,6 +473,28 @@ fn assertion_site(loc: Loc, end: Loc) -> Option<(&'static str, String)> {
     ))
 }
 
+/// Records `loc` as where `node` runs, for errors of the running program.
+pub fn run_loc<'n, T, I>(node: &'n T, loc: Loc, prog: &mut Prog<'_, '_, I>) -> &'n T {
+    prog.run_locs.entry(expr_key(node)).or_insert(loc);
+    node
+}
+
+/// `msg` followed by the location of the assertion, if it is known.
+fn located_message<'a>(
+    msg: &'a Expr<'a, 'a, &'a str>,
+    loc: Loc,
+    end: Loc,
+    arena: &'a Arena,
+) -> &'a Expr<'a, 'a, &'a str> {
+    match assertion_site(loc, end) {
+        Some((_, site)) => {
+            let site = str_lit(&format!("\n  --> {}", site), arena);
+            arena.alloc(Expr::Binop(Binop::Concat, msg, site))
+        }
+        None => msg,
+    }
+}
+
 /// `print msg > "/dev/stderr"; abort 2`. Unlike `exit`, the abort does not run the END block.
 fn assertion_failure<'a>(
     msg: &'a Expr<'a, 'a, &'a str>,
@@ -524,7 +546,7 @@ fn assert_stmt<'a>(
             };
             (cond, str_lit(&msg, arena))
         }
-        [cond, msg] => (cond, msg),
+        [cond, msg] => (cond, located_message(msg, loc, end, arena)),
         _ => {
             return user_error(
                 loc,
@@ -907,6 +929,8 @@ fn parse_placeholder<'a>(
     };
     prog.locs
         .extend(inner.locs.into_iter().map(|(k, l)| (k, map(l))));
+    prog.run_locs
+        .extend(inner.run_locs.into_iter().map(|(k, l)| (k, map(l))));
     Ok(e)
 }
 
@@ -1223,6 +1247,122 @@ pub fn render_error(err: &CompileError) -> String {
         }
         _ => fatal_message(&err.0),
     }
+}
+
+/// A location in the program as generated code passes it around: 0 is no location, otherwise the
+/// byte offset in the program text plus one.
+pub fn site_of(loc: Option<Loc>) -> u32 {
+    loc.map_or(0, |loc| loc.offset() as u32 + 1)
+}
+
+fn site_loc(site: u32) -> Option<Loc> {
+    let (prog, _) = PROGRAM.get()?;
+    (site != 0).then(|| Loc::at_offset(prog, site as usize - 1))
+}
+
+/// The name of each compiled function, for backtraces.
+static FUNCTION_NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Registers the name of each compiled function, indexed like the functions in `CallFrame`.
+pub fn set_function_names(names: Vec<String>) {
+    let _ = FUNCTION_NAMES.set(names);
+}
+
+/// Where the BEGIN and END rules are in the program text.
+static RULE_SPANS: std::sync::OnceLock<Vec<(&'static str, Loc, Loc)>> = std::sync::OnceLock::new();
+
+pub fn set_rule_spans(spans: Vec<(&'static str, Loc, Loc)>) {
+    let _ = RULE_SPANS.set(spans);
+}
+
+/// The name of the function of `call` in a backtrace.
+fn call_name(call: &CallFrame) -> &str {
+    let name = FUNCTION_NAMES
+        .get()
+        .and_then(|names| names.get(call.func as usize))
+        .map_or("?", String::as_str);
+    let rule = site_loc(call.site).and_then(|loc| {
+        let spans = RULE_SPANS.get()?;
+        let (rule, ..) = spans
+            .iter()
+            .find(|(_, l, r)| (l.offset()..r.offset()).contains(&loc.offset()))?;
+        Some(*rule)
+    });
+    match rule {
+        Some(rule) if name == "main" => rule,
+        _ => name,
+    }
+}
+
+/// Whether `FNR` of a worker is a line of its file: workers read whole files with `-pf`, but only
+/// chunks of the input with `-pr`.
+static WORKERS_READ_WHOLE_FILES: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_workers_read_whole_files(whole: bool) {
+    WORKERS_READ_WHOLE_FILES.store(whole, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A function being run when an error occurred, and the location it had reached.
+#[derive(Debug, Clone, Copy)]
+pub struct CallFrame {
+    pub func: u32,
+    pub site: u32,
+}
+
+/// What a worker of a parallel program was reading when an error occurred.
+#[derive(Debug)]
+pub struct WorkerInput {
+    pub worker: i64,
+    pub filename: String,
+    pub fnr: i64,
+}
+
+/// Formats an error of the running program. `calls` starts at the outermost function, and is only
+/// shown with `ZAWK_BACKTRACE` set.
+///
+/// ```text
+/// zawk: fatal: prog.awk:1:25: division by zero attempted
+///     function g(x) { return 1/x }
+///                             ^
+///   in worker 2 at data.txt:17
+/// stack backtrace:
+///    0: g at prog.awk:1:25
+///    1: BEGIN at prog.awk:2:15
+/// ```
+pub fn render_runtime_error(
+    msg: &str,
+    site: u32,
+    calls: &[CallFrame],
+    input: Option<WorkerInput>,
+) -> String {
+    let mut res = render_error(&CompileError(msg.to_string(), site_loc(site)));
+    if let Some(WorkerInput {
+        worker,
+        filename,
+        fnr,
+    }) = input
+    {
+        use std::sync::atomic::Ordering;
+        let at = if WORKERS_READ_WHOLE_FILES.load(Ordering::Relaxed) {
+            format!("{}:{}", filename, fnr)
+        } else {
+            filename
+        };
+        res.push_str(&format!("\n  in worker {} at {}", worker, at));
+    }
+    if crate::common::backtrace_enabled() && !calls.is_empty() {
+        res.push_str("\nstack backtrace:");
+        for (i, call) in calls.iter().rev().enumerate() {
+            let name = call_name(call);
+            let at = match (site_loc(call.site), PROGRAM.get()) {
+                (Some(loc), Some((prog, sources))) => sources.describe(prog, loc),
+                _ => "unknown location".to_string(),
+            };
+            res.push_str(&format!("\n{:>4}: {} at {}", i, name, at));
+        }
+    }
+    res
 }
 
 /// The source text of a token, as it appears in the program.

@@ -195,6 +195,15 @@ pub const FATAL_PREFIX: &str = "fatal: ";
 /// function) that gawk reports while parsing: they are reported as syntax errors, with exit code 1.
 pub const SYNTAX_PREFIX: &str = "syntax error: ";
 
+/// Whether errors of the running program show the calls leading to them. Read before generating
+/// code, which only tracks calls when this is set.
+pub fn backtrace_enabled() -> bool {
+    static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var_os("ZAWK_BACKTRACE").is_some_and(|v| !v.is_empty() && v != "0")
+    });
+    *ENABLED
+}
+
 /// A fatal error message in the gawk style: `zawk: fatal: msg`.
 pub fn fatal_message(msg: &str) -> String {
     if msg.starts_with("zawk: ") {

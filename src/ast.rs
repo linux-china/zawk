@@ -91,6 +91,11 @@ pub struct Prog<'a, 'b, I> {
     // Where calls and variable references start in the program text, for error messages: see
     // `expr_key`.
     pub locs: ExprLocs,
+    // Where statements and arithmetic operators are in the program text, for errors of the running
+    // program: see `expr_key`. Kept apart from `locs`, which also locates errors found compiling.
+    pub run_locs: ExprLocs,
+    // Where the BEGIN and END rules are: a serial program compiles all its rules to one function.
+    pub rule_spans: Vec<(&'static str, Loc, Loc)>,
     // The `local` variables of the rule or function being parsed.
     pub locals: LocalScope<I>,
 }
@@ -401,6 +406,8 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
             header_in_main: false,
             stage,
             locs: Default::default(),
+            run_locs: Default::default(),
+            rule_spans: Default::default(),
             locals: Default::default(),
         }
     }

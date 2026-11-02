@@ -1009,22 +1009,27 @@ fn assert_exits_with_message() {
         (
             r#"{ assert($1 < 3, "line " NR ": too big"); print } END{print "end"}"#,
             "1\n2\n",
-            "line 3: too big\n",
+            "line 3: too big\n  --> line 1, column 3\n",
             2,
         ),
         (
             r#"function f(x) { assert(x < 2, "f " x); return x } { print f($1) } END{print "end"}"#,
             "1\n",
-            "f 2\n",
+            "f 2\n  --> line 1, column 17\n",
             2,
         ),
         (
             r#"BEGIN { assert(0, "begin") } END{print "end"}"#,
             "",
-            "begin\n",
+            "begin\n  --> line 1, column 9\n",
             2,
         ),
-        (r#"END { assert(0, "end"); print "after" }"#, "", "end\n", 2),
+        (
+            r#"END { assert(0, "end"); print "after" }"#,
+            "",
+            "end\n  --> line 1, column 7\n",
+            2,
+        ),
         (
             r#"{ assert(NF == 1, f"bad {NR}") } END{print "end"}"#,
             "end\n",
@@ -1035,7 +1040,7 @@ fn assert_exits_with_message() {
         (
             r#"{ assert(/[12]/, "no match at " NR); print }"#,
             "1\n2\n",
-            "no match at 3\n",
+            "no match at 3\n  --> line 1, column 3\n",
             2,
         ),
     ];
@@ -3015,7 +3020,7 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { x = -1; $x = 1 }"#,
             2,
-            &["zawk: fatal: attempt to access field -1"],
+            &["zawk: fatal: line 1, column 17: attempt to access field -1"],
         ),
         (
             r#"BEGIN { a[1][2] = 1 }"#,
@@ -3097,7 +3102,7 @@ fn error_messages_are_gawk_style() {
         (
             r#"BEGIN { r = "("; print ("x" ~ r) }"#,
             2,
-            &["zawk: fatal: invalid regex /(/: unclosed group\n"],
+            &["zawk: fatal: line 1, column 18: invalid regex /(/: unclosed group\n"],
         ),
     ];
     for backend_arg in BACKEND_ARGS {
@@ -6526,4 +6531,151 @@ fn fmt_keeps_digit_separators() {
             .unwrap()
             .contains("1_000.5, 0xFF_FF")
     );
+}
+
+/// Runs `prog` from a file and returns its exit code and stderr, with the file name as `prog.awk`.
+fn run_failing(backend: &str, envs: &[(&str, &str)], args: &[&str], prog: &str) -> (i32, String) {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("prog.awk");
+    std::fs::write(&path, prog).unwrap();
+    let mut cmd = Command::cargo_bin("zawk").unwrap();
+    cmd.arg(backend).args(args).arg("-f").arg(&path);
+    for (name, value) in envs {
+        cmd.env(name, value);
+    }
+    let output = cmd.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    (
+        output.status.code().unwrap(),
+        stderr.replace(path.to_str().unwrap(), "prog.awk"),
+    )
+}
+
+#[test]
+fn runtime_errors_have_locations() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "function g(x) { return 1/x }\nBEGIN { print g(0) }\n",
+            "zawk: fatal: prog.awk:1:25: division by zero attempted\n    function g(x) { return 1/x }\n                            ^\n",
+        ),
+        (
+            "BEGIN {\n  a = 1\n  a = a % 0\n}\n",
+            "zawk: fatal: prog.awk:3:9: division by zero attempted in `%'\n      a = a % 0\n            ^\n",
+        ),
+        // Each of the two divisions in one function is reported at its own location.
+        (
+            "BEGIN {\n  x = 1\n  print 1 / x\n  x = 0\n  print 2 / x\n}\n",
+            "zawk: fatal: prog.awk:5:11: division by zero attempted\n      print 2 / x\n              ^\n",
+        ),
+        (
+            "BEGIN {\n  x = 9007199254740992\n  while (x > 0)\n    x = x + 9007199254740992\n}\n",
+            "zawk: fatal: prog.awk:4:11: integer overflow",
+        ),
+        (
+            "BEGIN {\n  x = -1\n  y = 1\n  $x = y\n}\n",
+            "zawk: fatal: prog.awk:4:3: attempt to access field -1\n",
+        ),
+        // A failure inside a function of the runtime.
+        (
+            "BEGIN {\n  a = 1\n  print seq(1, 0, 5)\n}\n",
+            "zawk: fatal: prog.awk:3:9: ",
+        ),
+        // A pattern, not an action.
+        (
+            "BEGIN { z = 0 }\n1 / z { print }\n",
+            "zawk: fatal: prog.awk:2:3: division by zero attempted\n",
+        ),
+    ];
+    for backend in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            let (code, stderr) = run_failing(backend, &[], &["Cargo.toml"], prog);
+            assert_eq!(code, 2, "{backend} {prog}: {stderr}");
+            assert!(
+                stderr.starts_with(expected),
+                "{backend} {prog}: expected {expected:?}, got {stderr:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn input_errors_are_not_located_at_the_last_statement() {
+    for backend in BACKEND_ARGS {
+        let (code, stderr) = run_failing(backend, &[], &["/nonexistent/file"], "{ print }\n");
+        assert_eq!(code, 2, "{backend}: {stderr}");
+        assert!(
+            stderr.starts_with("zawk: fatal: cannot open file"),
+            "{backend}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn backtrace_lists_the_calls() {
+    let prog =
+        "function g(x) { return 1/x }\nfunction h(x) { return g(x) }\n\nBEGIN { print h(0) }\n";
+    let expected = "stack backtrace:\n   0: g at prog.awk:1:25\n   1: h at prog.awk:2:24\n   2: BEGIN at prog.awk:4:15\n";
+    for backend in BACKEND_ARGS {
+        let (_, plain) = run_failing(backend, &[], &[], prog);
+        assert!(!plain.contains("stack backtrace"), "{backend}: {plain}");
+        let (code, traced) = run_failing(backend, &[("ZAWK_BACKTRACE", "1")], &[], prog);
+        assert_eq!(code, 2, "{backend}: {traced}");
+        assert!(traced.ends_with(expected), "{backend}: {traced:?}");
+    }
+}
+
+#[test]
+fn backtrace_of_main_loop_after_returning_calls() {
+    let prog = "function f(x) { return x + 1 }\n{ f(1); print 1 / 0 + $1 }\n";
+    for backend in BACKEND_ARGS {
+        let dir = tempdir().unwrap();
+        let data = dir.path().join("data.txt");
+        std::fs::write(&data, "1\n").unwrap();
+        let (_, traced) = run_failing(
+            backend,
+            &[("ZAWK_BACKTRACE", "1")],
+            &[data.to_str().unwrap()],
+            prog,
+        );
+        assert!(
+            traced.ends_with("stack backtrace:\n   0: main at prog.awk:2:17\n"),
+            "{backend}: {traced:?}"
+        );
+    }
+}
+
+#[test]
+fn assert_with_message_reports_its_location() {
+    let prog = "function f(n) {\n  assert(n > 0, \"bad\")\n}\nBEGIN { f(0) }\n";
+    for backend in BACKEND_ARGS {
+        let (code, stderr) = run_failing(backend, &[], &[], prog);
+        assert_eq!(code, 2, "{backend}: {stderr}");
+        assert_eq!(stderr, "bad\n  --> prog.awk:2:3\n", "{backend}");
+    }
+}
+
+#[test]
+fn parallel_runtime_errors_name_the_worker_and_file() {
+    let dir = tempdir().unwrap();
+    let data = dir.path().join("data.txt");
+    std::fs::write(&data, "0\n").unwrap();
+    let data = data.to_str().unwrap();
+    for backend in BACKEND_ARGS {
+        // Files are read whole by one worker: FNR is a line of the file.
+        let (code, stderr) = run_failing(backend, &[], &["-pf", "-j2", data], "{ print 1 / $1 }\n");
+        assert_eq!(code, 2, "{backend}: {stderr}");
+        assert!(
+            stderr.contains(&format!("{data}:1\n")),
+            "{backend}: {stderr}"
+        );
+        assert!(stderr.contains("worker "), "{backend}: {stderr}");
+        // Workers count the records of the chunks they read: FNR is not a line of the file.
+        let (code, stderr) = run_failing(backend, &[], &["-pr", "-j2", data], "{ print 1 / $1 }\n");
+        assert_eq!(code, 2, "{backend}: {stderr}");
+        assert!(stderr.contains("worker "), "{backend}: {stderr}");
+        assert!(
+            !stderr.contains(&format!("{data}:1")),
+            "{backend}: {stderr}"
+        );
+    }
 }

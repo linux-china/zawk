@@ -248,6 +248,8 @@ unsafe fn run_stage(
                             sender.send(rt.core.extract_result(0)).unwrap();
                         }),
                         cancel_signal,
+                        site: 0,
+                        calls: Vec::new(),
                     };
                     main_loop_fn.invoke(&mut runtime);
                 }

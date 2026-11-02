@@ -493,6 +493,7 @@ fn get_context<'a>(
     prog.operand_files = mem::take(&mut prelude.operand_files);
     let stmt = match parser.parse(a, &mut buf, &mut prog, lexer) {
         Ok(()) => {
+            parsing::set_rule_spans(mem::take(&mut prog.rule_spans));
             prog.field_sep = prelude.field_sep;
             prog.prelude_vardecs = prelude.var_decs;
             prog.output_sep = prelude.output_sep;
@@ -1866,6 +1867,7 @@ fn real_main() {
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
     }
+    parsing::set_workers_read_whole_files(matches!(exec_strategy, ExecutionStrategy::ShardPerFile));
     // Every input file starts with a header line (JSON and Parquet records are mapped by key).
     // Every message is read by a reader of its own, which starts with the header (the keys
     // of a JSON message).

@@ -1,7 +1,8 @@
 use crate::builtins::Variable;
-use crate::bytecode::{Get, Instr, Label, Reg};
+use crate::bytecode::{Get, Instr, Label, Reg, Sites};
 use crate::common::{CancelSignal, CompileError, NumTy, Result, Stage};
 use crate::compile::{self, Ty};
+use crate::parsing::{CallFrame, WorkerInput, render_runtime_error};
 use crate::pushdown::FieldSet;
 use crate::runtime::{self, Float, Int, Line, LineReader, Str, UniqueStr};
 
@@ -13,6 +14,7 @@ use rand::{self, RngExt, SeedableRng, rngs::StdRng};
 
 use crate::builtins;
 use std::mem;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 type ClassicReader = runtime::splitter::regex::RegexSplitter<Box<dyn std::io::Read>>;
@@ -171,6 +173,15 @@ pub fn combine_slot<T: Default>(vec: &mut Vec<T>, slot: usize, f: impl FnOnce(T)
 }
 
 impl<'a> Core<'a> {
+    /// What this worker of a parallel program is reading.
+    pub(crate) fn worker_input(&self) -> Option<WorkerInput> {
+        (self.vars.pid > 0).then(|| WorkerInput {
+            worker: self.vars.pid,
+            filename: self.vars.filename.to_string(),
+            fnr: self.vars.fnr,
+        })
+    }
+
     pub fn shuttle(&self, pid: Int) -> impl FnOnce() -> Core<'a> + Send + use<'a> {
         use crate::builtins::Variables;
         // Derive a deterministic, per-worker seed so parallel runs are reproducible
@@ -501,6 +512,8 @@ pub(crate) struct Interp<'a, LR: LineReader = ClassicReader> {
     num_workers: usize,
     instrs: Vec<Vec<Instr<'a>>>,
     stack: Vec<(usize /*function*/, Label /*instr*/)>,
+    // The locations of the instructions of each function.
+    sites: Arc<Vec<Sites>>,
 
     line: LR::Line,
     read_files: runtime::FileRead<LR>,
@@ -535,6 +548,43 @@ fn default_of<T: Default>(n: usize) -> Storage<T> {
 }
 
 impl<'a, LR: LineReader> Interp<'a, LR> {
+    pub(crate) fn set_sites(&mut self, sites: Vec<Sites>) {
+        self.sites = Arc::new(sites);
+    }
+
+    /// The location of instruction `pc` of function `func`.
+    fn site_at(&self, func: usize, pc: usize) -> u32 {
+        let sites = &self.sites[func];
+        match sites.partition_point(|(start, _)| *start <= pc) {
+            0 => 0,
+            i => sites[i - 1].1,
+        }
+    }
+
+    /// `err`, raised at instruction `pc` of function `func`, with where the program had got to.
+    fn located_error(&self, err: CompileError, func: usize, pc: usize) -> CompileError {
+        // Errors reading the input are not part of any statement.
+        if err.is_fatal() {
+            return err;
+        }
+        let mut calls: Vec<CallFrame> = self
+            .stack
+            .iter()
+            .map(|(caller, Label(ret))| CallFrame {
+                func: *caller as u32,
+                // The instruction after the call may be in the next statement.
+                site: self.site_at(*caller, ret.saturating_sub(1)),
+            })
+            .collect();
+        let site = self.site_at(func, pc);
+        calls.push(CallFrame {
+            func: func as u32,
+            site,
+        });
+        let input = self.core.worker_input();
+        CompileError::new(render_runtime_error(&err.0, site, &calls, input))
+    }
+
     pub(crate) fn set_uses_procinfo(&mut self, uses_procinfo: bool) {
         self.core.vars.uses_procinfo = uses_procinfo;
     }
@@ -559,6 +609,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             num_workers,
             instrs,
             stack: Default::default(),
+            sites: Default::default(),
             floats: default_of(regs(Float)),
             ints: default_of(regs(Int)),
             // Unassigned string variables hold the uninitialized value.
@@ -703,6 +754,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 let sender = sender.clone();
                 let core_shuttle = self.core.shuttle(i as Int + 2);
                 let instrs = self.instrs.clone();
+                let sites = self.sites.clone();
                 s.spawn(move |_| {
                     if let Some(read_files) = handle() {
                         let mut interp = Interp {
@@ -710,6 +762,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             num_workers: 1,
                             instrs,
                             stack: Default::default(),
+                            sites,
                             core: core_shuttle(),
                             line: Default::default(),
                             read_files,
@@ -780,13 +833,30 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     }
 
     #[allow(clippy::never_loop)]
-    pub(crate) fn run_at(&mut self, mut cur_fn: usize) -> Result<i32> {
+    pub(crate) fn run_at(&mut self, entry: usize) -> Result<i32> {
+        let mut failed_at = (entry, 0);
+        self.run_from(entry, &mut failed_at)
+            .map_err(|err| self.located_error(err, failed_at.0, failed_at.1))
+    }
+
+    /// Runs the program from the start of `cur_fn`. On an error, `failed_at` gets the function and
+    /// instruction that failed.
+    fn run_from(&mut self, mut cur_fn: usize, failed_at: &mut (usize, usize)) -> Result<i32> {
         use Instr::*;
         let mut scratch: Vec<runtime::FormatArg> = Vec::new();
         // We are only accessing one vector at a time here, but it's hard to convince the borrow
         // checker of this fact, so we access the vectors through raw pointers.
         let mut instrs = (&mut self.instrs[cur_fn]) as *mut Vec<Instr<'a>>;
         let mut cur = 0;
+        // Records where an error happened, on its way out.
+        macro_rules! at {
+            () => {
+                |err: CompileError| {
+                    *failed_at = (cur_fn, cur);
+                    err
+                }
+            };
+        }
 
         'outer: loop {
             // This somewhat ersatz structure is to allow 'cur' to be reassigned
@@ -1033,7 +1103,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     MkPassword(dst, len) => {
                         let len: i64 = *self.get(*len);
-                        let password = runtime::string_util::generate_password(len)?;
+                        let password =
+                            runtime::string_util::generate_password(len).map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = password.into();
                     }
                     Fend(dst, src) => {
@@ -1726,7 +1797,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let start: Float = *self.get(*start);
                         let step: Float = *self.get(*step);
                         let end: Float = *self.get(*end);
-                        let res = runtime::math_util::seq(start, step, end)?;
+                        let res = runtime::math_util::seq(start, step, end).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1832,18 +1903,17 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
                         let dt_text =
-                            runtime::string_util::pad_left(&*text.as_text(), len, &*pad.as_text())?;
+                            runtime::string_util::pad_left(&*text.as_text(), len, &*pad.as_text())
+                                .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     PadRight(dst, text, len, pad) => {
                         let text = index(&self.strs, text);
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
-                        let dt_text = runtime::string_util::pad_right(
-                            &*text.as_text(),
-                            len,
-                            &*pad.as_text(),
-                        )?;
+                        let dt_text =
+                            runtime::string_util::pad_right(&*text.as_text(), len, &*pad.as_text())
+                                .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     PadBoth(dst, text, len, pad) => {
@@ -1851,7 +1921,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let len: Int = *self.get(*len);
                         let pad = index(&self.strs, pad);
                         let dt_text =
-                            runtime::string_util::pad_both(&*text.as_text(), len, &*pad.as_text())?;
+                            runtime::string_util::pad_both(&*text.as_text(), len, &*pad.as_text())
+                                .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = Str::from_text(dt_text);
                     }
                     StrCmp(dst, text1, text2) => {
@@ -1878,7 +1949,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Repeat(dst, text, n) => {
                         let n: Int = *self.get(*n);
-                        let dt_text = index(&self.strs, text).repeat(n)?;
+                        let dt_text = index(&self.strs, text).repeat(n).map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = dt_text;
                     }
                     Wrap(dst, text, width) => {
@@ -2038,7 +2109,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let r = *self.get(*r);
                         *self.get_mut(res) = match l.checked_add(r) {
                             Some(x) => x,
-                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG).map_err(at!()),
                         };
                     }
                     AddFloat(res, l, r) => {
@@ -2053,7 +2124,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let r = *self.get(*r);
                         *self.get_mut(res) = match l.checked_mul(r) {
                             Some(x) => x,
-                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG).map_err(at!()),
                         };
                     }
                     MulFloat(res, l, r) => {
@@ -2068,7 +2139,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let r = *self.get(*r);
                         *self.get_mut(res) = match l.checked_sub(r) {
                             Some(x) => x,
-                            None => return err!("{}", runtime::INT_OVERFLOW_MSG),
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG).map_err(at!()),
                         };
                     }
                     MinusFloat(res, l, r) => {
@@ -2082,9 +2153,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0 {
-                            return Err(CompileError::new(
+                            return Err(at!()(CompileError::new(
                                 "division by zero attempted in `%'".into(),
-                            ));
+                            )));
                         }
                         // wrapping_rem: i64::MIN % -1 overflows (the result is 0).
                         *self.get_mut(res) = l.wrapping_rem(r);
@@ -2094,9 +2165,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0.0 {
-                            return Err(CompileError::new(
+                            return Err(at!()(CompileError::new(
                                 "division by zero attempted in `%'".into(),
-                            ));
+                            )));
                         }
                         *self.get_mut(res) = runtime::math_util::fmod(l, r);
                     }
@@ -2105,7 +2176,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let l = *self.get(*l);
                         let r = *self.get(*r);
                         if r == 0.0 {
-                            return Err(CompileError::new("division by zero attempted".into()));
+                            return Err(at!()(CompileError::new(
+                                "division by zero attempted".into(),
+                            )));
                         }
                         *self.get_mut(res) = l / r;
                     }
@@ -2196,18 +2269,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     Match(res, l, r) => {
                         *index_mut(&mut self.ints, res) = self
                             .core
-                            .match_regex(index(&self.strs, l), index(&self.strs, r))?;
+                            .match_regex(index(&self.strs, l), index(&self.strs, r))
+                            .map_err(at!())?;
                     }
                     IsMatch(res, l, r) => {
-                        *index_mut(&mut self.ints, res) = self
-                            .core
-                            .is_match_regex(index(&self.strs, l), index(&self.strs, r))?
-                            as Int;
+                        *index_mut(&mut self.ints, res) =
+                            self.core
+                                .is_match_regex(index(&self.strs, l), index(&self.strs, r))
+                                .map_err(at!())? as Int;
                     }
                     // match(): the position of the match, also setting RSTART and RLENGTH.
                     MatchConst(res, x, pat) => {
-                        *index_mut(&mut self.ints, res) =
-                            self.core.match_const_regex(index(&self.strs, x), pat)?;
+                        *index_mut(&mut self.ints, res) = self
+                            .core
+                            .match_const_regex(index(&self.strs, x), pat)
+                            .map_err(at!())?;
                     }
                     // `~`: 1 if the pattern matches, 0 otherwise.
                     IsMatchConst(res, x, pat) => {
@@ -2249,7 +2325,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_search(pat, in_s, |re| in_s.subst_first(re, s))?
+                                .with_search(pat, in_s, |re| in_s.subst_first(re, s))
+                                .map_err(at!())?
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = new as Int;
@@ -2261,7 +2338,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_search(pat, in_s, |re| in_s.subst_all(re, s))?
+                                .with_search(pat, in_s, |re| in_s.subst_all(re, s))
+                                .map_err(at!())?
                         };
                         *index_mut(&mut self.strs, in_s) = subbed;
                         *index_mut(&mut self.ints, res) = subs_made;
@@ -2274,7 +2352,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             let in_s = index(&self.strs, in_s);
                             self.core
                                 .regexes
-                                .with_search(pat, in_s, |re| in_s.gen_subst_dynamic(re, s, how))?
+                                .with_search(pat, in_s, |re| in_s.gen_subst_dynamic(re, s, how))
+                                .map_err(at!())?
                         };
                         *index_mut(&mut self.strs, res) = subbed;
                     }
@@ -2482,70 +2561,87 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let col = *self.get(*dst);
                         let v = index(&self.strs, src);
                         self.line
-                            .set_col(col, v, &self.core.vars.ofs, &mut self.core.regexes)?;
+                            .set_col(col, v, &self.core.vars.ofs, &mut self.core.regexes)
+                            .map_err(at!())?;
                     }
                     GetColumn(dst, src) => {
                         let col = *self.get(*src);
                         let dst = *dst;
-                        let res = self.line.get_col(
-                            col,
-                            &self.core.vars.split_fs,
-                            &self.core.vars.ofs,
-                            &mut self.core.regexes,
-                        )?;
+                        let res = self
+                            .line
+                            .get_col(
+                                col,
+                                &self.core.vars.split_fs,
+                                &self.core.vars.ofs,
+                                &mut self.core.regexes,
+                            )
+                            .map_err(at!())?;
                         *self.get_mut(dst) = res;
                     }
                     JoinCSV(dst, start, end) => {
                         let nf = self
                             .line
-                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
+                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)
+                            .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = {
                             let start = *index(&self.ints, start);
                             let end = *index(&self.ints, end);
-                            self.line.join_cols(start, end, &",".into(), nf, |s| {
-                                runtime::escape_csv(&s)
-                            })?
+                            self.line
+                                .join_cols(start, end, &",".into(), nf, |s| runtime::escape_csv(&s))
+                                .map_err(at!())?
                         };
                     }
                     JoinTSV(dst, start, end) => {
                         let nf = self
                             .line
-                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
+                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)
+                            .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = {
                             let start = *index(&self.ints, start);
                             let end = *index(&self.ints, end);
-                            self.line.join_cols(start, end, &"\t".into(), nf, |s| {
-                                runtime::escape_tsv(&s)
-                            })?
+                            self.line
+                                .join_cols(start, end, &"\t".into(), nf, |s| {
+                                    runtime::escape_tsv(&s)
+                                })
+                                .map_err(at!())?
                         };
                     }
                     RecordCSV(dst) => {
-                        *index_mut(&mut self.strs, dst) = self.line.record(
-                            &",".into(),
-                            &self.core.vars.split_fs,
-                            &self.core.vars.ofs,
-                            &mut self.core.regexes,
-                            |s| runtime::escape_csv(&s),
-                        )?;
+                        *index_mut(&mut self.strs, dst) = self
+                            .line
+                            .record(
+                                &",".into(),
+                                &self.core.vars.split_fs,
+                                &self.core.vars.ofs,
+                                &mut self.core.regexes,
+                                |s| runtime::escape_csv(&s),
+                            )
+                            .map_err(at!())?;
                     }
                     RecordTSV(dst) => {
-                        *index_mut(&mut self.strs, dst) = self.line.record(
-                            &"\t".into(),
-                            &self.core.vars.split_fs,
-                            &self.core.vars.ofs,
-                            &mut self.core.regexes,
-                            |s| runtime::escape_tsv(&s),
-                        )?;
+                        *index_mut(&mut self.strs, dst) = self
+                            .line
+                            .record(
+                                &"\t".into(),
+                                &self.core.vars.split_fs,
+                                &self.core.vars.ofs,
+                                &mut self.core.regexes,
+                                |s| runtime::escape_tsv(&s),
+                            )
+                            .map_err(at!())?;
                     }
                     JoinColumns(dst, start, end, sep) => {
                         let nf = self
                             .line
-                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)?;
+                            .nf(&self.core.vars.split_fs, &mut self.core.regexes)
+                            .map_err(at!())?;
                         *index_mut(&mut self.strs, dst) = {
                             let sep = index(&self.strs, sep);
                             let start = *index(&self.ints, start);
                             let end = *index(&self.ints, end);
-                            self.line.join_cols(start, end, sep, nf, |s| s)?
+                            self.line
+                                .join_cols(start, end, sep, nf, |s| s)
+                                .map_err(at!())?
                         };
                     }
                     ToUpperAscii(dst, src) => {
@@ -2561,7 +2657,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let to_split = index(&self.strs, to_split);
                         let arr = index(&self.maps_int_str, arr);
                         let pat = index(&self.strs, pat);
-                        self.core.regexes.split_regex_intmap(pat, to_split, arr)?;
+                        self.core
+                            .regexes
+                            .split_regex_intmap(pat, to_split, arr)
+                            .map_err(at!())?;
                         let res = arr.len() as Int;
                         let flds = *flds;
                         *self.get_mut(flds) = res;
@@ -2597,16 +2696,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         patsplit,
                         re,
                     } => {
-                        let n = self.split_seps(
-                            *to_split,
-                            *arr_ty,
-                            *arr,
-                            *pat,
-                            *seps_ty,
-                            *seps,
-                            *patsplit,
-                            re.as_deref(),
-                        )?;
+                        let n = self
+                            .split_seps(
+                                *to_split,
+                                *arr_ty,
+                                *arr,
+                                *pat,
+                                *seps_ty,
+                                *seps,
+                                *patsplit,
+                                re.as_deref(),
+                            )
+                            .map_err(at!())?;
                         *self.get_mut(*res) = n;
                     }
                     MatchArrStr(res, s, pat, arr, subsep) => {
@@ -2615,16 +2716,20 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let arr = index(&self.maps_str_str, arr);
                         let subsep = index(&self.strs, subsep);
                         let core = &mut self.core;
-                        *index_mut(&mut self.ints, res) =
-                            core.regexes
-                                .regex_match_strmap(&mut core.vars, pat, s, arr, subsep)?;
+                        *index_mut(&mut self.ints, res) = core
+                            .regexes
+                            .regex_match_strmap(&mut core.vars, pat, s, arr, subsep)
+                            .map_err(at!())?;
                     }
                     SplitStr(flds, to_split, arr, pat) => {
                         // Very similar to above
                         let to_split = index(&self.strs, to_split);
                         let arr = index(&self.maps_str_str, arr);
                         let pat = index(&self.strs, pat);
-                        self.core.regexes.split_regex_strmap(pat, to_split, arr)?;
+                        self.core
+                            .regexes
+                            .split_regex_strmap(pat, to_split, arr)
+                            .map_err(at!())?;
                         let res = arr.len() as Int;
                         let flds = *flds;
                         *self.get_mut(flds) = res;
@@ -2637,10 +2742,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     } => {
                         debug_assert_eq!(scratch.len(), 0);
                         for (a, strnum) in args.iter().zip(strnum.iter()) {
-                            scratch.push(self.format_arg(*a, *strnum)?);
+                            scratch.push(self.format_arg(*a, *strnum).map_err(at!())?);
                         }
                         let fmt_str = index(&self.strs, fmt);
-                        let res = runtime::printf::format("sprintf", fmt_str, &scratch[..])?;
+                        let res = runtime::printf::format("sprintf", fmt_str, &scratch[..])
+                            .map_err(at!())?;
                         scratch.clear();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
@@ -2656,7 +2762,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             // Failing to open the output is fatal; write errors exit silently.
                             self.core
                                 .write_files
-                                .check_output(Some((out_path, *fspec)))?;
+                                .check_output(Some((out_path, *fspec)))
+                                .map_err(at!())?;
                             self.core
                                 .write_files
                                 .write_all(&scratch_strs[..], Some((out_path, *fspec)))
@@ -2675,16 +2782,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     } => {
                         debug_assert_eq!(scratch.len(), 0);
                         for (a, strnum) in args.iter().zip(strnum.iter()) {
-                            scratch.push(self.format_arg(*a, *strnum)?);
+                            scratch.push(self.format_arg(*a, *strnum).map_err(at!())?);
                         }
                         let fmt_str = index(&self.strs, fmt);
                         // Format errors are fatal; write errors exit silently, as with print.
-                        let text = runtime::printf::format("printf", fmt_str, &scratch[..])?;
+                        let text = runtime::printf::format("printf", fmt_str, &scratch[..])
+                            .map_err(at!())?;
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
                             self.core
                                 .write_files
-                                .check_output(Some((out_path, *fspec)))?;
+                                .check_output(Some((out_path, *fspec)))
+                                .map_err(at!())?;
                             self.core
                                 .write_files
                                 .write_printf(Some((out_path, *fspec)), &text)
@@ -2699,7 +2808,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Close(dst, file) => {
                         let file = index(&self.strs, file);
-                        let out = self.core.write_files.close(file)?;
+                        let out = self.core.write_files.close(file).map_err(at!())?;
                         let input = self.read_files.close(file);
                         let res = runtime::close_result(out, input);
                         let dst = *dst;
@@ -2767,7 +2876,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         dst,
                         strnum,
                         how,
-                    } => self.asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum, *how)?,
+                    } => self
+                        .asort(*res, *src_ty, *src, *dst_ty, *dst, *strnum, *how)
+                        .map_err(at!())?,
                     Asorti {
                         res,
                         src_ty,
@@ -2775,7 +2886,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         dst_ty,
                         dst,
                         how,
-                    } => self.asorti(*res, *src_ty, *src, *dst_ty, *dst, *how)?,
+                    } => self
+                        .asorti(*res, *src_ty, *src, *dst_ty, *dst, *how)
+                        .map_err(at!())?,
                     Len { map_ty, map, dst } => self.len(*map_ty, *map, *dst),
                     ArrayStat {
                         res,
@@ -2829,7 +2942,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         dst,
                     } => self.inc_map_float(*map_ty, *map, *key, *by, *dst),
                     LoadVarStr(dst, var) => {
-                        let s = self.core.vars.load_str(*var)?;
+                        let s = self.core.vars.load_str(*var).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = s;
                     }
@@ -2840,20 +2953,21 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         // current one with the old separator first, as fields are split lazily.
                         if let FS | RS = *var {
                             self.line
-                                .split_now(&self.core.vars.split_fs, &mut self.core.regexes)?;
+                                .split_now(&self.core.vars.split_fs, &mut self.core.regexes)
+                                .map_err(at!())?;
                         }
-                        self.core.vars.store_str(*var, s)?;
+                        self.core.vars.store_str(*var, s).map_err(at!())?;
                     }
                     LoadVarInt(dst, var) => {
                         // NF is the number of fields of the current record (which assignments to
                         // NF update, see StoreVarInt).
                         if let NF = *var {
-                            self.core.vars.nf = self
-                                .line
-                                .nf(&self.core.vars.split_fs, &mut self.core.regexes)?
-                                as Int;
+                            self.core.vars.nf =
+                                self.line
+                                    .nf(&self.core.vars.split_fs, &mut self.core.regexes)
+                                    .map_err(at!())? as Int;
                         }
-                        let i = self.core.vars.load_int(*var)?;
+                        let i = self.core.vars.load_int(*var).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = i;
                     }
@@ -2862,46 +2976,46 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let s = *self.get(src);
                         if let NF = *var {
                             // Assigning NF truncates or extends the fields and rebuilds $0.
-                            self.line.set_nf(
-                                s,
-                                &self.core.vars.split_fs,
-                                &mut self.core.regexes,
-                            )?;
+                            self.line
+                                .set_nf(s, &self.core.vars.split_fs, &mut self.core.regexes)
+                                .map_err(at!())?;
                         }
-                        self.core.vars.store_int(*var, s)?;
+                        self.core.vars.store_int(*var, s).map_err(at!())?;
                     }
                     LoadVarIntMap(dst, var) => {
-                        let arr = self.core.vars.load_intmap(*var)?;
+                        let arr = self.core.vars.load_intmap(*var).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = arr;
                     }
                     StoreVarIntMap(var, src) => {
                         let src = *src;
                         let s = self.get(src).clone();
-                        self.core.vars.store_intmap(*var, s)?;
+                        self.core.vars.store_intmap(*var, s).map_err(at!())?;
                     }
                     LoadVarStrMap(dst, var) => {
-                        let arr = self.core.vars.load_strmap(*var)?;
+                        let arr = self.core.vars.load_strmap(*var).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = arr;
                     }
                     StoreVarStrMap(var, src) => {
                         let src = *src;
                         let s = self.get(src).clone();
-                        self.core.vars.store_strmap(*var, s)?;
+                        self.core.vars.store_strmap(*var, s).map_err(at!())?;
                     }
                     LoadVarStrStrMap(dst, var) => {
-                        let arr = self.core.vars.load_strstrmap(*var)?;
+                        let arr = self.core.vars.load_strstrmap(*var).map_err(at!())?;
                         let dst = *dst;
                         *self.get_mut(dst) = arr;
                     }
                     StoreVarStrStrMap(var, src) => {
                         let src = *src;
                         let s = self.get(src).clone();
-                        self.core.vars.store_strstrmap(*var, s)?;
+                        self.core.vars.store_strstrmap(*var, s).map_err(at!())?;
                     }
 
-                    IterBegin { map_ty, map, dst } => self.iter_begin(*map_ty, *map, *dst)?,
+                    IterBegin { map_ty, map, dst } => {
+                        self.iter_begin(*map_ty, *map, *dst).map_err(at!())?
+                    }
                     IterHasNext { iter_ty, dst, iter } => self.iter_has_next(*iter_ty, *dst, *iter),
                     IterGetNext { iter_ty, dst, iter } => self.iter_get_next(*iter_ty, *dst, *iter),
 
@@ -2915,9 +3029,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         let file = index(&self.strs, file);
                         let res = if *is_file {
-                            self.read_files.read_err(file)?
+                            self.read_files.read_err(file).map_err(at!())?
                         } else {
-                            self.read_files.read_err_cmd(file)?
+                            self.read_files.read_err_cmd(file).map_err(at!())?
                         };
                         *self.get_mut(dst) = res;
                     }
@@ -2944,7 +3058,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let (changed, res) = self
                             .core
                             .regexes
-                            .get_line_stdin(&self.core.vars.rs, &mut self.read_files)?;
+                            .get_line_stdin(&self.core.vars.rs, &mut self.read_files)
+                            .map_err(at!())?;
                         if changed {
                             self.reset_file_vars();
                         }
@@ -2952,18 +3067,22 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *self.get_mut(dst) = res;
                     }
                     NextLineStdinFused() => {
-                        let changed = self.core.regexes.get_line_stdin_reuse(
-                            &self.core.vars.rs,
-                            &mut self.read_files,
-                            &mut self.line,
-                        )?;
+                        let changed = self
+                            .core
+                            .regexes
+                            .get_line_stdin_reuse(
+                                &self.core.vars.rs,
+                                &mut self.read_files,
+                                &mut self.line,
+                            )
+                            .map_err(at!())?;
                         if changed {
                             self.reset_file_vars()
                         }
                         self.read_files.sync_named_columns(&self.core.vars.fi);
                     }
                     NextFile() => {
-                        self.read_files.next_file()?;
+                        self.read_files.next_file().map_err(at!())?;
                         self.reset_file_vars();
                     }
                     UpdateUsedFields() => {
@@ -2973,12 +3092,15 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     SetFI(key, val) => {
                         let key = *index(&self.ints, key);
                         let val = *index(&self.ints, val);
-                        let col = self.line.get_col(
-                            key,
-                            &self.core.vars.split_fs,
-                            &self.core.vars.ofs,
-                            &mut self.core.regexes,
-                        )?;
+                        let col = self
+                            .line
+                            .get_col(
+                                key,
+                                &self.core.vars.split_fs,
+                                &self.core.vars.ofs,
+                                &mut self.core.regexes,
+                            )
+                            .map_err(at!())?;
                         self.core.vars.set_fi(col, val);
                     }
                     JmpIf(cond, lbl) => {
@@ -2996,7 +3118,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         if self.stack.len().is_multiple_of(CALL_STACK_CHECK_INTERVAL)
                             && self.call_stack_bytes() >= crate::common::CALL_STACK_BUDGET
                         {
-                            return err!("function call nesting too deep");
+                            return err!("function call nesting too deep").map_err(at!());
                         }
                         self.stack.push((cur_fn, Label(cur + 1)));
                         cur_fn = *func;

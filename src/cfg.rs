@@ -52,6 +52,8 @@ impl<I> FunctionName<I> {
 pub(crate) struct BasicBlock<'a> {
     pub q: VecDeque<PrimStmt<'a>>,
     pub sealed: bool,
+    // The location of the last `PrimStmt::Loc` in `q`.
+    loc: Option<Loc>,
 }
 
 // None indicates `else`
@@ -180,6 +182,9 @@ pub(crate) enum PrimStmt<'a> {
     Return(PrimVal<'a>),
     IterDrop(PrimVal<'a>),
 
+    // Where the statements that follow are in the program text, for errors of the running program.
+    Loc(Option<Loc>),
+
     // Printf is its own node because it is easier to handle varargs explicitly rather than to
     // refactor the whole `builtins` module to support them.
     Printf(
@@ -268,6 +273,7 @@ impl<'a> PrimStmt<'a> {
                 }
             }
             IterDrop(v) | Return(v) => v.replace(update),
+            Loc(_) => {}
         }
     }
 
@@ -316,6 +322,7 @@ impl<'a> PrimStmt<'a> {
                 }
             }
             IterDrop(v) | Return(v) => val(v, &mut f),
+            Loc(_) => {}
         }
     }
 }
@@ -645,6 +652,8 @@ where
                         func_table: &func_table,
                         parse_header: p.parse_header,
                         locs: &p.locs,
+                        run_locs: &p.run_locs,
+                        cur_loc: None,
                         typed_vars: Default::default(),
                     }
                     .fill(s)?;
@@ -667,6 +676,8 @@ where
                 func_table: &func_table,
                 parse_header: p.parse_header,
                 locs: &p.locs,
+                run_locs: &p.run_locs,
+                cur_loc: None,
                 typed_vars: Default::default(),
             }
             .fill(fundec.body)?;
@@ -734,6 +745,10 @@ struct View<'a, 'b, I> {
     parse_header: bool,
     // Where calls and variable references start in the program text.
     locs: &'a ast::ExprLocs,
+    // Where statements and arithmetic operators are in the program text.
+    run_locs: &'a ast::ExprLocs,
+    // Where the statement or expression being converted is in the program text.
+    cur_loc: Option<Loc>,
     // Variable references (keyed by `ast::expr_key`) that are not used as scalars: arrays that
     // are indexed or iterated over, and arguments of calls (which may be arrays).
     typed_vars: HashSet<usize>,
@@ -1001,6 +1016,13 @@ where
         mut current_open: NodeIx,
     ) -> Result<NodeIx> /*next open */ {
         use Stmt::*;
+        match self.run_locs.get(&ast::expr_key(stmt)) {
+            Some(loc) => self.cur_loc = Some(*loc),
+            // The loops and conditions zawk adds around the program (for patterns and reading
+            // input) are not at any location.
+            None if matches!(stmt, If(..) | While(..) | For(..)) => self.cur_loc = None,
+            None => {}
+        }
         Ok(match stmt {
             StartCond(cond) => {
                 self.set_cond(current_open, *cond, 1)?;
@@ -1219,9 +1241,11 @@ where
                     current_open
                 };
                 // todo fix this bug with continue bug
+                let loc = self.cur_loc;
                 let (h, b_start, _b_end, f) = self.make_loop(
                     body, *update, init_end, /*is_do*/ false, /*is_toplevel*/ false,
                 )?;
+                self.cur_loc = loc;
                 let (h_end, cond_val) = if let Some(c) = cond {
                     self.convert_val(c, h)?
                 } else {
@@ -1234,8 +1258,11 @@ where
                 f
             }
             While(is_toplevel, cond, body) => {
+                let loc = self.cur_loc;
                 let (h, b_start, _b_end, f) =
                     self.make_loop(body, None, current_open, /*is_do*/ false, *is_toplevel)?;
+                // The body is converted before the condition, which runs at the loop's location.
+                self.cur_loc = loc;
                 let (h_end, cond_val) = self.convert_val(cond, h)?;
                 self.f
                     .cfg
@@ -1251,6 +1278,7 @@ where
                     /*is_do*/ true,
                     /*is_toplevel*/ false,
                 )?;
+                self.cur_loc = None;
                 let (h_end, cond_val) = self.convert_val(cond, h)?;
                 self.f
                     .cfg
@@ -1453,11 +1481,25 @@ where
         in_cond: bool,
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
         self.record_uses(expr);
+        let run_loc = self.run_loc_of(expr);
+        self.cur_loc = run_loc.or(self.cur_loc);
         let res = self.convert_expr_unlocated(expr, current_open, in_cond);
+        // The operands have run: what remains of `expr` is its own operation.
+        self.cur_loc = run_loc.or(self.cur_loc);
         match self.locs.get(&ast::expr_key(expr)) {
             Some(loc) => res.map_err(|e| e.with_loc(*loc)),
             None => res,
         }
+    }
+
+    /// The location to report for errors of the running program in `expr` itself.
+    fn run_loc_of<'c>(&self, expr: &'c Expr<'c, 'b, I>) -> Option<Loc> {
+        let key = ast::expr_key(expr);
+        let located = matches!(expr, Expr::Call(..) | Expr::Unop(ast::Unop::Column, _));
+        self.run_locs
+            .get(&key)
+            .or_else(|| self.locs.get(&key).filter(|_| located))
+            .copied()
     }
 
     fn loc_of<'c>(&self, e: &'c Expr<'c, 'b, I>) -> Option<Loc> {
@@ -3831,6 +3873,10 @@ where
                 at.index(),
                 bb.q.back()
             );
+        }
+        if bb.loc != self.cur_loc {
+            bb.loc = self.cur_loc;
+            bb.q.push_back(PrimStmt::Loc(self.cur_loc));
         }
         bb.q.push_back(stmt);
         Ok(())

@@ -23,6 +23,21 @@ impl Loc {
         self.offset
     }
 
+    /// The location of byte `offset` of `prog`.
+    pub fn at_offset(prog: &str, offset: usize) -> Loc {
+        let before = prog.as_bytes().get(..offset).unwrap_or(prog.as_bytes());
+        let line = before.iter().filter(|b| **b == b'\n').count();
+        let line_start = before
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map_or(0, |nl| nl + 1);
+        Loc {
+            line,
+            col: before.len() - line_start,
+            offset: before.len(),
+        }
+    }
+
     /// The location just past `text`, when `text` starts at this location.
     pub(crate) fn advance(self, text: &str) -> Loc {
         match text.rfind('\n') {

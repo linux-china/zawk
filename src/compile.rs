@@ -147,7 +147,9 @@ pub(crate) fn bytecode<'a, LR: runtime::LineReader>(
     ff: impl runtime::writers::FileFactory,
     num_workers: usize,
 ) -> Result<bytecode::Interp<'a, LR>> {
-    Typer::init_from_ctx(ctx)?.to_interp(reader, ff, num_workers)
+    let mut typer = Typer::init_from_ctx(ctx)?;
+    typer.register_function_names(ctx);
+    typer.to_interp(reader, ff, num_workers)
 }
 
 pub(crate) fn context_compiles<'a>(ctx: &mut cfg::ProgramContext<'a, &'a str>) -> Result<()> {
@@ -169,6 +171,7 @@ pub(crate) fn run_cranelift<'a>(
 ) -> Result<()> {
     use codegen::clif::Generator;
     let mut typer = Typer::init_from_ctx(ctx)?;
+    typer.register_function_names(ctx);
     let used_fields = typer.used_fields.clone();
     let named_cols = typer.named_columns.take();
     let named_cols = named_cols
@@ -206,6 +209,8 @@ pub(crate) enum HighLevel {
     Ret(NumTy, Ty),
     Phi(NumTy, Ty, SmallVec<(NodeIx /*pred*/, NumTy /*register*/)>),
     DropIter(NumTy, Ty),
+    // The location (see `parsing::site_of`) of the instructions that follow in the block.
+    Loc(u32),
 }
 
 #[derive(Default)]
@@ -351,6 +356,10 @@ pub(crate) struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
+    pub(crate) fn id(&self) -> NumTy {
+        self.cur_ident
+    }
+
     fn load_slots(
         &mut self,
         regs: impl Iterator<Item = (NumTy, Ty)>,
@@ -459,10 +468,28 @@ fn accum(inst: &Instr, mut f: impl FnMut(NumTy, Ty)) {
             }
         }
         Right(Ret(reg, ty)) | Right(Phi(reg, ty, _)) | Right(DropIter(reg, ty)) => f(*reg, *ty),
+        Right(Loc(_)) => {}
     }
 }
 
 impl<'a> Typer<'a> {
+    /// Names the frames in backtraces. A frame is a function compiled for some argument types.
+    fn register_function_names(&self, ctx: &cfg::ProgramContext<'a, &'a str>) {
+        if !crate::common::backtrace_enabled() {
+            return;
+        }
+        let names =
+            self.frames
+                .iter()
+                .map(|frame| match &ctx.funcs[frame.src_function as usize].name {
+                    cfg::FunctionName::Begin => "BEGIN".to_string(),
+                    cfg::FunctionName::MainLoop => "main".to_string(),
+                    cfg::FunctionName::End => "END".to_string(),
+                    cfg::FunctionName::Named(name) => name.to_string(),
+                });
+        crate::parsing::set_function_names(names.collect());
+    }
+
     pub fn stage(&self) -> Stage<usize> {
         self.main_offset.clone()
     }
@@ -474,7 +501,7 @@ impl<'a> Typer<'a> {
         ff: impl runtime::writers::FileFactory,
         num_workers: usize,
     ) -> Result<bytecode::Interp<'a, LR>> {
-        let instrs = self.to_bytecode()?;
+        let (instrs, sites) = self.to_bytecode()?;
         let cols = self.named_columns.take();
         let cols = cols
             .as_ref()
@@ -490,13 +517,15 @@ impl<'a> Typer<'a> {
             cols,
         );
         interp.set_uses_procinfo(self.uses_procinfo);
+        interp.set_sites(sites);
         Ok(interp)
     }
 
     // At initialization time, we generate Either<LL, HL>, this function lowers the HL into LL.
     #[allow(clippy::wrong_self_convention)]
-    fn to_bytecode(&mut self) -> Result<Vec<Vec<LL<'a>>>> {
+    fn to_bytecode(&mut self) -> Result<(Vec<Vec<LL<'a>>>, Vec<bytecode::Sites>)> {
         let mut res = vec![vec![]; self.frames.len()];
+        let mut sites = vec![bytecode::Sites::default(); self.frames.len()];
         let ret_regs: Vec<_> = (0..self.frames.len())
             .map(|i| {
                 let ret_ty = self.func_info[i].ret_ty;
@@ -514,6 +543,7 @@ impl<'a> Typer<'a> {
                 continue;
             }
             let instrs = &mut res[i];
+            let frame_sites = &mut sites[i];
             bb_map.clear();
             bb_map.reserve(frame.cfg.node_count());
             jmps.clear();
@@ -549,6 +579,7 @@ impl<'a> Typer<'a> {
 
             for (j, n) in frame.cfg.raw_nodes().iter().enumerate() {
                 bb_map.push(instrs.len());
+                frame_sites.push((instrs.len(), 0));
                 use HighLevel::*;
                 for stmt in &n.weight.insts {
                     match stmt {
@@ -610,6 +641,7 @@ impl<'a> Typer<'a> {
                         Either::Right(Phi(_, _, _)) => {}
                         // we do not explicitly drop iterators in the bytecode interpreter.
                         Either::Right(DropIter(_, _)) => {}
+                        Either::Right(Loc(site)) => frame_sites.push((instrs.len(), *site)),
                     }
                 }
 
@@ -663,7 +695,7 @@ impl<'a> Typer<'a> {
                 }
             }
         }
-        Ok(res)
+        Ok((res, sites))
     }
 
     fn init_from_ctx(pc: &mut ProgramContext<'a, &'a str>) -> Result<Typer<'a>> {
@@ -3718,6 +3750,7 @@ impl<'a, 'b> View<'a, 'b> {
                     strnum,
                 });
             }
+            PrimStmt::Loc(loc) => self.pushr(HighLevel::Loc(crate::parsing::site_of(*loc))),
             PrimStmt::IterDrop(v) => {
                 let (reg, ty) = self.get_reg(v)?;
                 self.pushr(HighLevel::DropIter(reg, ty))

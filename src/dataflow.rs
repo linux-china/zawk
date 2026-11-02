@@ -181,7 +181,7 @@ pub(crate) mod boilerplate {
                     f(Key::Reg(*reg, *ty), Some(Key::Reg(*pred_reg, *ty)));
                 }
             }
-            DropIter(..) => {}
+            DropIter(..) | Loc(_) => {}
         }
     }
 

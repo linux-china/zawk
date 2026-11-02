@@ -22,6 +22,7 @@ use crate::{
     builtins::Variable,
     common::{CancelSignal, Cleanup, FileSpec, Notification, Result},
     compile::Ty,
+    parsing::{CallFrame, render_runtime_error},
     pushdown::FieldSet,
 };
 
@@ -172,6 +173,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         exiting(rt_ty) -> int_ty;
         try_scope(int_ty) -> int_ty;
         check_stack(rt_ty);
+        trace_enter(rt_ty, int_ty);
+        trace_leave(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
         run_cmd2(str_ref_ty) -> map_ty;
         print_all_stdout(rt_ty, pa_args_ty, int_ty);
@@ -181,9 +184,9 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         printf_impl_stdout(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty);
         close_file(rt_ty, str_ref_ty) -> int_ty;
         fflush(rt_ty, str_ref_ty) -> int_ty;
-        mod_by_zero(rt_ty);
-        div_by_zero(rt_ty);
-        int_overflow(rt_ty);
+        mod_by_zero(rt_ty, int_ty);
+        div_by_zero(rt_ty, int_ty);
+        int_overflow(rt_ty, int_ty);
         read_err(rt_ty, str_ref_ty, int_ty) -> int_ty;
         read_err_stdin(rt_ty) -> int_ty;
         next_line(rt_ty, str_ref_ty, int_ty) -> str_ty;
@@ -572,7 +575,7 @@ macro_rules! fail {
             let msg = format!($($es),*);
             // Output printed before the error appears before the error message.
             let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
-            eprintln_ignore!("{}", $crate::common::fatal_message(&msg));
+            eprintln_ignore!("{}", (*($rt as *mut Runtime)).error_message(&msg));
             // fatal errors exit with code 2, as in gawk
             exit!($rt, 2)
         }
@@ -611,8 +614,15 @@ macro_rules! try_abort_input {
                     exit!($rt, 2)
                 }
             }
-            Err(e) if $crate::common::debug_errors() => fail!($rt, concat!($msg, " {}"), e),
-            Err(e) => fail!($rt, "{}", e),
+            // Reading the next record is not part of any statement.
+            Err(e) if $crate::common::debug_errors() => {
+                (*($rt as *mut Runtime)).site = 0;
+                fail!($rt, concat!($msg, " {}"), e)
+            }
+            Err(e) => {
+                (*($rt as *mut Runtime)).site = 0;
+                fail!($rt, "{}", e)
+            }
         }
     };
 }
@@ -799,6 +809,8 @@ macro_rules! impl_into_runtime {
                     )),
                     core,
                     cleanup: Cleanup::null(),
+                    site: 0,
+                    calls: Vec::new(),
                     cancel_signal,
                 }
             }
@@ -834,9 +846,32 @@ pub(crate) struct Runtime<'a> {
     pub(crate) concurrent: bool,
     pub(crate) cancel_signal: CancelSignal,
     pub(crate) cleanup: Cleanup<Self>,
+    // Where the program is (see `parsing::site_of`). Generated code stores it ahead of anything that
+    // can fail.
+    pub(crate) site: u32,
+    // The functions being run and the location of their calls, with `ZAWK_BACKTRACE` set.
+    pub(crate) calls: Vec<CallFrame>,
 }
 
 impl<'a> Runtime<'a> {
+    /// The message of a fatal error at the current location.
+    #[cold]
+    #[cfg_attr(test, allow(dead_code))]
+    fn error_message(&self, msg: &str) -> String {
+        // Each function has reached the location of the call of the next one.
+        let sites = self.calls.iter().skip(1).map(|call| call.site);
+        let calls: Vec<CallFrame> = self
+            .calls
+            .iter()
+            .zip(sites.chain(std::iter::once(self.site)))
+            .map(|(call, site)| CallFrame {
+                func: call.func,
+                site,
+            })
+            .collect();
+        render_runtime_error(msg, self.site, &calls, self.core.worker_input())
+    }
+
     fn reset_file_vars(&mut self) {
         self.core.vars.fnr = 0;
         self.core.vars.filename = with_input!(&mut self.input_data, |(_, read_files)| {
@@ -879,6 +914,21 @@ pub(crate) unsafe extern "C" fn check_stack(runtime: *mut c_void) {
     if crate::common::stack_exhausted() {
         fail!(runtime, "function call nesting too deep");
     }
+}
+
+/// Called on entry to every function with `ZAWK_BACKTRACE` set.
+pub(crate) unsafe extern "C" fn trace_enter(runtime: *mut c_void, func: Int) {
+    let rt = &mut *(runtime as *mut Runtime);
+    rt.calls.push(CallFrame {
+        func: func as u32,
+        site: rt.site,
+    });
+}
+
+/// Called on return from every function with `ZAWK_BACKTRACE` set.
+pub(crate) unsafe extern "C" fn trace_leave(runtime: *mut c_void) {
+    let rt = &mut *(runtime as *mut Runtime);
+    rt.calls.pop();
 }
 
 pub(crate) unsafe extern "C" fn run_cmd(rt: *mut c_void, cmd: *mut U128) -> Int {
@@ -3933,8 +3983,9 @@ pub(crate) unsafe extern "C" fn fflush(rt: *mut c_void, file: *mut U128) -> Int 
 /// Called by generated code when the divisor of `%` is zero; does not return.
 // Under cfg(test) `fail!` panics without using `rt`.
 #[cfg_attr(test, allow(unused_variables))]
-pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void) {
+pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void, site: Int) {
     guard_panic(stringify!(mod_by_zero), || {
+        (*(rt as *mut Runtime)).site = site as u32;
         fail!(rt, "division by zero attempted in `%'")
     })
 }
@@ -3942,8 +3993,9 @@ pub(crate) unsafe extern "C" fn mod_by_zero(rt: *mut c_void) {
 /// Called by generated code when the divisor of `/` is zero; does not return.
 // Under cfg(test) `fail!` panics without using `rt`.
 #[cfg_attr(test, allow(unused_variables))]
-pub(crate) unsafe extern "C" fn div_by_zero(rt: *mut c_void) {
+pub(crate) unsafe extern "C" fn div_by_zero(rt: *mut c_void, site: Int) {
     guard_panic(stringify!(div_by_zero), || {
+        (*(rt as *mut Runtime)).site = site as u32;
         fail!(rt, "division by zero attempted")
     })
 }
@@ -3951,8 +4003,9 @@ pub(crate) unsafe extern "C" fn div_by_zero(rt: *mut c_void) {
 /// Called by generated code when integer arithmetic overflows; does not return.
 // Under cfg(test) `fail!` panics without using `rt`.
 #[cfg_attr(test, allow(unused_variables))]
-pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void) {
+pub(crate) unsafe extern "C" fn int_overflow(rt: *mut c_void, site: Int) {
     guard_panic(stringify!(int_overflow), || {
+        (*(rt as *mut Runtime)).site = site as u32;
         fail!(rt, "{}", runtime::INT_OVERFLOW_MSG)
     })
 }

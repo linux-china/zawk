@@ -83,6 +83,8 @@ impl<'a> Display for PrimStmt<'a> {
                 Ok(())
             }
             IterDrop(v) => write!(f, "drop_iter {}", v),
+            Loc(Some(loc)) => write!(f, "loc {}:{}", loc.line, loc.col),
+            Loc(None) => write!(f, "loc none"),
         }
     }
 }

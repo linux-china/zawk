@@ -1492,7 +1492,7 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
             // Builtins have fixed types; no constraint generation is necessary.
             // For IterDrop, we do not add extra constraints because IterBegin and IterNext will be
             // sufficient to determine the type of a given iterator.
-            IterDrop(_) | SetBuiltin(_, _) => {}
+            IterDrop(_) | SetBuiltin(_, _) | Loc(_) => {}
         }
     }
 
