@@ -5,8 +5,13 @@
 //! Supported formats: gzip, zstd, bzip2, xz and lz4 (frame format).
 use std::io::{self, Cursor, Read};
 
-/// The longest magic number we check (xz).
-const MAGIC_LEN: usize = 6;
+/// The most bytes we check: the bzip2 header and the magic of its first block.
+const MAGIC_LEN: usize = 10;
+
+/// What follows the bzip2 header: the magic of a compressed block, or of the end of an empty
+/// stream.
+const BZIP2_BLOCK_MAGIC: [u8; 6] = [0x31, 0x41, 0x59, 0x26, 0x53, 0x59];
+const BZIP2_EOS_MAGIC: [u8; 6] = [0x17, 0x72, 0x45, 0x38, 0x50, 0x90];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Format {
@@ -18,11 +23,16 @@ pub enum Format {
 }
 
 pub fn detect(prefix: &[u8]) -> Option<Format> {
-    if prefix.starts_with(&[0x1f, 0x8b]) {
+    // The third gzip byte is the compression method, and deflate (8) is the only one defined.
+    if prefix.starts_with(&[0x1f, 0x8b, 0x08]) {
         Some(Format::Gzip)
     } else if prefix.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
         Some(Format::Zstd)
-    } else if prefix.starts_with(b"BZh") && prefix.len() > 3 && (b'1'..=b'9').contains(&prefix[3]) {
+    } else if prefix.len() >= MAGIC_LEN
+        && prefix.starts_with(b"BZh")
+        && (b'1'..=b'9').contains(&prefix[3])
+        && (prefix[4..MAGIC_LEN] == BZIP2_BLOCK_MAGIC || prefix[4..MAGIC_LEN] == BZIP2_EOS_MAGIC)
+    {
         Some(Format::Bzip2)
     } else if prefix.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0x00]) {
         Some(Format::Xz)
@@ -119,6 +129,37 @@ mod tests {
             .read_to_end(&mut out)
             .unwrap();
         assert_eq!(out, b"ab");
+    }
+
+    #[test]
+    fn text_starting_with_a_short_magic_is_plain() {
+        let texts: [&[u8]; 4] = [
+            b"BZh9 hello world\n",
+            b"BZh9",
+            b"\x1f\x8b plain\n",
+            b"\x1f\x8b",
+        ];
+        for text in texts {
+            let mut out = Vec::new();
+            maybe_decompress("test", Cursor::new(text.to_vec()))
+                .unwrap()
+                .read_to_end(&mut out)
+                .unwrap();
+            assert_eq!(out, text);
+        }
+    }
+
+    #[test]
+    fn empty_bzip2_stream() {
+        let e = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::default());
+        let bz = e.finish().unwrap();
+        assert_eq!(detect(&bz), Some(Format::Bzip2));
+        let mut out = Vec::new();
+        maybe_decompress("test", Cursor::new(bz))
+            .unwrap()
+            .read_to_end(&mut out)
+            .unwrap();
+        assert!(out.is_empty());
     }
 
     #[test]
