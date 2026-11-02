@@ -59,7 +59,7 @@ zawk '!bf_icontains($0)' huge.txt     # dedupe without keeping every line in mem
 POSIX functions (`sin`, `cos`, `atan2`, `exp`, `log`, `sqrt`, `int`, `rand`, `srand`) are there, plus:
 
 ```awk
-abs(-1); floor(4.5); ceil(4.5); round(4.4)
+abs(-1); floor(4.5); ceil(4.5); round(4.4); round(3.14159, 2)
 log2(8); log10(100)
 min(1, 2, 3); max("A", "B")
 intdiv0(7, 0)              # 0 instead of a fatal division by zero

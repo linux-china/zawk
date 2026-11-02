@@ -3602,6 +3602,10 @@ where
                     builtins::Function::Truncate if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b"..."));
                     }
+                    // round(x) => round(x, 0);
+                    builtins::Function::FloatFunc(builtins::FloatFunc::Round) if args_len == 1 => {
+                        prim_args.push(PrimVal::ILit(0));
+                    }
                     // min($1, 10) => min($1, 10, "");
                     builtins::Function::Min if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b""));

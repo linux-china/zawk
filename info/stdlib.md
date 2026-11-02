@@ -692,7 +692,13 @@ All of these operations coerce their operands to integers before being evaluated
 
 ### round
 
-`round(4.4) # 4`,
+Round to `n` decimal places (`0` by default), with ties away from zero. A negative `n` rounds to the left of the decimal
+point, and a string `x` is converted to a number.
+
+`round(4.4) # 4`, `round(3.14159, 2) # 3.14`, `round(1234.5, -2) # 1200`, `round("3.14159", 2) # 3.14`
+
+Rounding works on the binary value of `x` scaled by `10^n`, so, as with `sprintf`, a value like `1.005` may not round the
+way its decimal form suggests: `round(1.005, 2) # 1`.
 
 ### eval
 

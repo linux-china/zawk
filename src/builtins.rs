@@ -337,6 +337,34 @@ pub fn intdiv0(x: f64, y: f64) -> f64 {
     if q.is_finite() { q } else { 0.0 }
 }
 
+/// `x` rounded to `digits` decimal places, with ties away from zero; a negative `digits` rounds
+/// to the left of the decimal point. `digits` is truncated to an integer.
+pub fn round_digits(x: f64, digits: f64) -> f64 {
+    // At and above this magnitude a float has no fractional part.
+    const INTEGRAL: f64 = (1u64 << 52) as f64;
+    if !x.is_finite() {
+        return x;
+    }
+    let exp = digits as i32;
+    let scale = 10f64.powi(exp.saturating_abs());
+    if exp < 0 {
+        let scaled = (x / scale).round();
+        // `scale` may be infinite.
+        return if scaled == 0.0 {
+            scaled
+        } else {
+            scaled * scale
+        };
+    }
+    let scaled = x * scale;
+    // Also covers an infinite `scale`: nothing is left to round.
+    if scaled.abs() < INTEGRAL {
+        scaled.round() / scale
+    } else {
+        x
+    }
+}
+
 // TODO: move the llvm-level code back into the LLVM module.
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -359,6 +387,7 @@ pub enum FloatFunc {
     Abs,
     Ceil,
     Floor,
+    // Rounding to a number of decimal places.
     Round,
     // Truncation toward zero: `int(x)` for a float or string `x`. Not callable by name.
     Trunc,
@@ -379,9 +408,8 @@ impl FloatFunc {
             Abs => op.abs(),
             Ceil => op.ceil(),
             Floor => op.floor(),
-            Round => op.round(),
             Trunc => op.trunc(),
-            Atan2 | IntDiv0 => panic!("float: mismatched arity!"),
+            Atan2 | IntDiv0 | Round => panic!("float: mismatched arity!"),
         }
     }
     pub fn eval2(&self, x: f64, y: f64) -> f64 {
@@ -389,8 +417,8 @@ impl FloatFunc {
         match self {
             Atan2 => x.atan2(y),
             IntDiv0 => intdiv0(x, y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round
-            | Trunc => {
+            Round => round_digits(x, y),
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Trunc => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -420,9 +448,8 @@ impl FloatFunc {
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Round
-            | Trunc => 1,
-            Atan2 | IntDiv0 => 2,
+            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Trunc => 1,
+            Atan2 | IntDiv0 | Round => 2,
         }
     }
     fn sig(&self) -> (SmallVec<compile::Ty>, compile::Ty) {

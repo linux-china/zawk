@@ -941,6 +941,26 @@ depth 0: k=1 v=99
     );
 
     test_program!(
+        round_digits,
+        r#"BEGIN {
+        print round(4.4), round(3.14159), round(-2.5);
+        print round(3.1415926, 2), round(3.14159, 0), round(-3.14159, 3);
+        print round(1234.5, -2), round(2.675, 2), round(1.005, 2);
+        print round("3.14159", 2), round("0x10"), round("abc", 2);
+        print round(1.5e300, 10) == 1.5e300, round(1.5e300, -400), round(0.1, 400);
+        print round(-log(0), -400), round(-log(0), 2), round(log(-1), 2);
+        }"#,
+        "4 3 -3\n3.14 3 -3.142\n1200 2.68 1\n3.14 16 0\n1 0 0.1\n+inf +inf +nan\n"
+    );
+
+    test_program!(
+        round_digits_fields,
+        r#"{ print round($1, $2) }"#,
+        "3.14\n",
+        @input "3.14159 2\n"
+    );
+
+    test_program!(
         intdiv0_func,
         r#"BEGIN {
         print intdiv0(10, 3);

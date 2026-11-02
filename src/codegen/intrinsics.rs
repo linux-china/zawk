@@ -443,7 +443,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly, ArgmemOnly] _frawk_abs(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_ceil(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_floor(float_ty) -> float_ty;
-        [ReadOnly, ArgmemOnly] _frawk_round(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_round(float_ty, float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_atan2(float_ty, float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_intdiv0(float_ty, float_ty) -> float_ty;
 
@@ -4065,8 +4065,10 @@ pub(crate) unsafe extern "C" fn _frawk_floor(f: Float) -> Float {
     guard_panic(stringify!(_frawk_floor), || f.floor())
 }
 
-pub(crate) unsafe extern "C" fn _frawk_round(f: Float) -> Float {
-    guard_panic(stringify!(_frawk_round), || f.round())
+pub(crate) unsafe extern "C" fn _frawk_round(x: Float, digits: Float) -> Float {
+    guard_panic(stringify!(_frawk_round), || {
+        crate::builtins::round_digits(x, digits)
+    })
 }
 
 pub(crate) unsafe extern "C" fn _frawk_atan(f: Float) -> Float {

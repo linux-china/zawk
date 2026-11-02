@@ -830,9 +830,9 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d(
         "round",
         MATH,
-        "round(x: num) -> float",
-        "Round to nearest.",
-        "round(4.4)",
+        "round(x: num[, n: num]) -> float",
+        "Round to n decimal places (default 0).",
+        "round(3.14159, 2)",
     ),
     d(
         "exp",

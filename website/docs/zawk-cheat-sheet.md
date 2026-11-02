@@ -1020,7 +1020,7 @@ See: [JSON / XML / HTML / CSV](./stdlib/json-xml-html.md)
 | `_join(a, "-")`                           | Join values                  |
 | `seq(1, 3)`, `uniq(a)`                    | Sequence, unique values      |
 | `asort(a)`, `asorti(a)`                   | Sort values, sort indices    |
-| `abs(x)`, `ceil(x)`, `floor(x)`, `round(x)` | Rounding                   |
+| `abs(x)`, `ceil(x)`, `floor(x)`, `round(x[, n])` | Rounding              |
 | `min(1, 2)`, `max("A", "B")`              | Smallest, largest            |
 | `eval("1+2*3")`, `fend("1 km to m")`      | `7`, `1000 m`                |
 
