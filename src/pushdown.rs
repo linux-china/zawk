@@ -50,12 +50,13 @@
 //! the second column." We cannot predict this value ahead of time, for cases like this, we
 //! contribute "full" sets to registers written by primitives that our analysis cannot introspect.
 
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::builtins::Variable;
 use crate::bytecode::Instr;
 use crate::common::NumTy;
-use crate::compile::HighLevel;
+use crate::compile::{HighLevel, Ty};
 use crate::dataflow::{self, JoinSemiLattice, Key};
 
 /// Most AWK scripts do not use more than 63 fields, so we represent our sets of used fields
@@ -246,6 +247,13 @@ pub struct UsedFieldAnalysis {
     // the variables in question.  We can always add it in the future, but since join nodes are
     // always "leaves" we will just add the missing columns as a postprocessing step.
     joins: Vec<(Key /*lhs*/, Key /*rhs*/)>,
+    // Registers that FI is loaded into, and the maps that are looked up (see `solve`).
+    fi_maps: HashSet<Key>,
+    lookups: Vec<(NumTy, Ty)>,
+    // Whether FI holds every key looked up in it, see `set_fi_holds_lookups`.
+    fi_holds_lookups: bool,
+    // The parameter registers of each function.
+    params: Vec<crate::cfg::SmallVec<(NumTy, Ty)>>,
 }
 
 impl Default for UsedFieldAnalysis {
@@ -253,6 +261,10 @@ impl Default for UsedFieldAnalysis {
         let mut res = UsedFieldAnalysis {
             dfa: Default::default(),
             joins: Default::default(),
+            fi_maps: Default::default(),
+            lookups: Default::default(),
+            fi_holds_lookups: false,
+            params: Default::default(),
         };
         res.dfa.add_src(Key::Rng, FieldSet::all());
         res.dfa.add_src(Key::VarVal(Variable::FI), FieldSet::fi());
@@ -262,7 +274,25 @@ impl Default for UsedFieldAnalysis {
 }
 
 impl UsedFieldAnalysis {
+    /// Do not count a lookup of FI as a use of `$0`. A lookup inserts a null value (0, the column
+    /// of `$0`) for a missing key, which cannot happen when FI holds every key looked up in it:
+    /// `-i jsonl` and `-i parquet` add the constant keys looked up in FI as columns. This only
+    /// matters to the readers that build `$0` from the fields (Parquet's): for other readers
+    /// `$0` is the record as read, and the CSV reader keeps it only when field 0 is used.
+    pub fn set_fi_holds_lookups(&mut self, holds: bool) {
+        self.fi_holds_lookups = holds;
+    }
+
+    /// The parameter registers of each function, by function id.
+    pub(crate) fn set_params(&mut self, params: Vec<crate::cfg::SmallVec<(NumTy, Ty)>>) {
+        self.params = params;
+    }
+
     pub(crate) fn visit_hl(&mut self, cur_fn_id: NumTy, inst: &HighLevel) {
+        // Arguments flow into the parameters: `function f(i) { return $i } { print f(3) }`.
+        dataflow::boilerplate::visit_call_params(inst, &self.params, |dst, src| {
+            self.dfa.add_dep(dst, src, ())
+        });
         dataflow::boilerplate::visit_hl(inst, cur_fn_id, |dst, src| {
             self.dfa.add_dep(dst, src.unwrap(), ())
         })
@@ -274,9 +304,27 @@ impl UsedFieldAnalysis {
                 self.dfa.add_src(dst, FieldSet::singleton(*i as usize))
             }
 
-            LoadVarStrMap(_, Variable::FI)
-            | StoreVarStrMap(Variable::FI, _)
-            | Lookup { .. }
+            // A lookup inserts a null value (0, which is `$0` as a column) for a missing key. It
+            // is added by `solve`, once the registers holding FI are known.
+            Lookup { map_ty, map, .. } => {
+                self.lookups.push((*map, *map_ty));
+                dataflow::boilerplate::visit_ll(inst, |dst, src| {
+                    if let Some(src) = src {
+                        self.dfa.add_dep(dst, src, ())
+                    }
+                })
+            }
+            LoadVarStrMap(dst, Variable::FI) => {
+                self.fi_maps.insert(dst.into());
+                dataflow::boilerplate::visit_ll(inst, |dst, src| {
+                    if let Some(src) = src {
+                        self.dfa.add_dep(dst, src, ())
+                    } else {
+                        self.dfa.add_src(dst, FieldSet::singleton(0))
+                    }
+                })
+            }
+            StoreVarStrMap(Variable::FI, _)
             | Store { .. }
             | IterBegin { .. }
             | IterGetNext { .. }
@@ -328,6 +376,12 @@ impl UsedFieldAnalysis {
 
     /// Return the set of all fields mentioned by column nodes.
     pub fn solve(mut self) -> FieldSet {
+        for (map, ty) in std::mem::take(&mut self.lookups) {
+            if !(self.fi_holds_lookups && self.fi_maps.contains(&Key::Reg(map, ty))) {
+                self.dfa
+                    .add_src(Key::MapVal(map, ty), FieldSet::singleton(0));
+            }
+        }
         let mut res = self.dfa.root().clone();
         for (l, r) in self.joins.iter().cloned() {
             let mut l_flds = self.dfa.query(l).clone();

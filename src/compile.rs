@@ -162,6 +162,22 @@ pub(crate) fn used_fields<'a>(ctx: &mut cfg::ProgramContext<'a, &'a str>) -> Res
     Ok(Typer::init_from_ctx(ctx)?.used_fields)
 }
 
+/// The input fields that a program reads: the used-field set and, when every `FI` lookup is by a
+/// constant key, those keys (None otherwise). Used to read only those columns of Parquet input,
+/// whose FI holds every constant key looked up in it.
+pub(crate) fn input_projection<'a>(
+    ctx: &mut cfg::ProgramContext<'a, &'a str>,
+) -> Result<(FieldSet, Option<Vec<String>>)> {
+    ctx.fi_holds_lookups = true;
+    let mut typer = Typer::init_from_ctx(ctx)?;
+    let names = typer.named_columns.take().map(|cols| {
+        cols.iter()
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect()
+    });
+    Ok((typer.used_fields.clone(), names))
+}
+
 pub(crate) fn run_cranelift<'a>(
     ctx: &mut cfg::ProgramContext<'a, &'a str>,
     reader: impl codegen::intrinsics::IntoRuntime,
@@ -299,6 +315,8 @@ pub(crate) struct Typer<'a> {
     used_fields: FieldSet,
     // The fields referenced by name via the FI builtin variable
     named_columns: Option<Vec<Rc<[u8]>>>,
+    // See `ProgramContext::fi_holds_lookups`.
+    fi_holds_lookups: bool,
     // Whether the program loads PROCINFO; if not, `PROCINFO["sorted_in"]` cannot be set and
     // `for (k in a)` skips looking it up.
     uses_procinfo: bool,
@@ -703,6 +721,7 @@ impl<'a> Typer<'a> {
         // and global variables.
 
         let mut generator = Typer::default();
+        generator.fi_holds_lookups = pc.fi_holds_lookups;
         if pc.fold_regex_constants || pc.parse_header {
             generator.string_constants = Some(StringConstantAnalysis::from_config(
                 string_constants::Config {
@@ -795,22 +814,28 @@ impl<'a> Typer<'a> {
 
     fn run_analyses(&mut self) -> Result<()> {
         let mut ufa = UsedFieldAnalysis::default();
+        ufa.set_fi_holds_lookups(self.fi_holds_lookups);
         let mut sna = StrnumAnalysis::default();
-        // Function parameters may be strnums (or arrays of strnums), depending on the callers.
-        sna.set_params(
-            self.frames
-                .iter()
-                .zip(self.func_info.iter())
-                .map(|(frame, info)| {
-                    frame
-                        .arg_regs
-                        .iter()
-                        .cloned()
-                        .zip(info.arg_tys.iter().cloned())
-                        .collect()
-                })
-                .collect(),
-        );
+        // Function parameters may be strnums (or arrays of strnums), and columns, depending on
+        // the callers.
+        let params: Vec<cfg::SmallVec<(NumTy, Ty)>> = self
+            .frames
+            .iter()
+            .zip(self.func_info.iter())
+            .map(|(frame, info)| {
+                frame
+                    .arg_regs
+                    .iter()
+                    .cloned()
+                    .zip(info.arg_tys.iter().cloned())
+                    .collect()
+            })
+            .collect();
+        ufa.set_params(params.clone());
+        if let Some(sca) = &mut self.string_constants {
+            sca.set_params(params.clone());
+        }
+        sna.set_params(params);
         let mut refs = SmallVec::new();
         // Regexes depend on IGNORECASE at runtime when the program assigns it, so they are not
         // folded into constants.

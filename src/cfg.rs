@@ -365,6 +365,8 @@ pub(crate) struct ProgramContext<'a, I> {
     pub fold_regex_constants: bool,
     // Thread through information regarding header columns used.
     pub parse_header: bool,
+    // FI holds every key looked up in it, see `UsedFieldAnalysis::set_fi_holds_lookups`.
+    pub fi_holds_lookups: bool,
 }
 
 impl<'a, I> ProgramContext<'a, I> {
@@ -734,6 +736,7 @@ where
             main_offset,
             fold_regex_constants: false,
             parse_header: p.parse_header,
+            fi_holds_lookups: false,
         })
     }
 }

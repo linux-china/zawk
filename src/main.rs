@@ -57,7 +57,7 @@ use runtime::{
         markdown::MarkdownCsv,
         message::{self, MessageReader, MessageSource},
         nats,
-        parquet::ParquetJson,
+        parquet::{self, ParquetJson},
         regex::RegexSplitter,
         xlsx,
     },
@@ -66,6 +66,7 @@ use std::fs::{File, Permissions};
 use std::io::{self, BufReader, Write};
 use std::iter::once;
 use std::mem;
+use std::sync::Arc;
 
 #[cfg(target_family = "unix")]
 #[global_allocator]
@@ -1087,6 +1088,24 @@ fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Optio
 
 const DEFAULT_OPT_LEVEL: i32 = 3;
 
+/// The columns of Parquet input that the program reads (see `parquet::Projection`). The program
+/// is analyzed on its own here, as the input reader is created before the program is compiled.
+fn parquet_projection(
+    prog: &str,
+    raw: &RawPrelude,
+    fi_names: &[String],
+) -> Option<Arc<parquet::Projection>> {
+    let a = Arena::default();
+    let mut ctx = get_context(prog, &a, get_prelude(&a, raw));
+    // An error is reported when the program is compiled to run.
+    let (fields, names) = compile::input_projection(&mut ctx).ok()?;
+    Some(Arc::new(parquet::Projection::new(
+        fields,
+        names,
+        fi_names.to_vec(),
+    )))
+}
+
 fn dump_bytecode(prog: &str, raw: &RawPrelude) -> String {
     use std::io::Cursor;
     let a = Arena::default();
@@ -2062,8 +2081,13 @@ fn real_main() {
             } else if parquet {
                 // Parquet rows are read as JSON Lines.
                 let fi_names = awk_util::fi_constant_keys(&program_code);
+                let projection = parquet_projection(program_code.as_str(), &raw, &fi_names);
+                let open = |source: ParquetJson| match &projection {
+                    Some(p) => source.with_projection(p.clone()),
+                    None => source,
+                };
                 let sources: Vec<(ParquetJson, String)> = if input_files.len() == 0 {
-                    vec![(ParquetJson::stdin(), String::from("-"))]
+                    vec![(open(ParquetJson::stdin()), String::from("-"))]
                 } else {
                     for file in input_files.iter().filter(|f| f.as_str() != "-") {
                         if let Err(e) = ParquetJson::check(file) {
@@ -2073,8 +2097,8 @@ fn real_main() {
                     input_files
                         .iter()
                         .map(|file| match file.as_str() {
-                            "-" => (ParquetJson::stdin(), file.clone()),
-                            _ => (ParquetJson::file(file.clone()), file.clone()),
+                            "-" => (open(ParquetJson::stdin()), file.clone()),
+                            _ => (open(ParquetJson::file(file.clone())), file.clone()),
                         })
                         .collect()
                 };

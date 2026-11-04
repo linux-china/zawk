@@ -63,6 +63,8 @@ pub(crate) struct StringConstantAnalysis {
     intern_r: HashMap<usize, Rc<[u8]>>,
     dfa: dataflow::Analysis<ApproximateSet>,
     cfg: Config,
+    // The parameter registers of each function.
+    params: Vec<crate::cfg::SmallVec<(NumTy, crate::compile::Ty)>>,
 }
 
 pub(crate) struct Config {
@@ -82,6 +84,7 @@ impl StringConstantAnalysis {
             intern_r: Default::default(),
             dfa: Default::default(),
             cfg,
+            params: Default::default(),
         };
         res.dfa.add_src(Key::Rng, ApproximateSet::unknown());
         if res.cfg.fi_refs {
@@ -132,7 +135,19 @@ impl StringConstantAnalysis {
             }),
         }
     }
+    /// The parameter registers of each function, by function id.
+    pub(crate) fn set_params(
+        &mut self,
+        params: Vec<crate::cfg::SmallVec<(NumTy, crate::compile::Ty)>>,
+    ) {
+        self.params = params;
+    }
+
     pub(crate) fn visit_hl(&mut self, cur_fn_id: NumTy, inst: &HighLevel) {
+        // Arguments flow into the parameters: `function f(k) { return $FI[k] } { f("name") }`.
+        dataflow::boilerplate::visit_call_params(inst, &self.params, |dst, src| {
+            self.dfa.add_dep(dst, src, ())
+        });
         dataflow::boilerplate::visit_hl(inst, cur_fn_id, |dst, src| {
             self.dfa.add_dep(dst, src.unwrap(), ())
         })

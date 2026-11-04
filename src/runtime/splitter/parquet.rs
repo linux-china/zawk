@@ -14,10 +14,14 @@
 //!
 //! Parquet keeps its metadata at the end of the file, so standard input and S3 objects
 //! (`s3://bucket/key`) are read into memory.
+//!
+//! Only the columns that the program reads are decoded (see [`Projection`]): the others are
+//! still keys of the JSON object, so that `NF` and `FI` do not change, but their values are null.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Read};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ::parquet::basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType};
 use ::parquet::bloom_filter::Sbbf;
@@ -33,6 +37,64 @@ use ::parquet::schema::types::{SchemaDescriptor, Type, TypePtr};
 use bytes::Bytes;
 
 use crate::inspect::Cell;
+use crate::pushdown::FieldSet;
+
+/// The columns of Parquet input that a program reads, from the used-field analysis of
+/// `crate::pushdown`: columns read by position (`$2`) and columns looked up by name in `FI`.
+/// Columns outside the projection are not decoded, which is what makes a columnar format fast.
+pub struct Projection {
+    fields: FieldSet,
+    // The constant keys of the `FI` lookups, or None if `FI` is looked up with other keys.
+    names: Option<Vec<String>>,
+    // The constant keys that `-i parquet` adds to `FI` when the input has no such column.
+    extra: Vec<String>,
+    // The column names of the first (non-empty) file: positions are the columns of the first
+    // record, as `-i jsonl` numbers them, later files only adding columns of new names.
+    first: OnceLock<Vec<String>>,
+}
+
+impl Projection {
+    pub fn new(fields: FieldSet, names: Option<Vec<String>>, extra: Vec<String>) -> Projection {
+        Projection {
+            fields,
+            names,
+            extra,
+            first: OnceLock::new(),
+        }
+    }
+
+    /// Which of `columns` (the column names of a file, in order) are read, or None for all.
+    fn select(&self, columns: &[String]) -> Option<Vec<bool>> {
+        // `$0` is the whole row, and a full set means the analysis could not tell.
+        if self.fields == FieldSet::all() || self.fields.get(0) {
+            return None;
+        }
+        let first = self.first.get_or_init(|| columns.to_vec());
+        let mut wanted: HashSet<&str> = HashSet::new();
+        if self.fields.has_fi() {
+            for name in self.names.as_ref()? {
+                // The used fields do not count a lookup of FI as a use of `$0`, which a lookup of
+                // a key that FI does not hold would be.
+                if !first.contains(name) && !self.extra.contains(name) {
+                    return None;
+                }
+                wanted.insert(name.as_str());
+            }
+        }
+        for i in 1..=62 {
+            if self.fields.get(i) {
+                // A column that the first file does not have: a later file names it.
+                wanted.insert(first.get(i - 1)?.as_str());
+            }
+        }
+        Some(
+            columns
+                .iter()
+                .map(|c| wanted.contains(c.as_str()))
+                .collect(),
+        )
+    }
+}
 
 /// How a value is written in JSON.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -66,14 +128,16 @@ pub struct ParquetJson {
     buf: Vec<u8>,
     pos: usize,
     done: bool,
+    projection: Option<Arc<Projection>>,
 }
 
 struct Rows {
     iter: RowIter<'static>,
     columns: Vec<TypePtr>,
     formats: Vec<Format>,
-    // Columns whose type the record API cannot read (written as null).
-    unsupported: Vec<bool>,
+    // Columns that are not read (written as null): columns whose type the record API cannot read,
+    // and columns outside the projection.
+    skipped: Vec<bool>,
 }
 
 impl ParquetJson {
@@ -90,7 +154,14 @@ impl ParquetJson {
             buf: Vec::new(),
             pos: 0,
             done: false,
+            projection: None,
         }
+    }
+
+    /// Read only the columns of `projection`.
+    pub fn with_projection(mut self, projection: Arc<Projection>) -> ParquetJson {
+        self.projection = Some(projection);
+        self
     }
 
     /// Check up front that `path` is a Parquet file that can be read, so that problems are
@@ -195,12 +266,35 @@ impl ParquetJson {
                 );
             }
         }
-        // Skip the unsupported columns: the record API panics on them.
-        let projection = if unsupported.iter().any(|bad| *bad) {
+        // Skip the unsupported columns (the record API panics on them) and the columns that the
+        // program does not read.
+        let mut skipped = unsupported;
+        let selected = match &self.projection {
+            // An empty file has no first record: positions refer to the next file.
+            Some(p) if reader.metadata().file_metadata().num_rows() > 0 => p.select(&names),
+            _ => None,
+        };
+        if let Some(selected) = selected {
+            for (skip, read) in skipped.iter_mut().zip(&selected) {
+                *skip |= !read;
+            }
+            // Rows are counted by reading a column: keep one, a primitive one if possible.
+            if skipped.iter().all(|skip| *skip) {
+                let readable = |i: &usize| supported(&columns[*i]);
+                let keep = (0..columns.len())
+                    .filter(readable)
+                    .find(|i| columns[*i].is_primitive())
+                    .or_else(|| (0..columns.len()).find(readable));
+                if let Some(i) = keep {
+                    skipped[i] = false;
+                }
+            }
+        }
+        let projection = if skipped.iter().any(|skip| *skip) {
             let fields: Vec<TypePtr> = columns
                 .iter()
-                .zip(&unsupported)
-                .filter(|(_, bad)| !**bad)
+                .zip(&skipped)
+                .filter(|(_, skip)| !**skip)
                 .map(|(c, _)| c.clone())
                 .collect();
             let projection = Type::group_type_builder(root.root_schema().name())
@@ -218,7 +312,7 @@ impl ParquetJson {
             iter,
             columns,
             formats,
-            unsupported,
+            skipped,
         })
     }
 
@@ -249,7 +343,7 @@ impl ParquetJson {
                 }
                 push_json_str(&mut line, column.name());
                 line.push(':');
-                if rows.unsupported[i] {
+                if rows.skipped[i] {
                     line.push_str("null");
                     continue;
                 }
@@ -438,7 +532,7 @@ impl ParquetTable {
         let mut values = row.get_column_iter();
         let mut cells = Vec::with_capacity(rows.columns.len());
         for i in 0..rows.columns.len() {
-            if rows.unsupported[i] {
+            if rows.skipped[i] {
                 cells.push(Cell::Null);
                 continue;
             }

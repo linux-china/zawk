@@ -537,6 +537,14 @@ mod tests {
         let p1 = r#"function one() { return 1; } { print $one(); }"#;
         let s1 = FieldSet::singleton(1);
         assert_eq!(s1, used_fields(p1).unwrap());
+
+        // Arguments flow into the parameters, arrays both ways.
+        let p2 = r#"function f(i) { return $i } { print f(3) }"#;
+        assert_eq!(FieldSet::singleton(3), used_fields(p2).unwrap());
+        let p3 = r#"function g(a) { return $a[1] } { m[1] = 2; print g(m) }"#;
+        assert!(used_fields(p3).unwrap().get(2));
+        let p4 = r#"function h(a) { a[1] = 4 } { h(m); print $m[1] }"#;
+        assert!(used_fields(p4).unwrap().get(4));
     }
 
     #[test]

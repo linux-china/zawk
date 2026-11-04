@@ -185,6 +185,30 @@ pub(crate) mod boilerplate {
         }
     }
 
+    /// The flow of a call's arguments into the parameters of the function (`params`, the
+    /// parameter registers of each function): scalars flow into the parameters, and arrays,
+    /// passed by reference, share their keys and values both ways.
+    pub(crate) fn visit_call_params(
+        inst: &HighLevel,
+        params: &[crate::cfg::SmallVec<(NumTy, Ty)>],
+        mut f: impl FnMut(/*dst*/ Key, /*src*/ Key),
+    ) {
+        if let HighLevel::Call { func_id, args, .. } = inst {
+            for (&(arg, arg_ty), &(param, ty)) in args.iter().zip(params[*func_id as usize].iter())
+            {
+                debug_assert_eq!(arg_ty, ty);
+                if ty.is_array() {
+                    for key in [Key::MapKey, Key::MapVal] {
+                        f(key(param, ty), key(arg, ty));
+                        f(key(arg, ty), key(param, ty));
+                    }
+                } else {
+                    f(Key::Reg(param, ty), Key::Reg(arg, ty));
+                }
+            }
+        }
+    }
+
     pub(crate) fn visit_ll(inst: &Instr, mut f: impl FnMut(/*dst*/ Key, /*src*/ Option<Key>)) {
         use Instr::*;
         match inst {

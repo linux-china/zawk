@@ -2012,6 +2012,59 @@ fn parquet_input() {
 }
 
 #[test]
+fn parquet_projection() {
+    // Only the columns that the program reads are decoded; the others are null, which no program
+    // can tell apart: `$0` (and a field set the analysis cannot tell) reads every column.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let types = dir.join("types.parquet");
+    let demo = dir.join("demo.parquet");
+    let cases = [
+        (
+            r#"{ print $2, $FI["age"] }"#,
+            "Alice 30\nBob 张三 25\n 41\n",
+        ),
+        (r#"END { print NR }"#, "3\n"),
+        (r#"{ i = 2; print $i, NF }"#, "Alice 14\nBob 张三 14\n 14\n"),
+        (
+            r#"function f(i) { return $i } { print f(3) }"#,
+            "30\n25\n41\n",
+        ),
+        (
+            r#"function g(a) { return $FI[a["c"]] } { m["c"] = "name"; print g(m) }"#,
+            "Alice\nBob 张三\n\n",
+        ),
+        (r#"{ print $FI["missing"] "|" $1 }"#, "|1\n|2\n|3\n"),
+        (
+            r#"{ n = $FI["id"] } END { print n; print $0 }"#,
+            "3\n{\"id\":3,\"name\":null,\"age\":41,\"score\":-1e300,\"active\":null,\"born\":null,\"ts\":null,\"amount\":null,\"tags\":null,\"addr\":null,\"attrs\":null,\"doc\":null,\"uid\":null,\"note\":\"\"}\n",
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(["-i", "parquet", prog])
+                .arg(&types)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
+        }
+        // With several files, positions are the columns of the first one, names are looked up in
+        // each file.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .args(["-i", "parquet", r#"{ print $2, $FI["age"] }"#])
+            .arg(&demo)
+            .arg(&types)
+            .assert()
+            .success()
+            .stdout("Jackie 48\nLove 49\nLeo 24\nLucas 10\nLaura 8\nAlice 30\nBob 张三 25\n 41\n");
+    }
+}
+
+#[test]
 fn json_input() {
     // -i json: the elements of an array (or the records a JSONPath after `#` selects) are read as
     // JSON Lines; an object is one record, a string or number is a record of plain text.
