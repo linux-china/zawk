@@ -24,7 +24,8 @@
 //! schema is known. Ignoring empty and null values, it is `INT64` if every value is an integer as
 //! JSON writes it (`007` is not), `DOUBLE` if every value is such a number, `BOOLEAN` if every value
 //! is `true` or `false`, `DATE` if every value is `YYYY-MM-DD`, and `STRING` otherwise. Empty values
-//! of an inferred column are null; later values that do not fit the type are null and reported.
+//! of an inferred column are null, also when it is `STRING`; later values that do not fit the type
+//! are null and reported.
 
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -185,7 +186,10 @@ impl Column {
             return;
         }
         let text = unescape_tsv(raw);
-        if self.inferred_from.is_some() && self.kind != Kind::String && text.trim().is_empty() {
+        // Empty values of an inferred column are null; a STRING column keeps blank (whitespace)
+        // values, other types treat them as empty.
+        let empty = text.is_empty() || (self.kind != Kind::String && text.trim().is_empty());
+        if self.inferred_from.is_some() && empty {
             self.defs.push(0);
             return;
         }
@@ -780,14 +784,16 @@ mod tests {
             got,
             [
                 "{id: 1, name: \"Jackie\", score: 1.5, ok: true, d: 2024-01-02, zip: \"007\", \
-                 big: 1.2345678901234567E19, x: \"1\", n: \"\"}",
-                "{id: 2, name: \"\", score: 2.0, ok: false, d: 2024-01-03, zip: \"123\", \
-                 big: 1.0, x: \"2\", n: \"\"}",
-                "{id: null, name: \"\", score: null, ok: null, d: null, zip: \"\", big: null, \
-                 x: \"\", n: \"\"}",
+                 big: 1.2345678901234567E19, x: \"1\", n: null}",
+                "{id: 2, name: null, score: 2.0, ok: false, d: 2024-01-03, zip: \"123\", \
+                 big: 1.0, x: \"2\", n: null}",
+                "{id: null, name: null, score: null, ok: null, d: null, zip: null, big: null, \
+                 x: \"\", n: null}",
             ]
         );
         // An integer beyond INT64 makes the column DOUBLE; a column without values is STRING.
+        // Empty values of an inferred column are null, also for STRING; a blank STRING value is
+        // kept, and an explicit `:string` column keeps empty values.
         // Without --infer-types only `:auto` columns are inferred.
         let got = rows_with(b"id\tn:AUTO\n1\t2\n", false);
         assert_eq!(got, ["{id: \"1\", n: 2}"]);
