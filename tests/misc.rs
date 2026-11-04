@@ -6988,3 +6988,25 @@ fn xlsx_output() {
         .success()
         .stdout("12345,1\n");
 }
+
+// With `\r\n` line endings, `$0` drops the `\r` like the fields do (as gawk `--csv` does), in
+// serial and parallel mode, for CSV and TSV.
+#[test]
+fn csv_crlf_record_drops_cr() {
+    let prog = r#"{print length($0), ($0 ~ /b$/), length($NF)}"#;
+    for backend_arg in BACKEND_ARGS {
+        for extra in [&[][..], &["-pr", "-j2"][..]] {
+            for (fmt, input) in [("csv", "a,b\r\n\"x\",2\r\n"), ("tsv", "a\tb\r\nx\t2\r\n")] {
+                let expected = if fmt == "csv" { "3 1 1\n5 0 1\n" } else { "3 1 1\n3 0 1\n" };
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .args([*backend_arg, "-i", fmt])
+                    .args(extra)
+                    .arg(prog)
+                    .write_stdin(input)
+                    .assert()
+                    .stdout(expected);
+            }
+        }
+    }
+}

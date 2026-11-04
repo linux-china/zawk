@@ -588,7 +588,14 @@ impl<'a> Stepper<'a> {
     fn get(&mut self, line_start: usize, j: usize, cur: usize) -> usize {
         self.off.rel.start = cur;
         if self.field_set.get(0) {
-            self.line.raw = self.buf.slice_to_str(line_start, j);
+            // Drop the `\r` of a `\r\n` line ending from `$0`, as the fields already do (and as
+            // gawk `--csv` does). `len` still counts it: it tracks the bytes consumed.
+            let end = if j > line_start && self.buf.as_bytes()[j - 1] == b'\r' {
+                j - 1
+            } else {
+                j
+            };
+            self.line.raw = self.buf.slice_to_str(line_start, end);
         }
         self.line.len += j - line_start;
         self.prev_ix
@@ -661,7 +668,14 @@ impl<'a> Stepper<'a> {
                             continue;
                         }
                         b'\n' => {
-                            self.push_past(ix);
+                            // TSV does not report `\r`: drop the `\r` of a `\r\n` line ending
+                            // here (CSV already did in the `\r` arm above).
+                            if ix > self.prev_ix && *bs.get_unchecked(ix - 1) == b'\r' {
+                                self.append_slice(self.prev_ix, ix - 1);
+                                self.prev_ix = ix + 1;
+                            } else {
+                                self.push_past(ix);
+                            }
                             // A blank line has no fields (NF == 0), like with the default FS.
                             if !self.is_blank_line(bs, line_start, ix) {
                                 self.promote();
