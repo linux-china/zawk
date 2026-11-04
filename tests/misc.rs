@@ -6100,8 +6100,24 @@ fn xlsx_input() {
         report
     );
     assert!(report.contains("| $5 | active | BOOLEAN |"), "{}", report);
+    // the sheets of the workbook are listed, the one read marked
+    assert!(
+        report.contains("- Sheets: types (read), offset\n"),
+        "{}",
+        report
+    );
     assert!(
         report.contains("| Jackie | 1978-01-05 | 08:30:00 | 2024-01-05 13:45:10 | 1 | 1.5 | a,b |"),
+        "{}",
+        report
+    );
+    let (ok, report, err) = run(&["inspect", &format!("{}#offset", demo)]);
+    assert!(!ok, "{}", report);
+    assert!(err.contains("the sheets are Sheet1, Sheet2"), "{}", err);
+    let (ok, report, err) = run(&["inspect", &format!("{}#Sheet2", demo)]);
+    assert!(ok, "{}", err);
+    assert!(
+        report.contains("Sheets:  Sheet1, Sheet2 (read)\n"),
         "{}",
         report
     );

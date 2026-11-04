@@ -380,6 +380,7 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
 /// Reads the rows of a sheet of an Excel workbook; returns whether reading stopped at `--max-rows`.
 fn read_xlsx(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
     let sheet = xlsx::Sheet::open(path)?;
+    ins.sheet = Some((sheet.name, sheet.sheets));
     let mut rows = sheet.rows.into_iter();
     if opts.header {
         if let Some(header) = rows.next() {
@@ -705,6 +706,8 @@ struct Inspector {
     sample_rows: usize,
     /// JSON Lines lines that are not objects.
     non_objects: u64,
+    /// For a workbook: the sheet read, and the names of all its sheets.
+    sheet: Option<(String, Vec<String>)>,
     rng: Rng,
 }
 
@@ -717,6 +720,7 @@ impl Inspector {
             samples: Vec::new(),
             sample_rows,
             non_objects: 0,
+            sheet: None,
             rng: Rng(0x9e37_79b9_7f4a_7c15),
         }
     }
@@ -836,6 +840,9 @@ impl Inspector {
                 format.name(),
                 reader
             ));
+            if let Some(sheets) = self.sheets_line() {
+                out.push_str(&format!("- Sheets: {}\n", sheets));
+            }
             out.push_str(&format!(
                 "- Rows: {}\n- Columns: {}\n",
                 rows,
@@ -848,6 +855,9 @@ impl Inspector {
                 format.name(),
                 reader
             ));
+            if let Some(sheets) = self.sheets_line() {
+                out.push_str(&format!("Sheets:  {}\n", sheets));
+            }
             out.push_str(&format!(
                 "Rows:    {}\nColumns: {}\n",
                 rows,
@@ -879,6 +889,22 @@ impl Inspector {
             }
         }
         out
+    }
+
+    /// The sheets of a workbook, the one read marked: `Sheet1 (read), Sheet2`.
+    fn sheets_line(&self) -> Option<String> {
+        let (name, sheets) = self.sheet.as_ref()?;
+        let names: Vec<String> = sheets
+            .iter()
+            .map(|s| {
+                if s == name {
+                    format!("{} (read)", s)
+                } else {
+                    s.clone()
+                }
+            })
+            .collect();
+        Some(names.join(", "))
     }
 
     /// The schema, sample and summary tables.
@@ -952,6 +978,17 @@ impl Inspector {
         }
         if self.columns.iter().any(|c| c.field.is_none()) {
             notes.push("Columns without a field number are missing from the first record: read them with a constant key, e.g. `$FI[\"key\"]`.".to_string());
+        }
+        if let Some((name, sheets)) = &self.sheet {
+            if sheets.len() > 1 {
+                notes.push(format!(
+                    "The workbook has {} sheets ({}); this is `{}`: read another one with `#NAME` after the file name, e.g. `book.xlsx#{}`.",
+                    sheets.len(),
+                    sheets.join(", "),
+                    name,
+                    sheets.iter().find(|s| *s != name).unwrap_or(name)
+                ));
+            }
         }
         if format == Format::Database {
             notes.push("Database rows are read as CSV with a header line of the column names: `$FI[\"name\"]` or the field number; BLOB values are the empty string.".to_string());

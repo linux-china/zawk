@@ -35,6 +35,7 @@ Security:
 Architecture: 
 
 - BLOB in Database: not support now, and treated as empty string
+- excel output format not support now
 
 Development environment:
 

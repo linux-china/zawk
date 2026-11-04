@@ -41,6 +41,10 @@ pub fn is_xlsx_file(path: &str) -> bool {
 /// A sheet of a workbook: its rows, each with the cells from column A.
 pub struct Sheet {
     pub rows: Vec<Vec<Data>>,
+    /// The name of this sheet.
+    pub name: String,
+    /// The names of all the sheets of the workbook, in order.
+    pub sheets: Vec<String>,
 }
 
 impl Sheet {
@@ -91,7 +95,11 @@ impl Sheet {
                     .collect()
             })
             .collect();
-        Ok(Sheet { rows })
+        Ok(Sheet {
+            rows,
+            name,
+            sheets: names,
+        })
     }
 }
 
