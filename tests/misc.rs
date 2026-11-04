@@ -6945,3 +6945,46 @@ fn bitwise_negative_values_fail() {
         }
     }
 }
+
+#[test]
+fn xlsx_output() {
+    // -o xlsx writes one sheet: the first record is the header, values keep their type, and a
+    // CSV record printed as is (`print`) is split into its fields.
+    let tmpdir = tempdir().unwrap();
+    let csv = tmpdir.path().join("in.csv");
+    std::fs::write(&csv, "id,name,zip\n1,\"Doe, J\",007\n2,Love,\n").unwrap();
+    let out = tmpdir.path().join("out.xlsx");
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "-icsv", "-oxlsx", "--out-file"])
+            .arg(&out)
+            .arg("{ print }")
+            .arg(&csv)
+            .assert()
+            .success();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-H", "-ocsv", r#"{ print $1 + 1, $2, $3, typeof($1) }"#])
+            .arg(&out)
+            .assert()
+            .success()
+            .stdout("2,\"Doe, J\",007,strnum\n3,Love,,strnum\n");
+    }
+    // Column types from :TYPE suffixes; the output is not written to a terminal.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-oxlsx", "--out-file"])
+        .arg(&out)
+        .arg(r#"BEGIN { print "zip:string", "ok:boolean" } { print $1, $2 }"#)
+        .write_stdin("12345 yes\n")
+        .assert()
+        .success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-H", "-ocsv", "{ print $1, $2 }"])
+        .arg(&out)
+        .assert()
+        .success()
+        .stdout("12345,1\n");
+}

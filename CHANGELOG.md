@@ -1,6 +1,8 @@
 # Unreleased
 
 * Add the column type `:auto` and `--infer-types` for `-o jsonl` and `-o parquet`, so typed data no longer becomes strings: `zawk -i csv -H -o jsonl --infer-types 'NR==1{print "id","name","age"}{print $1,$2,$3}' tests/demo.csv` writes `{"id":1,"name":"Jackie","age":48}`. With `--infer-types`, columns without a type suffix are `:auto`. In JSON Lines each `:auto` value is a number when it is written as JSON writes numbers (`48`, `-1.5`, `2e3`; not `007`, `+1` or `0x10`), a boolean for `true`/`false`, and a string otherwise. In Parquet an `AUTO` column is `INT64`, `DOUBLE`, `BOOLEAN` or `DATE` when every non-empty value of the first 65536 rows is one, and `STRING` otherwise
+* Add `-o xlsx`: write stdout as an Excel workbook with one sheet, e.g. `zawk -i csv -o xlsx --out-file users.xlsx '{ print }' users.csv`. The first record is the header row (bold and frozen); a column name may end with `:string`, `:number`, `:boolean` or `:auto` (the default: numbers as JSON writes them and `true`/`false` keep their type, `007` and integers of more than 15 digits stay text). Empty values and the `--null` text are blank cells; rows beyond 1,048,576 are dropped and text longer than 32,767 characters is cut, with a warning. As for `-o parquet`, the output is not written to a terminal
+* Update the zawk skill (`skills/zawk/SKILL.md`) and `llms.txt`: `-i json` and `file.json#$.path`, `-o jsonl/table/xlsx`, `--summary`, `--null`, `--stats`, the `inspect`, `llm` and `dump --prometheus` subcommands, linting with the input file (W126-W129), transactions for bulk inserts, `from_csv` for query results, and sampling with `NR==3 { exit }`
 
 # Version 0.6.7 (2026-11-02)
 

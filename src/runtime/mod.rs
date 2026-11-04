@@ -26,6 +26,7 @@ pub mod float_parse;
 pub mod math_util;
 pub(crate) mod numfmt;
 pub mod parquet_writer;
+pub mod xlsx_writer;
 pub mod printf;
 pub(crate) mod regex_memory;
 pub(crate) mod sorted_in;

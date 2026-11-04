@@ -892,7 +892,7 @@ impl<F: FileFactory> FileFactory for JsonlFactory<F> {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum JsonType {
+pub(crate) enum JsonType {
     String,
     Number,
     Boolean,
@@ -997,7 +997,7 @@ fn json_string(s: &str) -> String {
 
 /// Splits a header cell into the column name and its type, `None` without a type suffix. A suffix
 /// that is not a known type is part of the name (`host:port` is a column named "host:port").
-fn json_column(header: &str) -> (&str, Option<JsonType>) {
+pub(crate) fn json_column(header: &str) -> (&str, Option<JsonType>) {
     if let Some((name, ty)) = header.rsplit_once(':') {
         let ty = match ty.trim().to_ascii_lowercase().as_str() {
             "number" => Some(JsonType::Number),

@@ -2,9 +2,9 @@
 name: zawk
 description: >
   Process text and structured data on the command line with zawk, a fast AWK (gawk mostly compatible) written in Rust
-  with a standard library of ~190 functions. Use it to filter, transform, aggregate and convert CSV/TSV, JSON Lines,
-  Parquet, Markdown tables and logs (local files, stdin, http(s):// or s3://, gz/zst/bz2/xz/lz4 transparently);
-  to output CSV/TSV/Markdown/Parquet; and to call JSON/XML/HTML parsers, date/time, crypto/JWT, encode/hash, ID
+  with a standard library of ~190 functions. Use it to filter, transform, aggregate and convert CSV/TSV, JSON,
+  JSON Lines, Parquet, Excel, Markdown tables, database tables and logs (local files, stdin, http(s):// or s3://,
+  gz/zst/bz2/xz/lz4 transparently); to output CSV/TSV/JSON Lines/Markdown/terminal tables/Parquet/Excel; and to call JSON/XML/HTML parsers, date/time, crypto/JWT, encode/hash, ID
   generators, HTTP, SQLite/MySQL/PostgreSQL, KV (SQLite/Redis/NATS), S3, NATS/MQTT and LLM decisions (jev) per record.
   Prefer it over awk/gawk, sed+cut pipelines or one-off Python scripts for line-oriented data processing.
 allowed-tools: Bash
@@ -18,8 +18,8 @@ network and databases. It is a single binary: `zawk 'program' [file ...]`.
 
 Use zawk when the task is "scan records, filter/transform/aggregate, print a result", especially when:
 
-- the input is CSV/TSV (with quoting), JSON Lines, Parquet, a Markdown table, or a log file
-- the output should be CSV/TSV, a Markdown table (for a reply/PR/issue) or a Parquet file
+- the input is CSV/TSV (with quoting), JSON, JSON Lines, Parquet, Excel, a Markdown table, a database table or a log
+- the output should be CSV/TSV, JSON Lines, a Markdown table (for a reply/PR/issue), a Parquet file or an Excel file
 - each record needs a function AWK lacks: `trim`, `json_value`, `strftime`/`mktime`, `digest`, `uuid`, `url` ...
 - each record triggers a side effect: an HTTP call, a SQL insert, a KV write, a message, an LLM yes/no decision
 
@@ -55,7 +55,14 @@ echo 'BEGIN { print 1 }' | zawk lint   # program from stdin
 zawk lint -v n=10 -f top.awk           # n is set on the command line: not reported as never set
 zawk lint -pr -f sum.awk               # also report code that changes meaning with -pr / -pf
 zawk lint -H -f report.awk             # the run uses -H (or -i jsonl/parquet/markdown): $FI[...] is filled
+zawk lint -i csv -H '{ print $FI["nmae"] }' users.csv   # with the input file: also checked against its first records
+zawk --lint -i csv -H -f report.awk users.csv            # lint, then run when there is no error (report on stderr)
 ```
+
+Pass the input file to `zawk lint` whenever you can: the program is checked against the header and the first 100
+records (`--sample-rows N`), which finds misspelled column names (W126, with a "did you mean" hint), fields beyond `NF`
+(W127), a wrong field separator (W128) and number comparisons on fields that are not numbers (W129). A misspelled
+column is silently `""` when the program runs, so this is the only place it is reported.
 
 ```json
 {
@@ -83,6 +90,7 @@ count characters); `file` is null for program text, and all location fields are 
 | Code | Meaning                                                                          |
 |------|----------------------------------------------------------------------------------|
 | E001 | a program file cannot be read                                                    |
+| E002 | the input file passed to `zawk lint` cannot be read                              |
 | E101 | syntax error: unexpected token or end of program                                 |
 | E102 | invalid token: unterminated string, bad regex literal, unexpected character, ... |
 | E201 | unsupported syntax: `@include` not alone on its line, `@load`, `@namespace`, indirect calls, `$$1`/`$++i` (use `$($1)`) |
@@ -96,13 +104,21 @@ count characters); `file` is null for program text, and all location fields are 
 | E306 | assigning to something that is not a variable, array element or field: `substr(s, 1) = "a"`, `gsub(re, r, substr(s, 1))`, `x++` on a literal |
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
+| W102 | unknown escape sequence in a string or regex (`"a\.b"` is `a.b`): write `\\.` for a literal dot |
 | W103 | `f` or `r` used as a variable or function name (clashes with f-strings `f"..."` and raw strings `r"..."`/`r#"..."#`) |
 | W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
+| W108 | array key from `for (k in a)` compared with a number: a string comparison in gawk, numeric in zawk; write `k+0` |
+| W114 | `print $1 > 10`: `>` after print redirects to the file `10`; write `print ($1 > 10)` to print a comparison |
+| W115 | assignment in a condition (`if (x = 1)`): use `==`, or compare the assigned value explicitly |
 | W116 | `$NF-1` is the last field minus 1, not `$(NF-1)`                              |
 | W117 | field compared with a numeric string (`$3 > "100"`): a string comparison         |
 | W118 | `printf $0` (format reads a field, no arguments): a `%` in the data breaks it; use `printf "%s", $0` |
 | W119 | `FS` assigned in a main rule: applies from the next record only; set it in BEGIN or with `-F` |
 | W120 | string constant as a condition (`if ("0")`): false in zawk if it looks like 0, true in gawk |
+| W126 | (input file given; severity `error` despite the W) unknown column in `$FI["col"]`: always `""`; with a "did you mean" hint |
+| W127 | (input file given) `$N` beyond the number of fields of the sampled records: always empty |
+| W128 | (input file given) the program reads `$2`... but with this `FS` every sampled record has one field: did you mean `-F,` or `-i csv`? |
+| W129 | (input file given) field compared with a number, but some sampled values are not numbers: those records compare as strings |
 | W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
 | W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |
@@ -111,6 +127,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W206 | variable set but never read (the other side of a typo: `totl += $1` ... `print total`) |
 | W207 | function defined but never called (not reported for a program of only functions) |
 | W208 | string bound in `for (i in start..end)` (`"a".."c"`): bounds are integers, a string is 0, so the loop may run no iteration |
+| W218 | a field, `NF` or `$0` read in BEGIN, before any input is read: use `NR == 1 { ... }` or `getline` first |
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 
@@ -130,26 +147,46 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
 | `--include lib` / `@include "lib"` | Load an awk library file once, searched in `AWKPATH` (default `.:/usr/local/share/awk`), `lib` then `lib.awk`; remote files are not supported |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
-| `-i csv\|tsv\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). jsonl, parquet and markdown imply `-H`; xlsx is the default for `.xlsx` files and needs `-H` for a header row |
+| `-i csv\|tsv\|json\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). json, jsonl, parquet and markdown imply `-H`; json is the default for `.json` files, xlsx for `.xlsx` files (needs `-H` for a header row) |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
-| `-o csv\|tsv\|markdown\|parquet` | Output format of `print` to stdout (`md` = markdown) |
-| `--out-file FILE` | Write stdout to FILE (required for `-o parquet` unless redirected) |
+| `-o csv\|tsv\|jsonl\|markdown\|table\|parquet\|xlsx` | Output format of `print` to stdout (`md` = markdown, `ndjson` = jsonl); except csv/tsv, the first printed record is the header |
+| `--out-file FILE` | Write stdout to FILE (required for `-o parquet`/`-o xlsx` unless stdout is redirected) |
 | `--infer-types` | With `-o jsonl/parquet`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string) |
+| `--summary` | With `-o table/markdown`: after the table, the row count and per-column type, non-empty, distinct, min, max, sum, mean |
+| `--null TEXT` | Read NULLs of database, JSON Lines and Parquet input as TEXT (e.g. `--null '\N'`) instead of `""`: `isnull($2)` tests it; `-o tsv` writes it as `\N`, `-o jsonl/parquet` as null, query parameters bind it as NULL |
+| `--stats` | On exit, print `{"input_records":..,"output_records":..,"rejected_records":..,"elapsed_secs":..,"records_per_sec":..,"exit_code":..}` on stderr |
+| `--lint` / `--deny-warnings` | Lint before running (report on stderr); don't run on errors (or on warnings too) |
 | `-p r -j N` | Run in parallel over records with N workers (simple scripts on large files) |
 | `--posix` | Disable zawk's command line sugar |
 
 Input files may be local paths, `-` (stdin), `https://...` URLs or `s3://bucket/key`; compressed input is detected
-and decompressed automatically. A NATS subject (`'nats://host:4222/logs.>'`, wildcards allowed) as the only input
+and decompressed automatically. A JSON document (`-i json`, the default for `.json` files) is read as JSON Lines:
+each element of a top-level array is a record (an object is one record); select the records with a JSONPath after
+`#`: `'data.json#$.data'`, `'https://api.example.com/users#$.items'`. A NATS subject (`'nats://host:4222/logs.>'`, wildcards allowed) as the only input
 reads its messages until Ctrl+C, then runs END: each message is an input file (`-i`/`-H` apply to its payload), with
 `MSG_SUBJECT`, `MSG_HEADERS["name"]` and `MSG_BODY`. A Kafka topic (`'kafka://host:9092/topic'`, with `?group=name` to
 share it and resume, and `?offset=earliest` to start at the oldest message; needs Kafka 4.0 or newer) is read the same
 way, MSG_SUBJECT being the topic. A database URL reads a table or a query as CSV with a header
 line (`FI` from the column names, no `-i`/`-H` needed): `'sqlite://./app.db#user'`, `'mysql://u:p@host:3306/db#people'`,
 `'postgresql://u:p@host:5432/db#select name, age from people'` (after `#`: a table name, or SQL when it contains
-spaces; NULL and BLOB values are `""`; for a large table, use SQL with `LIMIT` when only the first rows are needed). `.env` in the current directory is loaded as environment variables.
+spaces; NULL values are `""` (or the `--null` text) and BLOBs are `""`; for a large table, use SQL with `LIMIT` when only the first rows are needed). `.env` in the current directory is loaded as environment variables.
 
 Command line sugar (not in `--posix` mode): `zawk '$1,$3' file` prints fields 1 and 3, `zawk '/re/' file` prints
 matching lines.
+
+## Subcommands
+
+```shell
+zawk inspect data.parquet                  # format, the command to read it, schema, sample rows, statistics
+zawk inspect -n 5 --max-rows 10000 big.csv # 5 sample rows; statistics on the first 10000 rows only (fast)
+zawk inspect -o md book.xlsx#Sheet2        # the report as Markdown (default: terminal tables); lists the sheets
+zawk inspect 'sqlite://app.db#users'       # also tables/queries of SQLite, MySQL, PostgreSQL; -i csv|tsv|json|jsonl|parquet|xlsx
+zawk llm -i csv -H family.csv 'how many adults?' | llm   # a prompt (input samples + zawk rules) for an LLM to write the program
+zawk dump --prometheus http://localhost:8080/metrics     # Prometheus/OpenMetrics text -> CSV (name, labels, type, value1, value2)
+zawk functions json                        # stdlib signatures (see below); zawk lint: see above
+zawk fmt prog.awk                          # format a program (-w to rewrite the file, --check in CI)
+zawk test lib/                             # run the test_* functions of .awk files
+```
 
 ## Structured input and output
 
@@ -164,6 +201,9 @@ zawk -i jsonl '$FI["level"] == "error" { print $FI["ts"], json_value($FI["ctx"],
 zawk -i parquet '$FI["city"] == "Beijing" { print $0 }' people.parquet        # -> JSON Lines
 zawk -i parquet -o csv '{ print $1, $2 }' people.parquet > people.csv
 
+# JSON document: the records of an array, selected with a JSONPath after # (the root array by default)
+zawk '{ print $FI["name"], $FI["age"] }' 'users.json#$.data'
+
 # Markdown table input (first table of the file)
 zawk -i md '{ print $FI["name"] }' README.md
 
@@ -172,7 +212,7 @@ zawk -i md '{ print $FI["name"] }' README.md
 # Dates are 2024-01-05 / 2024-01-05 13:45:10, times 08:30:00, booleans 1/0, empty cells "".
 zawk -H '$FI["age"] > 40 { print $FI["name"] }' people.xlsx
 zawk -i xlsx '{ print $1, $2 }' 'book.xlsx#Sheet2'
-zawk inspect book.xlsx#Sheet2                  # schema, sample rows and summary (-o xlsx is not supported)
+zawk inspect book.xlsx#Sheet2                  # sheet list, schema, sample rows and summary
 
 # Output: the first printed record is the header row
 zawk -i jsonl -o md 'NR==1 { print "name", "age" } $FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.jsonl
@@ -187,9 +227,24 @@ zawk -i csv -H -o parquet --out-file users.parquet \
 
 # CSV -> JSON Lines with typed values: {"id":1,"name":"Jackie","age":48}
 zawk -i csv -H -o jsonl --infer-types 'NR==1 { print "id", "name", "age" } { print $1, $2, $3 }' users.csv
+# or per column: :number, :boolean, :auto, :string (default); a missing column is null
+zawk -i csv -H -o jsonl 'NR==1 { print "id:number", "name", "vip:boolean" } { print $1, $2, $5 }' users.csv
+
+# Aligned table with borders for a terminal, with per-column statistics
+zawk -i csv -H -o table --summary 'NR==1 { print "name", "age" } { print $FI["name"], $FI["age"] }' users.csv
+
+# Excel output (one sheet "Sheet1", bold frozen header row): numbers and true/false keep their type by default,
+# 007 and integers of more than 15 digits stay text; a column name may end with :string, :number, :boolean or :auto
+zawk -i csv -o xlsx --out-file users.xlsx '{ print }' users.csv
+zawk -i parquet -o xlsx --out-file report.xlsx 'NR==1 { print "zip:string", "city", "total" } { print $1, $2, $3 }' sales.parquet
 ```
 
 With `-o csv/tsv`, `print a, b` quotes and escapes fields correctly; never build CSV lines by concatenating `","`.
+With `-o csv/tsv/jsonl/md/table/parquet/xlsx`, `print` (or `print $0`) of a CSV, Excel or database record writes its
+fields as columns. In `-o md` and `-o table`, a newline inside a value is shown as a literal `\n` and a tab as `\t`;
+`-o md` also escapes `|` as `\|` (`-o table` leaves it as is). `-o table` and `-o xlsx` write nothing until the
+program ends. Excel limits a sheet to 1,048,576 rows and a cell to 32,767 characters (extra rows are dropped and long
+text is cut, with a warning).
 
 ## String interpolation: f-strings
 
@@ -273,12 +328,18 @@ zawk -i csv -H '{ t = mktime($FI["created_at"]); c[strftime("%Y-%m-%d", t, 1)]++
 # Call an API per record and extract a value from the JSON response
 zawk '{ r = http_get("https://api.example.com/users/" $1); print $1, r["status"], json_value(r["text"], "$.name") }' ids.txt
 
-# Load CSV into SQLite (bind values as parameters; never concatenate them into SQL)
-zawk -i csv -H 'BEGIN { sqlite_execute("app.db", "create table if not exists users(id int, name text)") }
-  { p[1] = $1; p[2] = $2; sqlite_execute("app.db", "insert into users values(?, ?)", p) }' users.csv
+# Load CSV into SQLite (bind values as parameters; never concatenate them into SQL). Wrap the inserts in a
+# transaction: each statement otherwise commits on its own, about 150 times slower
+zawk -i csv -H 'BEGIN { sqlite_execute("app.db", "create table if not exists users(id int, name text)");
+                        sqlite_execute("app.db", "begin") }
+  { p[1] = $1; p[2] = $2; sqlite_execute("app.db", "insert into users values(?, ?)", p) }
+  END { sqlite_execute("app.db", "commit") }' users.csv
 
-# Query SQLite: each row is a CSV encoded string
-zawk 'BEGIN { rows = sqlite_query("app.db", "select id, name from users"); for (i in rows) { split(rows[i], f, ","); print f[2] } }'
+# Query SQLite: each row is a CSV encoded string without column names (columns by position); decode it with
+# from_csv, never split(..., ","), which breaks on values containing commas or quotes
+zawk 'BEGIN { rows = sqlite_query("app.db", "select id, name from users"); for (i in rows) { f = from_csv(rows[i]); print f[2] } }'
+# To read a whole table or query by column name, use it as the input instead
+zawk '{ print $FI["name"] }' 'sqlite://app.db#select id, name from users where id > 10'
 
 # Parse URLs / key-value pairs
 zawk '{ u = url($1); print u["host"], pairs(u["query"], "&")["id"] }' urls.txt
@@ -374,7 +435,8 @@ is without `ERRNO`, so check the status (`r = http_get(url); body = r["status"] 
   `print r"x"` prints `x` (gawk: `5x`); write `r "x"` or rename the variable.
 - Missing elements of numeric arrays print `0`, not an empty string, and referencing them creates them: test with
   `(k in a)`.
-- `$FI["name"]` for a column that doesn't exist is `$0`: check the header spelling (`zawk -i csv '{ print; exit }' f`).
+- `$FI["name"]` for a column that doesn't exist is `""`, without any warning: check the header with
+  `zawk inspect f` and run `zawk lint ... f` with the input file, which reports unknown columns (W126).
 - Regex matches are leftmost-longest, and `?` after a quantifier is not lazy: `a+?` is `(a+)?`, so write
   `/<[^>]+>/` rather than `/<.+?>/` for a short match (gawk stops at the shortest there).
 - `getline line < dir "/" name` reads the concatenated path; parenthesize to be portable.
@@ -405,9 +467,14 @@ zawk init report                     # create report.awk from a template
 
 ## Tips for agents
 
-- Check the header and first record before writing a program:
-  `zawk -i csv '{ print; exit }' f.csv`, `zawk -i jsonl 'NR<=3' f.jsonl`, `zawk -i parquet 'NR<=3' f.parquet`.
-- Use `-o md` for results shown to the user, `-o csv` for results consumed by another tool.
+- Check the schema and first records before writing a program: `zawk inspect -n 5 f` (any format), or
+  `zawk -i jsonl 'NR<=3; NR==3 { exit }' f.jsonl`. `NR<=3` alone still reads the whole input (a full table scan for
+  a database): add `NR==3 { exit }`.
+- Lint with the input file before a long run: `zawk lint -i csv -H -f prog.awk f.csv`.
+- Use `-o md` for results shown to the user, `-o csv`/`-o jsonl` for results consumed by another tool, `-o xlsx`
+  for a spreadsheet a person will open.
+- `--stats` reports how many records were read and printed (on stderr, as JSON): a quick check that a filter
+  matched what you expected.
 - Quote the program with single quotes; inside it, write a single quote as `'\''` in the shell, or move the program
   to a file with `-f`.
 - Errors are printed on stderr: `zawk: syntax error at line L, column C: ...` (exit code 1, like usage errors) or

@@ -1342,7 +1342,7 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .short('o')
             .long("output-format")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"])
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "xlsx"])
             .help("The output format of the run"))
         .arg(Arg::new("rows")
             .short('n')
@@ -1476,9 +1476,9 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .long("output-format")
             .short('o')
-            .value_name("csv|tsv|jsonl|markdown|table|parquet")
-            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number, :boolean or :auto (default string, or :auto with --infer-types; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING, or AUTO to infer it from the first rows; default STRING, or AUTO with --infer-types), followed by the data rows")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"]))
+            .value_name("csv|tsv|jsonl|markdown|table|parquet|xlsx")
+            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number, :boolean or :auto (default string, or :auto with --infer-types; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING, or AUTO to infer it from the first rows; default STRING, or AUTO with --infer-types), followed by the data rows. xlsx writes stdout as an Excel workbook with one sheet (Sheet1): the first record is the bold, frozen header row, a column name may end with :string, :number, :boolean or :auto (default :auto: a number as JSON writes it and true/false keep their type, while 007 and integers of more than 15 digits stay text), and empty values are blank cells")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "xlsx"]))
         .arg(Arg::new("summary")
             .long("summary")
             .num_args(0)
@@ -1496,7 +1496,7 @@ fn real_main() {
         .arg(Arg::new("stats")
             .long("stats")
             .num_args(0)
-            .help("When the program exits, print run metrics as a JSON object on stderr for schedulers to collect: input_records (records read from the main input), output_records (records printed to stdout: one per print, one per newline of printf; the header of -o jsonl, parquet, markdown or table is not counted), rejected_records (input records skipped because they could not be parsed, such as invalid JSON lines of -i jsonl), elapsed_secs, records_per_sec (input records per second) and exit_code"))
+            .help("When the program exits, print run metrics as a JSON object on stderr for schedulers to collect: input_records (records read from the main input), output_records (records printed to stdout: one per print, one per newline of printf; the header of -o jsonl, parquet, xlsx, markdown or table is not counted), rejected_records (input records skipped because they could not be parsed, such as invalid JSON lines of -i jsonl), elapsed_secs, records_per_sec (input records per second) and exit_code"))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1822,8 +1822,10 @@ fn real_main() {
         Some("table") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and converted to a Parquet file by `ParquetFactory`.
         Some("parquet") => (Escaper::TSV, Some("\t"), Some("\n")),
+        // Records are written as TSV and converted to an Excel workbook by `XlsxFactory`.
+        Some("xlsx") => (Escaper::TSV, Some("\t"), Some("\n")),
         Some(s) => fail!(
-            "invalid output format {:?}; expected csv, tsv, jsonl, markdown, table or parquet (or the empty string)",
+            "invalid output format {:?}; expected csv, tsv, jsonl, markdown, table, parquet or xlsx (or the empty string)",
             s
         ),
         None => (Escaper::Identity, None, None),
@@ -2345,6 +2347,7 @@ fn real_main() {
         Some("markdown") | Some("md") => "markdown",
         Some("table") => "table",
         Some("parquet") => "parquet",
+        Some("xlsx") => "xlsx",
         _ => "",
     };
     let summary = matches.get_flag("summary");
@@ -2358,12 +2361,13 @@ fn real_main() {
     if matches.get_flag("stats") {
         runtime::stats::enable(start, !output_format.is_empty());
     }
-    if output_format == "parquet"
+    if matches!(output_format, "parquet" | "xlsx")
         && out_file.is_none()
         && std::io::IsTerminal::is_terminal(&std::io::stdout())
     {
         fatal!(
-            "refusing to write parquet output to a terminal; use --out-file FILE or redirect stdout"
+            "refusing to write {} output to a terminal; use --out-file FILE or redirect stdout",
+            output_format
         );
     }
     macro_rules! with_out {
@@ -2383,6 +2387,10 @@ fn real_main() {
                 }
                 "parquet" => {
                     let $out = runtime::parquet_writer::ParquetFactory($factory, infer_types);
+                    with_inp!(analysis_result, $inp, $body);
+                }
+                "xlsx" => {
+                    let $out = runtime::xlsx_writer::XlsxFactory($factory);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 _ => {

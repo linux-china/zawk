@@ -943,6 +943,7 @@ The first record printed is the header, except for `-o csv` and `-o tsv`.
 | `-o markdown` | Markdown table                            |
 | `-o table`    | Aligned table for terminals               |
 | `-o parquet`  | Parquet, with `--out-file`                |
+| `-o xlsx`     | Excel, with `--out-file`                  |
 
 ```shell
 zawk -H -i csv -o csv '{print $2, $3}' demo.csv

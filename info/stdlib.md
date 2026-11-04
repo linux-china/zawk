@@ -1214,11 +1214,16 @@ bound to a prepared statement in key order (`arr[1]`, `arr[2]`...), so values co
 and untrusted input cannot inject SQL. **Do not build SQL by concatenating field values.**
 
 ```awk
+BEGIN { sqlite_execute("app.db", "begin") }
 {
   params[1] = $1; params[2] = $2
   sqlite_execute("app.db", "insert into users(id, name) values(?, ?)", params)
 }
+END { sqlite_execute("app.db", "commit") }
 ```
+
+Each statement is committed on its own unless a transaction is open: wrap bulk inserts in `begin`/`commit`
+as above (for SQLite about 150 times faster: 20,000 rows in 0.03s instead of 4s).
 
 Placeholders: `?` or `?1` for SQLite, `?` for MySQL, `$1`, `$2`... for PostgreSQL.
 Parameters are passed as text: SQLite/MySQL convert them by column type, PostgreSQL converts them

@@ -5,12 +5,28 @@
 Things to remember to write awk script with zawk:
 
 - standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS/Kafka etc.
-- csv/tsv/jsonl/parquet built-in support with `zawk -i csv/tsv/jsonl/parquet`
+- input formats: `zawk -i csv|tsv|json|jsonl|parquet|markdown|xlsx`; `-H` makes the first line a header so that `$FI["col"]` reads a column by name (json, jsonl, parquet and markdown imply it)
+- JSON documents: `zawk '{ print $FI["name"] }' 'users.json#$.data'` (`-i json` is the default for `.json` files; each element of the array selected by the JSONPath after `#` is a record)
+- output formats: `zawk -o csv|tsv|jsonl|markdown|table|parquet|xlsx`; except csv/tsv, the first printed record is the header row: `zawk -i csv -H -o md 'NR==1 { print "name", "age" } { print $FI["name"], $FI["age"] }' users.csv`
+  - `-o jsonl`: column names may end with `:number`, `:boolean`, `:auto` or `:string` (default; `--infer-types` makes it `:auto`)
+  - `-o parquet --out-file out.parquet`: column names may end with `:TYPE` (INT32, INT64, DOUBLE, BOOLEAN, DATE, TIMESTAMP, JSON, UUID, STRING, AUTO)
+  - `-o xlsx --out-file out.xlsx`: one sheet; numbers and true/false keep their type by default, `:string` keeps a column as text
+  - `-o table` (terminal) and `-o md` accept `--summary` for per-column statistics
+- other run options: `--null '\N'` (tell database/JSON/Parquet NULLs from empty strings, test with `isnull`), `--stats` (record counts as JSON on stderr), `--lint` (lint before running)
 - Excel input: `zawk -H '{ print $FI["name"] }' book.xlsx#Sheet2` (`-i xlsx` is the default for `.xlsx`; `#name` selects the sheet; `-H` for the header row)
 - database tables or queries as input, read like CSV with a header: `zawk '{ print $FI["name"] }' 'sqlite://./app.db#user'`, `mysql://...#people`, `postgresql://...#select * from people`
 - JSON Lines support with `zawk -i jsonl '{ print $FI["name"] }'`: keys of the first record populate `FI`, nested values keep raw JSON text
 - f-strings for string interpolation: `f"SELECT * FROM {table} WHERE id = {$1}"`; placeholders are expressions (`{name}`, `{$1}`, `{NR+1}`, `{toupper($2)}`; write `\"` for a quote inside) with an optional format spec (`{price:.2f}`, `{name:>10}`, `{n:05d}`, `{s:*^9}`, `{r:.1%}`); `{{`/`}}` are literal braces; `f"..."` is never the variable `f` concatenated with a string, write `f "..."` for that; likewise `r"..."`/`r#"..."#` is a raw string, never the variable `r` followed by a string
 - zawk is the successor of frawk, and all frawk scripts can run in zawk
+
+## Subcommands
+
+- `zawk inspect [-n ROWS] [--max-rows N] [-o table|md] FILE`: format, the command line to read it, schema, sample rows and statistics of a CSV/TSV/JSON/JSON Lines/Parquet/Excel file or database table; run it before writing a program
+- `zawk lint [-i FMT] [-H] 'program' [FILE]`: check a program without running it, as a JSON report (exit 1 on errors); with the input file it also reports unknown `$FI[...]` columns, fields beyond NF and a wrong field separator
+- `zawk functions [NAME|CATEGORY] [--json]`: signatures, descriptions and examples of the standard library functions
+- `zawk llm [-i FMT] [-H] FILE 'question'`: print a prompt (input samples and zawk rules) for an LLM to write a zawk program
+- `zawk dump --prometheus URL`: Prometheus metrics to CSV
+- `zawk fmt FILE`, `zawk test DIR`, `zawk init NAME`: format programs, run `test_*` functions, create a script from a template
 
 ## Docs
 
