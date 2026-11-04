@@ -96,9 +96,15 @@ pub trait Line<'a>: Default + Clone {
     fn set_nf(&mut self, nf: Int, pat: &Str, rc: &mut RegexCache) -> Result<()>;
     /// Whether a field or NF was assigned since the record was read or `$0` was assigned.
     fn fields_assigned(&self) -> bool;
+    /// Whether `$0` as read is already a row of output records joined with `sep`: a CSV record
+    /// for `,`, a TSV record for `\t`. Other inputs (whitespace-split text, JSON objects of JSON
+    /// Lines and Parquet) never are.
+    fn record_is_row(&self, _sep: &Str<'a>) -> bool {
+        false
+    }
     /// The record as a row of `-o csv/tsv` output: `$0` as is while no field or NF has been
-    /// assigned (a CSV/TSV record read with the same format is already a valid row), otherwise
-    /// the fields escaped with `trans` and joined with `sep`.
+    /// assigned and it was read in the same format (see `record_is_row`), otherwise the fields
+    /// escaped with `trans` and joined with `sep`.
     fn record<F>(
         &mut self,
         sep: &Str<'a>,
@@ -110,7 +116,7 @@ pub trait Line<'a>: Default + Clone {
     where
         F: FnMut(Str<'static>) -> Str<'static>,
     {
-        if !self.fields_assigned() {
+        if !self.fields_assigned() && self.record_is_row(sep) {
             return self.get_col(0, pat, ofs, rc);
         }
         self.split_now(pat, rc)?;

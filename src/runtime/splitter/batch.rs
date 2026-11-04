@@ -452,6 +452,9 @@ impl<'a> super::Line<'a> for Line {
     fn fields_assigned(&self) -> bool {
         self.assigned
     }
+    fn record_is_row(&self, sep: &Str<'a>) -> bool {
+        sep.with_bytes(|bs| bs == [self.ifmt.sep()])
+    }
 }
 
 /// Split a single CSV or TSV record, with the same rules as [Stepper::step].

@@ -753,8 +753,25 @@ it has one more line"#
     test_program!(
         tsv_print_record_after_assign,
         r#"{ $1 = "X\tY"; print; print $0; $0 = "p,q"; print }"#,
-        "X\\tY\tb\nX\\tY\tb\np,q\n",
+        "X\\tY\tb\nX\\tY\tb\np\tq\n",
         @input "a,b", @types [], @out_fmt Escaper::TSV, @csv Some(InputFormat::CSV)
+    );
+
+    // A CSV record printed as TSV (the format of `-o jsonl/md/table/parquet`) is split into its
+    // fields, not written as a single column.
+    test_program!(
+        csv_record_as_tsv_row,
+        r#"{ print; print $0 }"#,
+        "a b\tc\\nd\na b\tc\\nd\n",
+        @input "\"a b\",\"c\nd\"", @types [], @out_fmt Escaper::TSV, @csv Some(InputFormat::CSV)
+    );
+
+    // Whitespace-split text printed as CSV: one column per field.
+    test_program!(
+        text_record_as_csv_row,
+        r#"{ print }"#,
+        "a,\"b,c\"\n",
+        @input "a  b,c", @types [], @out_fmt Escaper::CSV, @csv None
     );
 
     test_program!(

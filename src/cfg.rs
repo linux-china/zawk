@@ -1128,8 +1128,9 @@ where
                 // parameters of outer functions; it was a lot more code.
                 //
                 // `print` and `print $0` print the record. Under `-o csv/tsv` that is one row:
-                // `$0` as is, or once a field was assigned, each field escaped (rather than `$0`
-                // rebuilt with OFS, or escaped as a single field).
+                // `$0` as is when it was read in the same format and no field was assigned,
+                // otherwise each field escaped (rather than `$0` rebuilt with OFS, or escaped as a
+                // single field).
                 let whole_record = match &vs[..] {
                     [] => true,
                     [e] => {
