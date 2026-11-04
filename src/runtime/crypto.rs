@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Cursor};
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha384 = Hmac<Sha384>;
@@ -303,13 +304,31 @@ fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String>
         .map_err(|e| format!("invalid token: {}", e))
 }
 
-static JWK_POOLS: LazyLock<Arc<Mutex<HashMap<String, Jwk>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+/// how long a failed JWKS fetch is cached, so an unreachable JWKS URL is not requested (and waited for
+/// until timeout) again for every record
+const JWK_FAILURE_TTL: Duration = Duration::from_secs(60);
+
+enum JwkEntry {
+    Found(Jwk),
+    Failed(String, Instant),
+}
+
+/// JWKs by full JWKS URL (`https://host/jwks.json#kid`), including recent failures
+static JWK_POOLS: LazyLock<Mutex<HashMap<String, JwkEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_jwk(full_http_url: &str) -> Option<Result<Jwk, String>> {
+    let pools = JWK_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    match pools.get(full_http_url)? {
+        JwkEntry::Found(jwk) => Some(Ok(jwk.clone())),
+        JwkEntry::Failed(msg, at) if at.elapsed() < JWK_FAILURE_TTL => Some(Err(msg.clone())),
+        JwkEntry::Failed(..) => None,
+    }
+}
 
 pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
-    let mut pools = JWK_POOLS.lock().unwrap();
-    if let Some(jwk) = pools.get(full_http_url) {
-        return Ok(jwk.clone());
+    if let Some(cached) = cached_jwk(full_http_url) {
+        return cached;
     }
     let (http_url, kid) = full_http_url.split_once('#').ok_or_else(|| {
         format!(
@@ -317,16 +336,28 @@ pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
             full_http_url
         )
     })?;
+    // fetch without holding the lock: parallel workers must not be serialized by one network request
+    let result = fetch_jwk(http_url, kid);
+    let entry = match &result {
+        Ok(jwk) => JwkEntry::Found(jwk.clone()),
+        Err(msg) => JwkEntry::Failed(msg.clone(), Instant::now()),
+    };
+    JWK_POOLS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(full_http_url.to_string(), entry);
+    result
+}
+
+fn fetch_jwk(http_url: &str, kid: &str) -> Result<Jwk, String> {
     let jwkset: JwkSet = crate::runtime::network::fetch(http_url)
         .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e.without_url()))?
         .json::<JwkSet>()
         .map_err(|e| format!("invalid JWKS {}: {}", http_url, e))?;
-    let jwk = jwkset
+    jwkset
         .find(kid)
-        .ok_or_else(|| format!("key id {:?} not found in JWKS {}", kid, http_url))?
-        .clone();
-    pools.insert(full_http_url.to_string(), jwk.clone());
-    Ok(jwk)
+        .cloned()
+        .ok_or_else(|| format!("key id {:?} not found in JWKS {}", kid, http_url))
 }
 
 /// Ciphertext formats, all with PBKDF2-HMAC-SHA256 derived keys except legacy:
@@ -951,6 +982,26 @@ mod tests {
         assert!(!is_trusted_jwks_url(
             "http://localhost.evil.com/jwks.json#kid"
         ));
+    }
+
+    #[test]
+    fn test_jwks_fetch_failure_is_cached() {
+        // nothing listens on port 1: the first call fails and the failure is cached for a while,
+        // so later records get the same error without another request
+        let url = "http://127.0.0.1:1/jwks.json#kid";
+        let err = extract_jwk(url).unwrap_err();
+        assert!(matches!(
+            JWK_POOLS.lock().unwrap().get(url),
+            Some(JwkEntry::Failed(msg, _)) if *msg == err
+        ));
+        assert_eq!(cached_jwk(url), Some(Err(err.clone())));
+        assert_eq!(extract_jwk(url).unwrap_err(), err);
+        // an expired failure is fetched again
+        JWK_POOLS.lock().unwrap().insert(
+            url.to_string(),
+            JwkEntry::Failed(err, Instant::now() - JWK_FAILURE_TTL),
+        );
+        assert_eq!(cached_jwk(url), None);
     }
 
     #[test]
