@@ -50,6 +50,7 @@ All configuration are in the `.env`, and you can read it if necessary.
 - mysql: `mysql://root:123456@127.0.0.1:3306/test`
 - postgresql: `postgres://postgres:123456@127.0.0.1:15432/demo_db`
 
+if above services not running, please use `docker compose up -d` to start them.
 
 database schema for mysql and postgresql:
 
