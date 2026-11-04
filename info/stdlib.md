@@ -504,6 +504,8 @@ Parse function invocation format into `IntMap<Str>`, and 0 indicates function na
 * `arr=func("hello(1,2,3)")`: `arr[0]=>hello`, `arr[1]=>1`
 * `arr=func("welcome('Jackie Chan',3)")`: `arr[0]=>welcome`, `arr[1]=>Jackie Chan`
 
+Items are separated by commas or whitespace. Numbers keep their sign and exponent (`-1`, `-2.5`, `1e-3`), quoted strings (`"..."` or `'...'`) may contain escapes such as `\"`, `\'`, `\\`, `\n`, and a nested `[...]`, `(...)` or `{...}` is one item holding its text. Malformed input (unterminated string or bracket) gives a warning, sets `ERRNO`, and keeps the items before the error.
+
 # ID generator
 
 ### uuid
@@ -632,9 +634,11 @@ END { t = _top(count, 10); for (i = 1; i <= length(t); i++) print t[i], count[t[
 
 `parse_array("['first','second','third']")`: IntMap<Str>
 
+`parse_array("[-1, \"x\\\"y\", [2,3]]")`: `-1`, `x"y`, `[2,3]`. The items follow the rules of `func()`.
+
 ### tuple
 
-`tuple("(1,2,'first','second')")`: IntMap<Str>
+`tuple("(1,2,'first','second')")`: IntMap<Str>, the items follow the rules of `func()`
 
 ### variant
 

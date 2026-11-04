@@ -2,7 +2,6 @@ use crate::runtime::compare::looks_numeric;
 use crate::runtime::sorted_in::SortItem;
 use crate::runtime::{Float, Int, IntMap, SharedMap, Str, StrMap, stdlib_warning};
 use evalexpr::{DefaultNumericTypes, Value};
-use logos::Logos;
 use semver::Version;
 use snowflake::SnowflakeIdGenerator;
 use std::cmp::Ordering;
@@ -519,101 +518,15 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     result
 }
 
-#[derive(Logos, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
-enum TupleToken<'a> {
-    #[token("(")]
-    LBRACE,
-    #[token(")")]
-    RBRACE,
-    #[token(",")]
-    COMMA,
-    #[regex(r#"[a-zA-Z0-9_]+"#)]
-    LITERAL(&'a str),
-    #[regex(r#""[^"]*""#)]
-    Text(&'a str),
-    #[regex(r#"'[^']*'"#)]
-    Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
-    NUM(&'a str),
-}
-
 pub(crate) fn tuple<'a>(text: &str) -> IntMap<Str<'a>> {
     let result: IntMap<Str> = IntMap::default();
-    let mut index: i64 = 1;
-    let lexer = TupleToken::lexer(&text);
-    for token in lexer.into_iter() {
-        if let Ok(attribute) = token {
-            match attribute {
-                TupleToken::LBRACE | TupleToken::RBRACE | TupleToken::COMMA => {}
-                TupleToken::LITERAL(literal) => {
-                    result.insert(index, Str::from(literal.to_string()));
-                    index = index + 1;
-                }
-                TupleToken::Text(text) => {
-                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                    index = index + 1;
-                }
-                TupleToken::Text2(text) => {
-                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                    index = index + 1;
-                }
-                TupleToken::NUM(num) => {
-                    result.insert(index, Str::from(num.to_string()));
-                    index = index + 1;
-                }
-            }
-        }
-    }
+    crate::runtime::string_util::parse_list_items("tuple", text, '(', ')', &result, 1);
     result
-}
-
-#[derive(Logos, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
-enum ArrayToken<'a> {
-    #[token("[")]
-    LBRACKET,
-    #[token("]")]
-    RBRACKET,
-    #[token(",")]
-    COMMA,
-    #[regex(r#"[a-zA-Z0-9_]+"#)]
-    LITERAL(&'a str),
-    #[regex(r#""[^"]*""#)]
-    Text(&'a str),
-    #[regex(r#"'[^']*'"#)]
-    Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
-    NUM(&'a str),
 }
 
 pub(crate) fn parse_array<'a>(text: &str) -> IntMap<Str<'a>> {
     let result: IntMap<Str> = IntMap::default();
-    let mut index: i64 = 1;
-    let lexer = ArrayToken::lexer(&text);
-    for token in lexer.into_iter() {
-        if let Ok(attribute) = token {
-            match attribute {
-                ArrayToken::LBRACKET | ArrayToken::RBRACKET | ArrayToken::COMMA => {}
-                ArrayToken::LITERAL(literal) => {
-                    result.insert(index, Str::from(literal.to_string()));
-                    index = index + 1;
-                }
-                ArrayToken::Text(text) => {
-                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                    index = index + 1;
-                }
-                ArrayToken::Text2(text) => {
-                    result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                    index = index + 1;
-                }
-                ArrayToken::NUM(num) => {
-                    result.insert(index, Str::from(num.to_string()));
-                    index = index + 1;
-                }
-            }
-        }
-    }
+    crate::runtime::string_util::parse_list_items("parse_array", text, '[', ']', &result, 1);
     result
 }
 
@@ -1064,6 +977,29 @@ mod tests {
         let array = parse_array(text);
         assert_eq!(array.len(), 4);
         assert_eq!(array.get(&3).as_str(), "two");
+    }
+
+    #[test]
+    fn test_parse_array_signs_escapes_nested() {
+        let items = |m: IntMap<Str>| {
+            (1..=m.len() as i64)
+                .map(|i| m.get(&i).as_str().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            items(parse_array(r#"[-1, -2.5, "x\"y", [2,3], 1e-3, +4]"#)),
+            vec!["-1", "-2.5", "x\"y", "[2,3]", "1e-3", "+4"]
+        );
+        assert_eq!(
+            items(parse_array(r#"['it\'s', "a,b", "", (1, [2]), {"k": "]"}]"#)),
+            vec!["it's", "a,b", "", "(1, [2])", r#"{"k": "]"}"#]
+        );
+        assert_eq!(parse_array("[]").len(), 0);
+        assert_eq!(items(tuple(r#"(-1, "a")"#)), vec!["-1", "a"]);
+        assert_eq!(items(tuple("(1, (2, 3))")), vec!["1", "(2, 3)"]);
+        // malformed input keeps what was parsed before the error
+        assert_eq!(items(parse_array(r#"[1, "abc"#)), vec!["1", "abc"]);
+        assert_eq!(items(parse_array("[1, [2, 3]")), vec!["1", "[2, 3]"]);
     }
 
     #[test]

@@ -372,57 +372,176 @@ pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
     SharedMap::from(map)
 }
 
-#[derive(Logos, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
-enum ParamsToken<'a> {
-    #[token("(")]
-    LBRACE,
-    #[token(")")]
-    RBRACE,
-    #[token(",")]
-    COMMA,
-    #[regex(r#"[a-zA-Z0-9_]+"#)]
-    LITERAL(&'a str),
-    #[regex(r#""[^"]*""#)]
-    Text(&'a str),
-    #[regex(r#"'[^']*'"#)]
-    Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
-    NUM(&'a str),
+/// Split the items of a list literal such as `[1, -2.5, "a\"b", [2,3]]`
+/// or `(x, 'y')` into an AWK array indexed from `start_index`.
+///
+/// * items are separated by commas and/or whitespace;
+/// * `"..."` / `'...'` are quoted strings; backslash escapes (`\"`, `\'`,
+///   `\\`, `\n`, `\t`, `\r`, `\0`) are decoded;
+/// * a nested `[...]`, `(...)` or `{...}` is kept verbatim as one item;
+/// * anything else (numbers with sign/exponent, identifiers, `true`) is a bare
+///   item, kept as written.
+///
+/// The outer delimiter pair (`open`/`close`) is optional. Malformed input
+/// (unterminated string or bracket, unexpected closing bracket, text after
+/// the closing delimiter) is reported through `stdlib_warning`, and the items
+/// parsed so far are returned.
+pub(crate) fn parse_list_items<'a>(
+    fn_name: &str,
+    text: &str,
+    open: char,
+    close: char,
+    result: &IntMap<Str<'a>>,
+    start_index: Int,
+) {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    let skip_ws = |i: &mut usize| {
+        while *i < chars.len() && chars[*i].is_whitespace() {
+            *i += 1;
+        }
+    };
+    skip_ws(&mut i);
+    let wrapped = i < chars.len() && chars[i] == open;
+    if wrapped {
+        i += 1;
+    }
+    let mut index = start_index;
+    let mut closed = false;
+    loop {
+        // skip separators
+        while i < chars.len() && (chars[i].is_whitespace() || chars[i] == ',') {
+            i += 1;
+        }
+        if i >= chars.len() {
+            break;
+        }
+        let c = chars[i];
+        if wrapped && c == close {
+            closed = true;
+            i += 1;
+            break;
+        }
+        if c == '"' || c == '\'' {
+            let quote = c;
+            i += 1;
+            let mut item = String::new();
+            let mut terminated = false;
+            while i < chars.len() {
+                let ch = chars[i];
+                if ch == '\\' && i + 1 < chars.len() {
+                    let esc = chars[i + 1];
+                    item.push(match esc {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '0' => '\0',
+                        other => other,
+                    });
+                    i += 2;
+                } else if ch == quote {
+                    terminated = true;
+                    i += 1;
+                    break;
+                } else {
+                    item.push(ch);
+                    i += 1;
+                }
+            }
+            if !terminated {
+                stdlib_warning(fn_name, format!("unterminated string in {:?}", text));
+            }
+            result.insert(index, Str::from(item));
+            index += 1;
+            if !terminated {
+                return;
+            }
+        } else if c == '[' || c == '(' || c == '{' {
+            // nested structure: keep the raw text as one item
+            let begin = i;
+            let mut stack = vec![c];
+            i += 1;
+            while i < chars.len() && !stack.is_empty() {
+                let ch = chars[i];
+                match ch {
+                    '"' | '\'' => {
+                        i += 1;
+                        while i < chars.len() && chars[i] != ch {
+                            if chars[i] == '\\' {
+                                i += 1;
+                            }
+                            i += 1;
+                        }
+                    }
+                    '[' | '(' | '{' => stack.push(ch),
+                    ']' | ')' | '}' => {
+                        let expected = match stack.last() {
+                            Some('[') => ']',
+                            Some('(') => ')',
+                            _ => '}',
+                        };
+                        if ch != expected {
+                            break;
+                        }
+                        stack.pop();
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let end = i.min(chars.len());
+            if !stack.is_empty() {
+                stdlib_warning(fn_name, format!("unbalanced brackets in {:?}", text));
+                result.insert(
+                    index,
+                    Str::from(chars[begin..end].iter().collect::<String>()),
+                );
+                return;
+            }
+            result.insert(
+                index,
+                Str::from(chars[begin..end].iter().collect::<String>()),
+            );
+            index += 1;
+        } else if c == ']' || c == ')' || c == '}' {
+            stdlib_warning(fn_name, format!("unexpected '{}' in {:?}", c, text));
+            return;
+        } else {
+            let begin = i;
+            while i < chars.len() {
+                let ch = chars[i];
+                if ch.is_whitespace()
+                    || ch == ','
+                    || (wrapped && ch == close)
+                    || matches!(ch, '[' | '(' | '{' | ']' | ')' | '}' | '"' | '\'')
+                {
+                    break;
+                }
+                i += 1;
+            }
+            result.insert(index, Str::from(chars[begin..i].iter().collect::<String>()));
+            index += 1;
+        }
+    }
+    if wrapped && !closed {
+        stdlib_warning(fn_name, format!("missing '{}' in {:?}", close, text));
+    } else if closed {
+        skip_ws(&mut i);
+        if i < chars.len() {
+            stdlib_warning(
+                fn_name,
+                format!("unexpected text after '{}' in {:?}", close, text),
+            );
+        }
+    }
 }
 
 pub(crate) fn func<'a>(text: &str) -> IntMap<Str<'a>> {
     let result: IntMap<Str> = IntMap::default();
-    if text.contains("(") {
-        let offset = text.find('(').unwrap();
+    if let Some(offset) = text.find('(') {
         let name = text[0..offset].trim().to_string();
         result.insert(0, Str::from(name));
-        let params_text = text[offset..].to_string();
-        let lexer = ParamsToken::lexer(&params_text);
-        let mut index: i64 = 1;
-        for token in lexer.into_iter() {
-            if let Ok(attribute) = token {
-                match attribute {
-                    ParamsToken::LITERAL(literal) => {
-                        result.insert(index, Str::from(literal.to_string()));
-                        index = index + 1;
-                    }
-                    ParamsToken::Text(text) => {
-                        result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                        index = index + 1;
-                    }
-                    ParamsToken::Text2(text) => {
-                        result.insert(index, Str::from(text[1..text.len() - 1].to_string()));
-                        index = index + 1;
-                    }
-                    ParamsToken::NUM(num) => {
-                        result.insert(index, Str::from(num.to_string()));
-                        index = index + 1;
-                    }
-                    _ => {}
-                }
-            }
-        }
+        parse_list_items("func", &text[offset..], '(', ')', &result, 1);
     }
     result
 }
@@ -909,12 +1028,19 @@ mod tests {
 
     #[test]
     fn test_func() {
-        let func_text = "hello(x,'hello world',11)";
-        let map = func(func_text);
-        let len = map.len();
-        for i in 0..len {
-            println!("{}", map.get(&(i as i64)).as_str());
-        }
+        let map = func("hello(x,'hello world',11)");
+        assert_eq!(map.len(), 4);
+        assert_eq!(map.get(&0).as_str(), "hello");
+        assert_eq!(map.get(&1).as_str(), "x");
+        assert_eq!(map.get(&2).as_str(), "hello world");
+        assert_eq!(map.get(&3).as_str(), "11");
+        let map = func(r#"f(-1, -2.5e3, "a\"b", [1,2])"#);
+        assert_eq!(map.get(&1).as_str(), "-1");
+        assert_eq!(map.get(&2).as_str(), "-2.5e3");
+        assert_eq!(map.get(&3).as_str(), "a\"b");
+        assert_eq!(map.get(&4).as_str(), "[1,2]");
+        assert_eq!(func("f()").len(), 1);
+        assert_eq!(func("noparens").len(), 0);
     }
 
     #[test]
