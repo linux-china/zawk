@@ -2687,6 +2687,64 @@ fn parquet_output() {
 }
 
 #[test]
+fn infer_types_output() {
+    // `:auto` (and --infer-types for columns without a suffix) keeps numbers and booleans typed:
+    // per value for -o jsonl, per column from the first rows for -o parquet.
+    let input = "1 Jackie 48 true 007\n2 Love 4.5 FALSE 123\n";
+    let program = r#"NR==1 { print "id", "name", "age", "ok", "zip" } { print $1, $2, $3, $4, $5 }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "-ojsonl", "--infer-types", program])
+            .write_stdin(input)
+            .assert()
+            .success()
+            .stdout(concat!(
+                r#"{"id":1,"name":"Jackie","age":48,"ok":true,"zip":"007"}"#,
+                "\n",
+                // -o jsonl infers each value on its own, so the same column can mix types.
+                r#"{"id":2,"name":"Love","age":4.5,"ok":false,"zip":123}"#,
+                "\n",
+            ));
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([backend_arg, "-ojsonl"])
+            .arg(r#"NR==1 { print "id:auto", "age" } { print $1, $3 }"#)
+            .write_stdin(input)
+            .assert()
+            .success()
+            .stdout("{\"id\":1,\"age\":\"48\"}\n{\"id\":2,\"age\":\"4.5\"}\n");
+    }
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("auto.parquet");
+    let out = out.to_str().unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-oparquet", "--infer-types", "--out-file", out, program])
+        .write_stdin(input)
+        .assert()
+        .success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-iparquet", "{ print $0 }", out])
+        .assert()
+        .success()
+        .stdout(concat!(
+            r#"{"id":1,"name":"Jackie","age":48,"ok":true,"zip":"007"}"#,
+            "\n",
+            r#"{"id":2,"name":"Love","age":4.5,"ok":false,"zip":"123"}"#,
+            "\n",
+        ));
+    // --infer-types only applies to -o jsonl and -o parquet.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-ocsv", "--infer-types", "1"])
+        .write_stdin(input)
+        .assert()
+        .failure();
+}
+
+#[test]
 fn parquet_duplicate_columns() {
     // Repeated column names are renamed as DuckDB does (`a`, `a_1`, ...) by -i parquet, so each
     // column keeps its own values, and by -o jsonl, so no JSON key is repeated.

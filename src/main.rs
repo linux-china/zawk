@@ -1477,13 +1477,18 @@ fn real_main() {
             .long("output-format")
             .short('o')
             .value_name("csv|tsv|jsonl|markdown|table|parquet")
-            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number or :boolean (default string; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING; default STRING), followed by the data rows")
+            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number, :boolean or :auto (default string, or :auto with --infer-types; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING, or AUTO to infer it from the first rows; default STRING, or AUTO with --infer-types), followed by the data rows")
             .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet"]))
         .arg(Arg::new("summary")
             .long("summary")
             .num_args(0)
             .requires("output-format")
             .help("With -o table or -o markdown, print the number of rows and per-column statistics (type, non-empty and distinct counts, min, max, sum and mean) after the table; the first record is the header"))
+        .arg(Arg::new("infer-types")
+            .long("infer-types")
+            .num_args(0)
+            .requires("output-format")
+            .help("With -o jsonl or -o parquet, give columns without a type suffix the type :auto instead of string. In JSON Lines an :auto value is a number when it is written as JSON writes numbers (48, -1.5, 2e3; not 007, +1 or 0x10), a boolean for true/false (any case) and a string otherwise. In Parquet an :auto column is INT64, DOUBLE, BOOLEAN or DATE (YYYY-MM-DD) when every non-empty value of the first 65536 rows is one, and STRING otherwise; empty values are null"))
         .arg(Arg::new("null")
             .long("null")
             .value_name("text")
@@ -2346,6 +2351,10 @@ fn real_main() {
     if summary && !matches!(output_format, "markdown" | "table") {
         fail!("--summary requires -o table or -o markdown");
     }
+    let infer_types = matches.get_flag("infer-types");
+    if infer_types && !matches!(output_format, "jsonl" | "parquet") {
+        fail!("--infer-types requires -o jsonl or -o parquet");
+    }
     if matches.get_flag("stats") {
         runtime::stats::enable(start, !output_format.is_empty());
     }
@@ -2361,7 +2370,7 @@ fn real_main() {
         ($factory:expr, |$inp:ident, $out:ident| $body:expr) => {
             match output_format {
                 "jsonl" => {
-                    let $out = runtime::writers::JsonlFactory($factory);
+                    let $out = runtime::writers::JsonlFactory($factory, infer_types);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "markdown" => {
@@ -2373,7 +2382,7 @@ fn real_main() {
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "parquet" => {
-                    let $out = runtime::parquet_writer::ParquetFactory($factory);
+                    let $out = runtime::parquet_writer::ParquetFactory($factory, infer_types);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 _ => {

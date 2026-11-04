@@ -1148,6 +1148,7 @@ See: [OS, I/O & Misc](./stdlib/os-io.md)
 | `-i`, `-o`               | Input and output format                            |
 | `--out-file file`        | Write to a file                                    |
 | `--summary`              | Column statistics, with `-o table` or `-o markdown` |
+| `--infer-types`          | Typed numbers/booleans, with `-o jsonl` or `-o parquet` |
 | `--null text`            | Read NULLs of database, JSON Lines and Parquet as text |
 | `--include lib`          | Load an AWK library, same as `@include "lib"`      |
 | `-p r`, `-p f`, `-j n`   | Parallel by record or file, with n workers         |

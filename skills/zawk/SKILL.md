@@ -134,6 +134,7 @@ zawk [options] -f script.awk [file ...]
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|markdown\|parquet` | Output format of `print` to stdout (`md` = markdown) |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet` unless redirected) |
+| `--infer-types` | With `-o jsonl/parquet`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string) |
 | `-p r -j N` | Run in parallel over records with N workers (simple scripts on large files) |
 | `--posix` | Disable zawk's command line sugar |
 
@@ -179,9 +180,13 @@ zawk -i jsonl -o md 'NR==1 { print "name", "age" } $FI["age"] > 40 { print $FI["
 # | --- | --- |
 # | Jackie | 48 |
 
-# CSV -> Parquet; a column name may end with :TYPE (INT32, INT64, DOUBLE, BOOLEAN, DATE, TIMESTAMP, JSON, UUID, STRING)
+# CSV -> Parquet; a column name may end with :TYPE (INT32, INT64, DOUBLE, BOOLEAN, DATE, TIMESTAMP, JSON, UUID, STRING,
+# or AUTO to infer INT64/DOUBLE/BOOLEAN/DATE from the first 65536 rows)
 zawk -i csv -H -o parquet --out-file users.parquet \
   'NR==1 { print "id:int64", "name", "age:int32" } { print $1, $2, $3 }' users.csv
+
+# CSV -> JSON Lines with typed values: {"id":1,"name":"Jackie","age":48}
+zawk -i csv -H -o jsonl --infer-types 'NR==1 { print "id", "name", "age" } { print $1, $2, $3 }' users.csv
 ```
 
 With `-o csv/tsv`, `print a, b` quotes and escapes fields correctly; never build CSV lines by concatenating `","`.

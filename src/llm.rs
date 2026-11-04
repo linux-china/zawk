@@ -397,10 +397,10 @@ fn output_notes(format: Option<&str>) -> String {
             let text = match f {
                 "csv" => "`print a, b` writes a CSV row, escaping the fields as needed",
                 "tsv" => "`print a, b` writes a TSV row, escaping tabs and newlines",
-                "jsonl" | "ndjson" => "stdout is written as JSON Lines: the first printed record is the header, a column name may end with `:number` or `:boolean` (default string), and each following record becomes a JSON object; print the header in BEGIN, e.g. `print \"name\", \"age:number\"`",
+                "jsonl" | "ndjson" => "stdout is written as JSON Lines: the first printed record is the header, a column name may end with `:number`, `:boolean` or `:auto` (default string; `--infer-types` makes it `:auto`: values written as JSON numbers become numbers, true/false booleans), and each following record becomes a JSON object; print the header in BEGIN, e.g. `print \"name\", \"age:number\"`",
                 "markdown" | "md" => "stdout is rendered as a Markdown table: the first printed record is the header row; print the header in BEGIN",
                 "table" => "stdout is rendered as an aligned table with borders when the program ends: the first printed record is the header; print the header in BEGIN",
-                "parquet" => "stdout is written as a Parquet file: the first printed record is the header, a column name may end with `:TYPE` (BOOLEAN, INT32, INT64, DOUBLE, DATE, TIMESTAMP, STRING...; default STRING); print the header in BEGIN",
+                "parquet" => "stdout is written as a Parquet file: the first printed record is the header, a column name may end with `:TYPE` (BOOLEAN, INT32, INT64, DOUBLE, DATE, TIMESTAMP, STRING..., or AUTO to infer INT64/DOUBLE/BOOLEAN/DATE from the first rows; default STRING, or AUTO with `--infer-types`); print the header in BEGIN",
                 _ => "",
             };
             format!("`-o {}`: {}", f, text)

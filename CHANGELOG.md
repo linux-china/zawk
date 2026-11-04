@@ -1,5 +1,7 @@
 # Unreleased
 
+* Add the column type `:auto` and `--infer-types` for `-o jsonl` and `-o parquet`, so typed data no longer becomes strings: `zawk -i csv -H -o jsonl --infer-types 'NR==1{print "id","name","age"}{print $1,$2,$3}' tests/demo.csv` writes `{"id":1,"name":"Jackie","age":48}`. With `--infer-types`, columns without a type suffix are `:auto`. In JSON Lines each `:auto` value is a number when it is written as JSON writes numbers (`48`, `-1.5`, `2e3`; not `007`, `+1` or `0x10`), a boolean for `true`/`false`, and a string otherwise. In Parquet an `AUTO` column is `INT64`, `DOUBLE`, `BOOLEAN` or `DATE` when every non-empty value of the first 65536 rows is one, and `STRING` otherwise
+
 # Version 0.6.7 (2026-11-02)
 
 * Fix `try E else F` losing the value of `F` when `E` has no value: `x = try publish(url, body) else "failed"` gave an empty `x`, also with a user function without `return` as `E`

@@ -18,6 +18,13 @@
 //! * `TIME`: an integer is the number of seconds since midnight, a string is `HH:MM[:SS[.f]]`
 //!   (or a date-time, whose UTC time of day is used).
 //! * `JSON`: the value must be valid JSON; `UUID`: any format accepted by `uuid::Uuid::parse_str`.
+//!
+//! A column of type `AUTO` (and, with `--infer-types`, a column without a type) gets its type from
+//! the values of the first row group (up to `ROW_GROUP_SIZE` rows), which are buffered until the
+//! schema is known. Ignoring empty and null values, it is `INT64` if every value is an integer as
+//! JSON writes it (`007` is not), `DOUBLE` if every value is such a number, `BOOLEAN` if every value
+//! is `true` or `false`, `DATE` if every value is `YYYY-MM-DD`, and `STRING` otherwise. Empty values
+//! of an inferred column are null; later values that do not fit the type are null and reported.
 
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -43,8 +50,10 @@ const MICROS_PER_SEC: i64 = 1_000_000;
 const SECS_PER_DAY: i64 = 86_400;
 
 /// Wraps a factory so that stdout is written as a Parquet file (`-o parquet`).
+///
+/// With `--infer-types` (the second field), columns without a `:TYPE` suffix are `:AUTO`.
 #[derive(Clone)]
-pub struct ParquetFactory<F>(pub F);
+pub struct ParquetFactory<F>(pub F, pub bool);
 
 impl<F: FileFactory> FileFactory for ParquetFactory<F> {
     type Output = F::Output;
@@ -56,7 +65,7 @@ impl<F: FileFactory> FileFactory for ParquetFactory<F> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
-        ParquetWriter::new(self.0.stdout())
+        ParquetWriter::new(self.0.stdout(), self.1)
     }
 }
 
@@ -144,10 +153,12 @@ struct Column {
     defs: Vec<i16>,
     /// The number of non-empty values that could not be converted and were written as null.
     invalid: usize,
+    /// The number of rows the type was inferred from, for an `AUTO` column.
+    inferred_from: Option<usize>,
 }
 
 impl Column {
-    fn new(name: String, kind: Kind) -> Column {
+    fn new(name: String, kind: Kind, inferred_from: Option<usize>) -> Column {
         let values = match kind {
             Kind::Bool => Values::Bool(Vec::new()),
             Kind::Int8 | Kind::Int16 | Kind::Int32 | Kind::Date => Values::I32(Vec::new()),
@@ -163,6 +174,7 @@ impl Column {
             values,
             defs: Vec::new(),
             invalid: 0,
+            inferred_from,
         }
     }
 
@@ -173,6 +185,10 @@ impl Column {
             return;
         }
         let text = unescape_tsv(raw);
+        if self.inferred_from.is_some() && self.kind != Kind::String && text.trim().is_empty() {
+            self.defs.push(0);
+            return;
+        }
         let defined = match (&mut self.values, self.kind) {
             (Values::Bytes(v), Kind::String) => {
                 v.push(ByteArray::from(text.into_owned().into_bytes()));
@@ -383,25 +399,30 @@ fn parse_time(s: &str) -> Option<i64> {
     parse_date_time_str(t).map(|micros| micros.rem_euclid(SECS_PER_DAY * MICROS_PER_SEC))
 }
 
-/// Parses a header field: `name` or `name:TYPE`.
-fn parse_column(index: usize, raw: &[u8]) -> io::Result<Column> {
+/// A column of the header: its name, and its type (`None` for `AUTO`).
+type ColumnSpec = (String, Option<Kind>);
+
+/// Parses a header field: `name` or `name:TYPE`; a column without a type is `AUTO` if `infer`.
+fn parse_column(index: usize, raw: &[u8], infer: bool) -> io::Result<ColumnSpec> {
     let text = unescape_tsv(raw);
+    let default = if infer { None } else { Some(Kind::String) };
     let (name, kind) = match text.rsplit_once(':') {
+        Some((name, ty)) if ty.trim().eq_ignore_ascii_case("auto") => (name, None),
         Some((name, ty)) => match Kind::parse(ty) {
-            Some(kind) => (name, kind),
+            Some(kind) => (name, Some(kind)),
             None => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!(
                         "unknown parquet column type {:?} in {:?}; expected one of STRING, \
                          BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, \
-                         TIMESTAMP, JSON or UUID",
+                         TIMESTAMP, JSON, UUID or AUTO",
                         ty, text
                     ),
                 ));
             }
         },
-        None => (&*text, Kind::String),
+        None => (&*text, default),
     };
     let name = name.trim();
     let name = if name.is_empty() {
@@ -409,7 +430,54 @@ fn parse_column(index: usize, raw: &[u8]) -> io::Result<Column> {
     } else {
         name.to_string()
     };
-    Ok(Column::new(name, kind))
+    Ok((name, kind))
+}
+
+fn parse_header(header: &[u8], infer: bool) -> io::Result<Vec<ColumnSpec>> {
+    header
+        .split(|b| *b == b'\t')
+        .enumerate()
+        .map(|(i, f)| parse_column(i, f, infer))
+        .collect()
+}
+
+/// Infers the type of column `index` of an `AUTO` column from the sampled rows; see the module
+/// documentation.
+fn infer_kind(rows: &[Vec<u8>], index: usize) -> Kind {
+    use super::writers::{json_bool, json_number};
+    let (mut int, mut num, mut boolean, mut date, mut any) = (true, true, true, true, false);
+    for row in rows {
+        let Some(raw) = row.split(|b| *b == b'\t').nth(index) else {
+            continue;
+        };
+        if crate::runtime::str_escape::is_tsv_null(raw) {
+            continue;
+        }
+        let text = unescape_tsv(raw);
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        any = true;
+        match json_number(text) {
+            Some(true) if int && text.parse::<i64>().is_ok() => {}
+            Some(_) if text.parse::<f64>().is_ok_and(f64::is_finite) => int = false,
+            _ => (int, num) = (false, false),
+        }
+        boolean &= json_bool(text).is_some();
+        date &= text.len() == 10 && NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok();
+        if !(int || num || boolean || date) {
+            return Kind::String;
+        }
+    }
+    match () {
+        _ if !any => Kind::String,
+        _ if int => Kind::Int64,
+        _ if num => Kind::Double,
+        _ if boolean => Kind::Bool,
+        _ if date => Kind::Date,
+        _ => Kind::String,
+    }
 }
 
 struct Encoder {
@@ -424,12 +492,17 @@ fn to_io(e: ::parquet::errors::ParquetError) -> io::Error {
 }
 
 impl Encoder {
-    fn new(header: &[u8]) -> io::Result<Encoder> {
-        let columns = header
-            .split(|b| *b == b'\t')
+    /// Creates the encoder for the header `specs`; the types of `AUTO` columns are inferred from
+    /// `sample`, the first rows, which the caller then pushes.
+    fn new(specs: Vec<ColumnSpec>, sample: &[Vec<u8>]) -> io::Result<Encoder> {
+        let columns: Vec<Column> = specs
+            .into_iter()
             .enumerate()
-            .map(|(i, f)| parse_column(i, f))
-            .collect::<io::Result<Vec<_>>>()?;
+            .map(|(i, (name, kind))| match kind {
+                Some(kind) => Column::new(name, kind, None),
+                None => Column::new(name, infer_kind(sample, i), Some(sample.len())),
+            })
+            .collect();
         let fields = columns
             .iter()
             .map(|c| c.kind.parquet_type(&c.name).map(Arc::new))
@@ -479,9 +552,16 @@ impl Encoder {
         self.flush_rows(out)?;
         for col in &self.columns {
             if col.invalid > 0 {
+                let inferred = match col.inferred_from {
+                    Some(n) => format!(
+                        ", inferred from the first {} row(s); give the column a :TYPE suffix",
+                        n
+                    ),
+                    None => String::new(),
+                };
                 eprintln!(
-                    "zawk: parquet column {:?} ({:?}): {} invalid value(s) written as null",
-                    col.name, col.kind, col.invalid
+                    "zawk: parquet column {:?} ({:?}{}): {} invalid value(s) written as null",
+                    col.name, col.kind, inferred, col.invalid
                 );
             }
         }
@@ -497,27 +577,62 @@ pub struct ParquetWriter<W: Write> {
     inner: W,
     /// The current, not yet newline-terminated, record.
     pending: Vec<u8>,
-    /// Created from the first record (the header).
+    /// Created from the first record (the header), or after the sample with `AUTO` columns.
     encoder: Option<Encoder>,
+    /// The header while the rows that `AUTO` column types are inferred from are buffered.
+    header: Option<Vec<ColumnSpec>>,
+    /// The buffered rows, while `header` is set.
+    sample: Vec<Vec<u8>>,
+    /// Whether columns without a type are `AUTO` (`--infer-types`).
+    infer_types: bool,
     /// Set after an error, which has already been reported; later records are dropped.
     failed: bool,
 }
 
 impl<W: Write> ParquetWriter<W> {
-    pub fn new(inner: W) -> ParquetWriter<W> {
+    pub fn new(inner: W, infer_types: bool) -> ParquetWriter<W> {
         ParquetWriter {
             inner,
             pending: Vec::new(),
             encoder: None,
+            header: None,
+            sample: Vec::new(),
+            infer_types,
             failed: false,
         }
     }
 
+    /// Creates the encoder from the buffered header and sample, and writes the sample.
+    fn start(&mut self, specs: Vec<ColumnSpec>) -> io::Result<()> {
+        let sample = std::mem::take(&mut self.sample);
+        let mut enc = Encoder::new(specs, &sample)?;
+        for row in &sample {
+            enc.push_row(row);
+        }
+        if enc.rows >= ROW_GROUP_SIZE {
+            enc.flush_rows(&mut self.inner)?;
+        }
+        self.encoder = Some(enc);
+        Ok(())
+    }
+
     fn write_record(&mut self, line: &[u8]) -> io::Result<()> {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if let Some(specs) = &self.header {
+            self.sample.push(line.to_vec());
+            if self.sample.len() >= ROW_GROUP_SIZE {
+                let specs = specs.clone();
+                self.header = None;
+                self.start(specs)?;
+            }
+            return Ok(());
+        }
         match &mut self.encoder {
-            None => match Encoder::new(line) {
-                Ok(enc) => self.encoder = Some(enc),
+            None => match parse_header(line, self.infer_types) {
+                Ok(specs) if specs.iter().any(|(_, kind)| kind.is_none()) => {
+                    self.header = Some(specs);
+                }
+                Ok(specs) => self.start(specs)?,
                 // An invalid header is a usage error rather than an output error (which ends the
                 // program silently), and nothing has been written yet.
                 Err(e) if e.kind() == io::ErrorKind::InvalidInput && !cfg!(test) => {
@@ -553,6 +668,10 @@ impl<W: Write> ParquetWriter<W> {
         if !self.pending.is_empty() {
             let line = std::mem::take(&mut self.pending);
             let r = self.write_record(&line);
+            self.checked(r)?;
+        }
+        if let Some(specs) = self.header.take() {
+            let r = self.start(specs);
             self.checked(r)?;
         }
         match self.encoder.take() {
@@ -602,9 +721,13 @@ mod tests {
     use ::parquet::file::reader::{FileReader, SerializedFileReader};
 
     fn rows(data: &[u8]) -> Vec<String> {
+        rows_with(data, false)
+    }
+
+    fn rows_with(data: &[u8], infer: bool) -> Vec<String> {
         let mut out = Vec::new();
         {
-            let mut w = ParquetWriter::new(&mut out);
+            let mut w = ParquetWriter::new(&mut out, infer);
             w.write_all(data).unwrap();
         }
         let reader = SerializedFileReader::new(bytes::Bytes::from(out)).unwrap();
@@ -645,8 +768,35 @@ mod tests {
     }
 
     #[test]
+    fn auto_columns() {
+        let got = rows_with(
+            b"id\tname\tscore\tok\td\tzip\tbig\tx:string\tn:auto\n\
+              1\tJackie\t1.5\ttrue\t2024-01-02\t007\t12345678901234567890\t1\t\n\
+              2\t\t2\tFALSE\t2024-01-03\t123\t1\t2\t\n\
+              \t\t\t\t\t\t\t\t\n",
+            true,
+        );
+        assert_eq!(
+            got,
+            [
+                "{id: 1, name: \"Jackie\", score: 1.5, ok: true, d: 2024-01-02, zip: \"007\", \
+                 big: 1.2345678901234567E19, x: \"1\", n: \"\"}",
+                "{id: 2, name: \"\", score: 2.0, ok: false, d: 2024-01-03, zip: \"123\", \
+                 big: 1.0, x: \"2\", n: \"\"}",
+                "{id: null, name: \"\", score: null, ok: null, d: null, zip: \"\", big: null, \
+                 x: \"\", n: \"\"}",
+            ]
+        );
+        // An integer beyond INT64 makes the column DOUBLE; a column without values is STRING.
+        // Without --infer-types only `:auto` columns are inferred.
+        let got = rows_with(b"id\tn:AUTO\n1\t2\n", false);
+        assert_eq!(got, ["{id: \"1\", n: 2}"]);
+        assert_eq!(rows_with(b"n:auto\n", false), Vec::<String>::new());
+    }
+
+    #[test]
     fn unknown_type() {
-        let mut w = ParquetWriter::new(Vec::new());
+        let mut w = ParquetWriter::new(Vec::new(), false);
         assert!(w.write_all(b"a:nope\n").is_err());
     }
 

@@ -870,11 +870,12 @@ mod table_tests {
 /// Wraps a factory so that stdout is written as JSON Lines (`-o jsonl`).
 ///
 /// Records are expected in the same tab-separated form as for `MarkdownFactory`. The first record
-/// is the header: a column name may end with `:number`, `:boolean` or `:string` (the default) to
-/// set the JSON type of its values. Every following record becomes one JSON object; a column
-/// missing from a record, or a field that is the `--null` text, is `null`.
+/// is the header: a column name may end with `:number`, `:boolean`, `:auto` or `:string` (the
+/// default; `:auto` with `--infer-types`, the second field) to set the JSON type of its values.
+/// Every following record becomes one JSON object; a column missing from a record, or a field that
+/// is the `--null` text, is `null`.
 #[derive(Clone)]
-pub struct JsonlFactory<F>(pub F);
+pub struct JsonlFactory<F>(pub F, pub bool);
 
 impl<F: FileFactory> FileFactory for JsonlFactory<F> {
     type Output = F::Output;
@@ -886,7 +887,7 @@ impl<F: FileFactory> FileFactory for JsonlFactory<F> {
         self.0.build(path, spec)
     }
     fn stdout(&self) -> Self::Stdout {
-        JsonlWriter::new(self.0.stdout())
+        JsonlWriter::new(self.0.stdout(), self.1)
     }
 }
 
@@ -895,6 +896,9 @@ enum JsonType {
     String,
     Number,
     Boolean,
+    /// Per value: a number as JSON writes it is a number, `true`/`false` a boolean, anything else
+    /// (including the empty string and numbers such as `007` or `1e`) a string.
+    Auto,
 }
 
 pub struct JsonlWriter<W: io::Write> {
@@ -907,16 +911,23 @@ pub struct JsonlWriter<W: io::Write> {
     names: Vec<String>,
     /// Per column, the number of cells that were not valid for its type and were written as null.
     invalid: Vec<u64>,
+    /// The type of columns without a type suffix: `Auto` with `--infer-types`, else `String`.
+    default_type: JsonType,
 }
 
 impl<W: io::Write> JsonlWriter<W> {
-    pub fn new(inner: W) -> JsonlWriter<W> {
+    pub fn new(inner: W, infer_types: bool) -> JsonlWriter<W> {
         JsonlWriter {
             inner,
             pending: Vec::new(),
             columns: None,
             names: Vec::new(),
             invalid: Vec::new(),
+            default_type: if infer_types {
+                JsonType::Auto
+            } else {
+                JsonType::String
+            },
         }
     }
 
@@ -929,6 +940,7 @@ impl<W: io::Write> JsonlWriter<W> {
                 let mut columns = Vec::with_capacity(cells.len());
                 for cell in &cells {
                     let (name, ty) = json_column(cell);
+                    let ty = ty.unwrap_or(self.default_type);
                     crate::runtime::splitter::push_unique_name(&mut self.names, name);
                     columns.push((json_string(self.names.last().unwrap()), ty));
                 }
@@ -943,7 +955,7 @@ impl<W: io::Write> JsonlWriter<W> {
                 &mut self.names,
                 &format!("column{}", i + 1),
             );
-            columns.push((json_string(self.names.last().unwrap()), JsonType::String));
+            columns.push((json_string(self.names.last().unwrap()), self.default_type));
         }
         let mut row = String::with_capacity(line.len() * 2 + 16);
         row.push('{');
@@ -983,21 +995,74 @@ fn json_string(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
 
-/// Splits a header cell into the JSON-encoded key and the type of the column. A suffix that is
-/// not a known type is part of the name (`host:port` is a string column named "host:port").
-fn json_column(header: &str) -> (&str, JsonType) {
+/// Splits a header cell into the column name and its type, `None` without a type suffix. A suffix
+/// that is not a known type is part of the name (`host:port` is a column named "host:port").
+fn json_column(header: &str) -> (&str, Option<JsonType>) {
     if let Some((name, ty)) = header.rsplit_once(':') {
         let ty = match ty.trim().to_ascii_lowercase().as_str() {
             "number" => Some(JsonType::Number),
             "boolean" => Some(JsonType::Boolean),
             "string" => Some(JsonType::String),
+            "auto" => Some(JsonType::Auto),
             _ => None,
         };
-        if let Some(ty) = ty {
+        if ty.is_some() {
             return (name, ty);
         }
     }
-    (header, JsonType::String)
+    (header, None)
+}
+
+/// Whether `s` is a number exactly as JSON writes it: an optional `-`, digits without leading zeros,
+/// an optional fraction and exponent, and nothing else (no `+`, spaces, hex, `inf` or `nan`).
+/// `Some(true)` is an integer, `Some(false)` a number with a fraction or exponent. Used to infer
+/// types (`:auto`, `--infer-types`), so that identifiers such as `007` stay strings.
+pub(crate) fn json_number(s: &str) -> Option<bool> {
+    let b = s.as_bytes();
+    let digits = |mut i: usize| {
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        i
+    };
+    let start = usize::from(b.first() == Some(&b'-'));
+    let mut i = digits(start);
+    if i == start || (i - start > 1 && b[start] == b'0') {
+        return None;
+    }
+    let mut integer = true;
+    if b.get(i) == Some(&b'.') {
+        let j = digits(i + 1);
+        if j == i + 1 {
+            return None;
+        }
+        i = j;
+        integer = false;
+    }
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        let j = digits(i);
+        if j == i {
+            return None;
+        }
+        i = j;
+        integer = false;
+    }
+    (i == b.len()).then_some(integer)
+}
+
+/// Whether `s` is `true` or `false` (in any case), a boolean for type inference.
+pub(crate) fn json_bool(s: &str) -> Option<bool> {
+    if s.eq_ignore_ascii_case("true") {
+        Some(true)
+    } else if s.eq_ignore_ascii_case("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// Appends `cell` as a JSON value of type `ty`, returning false if it was not valid for the type.
@@ -1024,6 +1089,16 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
         JsonType::Boolean => {
             let truthy = crate::runtime::math_util::parse_bool(cell);
             out.push_str(if truthy { "true" } else { "false" });
+        }
+        JsonType::Auto => {
+            if json_number(cell).is_some() {
+                // Written as is, so that large integers and decimals keep their digits.
+                out.push_str(cell);
+            } else if let Some(b) = json_bool(cell) {
+                out.push_str(if b { "true" } else { "false" });
+            } else {
+                out.push_str(&json_string(cell));
+            }
         }
     }
     true
@@ -1077,7 +1152,7 @@ mod jsonl_tests {
     fn jsonl_rows() {
         let mut out = Vec::new();
         {
-            let mut w = JsonlWriter::new(&mut out);
+            let mut w = JsonlWriter::new(&mut out, false);
             w.write_all(b"name\tage:number\tok:Boolean\thost:port\n")
                 .unwrap();
             w.write_all(b"Al\"ice\t30\t1\ta:1\nBob\t1.5\t0\t\tx\nCa")
@@ -1108,10 +1183,60 @@ mod jsonl_tests {
     }
 
     #[test]
+    fn jsonl_auto_types() {
+        let mut out = Vec::new();
+        {
+            let mut w = JsonlWriter::new(&mut out, false);
+            w.write_all(b"v:auto\ts\n").unwrap();
+            for v in [
+                "48", "-1.5e3", "12345678901234567890", "0.10", "TRUE", "false", "007", "+1",
+                " 1", "1.", "0x10", "inf", "", "Jackie", "-",
+            ] {
+                w.write_all(format!("{}\t{}\n", v, v).as_bytes()).unwrap();
+            }
+        }
+        let got: Vec<String> = String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(|l| l.to_string())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                r#"{"v":48,"s":"48"}"#,
+                r#"{"v":-1.5e3,"s":"-1.5e3"}"#,
+                r#"{"v":12345678901234567890,"s":"12345678901234567890"}"#,
+                r#"{"v":0.10,"s":"0.10"}"#,
+                r#"{"v":true,"s":"TRUE"}"#,
+                r#"{"v":false,"s":"false"}"#,
+                r#"{"v":"007","s":"007"}"#,
+                r#"{"v":"+1","s":"+1"}"#,
+                r#"{"v":" 1","s":" 1"}"#,
+                r#"{"v":"1.","s":"1."}"#,
+                r#"{"v":"0x10","s":"0x10"}"#,
+                r#"{"v":"inf","s":"inf"}"#,
+                r#"{"v":"","s":""}"#,
+                r#"{"v":"Jackie","s":"Jackie"}"#,
+                r#"{"v":"-","s":"-"}"#,
+            ]
+        );
+        // With --infer-types, columns without a suffix (and extra columns) are `:auto`.
+        let mut out = Vec::new();
+        {
+            let mut w = JsonlWriter::new(&mut out, true);
+            w.write_all(b"id\tname:string\tage:number\n1\t2\t3\t4\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "{\"id\":1,\"name\":\"2\",\"age\":3,\"column4\":4}\n"
+        );
+    }
+
+    #[test]
     fn jsonl_duplicate_names() {
         let mut out = Vec::new();
         {
-            let mut w = JsonlWriter::new(&mut out);
+            let mut w = JsonlWriter::new(&mut out, false);
             w.write_all(
                 b"a	a:number	a_1	column5
 1	2	3	4	5	6
