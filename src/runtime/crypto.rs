@@ -996,12 +996,15 @@ mod tests {
         ));
         assert_eq!(cached_jwk(url), Some(Err(err.clone())));
         assert_eq!(extract_jwk(url).unwrap_err(), err);
-        // an expired failure is fetched again
-        JWK_POOLS.lock().unwrap().insert(
-            url.to_string(),
-            JwkEntry::Failed(err, Instant::now() - JWK_FAILURE_TTL),
-        );
-        assert_eq!(cached_jwk(url), None);
+        // an expired failure is fetched again; `Instant` may not reach back
+        // JWK_FAILURE_TTL right after boot, so skip that check if it can't
+        if let Some(expired_at) = Instant::now().checked_sub(JWK_FAILURE_TTL) {
+            JWK_POOLS
+                .lock()
+                .unwrap()
+                .insert(url.to_string(), JwkEntry::Failed(err, expired_at));
+            assert_eq!(cached_jwk(url), None);
+        }
     }
 
     #[test]
