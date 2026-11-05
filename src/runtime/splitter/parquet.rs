@@ -39,6 +39,24 @@ use bytes::Bytes;
 use crate::inspect::Cell;
 use crate::pushdown::FieldSet;
 
+/// Whether `file` names a Parquet file: it ends with `.parquet` and, when it is a local file,
+/// starts with the `PAR1` magic. Remote objects (S3, HTTP) are told by their extension only.
+pub fn is_parquet_file(file: &str) -> bool {
+    let name = file.split('?').next().unwrap_or_default();
+    if !name.to_ascii_lowercase().ends_with(".parquet") {
+        return false;
+    }
+    let path = std::path::Path::new(file);
+    if !path.is_file() {
+        return true;
+    }
+    let mut magic = [0u8; 4];
+    File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .map(|_| &magic == b"PAR1")
+        .unwrap_or(true)
+}
+
 /// The columns of Parquet input that a program reads, from the used-field analysis of
 /// `crate::pushdown`: columns read by position (`$2`) and columns looked up by name in `FI`.
 /// Columns outside the projection are not decoded, which is what makes a columnar format fast.

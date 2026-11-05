@@ -53,6 +53,24 @@ pub fn is_json_file(file: &str) -> bool {
     name.ends_with(".json")
 }
 
+/// Whether `file` names a JSON Lines file by its extension (`.jsonl` or `.ndjson`), after a
+/// compression extension.
+pub fn is_jsonl_file(file: &str) -> bool {
+    let name = file
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mut name = name.as_str();
+    for ext in [".gz", ".zst", ".zstd", ".bz2", ".xz", ".lz4"] {
+        if let Some(n) = name.strip_suffix(ext) {
+            name = n;
+            break;
+        }
+    }
+    name.ends_with(".jsonl") || name.ends_with(".ndjson")
+}
+
 /// The records of a JSON document (from `inner`), as JSON Lines.
 pub struct JsonRecords<R> {
     inner: Option<R>,

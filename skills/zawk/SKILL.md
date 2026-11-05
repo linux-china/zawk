@@ -147,7 +147,7 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
 | `--include lib` / `@include "lib"` | Load an awk library file once, searched in `AWKPATH` (default `.:/usr/local/share/awk`), `lib` then `lib.awk`; remote files are not supported |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
-| `-i csv\|tsv\|json\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). json, jsonl, parquet and markdown imply `-H`; json is the default for `.json` files, xlsx for `.xlsx` files (needs `-H` for a header row) |
+| `-i csv\|tsv\|json\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). json, jsonl, parquet and markdown imply `-H`; json is the default for `.json` files, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet`, xlsx for `.xlsx` files (needs `-H` for a header row) |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|jsonl\|markdown\|table\|parquet\|xlsx` | Output format of `print` to stdout (`md` = markdown, `ndjson` = jsonl); except csv/tsv, the first printed record is the header |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet`/`-o xlsx` unless stdout is redirected) |

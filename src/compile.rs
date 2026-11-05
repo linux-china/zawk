@@ -2654,11 +2654,7 @@ impl<'a, 'b> View<'a, 'b> {
             DateTrunc => {
                 if res_reg != UNUSED {
                     self.pushl(if conv_tys[1] == Ty::Str {
-                        LL::DateTruncStr(
-                            res_reg.into(),
-                            conv_regs[0].into(),
-                            conv_regs[1].into(),
-                        )
+                        LL::DateTruncStr(res_reg.into(), conv_regs[0].into(), conv_regs[1].into())
                     } else {
                         LL::DateTrunc(res_reg.into(), conv_regs[0].into(), conv_regs[1].into())
                     })

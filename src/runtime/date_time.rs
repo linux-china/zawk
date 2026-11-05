@@ -592,7 +592,10 @@ pub fn date_diff(unit: &str, start: Int, end: Int) -> Int {
 /// `date_diff(unit, start, end)` with the times given as text, parsed as [`date_add_str`] does;
 /// `0` with a warning if either can't be parsed.
 pub fn date_diff_str(unit: &str, start: &str, end: &str) -> Int {
-    match (parse_time_text("date_diff", start), parse_time_text("date_diff", end)) {
+    match (
+        parse_time_text("date_diff", start),
+        parse_time_text("date_diff", end),
+    ) {
         (Some(start), Some(end)) => date_diff(unit, start, end),
         _ => 0,
     }

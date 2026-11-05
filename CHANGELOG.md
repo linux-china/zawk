@@ -1,5 +1,6 @@
 # Unreleased
 
+* Read `.parquet`, `.jsonl` and `.ndjson` input files without `-i`, as `.json` and `.xlsx` files are: `-i parquet` is the default when every input file ends with `.parquet` (a local file must start with the `PAR1` magic, so a text file named `.parquet` is still read as text), and `-i jsonl` when every input file ends with `.jsonl` or `.ndjson` (also compressed, e.g. `.jsonl.gz`) and no field separator is given. `zawk '{ print $FI["name"] }' out.parquet` reads back the output of `-o parquet`; before, the binary file was printed as text lines
 * Fix `date_diff`, `date_trunc` and `to_iso8601` reading date text as a number: `date_diff("day", "2024-01-01", "2024-03-01")` gave `0` and `to_iso8601("2024-01-01")` a time in 1970 (`2024` seconds). As for `date_add`, a time given as text is parsed as `mktime` does in local time, and a numeric string (e.g. a field `"1706713200"`) is still a Unix timestamp. Text that cannot be parsed gives a warning and `0` for `date_diff`, `-1` for `date_trunc` and an empty string for `to_iso8601`
 
 # Version 0.6.8 (2026-11-05)

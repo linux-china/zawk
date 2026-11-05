@@ -2184,6 +2184,64 @@ fn json_lines_and_text_in_json_files() {
 }
 
 #[test]
+fn jsonl_and_parquet_input_by_extension() {
+    // `.jsonl`/`.ndjson` files are read as `-i jsonl`, and `.parquet` files that start with the
+    // `PAR1` magic as `-i parquet`, without `-i`; so `-o parquet` output reads back as is.
+    let tmp = tempdir().unwrap();
+    let jsonl = tmp.path().join("rows.jsonl");
+    File::create(&jsonl)
+        .unwrap()
+        .write_all(b"{\"name\":\"a\",\"age\":1}\n{\"name\":\"b\",\"age\":2}\n")
+        .unwrap();
+    let ndjson = tmp.path().join("rows.NDJSON");
+    std::fs::copy(&jsonl, &ndjson).unwrap();
+    let parquet = tmp.path().join("rows.parquet");
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args([
+            "-o",
+            "parquet",
+            "BEGIN { print \"name\", \"age:INT64\"; print \"a\", 1; print \"b\", 2 }",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    std::fs::write(&parquet, &out.stdout).unwrap();
+    // A `.parquet` file that is not Parquet is read as text.
+    let text = tmp.path().join("text.parquet");
+    File::create(&text).unwrap().write_all(b"x y\n").unwrap();
+    for backend_arg in BACKEND_ARGS {
+        for file in [&jsonl, &ndjson, &parquet] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(r#"{ print NR, $FI["name"], $FI["age"] }"#)
+                .arg(file)
+                .assert()
+                .success()
+                .stdout("1 a 1\n2 b 2\n");
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"{ print $FI["age"] }"#)
+            .arg(&jsonl)
+            .arg(&ndjson)
+            .assert()
+            .success()
+            .stdout("1\n2\n1\n2\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg("{ print $2 }")
+            .arg(&text)
+            .assert()
+            .success()
+            .stdout("y\n");
+    }
+}
+
+#[test]
 fn unreadable_input_is_fatal_with_regex_separators() {
     // With a regex FS, a custom RS, paragraph mode, or FS assigned in a rule, records are read by
     // the regex splitter. An input file that cannot be read stops the program with an error, as
@@ -2691,7 +2749,8 @@ fn infer_types_output() {
     // `:auto` (and --infer-types for columns without a suffix) keeps numbers and booleans typed:
     // per value for -o jsonl, per column from the first rows for -o parquet.
     let input = "1 Jackie 48 true 007\n2 Love 4.5 FALSE 123\n";
-    let program = r#"NR==1 { print "id", "name", "age", "ok", "zip" } { print $1, $2, $3, $4, $5 }"#;
+    let program =
+        r#"NR==1 { print "id", "name", "age", "ok", "zip" } { print $1, $2, $3, $4, $5 }"#;
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -7027,7 +7086,11 @@ fn csv_crlf_record_drops_cr() {
     for backend_arg in BACKEND_ARGS {
         for extra in [&[][..], &["-pr", "-j2"][..]] {
             for (fmt, input) in [("csv", "a,b\r\n\"x\",2\r\n"), ("tsv", "a\tb\r\nx\t2\r\n")] {
-                let expected = if fmt == "csv" { "3 1 1\n5 0 1\n" } else { "3 1 1\n3 0 1\n" };
+                let expected = if fmt == "csv" {
+                    "3 1 1\n5 0 1\n"
+                } else {
+                    "3 1 1\n3 0 1\n"
+                };
                 Command::cargo_bin("zawk")
                     .unwrap()
                     .args([*backend_arg, "-i", fmt])

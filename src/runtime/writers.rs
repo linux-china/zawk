@@ -1189,8 +1189,21 @@ mod jsonl_tests {
             let mut w = JsonlWriter::new(&mut out, false);
             w.write_all(b"v:auto\ts\n").unwrap();
             for v in [
-                "48", "-1.5e3", "12345678901234567890", "0.10", "TRUE", "false", "007", "+1",
-                " 1", "1.", "0x10", "inf", "", "Jackie", "-",
+                "48",
+                "-1.5e3",
+                "12345678901234567890",
+                "0.10",
+                "TRUE",
+                "false",
+                "007",
+                "+1",
+                " 1",
+                "1.",
+                "0x10",
+                "inf",
+                "",
+                "Jackie",
+                "-",
             ] {
                 w.write_all(format!("{}\t{}\n", v, v).as_bytes()).unwrap();
             }
@@ -1224,7 +1237,8 @@ mod jsonl_tests {
         let mut out = Vec::new();
         {
             let mut w = JsonlWriter::new(&mut out, true);
-            w.write_all(b"id\tname:string\tage:number\n1\t2\t3\t4\n").unwrap();
+            w.write_all(b"id\tname:string\tage:number\n1\t2\t3\t4\n")
+                .unwrap();
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),

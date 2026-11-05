@@ -1000,9 +1000,10 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format:
     }
 }
 
-/// The input format of a run (or of `zawk lint`): `-i`, or `json` when it is not given and every
-/// input file is a JSON document (`.json` that starts with `{` or `[`), unless a field separator
-/// is given.
+/// The input format of a run (or of `zawk lint`): `-i`, or, when it is not given, `parquet` when
+/// every input file is a Parquet file (`.parquet` that starts with `PAR1`), and, unless a field
+/// separator is given, `jsonl` when every input file ends with `.jsonl` or `.ndjson` and `json`
+/// when every input file is a JSON document (`.json` that starts with `{` or `[`).
 fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<String> {
     if let Some(format) = matches.get_one::<String>("input-format") {
         return Some(format.clone());
@@ -1032,6 +1033,19 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if files.iter().any(|f| xlsx::is_xlsx_file(f)) {
         let all = files.iter().all(|f| xlsx::is_xlsx_file(f));
         return Some(String::from(if all { "xlsx" } else { "csv" }));
+    }
+    // Parquet files (`.parquet` starting with `PAR1`) are binary, so a field separator does not
+    // matter.
+    if !files.is_empty() && files.iter().all(|f| parquet::is_parquet_file(f)) {
+        return Some(String::from("parquet"));
+    }
+    if !field_sep
+        && !files.is_empty()
+        && files
+            .iter()
+            .all(|f| runtime::splitter::json::is_jsonl_file(f))
+    {
+        return Some(String::from("jsonl"));
     }
     (!field_sep
         && !files.is_empty()
@@ -1223,7 +1237,7 @@ fn real_main() {
             .short('i')
             .long("input-format")
             .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"])
-            .help("The input format of the run (json for `.json` files and xlsx for `.xlsx` files when not given); json, jsonl, parquet and markdown imply -H"))
+            .help("The input format of the run (json for `.json`, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet` and xlsx for `.xlsx` files when not given); json, jsonl, parquet and markdown imply -H"))
         .arg(Arg::new("field-separator")
             .short('F')
             .long("field-separator")
@@ -1453,7 +1467,7 @@ fn real_main() {
             .short('i')
             .value_name("csv|tsv|json|jsonl|parquet|markdown|xlsx")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json. parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json, jsonl when every input file ends with .jsonl or .ndjson, and parquet when every input file ends with .parquet (and starts with the PAR1 magic). parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
             .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"]))
         .arg(Arg::new("var")
             .short('v')
