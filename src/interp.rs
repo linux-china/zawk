@@ -1095,6 +1095,34 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.strs, dst) =
                             runtime::date_time::to_iso8601(timestamp).into();
                     }
+                    ToIso8601Str(dst, date_time_text) => {
+                        let result = runtime::date_time::to_iso8601_str(
+                            &*index(&self.strs, date_time_text).as_str(),
+                        );
+                        *index_mut(&mut self.strs, dst) = result.into();
+                    }
+                    DateDiffStr(dst, unit, start, end) => {
+                        let unit = index(&self.strs, unit);
+                        let start = index(&self.strs, start);
+                        let end = index(&self.strs, end);
+                        let result = runtime::date_time::date_diff_str(
+                            &*unit.as_str(),
+                            &*start.as_str(),
+                            &*end.as_str(),
+                        );
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
+                    DateTruncStr(dst, unit, date_time_text) => {
+                        let unit = index(&self.strs, unit);
+                        let date_time_text = index(&self.strs, date_time_text);
+                        let result = runtime::date_time::date_trunc_str(
+                            &*unit.as_str(),
+                            &*date_time_text.as_str(),
+                        );
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
                     MkBool(dst, text) => {
                         let text = index(&self.strs, text);
                         let result = runtime::math_util::mkbool(&*text.as_str());

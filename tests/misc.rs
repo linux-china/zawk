@@ -5814,6 +5814,36 @@ fn date_add_date_text() {
 }
 
 #[test]
+fn date_diff_trunc_iso8601_date_text() {
+    // as date_add: date text is parsed as mktime does, a numeric string (a field) is a timestamp
+    let prog = r#"BEGIN {
+        print date_diff("day", "2024-01-01", "2024-03-01"), date_diff("day", mktime("2024-01-01"), "2024-01-08"), date_diff("s", "1704067200", 1704067260)
+        print strftime("%F %T", date_trunc("month", "2024-02-15 10:30:00")), date_trunc("day", "1704070800")
+        print to_iso8601("2024-01-01"), to_iso8601("2024-02-15 10:37:42 +08:00"), to_iso8601("0")
+        print date_diff("day", "bad", "2024-01-01"), ERRNO
+        print date_trunc("day", "bad"), ERRNO
+        print "[" to_iso8601("bad") "]", ERRNO
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .env("TZ", "UTC")
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(concat!(
+                "60 7 60\n",
+                "2024-02-01 00:00:00 1704067200\n",
+                "2024-01-01T00:00:00.000Z 2024-02-15T02:37:42.000Z 1970-01-01T00:00:00.000Z\n",
+                "0 date_diff: invalid date time \"bad\"\n",
+                "-1 date_trunc: invalid date time \"bad\"\n",
+                "[] to_iso8601: invalid date time \"bad\"\n",
+            ));
+    }
+}
+
+#[test]
 fn date_add_and_date_diff() {
     // month ends are clamped; a day across the DST spring forward is 23 hours, 24 hours is not a
     // day; only complete months and years count

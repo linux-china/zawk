@@ -1035,22 +1035,22 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d(
         "date_diff",
         DATETIME,
-        "date_diff(unit: str, start: int, end: int) -> int",
-        "Number of complete units from start to end (negative if end is earlier), as MySQL TIMESTAMPDIFF; units as date_add.",
+        "date_diff(unit: str, start: int|str, end: int|str) -> int",
+        "Number of complete units from start to end (negative if end is earlier), as MySQL TIMESTAMPDIFF; times may also be date text, parsed as mktime; units as date_add.",
         r#"date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))"#,
     ),
     d(
         "date_trunc",
         DATETIME,
-        "date_trunc(unit: str, time: int) -> int",
-        "Unix time truncated to the start of its unit in local time (week starts on Monday); units as date_add; format it with strftime.",
+        "date_trunc(unit: str, time: int|str) -> int",
+        "Unix time truncated to the start of its unit in local time (week starts on Monday); time may also be date text, parsed as mktime; units as date_add; format it with strftime.",
         r#"strftime("%F", date_trunc("month", mktime("2024-02-15 10:30:00")))"#,
     ),
     d(
         "to_iso8601",
         DATETIME,
-        "to_iso8601(time: int) -> str",
-        "Unix time as an ISO 8601 UTC date time with milliseconds (YYYY-MM-DDTHH:mm:ss.sssZ), as JavaScript toISOString.",
+        "to_iso8601(time: int|str) -> str",
+        "Unix time as an ISO 8601 UTC date time with milliseconds (YYYY-MM-DDTHH:mm:ss.sssZ), as JavaScript toISOString; time may also be date text, parsed as mktime.",
         "to_iso8601(0)",
     ),
     // Color

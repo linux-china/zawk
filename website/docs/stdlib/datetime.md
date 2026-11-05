@@ -51,6 +51,7 @@ date_add(mktime("2024-01-31 10:00:00"), 1, "month")          # 2024-02-29 10:00:
 date_add(systime(), -7, "day")                               # a week ago
 date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))  # 60
 date_diff("month", mktime("2024-01-31"), mktime("2024-02-28"))  # 0: only complete units count
+date_diff("day", "2024-01-01", "2024-03-01")                 # 60: date text is parsed as mktime does
 ```
 
 `date_diff` counts complete units from `start` to `end` (negative if `end` is earlier), as MySQL's `TIMESTAMPDIFF`.
@@ -62,7 +63,7 @@ Days and weeks follow the wall clock, so a day across a DST change is 23 or 25 h
 ```awk
 strftime("%F %T", date_trunc("hour", mktime("2024-02-15 10:37:42")))  # 2024-02-15 10:00:00
 strftime("%F", date_trunc("week", mktime("2024-02-15")))              # 2024-02-12: weeks start on Monday
-{ sales[strftime("%Y-%m", date_trunc("month", mktime($1)))] += $2 }   # monthly totals
+{ sales[strftime("%Y-%m", date_trunc("month", $1))] += $2 }   # monthly totals, $1 parsed as mktime
 ```
 
 `to_iso8601(time)` formats a timestamp as ISO 8601 in UTC, as JavaScript's `toISOString`:
@@ -70,6 +71,7 @@ strftime("%F", date_trunc("week", mktime("2024-02-15")))              # 2024-02-
 ```awk
 to_iso8601(0)          # 1970-01-01T00:00:00.000Z
 to_iso8601(systime())  # e.g. 2024-02-15T02:37:42.000Z
+to_iso8601("2024-02-15 10:37:42 +08:00")  # 2024-02-15T02:37:42.000Z
 ```
 
 ## Durations

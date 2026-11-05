@@ -2634,26 +2634,43 @@ impl<'a, 'b> View<'a, 'b> {
             }
             DateDiff => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::DateDiff(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                        conv_regs[2].into(),
-                    ))
+                    self.pushl(if conv_tys[1] == Ty::Str {
+                        LL::DateDiffStr(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                            conv_regs[2].into(),
+                        )
+                    } else {
+                        LL::DateDiff(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                            conv_regs[2].into(),
+                        )
+                    })
                 }
             }
             DateTrunc => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::DateTrunc(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                    ))
+                    self.pushl(if conv_tys[1] == Ty::Str {
+                        LL::DateTruncStr(
+                            res_reg.into(),
+                            conv_regs[0].into(),
+                            conv_regs[1].into(),
+                        )
+                    } else {
+                        LL::DateTrunc(res_reg.into(), conv_regs[0].into(), conv_regs[1].into())
+                    })
                 }
             }
             ToIso8601 => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::ToIso8601(res_reg.into(), conv_regs[0].into()))
+                    self.pushl(if conv_tys[0] == Ty::Str {
+                        LL::ToIso8601Str(res_reg.into(), conv_regs[0].into())
+                    } else {
+                        LL::ToIso8601(res_reg.into(), conv_regs[0].into())
+                    })
                 }
             }
             MkBool => {

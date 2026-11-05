@@ -217,7 +217,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] date_add_str(str_ref_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] date_trunc(str_ref_ty, int_ty) -> int_ty;
+        [ReadOnly] date_diff_str(str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] date_trunc_str(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] to_iso8601(int_ty) -> str_ty;
+        [ReadOnly] to_iso8601_str(str_ref_ty) -> str_ty;
         [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
@@ -2076,6 +2079,35 @@ pub(crate) unsafe extern "C" fn date_trunc(unit: *mut U128, timestamp: Int) -> I
 pub(crate) unsafe extern "C" fn to_iso8601(timestamp: Int) -> U128 {
     guard_panic(stringify!(to_iso8601), || {
         mem::transmute::<Str, U128>(Str::from(date_time::to_iso8601(timestamp)))
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_diff_str(
+    unit: *mut U128,
+    start: *mut U128,
+    end: *mut U128,
+) -> Int {
+    guard_panic(stringify!(date_diff_str), || {
+        let unit = &*(unit as *mut Str);
+        let start = &*(start as *mut Str);
+        let end = &*(end as *mut Str);
+        date_time::date_diff_str(&*unit.as_str(), &*start.as_str(), &*end.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn date_trunc_str(unit: *mut U128, date_time_text: *mut U128) -> Int {
+    guard_panic(stringify!(date_trunc_str), || {
+        let unit = &*(unit as *mut Str);
+        let date_time_text = &*(date_time_text as *mut Str);
+        date_time::date_trunc_str(&*unit.as_str(), &*date_time_text.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn to_iso8601_str(date_time_text: *mut U128) -> U128 {
+    guard_panic(stringify!(to_iso8601_str), || {
+        let date_time_text = &*(date_time_text as *mut Str);
+        let result = date_time::to_iso8601_str(&*date_time_text.as_str());
+        mem::transmute::<Str, U128>(Str::from(result))
     })
 }
 

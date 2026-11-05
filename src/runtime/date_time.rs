@@ -529,20 +529,25 @@ pub fn date_add(timestamp: Int, n: Int, unit: &str) -> Int {
 /// Unix timestamp, other text is parsed as `mktime` does in local time; `-1` with a warning if it
 /// cannot be parsed.
 pub fn date_add_str(date_time_text: &str, n: Int, unit: &str) -> Int {
-    let timestamp = match runtime::compare::looks_numeric(date_time_text.as_bytes()) {
-        Some(num) => num as Int,
-        None => match mktime_tz(date_time_text, &Local) {
-            Some(timestamp) => timestamp,
-            None => {
-                runtime::stdlib_warning(
-                    "date_add",
-                    format!("invalid date time {:?}", date_time_text),
-                );
-                return -1;
+    match parse_time_text("date_add", date_time_text) {
+        Some(timestamp) => date_add(timestamp, n, unit),
+        None => -1,
+    }
+}
+
+/// A time argument given as text: a numeric string is a Unix timestamp, other text is parsed as
+/// `mktime` does in local time; `None` with a warning naming `func` if it can't be parsed.
+fn parse_time_text(func: &str, date_time_text: &str) -> Option<Int> {
+    match runtime::compare::looks_numeric(date_time_text.as_bytes()) {
+        Some(num) => Some(num as Int),
+        None => {
+            let timestamp = mktime_tz(date_time_text, &Local);
+            if timestamp.is_none() {
+                runtime::stdlib_warning(func, format!("invalid date time {:?}", date_time_text));
             }
-        },
-    };
-    date_add(timestamp, n, unit)
+            timestamp
+        }
+    }
 }
 
 fn try_date_diff(unit: DateUnit, start: i64, end: i64) -> Option<i64> {
@@ -582,6 +587,15 @@ pub fn date_diff(unit: &str, start: Int, end: Int) -> Int {
         runtime::stdlib_warning("date_diff", format!("date out of range: {} {}", start, end));
         0
     })
+}
+
+/// `date_diff(unit, start, end)` with the times given as text, parsed as [`date_add_str`] does;
+/// `0` with a warning if either can't be parsed.
+pub fn date_diff_str(unit: &str, start: &str, end: &str) -> Int {
+    match (parse_time_text("date_diff", start), parse_time_text("date_diff", end)) {
+        (Some(start), Some(end)) => date_diff(unit, start, end),
+        _ => 0,
+    }
 }
 
 fn try_date_trunc(unit: DateUnit, timestamp: i64) -> Option<i64> {
@@ -625,6 +639,15 @@ pub fn date_trunc(unit: &str, timestamp: Int) -> Int {
     })
 }
 
+/// `date_trunc(unit, time)` with the time given as text, parsed as [`date_add_str`] does; `-1`
+/// with a warning if it can't be parsed.
+pub fn date_trunc_str(unit: &str, date_time_text: &str) -> Int {
+    match parse_time_text("date_trunc", date_time_text) {
+        Some(timestamp) => date_trunc(unit, timestamp),
+        None => -1,
+    }
+}
+
 /// `to_iso8601(timestamp)`: the timestamp as an ISO 8601 UTC date time with milliseconds, as
 /// JavaScript's `Date.prototype.toISOString`, e.g. `1970-01-01T00:00:00.000Z`; an empty string with
 /// a warning for a timestamp out of range.
@@ -635,6 +658,15 @@ pub fn to_iso8601(timestamp: Int) -> String {
             runtime::stdlib_warning("to_iso8601", format!("date out of range: {}", timestamp));
             String::new()
         }
+    }
+}
+
+/// `to_iso8601(time)` with the time given as text, parsed as [`date_add_str`] does; an empty
+/// string with a warning if it can't be parsed.
+pub fn to_iso8601_str(date_time_text: &str) -> String {
+    match parse_time_text("to_iso8601", date_time_text) {
+        Some(timestamp) => to_iso8601(timestamp),
+        None => String::new(),
     }
 }
 

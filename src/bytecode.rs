@@ -287,8 +287,11 @@ pub(crate) enum Instr<'a> {
     DateAdd(Reg<Int>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
     DateAddStr(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     DateDiff(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
+    DateDiffStr(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     DateTrunc(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
+    DateTruncStr(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     ToIso8601(Reg<Str<'a>>, Reg<Int>),
+    ToIso8601Str(Reg<Str<'a>>, Reg<Str<'a>>),
     MkBool(Reg<Int>, Reg<Str<'a>>),
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
@@ -953,14 +956,29 @@ impl<'a> Instr<'a> {
                 start.accum(&mut f);
                 end.accum(&mut f);
             }
+            DateDiffStr(res, unit, start, end) => {
+                res.accum(&mut f);
+                unit.accum(&mut f);
+                start.accum(&mut f);
+                end.accum(&mut f);
+            }
             DateTrunc(res, unit, timestamp) => {
                 res.accum(&mut f);
                 unit.accum(&mut f);
                 timestamp.accum(&mut f);
             }
+            DateTruncStr(res, unit, date_time_text) => {
+                res.accum(&mut f);
+                unit.accum(&mut f);
+                date_time_text.accum(&mut f);
+            }
             ToIso8601(res, timestamp) => {
                 res.accum(&mut f);
                 timestamp.accum(&mut f);
+            }
+            ToIso8601Str(res, date_time_text) => {
+                res.accum(&mut f);
+                date_time_text.accum(&mut f);
             }
             MkBool(res, text) => {
                 res.accum(&mut f);

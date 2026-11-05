@@ -785,6 +785,7 @@ Date arithmetic on Unix timestamps, in local time (set `TZ` for another zone):
 - `date_add(mktime("2024-01-31 10:00:00"), 1, "month")`: `2024-02-29 10:00:00`, `n` units later (earlier if `n` is negative). A month end is clamped to the end of a shorter month.
   The time may also be date text, parsed as `mktime` does: `date_add("2024-01-31 10:00:00", 1, "month")` is the same; a numeric string such as a field `"1706713200"` is a Unix timestamp. Text that cannot be parsed gives a warning and `-1`.
 - `date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))`: `60`, the number of complete units from start to end (negative if end is earlier), as MySQL's `TIMESTAMPDIFF`: `date_diff("month", mktime("2024-01-31 10:00"), mktime("2024-02-29"))` is `0`.
+  The times may also be date text, as for `date_add`: `date_diff("day", "2024-01-01", "2024-03-01")` is `60`; text that cannot be parsed gives a warning and `0`.
 
 Units: `second`/`s`/`sec`, `minute`/`m`/`min`, `hour`/`h`, `day`/`d`, `week`/`w`/`wk`, `month`/`mo`/`mon`, `quarter`/`q`, `year`/`y`/`yr` (plural forms too, case is ignored).
 Seconds, minutes and hours are fixed lengths of time; days and weeks follow the wall clock (a day across a DST change is 23 or 25 hours).
@@ -799,7 +800,8 @@ to be formatted with `strftime`, e.g. to group records by month: `count[strftime
 - `date_trunc("week", mktime("2024-02-15 10:37:42"))`: `2024-02-12 00:00:00`, the Monday of the week (ISO 8601)
 - `date_trunc("quarter", mktime("2024-08-20"))`: `2024-07-01 00:00:00`
 
-Units as `date_add`. An unknown unit gives a warning and `-1`.
+The time may also be date text, as for `date_add`: `date_trunc("month", "2024-02-15 10:30:00")`.
+Units as `date_add`. An unknown unit or text that cannot be parsed gives a warning and `-1`.
 
 ### to_iso8601
 
@@ -808,7 +810,9 @@ the format of JavaScript's `Date.prototype.toISOString` and `JSON.stringify`, e.
 
 - `to_iso8601(mktime("2024-02-15 10:37:42 +08:00"))`: `2024-02-15T02:37:42.000Z`
 
-A timestamp out of range gives a warning and an empty string.
+- `to_iso8601("2024-02-15 10:37:42 +08:00")`: the same, date text is parsed as `mktime` does (a numeric string is a Unix timestamp)
+
+A timestamp out of range or text that cannot be parsed gives a warning and an empty string.
 
 ### Duration
 

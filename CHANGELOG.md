@@ -1,5 +1,7 @@
 # Unreleased
 
+* Fix `date_diff`, `date_trunc` and `to_iso8601` reading date text as a number: `date_diff("day", "2024-01-01", "2024-03-01")` gave `0` and `to_iso8601("2024-01-01")` a time in 1970 (`2024` seconds). As for `date_add`, a time given as text is parsed as `mktime` does in local time, and a numeric string (e.g. a field `"1706713200"`) is still a Unix timestamp. Text that cannot be parsed gives a warning and `0` for `date_diff`, `-1` for `date_trunc` and an empty string for `to_iso8601`
+
 # Version 0.6.8 (2026-11-05)
 
 * Add the column type `:auto` and `--infer-types` for `-o jsonl` and `-o parquet`, so typed data no longer becomes strings: `zawk -i csv -H -o jsonl --infer-types 'NR==1{print "id","name","age"}{print $1,$2,$3}' tests/demo.csv` writes `{"id":1,"name":"Jackie","age":48}`. With `--infer-types`, columns without a type suffix are `:auto`. In JSON Lines each `:auto` value is a number when it is written as JSON writes numbers (`48`, `-1.5`, `2e3`; not `007`, `+1` or `0x10`), a boolean for `true`/`false`, and a string otherwise. In Parquet an `AUTO` column is `INT64`, `DOUBLE`, `BOOLEAN` or `DATE` when every non-empty value of the first 65536 rows is one, and `STRING` otherwise

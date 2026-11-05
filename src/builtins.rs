@@ -1094,9 +1094,12 @@ impl Function {
                 smallvec![if incoming[0] == Str { Str } else { Int }, Int, Str],
                 Int,
             ),
-            DateDiff => (smallvec![Str, Int, Int], Int),
-            DateTrunc => (smallvec![Str, Int], Int),
-            ToIso8601 => (smallvec![Int], Str),
+            DateDiff => {
+                let time = if incoming[1] == Str || incoming[2] == Str { Str } else { Int };
+                (smallvec![Str, time, time], Int)
+            }
+            DateTrunc => (smallvec![Str, if incoming[1] == Str { Str } else { Int }], Int),
+            ToIso8601 => (smallvec![if incoming[0] == Str { Str } else { Int }], Str),
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),

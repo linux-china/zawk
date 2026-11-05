@@ -304,11 +304,21 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(start.into()));
                 f(dst.into(), Some(end.into()));
             }
+            DateDiffStr(dst, unit, start, end) => {
+                f(dst.into(), Some(unit.into()));
+                f(dst.into(), Some(start.into()));
+                f(dst.into(), Some(end.into()));
+            }
             DateTrunc(dst, unit, timestamp) => {
                 f(dst.into(), Some(unit.into()));
                 f(dst.into(), Some(timestamp.into()));
             }
+            DateTruncStr(dst, unit, date_time_text) => {
+                f(dst.into(), Some(unit.into()));
+                f(dst.into(), Some(date_time_text.into()));
+            }
             ToIso8601(dst, timestamp) => f(dst.into(), Some(timestamp.into())),
+            ToIso8601Str(dst, date_time_text) => f(dst.into(), Some(date_time_text.into())),
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
