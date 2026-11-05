@@ -1587,8 +1587,13 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
                 self.constrain_as_map(arr_ix);
                 // Referencing `a[k]` creates the element in awk, so the index type also flows
                 // into the map's key type (as in AsgnIndex).
+                //
+                // There is deliberately no `arr -> ix` (`Constraint::Key`) edge: the index keeps
+                // its own type and `load_map` converts it to the map's key type. Such an edge
+                // would let the key type flow back into the index, and when the index is a
+                // function parameter the specialized function would pop its argument into a
+                // register of a different type than the body reads, silently losing the key.
                 self.nw.add_dep(ix_ix, arr_ix, Constraint::KeyIn(()));
-                self.nw.add_dep(arr_ix, ix_ix, Constraint::Key(()));
                 self.nw.add_dep(arr_ix, to, Constraint::Val(()));
             }
             IterBegin(arr) => {

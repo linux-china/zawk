@@ -74,3 +74,4 @@ Notes:
 
 - `Z` is the alias of `target/release/zawk`
 - DO NOT use `--release` option for `cargo test`
+- DO NOT use `f` as function name for test, and it's reserved for f-string.
