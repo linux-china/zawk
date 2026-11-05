@@ -477,6 +477,8 @@ Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;
 **Tips**: if `pairs("id=1&name=Hello%20World","&")`, text will be treated as URL query string, and URL decode will
 be introduced to decode the value automatically.
 
+A key without value (`flag` in `a=1&flag`) or with an empty value (`b=`) is kept with the value `""`: `q = pairs("a=1&flag", "&"); print ("flag" in q)` prints `1`.
+
 ### Records
 
 Prometheus/OpenMetrics text format, such as `http_requests_total{method="post",code="200"}`

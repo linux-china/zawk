@@ -117,19 +117,19 @@ pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, 
     let text = text.trim_matches(|c| c == '"' || c == '\'');
     if is_url_query {
         // form_urlencoded decodes both key and value, and treats '+' as space
+        // a bare key (`flag`) or an empty value (`b=`) maps to "", following URL query conventions
         for (key, value) in url::form_urlencoded::parse(text.as_bytes()) {
-            if !value.is_empty() {
-                map.insert(Str::from(key.into_owned()), Str::from(value.into_owned()));
-            }
+            map.insert(Str::from(key.into_owned()), Str::from(value.into_owned()));
         }
     } else {
         for pair in text.split(pair_sep) {
-            // split on the first kv_sep only, so values may contain kv_sep (e.g. base64 "abc==")
-            if let Some((key, value)) = pair.split_once(kv_sep) {
-                if !value.is_empty() {
-                    map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
-                }
+            if pair.trim().is_empty() {
+                continue;
             }
+            // split on the first kv_sep only, so values may contain kv_sep (e.g. base64 "abc==");
+            // a pair without kv_sep is kept as a key with an empty value
+            let (key, value) = pair.split_once(kv_sep).unwrap_or((pair, ""));
+            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
         }
     }
     SharedMap::from(map)
@@ -988,9 +988,23 @@ mod tests {
         assert_eq!(m.get(&Str::from("t")).as_str(), "abc==");
         assert_eq!(m.get(&Str::from("q")).as_str(), "a b");
         assert_eq!(m.get(&Str::from("n k")).as_str(), "v");
-        assert!(!m.contains(&Str::from("b")));
+        assert!(m.contains(&Str::from("b")));
+        assert_eq!(m.get(&Str::from("b")).as_str(), "");
         let m = pairs("a:1;t:x:y", ";", ":");
         assert_eq!(m.get(&Str::from("t")).as_str(), "x:y");
+    }
+
+    #[test]
+    fn test_pairs_bare_key() {
+        let m = pairs("a=1&flag&&b=2", "&", "=");
+        assert_eq!(m.len(), 3);
+        assert!(m.contains(&Str::from("flag")));
+        assert_eq!(m.get(&Str::from("flag")).as_str(), "");
+        let m = pairs("a=1,flag,,b=,", ",", "=");
+        assert_eq!(m.len(), 3);
+        assert!(m.contains(&Str::from("flag")));
+        assert!(m.contains(&Str::from("b")));
+        assert_eq!(m.get(&Str::from("a")).as_str(), "1");
     }
 
     #[test]

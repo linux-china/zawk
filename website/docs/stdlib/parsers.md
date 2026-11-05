@@ -33,6 +33,7 @@ data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")["data"]   # also mime_ty
 pairs("a=b,c=d")["c"]                              # d
 pairs("id=1&name=Hello%20World", "&")["name"]      # Hello World (URL-decoded with "&")
 pairs(cookies, ";", "=")["user_session"]
+q = pairs("a=1&flag", "&"); print ("flag" in q)   # 1 (a key without value is kept as "")
 ```
 
 ## Records and messages
