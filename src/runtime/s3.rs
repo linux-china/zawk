@@ -117,14 +117,40 @@ fn read_error(url: &str, e: &(dyn std::error::Error + 'static)) -> String {
     format!("cannot read `{}': {}", url, describe(e))
 }
 
-/// A one-line description of an S3 error: the kind of the error and the message returned by the
-/// server, or the error with its causes.
+/// A short summary of a failed S3 operation on `url`, e.g. `NotFound: s3://bucket/key (NoSuchKey)`,
+/// without the request context and response headers that OpenDAL errors carry.
+fn summary(url: &str, e: &(dyn std::error::Error + 'static)) -> String {
+    match e.downcast_ref::<opendal::Error>() {
+        Some(e) => format!("{}: {}{}", e.kind(), url, detail(e)),
+        None => format!("{}: {}", url, describe(e)),
+    }
+}
+
+/// The message of an OpenDAL error, e.g. `: message`, or the error code returned by the S3
+/// server (such as `NoSuchKey` or `AccessDenied`), e.g. ` (NoSuchKey)`, when the message is the
+/// whole S3 error (with the request id and so on).
+fn detail(e: &opendal::Error) -> String {
+    let message = e.message();
+    match s3_error_code(message) {
+        Some(code) => format!(" ({})", code),
+        None if message.is_empty() => String::new(),
+        None => format!(": {}", message),
+    }
+}
+
+/// The value of `code` in an S3 error such as
+/// `S3Error { code: "NoSuchKey", message: "...", request_id: "..." }`.
+fn s3_error_code(message: &str) -> Option<&str> {
+    let rest = &message[message.find("code: \"")? + "code: \"".len()..];
+    let code = &rest[..rest.find('"')?];
+    (!code.is_empty()).then_some(code)
+}
+
+/// A one-line description of an S3 error: the kind of the error, the message and the error code
+/// returned by the server, or the error with its causes.
 fn describe(e: &(dyn std::error::Error + 'static)) -> String {
     if let Some(e) = e.downcast_ref::<opendal::Error>() {
-        return match e.message() {
-            "" => e.kind().to_string(),
-            message => format!("{}: {}", e.kind(), message),
-        };
+        return format!("{}{}", e.kind(), detail(e));
     }
     let mut text = e.to_string();
     let mut source = e.source();
@@ -260,7 +286,7 @@ pub(crate) fn s3_get(bucket_name: &str, object_name: &str) -> String {
     get_object(bucket_name, object_name).unwrap_or_else(|e| {
         crate::runtime::stdlib_warning(
             "s3_get",
-            format!("s3://{}/{}: {}", bucket_name, object_name, e),
+            summary(&format!("s3://{}/{}", bucket_name, object_name), &*e),
         );
         String::new()
     })
@@ -271,7 +297,7 @@ pub(crate) fn s3_put(bucket_name: &str, object_name: &str, body: &str) -> String
     put_object(bucket_name, object_name, body).unwrap_or_else(|e| {
         crate::runtime::stdlib_warning(
             "s3_put",
-            format!("s3://{}/{}: {}", bucket_name, object_name, e),
+            summary(&format!("s3://{}/{}", bucket_name, object_name), &*e),
         );
         String::new()
     })
@@ -321,6 +347,14 @@ mod tests {
         assert!(parse_s3_url("s3://bucket1/").is_err());
         assert!(parse_s3_url("s3:///demo.csv").is_err());
         assert!(parse_s3_url("/tmp/demo.csv").is_err());
+    }
+
+    #[test]
+    fn test_s3_error_code() {
+        let message = r#"S3Error { code: "NoSuchKey", message: "The specified key does not exist.", resource: "", request_id: "KX02SKF1OD5LIT8S" }"#;
+        assert_eq!(s3_error_code(message), Some("NoSuchKey"));
+        assert_eq!(s3_error_code("timeout"), None);
+        assert_eq!(s3_error_code(""), None);
     }
 
     /// Reads an object larger than a part, which is downloaded in parallel parts.
