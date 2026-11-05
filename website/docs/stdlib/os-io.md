@@ -31,7 +31,7 @@ and always `quote()` values from input.
 ## Files
 
 ```awk
-text = read_all("notes.txt")               # also http:// and https:// URLs
+text = read_all("notes.txt")               # also http(s):// URLs and s3:// objects
 write_all("out.txt", text)                 # replace the file
 conf = read_config("app.ini")              # *.ini and *.properties
 close(name); fflush(); fflush(name)

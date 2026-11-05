@@ -1484,7 +1484,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "read_all",
         IO,
         "read_all(path: str) -> str",
-        "Read a local file or http(s) URL as text.",
+        "Read a local file, http(s) URL or s3:// object as text.",
         r#"read_all("demo.txt")"#,
     ),
     d(

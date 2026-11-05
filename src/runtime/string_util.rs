@@ -92,6 +92,10 @@ pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
 pub fn read_all(path: &str) -> String {
     let result = if path.starts_with("http://") || path.starts_with("https://") {
         crate::runtime::network::fetch_text(path)
+    } else if crate::runtime::s3::is_s3_url(path) {
+        crate::runtime::s3::read_object_bytes(path)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .map_err(|e| e.to_string())
     } else {
         std::fs::read_to_string(path).map_err(|e| e.to_string())
     };
@@ -961,6 +965,14 @@ mod tests {
     fn test_read_all_from_remote() {
         let content = read_all("https://httpbin.org/ip");
         println!("{}", content);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_read_all_from_s3() {
+        dotenvy::dotenv().ok();
+        let content = read_all("s3://mj-artifacts/demo.csv");
+        assert!(content.starts_with("id,name,age"));
     }
 
     #[test]
