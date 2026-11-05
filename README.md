@@ -106,3 +106,7 @@ The same policy holds for feature requests.
 
 Thanks to Eli Rosenthal's [frawk](https://github.com/ezrosent/frawk).
 zawk is based on frawk. Without frawk, there would be no zawk. 
+
+# References
+
+* AWK Command in Linux/Unix: Syntax, Examples, and Usage - https://www.digitalocean.com/community/tutorials/awk-command-linux-unix
