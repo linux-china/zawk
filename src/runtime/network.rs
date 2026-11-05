@@ -15,9 +15,9 @@ use url::Url;
 
 /// How long connecting to a server (http input, redis, mysql, postgres) may take, so that an
 /// unreachable host fails instead of waiting for the TCP default of several minutes.
-pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a streaming connection (http input, redis) may stay silent while a reply is expected.
-pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Query parameters whose values are credentials, such as libpq's `?password=...`.
 const SECRET_PARAMS: &[&str] = &[
