@@ -1352,9 +1352,9 @@ fn interval_len(chars: &[char], i: usize) -> Option<usize> {
     }
 }
 
-/// Translate the bracket expression starting at `chars[*i]` (a `[`). Returns false if it is not
-/// terminated, in which case nothing is consumed, and an error for an unknown class like `[:foo:]`.
-fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<bool, String> {
+/// Translate the bracket expression starting at `chars[*i]` (a `[`). Returns an error if it is
+/// not terminated (`unbalanced [`, fatal in gawk too) or names an unknown class like `[:foo:]`.
+fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<(), String> {
     let mut j = *i + 1;
     let mut res = String::from("[");
     // Byte escapes of non-ASCII values (and ranges of them), matched with Unicode mode off.
@@ -1372,7 +1372,7 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<
     loop {
         let c = match chars.get(j) {
             Some(c) => *c,
-            None => return Ok(false),
+            None => return Err("unbalanced [".to_string()),
         };
         match c {
             ']' => {
@@ -1463,7 +1463,7 @@ fn translate_bracket(out: &mut String, chars: &[char], i: &mut usize) -> Result<
         }
     }
     *i = j;
-    Ok(true)
+    Ok(())
 }
 
 /// If the bracket expression item at `chars[j]` (a backslash) is a byte escape of a non-ASCII
@@ -1514,10 +1514,7 @@ pub(crate) fn translate(pat: &str) -> Result<String, String> {
                 at_start = false;
             }
             '[' => {
-                if !translate_bracket(&mut out, &chars, &mut i)? {
-                    out.push_str(r"\[");
-                    i += 1;
-                }
+                translate_bracket(&mut out, &chars, &mut i)?;
                 at_start = false;
             }
             '{' => {
@@ -1605,6 +1602,10 @@ mod tests {
         );
         assert_eq!(translate(r"\pL").unwrap(), r"\pL");
         assert!(translate("[[:foo:]]").is_err());
+        // An unterminated bracket expression is an error, as in gawk.
+        for pat in ["[", "a[", "[a", "[^", "[]", "[^]", "[[:alpha:]"] {
+            assert_eq!(syntax_error(pat).as_deref(), Some("unbalanced ["), "{pat}");
+        }
         assert_eq!(
             syntax_error("[[:foo:]]").unwrap(),
             "invalid character class name [:foo:]"
