@@ -254,8 +254,8 @@ With `--null text`:
 Validate text format, such as: `is("email", "demo@example.com")`. Format list:
 
 - email
-- url
-- phone
+- url: an absolute `http`/`https`/`ftp` URL with a non-empty host, so `http://` and `mailto:a@b.com` are rejected
+- phone: the whole text is a `+` or digit followed by 5-16 digits or `-`, such as `+86-186-6713-5137`
 - ip: IP v4/v6
 - ipv4: IP v4 only
 - ipv6: IP v6 only

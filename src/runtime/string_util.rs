@@ -670,22 +670,21 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     map
 }
 
-static PHONE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[0-9+][0-9-]{5,16}").unwrap());
+static PHONE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9+][0-9-]{5,16}$").unwrap());
 
 pub fn is_format(format: &str, text: &str) -> Int {
     let result = match format {
         "email" => email_address::EmailAddress::is_valid(text),
-        "url" => {
-            text.starts_with("http://")
-                || text.starts_with("https://")
-                || text.starts_with("ftp://")
-        }
+        "url" => url::Url::parse(text).is_ok_and(|u| {
+            matches!(u.scheme(), "http" | "https" | "ftp")
+                && u.host_str().is_some_and(|h| !h.is_empty())
+        }),
         "phone" => PHONE_REGEX.is_match(text),
         "ip" => text.parse::<std::net::IpAddr>().is_ok(),
         "ipv4" => text.parse::<std::net::Ipv4Addr>().is_ok(),
         "ipv6" => text.parse::<std::net::Ipv6Addr>().is_ok(),
         "date" => is_date(text),
-        "uuid" => uuid::Uuid::try_parse(&text.replace('-', "")).is_ok(),
+        "uuid" => uuid::Uuid::try_parse(text).is_ok(),
         "json" => serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok(),
         "idcard_cn" => is_idcard_cn(text),
         &_ => {
@@ -1109,6 +1108,18 @@ mod tests {
         assert_eq!(0, is_format("date", "2024-01-05T13:45"));
         assert_eq!(1, is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8"));
         assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247"));
+        assert_eq!(1, is_format("uuid", "67e5504410b1426f9247bb680e5fe0c8"));
+        assert_eq!(0, is_format("uuid", "6-7e55044-10b1-426f-9247bb680e5fe0c8"));
+        assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8x"));
+        assert_eq!(0, is_format("phone", "abc12345678"));
+        assert_eq!(0, is_format("phone", "12345678abc"));
+        assert_eq!(1, is_format("phone", "+86-186-6713-5137"));
+        assert_eq!(1, is_format("url", "https://example.com/a?b=1"));
+        assert_eq!(1, is_format("url", "ftp://127.0.0.1/pub"));
+        assert_eq!(0, is_format("url", "http://"));
+        assert_eq!(0, is_format("url", "https://"));
+        assert_eq!(0, is_format("url", "mailto:a@b.com"));
+        assert_eq!(0, is_format("url", "see http://example.com"));
         assert_eq!(1, is_format("json", r#"{"a": [1, 2]}"#));
         assert_eq!(0, is_format("json", "{a: 1}"));
         assert_eq!(1, is_format("idcard_cn", "11010519491231002X"));
