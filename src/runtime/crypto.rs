@@ -394,9 +394,15 @@ static DERIVED_KEYS: LazyLock<Mutex<lru::LruCache<(PasswordTag, Vec<u8>, usize),
     });
 /// random salt used by `encrypt` for a (password tag, key length), generated once per process: a fresh salt
 /// for every call would run the slow PBKDF2 on every record, and a per-process random salt already
-/// defeats precomputed dictionaries shared by all users of zawk
-static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(PasswordTag, usize), [u8; SALT_LEN]>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// defeats precomputed dictionaries shared by all users of zawk.
+/// Bounded like `DERIVED_KEYS`: a program using a different password for every record would otherwise grow
+/// it without bound; an evicted password just gets a new salt (and one more PBKDF2) on its next `encrypt`
+static ENCRYPT_SALTS: LazyLock<Mutex<lru::LruCache<(PasswordTag, usize), [u8; SALT_LEN]>>> =
+    LazyLock::new(|| {
+        Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(DERIVED_KEYS_CAPACITY).unwrap(),
+        ))
+    });
 
 fn password_tag(key_pass: &str) -> PasswordTag {
     let mut mac = HmacSha256::new_from_slice(&*PASSWORD_TAG_KEY).unwrap();
@@ -451,7 +457,7 @@ fn encrypt_salt(key_pass: &str, key_len: usize) -> Option<[u8; SALT_LEN]> {
         return Some(*salt);
     }
     let salt = random_bytes::<SALT_LEN>()?;
-    salts.insert(entry, salt);
+    salts.put(entry, salt);
     Some(salt)
 }
 
@@ -1247,6 +1253,16 @@ mod tests {
         let mut out = [0u8; 64];
         pbkdf2_hmac_sha256(b"passwd", b"salt", 1, &mut out);
         assert_eq!(hex::encode(&out[..16]), "55ac046e56e3089fec1691c22544b605");
+    }
+
+    #[test]
+    fn test_encrypt_salts_bounded() {
+        let salt = encrypt_salt("salt-bounded", 32).unwrap();
+        assert_eq!(encrypt_salt("salt-bounded", 32), Some(salt));
+        for i in 0..DERIVED_KEYS_CAPACITY + 10 {
+            encrypt_salt(&format!("salt-bounded-{i}"), 16).unwrap();
+        }
+        assert!(ENCRYPT_SALTS.lock().unwrap().len() <= DERIVED_KEYS_CAPACITY);
     }
 
     #[test]

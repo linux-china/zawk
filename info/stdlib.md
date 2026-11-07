@@ -1032,6 +1032,9 @@ Performance note: `decrypt` runs PBKDF2 (tens of milliseconds) once for every di
 produced the ciphertexts, not once per record. Derived keys are kept in an LRU cache of 1024 entries (keyed by a
 per-process HMAC of the password, never the plaintext password), so decrypting ciphertexts from more than 1024 different
 runs in one pass re-derives keys and is slow; re-encrypt such data in one run to share a single salt.
+`encrypt` costs one PBKDF2 per distinct password (and key length), so a different password for every record is slow
+(tens of milliseconds per record); the per-password salts are also kept in an LRU table of 1024 entries, a password
+evicted from it gets a new salt and one more PBKDF2 when it is used again.
 `decrypt` also accepts older formats: CBC `v3:` (no MAC, a warning is printed), `v2:` (PBKDF2 with a fixed salt) and legacy ciphertext without prefix
 (key = password bytes truncated/zero padded to 16 or 32 bytes, deprecated: a warning is printed, please re-encrypt it).
 `decrypt` returns an empty string when the input is malformed or the key is wrong, prints a warning and sets `ERRNO`
