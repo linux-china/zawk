@@ -50,9 +50,11 @@ impl<I> Default for Uninit<I> {
     }
 }
 
-/// The operands of `e` that are read as strings: both operands of a concatenation, and the
-/// operand compared with a string (a string literal or a concatenation). The arguments of print
-/// and of length() are also read as strings.
+/// The operands of `e` that are read as strings: both operands of a concatenation, the operand
+/// compared with a string (a string literal or a concatenation), and the left side of `~`. The
+/// arguments of print, of length() and of other builtins taking strings (see
+/// [`builtin_str_arg`]), the `%s` arguments of printf and sprintf, and array elements used as
+/// subscripts are also read as strings.
 pub(crate) fn string_operands<'a, 'b, I>(
     e: &'a Expr<'a, 'b, I>,
 ) -> (Option<&'a Expr<'a, 'b, I>>, Option<&'a Expr<'a, 'b, I>>) {
@@ -62,12 +64,66 @@ pub(crate) fn string_operands<'a, 'b, I>(
     }
     match e {
         Expr::Binop(Concat, l, r) => (Some(l), Some(r)),
+        Expr::Binop(IsMatch, l, _) => (Some(l), None),
         Expr::Binop(LT | GT | LTE | GTE | EQ, l, r) => (
             if is_str(r) { Some(l) } else { None },
             if is_str(l) { Some(r) } else { None },
         ),
         _ => (None, None),
     }
+}
+
+/// The arguments (after the format) of a printf or sprintf call with the format `fmt` that are
+/// printed with `%s`: those read as strings. `None` when the format is not a literal, or uses
+/// positional arguments (`%1$s`).
+pub(crate) fn printf_str_args<I>(fmt: &Expr<I>, nargs: usize) -> Option<Vec<bool>> {
+    let fmt = match fmt {
+        Expr::StrLit(s) => *s,
+        _ => return None,
+    };
+    let mut res = vec![false; nargs];
+    let mut arg = 0;
+    let mut i = 0;
+    while i < fmt.len() {
+        if fmt[i] != b'%' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if fmt.get(i) == Some(&b'%') {
+            i += 1;
+            continue;
+        }
+        // Flags, width and precision; `*` takes an argument.
+        while let Some(&c) = fmt.get(i) {
+            match c {
+                b'$' => return None,
+                b'*' => arg += 1,
+                b'-' | b'+' | b' ' | b'#' | b'.' | b'0'..=b'9' => {}
+                _ => break,
+            }
+            i += 1;
+        }
+        if fmt.get(i) == Some(&b's') && arg < nargs {
+            res[arg] = true;
+        }
+        arg += 1;
+        i += 1;
+    }
+    Some(res)
+}
+
+/// Whether argument `i` of a call to the builtin `f` with `args` is read as a string (other
+/// than by `length`, `typeof` and as an array subscript, which are handled on their own).
+pub(crate) fn builtin_str_arg<I>(f: Function, args: &[&Expr<I>], i: usize) -> bool {
+    use Function::*;
+    if matches!(
+        f,
+        Length | TypeOfVariable | TypeOfUntyped | IsArray | Contains | Delete | IncMap | Clear
+    ) {
+        return false;
+    }
+    f.str_param(i, args.len())
 }
 
 /// Builtins whose result is a number.
@@ -259,6 +315,7 @@ where
             Unop(_, e) => self.expr(e, params),
             Index(arr, ix) => {
                 self.array_use(arr, params);
+                self.subscript(ix, params);
                 self.expr(arr, params);
                 self.expr(ix, params);
             }
@@ -298,6 +355,24 @@ where
                 let bi = self.builtin(f);
                 if let (Some(Function::Length), [arg]) = (bi, args) {
                     self.string_read(arg, params);
+                }
+                match bi {
+                    Some(bi) => {
+                        for (i, a) in args.iter().enumerate() {
+                            if builtin_str_arg(bi, args, i) {
+                                self.string_read(a, params);
+                            }
+                        }
+                    }
+                    None if matches!(f, Either::Left(name) if name.to_string() == "sprintf") => {
+                        if let [fmt, rest @ ..] = &args[..] {
+                            self.printf_args(fmt, rest, params);
+                        }
+                    }
+                    None => {}
+                }
+                if let (Some(Function::Contains | Function::Delete), [_, ix]) = (bi, args) {
+                    self.subscript(ix, params);
                 }
                 match (bi, args) {
                     (Some(Function::Contains), [arr, _]) => self.array_use(arr, params),
@@ -344,11 +419,36 @@ where
         }
     }
 
+    /// An array subscript: an element of a tracked array used there is read as a string
+    /// (`b[a[k]]`). Variables are not, so that integer keys (`a[i]`) stay integers.
+    fn subscript(&mut self, ix: &'a Expr<'a, 'b, I>, params: &'a [I]) {
+        if self.global_map(ix, params).is_some() {
+            self.string_read(ix, params);
+        }
+    }
+
+    /// The `%s` arguments of printf and sprintf with a literal format are read as strings.
+    fn printf_args(
+        &mut self,
+        fmt: &'a Expr<'a, 'b, I>,
+        args: &'a [&'a Expr<'a, 'b, I>],
+        params: &'a [I],
+    ) {
+        if let Some(strs) = printf_str_args(fmt, args.len()) {
+            for (a, is_str) in args.iter().zip(strs) {
+                if is_str {
+                    self.string_read(a, params);
+                }
+            }
+        }
+    }
+
     /// The subexpressions of an assigned expression.
     fn lvalue(&mut self, e: &'a Expr<'a, 'b, I>, params: &'a [I]) {
         match e {
             Expr::Index(arr, ix) => {
                 self.array_use(arr, params);
+                self.subscript(ix, params);
                 self.expr(arr, params);
                 self.expr(ix, params);
             }
@@ -377,6 +477,7 @@ where
                 }
             }
             Printf(fmt, args, out) => {
+                self.printf_args(fmt, args, params);
                 self.expr(fmt, params);
                 for a in args.iter() {
                     self.expr(a, params);

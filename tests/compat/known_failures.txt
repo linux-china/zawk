@@ -10,6 +10,7 @@
 03-strnum-params                      # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
 03-strnum-truth                       # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
 03-ternary-and-logic                  # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
+03-uninit-udf-arg                     # an uninitialized number passed to a user-defined function reads as "0" (parameters are not tracked)
 
 # number output
 

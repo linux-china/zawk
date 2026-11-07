@@ -1286,6 +1286,30 @@ impl Function {
         })
     }
 
+    /// Whether argument `i` of a call with `nargs` arguments is converted to a string: a number
+    /// passed there becomes its string form, so an uninitialized one must be "" rather than "0"
+    /// (see `uninit`). Determined from `type_sig`, with numbers for the scalar arguments.
+    pub(crate) fn str_param(&self, i: usize, nargs: usize) -> bool {
+        use compile::Ty;
+        if i >= nargs || self.array_params().contains(&i) {
+            return false;
+        }
+        // Optional arguments left out (`substr(s, m)`, `split(s, a)`) are filled in later.
+        let n = self.arity().map_or(nargs, |a| a.max(nargs));
+        [Ty::MapIntStr, Ty::MapStrStr].into_iter().any(|map| {
+            let incoming: Vec<Ty> = (0..n)
+                .map(|j| {
+                    if self.array_params().contains(&j) {
+                        map
+                    } else {
+                        Ty::Int
+                    }
+                })
+                .collect();
+            matches!(self.type_sig(&incoming), Ok((params, _)) if params.get(i) == Some(&Ty::Str))
+        })
+    }
+
     /// The (0-based) positions of the parameters that must be arrays, for the builtins called by
     /// name. Used to report a scalar passed where an array is expected.
     pub(crate) fn array_params(&self) -> &'static [usize] {

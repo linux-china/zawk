@@ -312,7 +312,27 @@ function f() { if (0) return 1 } BEGIN { print "[" f() "]" }   # []
 Missing array elements and unassigned string variables hold a special empty
 string that compares as `0` with numbers; copies keep it, any other string
 operation does not. For numeric variables, arrays and function results, a
-hidden flag records whether a value was assigned (see `src/uninit.rs`). A few
-cases still print `0`, e.g. a numeric value that may be uninitialized formatted
-with `printf "%s"`, or assigned from a function that returns one of its
-parameters.
+hidden flag records whether a value was assigned (see `src/uninit.rs`). Such a
+value is `""` wherever it is read as a string: by print and concatenation, in a
+comparison with a string, on the left of `~` / `!~`, as a builtin argument that
+takes a string (`toupper`, `substr`, `index`, `split`, `sub`, ...), as a `%s`
+argument of `printf` / `sprintf` with a literal format, and (for an array
+element) as an array subscript, `b[a[k]]`.
+
+A few cases still read as `0`:
+
+```
+function g(s) { return s "|" } BEGIN { if (0) u = 1; print g(u) }  # 0|  (gawk: |)
+BEGIN { if (0) u = 1; b[u] = 1; for (k in b) print "[" k "]" }     # [0] (gawk: [])
+BEGIN { a[1] = 5; x = a[2] ""; print "[" a[2] "]" }                 # [0] (gawk: [])
+BEGIN { if (0) u = 1; fmt = "%s\n"; printf fmt, u }                 # 0   (gawk: empty)
+```
+
+- a value passed to a user-defined function (function parameters are not
+  tracked), or assigned from a function that returns one of its parameters;
+- a numeric variable used as a subscript: subscripts such as `a[i]` stay
+  integers, so that integer-keyed arrays stay fast;
+- an array element read a second time: reading a missing element creates it,
+  as in awk, but with the value `0`, as numeric arrays cannot hold `""`;
+- a `printf` / `sprintf` format that is not a string literal, or that uses
+  positional arguments (`%1$s`).

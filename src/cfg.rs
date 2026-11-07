@@ -1083,8 +1083,13 @@ where
                 let (mut current_open, fmt_v) = self.convert_val(fmt, current_open)?;
                 let fmt_v = self.snapshot_before(fmt_v, args, current_open)?;
                 let mut arg_vs = SmallVec::with_capacity(args.len());
+                let strs = uninit::printf_str_args(fmt, args.len());
                 for (i, a) in args.iter().enumerate() {
-                    let (next, arg_v) = self.convert_val(a, current_open)?;
+                    let (next, arg_v) = if strs.as_ref().is_some_and(|s| s[i]) {
+                        self.convert_str_operand(a, current_open, /*ofmt=*/ false)?
+                    } else {
+                        self.convert_val(a, current_open)?
+                    };
                     let arg_v = self.snapshot_before(arg_v, &args[i + 1..], next)?;
                     arg_vs.push(arg_v);
                     current_open = next;
@@ -2226,8 +2231,13 @@ where
         let fmt = self.snapshot_before(fmt, &args[1..], next)?;
         current_open = next;
         let mut res = SmallVec::with_capacity(args.len() - 1);
+        let strs = uninit::printf_str_args(args[0], args.len() - 1);
         for (i, a) in args.iter().enumerate().skip(1) {
-            let (next, v) = self.convert_val(a, current_open)?;
+            let (next, v) = if strs.as_ref().is_some_and(|s| s[i - 1]) {
+                self.convert_str_operand(a, current_open, /*ofmt=*/ false)?
+            } else {
+                self.convert_val(a, current_open)?
+            };
             let v = self.snapshot_before(v, &args[i + 1..], next)?;
             current_open = next;
             res.push(v);
@@ -2946,6 +2956,11 @@ where
             let sum = PrimExpr::CallBuiltin(builtins::Function::Binop(*op), smallvec![v1, v2]);
             return Ok((next, self.to_val(sum, next)?));
         }
+        // A missing element of a tracked array is "" as a subscript (`b[a[k]]`), as elsewhere
+        // where a string is expected.
+        if self.uninit_map_elem(ix) {
+            return self.convert_str_operand(ix, current_open, /*ofmt=*/ false);
+        }
         self.convert_val_inner(ix, current_open, in_cond)
     }
 
@@ -3346,6 +3361,10 @@ where
             let (next, v) = if key_arg && i == 1 {
                 self.convert_index(a, open, /*in_cond=*/ false)?
             } else if matches!(bi, Either::Right(builtins::Function::Length)) {
+                self.convert_str_operand(a, open, /*ofmt=*/ false)?
+            } else if matches!(&bi, Either::Right(f)
+                if !matches!(a, Expr::PatLit(_)) && uninit::builtin_str_arg(*f, args, i))
+            {
                 self.convert_str_operand(a, open, /*ofmt=*/ false)?
             } else if matches!(bi, Either::Right(_)) {
                 // Builtins take regex literals as patterns (split, sub, match, ...); for user
