@@ -81,6 +81,12 @@ pub fn run_command(cmd: &str) -> Int {
     run_command_inner(cmd).unwrap_or_else(|e| e.raw_os_error().map(Int::from).unwrap_or(1))
 }
 
+/// Decode command output and drop one trailing newline (`\n` or `\r\n`), as `cmd | getline` does.
+fn lossy_trim_newline(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_suffix(b"\n").map_or(bytes, |b| b.strip_suffix(b"\r").unwrap_or(b));
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
     if let Ok(mut command) = prepare_command(cmd, command_env().as_ref()) {
@@ -93,13 +99,13 @@ pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
             if !output.stdout.is_empty() {
                 map.insert(
                     Str::from("stdout"),
-                    Str::from(String::from_utf8_lossy(&output.stdout).to_string()),
+                    Str::from(lossy_trim_newline(&output.stdout)),
                 );
             }
             if !output.stderr.is_empty() {
                 map.insert(
                     Str::from("stderr"),
-                    Str::from(String::from_utf8_lossy(&output.stderr).to_string()),
+                    Str::from(lossy_trim_newline(&output.stderr)),
                 );
             }
         } else {
@@ -181,4 +187,19 @@ pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
     let mut child = cmd.stdout(Stdio::piped()).spawn()?;
     let stdout = child.stdout.take();
     Ok(CommandReader { child, stdout })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lossy_trim_newline;
+
+    #[test]
+    fn trims_one_trailing_newline() {
+        assert_eq!(lossy_trim_newline(b"hi\n"), "hi");
+        assert_eq!(lossy_trim_newline(b"hi\r\n"), "hi");
+        assert_eq!(lossy_trim_newline(b"a\nb\n\n"), "a\nb\n");
+        assert_eq!(lossy_trim_newline(b"hi"), "hi");
+        assert_eq!(lossy_trim_newline(b"hi\r"), "hi\r");
+        assert_eq!(lossy_trim_newline(b"\n"), "");
+    }
 }

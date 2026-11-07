@@ -1342,6 +1342,8 @@ date/time array:
 ### system2
 
 `system2(cmd)` is different from `system(cmd)`, and it will return array with `code`, `stdout`, `stderr`.
+Like `cmd | getline`, one trailing newline (`\n` or `\r\n`) is removed from `stdout` and `stderr`,
+so `system2("echo hi")["stdout"] == "hi"`. Other whitespace and inner newlines are kept.
 
 To capture output of a command, and ou can use `getline` and pipe to get the output:
 
