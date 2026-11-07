@@ -1,0 +1,18 @@
+0.5 if:T ?:T &&:1 ||:1 !:0 while:1 for:1 do:2 udf:T
+-0.5 if:T ?:T &&:1 ||:1 !:0 while:1 for:1 do:2 udf:T
+1e-300 if:T ?:T &&:1 ||:1 !:0 while:1 for:1 do:2 udf:T
+0.0 if:F ?:F &&:0 ||:0 !:1 while:0 for:0 do:1 udf:F
+-0.0 if:F ?:F &&:0 ||:0 !:1 while:0 for:0 do:1 udf:F
+0.02 if:T ?:T &&:1 ||:1 !:0 while:1 for:1 do:2 udf:T
+nan T
+nan T 1 1
+-0.0 F
+eps loop 3
+pattern 1 0.5
+scaled 1
+pattern 2 -0.5
+scaled 2
+pattern 3 1e-300
+scaled 3
+pattern 7 2
+scaled 7

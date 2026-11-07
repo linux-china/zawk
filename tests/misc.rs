@@ -6597,6 +6597,28 @@ fn assert_without_message_prints_its_condition() {
 }
 
 #[test]
+fn assert_treats_small_floats_and_nan_as_true() {
+    // A float condition is true unless it equals zero; it must not be truncated to an integer.
+    for backend in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend)
+            .arg("BEGIN { x = 0.5; assert(x, \"boom\"); assert(-0.25); assert(log(-1)); print \"ok\" }")
+            .assert()
+            .success()
+            .stdout("ok\n");
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend)
+            .arg("BEGIN { x = -0.0; assert(x, \"zero\") }")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("zero"));
+    }
+}
+
+#[test]
 fn assert_eq_compares_and_reports_both_sides() {
     let cases: &[(&str, i32, &str, &str)] = &[
         (

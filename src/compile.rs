@@ -1256,9 +1256,20 @@ impl<'a, 'b> View<'a, 'b> {
                         let (mut reg, ty) = self.get_reg(val)?;
                         match ty {
                             Ty::Int => {}
-                            Ty::Null | Ty::Float => {
+                            Ty::Null => {
                                 let dst = self.regs.stats.reg_of_ty(Ty::Int);
                                 self.convert(dst, Ty::Int, reg, ty)?;
+                                reg = dst;
+                            }
+                            Ty::Float => {
+                                // A float is true unless it equals zero: 0.5 and NaN are true
+                                // (truncating to an integer would make them false).
+                                let zero = self.regs.stats.reg_of_ty(Ty::Float);
+                                self.pushl(LL::StoreConstFloat(zero.into(), 0.0));
+                                let is_zero = self.regs.stats.reg_of_ty(Ty::Int);
+                                self.pushl(LL::EQFloat(is_zero.into(), reg.into(), zero.into()));
+                                let dst = self.regs.stats.reg_of_ty(Ty::Int);
+                                self.pushl(LL::Not(dst.into(), is_zero.into()));
                                 reg = dst;
                             }
                             Ty::Str => {
