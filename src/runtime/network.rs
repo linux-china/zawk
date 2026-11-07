@@ -1,5 +1,6 @@
 use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::splitter::kafka;
+use crate::runtime::str_impl::Buf;
 use crate::runtime::{Str, StrMap, stdlib_warning};
 use confluent_kafka::common::serialization::StringSerializer;
 use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
@@ -231,10 +232,11 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
         resp_obj.insert(Str::from(name), Str::from(value));
     }
     // set after the headers, and even for an empty body, so a header named `status`/`text` cannot take their place
-    match resp.text() {
-        Ok(text) => {
+    // the raw bytes: `Str` holds any bytes, and decoding as UTF-8 would replace binary content with U+FFFD
+    match resp.bytes() {
+        Ok(body) => {
             resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
-            resp_obj.insert(Str::from("text"), Str::from(text));
+            resp_obj.insert(Str::from("text"), Buf::read_from_bytes(&body).into_str());
         }
         Err(e) => {
             // a body cut off by the timeout or a reset connection is a failure, not an empty success:
@@ -924,6 +926,15 @@ mod tests {
         let headers: StrMap<Str> = StrMap::default();
         let resp = http_get(url, &headers);
         println!("{}", resp.get(&Str::from("text")));
+    }
+
+    #[test]
+    fn test_http_get_binary_body() {
+        // httpbin `/bytes/n` returns n random bytes, mostly not valid UTF-8
+        let headers: StrMap<Str> = StrMap::default();
+        let resp = http_get("http://127.0.0.1:18080/bytes/10", &headers);
+        assert_eq!(resp.get(&Str::from("status")), Str::from("200"));
+        assert_eq!(resp.get(&Str::from("text")).with_bytes(|bs| bs.len()), 10);
     }
 
     #[test]
