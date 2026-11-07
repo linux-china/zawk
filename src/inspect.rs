@@ -31,6 +31,9 @@ use crate::runtime::{decompress, http, s3};
 pub const TAIL_ROWS: usize = 10;
 /// The last rows are shown only when the input has more rows than this.
 pub const TAIL_MIN_ROWS: u64 = 50;
+/// The most bytes of a line kept by `LineTap`: the rest of a longer line is dropped, so that a
+/// text without newlines (e.g. a 2GB one-line JSON) is not held in memory.
+const MAX_TAP_LINE: usize = 64 * 1024;
 
 /// A value of a column.
 pub enum Cell {
@@ -177,18 +180,21 @@ pub fn text_lines(
     max_lines: Option<u64>,
 ) -> io::Result<(Vec<String>, Vec<String>)> {
     let tap = LineTap::new(head);
-    let mut reader = BufReader::new(tap.wrap(open_input(path)?));
-    let mut line = Vec::new();
+    let mut input = tap.wrap(open_input(path)?);
+    let mut buf = vec![0u8; 64 * 1024];
     let mut count = 0u64;
     loop {
+        let n = match input.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        // the tap keeps the lines; only count them here, without holding a whole line
+        count += buf[..n].iter().filter(|b| **b == b'\n').count() as u64;
         if max_lines.is_some_and(|max| count >= max) {
             return Ok((tap.lines(), Vec::new()));
         }
-        line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 {
-            break;
-        }
-        count += 1;
     }
     Ok((tap.lines(), tap.tail(TAIL_MIN_ROWS + u64::from(header))))
 }
@@ -201,10 +207,12 @@ struct LineTap {
 
 #[derive(Default)]
 struct TapState {
-    /// The first `max_lines` lines.
+    /// The first `max_lines` lines, each one cut to `MAX_TAP_LINE` bytes.
     head: Vec<u8>,
     head_lines: usize,
-    /// The last `TAIL_ROWS` complete lines, and the line being read.
+    /// The number of bytes of the head line being read.
+    head_line_len: usize,
+    /// The last `TAIL_ROWS` complete lines, and the line being read (cut to `MAX_TAP_LINE` bytes).
     tail: VecDeque<Vec<u8>>,
     partial: Vec<u8>,
     /// The number of complete lines read.
@@ -213,16 +221,27 @@ struct TapState {
 
 impl TapState {
     fn feed(&mut self, bytes: &[u8], max_lines: usize) {
-        for &b in bytes {
-            if self.head_lines >= max_lines {
-                break;
-            }
-            self.head.push(b);
-            self.head_lines += usize::from(b == b'\n');
-        }
         for piece in bytes.split_inclusive(|b| *b == b'\n') {
-            self.partial.extend_from_slice(piece);
-            if piece.ends_with(b"\n") {
+            let ends_line = piece.ends_with(b"\n");
+            let text = if ends_line {
+                &piece[..piece.len() - 1]
+            } else {
+                piece
+            };
+            if self.head_lines < max_lines {
+                let keep = text.len().min(MAX_TAP_LINE - self.head_line_len);
+                self.head.extend_from_slice(&text[..keep]);
+                self.head_line_len += keep;
+                if ends_line {
+                    self.head.push(b'\n');
+                    self.head_lines += 1;
+                    self.head_line_len = 0;
+                }
+            }
+            let keep = text.len().min(MAX_TAP_LINE - self.partial.len());
+            self.partial.extend_from_slice(&text[..keep]);
+            if ends_line {
+                self.partial.push(b'\n');
                 self.push_line();
             }
         }
@@ -806,8 +825,8 @@ struct Inspector {
     rows: u64,
     samples: Vec<Vec<String>>,
     sample_rows: usize,
-    /// The last `TAIL_ROWS` rows.
-    tail: VecDeque<Vec<String>>,
+    /// The last `TAIL_ROWS` rows, formatted only when they are shown.
+    tail: VecDeque<Vec<Cell>>,
     /// JSON Lines lines that are not objects.
     non_objects: u64,
     /// For a workbook: the sheet read, and the names of all its sheets.
@@ -907,25 +926,16 @@ impl Inspector {
                 Some(i + 1),
             );
         }
-        let sample: Vec<String> = (0..self.columns.len())
-            .map(|i| match cells.get(i) {
-                None | Some(Cell::Null) => "NULL".to_string(),
-                Some(Cell::Text(s)) if s.is_empty() => "NULL".to_string(),
-                Some(cell) => awk_text(cell).to_string(),
-            })
-            .collect();
         if self.samples.len() < self.sample_rows {
-            self.samples.push(sample.clone());
+            self.samples.push(sample_row(&cells));
+        }
+        for (i, column) in self.columns.iter_mut().enumerate() {
+            column.stats.add(cells.get(i).unwrap_or(&Cell::Null), &mut self.rng);
         }
         if self.tail.len() == TAIL_ROWS {
             self.tail.pop_front();
         }
-        self.tail.push_back(sample);
-        let mut cells = cells.into_iter();
-        for column in self.columns.iter_mut() {
-            let cell = cells.next().unwrap_or(Cell::Null);
-            column.stats.add(&cell, &mut self.rng);
-        }
+        self.tail.push_back(cells);
         self.rows += 1;
     }
 
@@ -1088,7 +1098,8 @@ impl Inspector {
             return None;
         }
         let types: Vec<String> = self.columns.iter().map(|c| c.data_type()).collect();
-        Some(self.rows_table(&types, self.tail.iter().cloned().collect()))
+        let rows = self.tail.iter().map(|cells| sample_row(cells)).collect();
+        Some(self.rows_table(&types, rows))
     }
 
     fn notes(&self, format: Format) -> Vec<String> {
@@ -1150,6 +1161,18 @@ impl Column {
             .clone()
             .unwrap_or_else(|| self.stats.inferred_type().to_string())
     }
+}
+
+/// The cells of a row as shown in a sample: a null or empty cell is `NULL`.
+fn sample_row(cells: &[Cell]) -> Vec<String> {
+    cells
+        .iter()
+        .map(|cell| match cell {
+            Cell::Null => "NULL".to_string(),
+            Cell::Text(s) if s.is_empty() => "NULL".to_string(),
+            cell => awk_text(cell).to_string(),
+        })
+        .collect()
 }
 
 /// The text of a value as awk sees it.
@@ -1601,6 +1624,42 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_tap_cuts_long_lines() {
+        let mut state = TapState::default();
+        let chunk = vec![b'x'; 8192];
+        // a line without newlines, much longer than MAX_TAP_LINE
+        for _ in 0..(4 * MAX_TAP_LINE / chunk.len()) {
+            state.feed(&chunk, 3);
+        }
+        assert_eq!(state.partial.len(), MAX_TAP_LINE);
+        assert_eq!(state.head.len(), MAX_TAP_LINE);
+        state.feed(b"yy\nab\ncd", 3);
+        assert_eq!(state.total, 2);
+        assert_eq!(state.tail[0].len(), MAX_TAP_LINE + 1);
+        assert_eq!(state.tail[1], b"ab\n");
+        assert_eq!(state.partial, b"cd");
+        assert_eq!(state.head.len(), MAX_TAP_LINE + 1 + 3 + 2);
+        assert_eq!(state.head_lines, 2);
+    }
+
+    #[test]
+    fn tail_rows_are_the_last_rows() {
+        let mut ins = Inspector::new(2);
+        for i in 0..100 {
+            let mut cells = vec![Cell::Num(i.to_string()), Cell::Text(String::new())];
+            if i == 99 {
+                cells.push(Cell::Str("z".to_string()));
+            }
+            ins.add_row(cells);
+        }
+        assert_eq!(ins.samples, vec![vec!["0", "NULL"], vec!["1", "NULL"]]);
+        let tail = ins.tail_table(false).unwrap();
+        assert_eq!(tail.rows.len(), TAIL_ROWS);
+        assert_eq!(tail.rows[0], vec!["90", "NULL", "NULL"]);
+        assert_eq!(tail.rows[9], vec!["99", "NULL", "z"]);
+    }
 
     #[test]
     fn shapes() {

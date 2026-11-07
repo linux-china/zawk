@@ -7,11 +7,11 @@
 //! the file footer is written when stdout is closed, at the end of the program.
 //!
 //! All columns are OPTIONAL. Empty or unconvertible values are written as null, except for
-//! `STRING` (always written as is) and `BOOLEAN` (empty is false). A field that is the `--null`
-//! text is null in every column. Conversions:
+//! `STRING` (always written as is); unconvertible values are counted in a warning. A field that is
+//! the `--null` text is null in every column. Conversions:
 //!
-//! * `BOOLEAN`: `1/true/t/yes/y/on` are true, `0/false/f/no/n/off` and the empty string are
-//!   false, other numbers are true when nonzero, and other strings are true.
+//! * `BOOLEAN`: `true/t/yes/y/on` (any case) and nonzero numbers are true, `false/f/no/n/off` and
+//!   zero are false; other values (such as `maybe`) are invalid and written as null.
 //! * `DATE`, `TIMESTAMP`: an integer is a Unix timestamp (seconds; milliseconds, microseconds
 //!   and nanoseconds are detected by magnitude), a string is parsed as a date or date-time
 //!   (RFC 3339, `YYYY-MM-DD[ HH:MM[:SS[.f]]]`, ...); date-times without an offset are UTC.
@@ -198,14 +198,11 @@ impl Column {
                 v.push(ByteArray::from(text.into_owned().into_bytes()));
                 true
             }
-            (Values::Bool(v), _) => {
-                v.push(crate::runtime::math_util::parse_bool(&text));
-                true
-            }
             _ if text.trim().is_empty() => {
                 self.defs.push(0);
                 return;
             }
+            (Values::Bool(v), _) => push_some(v, parse_parquet_bool(&text)),
             (Values::I32(v), kind) => push_some(
                 v,
                 match kind {
@@ -317,6 +314,18 @@ fn parse_int(s: &str) -> Option<i64> {
 
 fn parse_float(s: &str) -> Option<f64> {
     s.trim().parse::<f64>().ok()
+}
+
+/// A `BOOLEAN` value: `true/t/yes/y/on/✓` and nonzero numbers are true, `false/f/no/n/off/𐄂` and
+/// zero are false (words in any case, surrounding whitespace ignored). Anything else, such as
+/// `maybe` or `NaN`, is invalid (`None`).
+fn parse_parquet_bool(s: &str) -> Option<bool> {
+    let t = s.trim();
+    match t.to_ascii_lowercase().as_str() {
+        "true" | "t" | "yes" | "y" | "on" | "✓" => Some(true),
+        "false" | "f" | "no" | "n" | "off" | "𐄂" => Some(false),
+        _ => parse_float(t).filter(|f| !f.is_nan()).map(|f| f != 0.0),
+    }
 }
 
 /// Microseconds since the Unix epoch from a numeric Unix timestamp: seconds, or milliseconds,
@@ -773,7 +782,32 @@ mod tests {
         assert!(got[1].contains("j: null"), "{}", got[1]);
         assert!(got[1].contains("u: null"), "{}", got[1]);
         assert!(got[2].contains("name: \"\""), "{}", got[2]);
-        assert!(got[2].contains("ok: false"), "{}", got[2]);
+        assert!(got[2].contains("ok: null"), "{}", got[2]);
+    }
+
+    #[test]
+    fn boolean_column() {
+        let mut out = Vec::new();
+        {
+            let mut w = ParquetWriter::new(&mut out, false);
+            w.write_all(b"ok:boolean\nYes\n0.0\n2\nOFF\nmaybe\n\n \n").unwrap();
+            assert_eq!(w.encoder.as_ref().unwrap().columns[0].invalid, 1);
+        }
+        let reader = SerializedFileReader::new(bytes::Bytes::from(out)).unwrap();
+        let got: Vec<String> = reader
+            .get_row_iter(None)
+            .unwrap()
+            .map(|r| r.unwrap().to_string())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "{ok: true}", "{ok: false}", "{ok: true}", "{ok: false}", "{ok: null}",
+                "{ok: null}", "{ok: null}",
+            ]
+        );
+        assert_eq!(parse_parquet_bool(" ✓ "), Some(true));
+        assert_eq!(parse_parquet_bool("NaN"), None);
     }
 
     #[test]

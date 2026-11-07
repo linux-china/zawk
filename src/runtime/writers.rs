@@ -1067,7 +1067,7 @@ pub(crate) fn json_bool(s: &str) -> Option<bool> {
 
 /// Appends `cell` as a JSON value of type `ty`, returning false if it was not valid for the type.
 /// As for `-o parquet`, empty numbers are null and numbers that are not numeric (or not finite) are
-/// null and invalid; booleans are parsed as for `-o parquet` (empty, "0", "false", "no", "off", ...
+/// null and invalid; booleans are parsed with `parse_bool` (empty, "0", "false", "no", "off", ...
 /// are false).
 fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
     use crate::runtime::compare::looks_numeric;

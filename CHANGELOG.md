@@ -5,6 +5,7 @@
 * Fix `date_diff`, `date_trunc` and `to_iso8601` reading date text as a number: `date_diff("day", "2024-01-01", "2024-03-01")` gave `0` and `to_iso8601("2024-01-01")` a time in 1970 (`2024` seconds). As for `date_add`, a time given as text is parsed as `mktime` does in local time, and a numeric string (e.g. a field `"1706713200"`) is still a Unix timestamp. Text that cannot be parsed gives a warning and `0` for `date_diff`, `-1` for `date_trunc` and an empty string for `to_iso8601`
 * `read_all` reads S3 objects, as `getline <` and input files do: `read_all("s3://mj-artifacts/demo.csv")`. A missing object gives a warning (or `try` catches it) with `ERRNO` such as `read_all: s3://bucket/key: cannot read ... : NotFound (NoSuchKey)`
 * Fix `pairs()` dropping keys without a value: `pairs("a=1&flag", "&")` now has `flag` with the value `""`, as URL query strings do. **Behavior change**: a key with an empty value (`b=`) is kept as `""` too; empty items (`a=1&&b=2`, a trailing `;`) are still skipped
+* Fix `-o parquet` `BOOLEAN` columns writing empty values as `false` and unrecognized text as `true` (`maybe` was `true`). **Behavior change**: empty values are now null, as in the other typed columns; `true/t/yes/y/on`, `false/f/no/n/off` (any case) and numbers (nonzero is true) are converted, and any other value is null and counted in the `invalid value(s) written as null` warning
 
 # Version 0.6.8 (2026-11-05)
 
