@@ -535,6 +535,120 @@ struct Facts<'a, 'p> {
     /// Fields named by a string constant that is not a number (`$"age"`, which is `$0`): the
     /// string and the location.
     string_fields: Vec<(Vec<u8>, Option<Loc>)>,
+    /// The names of the user-defined functions, which may read and write any global.
+    user_funcs: Vec<&'a str>,
+    /// Assignments to an array element whose result depends on whether the subscript or the
+    /// right-hand side is evaluated first (`a[i++] = i`, `a[p(1)] = p(2)`): the location.
+    order_dependent: Vec<Option<Loc>>,
+}
+
+/// What evaluating an expression may read and write, for spotting evaluation-order dependencies.
+/// `"$0"` stands for the record and its fields.
+#[derive(Default)]
+struct Effects<'a> {
+    reads: Vec<&'a str>,
+    writes: Vec<&'a str>,
+    /// Calls a user-defined function, which may read and write any global.
+    calls: bool,
+}
+
+impl<'a> Effects<'a> {
+    fn of(e: &'a AstExpr<'a>, user_funcs: &[&str]) -> Effects<'a> {
+        let mut fx = Effects::default();
+        fx.walk(e, user_funcs);
+        fx
+    }
+
+    /// Records a write to the variable (or array) an assignment target names.
+    fn target(&mut self, e: &'a AstExpr<'a>, user_funcs: &[&str]) {
+        match e {
+            ast::Expr::Var(name) => self.writes.push(name),
+            ast::Expr::Index(arr, ix) => {
+                self.target(arr, user_funcs);
+                self.walk(ix, user_funcs);
+            }
+            ast::Expr::Unop(ast::Unop::Column, ix) => {
+                self.writes.push("$0");
+                self.walk(ix, user_funcs);
+            }
+            _ => self.walk(e, user_funcs),
+        }
+    }
+
+    fn walk(&mut self, e: &'a AstExpr<'a>, user_funcs: &[&str]) {
+        use ast::Expr::*;
+        match e {
+            ILit(_) | FLit(_) | StrLit(_) | ReadStdin | Cond(_) => {}
+            PatLit(_) => self.reads.push("$0"),
+            Var(name) => self.reads.push(name),
+            Unop(ast::Unop::Column, x) => {
+                self.reads.push("$0");
+                self.walk(x, user_funcs);
+            }
+            Unop(_, x) => self.walk(x, user_funcs),
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r) => {
+                self.walk(l, user_funcs);
+                self.walk(r, user_funcs);
+            }
+            ITE(c, t, f) => {
+                self.walk(c, user_funcs);
+                self.walk(t, user_funcs);
+                self.walk(f, user_funcs);
+            }
+            Assign(lhs, rhs) | AssignOp(lhs, _, rhs) => {
+                self.target(lhs, user_funcs);
+                if matches!(e, AssignOp(..)) {
+                    self.walk(lhs, user_funcs);
+                }
+                self.walk(rhs, user_funcs);
+            }
+            Inc { x, .. } => {
+                self.target(x, user_funcs);
+                self.walk(x, user_funcs);
+            }
+            Getline { into, from, .. } => {
+                match into {
+                    Some(into) => self.target(into, user_funcs),
+                    None => self.writes.extend(["$0", "NF"]),
+                }
+                self.writes.push("NR");
+                if let Some(from) = from {
+                    self.walk(from, user_funcs);
+                }
+            }
+            Call(f, args) => {
+                let read_only = match f {
+                    Either::Left(name) => {
+                        if user_funcs.contains(name) {
+                            self.calls = true;
+                        }
+                        READ_ONLY_FUNCTIONS.contains(name)
+                    }
+                    Either::Right(Function::Delete | Function::Clear) => false,
+                    Either::Right(_) => true,
+                };
+                for arg in args.iter() {
+                    match arg {
+                        Var(name) if !read_only => self.writes.push(name),
+                        _ => self.walk(arg, user_funcs),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether evaluating `self` before or after `other` may change a result: one writes what
+    /// the other reads or writes, or both call user functions.
+    fn conflicts(&self, other: &Effects) -> bool {
+        let touches = |w: &[&str], fx: &Effects| {
+            w.iter()
+                .any(|v| fx.reads.contains(v) || fx.writes.contains(v))
+        };
+        (self.calls && (other.calls || !other.writes.is_empty()))
+            || (other.calls && !self.writes.is_empty())
+            || touches(&self.writes, other)
+            || touches(&other.writes, self)
+    }
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -869,6 +983,18 @@ impl<'a, 'p> Facts<'a, 'p> {
         }
     }
 
+    /// Records `a[i++] = i` and `a[p(1)] = p(2)`: zawk evaluates the subscript before the
+    /// right-hand side, gawk after, so the two disagree when the sides affect each other.
+    fn check_assign_order(&mut self, lhs: &'a AstExpr<'a>, rhs: &'a AstExpr<'a>) {
+        if let ast::Expr::Index(_, ix) = lhs {
+            let l = Effects::of(ix, &self.user_funcs);
+            let r = Effects::of(rhs, &self.user_funcs);
+            if l.conflicts(&r) {
+                self.order_dependent.push(self.loc(lhs));
+            }
+        }
+    }
+
     /// Walks an assignment target.
     fn lvalue(&mut self, e: &'a AstExpr<'a>, kind: SetKind) {
         self.check_read_only(e);
@@ -984,6 +1110,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                     }
                     _ => false,
                 };
+                self.check_assign_order(lhs, rhs);
                 self.lvalue(lhs, if sum { SetKind::Sum } else { SetKind::Other });
                 self.expr(rhs);
             }
@@ -992,6 +1119,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                     ast::Binop::Plus | ast::Binop::Minus => SetKind::Sum,
                     _ => SetKind::Other,
                 };
+                self.check_assign_order(lhs, rhs);
                 self.lvalue(lhs, kind);
                 self.expr(rhs);
             }
@@ -1215,6 +1343,8 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         string_regexes: Vec::new(),
         string_range_bounds: Vec::new(),
         string_fields: Vec::new(),
+        user_funcs: prog.decs.iter().map(|d| d.name).collect(),
+        order_dependent: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1364,6 +1494,15 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             format!(
                 "`$\"{lit}\"`: a string after `$` is converted to a number, so this is {field}, not a column named \"{lit}\"; to read a column by its header name use `$FI[\"{lit}\"]` (with `-H`, or `-i jsonl|parquet|markdown`), or write the field number"
             ),
+            *loc,
+        ));
+    }
+
+    // `a[i++] = i`: zawk evaluates the subscript first, gawk the right-hand side.
+    for loc in &facts.order_dependent {
+        diags.push(warning(
+            "W122",
+            "the subscript and the right-hand side of this assignment affect each other (e.g. `a[i++] = i`, or both call functions): zawk evaluates the subscript first, gawk the right-hand side, so the results differ; compute the subscript or the value in a separate statement first, e.g. `k = i++; a[k] = i`".to_string(),
             *loc,
         ));
     }
@@ -2435,6 +2574,33 @@ mod tests {
         assert!(message(&v, 2).contains("always true"));
         assert_eq!(v["diagnostics"][2]["line"], 2);
         assert_eq!(v["diagnostics"][2]["column"], 1);
+    }
+
+    #[test]
+    fn assignment_order() {
+        // The subscript and the right-hand side affect each other: zawk and gawk disagree.
+        let v = run("BEGIN { i = 1; a[i++] = i; print a[1] }");
+        assert_eq!(codes(&v), ["W122"]);
+        assert_eq!(v["diagnostics"][0]["column"], 16);
+        assert_eq!(codes(&run("BEGIN { a[i++] += i; print a[1] }")), ["W122"]);
+        assert_eq!(codes(&run("BEGIN { a[x] = (x = 2); print a[2] }")), ["W122"]);
+        assert_eq!(
+            codes(&run("function p(x) { return x }\nBEGIN { a[p(1)] = p(2); print a[1] }")),
+            ["W122"]
+        );
+        assert_eq!(
+            codes(&run("function p(x) { return x }\n{ a[n++] = p($1) } END { print n }")),
+            ["W122"]
+        );
+        // Independent sides: the order does not matter.
+        assert!(codes(&run("{ a[n++] = $0 } END { print n, a[0] }")).is_empty());
+        assert!(codes(&run("{ c[$1] = c[$1] + 1 } END { for (k in c) print k }")).is_empty());
+        assert!(codes(&run(
+            "function p(x) { return x }\n{ a[$1] = p($2) } END { for (k in a) print k }"
+        ))
+        .is_empty());
+        assert!(codes(&run("{ n = split($0, parts); b[$1] = n } END { for (k in b) print k }"))
+            .is_empty());
     }
 
     #[test]

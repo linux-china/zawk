@@ -63,6 +63,12 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - `..` and `..=` are range operators only in a `for (i in start..end)` header: elsewhere `1..3` is
   `1.` and `.3` concatenated (`10.3`), as in gawk. Range bounds are integers: a string bound such as
   `"a".."c"` is 0, so the loop runs no iteration; `zawk lint` reports string bounds (W208)
+- In an assignment to an array element, the subscript is evaluated before the right-hand side
+  (left to right, as the statement reads); gawk evaluates the right-hand side first. The results differ
+  only when the two sides affect each other: `i = 1; a[i++] = i` sets `a[1] = 2` (gawk `a[1] = 1`), the
+  same for `a[i++] += i`, and `a[p(1)] = p(2)` calls `p(1)` first (gawk `p(2)`). POSIX leaves the order
+  unspecified; to get the same result in every awk, compute the subscript first (`k = i++; a[k] = i`).
+  `zawk lint` and `--lint` report such assignments (W122)
 - With the default `FS`, `\r` separates fields (in the main input, `getline`, `$0 = ...` and `split()` alike), so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?
