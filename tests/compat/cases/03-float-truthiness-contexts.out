@@ -1,0 +1,33 @@
+nan while 1
+nan for 1
+nan do 3
+nan ! 0 1
+-0.0 0 0 1 F
+array T F T
+*= T
+/= T
+-= F
+1/3 T 1 1
+nested TT
+ratio a
+guarded a
+or a
+ternary a
+range a
+not-ratio b
+or b
+range b
+ratio c
+guarded c
+or c
+ternary c
+range c
+ratio d
+or d
+ternary d
+range d
+ratio e
+guarded e
+or e
+ternary e
+range e
