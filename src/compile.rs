@@ -3729,6 +3729,18 @@ impl<'a, 'b> View<'a, 'b> {
                 let (dst_reg, dst_ty) = self.reg_of_ident(id);
                 self.expr(dst_reg, dst_ty, pe)?;
             }
+            PrimStmt::SetBuiltin(builtins::Variable::IGNORECASE, pe) => {
+                // IGNORECASE is on when the value is true as in `if (x)`, so "yes" and 0.5 turn
+                // it on as in gawk (converting them to an integer would give 0). The value is
+                // stored as 0 or 1.
+                let s = self.regs.stats.reg_of_ty(Ty::Str);
+                self.expr(s, Ty::Str, pe)?;
+                let not = self.regs.stats.reg_of_ty(Ty::Int);
+                self.pushl(LL::NotStr(not.into(), s.into(), true));
+                let on = self.regs.stats.reg_of_ty(Ty::Int);
+                self.pushl(LL::Not(on.into(), not.into()));
+                self.pushl(LL::StoreVarInt(builtins::Variable::IGNORECASE, on.into()));
+            }
             PrimStmt::SetBuiltin(v, pe) => {
                 let ty = Ty::from(*v);
                 let reg = self.regs.stats.reg_of_ty(ty);

@@ -96,7 +96,20 @@ impl<'a> AsortValue for Str<'a> {
         // Equal numbers keep their original order (as with a stable sort); equal strings are
         // indistinguishable, so their order does not matter.
         nums.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
-        strs.sort_unstable_by(|&x, &y| bytes(x).cmp(bytes(y)));
+        if crate::runtime::awk_regex::ignore_case() {
+            // As in gawk, strings compare ignoring case, then (when equal ignoring case) by bytes.
+            let mut folded: Vec<Vec<u8>> = vec![Vec::new(); items.len()];
+            for &i in &strs {
+                folded[i] = crate::runtime::compare::fold_key(bytes(i));
+            }
+            strs.sort_unstable_by(|&x, &y| {
+                folded[x]
+                    .cmp(&folded[y])
+                    .then_with(|| bytes(x).cmp(bytes(y)))
+            });
+        } else {
+            strs.sort_unstable_by(|&x, &y| bytes(x).cmp(bytes(y)));
+        }
         let mut order: Vec<usize> = nums.iter().map(|&(_, i)| i).collect();
         drop(nums);
         order.extend(strs);

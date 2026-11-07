@@ -197,6 +197,26 @@ fn fold_units(bs: &[u8]) -> impl Iterator<Item = u32> {
     })
 }
 
+/// A sort key for `bs` with case folded, ordered as `cmp_folded` orders the strings: the folded
+/// characters in UTF-8 (whose byte order is code point order), with each byte that is not valid
+/// UTF-8 as `0xFF` and the byte (after every character, as no UTF-8 byte is `0xFF`).
+pub(crate) fn fold_key(bs: &[u8]) -> Vec<u8> {
+    if bs.is_ascii() || characters_as_bytes() {
+        return bs.to_ascii_lowercase();
+    }
+    let mut res = Vec::with_capacity(bs.len());
+    let mut buf = [0u8; 4];
+    for chunk in bs.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            res.extend_from_slice(fold_char(c).encode_utf8(&mut buf).as_bytes());
+        }
+        for b in chunk.invalid() {
+            res.extend_from_slice(&[0xFF, *b]);
+        }
+    }
+    res
+}
+
 /// Whether `l` and `r` are equal ignoring case. An ASCII string can equal a longer non-ASCII one
 /// (`"K"` and the Kelvin sign `"\u{212A}"`), so byte lengths alone do not tell them apart.
 pub(crate) fn eq_ignore_case(l: &[u8], r: &[u8]) -> bool {

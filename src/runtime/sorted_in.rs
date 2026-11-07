@@ -8,7 +8,8 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 
 use crate::common::Result;
-use crate::runtime::compare::looks_numeric;
+use crate::runtime::awk_regex;
+use crate::runtime::compare::{fold_key, looks_numeric};
 use crate::runtime::float_parse::str_to_num;
 use crate::runtime::{Float, Int, SharedMap, Str, StrMap, Uninit};
 
@@ -117,6 +118,18 @@ impl<'a> SortItem for Str<'a> {
     }
 }
 
+/// A string's sort key. When IGNORECASE is set, strings compare ignoring case (as in gawk), and
+/// strings equal ignoring case by their bytes, so the order stays deterministic.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct StrKey(Option<Vec<u8>>, Vec<u8>);
+
+impl StrKey {
+    pub(crate) fn new(bs: Vec<u8>) -> StrKey {
+        let folded = awk_regex::ignore_case().then(|| fold_key(&bs));
+        StrKey(folded, bs)
+    }
+}
+
 fn cmp_num(x: Float, y: Float) -> Ordering {
     x.partial_cmp(&y).unwrap_or_else(|| x.total_cmp(&y))
 }
@@ -132,27 +145,33 @@ where
         return map.to_vec();
     };
     let mut res: Vec<K> = match key {
-        Key::IndStr => sort_by_cached(map.to_vec(), |k| k.sort_str().into_owned(), |a, b| a.cmp(b)),
+        Key::IndStr => sort_by_cached(
+            map.to_vec(),
+            |k| StrKey::new(k.sort_str().into_owned()),
+            |a, b| a.cmp(b),
+        ),
         Key::IndNum => sort_by_cached(
             map.to_vec(),
-            |k| (k.sort_num(), k.sort_str().into_owned()),
+            |k| (k.sort_num(), StrKey::new(k.sort_str().into_owned())),
             |a, b| cmp_num(a.0, b.0).then_with(|| a.1.cmp(&b.1)),
         ),
         Key::ValStr | Key::ValNum | Key::ValType => {
             let pairs: Vec<(K, V)> =
                 map.iter(|it| it.map(|(k, v)| (k.clone(), v.clone())).collect());
-            let mut items: Vec<(K, ValKey, Vec<u8>)> = pairs
+            let mut items: Vec<(K, ValKey, StrKey)> = pairs
                 .into_iter()
                 .map(|(k, v)| {
                     let vk = match key {
-                        Key::ValStr => ValKey::Str(v.sort_str().into_owned()),
-                        Key::ValNum => ValKey::Num(v.sort_num(), v.sort_str().into_owned()),
+                        Key::ValStr => ValKey::Str(StrKey::new(v.sort_str().into_owned())),
+                        Key::ValNum => {
+                            ValKey::Num(v.sort_num(), StrKey::new(v.sort_str().into_owned()))
+                        }
                         _ => match v.sort_type_num() {
-                            Some(n) => ValKey::Num(n, Vec::new()),
-                            None => ValKey::Str(v.sort_str().into_owned()),
+                            Some(n) => ValKey::Num(n, StrKey(None, Vec::new())),
+                            None => ValKey::Str(StrKey::new(v.sort_str().into_owned())),
                         },
                     };
-                    let ks = k.sort_str().into_owned();
+                    let ks = StrKey::new(k.sort_str().into_owned());
                     (k, vk, ks)
                 })
                 .collect();
@@ -216,8 +235,8 @@ where
 /// A value's sort key. Numbers come before strings (for `@val_type_*`); numbers with the same
 /// value are ordered by their string value (for `@val_num_*`).
 enum ValKey {
-    Num(Float, Vec<u8>),
-    Str(Vec<u8>),
+    Num(Float, StrKey),
+    Str(StrKey),
 }
 
 impl ValKey {
