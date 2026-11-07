@@ -4579,7 +4579,18 @@ fn llm_prompt() {
     assert!(prompt.contains("- Output format: `-o jsonl`"), "{}", prompt);
     assert!(!prompt.contains("Summary of the columns"), "{}", prompt);
 
-    // The question is required, and the input files must be readable.
+    // Without a question (the last argument is an input file): no Question section.
+    let prompt = llm(&["-i", "csv", "-H", "demo.csv"]);
+    assert!(
+        prompt.contains("```sh\nzawk -i csv -H '<PROGRAM>' demo.csv\n```"),
+        "{}",
+        prompt
+    );
+    assert!(!prompt.contains("# Question"), "{}", prompt);
+    assert!(prompt.contains("answers the user's question"), "{}", prompt);
+    assert!(prompt.ends_with("in at most three sentences.\n"), "{}", prompt);
+
+    // A given question is not empty, and the input files must be readable.
     Command::cargo_bin("zawk")
         .unwrap()
         .args(["llm", "demo.csv", " "])

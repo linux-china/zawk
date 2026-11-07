@@ -653,8 +653,23 @@ fn run_llm(matches: &clap::ArgMatches) -> ! {
         .unwrap()
         .cloned()
         .collect();
-    let question = files.pop().unwrap();
-    if question.trim().is_empty() {
+    // The question is the last argument, unless it is an input: `-`, a URL or S3 object, or an
+    // existing file (`book.xlsx#Sheet2` selects a sheet). A question is never empty.
+    let is_input = |arg: &str| {
+        !arg.chars().any(char::is_whitespace)
+            && !arg.is_empty()
+            && (arg == "-"
+                || arg.contains("://")
+                || std::path::Path::new(arg).exists()
+                || arg
+                    .rsplit_once('#')
+                    .is_some_and(|(path, _)| std::path::Path::new(path).exists()))
+    };
+    let question = match files.last() {
+        Some(last) if is_input(last) => None,
+        _ => files.pop(),
+    };
+    if question.as_ref().is_some_and(|q| q.trim().is_empty()) {
         eprintln!("zawk: the question (the last argument) is empty");
         std::process::exit(2);
     }
@@ -1372,8 +1387,8 @@ fn real_main() {
         .arg(Arg::new("args")
             .num_args(1..)
             .required(true)
-            .value_name("FILES... QUESTION")
-            .help("The input files (files, URLs or S3 objects), then the question as the last argument"));
+            .value_name("FILES... [QUESTION]")
+            .help("The input files (files, URLs or S3 objects), then the question as the last argument; without a question, the prompt has no Question section"));
     let app = Command::new("zawk")
         .version(builtins::VERSION)
         .author("Eli R, linux_china")

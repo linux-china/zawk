@@ -10,7 +10,7 @@
 //!   JSON, JSON Lines and Parquet the schema and the summary of `zawk inspect`;
 //! * the zawk language notes and the reference of the builtin functions;
 //! * how to check the program with `zawk lint`, and how to answer;
-//! * the question.
+//! * the question, when one is given.
 
 use std::io;
 
@@ -31,7 +31,8 @@ pub struct Options {
     /// The number of rows read for the summary.
     pub max_rows: Option<u64>,
     pub files: Vec<String>,
-    pub question: String,
+    /// The question; `None` when not given, then the prompt has no Question section.
+    pub question: Option<String>,
 }
 
 /// The longest sample line, in characters.
@@ -154,6 +155,13 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         })
         .collect();
     let run: String = run.iter().map(|l| format!("- {}\n", l)).collect();
+    let (task, question) = match opts.question.as_deref() {
+        Some(q) => (
+            "answers the question at the end",
+            format!("\n# Question\n\n{}\n", q.trim()),
+        ),
+        None => ("answers the user's question", String::new()),
+    };
     Ok(fill(
         include_str!("templates/llm.md"),
         &[
@@ -162,7 +170,8 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
             ("data", data.trim_end()),
             ("functions", functions.trim_end()),
             ("lint_command", &lint_command),
-            ("question", opts.question.trim()),
+            ("task", task),
+            ("question", &question),
         ],
     ))
 }

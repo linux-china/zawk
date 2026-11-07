@@ -1,5 +1,5 @@
 You are an expert in zawk, a modern AWK implementation: AWK + a standard library + Rust, mostly
-compatible with gawk. Write a zawk program that answers the question at the end, for the input
+compatible with gawk. Write a zawk program that {{task}}, for the input
 described below.
 
 # How the program runs
@@ -77,7 +77,4 @@ and warning, then run the program to check its output.
 4. If the program is short (one line, up to about 100 characters), also give the complete command
    line in a ```sh code block, with the program in single quotes.
 5. Then explain the program briefly, in at most three sentences.
-
-# Question
-
 {{question}}
