@@ -374,15 +374,37 @@ const SALT_LEN: usize = 16;
 const PBKDF2_ITERATIONS: u32 = 100_000;
 const CBC_TAG_LEN: usize = 32;
 
-/// derived keys by (password, salt, key length), because derivation is slow by design
-static DERIVED_KEYS: LazyLock<Mutex<HashMap<(String, Vec<u8>, usize), Vec<u8>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-/// random salt used by `encrypt` for a (password, key length), generated once per process: a fresh salt
+/// max entries of `DERIVED_KEYS`: one entry per distinct (password, salt, key length), so `decrypt` of
+/// ciphertexts from many runs (one random salt per run) would grow the cache without bound
+const DERIVED_KEYS_CAPACITY: usize = 1024;
+
+/// cache key for a password: HMAC-SHA256 with a per-process random key, so the caches never keep the
+/// plaintext password, and the tag is useless outside this process
+type PasswordTag = [u8; 32];
+
+static PASSWORD_TAG_KEY: LazyLock<[u8; 32]> = LazyLock::new(|| random_bytes::<32>().unwrap_or_default());
+
+/// derived keys by (password tag, salt, key length), because derivation is slow by design;
+/// least recently used keys are evicted beyond `DERIVED_KEYS_CAPACITY`
+static DERIVED_KEYS: LazyLock<Mutex<lru::LruCache<(PasswordTag, Vec<u8>, usize), Vec<u8>>>> =
+    LazyLock::new(|| {
+        Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(DERIVED_KEYS_CAPACITY).unwrap(),
+        ))
+    });
+/// random salt used by `encrypt` for a (password tag, key length), generated once per process: a fresh salt
 /// for every call would run the slow PBKDF2 on every record, and a per-process random salt already
 /// defeats precomputed dictionaries shared by all users of zawk
-static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(String, usize), [u8; SALT_LEN]>>> =
+static ENCRYPT_SALTS: LazyLock<Mutex<HashMap<(PasswordTag, usize), [u8; SALT_LEN]>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+fn password_tag(key_pass: &str) -> PasswordTag {
+    let mut mac = HmacSha256::new_from_slice(&*PASSWORD_TAG_KEY).unwrap();
+    mac.update(key_pass.as_bytes());
+    mac.finalize().into_bytes().into()
+}
+
+/// PBKDF2-HMAC-SHA256 (RFC 8018), checked against the RFC 7914 test vector in `test_pbkdf2_vector`
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
     let prf = HmacSha256::new_from_slice(password).unwrap();
     for (i, chunk) in out.chunks_mut(32).enumerate() {
@@ -401,22 +423,30 @@ fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [
     }
 }
 
-/// derive key with PBKDF2, cached by (password, salt, key length)
+/// derive key with PBKDF2, cached by (password, salt, key length) in a bounded LRU cache
 fn derive_key(key_pass: &str, salt: &[u8], key_len: usize) -> Vec<u8> {
-    let mut keys = DERIVED_KEYS.lock().unwrap();
-    keys.entry((key_pass.to_string(), salt.to_vec(), key_len))
-        .or_insert_with(|| {
-            let mut key = vec![0u8; key_len];
-            pbkdf2_hmac_sha256(key_pass.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
-            key
-        })
-        .clone()
+    let entry = (password_tag(key_pass), salt.to_vec(), key_len);
+    if let Some(key) = DERIVED_KEYS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&entry)
+    {
+        return key.clone();
+    }
+    // derive without holding the lock: parallel workers must not be serialized by the slow PBKDF2
+    let mut key = vec![0u8; key_len];
+    pbkdf2_hmac_sha256(key_pass.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key);
+    DERIVED_KEYS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .put(entry, key.clone());
+    key
 }
 
 /// random salt for `encrypt`, see `ENCRYPT_SALTS`
 fn encrypt_salt(key_pass: &str, key_len: usize) -> Option<[u8; SALT_LEN]> {
-    let mut salts = ENCRYPT_SALTS.lock().unwrap();
-    let entry = (key_pass.to_string(), key_len);
+    let mut salts = ENCRYPT_SALTS.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = (password_tag(key_pass), key_len);
     if let Some(salt) = salts.get(&entry) {
         return Some(*salt);
     }
@@ -1217,6 +1247,23 @@ mod tests {
         let mut out = [0u8; 64];
         pbkdf2_hmac_sha256(b"passwd", b"salt", 1, &mut out);
         assert_eq!(hex::encode(&out[..16]), "55ac046e56e3089fec1691c22544b605");
+    }
+
+    #[test]
+    fn test_derived_keys_bounded() {
+        for i in 0..DERIVED_KEYS_CAPACITY + 10 {
+            let salt = (i as u64).to_be_bytes();
+            let entry = (password_tag("bounded"), salt.to_vec(), 16);
+            DERIVED_KEYS.lock().unwrap().put(entry, vec![0u8; 16]);
+        }
+        assert!(DERIVED_KEYS.lock().unwrap().len() <= DERIVED_KEYS_CAPACITY);
+        // a cached key equals a freshly derived one, and the cache key is not the plaintext password
+        let salt = random_bytes::<SALT_LEN>().unwrap();
+        let mut fresh = vec![0u8; 32];
+        pbkdf2_hmac_sha256(b"pass", &salt, PBKDF2_ITERATIONS, &mut fresh);
+        assert_eq!(derive_key("pass", &salt, 32), fresh);
+        assert_eq!(derive_key("pass", &salt, 32), fresh);
+        assert_ne!(password_tag("pass"), password_tag("pass2"));
     }
 
     #[test]

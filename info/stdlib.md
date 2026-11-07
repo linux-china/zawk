@@ -1017,6 +1017,10 @@ Explain for `encrypt` and `decrypt`:
 Output format is `v3:` + Base64(salt + nonce + ciphertext) for GCM, and `v4:` + Base64(salt + IV + ciphertext + HMAC-SHA256 tag)
 for CBC (the tag is checked before decryption); a random IV/nonce is used for every call,
 and the random salt is generated once per password per run (so PBKDF2 runs once, not for every record).
+Performance note: `decrypt` runs PBKDF2 (tens of milliseconds) once for every distinct salt, i.e. once per zawk run that
+produced the ciphertexts, not once per record. Derived keys are kept in an LRU cache of 1024 entries (keyed by a
+per-process HMAC of the password, never the plaintext password), so decrypting ciphertexts from more than 1024 different
+runs in one pass re-derives keys and is slow; re-encrypt such data in one run to share a single salt.
 `decrypt` also accepts older formats: CBC `v3:` (no MAC, a warning is printed), `v2:` (PBKDF2 with a fixed salt) and legacy ciphertext without prefix
 (key = password bytes truncated/zero padded to 16 or 32 bytes, deprecated: a warning is printed, please re-encrypt it).
 `decrypt` returns an empty string when the input is malformed or the key is wrong, prints a warning and sets `ERRNO`

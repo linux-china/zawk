@@ -25,6 +25,10 @@ plain  = decrypt("aes-256-gcm", secret, "your_pass_key")
 - Modes: `aes-128-gcm`, `aes-256-gcm` (recommended, authenticated), `aes-128-cbc`, `aes-256-cbc`
   (encrypt-then-MAC).
 - The AES key is derived from the password with PBKDF2-HMAC-SHA256 (100,000 iterations) and a random salt.
+  The salt is generated once per password per run, so `encrypt` derives the key once, not for every record.
+- `decrypt` derives a key (tens of milliseconds) once per distinct salt, i.e. once per run that produced the
+  ciphertexts. Derived keys are cached (LRU, 1024 entries), so decrypting data from more than 1024 different
+  runs in one pass is slow: re-encrypt it in one run to share a single salt.
 - A tampered ciphertext or a wrong key fails to decrypt: a warning, an empty result and `ERRNO`.
 
 ## JWT
