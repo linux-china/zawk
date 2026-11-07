@@ -1203,10 +1203,29 @@ impl<'a, 'b> View<'a, 'b> {
     fn process_function(&mut self, func: &Function<'a, &'a str>) -> Result<()> {
         self.frame.entry = func.entry;
         self.frame.exit = func.exit;
-        // Record registers for arguments.
-        for arg in func.args.iter() {
-            let (reg, _) = self.reg_of_ident(&arg.id);
-            self.frame.arg_regs.push(reg);
+        // Record registers for arguments. A parameter written in place by the body (the target
+        // of `sub`/`gsub`) gets the type of what is written (a string) even when the caller
+        // passes a number: the argument is then popped at the type it is passed with, into a
+        // fresh register, and converted to the parameter's type on entry.
+        let arg_tys = self.func_info[self.frame.cur_ident as usize]
+            .arg_tys
+            .clone();
+        let mut conversions = SmallVec::<(u32, Ty, u32, Ty)>::new();
+        for (i, arg) in func.args.iter().enumerate() {
+            let (reg, ty) = self.reg_of_ident(&arg.id);
+            match arg_tys.get(i).copied() {
+                Some(arg_ty)
+                    if arg_ty != ty
+                        && reg != UNUSED
+                        && matches!(arg_ty, Ty::Int | Ty::Float | Ty::Str)
+                        && matches!(ty, Ty::Int | Ty::Float | Ty::Str) =>
+                {
+                    let tmp = self.regs.stats.reg_of_ty(arg_ty);
+                    conversions.push((reg, ty, tmp, arg_ty));
+                    self.frame.arg_regs.push(tmp);
+                }
+                _ => self.frame.arg_regs.push(reg),
+            }
         }
         // Allocate basic blocks in CFG.
         for _ in 0..func.cfg.node_count() {
@@ -1214,6 +1233,11 @@ impl<'a, 'b> View<'a, 'b> {
         }
         // Fill them in.
         for (i, n) in func.cfg.raw_nodes().iter().enumerate() {
+            if i == func.entry.index() {
+                for (dst, dst_ty, src, src_ty) in conversions.drain(..) {
+                    self.convert(dst, dst_ty, src, src_ty)?;
+                }
+            }
             for stmt in n.weight.q.iter() {
                 self.stmt(stmt)?;
             }

@@ -224,7 +224,7 @@ impl Column {
                     _ => parse_int(&text),
                 },
             ),
-            (Values::F32(v), _) => push_some(v, parse_float(&text).map(|f| f as f32)),
+            (Values::F32(v), _) => push_some(v, parse_f32(&text)),
             (Values::F64(v), _) => push_some(v, parse_float(&text)),
             (Values::Bytes(v), _) => {
                 // JSON. TSV escaping turns tabs and newlines into `\t` and `\n`, which are also
@@ -302,18 +302,69 @@ fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
 /// An integer from an integer literal, or from a float literal with no fractional part (`1e3`,
 /// `2.0`). Out-of-range values and values with a fractional part are invalid (`None`) rather
 /// than saturated or truncated.
+/// An integer value: a decimal integer, or a decimal number without a fractional part (`1e3`,
+/// `-2.0`, `1.5e1`). The text is converted exactly, without going through `f64`, so values just
+/// outside the range (`-9223372036854775809`) or with more digits than `f64` keeps
+/// (`9007199254740993.0`) are not rounded into a different integer: out of range or fractional
+/// values are invalid (`None`).
 fn parse_int(s: &str) -> Option<i64> {
-    // 2^63; `i64::MAX as f64` rounds up to this, so it cannot serve as an inclusive bound.
-    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
     let s = s.trim();
-    s.parse::<i64>().ok().or_else(|| {
-        let f = s.parse::<f64>().ok().filter(|f| f.is_finite())?;
-        (f.fract() == 0.0 && (-LIMIT..LIMIT).contains(&f)).then_some(f as i64)
-    })
+    if let Ok(i) = s.parse::<i64>() {
+        return Some(i);
+    }
+    let (negative, body) = match s.as_bytes().first()? {
+        b'-' => (true, &s[1..]),
+        b'+' => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let (mantissa, exp) = match body.find(['e', 'E']) {
+        Some(pos) => (&body[..pos], body[pos + 1..].parse::<i32>().ok()?),
+        None => (body, 0),
+    };
+    let (int_part, frac_part) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all_digits = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
+    if int_part.len() + frac_part.len() == 0 || !all_digits(int_part) || !all_digits(frac_part) {
+        return None;
+    }
+    // The value is `digits * 10^exp` with all the digits of the mantissa, trailing zeros removed.
+    let digits = format!("{}{}", int_part, frac_part);
+    let digits = digits.trim_start_matches('0');
+    let trimmed = digits.trim_end_matches('0');
+    let exp = i64::from(exp) - frac_part.len() as i64 + (digits.len() - trimmed.len()) as i64;
+    if trimmed.is_empty() {
+        return Some(0);
+    }
+    // A negative exponent left means a fractional part; 19 digits or more cannot fit an i64
+    // after scaling unless they already do, so the bounds keep the arithmetic below in i128.
+    if exp < 0 || trimmed.len() + exp as usize > 19 {
+        return None;
+    }
+    let mut value: i128 = trimmed.parse().ok()?;
+    value = value.checked_mul(10i128.checked_pow(exp as u32)?)?;
+    i64::try_from(if negative { -value } else { value }).ok()
 }
 
+/// A `FLOAT`/`DOUBLE` value. `inf`, `-inf` and `nan` written as such are kept as IEEE values,
+/// but a finite number that overflows the type (`1e309`) is invalid instead of becoming infinite.
 fn parse_float(s: &str) -> Option<f64> {
-    s.trim().parse::<f64>().ok()
+    let t = s.trim();
+    let f = t.parse::<f64>().ok()?;
+    (f.is_finite() || explicit_non_finite(t)).then_some(f)
+}
+
+/// Whether `t` spells a non-finite value (`inf`, `infinity`, `nan`, any case, with a sign).
+fn explicit_non_finite(t: &str) -> bool {
+    let t = t.trim_start_matches(['+', '-']);
+    ["inf", "infinity", "nan"]
+        .iter()
+        .any(|w| t.eq_ignore_ascii_case(w))
+}
+
+/// A `FLOAT` value: as `parse_float`, and a finite value that overflows `f32` is invalid.
+fn parse_f32(s: &str) -> Option<f32> {
+    let f = parse_float(s)?;
+    let g = f as f32;
+    (g.is_finite() || !f.is_finite()).then_some(g)
 }
 
 /// A `BOOLEAN` value: `true/t/yes/y/on/✓` and nonzero numbers are true, `false/f/no/n/off/𐄂` and
@@ -790,7 +841,8 @@ mod tests {
         let mut out = Vec::new();
         {
             let mut w = ParquetWriter::new(&mut out, false);
-            w.write_all(b"ok:boolean\nYes\n0.0\n2\nOFF\nmaybe\n\n \n").unwrap();
+            w.write_all(b"ok:boolean\nYes\n0.0\n2\nOFF\nmaybe\n\n \n")
+                .unwrap();
             assert_eq!(w.encoder.as_ref().unwrap().columns[0].invalid, 1);
         }
         let reader = SerializedFileReader::new(bytes::Bytes::from(out)).unwrap();
@@ -802,8 +854,13 @@ mod tests {
         assert_eq!(
             got,
             [
-                "{ok: true}", "{ok: false}", "{ok: true}", "{ok: false}", "{ok: null}",
-                "{ok: null}", "{ok: null}",
+                "{ok: true}",
+                "{ok: false}",
+                "{ok: true}",
+                "{ok: false}",
+                "{ok: null}",
+                "{ok: null}",
+                "{ok: null}",
             ]
         );
         assert_eq!(parse_parquet_bool(" ✓ "), Some(true));
@@ -876,5 +933,76 @@ mod tests {
                 "{id: 1000, i8: 127, i32: -2}",
             ]
         );
+    }
+
+    #[test]
+    fn int_bounds_are_exact() {
+        // Each integer type at its bounds and one past them, in plain, decimal and exponent
+        // forms; values f64 cannot hold exactly are not rounded into a different integer.
+        for (min, max) in [
+            (i64::from(i8::MIN), i64::from(i8::MAX)),
+            (i64::from(i16::MIN), i64::from(i16::MAX)),
+            (i64::from(i32::MIN), i64::from(i32::MAX)),
+        ] {
+            for v in [min, max] {
+                assert_eq!(parse_int(&v.to_string()), Some(v));
+                assert_eq!(parse_int(&format!("{}.0", v)), Some(v));
+            }
+        }
+        assert_eq!(parse_int("9223372036854775807"), Some(i64::MAX));
+        assert_eq!(parse_int("-9223372036854775808"), Some(i64::MIN));
+        assert_eq!(parse_int("-9223372036854775809"), None);
+        assert_eq!(parse_int("-9223372036854775809.0"), None);
+        assert_eq!(parse_int("9223372036854775807.0"), Some(i64::MAX));
+        assert_eq!(parse_int("9223372036854775808.0"), None);
+        assert_eq!(parse_int("9007199254740993.0"), Some(9007199254740993));
+        assert_eq!(parse_int("9.007199254740993e15"), Some(9007199254740993));
+        assert_eq!(parse_int("1.5e1"), Some(15));
+        assert_eq!(parse_int("+1E2"), Some(100));
+        assert_eq!(parse_int("120e-1"), Some(12));
+        assert_eq!(parse_int("1e-1"), None);
+        assert_eq!(parse_int("0e999999"), Some(0));
+        assert_eq!(parse_int("1e19"), None);
+        assert_eq!(parse_int("1e99999999999"), None);
+        for bad in [
+            "", ".", "e5", "1e", "1.2.3", "0x10", "1_000", "inf", "nan", "- 1", "1e+",
+        ] {
+            assert_eq!(parse_int(bad), None, "{:?}", bad);
+        }
+    }
+
+    #[test]
+    fn typed_column_bounds() {
+        let tsv = concat!(
+            "i8:INT8\ti16:INT16\ti32:INT32\ti64:INT64\tf:FLOAT\td:DOUBLE\n",
+            "-128\t-32768\t-2147483648\t-9223372036854775808\t3.4e38\t1.7e308\n",
+            "127\t32767\t2147483647\t9223372036854775807\t-3.4e38\t-1.7e308\n",
+            "-129\t-32769\t-2147483649\t-9223372036854775809\t3.5e38\t1e309\n",
+            "128\t32768\t2147483648\t9223372036854775808\t-3.5e38\t-1e309\n",
+            "1.5\t2.5\t-0.5\t1.000001\t1.5\t-0\n",
+            "1e2\t1e4\t2e9\t9.2e18\t1e-50\t5e-324\n",
+            "\t\t\t\t\t\n",
+            "inf\tnan\tx\t0x10\tinf\t-inf\n",
+        );
+        assert_eq!(
+            rows(tsv.as_bytes()),
+            [
+                "{i8: -128, i16: -32768, i32: -2147483648, i64: -9223372036854775808, f: 3.4E38, d: 1.7E308}",
+                "{i8: 127, i16: 32767, i32: 2147483647, i64: 9223372036854775807, f: -3.4E38, d: -1.7E308}",
+                "{i8: null, i16: null, i32: null, i64: null, f: null, d: null}",
+                "{i8: null, i16: null, i32: null, i64: null, f: null, d: null}",
+                "{i8: null, i16: null, i32: null, i64: null, f: 1.5, d: -0E0}",
+                "{i8: 100, i16: 10000, i32: 2000000000, i64: 9200000000000000000, f: 0E0, d: 5E-324}",
+                "{i8: null, i16: null, i32: null, i64: null, f: null, d: null}",
+                "{i8: null, i16: null, i32: null, i64: null, f: inf, d: -inf}",
+            ]
+        );
+        // `inf`/`nan` spelled out are IEEE values; finite values that overflow are invalid.
+        assert_eq!(parse_float("-Infinity"), Some(f64::NEG_INFINITY));
+        assert!(parse_float("NaN").is_some_and(f64::is_nan));
+        assert_eq!(parse_float("1e309"), None);
+        assert_eq!(parse_f32("3.5e38"), None);
+        assert_eq!(parse_f32("inf"), Some(f32::INFINITY));
+        assert_eq!(parse_f32("1e-50"), Some(0.0));
     }
 }

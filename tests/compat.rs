@@ -127,3 +127,58 @@ fn awk_compatibility() {
         errors.join("\n\n")
     );
 }
+
+/// `zawk lint` agrees with the compiler on the compat cases: a case that is a syntax error in gawk
+/// (`# exit: 1`) is not valid, and the other cases have no errors except E305, the policy error
+/// for assigning a field (`$0`, `NF`), which runs (see AGENTS.md: "just lint not syntax error").
+/// Runtime errors (`# exit: 2`, such as a division by zero) are not lint errors.
+#[test]
+fn lint_agrees_with_compiler() {
+    let dir = compat_dir();
+    let mut cases: Vec<PathBuf> = fs::read_dir(dir.join("cases"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "awk"))
+        .collect();
+    cases.sort();
+    let mut errors = vec![];
+    let mut syntax_errors = 0;
+    for awk_file in &cases {
+        let program = fs::read_to_string(awk_file).unwrap();
+        let code: i32 = directive(&program, "exit").map_or(0, |code| code.parse().unwrap());
+        let output = Command::new(env!("CARGO_BIN_EXE_zawk"))
+            .current_dir(&dir)
+            .arg("lint")
+            .arg("-f")
+            .arg(awk_file)
+            .output()
+            .unwrap();
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|e| panic!("{}: lint output is not JSON: {}", awk_file.display(), e));
+        let valid = report["valid"].as_bool().unwrap();
+        let error_codes: Vec<&str> = report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["severity"] == "error")
+            .map(|d| d["code"].as_str().unwrap())
+            .collect();
+        let name = awk_file.file_stem().unwrap().to_string_lossy();
+        if code == 1 {
+            syntax_errors += 1;
+            if valid {
+                errors.push(format!(
+                    "{}: a syntax error in gawk, but lint reports valid",
+                    name
+                ));
+            }
+        } else if error_codes.iter().any(|c| *c != "E305") {
+            errors.push(format!(
+                "{}: runs, but lint reports {:?}",
+                name, error_codes
+            ));
+        }
+    }
+    assert!(syntax_errors > 0, "no syntax error case found");
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+}

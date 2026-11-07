@@ -7228,3 +7228,108 @@ fn inspect_and_llm_last_rows() {
     let prompt = run(&["llm", &big]);
     assert!(prompt.contains("\n60,n60\n```"), "{}", prompt);
 }
+
+#[test]
+fn function_param_extension_ops_by_value() {
+    // `??=`, `gensub` and in-place builtins on a scalar parameter only change the callee's copy,
+    // whatever the type of the argument (string, number, field); arrays are passed by reference.
+    let prog = r##"function d(s) { s ??= "dflt"; return s }
+function e(s) { s ??= 5; s++; return s }
+function g(s) { gsub(/[0-9]/, "#", s); s = gensub(/#/, "<&>", 1, s); return s }
+function k(arr) { arr["new"] = 1; sub(/a/, "X", arr["s"]) }
+BEGIN { u = ""; z = 0; t = "aa"; n = 123; f = 2.5
+    print d(u), d(z), d(t), d(), "[" u "]", z, t
+    print e(u), e(z), e(7), "[" u "]", z
+    print g(n), g(f), g(t), n, f, t
+    m["s"] = "abc"; k(m); print m["s"], ("new" in m)
+}
+{ print d($1), g($1), g($0), $0 }"##;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .write_stdin("0 x1\n")
+            .assert()
+            .success()
+            .stdout(concat!(
+                "dflt dflt aa dflt [] 0 aa\n",
+                "6 6 8 [] 0\n",
+                "<#>## <#>.# aa 123 2.5 aa\n",
+                "Xbc 1\n",
+                "dflt <#> <#> x# 0 x1\n",
+            ));
+    }
+}
+
+/// Parses every line of `out` as JSON, failing with the line on invalid JSON.
+fn json_lines(out: &[u8]) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(out)
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("invalid JSON {:?}: {}", line, e))
+        })
+        .collect()
+}
+
+#[test]
+fn json_output_is_valid() {
+    // to_json() and -o jsonl only write valid JSON, as a strict parser (serde_json) reads it:
+    // non-finite numbers are null (or strings for :auto values, which are written as they are
+    // spelled), and large or negative-zero numbers are numbers.
+    let prog = r#"BEGIN {
+    inf = 1e308 * 10; nan = log(-1)
+    split("inf -inf nan -0 0 1e300 5e-324 9007199254740993 18446744073709551616 -9223372036854775809", s, " ")
+    print to_json(inf); print to_json(-inf); print to_json(nan); print to_json(-0); print to_json(-0.0)
+    print to_json(2^63); print to_json(-2^63); print to_json(1e300); print to_json(1e-300); print to_json(2^64)
+    print to_json("a\"\\\n\t\001\177é")
+    f["inf"] = inf; f["nan"] = nan; f["nz"] = -0.0; f["big"] = 2^70; print to_json(f)
+    i[1] = 2^62; i[2] = -2^62; print to_json(i)
+    for (k = 1; k <= 10; k++) m[s[k]] = s[k]; print to_json(m)
+    for (k = 1; k <= 10; k++) l[k] = s[k] + 0; print to_json(l)
+}"#;
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let values = json_lines(&out.stdout);
+        assert_eq!(values.len(), 15);
+        for v in &values[..3] {
+            assert_eq!(*v, serde_json::Value::Null);
+        }
+    }
+    let input = "inf\n-inf\nnan\n-nan\n1e999\n-1e999\n-0\n-0.0\n99999999999999999999\n\
+                 -9223372036854775809\n1e300\n5e-324\n1E5\n0x10\n007\n\n\x01\"\\\n";
+    for backend_arg in BACKEND_ARGS {
+        for infer in [false, true] {
+            let mut cmd = Command::cargo_bin("zawk").unwrap();
+            cmd.args([*backend_arg, "-ojsonl"]);
+            if infer {
+                cmd.arg("--infer-types");
+            }
+            let out = cmd
+                .arg(r#"BEGIN { print "n:number", "b:boolean", "a:auto", "s" } { print $0, $0, $0, $0 }"#)
+                .write_stdin(input)
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+            let rows = json_lines(&out.stdout);
+            assert_eq!(rows.len(), 17);
+            // Overflowing numbers are not finite: null as :number, kept as text by :auto.
+            assert_eq!(rows[4]["n"], serde_json::Value::Null);
+            assert_eq!(rows[4]["a"], "1e999");
+            assert_eq!(rows[5]["a"], "-1e999");
+            // Large integers keep their digits (serde_json reads them as f64).
+            let text = String::from_utf8_lossy(&out.stdout);
+            let line = text.lines().nth(8).unwrap();
+            assert!(line.contains(r#""a":99999999999999999999"#), "{}", line);
+            assert!(rows[8]["a"].is_number());
+            assert_eq!(rows[13]["a"], "0x10");
+            if infer {
+                assert!(rows[6]["s"].is_number() && rows[7]["s"].is_number());
+            }
+        }
+    }
+}

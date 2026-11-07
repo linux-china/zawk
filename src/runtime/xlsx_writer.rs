@@ -364,6 +364,37 @@ mod tests {
     }
 
     #[test]
+    fn number_bounds() {
+        // Non-finite and overflowing values are text, in :number and :auto columns alike; the
+        // 15-digit limit of :auto integers is exact; scientific notation and -0 are numbers.
+        let rows = cells(
+            concat!(
+                "n:number\ta\n",
+                "1e309\t1e999\n",
+                "inf\t-inf\n",
+                "nan\tNaN\n",
+                "-0\t-0\n",
+                "1.7976931348623157e308\t-1.7976931348623157e308\n",
+                "999999999999999\t999999999999999\n",
+                "9999999999999999\t9999999999999999\n",
+                "2.5e-3\t1E5\n",
+                "\t\n",
+            )
+            .as_bytes(),
+        );
+        let f = Data::Float;
+        assert_eq!(rows[1], [s("1e309"), s("1e999")]);
+        assert_eq!(rows[2], [s("inf"), s("-inf")]);
+        assert_eq!(rows[3], [s("nan"), s("NaN")]);
+        assert_eq!(rows[4], [f(0.0), f(0.0)]);
+        assert_eq!(rows[5], [f(f64::MAX), f(f64::MIN)]);
+        assert_eq!(rows[6], [f(999999999999999.0), f(999999999999999.0)]);
+        assert_eq!(rows[7], [f(1e16), s("9999999999999999")]);
+        assert_eq!(rows[8], [f(0.0025), f(100000.0)]);
+        assert_eq!(rows.len(), 9, "an empty row only has blank cells");
+    }
+
+    #[test]
     fn empty_output() {
         assert!(cells(b"").is_empty());
     }

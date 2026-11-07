@@ -1091,7 +1091,9 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
             out.push_str(if truthy { "true" } else { "false" });
         }
         JsonType::Auto => {
-            if json_number(cell).is_some() {
+            // A number that overflows f64 (`1e999`) is valid JSON grammar, but strict parsers
+            // (serde_json, jq) reject or change it: it is kept as a string, as for -o parquet/xlsx.
+            if json_number(cell).is_some() && cell.parse::<f64>().is_ok_and(f64::is_finite) {
                 // Written as is, so that large integers and decimals keep their digits.
                 out.push_str(cell);
             } else if let Some(b) = json_bool(cell) {
