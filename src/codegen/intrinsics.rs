@@ -2679,7 +2679,7 @@ pub(crate) unsafe extern "C" fn int_to_json(num: Int) -> U128 {
 
 pub(crate) unsafe extern "C" fn float_to_json(num: Float) -> U128 {
     guard_panic(stringify!(float_to_json), || {
-        mem::transmute::<Str, U128>(Str::from(num.to_string()))
+        mem::transmute::<Str, U128>(Str::from(runtime::json::float_to_json(num)))
     })
 }
 

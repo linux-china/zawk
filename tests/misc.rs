@@ -5120,6 +5120,19 @@ fn to_json_keeps_empty_values_and_sorts_keys() {
 }
 
 #[test]
+fn to_json_non_finite_floats_are_null() {
+    let prog = r#"BEGIN { x = 1e308 * 10; a["k"] = x; print to_json(x), to_json(-x), to_json(log(-1)), to_json(1.5), to_json(a) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("null null null 1.5 {\"k\":null}\n");
+    }
+}
+
+#[test]
 fn json_values_are_decoded() {
     let prog = r#"BEGIN {
         x = from_json("[1,null,\"s\"]"); print "[" x[2] "]", length(x[2])

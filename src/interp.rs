@@ -1390,7 +1390,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     FloatToJson(dst, num) => {
                         let num = *self.get(*num);
                         let dst = *dst;
-                        *self.get_mut(dst) = Str::from(num.to_string());
+                        *self.get_mut(dst) = Str::from(runtime::json::float_to_json(num));
                     }
                     NullToJson(dst) => {
                         let dst = *dst;

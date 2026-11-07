@@ -7,6 +7,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex};
 
+/// JSON text of a scalar float: non-finite values (`inf`, `-inf`, `NaN`) become `null`,
+/// matching the map encoder and `-o jsonl`.
+pub(crate) fn float_to_json(num: Float) -> String {
+    if num.is_finite() {
+        num.to_string()
+    } else {
+        "null".to_string()
+    }
+}
+
 /// Encode int-keyed entries: a JSON array when the keys are exactly `1..n` (or empty),
 /// otherwise a JSON object with keys in numeric order, so `from_json` keeps the keys.
 fn int_entries_to_json<T: miniserde::Serialize>(mut entries: Vec<(Int, T)>) -> String {
