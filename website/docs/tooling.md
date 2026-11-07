@@ -42,7 +42,8 @@ Sample (first 5 rows):
 
 The summary is like DuckDB's `SUMMARIZE`: min, max, approx_unique, avg, std, q25, q50, q75, count and
 null_percentage. Options: `-i FORMAT`, `-o table|markdown`, `-n ROWS` (sample size), `--max-rows N`.
-Compressed files, URLs and S3 objects are supported. A CSV header of `name:TYPE` declares the column type.
+When the input has more than 50 rows, the last 10 rows are shown too (`Sample (last 10 rows)`), unless
+`--max-rows` stops reading early. Compressed files, URLs and S3 objects are supported. A CSV header of `name:TYPE` declares the column type.
 
 ## `zawk functions`
 

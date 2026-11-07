@@ -7,7 +7,8 @@
 //!   `name:TYPE` declares the type of the column (as for `-o parquet`); other column types are
 //!   inferred from the values (Parquet columns have the type of the file schema, and database
 //!   columns their type in the database);
-//! * a sample: the first rows (10 by default), with values as awk sees them;
+//! * a sample: the first rows (10 by default), with values as awk sees them, and the last
+//!   10 rows when the input has more than 50 rows;
 //! * a summary of every column, like DuckDB's `SUMMARIZE`: min, max, approx_unique, avg, std,
 //!   q25, q50, q75, count and null_percentage.
 //!
@@ -17,7 +18,7 @@
 //! counted exactly up to 100,000 values and estimated with HyperLogLog beyond; quantiles are
 //! exact up to 100,000 numbers and computed on a uniform sample beyond.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, BufReader, Cursor, Read};
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,11 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::runtime::splitter::{database, json, jsonl, parquet::ParquetJson, xlsx};
 use crate::runtime::{decompress, http, s3};
+
+/// The number of last rows (or lines) shown.
+pub const TAIL_ROWS: usize = 10;
+/// The last rows are shown only when the input has more rows than this.
+pub const TAIL_MIN_ROWS: u64 = 50;
 
 /// A value of a column.
 pub enum Cell {
@@ -125,38 +131,120 @@ pub struct Sections {
     pub limited: bool,
     pub schema: String,
     pub sample: String,
+    /// The last rows, when there are more than `TAIL_MIN_ROWS` rows (and all were read).
+    pub tail: Option<String>,
     pub summary: String,
     pub notes: Vec<String>,
     /// The first `raw_lines` lines of the (decompressed) text, read from the same stream as the
     /// rows, so a remote input is fetched once; empty for Parquet.
     pub lines: Vec<String>,
+    /// The last `TAIL_ROWS` lines of the text, when it has more than `TAIL_MIN_ROWS` lines (and
+    /// all were read); empty otherwise.
+    pub tail_lines: Vec<String>,
 }
 
 pub fn sections(path: &str, opts: &Options, raw_lines: usize) -> io::Result<Sections> {
     let tap = LineTap::new(raw_lines);
     let (ins, format, limited) = read(path, opts, Some(&tap))?;
     let [schema, sample, summary] = ins.tables().map(|t| t.markdown());
+    let tail = ins.tail_table(limited).map(|t| t.markdown());
+    // As for the rows: only when there are more than `TAIL_MIN_ROWS` rows, all read.
+    let tail_lines = if limited || ins.rows <= TAIL_MIN_ROWS {
+        Vec::new()
+    } else {
+        tap.tail(0)
+    };
     Ok(Sections {
         rows: ins.rows,
         limited,
         schema,
         sample,
+        tail,
         summary,
         notes: ins.notes(format),
         lines: tap.lines(),
+        tail_lines,
     })
 }
 
-/// Keeps a copy of the first lines read through the readers it wraps.
+/// The first `head` lines of the text of `path` and its last `TAIL_ROWS` lines (empty unless it
+/// has more than `TAIL_MIN_ROWS` lines after the header line, with `header`), read in one pass.
+/// With `max_lines`, reading stops after that many lines, and the last lines are not known.
+pub fn text_lines(
+    path: &str,
+    head: usize,
+    header: bool,
+    max_lines: Option<u64>,
+) -> io::Result<(Vec<String>, Vec<String>)> {
+    let tap = LineTap::new(head);
+    let mut reader = BufReader::new(tap.wrap(open_input(path)?));
+    let mut line = Vec::new();
+    let mut count = 0u64;
+    loop {
+        if max_lines.is_some_and(|max| count >= max) {
+            return Ok((tap.lines(), Vec::new()));
+        }
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        count += 1;
+    }
+    Ok((tap.lines(), tap.tail(TAIL_MIN_ROWS + u64::from(header))))
+}
+
+/// Keeps a copy of the first lines and of the last lines read through the readers it wraps.
 struct LineTap {
-    buf: Arc<Mutex<Vec<u8>>>,
+    state: Arc<Mutex<TapState>>,
     max_lines: usize,
+}
+
+#[derive(Default)]
+struct TapState {
+    /// The first `max_lines` lines.
+    head: Vec<u8>,
+    head_lines: usize,
+    /// The last `TAIL_ROWS` complete lines, and the line being read.
+    tail: VecDeque<Vec<u8>>,
+    partial: Vec<u8>,
+    /// The number of complete lines read.
+    total: u64,
+}
+
+impl TapState {
+    fn feed(&mut self, bytes: &[u8], max_lines: usize) {
+        for &b in bytes {
+            if self.head_lines >= max_lines {
+                break;
+            }
+            self.head.push(b);
+            self.head_lines += usize::from(b == b'\n');
+        }
+        for piece in bytes.split_inclusive(|b| *b == b'\n') {
+            self.partial.extend_from_slice(piece);
+            if piece.ends_with(b"\n") {
+                self.push_line();
+            }
+        }
+    }
+
+    fn push_line(&mut self) {
+        let line = if self.tail.len() == TAIL_ROWS {
+            let mut old = self.tail.pop_front().unwrap_or_default();
+            old.clear();
+            std::mem::replace(&mut self.partial, old)
+        } else {
+            std::mem::take(&mut self.partial)
+        };
+        self.tail.push_back(line);
+        self.total += 1;
+    }
 }
 
 impl LineTap {
     fn new(max_lines: usize) -> LineTap {
         LineTap {
-            buf: Arc::default(),
+            state: Arc::default(),
             max_lines,
         }
     }
@@ -164,14 +252,19 @@ impl LineTap {
     fn wrap(&self, input: Box<dyn Read + Send>) -> Box<dyn Read + Send> {
         Box::new(Tapped {
             inner: input,
-            buf: self.buf.clone(),
+            state: self.state.clone(),
             max_lines: self.max_lines,
         })
     }
 
+    /// Forgets what was read.
+    fn clear(&self) {
+        *self.state.lock().unwrap() = TapState::default();
+    }
+
     fn lines(&self) -> Vec<String> {
-        let buf = self.buf.lock().unwrap();
-        let buf = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        let state = self.state.lock().unwrap();
+        let buf = state.head.strip_suffix(b"\n").unwrap_or(&state.head);
         if buf.is_empty() {
             return Vec::new();
         }
@@ -180,26 +273,35 @@ impl LineTap {
             .map(|l| String::from_utf8_lossy(trim_eol(l)).into_owned())
             .collect()
     }
+
+    /// The last `TAIL_ROWS` lines, when more than `min_lines` lines were read.
+    fn tail(&self, min_lines: u64) -> Vec<String> {
+        let mut state = self.state.lock().unwrap();
+        if !state.partial.is_empty() {
+            // the last line has no newline
+            state.push_line();
+        }
+        if state.total <= min_lines {
+            return Vec::new();
+        }
+        state
+            .tail
+            .iter()
+            .map(|l| String::from_utf8_lossy(trim_eol(l)).into_owned())
+            .collect()
+    }
 }
 
 struct Tapped {
     inner: Box<dyn Read + Send>,
-    buf: Arc<Mutex<Vec<u8>>>,
+    state: Arc<Mutex<TapState>>,
     max_lines: usize,
 }
 
 impl Read for Tapped {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(out)?;
-        let mut buf = self.buf.lock().unwrap();
-        let mut newlines = buf.iter().filter(|b| **b == b'\n').count();
-        for &b in &out[..n] {
-            if newlines >= self.max_lines {
-                break;
-            }
-            buf.push(b);
-            newlines += usize::from(b == b'\n');
-        }
+        self.state.lock().unwrap().feed(&out[..n], self.max_lines);
         Ok(n)
     }
 }
@@ -263,7 +365,7 @@ fn read(
                     }
                     if let Some(tap) = tap {
                         // The sniffed bytes are binary, not lines.
-                        tap.buf.lock().unwrap().clear();
+                        tap.clear();
                     }
                     (format, read_parquet(path, opts, &mut ins)?)
                 } else {
@@ -704,6 +806,8 @@ struct Inspector {
     rows: u64,
     samples: Vec<Vec<String>>,
     sample_rows: usize,
+    /// The last `TAIL_ROWS` rows.
+    tail: VecDeque<Vec<String>>,
     /// JSON Lines lines that are not objects.
     non_objects: u64,
     /// For a workbook: the sheet read, and the names of all its sheets.
@@ -719,6 +823,7 @@ impl Inspector {
             rows: 0,
             samples: Vec::new(),
             sample_rows,
+            tail: VecDeque::with_capacity(TAIL_ROWS),
             non_objects: 0,
             sheet: None,
             rng: Rng(0x9e37_79b9_7f4a_7c15),
@@ -802,16 +907,20 @@ impl Inspector {
                 Some(i + 1),
             );
         }
+        let sample: Vec<String> = (0..self.columns.len())
+            .map(|i| match cells.get(i) {
+                None | Some(Cell::Null) => "NULL".to_string(),
+                Some(Cell::Text(s)) if s.is_empty() => "NULL".to_string(),
+                Some(cell) => awk_text(cell).to_string(),
+            })
+            .collect();
         if self.samples.len() < self.sample_rows {
-            let sample = (0..self.columns.len())
-                .map(|i| match cells.get(i) {
-                    None | Some(Cell::Null) => "NULL".to_string(),
-                    Some(Cell::Text(s)) if s.is_empty() => "NULL".to_string(),
-                    Some(cell) => awk_text(cell).to_string(),
-                })
-                .collect();
-            self.samples.push(sample);
+            self.samples.push(sample.clone());
         }
+        if self.tail.len() == TAIL_ROWS {
+            self.tail.pop_front();
+        }
+        self.tail.push_back(sample);
         let mut cells = cells.into_iter();
         for column in self.columns.iter_mut() {
             let cell = cells.next().unwrap_or(Cell::Null);
@@ -866,12 +975,18 @@ impl Inspector {
         }
 
         let [schema, sample, summary] = self.tables();
-        let sample_title = format!("Sample (first {} rows)", self.samples.len());
-        for (title, table) in [
-            ("Schema", &schema),
-            (sample_title.as_str(), &sample),
-            ("Summary", &summary),
-        ] {
+        let mut sections = vec![
+            ("Schema".to_string(), schema),
+            (
+                format!("Sample (first {} rows)", self.samples.len()),
+                sample,
+            ),
+        ];
+        if let Some(tail) = self.tail_table(limited) {
+            sections.push((format!("Sample (last {} rows)", tail.rows.len()), tail));
+        }
+        sections.push(("Summary".to_string(), summary));
+        for (title, table) in &sections {
             if md {
                 out.push_str(&format!("\n## {}\n\n", title));
                 out.push_str(&table.markdown());
@@ -923,14 +1038,7 @@ impl Inspector {
                 })
                 .collect(),
         };
-        let mut sample = Table {
-            headers: self.columns.iter().map(|c| c.name.clone()).collect(),
-            right: types.iter().map(|t| is_numeric_type(t)).collect(),
-            rows: self.samples.clone(),
-        };
-        for row in sample.rows.iter_mut() {
-            row.resize(self.columns.len(), "NULL".to_string());
-        }
+        let sample = self.rows_table(&types, self.samples.clone());
         let summary_headers = [
             "column_name",
             "column_type",
@@ -960,6 +1068,27 @@ impl Inspector {
         };
 
         [schema, sample, summary]
+    }
+
+    /// A table of sample rows.
+    fn rows_table(&self, types: &[String], mut rows: Vec<Vec<String>>) -> Table {
+        for row in rows.iter_mut() {
+            row.resize(self.columns.len(), "NULL".to_string());
+        }
+        Table {
+            headers: self.columns.iter().map(|c| c.name.clone()).collect(),
+            right: types.iter().map(|t| is_numeric_type(t)).collect(),
+            rows,
+        }
+    }
+
+    /// The last rows, when there are more than `TAIL_MIN_ROWS` rows and all of them were read.
+    fn tail_table(&self, limited: bool) -> Option<Table> {
+        if limited || self.rows <= TAIL_MIN_ROWS {
+            return None;
+        }
+        let types: Vec<String> = self.columns.iter().map(|c| c.data_type()).collect();
+        Some(self.rows_table(&types, self.tail.iter().cloned().collect()))
     }
 
     fn notes(&self, format: Format) -> Vec<String> {

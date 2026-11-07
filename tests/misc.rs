@@ -7114,3 +7114,58 @@ fn csv_crlf_record_drops_cr() {
         }
     }
 }
+
+#[test]
+fn inspect_and_llm_last_rows() {
+    let tmpdir = tempdir().unwrap();
+    let write_csv = |name: &str, rows: usize| {
+        let mut text = String::from("id,name\n");
+        for i in 1..=rows {
+            text.push_str(&format!("{},n{}\n", i, i));
+        }
+        let path = tmpdir.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        path.to_str().unwrap().to_string()
+    };
+    let run = |args: &[&str]| {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let big = write_csv("big.csv", 60);
+    let small = write_csv("small.csv", 50);
+
+    // inspect: the last 10 rows only with more than 50 rows, all read.
+    let report = run(&["inspect", "-o", "md", &big]);
+    assert!(
+        report.contains("## Sample (last 10 rows)\n\n| id | name |\n| ---: | --- |\n| 51 | n51 |\n"),
+        "{}",
+        report
+    );
+    assert!(report.contains("| 60 | n60 |\n\n## Summary"), "{}", report);
+    let report = run(&["inspect", &small]);
+    assert!(!report.contains("last 10 rows"), "{}", report);
+    let report = run(&["inspect", "--max-rows", "55", &big]);
+    assert!(!report.contains("last 10 rows"), "{}", report);
+
+    // llm: the last raw lines; 50 data rows after the header line are not enough.
+    let prompt = run(&["llm", "-i", "csv", "-H", &big]);
+    assert!(
+        prompt.contains("Last 10 lines (the raw text of the file):\n\n```text\n51,n51\n"),
+        "{}",
+        prompt
+    );
+    let prompt = run(&["llm", "-i", "csv", "-H", &small]);
+    assert!(!prompt.contains("Last 10 lines"), "{}", prompt);
+    // Plain text lines.
+    let prompt = run(&["llm", &big]);
+    assert!(prompt.contains("\n60,n60\n```"), "{}", prompt);
+}

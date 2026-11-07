@@ -1323,7 +1323,7 @@ fn real_main() {
                 .help("Only run the tests whose function name contains this text"),
         );
     let inspect_cmd = Command::new("inspect")
-        .about("Show the schema, the first rows and summary statistics of a CSV, TSV, JSON Lines, Parquet or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
+        .about("Show the schema, the first rows (and the last 10 rows of an input with more than 50 rows) and summary statistics of a CSV, TSV, JSON Lines, Parquet or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")

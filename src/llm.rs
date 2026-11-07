@@ -6,7 +6,8 @@
 //!
 //! * the command line that runs the program, and what its options mean: the input format, the
 //!   field separator, the header (`-H`) and the output format;
-//! * every input file: the first lines (the first rows of a Parquet file), and for CSV, TSV,
+//! * every input file: the first lines (the first rows of a Parquet file) and, when it has more
+//!   than 50 lines (rows), the last 10 lines (rows); and for CSV, TSV,
 //!   JSON, JSON Lines and Parquet the schema and the summary of `zawk inspect`;
 //! * the zawk language notes and the reference of the builtin functions;
 //! * how to check the program with `zawk lint`, and how to answer;
@@ -15,7 +16,7 @@
 use std::io;
 
 use crate::function_docs;
-use crate::inspect::{self, Format, Sample};
+use crate::inspect::{self, Format};
 
 pub struct Options {
     /// `-i`, as given.
@@ -250,17 +251,14 @@ fn file_section(
         structured,
         Some(Format::Parquet | Format::Database | Format::Xlsx)
     ) {
-        let lines = match &sections {
-            Some(sections) => sections.lines.clone(),
-            None => match inspect::sample(
+        let (lines, tail_lines) = match &sections {
+            Some(sections) => (sections.lines.clone(), sections.tail_lines.clone()),
+            None => inspect::text_lines(
                 file,
-                None,
+                raw_lines,
                 header && format != Some("markdown"),
-                opts.sample_rows,
-            )? {
-                Sample::Lines(lines) => lines,
-                Sample::Fields { .. } => Vec::new(),
-            },
+                opts.max_rows,
+            )?,
         };
         out.push_str(&format!(
             "First {} lines (the raw text of the file):\n\n",
@@ -274,6 +272,20 @@ fn file_section(
                 .collect::<Vec<_>>()
                 .join("\n"),
         ));
+        if !tail_lines.is_empty() {
+            out.push_str(&format!(
+                "Last {} lines (the raw text of the file):\n\n",
+                tail_lines.len()
+            ));
+            out.push_str(&fence(
+                "text",
+                &tail_lines
+                    .iter()
+                    .map(|l| truncate(l))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
+        }
         if format.is_none() {
             if let Some(nf) =
                 fields_per_line(&lines, opts.field_sep.as_ref().map(|(_, fs)| fs.as_str()))
@@ -308,6 +320,13 @@ fn file_section(
             sections.sample.lines().count().saturating_sub(2)
         ));
         out.push_str(&sections.sample);
+        if let Some(tail) = &sections.tail {
+            out.push_str(&format!(
+                "\nLast {} rows, as awk sees the fields:\n\n",
+                tail.lines().count().saturating_sub(2)
+            ));
+            out.push_str(tail);
+        }
     }
     out.push_str("\nSummary of the columns:\n\n");
     out.push_str(&sections.summary);
