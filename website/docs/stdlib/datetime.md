@@ -66,12 +66,13 @@ strftime("%F", date_trunc("week", mktime("2024-02-15")))              # 2024-02-
 { sales[strftime("%Y-%m", date_trunc("month", $1))] += $2 }   # monthly totals, $1 parsed as mktime
 ```
 
-`to_iso8601(time)` formats a timestamp as ISO 8601 in UTC, as JavaScript's `toISOString`:
+`to_iso8601(time)` formats a timestamp as ISO 8601 in UTC, as JavaScript's `toISOString`. The time is in whole seconds (a fraction is dropped), so the milliseconds are always `.000`:
 
 ```awk
 to_iso8601(0)          # 1970-01-01T00:00:00.000Z
 to_iso8601(systime())  # e.g. 2024-02-15T02:37:42.000Z
 to_iso8601("2024-02-15 10:37:42 +08:00")  # 2024-02-15T02:37:42.000Z
+to_iso8601(1.9)        # 1970-01-01T00:00:01.000Z
 ```
 
 ## Durations

@@ -816,8 +816,10 @@ Units as `date_add`. An unknown unit or text that cannot be parsed gives a warni
 
 ### to_iso8601
 
-`to_iso8601(time)` formats a Unix timestamp as an ISO 8601 UTC date time with milliseconds (`YYYY-MM-DDTHH:mm:ss.sssZ`),
+`to_iso8601(time)` formats a Unix timestamp as an ISO 8601 UTC date time (`YYYY-MM-DDTHH:mm:ss.sssZ`),
 the format of JavaScript's `Date.prototype.toISOString` and `JSON.stringify`, e.g. `to_iso8601(0)` is `1970-01-01T00:00:00.000Z`.
+The time is in whole seconds, as for `strftime`: a numeric argument is truncated to an integer (`to_iso8601(1.9)` is `1970-01-01T00:00:01.000Z`),
+and date text is parsed to whole seconds as `mktime` does, so the milliseconds are always `.000`.
 
 - `to_iso8601(mktime("2024-02-15 10:37:42 +08:00"))`: `2024-02-15T02:37:42.000Z`
 

@@ -2679,6 +2679,22 @@ fn markdown_output() {
 }
 
 #[test]
+fn markdown_output_pads_columns() {
+    // Like -o table, every row of -o markdown has as many cells as the longest record: short
+    // rows get empty cells and extra columns a `columnN` header.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-itsv", "-omarkdown", "{print}"])
+            .write_stdin("a\tb\nonly\nx\ty\tz\n")
+            .assert()
+            .success()
+            .stdout("| a | b | column3 |\n| --- | --- | --- |\n| only |  |  |\n| x | y | z |\n");
+    }
+}
+
+#[test]
 fn table_output() {
     // -o table renders print records as a bordered table: the first record is the header,
     // numeric columns are right-aligned and short records are padded.
@@ -5948,6 +5964,7 @@ fn date_diff_trunc_iso8601_date_text() {
         print date_diff("day", "2024-01-01", "2024-03-01"), date_diff("day", mktime("2024-01-01"), "2024-01-08"), date_diff("s", "1704067200", 1704067260)
         print strftime("%F %T", date_trunc("month", "2024-02-15 10:30:00")), date_trunc("day", "1704070800")
         print to_iso8601("2024-01-01"), to_iso8601("2024-02-15 10:37:42 +08:00"), to_iso8601("0")
+        print to_iso8601(0.1234), to_iso8601(1.9), to_iso8601("1.9")
         print date_diff("day", "bad", "2024-01-01"), ERRNO
         print date_trunc("day", "bad"), ERRNO
         print "[" to_iso8601("bad") "]", ERRNO
@@ -5964,6 +5981,7 @@ fn date_diff_trunc_iso8601_date_text() {
                 "60 7 60\n",
                 "2024-02-01 00:00:00 1704067200\n",
                 "2024-01-01T00:00:00.000Z 2024-02-15T02:37:42.000Z 1970-01-01T00:00:00.000Z\n",
+                "1970-01-01T00:00:00.000Z 1970-01-01T00:00:01.000Z 1970-01-01T00:00:01.000Z\n",
                 "0 date_diff: invalid date time \"bad\"\n",
                 "-1 date_trunc: invalid date time \"bad\"\n",
                 "[] to_iso8601: invalid date time \"bad\"\n",

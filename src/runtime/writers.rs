@@ -370,8 +370,11 @@ pub fn factory_from_file(fname: &str) -> io::Result<impl FileFactory + use<>> {
 ///
 /// Records are expected to be tab-separated and newline-terminated, with tabs and newlines
 /// inside fields already escaped (as for `-o tsv`). Each line becomes a table row; the first one
-/// is the header and is followed by the `| --- |` delimiter row. With `summary` set
-/// (`--summary`), the row count and per-column statistics follow the table.
+/// is the header and is followed by the `| --- |` delimiter row. As for `-o table`, every row has
+/// as many cells as the longest record: short rows are padded with empty cells and extra columns
+/// get the header `columnN` (the names `--summary` uses), so the rows are buffered and the table
+/// is written when stdout is dropped. With `summary` set (`--summary`), the row count and
+/// per-column statistics follow the table.
 #[derive(Clone)]
 pub struct MarkdownFactory<F>(pub F, pub bool);
 
@@ -391,88 +394,96 @@ impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
 
 pub struct MarkdownWriter<W: io::Write> {
     inner: W,
-    /// The current, not yet newline-terminated, record.
-    pending: Vec<u8>,
-    header_written: bool,
-    /// Collects statistics of the rows (`--summary`).
-    summary: Option<Summary>,
+    buf: Vec<u8>,
+    summary: bool,
 }
 
 impl<W: io::Write> MarkdownWriter<W> {
     pub fn new(inner: W, summary: bool) -> MarkdownWriter<W> {
         MarkdownWriter {
             inner,
-            pending: Vec::new(),
-            header_written: false,
-            summary: summary.then(Summary::default),
+            buf: Vec::new(),
+            summary,
         }
     }
 
-    fn write_row(&mut self, line: &[u8]) -> io::Result<()> {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        if let Some(summary) = &mut self.summary {
-            summary.add(line);
-        }
-        let mut row = Vec::with_capacity(line.len() + 8);
-        let mut columns = 0;
-        for cell in line.split(|b| *b == b'\t') {
-            row.extend_from_slice(b"| ");
-            for &b in cell {
-                if b == b'|' {
-                    row.push(b'\\');
+    fn render(&mut self) -> io::Result<()> {
+        let buf = std::mem::take(&mut self.buf);
+        // A final record without a trailing newline (e.g. from printf) is still a row.
+        let buf = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        let lines: Vec<&[u8]> = if buf.is_empty() {
+            Vec::new()
+        } else {
+            buf.split(|b| *b == b'\n')
+                .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+                .collect()
+        };
+        let mut records: Vec<Vec<Vec<u8>>> = lines
+            .iter()
+            .map(|line| line.split(|b| *b == b'\t').map(<[u8]>::to_vec).collect())
+            .collect();
+        pad_records(&mut records, |i| format!("column{}", i + 1).into_bytes());
+        let mut out = Vec::with_capacity(buf.len() + records.len() * 8);
+        for (i, record) in records.iter().enumerate() {
+            for cell in record {
+                out.extend_from_slice(b"| ");
+                for &b in cell {
+                    if b == b'|' {
+                        out.push(b'\\');
+                    }
+                    out.push(b);
                 }
-                row.push(b);
+                out.push(b' ');
             }
-            row.push(b' ');
-            columns += 1;
-        }
-        row.extend_from_slice(b"|\n");
-        if !self.header_written {
-            self.header_written = true;
-            for _ in 0..columns {
-                row.extend_from_slice(b"| --- ");
+            out.extend_from_slice(b"|\n");
+            if i == 0 {
+                out.extend_from_slice(&b"| --- ".repeat(record.len()));
+                out.extend_from_slice(b"|\n");
             }
-            row.extend_from_slice(b"|\n");
         }
-        self.inner.write_all(&row)
+        self.inner.write_all(&out)?;
+        if self.summary {
+            let mut summary = Summary::default();
+            for line in &lines {
+                summary.add(line);
+            }
+            if summary.header.is_some() {
+                self.inner.write_all(b"\n")?;
+            }
+            self.inner.write_all(summary.markdown().as_bytes())?;
+        }
+        self.inner.flush()
+    }
+}
+
+/// Pads `records` (the first one being the header) to the length of the longest one, as
+/// `-o table` and `-o markdown` render them: data rows get empty cells and the header gets
+/// `extra(i)` for each missing column `i` (0-based).
+fn pad_records<T: Default + Clone>(records: &mut [Vec<T>], extra: impl Fn(usize) -> T) {
+    let columns = records.iter().map(Vec::len).max().unwrap_or(0);
+    if let Some((header, rows)) = records.split_first_mut() {
+        for i in header.len()..columns {
+            header.push(extra(i));
+        }
+        for row in rows {
+            row.resize(columns, T::default());
+        }
     }
 }
 
 impl<W: io::Write> io::Write for MarkdownWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut rest = buf;
-        while let Some(pos) = rest.iter().position(|b| *b == b'\n') {
-            if self.pending.is_empty() {
-                self.write_row(&rest[..pos])?;
-            } else {
-                self.pending.extend_from_slice(&rest[..pos]);
-                let line = std::mem::take(&mut self.pending);
-                self.write_row(&line)?;
-            }
-            rest = &rest[pos + 1..];
-        }
-        self.pending.extend_from_slice(rest);
+        self.buf.extend_from_slice(buf);
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
+        Ok(())
     }
 }
 
 impl<W: io::Write> Drop for MarkdownWriter<W> {
     fn drop(&mut self) {
-        // A final record without a trailing newline (e.g. from printf) is still a row.
-        if !self.pending.is_empty() {
-            let line = std::mem::take(&mut self.pending);
-            let _ = self.write_row(&line);
-        }
-        if let Some(summary) = self.summary.take() {
-            if self.header_written {
-                let _ = self.inner.write_all(b"\n");
-            }
-            let _ = self.inner.write_all(summary.markdown().as_bytes());
-        }
-        let _ = self.inner.flush();
+        let _ = self.render();
     }
 }
 
@@ -491,8 +502,42 @@ mod markdown_tests {
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "| name | age |\n| --- | --- |\n| Alice | 3 |\n| B\\|ob |  |\n| last |\n"
+            "| name | age |\n| --- | --- |\n| Alice | 3 |\n| B\\|ob |  |\n| last |  |\n"
         );
+    }
+
+    #[test]
+    fn markdown_table_pads_columns() {
+        // Short rows are padded and extra columns get a `columnN` header, as for `-o table`.
+        let mut out = Vec::new();
+        {
+            let mut w = MarkdownWriter::new(&mut out, false);
+            w.write_all(b"a\tb\nonly\n\nx\ty\tz\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "| a | b | column3 |\n| --- | --- | --- |\n| only |  |  |\n|  |  |  |\n| x | y | z |\n"
+        );
+    }
+
+    #[test]
+    fn markdown_empty() {
+        let mut out = Vec::new();
+        drop(MarkdownWriter::new(&mut out, false));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn markdown_summary_keeps_escapes() {
+        // A value reads the same in the data rows and in the summary.
+        let mut out = Vec::new();
+        {
+            let mut w = MarkdownWriter::new(&mut out, true);
+            w.write_all(b"a\nx\\ny\n").unwrap();
+        }
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.starts_with("| a |\n| --- |\n| x\\ny |\n"), "{out}");
+        assert!(out.contains("| a | string | 1 | 1 | x\\ny | x\\ny |  |  |\n"), "{out}");
     }
 }
 
@@ -677,7 +722,8 @@ impl Summary {
         for (i, record) in self.records().iter().enumerate() {
             for cell in record {
                 out.push_str("| ");
-                out.push_str(&cell.replace('|', "\\|").replace('\n', " "));
+                // Escaped as the data rows are (`\n`, `\t`, `\\`), so a value reads the same in both.
+                out.push_str(&crate::runtime::str_escape::escape_tsv(cell).replace('|', "\\|"));
                 out.push(' ');
             }
             out.push_str("|\n");
@@ -704,7 +750,7 @@ mod summary_tests {
         }
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 5 |\n| B\\|ob |\n\n\
+            "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 5 |\n| B\\|ob |  |\n\n\
              3 rows\n\n\
              | column | type | non_empty | distinct | min | max | sum | mean |\n\
              | --- | --- | --- | --- | --- | --- | --- | --- |\n\
@@ -786,7 +832,7 @@ impl<W: io::Write> TableWriter<W> {
     fn render(&mut self) -> io::Result<()> {
         let buf = std::mem::take(&mut self.buf);
         let text = String::from_utf8_lossy(&buf);
-        let records: Vec<Vec<String>> = text
+        let mut records: Vec<Vec<String>> = text
             .lines()
             .map(|line| {
                 line.split('\t')
@@ -794,6 +840,7 @@ impl<W: io::Write> TableWriter<W> {
                     .collect()
             })
             .collect();
+        pad_records(&mut records, |i| format!("column{}", i + 1));
         self.inner
             .write_all(crate::inspect::boxed_table(records).as_bytes())?;
         if self.summary {
@@ -846,6 +893,25 @@ mod table_tests {
              │ Bob   │   5 │\n\
              │ Carol │     │\n\
              └───────┴─────┘\n"
+        );
+    }
+
+    #[test]
+    fn boxed_table_extra_columns() {
+        // Extra columns get a `columnN` header, the names `--summary` uses.
+        let mut out = Vec::new();
+        {
+            let mut w = TableWriter::new(&mut out, false);
+            w.write_all(b"a\tb\nonly\nx\ty\tz\n").unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "┌──────┬───┬─────────┐\n\
+             │ a    │ b │ column3 │\n\
+             ├──────┼───┼─────────┤\n\
+             │ only │   │         │\n\
+             │ x    │ y │ z       │\n\
+             └──────┴───┴─────────┘\n"
         );
     }
 

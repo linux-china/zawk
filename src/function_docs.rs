@@ -1050,7 +1050,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "to_iso8601",
         DATETIME,
         "to_iso8601(time: int|str) -> str",
-        "Unix time as an ISO 8601 UTC date time with milliseconds (YYYY-MM-DDTHH:mm:ss.sssZ), as JavaScript toISOString; time may also be date text, parsed as mktime.",
+        "Unix time as an ISO 8601 UTC date time (YYYY-MM-DDTHH:mm:ss.sssZ), as JavaScript toISOString; time is in whole seconds (a fraction is dropped, so milliseconds are always .000) and may also be date text, parsed as mktime.",
         "to_iso8601(0)",
     ),
     // Color
