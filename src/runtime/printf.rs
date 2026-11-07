@@ -506,6 +506,9 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 _ => Some(arg.to_int()),
             };
             let bytes: Vec<u8> = match code {
+                // A negative number is not a valid code point: a NUL byte, as in gawk (also
+                // with `-b`), instead of the wrapped low byte or a wrapped `u32` code point.
+                Some(code) if code < 0 => vec![0],
                 // A number: the character with that code (the byte, with `-b`).
                 Some(code) if super::str_impl::characters_as_bytes() => vec![code as u8],
                 Some(code) => match char::from_u32(code as u32) {
@@ -1094,6 +1097,8 @@ mod tests {
             "   \u{4f60}\u{597d}|\u{4f60}\u{597d}   |"
         );
         assert_eq!(sprintf!(b"[%c]", ""), "[\0]");
+        // Negative codes are not code points: a NUL byte, as in gawk.
+        assert_eq!(sprintf!(b"[%c][%c][%c]", -1, -200, -4294967231i64), "[\0][\0][\0]");
     }
 
     #[test]
