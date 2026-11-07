@@ -4,7 +4,10 @@ use crate::runtime::{SharedMap, Str, stdlib_warning};
 use base58;
 use base58::{FromBase58, ToBase58};
 use base64::{
-    Engine as _, engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD,
+    Engine as _,
+    alphabet,
+    engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE_NO_PAD},
+    engine::DecodePaddingMode,
 };
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
@@ -13,6 +16,14 @@ use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use std::io::{Read, Write};
 use std::sync::{Arc, LazyLock, Mutex};
 use urlencoding::decode_binary as url_decode_binary;
+
+/// Lenient decoding config: `=` padding is optional, as commonly omitted in JWT, URLs, etc.
+const LENIENT_PAD: GeneralPurposeConfig =
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent);
+/// Standard alphabet decoder accepting input with or without padding.
+const STANDARD_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, LENIENT_PAD);
+/// URL-safe alphabet decoder accepting input with or without padding.
+const URL_SAFE_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::URL_SAFE, LENIENT_PAD);
 
 pub fn encode(format: &str, text: &[u8]) -> String {
     match format {
@@ -39,11 +50,11 @@ pub fn encode(format: &str, text: &[u8]) -> String {
             Ok(bytes) => URL_SAFE_NO_PAD.encode(&bytes),
             Err(e) => encode_failed(format, e),
         },
-        "base64-hex" => match STANDARD.decode(text) {
+        "base64-hex" => match STANDARD_LENIENT.decode(text) {
             Ok(bytes) => hex::encode(&bytes),
             Err(e) => encode_failed(format, e),
         },
-        "base64url-hex" => match URL_SAFE_NO_PAD.decode(text) {
+        "base64url-hex" => match URL_SAFE_LENIENT.decode(text) {
             Ok(bytes) => hex::encode(&bytes),
             Err(e) => encode_failed(format, e),
         },
@@ -81,10 +92,10 @@ fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
             .map_err(|e| e.to_string()),
         "base58" => text.from_base58().map_err(|e| format!("{:?}", e)),
         "base62" => base62_decode(text).ok_or_else(|| "invalid base62 text".to_string()),
-        "base64" => STANDARD.decode(text).map_err(|e| e.to_string()),
+        "base64" => STANDARD_LENIENT.decode(text).map_err(|e| e.to_string()),
         "base85" => base85::decode(text).map_err(|e| e.to_string()),
-        "base64url" => URL_SAFE_NO_PAD.decode(text).map_err(|e| e.to_string()),
-        "zlib2base64url" => URL_SAFE_NO_PAD
+        "base64url" => URL_SAFE_LENIENT.decode(text).map_err(|e| e.to_string()),
+        "zlib2base64url" => URL_SAFE_LENIENT
             .decode(text)
             .map_err(|e| e.to_string())
             .and_then(|bytes| {
@@ -287,6 +298,19 @@ mod tests {
         let encoded_text = "SGVsbG8=";
         let plain_text = decode("base64", encoded_text);
         assert_eq!(plain_text, b"Hello")
+    }
+
+    #[test]
+    fn test_base64_decode_padding_optional() {
+        assert_eq!(decode("base64", "aGVsbG8"), b"hello");
+        assert_eq!(decode("base64", "aGVsbG8="), b"hello");
+        assert_eq!(decode("base64url", "aGVsbG8"), b"hello");
+        assert_eq!(decode("base64url", "aGVsbG8="), b"hello");
+        assert_eq!(encode("base64-hex", b"aGVsbG8"), "68656c6c6f");
+        assert_eq!(encode("base64url-hex", b"aGVsbG8="), "68656c6c6f");
+        // malformed input is still rejected
+        assert!(decode("base64", "aGVsbG8==").is_empty());
+        assert!(decode("base64", "a").is_empty());
     }
 
     #[test]
