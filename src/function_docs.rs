@@ -803,7 +803,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "strtonum",
         MATH,
         "strtonum(s: str) -> float",
-        "gawk strtonum: 0x is hexadecimal and a leading 0 octal.",
+        "gawk strtonum: 0x is hexadecimal and a leading 0 octal. zawk extension: decimal digits may be grouped by thousands with `,` or `_` (strtonum(\"1_000\") is 1000, while \"1_000\"+0 and float(\"1_000\") are 1).",
         r#"strtonum("0x11")"#,
     ),
     d(

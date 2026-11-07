@@ -170,7 +170,12 @@ characters are unchanged.
 The numeric value of a string, as in gawk: `strtonum("0x11")` is `17` (hexadecimal) and `strtonum("017")` is `15`
 (octal, a leading `0`). Digits `8` or `9`, a `.` or an exponent make the number decimal: `strtonum("018")` is `18`.
 Input that looks like a decimal number, such as the field `017`, is decimal: `strtonum($1)` is `17`, while
-`strtonum($1 "")` is `15`. Use `float()` for `0o` and `0b` prefixes.
+`strtonum($1 "")` is `15`. Neither `strtonum()` nor `float()` accepts `0o` or `0b` prefixes.
+
+As a zawk extension, a decimal number may group its integer digits by thousands with `,` or `_` (one kind per
+number): `strtonum("1_000")` and `strtonum("1,234.5")` are `1000` and `1234.5`. The first group has one to three
+digits and every later group exactly three, so `strtonum("1,2")` is `1`. Plain conversion does not do this:
+`"1_000"+0` and `float("1_000")` are both `1`.
 
 ### trim
 

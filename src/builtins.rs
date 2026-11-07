@@ -77,7 +77,7 @@ pub enum Function {
     Truncate,
     Parse,
     RegexParse,
-    // zawk's float(): decimal, or hexadecimal, octal and binary with a 0x, 0o or 0b prefix.
+    // zawk's float(): decimal, or hexadecimal with a 0x prefix (no 0o/0b prefixes).
     Strtonum,
     // gawk's strtonum(): a leading 0 or 0x makes the string octal or hexadecimal.
     AwkStrtonum,
