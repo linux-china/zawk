@@ -601,14 +601,87 @@ fn takes_next_value(arg: &str) -> bool {
         .is_some_and(|(pos, c)| pos + c.len_utf8() == arg.len())
 }
 
-/// As in gawk, `-E file` is the last option: insert `--` after it so that clap treats all the
-/// remaining arguments (even ones like `-v` or `--help`) as input files. This is what makes
-/// `#!/usr/bin/env -S zawk -E` scripts receive their own arguments untouched.
-fn end_options_after_exec(mut args: Vec<String>) -> Vec<String> {
+/// The names clap knows on the top-level command: its options and its subcommands.
+struct KnownArgs {
+    shorts: Vec<char>,
+    longs: Vec<String>,
+    subcommands: Vec<String>,
+}
+
+impl KnownArgs {
+    fn of(app: &clap::Command) -> KnownArgs {
+        // clap adds `-h/--help` and `-V/--version` itself when the command is built.
+        let mut shorts = vec!['h', 'V'];
+        let mut longs = vec![String::from("help"), String::from("version")];
+        for arg in app.get_arguments() {
+            shorts.extend(arg.get_short_and_visible_aliases().unwrap_or_default());
+            longs.extend(
+                arg.get_long_and_visible_aliases()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(String::from),
+            );
+        }
+        let subcommands = app
+            .get_subcommands()
+            .flat_map(|cmd| std::iter::once(cmd.get_name()).chain(cmd.get_all_aliases()))
+            .map(String::from)
+            .collect();
+        KnownArgs {
+            shorts,
+            longs,
+            subcommands,
+        }
+    }
+
+    /// Whether `arg` (starting with `-`) is a zawk option: `--name`, `--name=value`, or a cluster
+    /// of known short flags that may end with one taking a value (`-pr`, `-Hv x=1`, `-F,`).
+    fn is_option(&self, arg: &str) -> bool {
+        if let Some(long) = arg.strip_prefix("--") {
+            let name = long.split_once('=').map_or(long, |(name, _)| name);
+            return self.longs.iter().any(|l| l == name);
+        }
+        for c in arg.chars().skip(1) {
+            if !self.shorts.contains(&c) {
+                return false;
+            }
+            if SHORT_WITH_VALUE.contains(c) {
+                return true;
+            }
+        }
+        arg.len() > 1
+    }
+}
+
+/// Insert `--` where the options of the command line end, so that clap treats all the remaining
+/// arguments as operands for `ARGV`:
+///
+/// * As in gawk, `-E file` is the last option: even `-v` or `--help` after it are the script's
+///   own. This is what makes `#!/usr/bin/env -S zawk -E` scripts receive their arguments untouched.
+/// * After the first operand (the program text, or with `-f` the first input file), zawk's own
+///   options are still accepted (`zawk '{...}' data.csv -i csv`), but the first argument that is not
+///   one ends the options, as in POSIX awk: `zawk 'BEGIN { print ARGV[1] }' -x` prints `-x`, and
+///   `zawk -f script.awk data -n 5` passes `-n` and `5` to the script.
+///
+/// A subcommand name (`zawk lint ...`) before any operand is left to clap.
+fn end_options(mut args: Vec<String>, known: &KnownArgs) -> Vec<String> {
+    let mut seen_operand = false;
     let mut i = 1;
     while i < args.len() {
         let arg = args[i].as_str();
-        if arg == "--" || arg == "-" || !arg.starts_with('-') {
+        if arg == "--" {
+            return args;
+        }
+        if arg == "-" || !arg.starts_with('-') {
+            if !seen_operand && known.subcommands.iter().any(|name| name == arg) {
+                return args;
+            }
+            seen_operand = true;
+            i += 1;
+            continue;
+        }
+        if seen_operand && !known.is_option(arg) {
+            args.insert(i, String::from("--"));
             return args;
         }
         // The index of the `-E` value, if this argument is `-E`.
@@ -1547,6 +1620,7 @@ fn real_main() {
             .num_args(1)
             .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
     // display help/version information from awk file
+    let known = KnownArgs::of(&app);
     let mut args = command_line_args();
     if args.len() > 2 {
         // sub help from
@@ -1569,7 +1643,7 @@ fn real_main() {
             if sub_flag {
                 let last_pair = last_pair.clone();
                 args.remove(args.len() - 1); // remove --help and --version
-                let matches = get_matches(app, args);
+                let matches = get_matches(app, end_options(args, &known));
                 let awk_file = matches
                     .get_one::<String>("exec")
                     .or_else(|| matches.get_one::<String>("program-file"))
@@ -1585,7 +1659,7 @@ fn real_main() {
             }
         }
     }
-    let matches = get_matches(app, end_options_after_exec(args));
+    let matches = get_matches(app, end_options(args, &known));
     // dump sub command
     if let Some(matches) = matches.subcommand_matches("dump") {
         let input_file = matches.get_one::<String>("input-file").unwrap();

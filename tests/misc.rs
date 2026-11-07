@@ -481,6 +481,34 @@ fn exec_ends_options() {
 }
 
 #[test]
+fn operand_ends_options() {
+    // As in POSIX awk, options end at the first operand: the rest go to ARGV even if they start with `-`.
+    let prog = "BEGIN { for (i = 1; i < ARGC; i++) print ARGV[i] }";
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .args(["-x", "--help", "-v"])
+            .assert()
+            .success()
+            .stdout("-x\n--help\n-v\n");
+    }
+    let tmpdir = tempdir().unwrap();
+    let prog_fname = tmpdir.path().join("prog.awk");
+    std::fs::write(&prog_fname, format!("{prog}\n")).unwrap();
+    // With `-f`, the first operand is an input file.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-f")
+        .arg(&prog_fname)
+        .args(["data", "-n", "5"])
+        .assert()
+        .success()
+        .stdout("data\n-n\n5\n");
+}
+
+#[test]
 fn program_file_version_flag() {
     let tmpdir = tempdir().unwrap();
     let prog_fname = tmpdir.path().join("prog.awk");
