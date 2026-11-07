@@ -9,7 +9,7 @@ sidebar_label: JSON / XML / HTML / CSV
 
 | Function | Description |
 |----------|-------------|
-| `from_json(s)` | Parse an object (keys) or array (keys `1..n`) into an array. Strings are decoded, `true`/`false` become `1`/`0`, `null` becomes `""`, nested values stay as JSON text |
+| `from_json(s)` | Parse an object (keys) or array (keys `1..n`) into an array. Strings are decoded, `true`/`false` stay as text, `null` becomes `""`, nested values stay as JSON text |
 | `json_flatten(s)` | Flatten nested JSON into an array keyed by paths: `data.account.name`, `metadata[1].key` |
 | `to_json(arr)` | Arrays with keys `1..n` become JSON arrays, others objects with sorted keys |
 | `json_value(s, path)` | One value selected by an [RFC 9535 JSONPath](https://www.rfc-editor.org/rfc/rfc9535.html) |
@@ -32,6 +32,8 @@ zawk '{ print json_set(json_del($0, "password"), "processed_at", systime()) }' u
 # Build JSON from fields
 zawk -F, '{ o["id"] = $1; o["name"] = $2; print to_json(o) }' users.txt
 ```
+
+Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true, so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
 
 `json_set` keeps a value that is valid JSON text (`18`, `true`, `[1,2]`) as JSON, and stores any other text as a
 JSON string.

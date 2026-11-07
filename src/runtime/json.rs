@@ -122,11 +122,7 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     for (key, value) in json_obj {
         match value {
             Value::Bool(b) => {
-                if b {
-                    map.insert(Str::from(key), Str::from("1"));
-                } else {
-                    map.insert(Str::from(key), Str::from("0"));
-                }
+                map.insert(Str::from(key), Str::from(if b { "true" } else { "false" }));
             }
             Value::Number(num) => {
                 map.insert(Str::from(key), Str::from(num.to_string()));
@@ -150,7 +146,7 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
 
 /// Flatten a JSON object (or array) into an array keyed by leaf paths: `a.b.c` for object keys
 /// and `a[1]` (1-based) for array items. Leaves are decoded like `from_json`: strings decoded,
-/// `true`/`false` as `1`/`0`, `null` as `""`; empty objects/arrays stay as `{}`/`[]`.
+/// `true`/`false` kept as text, `null` as `""`; empty objects/arrays stay as `{}`/`[]`.
 /// Empty, invalid (with a warning) or scalar JSON text gives an empty array.
 pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     let map = StrMap::default();
@@ -183,12 +179,7 @@ fn flatten_json_value(value: &serde_json::Value, path: &mut String, map: &StrMap
             }
         }
         leaf => {
-            let text = match leaf {
-                serde_json::Value::Bool(true) => "1".to_string(),
-                serde_json::Value::Bool(false) => "0".to_string(),
-                other => json_node_text(other),
-            };
-            map.insert(Str::from(path.clone()), Str::from(text));
+            map.insert(Str::from(path.clone()), Str::from(json_node_text(leaf)));
         }
     }
 }
@@ -218,11 +209,7 @@ fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
         let key = (index + 1).to_string();
         match json_value {
             Value::Bool(b) => {
-                if *b {
-                    map.insert(Str::from(key), Str::from("1"));
-                } else {
-                    map.insert(Str::from(key), Str::from("0"));
-                }
+                map.insert(Str::from(key), Str::from(if *b { "true" } else { "false" }));
             }
             Value::Number(num) => {
                 map.insert(Str::from(key), Str::from(num.to_string()));

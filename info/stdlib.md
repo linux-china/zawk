@@ -877,10 +877,12 @@ zawk 'BEGIN{ state["city"] = "Peking";  print jev(state, "the capital of China o
 
 # JSON
 
+Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true, so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
+
 ### from_json
 
 `from_json(json_text)`: parse a JSON object (keys) or array (keys `1..n`) into an array.
-Strings are decoded, `true`/`false` become `1`/`0`, `null` becomes `""`, nested arrays/objects stay as JSON text.
+Strings are decoded, `true`/`false` stay as the text `true`/`false`, `null` becomes `""`, nested arrays/objects stay as JSON text.
 
 ### json_flatten
 
@@ -892,7 +894,7 @@ echo '{"data":{"account":{"name":"Jackie"}},"status":"active","metadata":[{"key"
   | zawk '{ r = json_flatten($0); print r["data.account.name"], r["metadata[1].key"] }'
 ```
 
-- Leaf values follow `from_json`: strings are decoded, `true`/`false` become `1`/`0`, `null` becomes `""` (the key is kept).
+- Leaf values follow `from_json`: strings are decoded, `true`/`false` stay as text, `null` becomes `""` (the key is kept).
 - Empty objects/arrays are kept as `{}`/`[]` text, e.g. `{"tags":[]}` → `r["tags"] == "[]"`.
 - A top-level array gives keys like `[1].name`.
 - Keys are not escaped: `{"a.b":1}` and `{"a":{"b":1}}` both give `a.b` (the later one wins).

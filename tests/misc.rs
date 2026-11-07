@@ -6358,6 +6358,24 @@ fn warnings_respect_try_and_dedup() {
 }
 
 #[test]
+fn json_booleans_are_text() {
+    let prog = r#"BEGIN {
+        j = "{\"t\":true,\"f\":false,\"a\":[true,false]}"
+        o = from_json(j); a = from_json("[true,false]"); r = json_flatten(j); q = json_query(j, "$.a[*]")
+        print o["t"], o["f"], a[1], a[2], r["t"], r["a[2]"], json_get(j, "t"), json_value(j, "$.f"), q[1], q[2]
+        print mkbool(o["t"]), mkbool(o["f"]), (o["f"] == "true")
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout("true false true false true false true false true false\n1 0 0\n");
+    }
+}
+
+#[test]
 fn json_flatten_paths() {
     let prog = r#"BEGIN {
         s = "{\"data\":{\"account\":{\"name\":\"Jackie\"}},\"status\":\"active\",\"metadata\":[{\"key\":\"x\",\"value\":\"y\"},{\"key\":\"x\",\"value\":\"z\"}]}"
@@ -6373,7 +6391,7 @@ fn json_flatten_paths() {
             .args([*backend_arg, prog])
             .assert()
             .success()
-            .stdout("6 Jackie active x z\n1 0 1 0 [] {} 2 3 1.5\n2 1 2\n0 0 0\n");
+            .stdout("6 Jackie active x z\ntrue false 1 0 [] {} 2 3 1.5\n2 1 2\n0 0 0\n");
     }
 }
 
