@@ -532,6 +532,9 @@ struct Facts<'a, 'p> {
     /// Bounds of `for (i in start..end)` that are strings, not numbers (`"a".."c"`): how the
     /// bound is written and the location.
     string_range_bounds: Vec<(String, Option<Loc>)>,
+    /// Fields named by a string constant that is not a number (`$"age"`, which is `$0`): the
+    /// string and the location.
+    string_fields: Vec<(Vec<u8>, Option<Loc>)>,
 }
 
 /// Special variables a program may read but not assign, with why.
@@ -912,6 +915,14 @@ impl<'a, 'p> Facts<'a, 'p> {
                     };
                     self.begin_record_reads.push((what, self.loc(e)));
                 }
+                // `$"age"` is `$0`: the string converts to a number, it does not name a column.
+                if matches!(op, ast::Unop::Column) {
+                    if let Some(s) = literal(x) {
+                        if !std::str::from_utf8(&s).is_ok_and(looks_numeric) {
+                            self.string_fields.push((s, self.loc(e)));
+                        }
+                    }
+                }
                 if self.region != Region::Begin {
                     if let (ast::Unop::Column, ILit(n)) = (op, x) {
                         self.fields.push((*n, self.loc(e)));
@@ -1203,6 +1214,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         index_regexes: Vec::new(),
         string_regexes: Vec::new(),
         string_range_bounds: Vec::new(),
+        string_fields: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1333,6 +1345,24 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             format!(
                 "a bound of `for (i in start..end)` is {}: bounds are integers and a string becomes 0 unless it starts with a number, so the loop may run no iteration; use numbers, e.g. `for (i in 1..n)`",
                 what
+            ),
+            *loc,
+        ));
+    }
+
+    // `$"age"` converts the string to a number: `$0` (or `$3` for "3abc"), never the column `age`.
+    for (s, loc) in &facts.string_fields {
+        let lit = String::from_utf8_lossy(s);
+        let lit = lit.escape_debug();
+        let field = if starts_numeric(s) {
+            "the field numbered by its leading digits"
+        } else {
+            "`$0`, the whole record"
+        };
+        diags.push(warning(
+            "W121",
+            format!(
+                "`$\"{lit}\"`: a string after `$` is converted to a number, so this is {field}, not a column named \"{lit}\"; to read a column by its header name use `$FI[\"{lit}\"]` (with `-H`, or `-i jsonl|parquet|markdown`), or write the field number"
             ),
             *loc,
         ));
@@ -2616,6 +2646,24 @@ mod tests {
         assert!(codes(&run("{ print $1 > \"10\" }")).is_empty());
         assert!(codes(&run("{ print $1 > ($2 \".txt\") }")).is_empty());
         assert!(codes(&run("{ print $1 | 10 }")).is_empty());
+    }
+
+    #[test]
+    fn string_fields() {
+        let v = run("{ print $\"age\" }");
+        assert_eq!(codes(&v), ["W121"]);
+        assert!(message(&v, 0).contains("`$FI[\"age\"]`"));
+        assert!(message(&v, 0).contains("`$0`"));
+        assert_eq!(codes(&run("{ print $(\"a\" \"ge\") }")), ["W121"]);
+        assert_eq!(codes(&run("{ $\"x\" = 1 }")), ["E305", "W121"]);
+        assert_eq!(codes(&run("{ print $\"\" }")), ["W121"]);
+        let v = run("{ print $\"3abc\" }");
+        assert_eq!(codes(&v), ["W121"]);
+        assert!(message(&v, 0).contains("leading digits"));
+        assert!(codes(&run("{ print $\"2\" }")).is_empty());
+        assert!(codes(&run("{ print $\" 2 \" }")).is_empty());
+        assert_eq!(codes(&run("{ print $FI[\"age\"] }")), ["W105"]);
+        assert!(codes(&run("{ c = \"age\"; print $c }")).is_empty());
     }
 
     #[test]
