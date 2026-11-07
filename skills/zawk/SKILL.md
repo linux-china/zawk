@@ -102,6 +102,7 @@ count characters); `file` is null for program text, and all location fields are 
 | E303 | a variable is used both as an array and as a scalar                              |
 | E305 | assignment to a read-only variable (`ARGC`, `ARGV`, `FILENAME`, `NR`, `NF`, `FI`) or a field (`$0`, `$1`, `$FI["col"]`) |
 | E306 | assigning to something that is not a variable, array element or field: `substr(s, 1) = "a"`, `gsub(re, r, substr(s, 1))`, `x++` on a literal |
+| E307 | a string constant used as a regex is invalid: `s ~ "["`, `gsub("+", "x")`, `split(s, a, "[a")` (the run would fail) |
 | E900 | internal compiler error                                                          |
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W102 | unknown escape sequence in a string or regex (`"a\.b"` is `a.b`): write `\\.` for a literal dot |

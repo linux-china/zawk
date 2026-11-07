@@ -1499,6 +1499,16 @@ where
     /// The location to report for errors of the running program in `expr` itself.
     fn run_loc_of<'c>(&self, expr: &'c Expr<'c, 'b, I>) -> Option<Loc> {
         let key = ast::expr_key(expr);
+        // A string constant that is an invalid regex fails the run: point at it.
+        let func = |f: &Either<I, builtins::Function>| match f {
+            Either::Left(name) => builtins::Function::try_from(name.clone()).ok(),
+            Either::Right(f) => Some(*f),
+        };
+        if let Some((lit, _, _)) = ast::invalid_string_regex(expr, func) {
+            if let Some(loc) = self.loc_of(lit) {
+                return Some(loc);
+            }
+        }
         let located = matches!(expr, Expr::Call(..) | Expr::Unop(ast::Unop::Column, _));
         self.run_locs
             .get(&key)

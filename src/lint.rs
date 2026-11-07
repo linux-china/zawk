@@ -526,6 +526,9 @@ struct Facts<'a, 'p> {
     /// Calls of `index` with a regex literal as the first argument (`index(/re/, s)`, where
     /// `/re/` means `$0 ~ /re/`): the location.
     index_regexes: Vec<Option<Loc>>,
+    /// String constants used as dynamic regexes (`s ~ "["`, `gsub("+", r)`) that do not compile,
+    /// which fails the run: the pattern, why it is invalid and the location.
+    string_regexes: Vec<(String, String, Option<Loc>)>,
     /// Bounds of `for (i in start..end)` that are strings, not numbers (`"a".."c"`): how the
     /// bound is written and the location.
     string_range_bounds: Vec<(String, Option<Loc>)>,
@@ -884,6 +887,13 @@ impl<'a, 'p> Facts<'a, 'p> {
 
     fn expr(&mut self, e: &'a AstExpr<'a>) {
         use ast::Expr::*;
+        let func = |f: &Either<&str, Function>| match f {
+            Either::Left(name) => Function::try_from(*name).ok(),
+            Either::Right(f) => Some(*f),
+        };
+        if let Some((lit, pat, reason)) = ast::invalid_string_regex(e, func) {
+            self.string_regexes.push((pat, reason, self.loc(lit)));
+        }
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => {}
             Var(name) => {
@@ -1191,6 +1201,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         numeric_redirects: Vec::new(),
         cond_assigns: Vec::new(),
         index_regexes: Vec::new(),
+        string_regexes: Vec::new(),
         string_range_bounds: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
@@ -1539,6 +1550,16 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             "`index` takes a string, not a regex: `/re/` here means `$0 ~ /re/` (0 or 1); use `index(s, \"text\")`, or `match(s, /re/)` to find the position of a regex match".to_string(),
             *loc,
         ));
+    }
+
+    // `s ~ "["`: a string used as a regex is compiled when the run first uses it, and fails it.
+    for (pat, reason, loc) in &facts.string_regexes {
+        diags.push(Diagnostic {
+            code: "E307",
+            severity: Severity::Error,
+            message: format!("invalid regex /{}/: {}", pat, reason),
+            loc: *loc,
+        });
     }
 
     if let Some(mode) = opts.parallel {
@@ -2141,6 +2162,35 @@ mod tests {
             ))
             .is_empty()
         );
+    }
+
+    #[test]
+    fn invalid_string_regexes() {
+        let v = run("BEGIN { x = \"abc\" ~ \"[\"; print x }");
+        assert_eq!(codes(&v), ["E307"]);
+        assert_eq!(v["valid"], false);
+        assert_eq!(v["diagnostics"][0]["column"], 21);
+        assert_eq!(message(&v, 0), "invalid regex /[/: unbalanced [");
+        for prog in [
+            "BEGIN { s = \"a\"; gsub(\"+\", \"x\", s); print s }",
+            "BEGIN { s = \"a\"; sub(\"(\", \"x\", s); print s }",
+            "BEGIN { print gensub(\"(\", \"x\", \"g\", \"a\") }",
+            "BEGIN { print match(\"a\", \"(\") }",
+            "BEGIN { print split(\"a\", arr, \"[a\") }",
+            "BEGIN { print (\"a\" !~ \"a\" \"(\") }",
+            "$0 ~ \"*\" { print }",
+        ] {
+            assert_eq!(codes(&run(prog)), ["E307"], "{}", prog);
+        }
+        // Valid patterns, and `split` separators that are not regexes.
+        for prog in [
+            "BEGIN { print (\"a\" ~ \"[a]\"), match(\"a\", \"a+\") }",
+            "BEGIN { print split(\"a[b\", arr, \"[\"), split(\"a+b\", arr, \"+\") }",
+            "BEGIN { print split(\"a b\", arr, \" \"), split(\"ab\", arr, \"\") }",
+            "BEGIN { s = \"a\"; gsub(\"\\\\+\", \"x\", s); print s }",
+        ] {
+            assert!(codes(&run(prog)).is_empty(), "{}: {:?}", prog, run(prog));
+        }
     }
 
     #[test]

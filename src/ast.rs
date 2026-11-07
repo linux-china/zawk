@@ -181,6 +181,58 @@ pub fn expr_key<T>(e: &T) -> usize {
     e as *const T as usize
 }
 
+/// The operand of `expr` that the run uses as a dynamic regex, when it is a string constant (or a
+/// concatenation of them, then its first string) that does not compile, with the pattern and why
+/// it is invalid: `"abc" ~ "["`, `gsub("+", "x")`. Such a program fails when it first uses the
+/// regex. `func`
+/// resolves the name of a called function. With `split`, separators that are not regexes (`""`,
+/// `" "` and a single character, matched literally) are skipped.
+pub fn invalid_string_regex<'e, 'a, 'b, I>(
+    expr: &'e Expr<'a, 'b, I>,
+    func: impl Fn(&Either<I, Function>) -> Option<Function>,
+) -> Option<(&'e Expr<'a, 'b, I>, String, String)> {
+    fn literal<I>(e: &Expr<'_, '_, I>, buf: &mut Vec<u8>) -> bool {
+        match e {
+            Expr::StrLit(s) => {
+                buf.extend_from_slice(s);
+                true
+            }
+            Expr::Binop(Binop::Concat, l, r) => literal(l, buf) && literal(r, buf),
+            _ => false,
+        }
+    }
+    let (operand, split): (&'e Expr<'a, 'b, I>, bool) = match expr {
+        Expr::Binop(Binop::IsMatch, _, r) => (r, false),
+        Expr::Call(f, args) => {
+            let (ix, split) = match func(f)? {
+                Function::Sub | Function::GSub | Function::GenSub => (0, false),
+                Function::Match => (1, false),
+                Function::Split => (2, true),
+                Function::PatSplit => (2, false),
+                _ => return None,
+            };
+            (args.get(ix)?, split)
+        }
+        _ => return None,
+    };
+    let mut buf = Vec::new();
+    if !literal(operand, &mut buf) {
+        return None;
+    }
+    // A concatenation has no location of its own: report its first string.
+    let mut first = operand;
+    while let Expr::Binop(Binop::Concat, l, _) = first {
+        first = l;
+    }
+    // Patterns that are not valid UTF-8 are reported when the program is compiled.
+    let pat = String::from_utf8(buf).ok()?;
+    if split && (pat.chars().count() <= 1 || pat == " ") {
+        return None;
+    }
+    let reason = crate::runtime::awk_regex::syntax_error(&pat)?;
+    Some((first, pat, reason))
+}
+
 // Pick an illegal frawk identifier.
 const LOOP_VAR: &str = "--";
 

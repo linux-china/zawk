@@ -3287,6 +3287,19 @@ fn error_messages_are_gawk_style() {
             2,
             &["zawk: fatal: line 1, column 18: invalid regex /(/: unclosed group\n"],
         ),
+        // An invalid string constant used as a regex is reported at the string.
+        (
+            r#"BEGIN { x = "abc" ~ "["; print x }"#,
+            2,
+            &["zawk: fatal: line 1, column 21: invalid regex /[/: unbalanced [\n"],
+        ),
+        (
+            r#"BEGIN { s = "a"; gsub("+", "x", s) }"#,
+            2,
+            &[
+                "zawk: fatal: line 1, column 23: invalid regex /+/: repetition operator missing expression\n",
+            ],
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (prog, code, parts) in cases {
@@ -4588,7 +4601,11 @@ fn llm_prompt() {
     );
     assert!(!prompt.contains("# Question"), "{}", prompt);
     assert!(prompt.contains("answers the user's question"), "{}", prompt);
-    assert!(prompt.ends_with("in at most three sentences.\n"), "{}", prompt);
+    assert!(
+        prompt.ends_with("in at most three sentences.\n"),
+        "{}",
+        prompt
+    );
 
     // A given question is not empty, and the input files must be readable.
     Command::cargo_bin("zawk")
@@ -7159,7 +7176,8 @@ fn inspect_and_llm_last_rows() {
     // inspect: the last 10 rows only with more than 50 rows, all read.
     let report = run(&["inspect", "-o", "md", &big]);
     assert!(
-        report.contains("## Sample (last 10 rows)\n\n| id | name |\n| ---: | --- |\n| 51 | n51 |\n"),
+        report
+            .contains("## Sample (last 10 rows)\n\n| id | name |\n| ---: | --- |\n| 51 | n51 |\n"),
         "{}",
         report
     );
