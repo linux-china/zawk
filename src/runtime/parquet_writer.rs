@@ -302,11 +302,16 @@ fn unescape_tsv(raw: &[u8]) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// An integer from an integer literal, or from a float literal with no fractional part (`1e3`,
+/// `2.0`). Out-of-range values and values with a fractional part are invalid (`None`) rather
+/// than saturated or truncated.
 fn parse_int(s: &str) -> Option<i64> {
+    // 2^63; `i64::MAX as f64` rounds up to this, so it cannot serve as an inclusive bound.
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
     let s = s.trim();
     s.parse::<i64>().ok().or_else(|| {
         let f = s.parse::<f64>().ok().filter(|f| f.is_finite())?;
-        (f >= i64::MIN as f64 && f <= i64::MAX as f64).then(|| f.trunc() as i64)
+        (f.fract() == 0.0 && (-LIMIT..LIMIT).contains(&f)).then_some(f as i64)
     })
 }
 
@@ -818,5 +823,24 @@ mod tests {
         );
         assert_eq!(parse_timestamp("1000"), Some(1000 * MICROS_PER_SEC));
         assert_eq!(parse_date("1970-01-03"), Some(2));
+        assert_eq!(parse_int(" 42 "), Some(42));
+        assert_eq!(parse_int("1e3"), Some(1000));
+        assert_eq!(parse_int("-2.0"), Some(-2));
+        assert_eq!(parse_int("-9223372036854775808.0"), Some(i64::MIN));
+        assert_eq!(parse_int("1.5"), None);
+        assert_eq!(parse_int("9223372036854775808"), None);
+        assert_eq!(parse_int("9.3e18"), None);
+        assert_eq!(parse_int("-9.3e18"), None);
+    }
+
+    #[test]
+    fn int_columns_reject_out_of_range_and_fractions() {
+        assert_eq!(
+            rows(b"id:INT64\ti8:INT8\ti32:INT32\n9223372036854775808\t1.5\t2147483648\n1e3\t127\t-2.0\n"),
+            [
+                "{id: null, i8: null, i32: null}",
+                "{id: 1000, i8: 127, i32: -2}",
+            ]
+        );
     }
 }
