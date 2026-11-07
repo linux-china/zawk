@@ -1165,7 +1165,7 @@ impl Function {
             Trim => (smallvec![Str, Str], Str),
             Truncate => (smallvec![Str, Int, Str], Str),
             Strtonum | AwkStrtonum => (smallvec![Str], Float),
-            FormatBytes => (smallvec![Int], Str),
+            FormatBytes => (smallvec![Float], Str),
             ToBytes => (smallvec![Str], Int),
             StartsWith => (smallvec![Str, Str], Int),
             EndsWith => (smallvec![Str, Str], Int),

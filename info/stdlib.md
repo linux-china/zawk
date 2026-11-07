@@ -383,6 +383,8 @@ Convert bytes to human-readable format, and vice versa. Units(case-insensitive):
 `B`, `KB`, `MB`, `GB`, `TB`, `PB`, `EB`, `ZB`, `YB`, `kib`, `mib`, `gib`, `tib`, `pib`, `eib`, `zib`, `yib`.
 
 - `format_bytes(1024)`: 1 KB
+- `format_bytes(-2048)`: -2 KB (negative sizes are scaled by absolute value)
+- `format_bytes(1e30)`: 827180.6 YB (argument is a float, so it is not saturated to an int)
 - `to_bytes("2 KB")`: 2028
 
 ### mkpass
@@ -478,6 +480,8 @@ Usage: `pairs("a=b,c=d")`, `pairs("id=1&name=Hello%20World","&")`,  `pairs("a=b;
 be introduced to decode the value automatically.
 
 A key without value (`flag` in `a=1&flag`) or with an empty value (`b=`) is kept with the value `""`: `q = pairs("a=1&flag", "&"); print ("flag" in q)` prints `1`.
+
+Keys are trimmed (values are kept as-is), so `pairs("a=1, b=2")` gives the keys `a` and `b`.
 
 ### Records
 
@@ -932,6 +936,8 @@ Empty `json_text` starts a new object; text that is not a JSON object is returne
 ### to_csv
 
 `to_csv(array)`: csv row
+
+For an array indexed from 1, missing indexes are kept as empty cells: `c[1]="a"; c[3]="c"; to_csv(c)` gives `a,,c`.
 
 # XML
 

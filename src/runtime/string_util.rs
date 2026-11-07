@@ -129,7 +129,8 @@ pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, 
             // split on the first kv_sep only, so values may contain kv_sep (e.g. base64 "abc==");
             // a pair without kv_sep is kept as a key with an empty value
             let (key, value) = pair.split_once(kv_sep).unwrap_or((pair, ""));
-            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+            // keys are trimmed so `a=1, b=2` yields `b`, not ` b`; values are kept as-is
+            map.insert(Str::from(key.trim().to_string()), Str::from(value.to_string()));
         }
     }
     SharedMap::from(map)
@@ -992,6 +993,14 @@ mod tests {
         assert_eq!(m.get(&Str::from("b")).as_str(), "");
         let m = pairs("a:1;t:x:y", ";", ":");
         assert_eq!(m.get(&Str::from("t")).as_str(), "x:y");
+    }
+
+    #[test]
+    fn test_pairs_trim_key() {
+        let m = pairs("a=1, b=2", ",", "=");
+        assert!(m.contains(&Str::from("b")));
+        assert!(!m.contains(&Str::from(" b")));
+        assert_eq!(m.get(&Str::from("b")).as_str(), "2");
     }
 
     #[test]

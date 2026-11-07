@@ -468,7 +468,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d(
         "format_bytes",
         TEXT,
-        "format_bytes(n: int) -> str",
+        "format_bytes(n: float) -> str",
         "Human readable size of n bytes.",
         "format_bytes(1024)",
     ),

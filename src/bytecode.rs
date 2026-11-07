@@ -485,7 +485,7 @@ pub(crate) enum Instr<'a> {
     // gawk's strtonum(); the flag is whether the argument may be a strnum (see
     // `math_util::awk_strtonum`).
     AwkStrtonum(Reg<Float>, Reg<Str<'a>>, bool),
-    FormatBytes(Reg<Str<'a>>, Reg<Int>),
+    FormatBytes(Reg<Str<'a>>, Reg<Float>),
     ToBytes(Reg<Int>, Reg<Str<'a>>),
     StartsWith(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     EndsWith(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),

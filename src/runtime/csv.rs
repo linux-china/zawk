@@ -21,30 +21,52 @@ pub(crate) fn from_csv<'a>(text: &str) -> IntMap<Str<'a>> {
     map
 }
 
-pub(crate) fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
-    let mut items: Vec<String> = vec![];
-    let mut keys = csv.to_vec();
-    keys.sort();
-    for key in keys {
-        items.push(csv.get(&key).to_string());
+/// Max number of empty cells filled in for a sparse array; beyond it, keys are just sorted.
+const MAX_CSV_GAP: i64 = 1 << 20;
+
+/// Column positions for `to_csv`: `Some(key)` for an existing index, `None` for a hole.
+/// Arrays indexed from 1 are emitted as `1..=max` so holes keep their position (`a,,c`).
+fn csv_positions(mut keys: Vec<Int>) -> Vec<Option<Int>> {
+    keys.sort_unstable();
+    match (keys.first(), keys.last()) {
+        (Some(&min), Some(&max)) if min >= 1 && max - (keys.len() as Int) <= MAX_CSV_GAP => {
+            let mut positions = Vec::with_capacity(max as usize);
+            let mut iter = keys.iter().peekable();
+            for i in 1..=max {
+                if iter.peek() == Some(&&i) {
+                    iter.next();
+                    positions.push(Some(i));
+                } else {
+                    positions.push(None);
+                }
+            }
+            positions
+        }
+        _ => keys.into_iter().map(Some).collect(),
     }
+}
+
+pub(crate) fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
+    let items: Vec<String> = csv_positions(csv.to_vec())
+        .into_iter()
+        .map(|key| key.map(|k| csv.get(&k).to_string()).unwrap_or_default())
+        .collect();
     items.join(",")
 }
 
 pub(crate) fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
-    let mut items: Vec<String> = vec![];
-    let mut keys = csv.to_vec();
-    keys.sort();
-    for key in keys {
-        items.push(csv.get(&key).to_string());
-    }
+    let items: Vec<String> = csv_positions(csv.to_vec())
+        .into_iter()
+        .map(|key| key.map(|k| csv.get(&k).to_string()).unwrap_or_default())
+        .collect();
     items.join(",")
 }
 
 pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
-    let mut keys = csv.to_vec();
-    keys.sort();
-    let values: Vec<Str> = keys.iter().map(|key| csv.get(key)).collect();
+    let values: Vec<Str> = csv_positions(csv.to_vec())
+        .into_iter()
+        .map(|key| key.map(|k| csv.get(&k)).unwrap_or_default())
+        .collect();
     let items: Vec<_> = values.iter().map(|value| value.as_str()).collect();
     let items: Vec<&str> = items.iter().map(|item| item.as_ref()).collect();
     vec_to_csv(&items)
@@ -147,6 +169,23 @@ mod tests {
         println!("{:?}", map);
         let csv_text2 = map_int_str_to_csv(&map);
         assert_eq!(csv_text, csv_text2);
+    }
+
+    #[test]
+    fn test_to_csv_sparse() {
+        let map: IntMap<Str> = IntMap::default();
+        map.insert(1, Str::from("a"));
+        map.insert(3, Str::from("c"));
+        assert_eq!(map_int_str_to_csv(&map).trim_end(), "a,,c");
+        let map: IntMap<Int> = IntMap::default();
+        map.insert(1, 1);
+        map.insert(4, 4);
+        assert_eq!(map_int_int_to_csv(&map), "1,,,4");
+        // non-positive keys fall back to a compact, sorted output
+        let map: IntMap<Int> = IntMap::default();
+        map.insert(0, 0);
+        map.insert(2, 2);
+        assert_eq!(map_int_int_to_csv(&map), "0,2");
     }
 
     #[test]

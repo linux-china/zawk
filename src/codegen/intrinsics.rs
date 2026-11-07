@@ -233,7 +233,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] strtonum(str_ref_ty) -> float_ty;
         [ReadOnly] awk_strtonum(str_ref_ty, int_ty) -> float_ty;
         [ReadOnly] not_strnum(str_ref_ty) -> int_ty;
-        format_bytes(int_ty) -> str_ty;
+        format_bytes(float_ty) -> str_ty;
         [ReadOnly] to_bytes(str_ref_ty) -> int_ty;
         [ReadOnly] starts_with(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] ends_with(str_ref_ty, str_ref_ty) -> int_ty;
@@ -1548,7 +1548,7 @@ pub(crate) unsafe extern "C" fn capitalize(text: *mut U128) -> U128 {
     })
 }
 
-pub(crate) unsafe extern "C" fn format_bytes(size: Int) -> U128 {
+pub(crate) unsafe extern "C" fn format_bytes(size: Float) -> U128 {
     guard_panic(stringify!(format_bytes), || {
         let res = math_util::format_bytes(size);
         mem::transmute::<Str, U128>(Str::from(res))

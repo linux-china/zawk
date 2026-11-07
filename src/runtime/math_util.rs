@@ -601,17 +601,33 @@ pub(crate) fn flags<'a>(text: &str) -> StrMap<'a, Int> {
 const SUFFIX: [&str; 9] = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
 const UNIT: f64 = 1024.0;
 
-pub fn format_bytes(size: i64) -> String {
-    let size = size as f64;
-    if size < UNIT {
+fn trim_float(value: f64) -> String {
+    let mut buffer = ryu::Buffer::new();
+    buffer.format(value).trim_end_matches(".0").to_string()
+}
+
+pub fn format_bytes(size: f64) -> String {
+    if !size.is_finite() {
         return format!("{} B", size);
     }
-    let base = size.log10() / UNIT.log10();
-    let mut buffer = ryu::Buffer::new();
-    let result = buffer
-        .format((UNIT.powf(base - base.floor()) * 10.0).round() / 10.0)
-        .trim_end_matches(".0");
-    [result, SUFFIX[base.floor() as usize]].join(" ")
+    let sign = if size < 0.0 { "-" } else { "" };
+    let mut value = size.abs();
+    let mut idx = 0;
+    while value >= UNIT && idx < SUFFIX.len() - 1 {
+        value /= UNIT;
+        idx += 1;
+    }
+    let mut rounded = (value * 10.0).round() / 10.0;
+    // rounding may carry over to the next unit, e.g. 1023.96 KB -> 1 MB
+    if rounded >= UNIT && idx < SUFFIX.len() - 1 {
+        rounded = ((value / UNIT) * 10.0).round() / 10.0;
+        idx += 1;
+    }
+    if idx == 0 {
+        // plain bytes: keep the original precision
+        rounded = value;
+    }
+    format!("{}{} {}", sign, trim_float(rounded), SUFFIX[idx])
 }
 
 /// text: 111 B, 11.2 KB, 110KB, 1.5GB, 2 MiB, 3k
@@ -967,8 +983,14 @@ mod tests {
 
     #[test]
     fn test_format_bytes() {
-        let size = 110;
-        println!("{}", format_bytes(size));
+        assert_eq!(format_bytes(110.0), "110 B");
+        assert_eq!(format_bytes(0.0), "0 B");
+        assert_eq!(format_bytes(1024.0), "1 KB");
+        assert_eq!(format_bytes(1536.0), "1.5 KB");
+        assert_eq!(format_bytes(-2048.0), "-2 KB");
+        assert_eq!(format_bytes(-100.0), "-100 B");
+        assert_eq!(format_bytes(1e30), "827180.6 YB");
+        assert_eq!(format_bytes(1048575.0), "1 MB");
     }
 
     #[test]
