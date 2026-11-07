@@ -1,6 +1,6 @@
 [package]
 name = "zawk"
-version = "0.6.8"
+version = "0.6.9"
 authors = [
     "Eli Rosenthal <ezr@cs.brown.edu>",
     "linux_china <libing.chen@gmail.com>",
@@ -79,7 +79,7 @@ md5 = "0.8"
 crc = "3.4"
 adler = "1"
 hmac = "0.13.0"
-lru = "0.18"
+lru = "0.19"
 jsonwebtoken = { version = "11.1.0", features = ["use_pem", "rust_crypto"] }
 bcrypt = "0.19"
 cbc = "0.2"
