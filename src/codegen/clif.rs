@@ -814,6 +814,27 @@ impl<'a> View<'a> {
                         kind: VarKind::Global,
                     },
                 );
+            } else if let compile::Ty::Str = rf.1 {
+                // String args arrive as a pointer to the caller's slot. Scalars are passed by
+                // value in AWK, so copy the string into a slot owned by this frame (taking a new
+                // reference). Otherwise in-place writes such as `sub`/`gsub` on the parameter
+                // would clobber the caller's variable.
+                self.ref_val(compile::Ty::Str, val);
+                let str_ty = self.get_ty(compile::Ty::Str);
+                let s = self
+                    .builder
+                    .ins()
+                    .load(str_ty, MemFlagsData::trusted(), val, 0);
+                let slot = self.stack_slot_bytes(mem::size_of::<runtime::Str>() as u32);
+                self.store_string(slot, s);
+                self.f.str_slots[var] = Some(slot);
+                self.f.vars.insert(
+                    rf,
+                    VarRef {
+                        var,
+                        kind: VarKind::Local { skip_drop: false },
+                    },
+                );
             } else {
                 // normal arg. These behave like normal variables, except we do not drop them (they
                 // are, in effect, borrowed).
