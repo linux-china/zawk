@@ -1,6 +1,5 @@
 use crate::runtime::conn_pool::{ConnPool, ConnSlots};
 use crate::runtime::splitter::kafka;
-use crate::runtime::str_impl::Buf;
 use crate::runtime::{Str, StrMap, stdlib_warning};
 use confluent_kafka::common::serialization::StringSerializer;
 use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
@@ -232,11 +231,12 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
         resp_obj.insert(Str::from(name), Str::from(value));
     }
     // set after the headers, and even for an empty body, so a header named `status`/`text` cannot take their place
-    // the raw bytes: `Str` holds any bytes, and decoding as UTF-8 would replace binary content with U+FFFD
-    match resp.bytes() {
-        Ok(body) => {
+    // decoded with the `charset` of `Content-Type` (UTF-8 when absent or unknown), so GBK or Latin-1 pages
+    // come out as UTF-8 text; invalid sequences become U+FFFD
+    match resp.text() {
+        Ok(text) => {
             resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
-            resp_obj.insert(Str::from("text"), Buf::read_from_bytes(&body).into_str());
+            resp_obj.insert(Str::from("text"), Str::from(text));
         }
         Err(e) => {
             // a body cut off by the timeout or a reset connection is a failure, not an empty success:
@@ -928,13 +928,42 @@ mod tests {
         println!("{}", resp.get(&Str::from("text")));
     }
 
+    /// Serves one HTTP response with the given `Content-Type` and body on a local port, returning its URL.
+    fn serve_once(content_type: &'static str, body: &'static [u8]) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                content_type,
+                body.len()
+            );
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(body).unwrap();
+        });
+        format!("http://{}/", addr)
+    }
+
     #[test]
-    fn test_http_get_binary_body() {
-        // httpbin `/bytes/n` returns n random bytes, mostly not valid UTF-8
+    fn test_http_get_charset() {
         let headers: StrMap<Str> = StrMap::default();
-        let resp = http_get("http://127.0.0.1:18080/bytes/10", &headers);
+        // "中文" in GBK
+        let url = serve_once("text/html; charset=gbk", &[0xD6, 0xD0, 0xCE, 0xC4]);
+        let resp = http_get(&url, &headers);
         assert_eq!(resp.get(&Str::from("status")), Str::from("200"));
-        assert_eq!(resp.get(&Str::from("text")).with_bytes(|bs| bs.len()), 10);
+        assert_eq!(resp.get(&Str::from("text")), Str::from("中文"));
+        // "café" in ISO-8859-1
+        let url = serve_once("text/plain; charset=iso-8859-1", b"caf\xE9");
+        let resp = http_get(&url, &headers);
+        assert_eq!(resp.get(&Str::from("text")), Str::from("café"));
+        // no charset: UTF-8
+        let url = serve_once("text/plain", "中文".as_bytes());
+        let resp = http_get(&url, &headers);
+        assert_eq!(resp.get(&Str::from("text")), Str::from("中文"));
     }
 
     #[test]
