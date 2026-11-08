@@ -791,16 +791,21 @@ pub fn figlet(text: &str) -> String {
 }
 
 /// Word-wrap `text` into lines of at most `width` display columns (CJK and other wide chars
-/// count as 2); a `width <= 0` means 80. Each existing line is handled on its own: a line that
-/// fits is kept as is, otherwise it breaks at whitespace (runs of it collapse to a line break or
-/// one space), and a word wider than `width` (e.g. CJK text without spaces) is split.
+/// count as 2) with the `textwrap` crate; a `width <= 0` means 80. Each existing line is handled
+/// on its own: a line that fits is kept as is, otherwise runs of whitespace collapse to one space
+/// and the line breaks at Unicode line-break opportunities (spaces, between CJK chars, after
+/// hyphens), and a word wider than `width` is split.
 pub fn wrap(text: &str, width: Int) -> String {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    use textwrap::{Options, WordSeparator};
+    use unicode_width::UnicodeWidthStr;
     let width = if width <= 0 {
         80
     } else {
         usize::try_from(width).unwrap_or(usize::MAX)
     };
+    let options = Options::new(width)
+        .word_separator(WordSeparator::UnicodeBreakProperties)
+        .break_words(true);
     let mut out = String::with_capacity(text.len() + text.len() / width + 1);
     for (i, line) in text.split('\n').enumerate() {
         if i > 0 {
@@ -810,27 +815,8 @@ pub fn wrap(text: &str, width: Int) -> String {
             out.push_str(line);
             continue;
         }
-        let mut line_width = 0;
-        for word in line.split_whitespace() {
-            let word_width = word.width();
-            if line_width > 0 && line_width + 1 + word_width <= width {
-                out.push(' ');
-                line_width += 1;
-            } else if line_width > 0 {
-                out.push('\n');
-                line_width = 0;
-            }
-            for c in word.chars() {
-                let w = c.width().unwrap_or(0);
-                // Always place at least one char per line, even if it is wider than `width`.
-                if line_width > 0 && line_width + w > width {
-                    out.push('\n');
-                    line_width = 0;
-                }
-                out.push(c);
-                line_width += w;
-            }
-        }
+        let normalized = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        out.push_str(&textwrap::fill(&normalized, &options));
     }
     out
 }
@@ -919,6 +905,9 @@ mod tests {
             wrap("  keep  me\naa bb cc dd ee", 10),
             "  keep  me\naa bb cc\ndd ee"
         );
+        // Lines break after hyphens and between CJK chars in mixed text.
+        assert_eq!(wrap("well-known words", 8), "well-\nknown\nwords");
+        assert_eq!(wrap("hi 你好世界", 6), "hi 你\n好世界");
         // A non-positive width means 80.
         let long = "word ".repeat(30);
         assert_eq!(wrap(&long, 0), wrap(&long, 80));
