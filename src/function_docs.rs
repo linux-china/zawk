@@ -295,7 +295,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "isnull",
         TEXT,
         "isnull(s: str) -> bool",
-        "1 if s is the `--null` text, i.e. a NULL read from a database, JSON Lines or Parquet input; always 0 without `--null`.",
+        "1 if s is the `--null` text, i.e. a NULL read from a database, JSON Lines, Parquet or Avro input; always 0 without `--null`.",
         r#"isnull($3)"#,
     ),
     d(

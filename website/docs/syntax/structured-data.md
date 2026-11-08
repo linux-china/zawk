@@ -18,7 +18,7 @@ column names to their index, so `$FI["age"]` is the field of the `age` column.
 zawk -i csv -H '$FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.csv
 ```
 
-`-i jsonl`, `-i parquet`, `-i markdown` and database inputs imply `-H`.
+`-i jsonl`, `-i parquet`, `-i avro`, `-i markdown` and database inputs imply `-H`.
 
 ## Input formats
 
@@ -29,6 +29,7 @@ zawk -i csv -H '$FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.csv
 | `-i json` | JSON document | `data.json#$.items` selects records with a JSONPath |
 | `-i jsonl` | JSON Lines (alias `ndjson`) | keys of the first record populate `FI`; nested values keep raw JSON text |
 | `-i parquet` | Apache Parquet | `$0` is the row as a JSON object |
+| `-i avro` | Apache Avro (Object Container File) | default for `.avro`; any codec; `$0` is the record as a JSON object |
 | `-i markdown` (`md`) | first Markdown table of a file | |
 | `-i xlsx` | Excel / ODS | default for `.xlsx`; `book.xlsx#Sheet2` selects a sheet |
 
@@ -39,6 +40,10 @@ zawk -i jsonl '$FI["level"] == "error" { print $FI["ts"], json_value($FI["ctx"],
 # Parquet to JSON Lines, or to CSV
 zawk -i parquet '$FI["city"] == "Beijing" { print $0 }' people.parquet
 zawk -i parquet -o csv '{ print $1, $2 }' people.parquet > people.csv
+
+# Avro: `.avro` files are read as -i avro, also from stdin, HTTP(S) and S3 (streamed)
+zawk '$FI["age"] > 40 { print $FI["name"] }' people.avro
+cat people.avro | zawk -i avro -o csv '{ print $1, $2 }'
 
 # A Markdown table in a README
 zawk -i md '{ print $FI["name"] }' README.md
@@ -77,6 +82,7 @@ and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 | `-o table` | aligned table with box-drawing borders, for terminals |
 | `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number` or `:boolean` |
 | `-o parquet` | Apache Parquet, with `--out-file` |
+| `-o avro` | Apache Avro (Object Container File, uncompressed), with `--out-file` |
 
 ```shell
 # A Markdown table, ready for a PR, an issue or a chat reply
@@ -92,6 +98,57 @@ zawk -i csv -H -o parquet --out-file users.parquet \
 
 Supported Parquet column types: `BOOLEAN`, `INT8`, `INT16`, `INT32`, `INT64`, `FLOAT`, `DOUBLE`, `DATE`, `TIME`,
 `TIMESTAMP`, `JSON`, `UUID` and `STRING` (the default).
+
+### Avro
+
+`-i avro` maps the fields of the record schema to `$1..$NF` (and `FI`), and `$0` is the record as a JSON object:
+
+| Avro type | awk text |
+|---|---|
+| `int`, `long`, `float`, `double` | the number |
+| `boolean` | `1` / `0` |
+| `string`, `enum` | the text, the symbol |
+| union | the value of its branch |
+| `date` | `2024-01-15` |
+| `time-millis`, `time-micros` | `10:30:00.5` |
+| `timestamp-*` | RFC 3339 in UTC: `2024-01-15T10:30:00Z` |
+| `local-timestamp-*` | `2024-01-15 10:30:00` |
+| `decimal` | exact decimal text: `12345.67` |
+| `uuid` | `67e55044-10b1-426f-9247-bb680e5fe0c8` |
+| `bytes`, `fixed` | hex |
+| record, array, map | JSON text |
+| null | empty (or the `--null` text) |
+
+`-o avro` writes a record schema named `Row` whose fields are all nullable (`["null", T]`). The first printed record
+is the header; a column name may end with `:TYPE` (case-insensitive):
+
+| Suffix | Avro schema |
+|---|---|
+| `string` (default) | `string` |
+| `int` / `int32` | `int` |
+| `long` / `int64` | `long` |
+| `float`, `double` | `float`, `double` |
+| `boolean` | `boolean` (`true/t/yes/y/on` and nonzero numbers are true, `false/f/no/n/off` and `0` false) |
+| `date` | `int` + `date` |
+| `timestamp` | `long` + `timestamp-micros` (UTC) |
+| `time` | `long` + `time-micros` |
+| `uuid` | `string` + `uuid` |
+| `decimal(P,S)` | `bytes` + `decimal` (rounded half away from zero to `S` digits; `decimal` alone is `decimal(18,3)`) |
+| `bytes` | `bytes`, from hex text |
+| `auto` | `long`, `double`, `boolean`, `date` or `string`, inferred from the first rows (`--infer-types` for all columns) |
+
+The header is split at its last colon, and the suffix is a type only when it is one of these names: `url:http` is a column
+named `url:http`. Avro names must match `[A-Za-z_][A-Za-z0-9_]*`, so other characters are replaced with `_` (`first name`
+is `first_name`, `1st` is `_1st`, a repeated name gets `_2`), with a warning, and the original name is kept as the `doc`
+of the field. Empty values and the `--null` text are null, except in `string` columns, which keep empty strings; values
+that cannot be converted are null too, counted in a warning.
+
+```shell
+# CSV to Avro, and back
+zawk -i csv -H -o avro --out-file users.avro \
+  'NR==1 { print "id:long", "name", "age:int", "balance:decimal(12,2)" } { print $1, $2, $3, $4 }' users.csv
+zawk '{ print $FI["name"], $FI["balance"] }' users.avro
+```
 
 ```shell
 # CSV to typed JSON Lines

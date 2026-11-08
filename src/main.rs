@@ -57,6 +57,7 @@ use runtime::{
         markdown::MarkdownCsv,
         message::{self, MessageReader, MessageSource},
         nats,
+        avro::{self, AvroJson},
         parquet::{self, ParquetJson},
         regex::RegexSplitter,
         xlsx,
@@ -1089,7 +1090,8 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format:
 }
 
 /// The input format of a run (or of `zawk lint`): `-i`, or, when it is not given, `parquet` when
-/// every input file is a Parquet file (`.parquet` that starts with `PAR1`), and, unless a field
+/// every input file is a Parquet file (`.parquet` that starts with `PAR1`), `avro` when every
+/// input file is an Avro file (`.avro` that starts with `Obj\x01`), and, unless a field
 /// separator is given, `jsonl` when every input file ends with `.jsonl` or `.ndjson` and `json`
 /// when every input file is a JSON document (`.json` that starts with `{` or `[`).
 fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<String> {
@@ -1127,6 +1129,10 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if !files.is_empty() && files.iter().all(|f| parquet::is_parquet_file(f)) {
         return Some(String::from("parquet"));
     }
+    // Avro files (`.avro` starting with `Obj\x01`) are binary too.
+    if !files.is_empty() && files.iter().all(|f| avro::is_avro_file(f)) {
+        return Some(String::from("avro"));
+    }
     if !field_sep
         && !files.is_empty()
         && files
@@ -1146,11 +1152,11 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
 /// The lint options given by the `-p`, `-v` and `-H` arguments of `zawk lint` or
 /// of a run, and its input `format`.
 fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
-    // As for a run, JSON, JSON Lines, Parquet, Markdown and database input imply -H.
+    // As for a run, JSON, JSON Lines, Parquet, Avro, Markdown and database input imply -H.
     let header = matches.get_flag("parse-header")
         || matches!(
             format,
-            Some("json" | "jsonl" | "ndjson" | "parquet" | "markdown" | "md" | "database")
+            Some("json" | "jsonl" | "ndjson" | "parquet" | "avro" | "markdown" | "md" | "database")
         );
     let vars = || matches.get_many::<String>("var").into_iter().flatten();
     // `-F`, or `-v FS=...`, with escapes processed as for a run.
@@ -1324,8 +1330,8 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"])
-            .help("The input format of the run (json for `.json`, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet` and xlsx for `.xlsx` files when not given); json, jsonl, parquet and markdown imply -H"))
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "avro", "markdown", "md", "xlsx"])
+            .help("The input format of the run (json for `.json`, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet`, avro for `.avro` and xlsx for `.xlsx` files when not given); json, jsonl, parquet, avro and markdown imply -H"))
         .arg(Arg::new("field-separator")
             .short('F')
             .long("field-separator")
@@ -1396,11 +1402,11 @@ fn real_main() {
                 .help("Only run the tests whose function name contains this text"),
         );
     let inspect_cmd = Command::new("inspect")
-        .about("Show the schema, the first rows (and the last 10 rows of an input with more than 50 rows) and summary statistics of a CSV, TSV, JSON Lines, Parquet or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
+        .about("Show the schema, the first rows (and the last 10 rows of an input with more than 50 rows) and summary statistics of a CSV, TSV, JSON Lines, Parquet, Avro or Excel (xlsx) file, or of a database table or query (`sqlite://app.db#user`)")
         .arg(Arg::new("input-format")
             .short('i')
             .long("input-format")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "xlsx"])
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "avro", "xlsx"])
             .help("The format of the files; by default it is guessed from the file extension, then from the content"))
         .arg(Arg::new("output-format")
             .short('o')
@@ -1428,7 +1434,7 @@ fn real_main() {
             .short('i')
             .long("input-format")
             .conflicts_with("field-separator")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"])
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "avro", "markdown", "md", "xlsx"])
             .help("The input format of the run; text lines split by FS when not given (json when every input file ends with .json, xlsx when every one ends with .xlsx)"))
         .arg(Arg::new("parse-header")
             .short('H')
@@ -1444,7 +1450,7 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .short('o')
             .long("output-format")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "xlsx"])
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "avro", "xlsx"])
             .help("The output format of the run"))
         .arg(Arg::new("rows")
             .short('n')
@@ -1553,10 +1559,10 @@ fn real_main() {
         .arg(Arg::new("input-format")
             .long("input-format")
             .short('i')
-            .value_name("csv|tsv|json|jsonl|parquet|markdown|xlsx")
+            .value_name("csv|tsv|json|jsonl|parquet|avro|markdown|xlsx")
             .conflicts_with("field-separator")
-            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json, jsonl when every input file ends with .jsonl or .ndjson, and parquet when every input file ends with .parquet (and starts with the PAR1 magic). parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
-            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "markdown", "md", "xlsx"]))
+            .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|avro|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json, jsonl when every input file ends with .jsonl or .ndjson, and parquet when every input file ends with .parquet (and starts with the PAR1 magic), and avro when every input file ends with .avro (and starts with the Obj\\x01 magic). parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. avro reads an Avro Object Container File (any codec) and implies -H: `FI` maps the fields of the record schema to columns, $0 is the record as a JSON object; booleans are 1/0, dates YYYY-MM-DD, timestamps RFC 3339 UTC, decimals exact, bytes hex, nested values JSON and null empty (or the --null text). markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
+            .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "avro", "markdown", "md", "xlsx"]))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -1578,9 +1584,9 @@ fn real_main() {
         .arg(Arg::new("output-format")
             .long("output-format")
             .short('o')
-            .value_name("csv|tsv|jsonl|markdown|table|parquet|xlsx")
-            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number, :boolean or :auto (default string, or :auto with --infer-types; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING, or AUTO to infer it from the first rows; default STRING, or AUTO with --infer-types), followed by the data rows. xlsx writes stdout as an Excel workbook with one sheet (Sheet1): the first record is the bold, frozen header row, a column name may end with :string, :number, :boolean or :auto (default :auto: a number as JSON writes it and true/false keep their type, while 007 and integers of more than 15 digits stay text), and empty values are blank cells")
-            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "xlsx"]))
+            .value_name("csv|tsv|jsonl|markdown|table|parquet|avro|xlsx")
+            .help("If set, records output via print are escaped according to the rules of the corresponding format. jsonl (ndjson) writes stdout as JSON Lines: the first record is the header, a column name may end with :number, :boolean or :auto (default string, or :auto with --infer-types; a boolean is false for false/no/off and for what is false in a condition, such as empty, 0 or 0.0), and each following record becomes a JSON object (a missing column is null; an empty or non-numeric :number value is null, with a warning counting the invalid ones). markdown (md) renders stdout as a Markdown table: the first record is the header row, followed by the delimiter row and the data rows. table renders stdout as an aligned table with box-drawing borders for terminals: the first record is the header, numeric columns are right-aligned, and the table is printed when the program ends. parquet writes stdout as a Parquet file: the first record is the header, a column name may end with :TYPE (BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, TIMESTAMP, JSON, UUID, STRING, or AUTO to infer it from the first rows; default STRING, or AUTO with --infer-types), followed by the data rows. avro writes stdout as an uncompressed Avro Object Container File: the first record is the header, a column name may end with :TYPE (string, int, long, float, double, boolean, date, timestamp, time, uuid, decimal(P,S), bytes as hex, or auto; default string, or auto with --infer-types; an unknown suffix is part of the name), every field is nullable, and names that are not valid Avro names are rewritten with _ (with a warning). xlsx writes stdout as an Excel workbook with one sheet (Sheet1): the first record is the bold, frozen header row, a column name may end with :string, :number, :boolean or :auto (default :auto: a number as JSON writes it and true/false keep their type, while 007 and integers of more than 15 digits stay text), and empty values are blank cells")
+            .value_parser(["csv", "tsv", "jsonl", "ndjson", "markdown", "md", "table", "parquet", "avro", "xlsx"]))
         .arg(Arg::new("summary")
             .long("summary")
             .num_args(0)
@@ -1590,15 +1596,15 @@ fn real_main() {
             .long("infer-types")
             .num_args(0)
             .requires("output-format")
-            .help("With -o jsonl or -o parquet, give columns without a type suffix the type :auto instead of string. In JSON Lines an :auto value is a number when it is written as JSON writes numbers (48, -1.5, 2e3; not 007, +1, 0x10 or 1e999, which is out of range), a boolean for true/false (any case) and a string otherwise. In Parquet an :auto column is INT64, DOUBLE, BOOLEAN or DATE (YYYY-MM-DD) when every non-empty value of the first 65536 rows is one, and STRING otherwise; empty values are null"))
+            .help("With -o jsonl, -o parquet or -o avro, give columns without a type suffix the type :auto instead of string. In JSON Lines an :auto value is a number when it is written as JSON writes numbers (48, -1.5, 2e3; not 007, +1, 0x10 or 1e999, which is out of range), a boolean for true/false (any case) and a string otherwise. In Parquet (and Avro) an :auto column is INT64, DOUBLE, BOOLEAN or DATE (YYYY-MM-DD) when every non-empty value of the first 65536 rows is one, and STRING otherwise; empty values are null"))
         .arg(Arg::new("null")
             .long("null")
             .value_name("text")
-            .help("Read NULLs of database, JSON Lines and Parquet input as text (default: the empty string), so that they are told apart from empty strings: isnull(s) is 1 for it, -o tsv writes it as \\N (as PostgreSQL COPY and MySQL LOAD DATA read it), -o jsonl and -o parquet write it as null, and database query parameters bind it as NULL. For example --null '\\N'"))
+            .help("Read NULLs of database, JSON Lines, Parquet and Avro input as text (default: the empty string), so that they are told apart from empty strings: isnull(s) is 1 for it, -o tsv writes it as \\N (as PostgreSQL COPY and MySQL LOAD DATA read it), -o jsonl, -o parquet and -o avro write it as null, and database query parameters bind it as NULL. For example --null '\\N'"))
         .arg(Arg::new("stats")
             .long("stats")
             .num_args(0)
-            .help("When the program exits, print run metrics as a JSON object on stderr for schedulers to collect: input_records (records read from the main input), output_records (records printed to stdout: one per print, one per newline of printf; the header of -o jsonl, parquet, xlsx, markdown or table is not counted), rejected_records (input records skipped because they could not be parsed, such as invalid JSON lines of -i jsonl), elapsed_secs, records_per_sec (input records per second) and exit_code"))
+            .help("When the program exits, print run metrics as a JSON object on stderr for schedulers to collect: input_records (records read from the main input), output_records (records printed to stdout: one per print, one per newline of printf; the header of -o jsonl, parquet, avro, xlsx, markdown or table is not counted), rejected_records (input records skipped because they could not be parsed, such as invalid JSON lines of -i jsonl), elapsed_secs, records_per_sec (input records per second) and exit_code"))
         .arg(Arg::new("program")
             .index(1)
             .help("The zawk program to execute"))
@@ -1757,8 +1763,8 @@ fn real_main() {
     {
         Some("csv") => Some(InputFormat::CSV),
         Some("tsv") => Some(InputFormat::TSV),
-        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("markdown")
-        | Some("md") | Some("xlsx") => None,
+        Some("json") | Some("jsonl") | Some("ndjson") | Some("parquet") | Some("avro")
+        | Some("markdown") | Some("md") | Some("xlsx") => None,
         Some(x) => fail!("invalid input format: {}", x),
         None => None,
     };
@@ -1925,10 +1931,12 @@ fn real_main() {
         Some("table") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and converted to a Parquet file by `ParquetFactory`.
         Some("parquet") => (Escaper::TSV, Some("\t"), Some("\n")),
+        // Records are written as TSV and converted to an Avro file by `AvroFactory`.
+        Some("avro") => (Escaper::TSV, Some("\t"), Some("\n")),
         // Records are written as TSV and converted to an Excel workbook by `XlsxFactory`.
         Some("xlsx") => (Escaper::TSV, Some("\t"), Some("\n")),
         Some(s) => fail!(
-            "invalid output format {:?}; expected csv, tsv, jsonl, markdown, table, parquet or xlsx (or the empty string)",
+            "invalid output format {:?}; expected csv, tsv, jsonl, markdown, table, parquet, avro or xlsx (or the empty string)",
             s
         ),
         None => (Escaper::Identity, None, None),
@@ -1941,6 +1949,7 @@ fn real_main() {
     let json = matches!(input_format.as_deref(), Some("json"));
     let jsonl = matches!(input_format.as_deref(), Some("jsonl") | Some("ndjson"));
     let parquet = matches!(input_format.as_deref(), Some("parquet"));
+    let avro = matches!(input_format.as_deref(), Some("avro"));
     let markdown = matches!(input_format.as_deref(), Some("markdown") | Some("md"));
     // Database tables and queries are read as CSV, the column names on the header line.
     let database = matches!(input_format.as_deref(), Some("database"));
@@ -1960,11 +1969,16 @@ fn real_main() {
     } else {
         ifmt
     };
-    // JSON documents, JSON Lines records, Parquet files, Markdown tables and database tables are
-    // self-describing, so FI is always populated from the first record (the column names for
-    // Parquet, Markdown and database tables).
-    let parse_header =
-        matches.get_flag("parse-header") || json || jsonl || parquet || markdown || database;
+    // JSON documents, JSON Lines records, Parquet and Avro files, Markdown tables and database
+    // tables are self-describing, so FI is always populated from the first record (the column
+    // names for Parquet, Avro, Markdown and database tables).
+    let parse_header = matches.get_flag("parse-header")
+        || json
+        || jsonl
+        || parquet
+        || avro
+        || markdown
+        || database;
     // A NATS subject or a Kafka topic: each message is an input file of its own, read until Ctrl+C.
     let message_url = input_files
         .iter()
@@ -1981,7 +1995,7 @@ fn real_main() {
                 }
             );
         }
-        if parquet || markdown || xlsx {
+        if parquet || avro || markdown || xlsx {
             let service = if kafka::is_kafka_url(url) {
                 "Kafka"
             } else {
@@ -1997,10 +2011,12 @@ fn real_main() {
         num_workers = 1;
     }
     parsing::set_workers_read_whole_files(matches!(exec_strategy, ExecutionStrategy::ShardPerFile));
-    // Every input file starts with a header line (JSON and Parquet records are mapped by key).
+    // Every input file starts with a header line (JSON, Parquet and Avro records are mapped by
+    // key).
     // Every message is read by a reader of its own, which starts with the header (the keys
     // of a JSON message).
-    let header_per_file = parse_header && ((!json && !jsonl && !parquet) || message_url.is_some());
+    let header_per_file =
+        parse_header && ((!json && !jsonl && !parquet && !avro) || message_url.is_some());
     let multi_file_headers = header_per_file && (input_files.len() > 1 || message_url.is_some());
     if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
         // The workers cannot tell which record is the header of a file.
@@ -2209,6 +2225,34 @@ fn real_main() {
                         .map(|file| match file.as_str() {
                             "-" => (open(ParquetJson::stdin()), file.clone()),
                             _ => (open(ParquetJson::file(file.clone())), file.clone()),
+                        })
+                        .collect()
+                };
+                let $inp = JsonlReader::new(
+                    sources.into_iter(),
+                    fi_names,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                );
+                $body
+            } else if avro {
+                // Avro records are read as JSON Lines.
+                let fi_names = awk_util::fi_constant_keys(&program_code);
+                let sources: Vec<(AvroJson, String)> = if input_files.len() == 0 {
+                    vec![(AvroJson::stdin(), String::from("-"))]
+                } else {
+                    for file in input_files.iter().filter(|f| f.as_str() != "-") {
+                        if let Err(e) = AvroJson::check(file) {
+                            fatal!("{}", e);
+                        }
+                    }
+                    input_files
+                        .iter()
+                        .map(|file| match file.as_str() {
+                            "-" => (AvroJson::stdin(), file.clone()),
+                            _ => (AvroJson::file(file.clone()), file.clone()),
                         })
                         .collect()
                 };
@@ -2450,6 +2494,7 @@ fn real_main() {
         Some("markdown") | Some("md") => "markdown",
         Some("table") => "table",
         Some("parquet") => "parquet",
+        Some("avro") => "avro",
         Some("xlsx") => "xlsx",
         _ => "",
     };
@@ -2458,13 +2503,13 @@ fn real_main() {
         fail!("--summary requires -o table or -o markdown");
     }
     let infer_types = matches.get_flag("infer-types");
-    if infer_types && !matches!(output_format, "jsonl" | "parquet") {
-        fail!("--infer-types requires -o jsonl or -o parquet");
+    if infer_types && !matches!(output_format, "jsonl" | "parquet" | "avro") {
+        fail!("--infer-types requires -o jsonl, -o parquet or -o avro");
     }
     if matches.get_flag("stats") {
         runtime::stats::enable(start, !output_format.is_empty());
     }
-    if matches!(output_format, "parquet" | "xlsx")
+    if matches!(output_format, "parquet" | "avro" | "xlsx")
         && out_file.is_none()
         && std::io::IsTerminal::is_terminal(&std::io::stdout())
     {
@@ -2490,6 +2535,10 @@ fn real_main() {
                 }
                 "parquet" => {
                     let $out = runtime::parquet_writer::ParquetFactory($factory, infer_types);
+                    with_inp!(analysis_result, $inp, $body);
+                }
+                "avro" => {
+                    let $out = runtime::avro_writer::AvroFactory($factory, infer_types);
                     with_inp!(analysis_result, $inp, $body);
                 }
                 "xlsx" => {

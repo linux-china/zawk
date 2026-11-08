@@ -3,8 +3,8 @@ name: zawk
 description: >
   Process text and structured data on the command line with zawk, a fast AWK (gawk mostly compatible) written in Rust
   with a standard library of ~190 functions. Use it to filter, transform, aggregate and convert CSV/TSV, JSON,
-  JSON Lines, Parquet, Excel, Markdown tables, database tables and logs (local files, stdin, http(s):// or s3://,
-  gz/zst/bz2/xz/lz4 transparently); to output CSV/TSV/JSON Lines/Markdown/terminal tables/Parquet/Excel; and to call JSON/XML/HTML parsers, date/time, crypto/JWT, encode/hash, ID
+  JSON Lines, Parquet, Avro, Excel, Markdown tables, database tables and logs (local files, stdin, http(s):// or s3://,
+  gz/zst/bz2/xz/lz4 transparently); to output CSV/TSV/JSON Lines/Markdown/terminal tables/Parquet/Avro/Excel; and to call JSON/XML/HTML parsers, date/time, crypto/JWT, encode/hash, ID
   generators, HTTP, SQLite/MySQL/PostgreSQL, KV (SQLite/Redis/NATS), S3, NATS/MQTT and LLM decisions (jev) per record.
   Prefer it over awk/gawk, sed+cut pipelines or one-off Python scripts for line-oriented data processing.
 allowed-tools: Bash
@@ -18,8 +18,8 @@ network and databases. It is a single binary: `zawk 'program' [file ...]`.
 
 Use zawk when the task is "scan records, filter/transform/aggregate, print a result", especially when:
 
-- the input is CSV/TSV (with quoting), JSON, JSON Lines, Parquet, Excel, a Markdown table, a database table or a log
-- the output should be CSV/TSV, JSON Lines, a Markdown table (for a reply/PR/issue), a Parquet file or an Excel file
+- the input is CSV/TSV (with quoting), JSON, JSON Lines, Parquet, Avro, Excel, a Markdown table, a database table or a log
+- the output should be CSV/TSV, JSON Lines, a Markdown table (for a reply/PR/issue), a Parquet file, an Avro file or an Excel file
 - each record needs a function AWK lacks: `trim`, `json_value`, `strftime`/`mktime`, `digest`, `uuid`, `url` ...
 - each record triggers a side effect: an HTTP call, a SQL insert, a KV write, a message, an LLM yes/no decision
 
@@ -54,7 +54,7 @@ zawk lint -f demo.awk                  # program files (-f and -e can be repeate
 echo 'BEGIN { print 1 }' | zawk lint   # program from stdin
 zawk lint -v n=10 -f top.awk           # n is set on the command line: not reported as never set
 zawk lint -pr -f sum.awk               # also report code that changes meaning with -pr / -pf
-zawk lint -H -f report.awk             # the run uses -H (or -i jsonl/parquet/markdown): $FI[...] is filled
+zawk lint -H -f report.awk             # the run uses -H (or -i jsonl/parquet/avro/markdown): $FI[...] is filled
 zawk lint -i csv -H '{ print $FI["nmae"] }' users.csv   # with the input file: also checked against its first records
 zawk --lint -i csv -H -f report.awk users.csv            # lint, then run when there is no error (report on stderr)
 ```
@@ -107,7 +107,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W101 | gawk variable with no special meaning in zawk (`FIELDWIDTHS`, `FPAT`, `RT`, ...) |
 | W102 | unknown escape sequence in a string or regex (`"a\.b"` is `a.b`): write `\\.` for a literal dot |
 | W103 | `f` or `r` used as a variable or function name (clashes with f-strings `f"..."` and raw strings `r"..."`/`r#"..."#`) |
-| W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
+| W105 | `$FI[...]` without `-H` (or `-i jsonl\|parquet\|avro\|markdown`): `FI` is empty, so `$FI["col"]` is `""`; pass `-H` to lint too |
 | W108 | array key from `for (k in a)` compared with a number: a string comparison in gawk, numeric in zawk; write `k+0` |
 | W114 | `print $1 > 10`: `>` after print redirects to the file `10`; write `print ($1 > 10)` to print a comparison |
 | W115 | assignment in a condition (`if (x = 1)`): use `==`, or compare the assigned value explicitly |
@@ -150,13 +150,13 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or URL) / from text (repeatable, concatenated) |
 | `--include lib` / `@include "lib"` | Load an awk library file once, searched in `AWKPATH` (default `.:/usr/local/share/awk`), `lib` then `lib.awk`; remote files are not supported |
 | `-E file` | Like `-f`, all following arguments are input files: `#!/usr/bin/env -S zawk -E` |
-| `-i csv\|tsv\|json\|jsonl\|parquet\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). json, jsonl, parquet and markdown imply `-H`; json is the default for `.json` files, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet`, xlsx for `.xlsx` files (needs `-H` for a header row) |
+| `-i csv\|tsv\|json\|jsonl\|parquet\|avro\|markdown\|xlsx` | Input format (NOT gawk's `-i include`). json, jsonl, parquet, avro and markdown imply `-H`; avro is the default for `.avro` files; json is the default for `.json` files, jsonl for `.jsonl`/`.ndjson`, parquet for `.parquet`, xlsx for `.xlsx` files (needs `-H` for a header row) |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
-| `-o csv\|tsv\|jsonl\|markdown\|table\|parquet\|xlsx` | Output format of `print` to stdout (`md` = markdown, `ndjson` = jsonl); except csv/tsv, the first printed record is the header |
-| `--out-file FILE` | Write stdout to FILE (required for `-o parquet`/`-o xlsx` unless stdout is redirected) |
-| `--infer-types` | With `-o jsonl/parquet`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string) |
+| `-o csv\|tsv\|jsonl\|markdown\|table\|parquet\|avro\|xlsx` | Output format of `print` to stdout (`md` = markdown, `ndjson` = jsonl); except csv/tsv, the first printed record is the header |
+| `--out-file FILE` | Write stdout to FILE (required for `-o parquet`/`-o avro`/`-o xlsx` unless stdout is redirected) |
+| `--infer-types` | With `-o jsonl/parquet/avro`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string) |
 | `--summary` | With `-o table/markdown`: after the table, the row count and per-column type, non-empty, distinct, min, max, sum, mean |
-| `--null TEXT` | Read NULLs of database, JSON Lines and Parquet input as TEXT (e.g. `--null '\N'`) instead of `""`: `isnull($2)` tests it; `-o tsv` writes it as `\N`, `-o jsonl/parquet` as null, query parameters bind it as NULL |
+| `--null TEXT` | Read NULLs of database, JSON Lines, Parquet and Avro input as TEXT (e.g. `--null '\N'`) instead of `""`: `isnull($2)` tests it; `-o tsv` writes it as `\N`, `-o jsonl/parquet/avro` as null, query parameters bind it as NULL |
 | `--stats` | On exit, print `{"input_records":..,"output_records":..,"rejected_records":..,"elapsed_secs":..,"records_per_sec":..,"exit_code":..}` on stderr |
 | `--lint` / `--deny-warnings` | Lint before running (report on stderr); don't run on errors (or on warnings too) |
 | `-p r -j N` | Run in parallel over records with N workers (simple scripts on large files) |
@@ -183,7 +183,7 @@ matching lines.
 zawk inspect data.parquet                  # format, the command to read it, schema, sample rows, statistics
 zawk inspect -n 5 --max-rows 10000 big.csv # 5 sample rows; statistics on the first 10000 rows only (fast)
 zawk inspect -o md book.xlsx#Sheet2        # the report as Markdown (default: terminal tables); lists the sheets
-zawk inspect 'sqlite://app.db#users'       # also tables/queries of SQLite, MySQL, PostgreSQL; -i csv|tsv|json|jsonl|parquet|xlsx
+zawk inspect 'sqlite://app.db#users'       # also tables/queries of SQLite, MySQL, PostgreSQL; -i csv|tsv|json|jsonl|parquet|avro|xlsx
 zawk llm -i csv -H family.csv 'how many adults?' | llm   # a prompt (input samples + zawk rules) for an LLM to write the program
 zawk dump --prometheus http://localhost:8080/metrics     # Prometheus/OpenMetrics text -> CSV (name, labels, type, value1, value2)
 zawk functions json                        # stdlib signatures (see below); zawk lint: see above
@@ -203,6 +203,8 @@ zawk -i jsonl '$FI["level"] == "error" { print $FI["ts"], json_value($FI["ctx"],
 # Parquet: $0 is the row as a JSON object, FI maps column names
 zawk -i parquet '$FI["city"] == "Beijing" { print $0 }' people.parquet        # -> JSON Lines
 zawk -i parquet -o csv '{ print $1, $2 }' people.parquet > people.csv
+# Avro (.avro is read as -i avro): $0 is the record as a JSON object, FI maps field names
+zawk '$FI["age"] > 40 { print $FI["name"] }' people.avro
 
 # JSON document: the records of an array, selected with a JSONPath after # (the root array by default)
 zawk '{ print $FI["name"], $FI["age"] }' 'users.json#$.data'

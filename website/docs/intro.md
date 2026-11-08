@@ -12,7 +12,7 @@ It runs the AWK programs you already know (it is gawk mostly compatible and the 
 [frawk](https://github.com/ezrosent/frawk)), compiles them to machine code with Cranelift, and adds what AWK
 has always been missing for today's data work:
 
-- **Structured input and output**: CSV/TSV (RFC 4180), JSON, JSON Lines, Apache Parquet, Markdown tables and Excel,
+- **Structured input and output**: CSV/TSV (RFC 4180), JSON, JSON Lines, Apache Parquet, Apache Avro, Markdown tables and Excel,
   from local files, stdin, `http(s)://`, `s3://`, database tables, NATS subjects and Kafka topics.
 - **A standard library** of ~190 functions: text, JSON/XML/HTML, date/time, crypto/JWT, encoding, IDs,
   statistics, HTTP, SQLite/MySQL/PostgreSQL, Redis/NATS KV, S3, NATS/MQTT and LLM decisions.
@@ -119,10 +119,10 @@ zawk [options] -f script.awk [file ...]
 | `-F fs` | Field separator, as in awk (`-F,`, `-F'\t'`) |
 | `-v var=value` | Set a variable before `BEGIN` (repeatable) |
 | `-f file` / `-e text` | Program from a file (or an `https://` URL, or a Markdown file) / from text |
-| `-i csv\|tsv\|json\|jsonl\|parquet\|markdown\|xlsx` | Input format (not gawk's `-i include`) |
+| `-i csv\|tsv\|json\|jsonl\|parquet\|avro\|markdown\|xlsx` | Input format (not gawk's `-i include`) |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col` |
-| `-o csv\|tsv\|markdown\|table\|jsonl\|parquet` | Output format of `print` |
-| `--out-file FILE` | Write stdout to `FILE` (required for `-o parquet` unless redirected) |
+| `-o csv\|tsv\|markdown\|table\|jsonl\|parquet\|avro` | Output format of `print` |
+| `--out-file FILE` | Write stdout to `FILE` (required for `-o parquet`/`-o avro` unless redirected) |
 | `-p r -j N` | Run in parallel over records with `N` workers |
 | `--lint` | Lint the program before running it |
 | `--posix` | Disable zawk's command-line sugar |

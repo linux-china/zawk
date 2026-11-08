@@ -1395,7 +1395,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             .min_by_key(|l| (l.line, l.col));
         diags.push(warning(
             "W105",
-            "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
+            "`FI` is only filled from the header line with `-H` (or `-i jsonl|parquet|avro|markdown`): without it `FI` is empty and `$FI[\"col\"]` is always \"\"; run with `-H` (and pass `-H` to lint)".to_string(),
             first,
         ));
     }
@@ -1492,7 +1492,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         diags.push(warning(
             "W121",
             format!(
-                "`$\"{lit}\"`: a string after `$` is converted to a number, so this is {field}, not a column named \"{lit}\"; to read a column by its header name use `$FI[\"{lit}\"]` (with `-H`, or `-i jsonl|parquet|markdown`), or write the field number"
+                "`$\"{lit}\"`: a string after `$` is converted to a number, so this is {field}, not a column named \"{lit}\"; to read a column by its header name use `$FI[\"{lit}\"]` (with `-H`, or `-i jsonl|parquet|avro|markdown`), or write the field number"
             ),
             *loc,
         ));

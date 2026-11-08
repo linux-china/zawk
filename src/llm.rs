@@ -6,9 +6,9 @@
 //!
 //! * the command line that runs the program, and what its options mean: the input format, the
 //!   field separator, the header (`-H`) and the output format;
-//! * every input file: the first lines (the first rows of a Parquet file) and, when it has more
-//!   than 50 lines (rows), the last 10 lines (rows); and for CSV, TSV,
-//!   JSON, JSON Lines and Parquet the schema and the summary of `zawk inspect`;
+//! * every input file: the first lines (the first rows of a Parquet or Avro file) and, when it has
+//!   more than 50 lines (rows), the last 10 lines (rows); and for CSV, TSV,
+//!   JSON, JSON Lines, Parquet and Avro the schema and the summary of `zawk inspect`;
 //! * the zawk language notes and the reference of the builtin functions;
 //! * how to check the program with `zawk lint`, and how to answer;
 //! * the question, when one is given.
@@ -59,6 +59,14 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
         {
             return Some("xlsx".to_string());
         }
+        if !opts.files.is_empty()
+            && opts
+                .files
+                .iter()
+                .all(|f| crate::runtime::splitter::avro::is_avro_file(f))
+        {
+            return Some("avro".to_string());
+        }
         let json = !opts.files.is_empty()
             && opts
                 .files
@@ -73,7 +81,7 @@ pub fn prompt(opts: &Options) -> io::Result<String> {
     });
     let implied_header = matches!(
         format,
-        Some("json" | "jsonl" | "parquet" | "markdown" | "database")
+        Some("json" | "jsonl" | "parquet" | "avro" | "markdown" | "database")
     );
     let header = opts.header || implied_header;
 
@@ -249,7 +257,7 @@ fn file_section(
     // A workbook or a database has no lines of text.
     if !matches!(
         structured,
-        Some(Format::Parquet | Format::Database | Format::Xlsx)
+        Some(Format::Parquet | Format::Avro | Format::Database | Format::Xlsx)
     ) {
         let (lines, tail_lines) = match &sections {
             Some(sections) => (sections.lines.clone(), sections.tail_lines.clone()),
@@ -313,7 +321,7 @@ fn file_section(
     out.push_str(&sections.schema);
     if matches!(
         structured,
-        Format::Parquet | Format::Database | Format::Xlsx
+        Format::Parquet | Format::Avro | Format::Database | Format::Xlsx
     ) {
         out.push_str(&format!(
             "\nFirst {} rows, as awk sees the fields:\n\n",
@@ -356,6 +364,9 @@ fn input_notes(format: Option<&str>, by_default: bool) -> String {
         Some("parquet") => {
             "Parquet (`-i parquet`): every row is a record, the columns are the fields; $0 is the row as a JSON object"
         }
+        Some("avro") => {
+            "Avro (`-i avro`): every record of the file is a record, the fields of the record schema are the fields; $0 is the record as a JSON object; booleans are 1/0, timestamps RFC 3339 UTC (`2024-01-15T10:30:00Z`), decimals exact text, bytes hex, nested records/arrays/maps JSON text, null empty"
+        }
         Some("markdown") => {
             "Markdown (`-i markdown`): the first table of the file is read as CSV rows; the header row gives the column names (without `:TYPE` suffixes)"
         }
@@ -368,10 +379,13 @@ fn input_notes(format: Option<&str>, by_default: bool) -> String {
         Some(f) => return format!("`{}`", f),
     };
     if by_default {
-        format!(
-            "{} (the default, as every input file ends with `.json`)",
-            text
-        )
+        let why = match format {
+            Some("xlsx") => "every input file is an Excel workbook",
+            Some("avro") => "every input file ends with `.avro`",
+            Some("database") => "every input is a database URL",
+            _ => "every input file ends with `.json`",
+        };
+        format!("{} (the default, as {})", text, why)
     } else {
         text.to_string()
     }
@@ -429,6 +443,7 @@ fn output_notes(format: Option<&str>) -> String {
                 "markdown" | "md" => "stdout is rendered as a Markdown table: the first printed record is the header row; print the header in BEGIN",
                 "table" => "stdout is rendered as an aligned table with borders when the program ends: the first printed record is the header; print the header in BEGIN",
                 "parquet" => "stdout is written as a Parquet file: the first printed record is the header, a column name may end with `:TYPE` (BOOLEAN, INT32, INT64, DOUBLE, DATE, TIMESTAMP, STRING..., or AUTO to infer INT64/DOUBLE/BOOLEAN/DATE from the first rows; default STRING, or AUTO with `--infer-types`); print the header in BEGIN",
+                "avro" => "stdout is written as an Avro file: the first printed record is the header, a column name may end with `:TYPE` (string, int, long, float, double, boolean, date, timestamp, time, uuid, decimal(P,S), bytes, or auto to infer long/double/boolean/date from the first rows; default string, or auto with `--infer-types`); every column is nullable and empty values are null (except for string); print the header in BEGIN",
                 "xlsx" => "stdout is written as an Excel workbook with one sheet: the first printed record is the header row, a column name may end with `:string`, `:number`, `:boolean` or `:auto` (default `:auto`: numbers and true/false keep their type, `007` stays text); print the header in BEGIN",
                 _ => "",
             };

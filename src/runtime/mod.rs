@@ -26,7 +26,10 @@ pub mod encoding;
 pub mod float_parse;
 pub mod math_util;
 pub(crate) mod numfmt;
+pub mod avro_writer;
 pub mod parquet_writer;
+
+pub(crate) mod typed_value;
 pub mod printf;
 pub(crate) mod regex_memory;
 pub(crate) mod sorted_in;

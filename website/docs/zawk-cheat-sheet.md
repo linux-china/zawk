@@ -31,6 +31,7 @@ $ zawk -F: '{print $1, $NF}' /etc/passwd
 | `-F:`         | Colon as a separator      |
 | `-i csv`      | CSV input mode            |
 | `-i parquet`  | Parquet input mode        |
+| `-i avro`     | Avro input mode           |
 | `{...}`       | Awk program               |
 | `print`       | Prints the current record |
 | `$1`          | First field               |
@@ -904,6 +905,7 @@ Use `--posix` to disable the sugar.
 | `-i jsonl`                | JSON Lines, implies `-H`               |
 | `-i json`                 | JSON array or document                 |
 | `-i parquet`              | Parquet, implies `-H`                  |
+| `-i avro`                 | Avro, implies `-H`                     |
 | `-i markdown`             | First Markdown table, implies `-H`     |
 | `-i xlsx`                 | Excel or ODS sheet                     |
 
@@ -943,6 +945,7 @@ The first record printed is the header, except for `-o csv` and `-o tsv`.
 | `-o markdown` | Markdown table                            |
 | `-o table`    | Aligned table for terminals               |
 | `-o parquet`  | Parquet, with `--out-file`                |
+| `-o avro`     | Avro, with `--out-file`                   |
 | `-o xlsx`     | Excel, with `--out-file`                  |
 
 ```shell
@@ -1153,8 +1156,8 @@ See: [OS, I/O & Misc](./stdlib/os-io.md)
 | `-i`, `-o`               | Input and output format                            |
 | `--out-file file`        | Write to a file                                    |
 | `--summary`              | Column statistics, with `-o table` or `-o markdown` |
-| `--infer-types`          | Typed numbers/booleans, with `-o jsonl` or `-o parquet` |
-| `--null text`            | Read NULLs of database, JSON Lines and Parquet as text |
+| `--infer-types`          | Typed numbers/booleans, with `-o jsonl`, `-o parquet` or `-o avro` |
+| `--null text`            | Read NULLs of database, JSON Lines, Parquet and Avro as text |
 | `--include lib`          | Load an AWK library, same as `@include "lib"`      |
 | `-p r`, `-p f`, `-j n`   | Parallel by record or file, with n workers         |
 | `--lint`                 | Lint before running                                |

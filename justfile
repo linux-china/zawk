@@ -426,3 +426,11 @@ run-to-iso8601:
 # run date_trunc
 run-date-trunc:
    cargo run --package zawk --bin zawk -- 'BEGIN {print strftime("%F %T", date_trunc("week", mktime("2024-02-15 10:37:42"))) }'
+
+# run avro read
+run-avro-read:
+   cargo run --package zawk --bin zawk -- ' { print $2 } ' tests/demo.avro
+
+# run avro write
+run-avro-write:
+   cargo run --package zawk --bin zawk -- -o avro --out-file output.avro 'BEGIN { print "id:int", "name"}  { print $1, $2 } ' tests/demo.avro

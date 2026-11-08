@@ -8,8 +8,9 @@ static NULL_TEXT: OnceLock<String> = OnceLock::new();
 /// read it. `-o tsv` escapes a backslash as `\\`, so no other field is written this way.
 pub const TSV_NULL: &str = "\\N";
 
-/// `--null text`: NULLs of database, JSON Lines and Parquet input are read as `text`, and a field
-/// that is `text` is written as NULL by `-o tsv` (`\N`), `-o jsonl` and `-o parquet` (null).
+/// `--null text`: NULLs of database, JSON Lines, Parquet and Avro input are read as `text`, and a
+/// field that is `text` is written as NULL by `-o tsv` (`\N`), `-o jsonl`, `-o parquet` and
+/// `-o avro` (null).
 pub fn set_null_text(text: String) {
     let _ = NULL_TEXT.set(text);
 }

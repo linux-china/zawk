@@ -129,6 +129,8 @@ postgres = { version = "0.19", features = [
 csv = "1.4"
 # LZ4 codecs, to keep the binary small.
 parquet = { version = "60.1", default-features = false, features = ["snap", "zstd", "lz4"] }
+# Avro Object Container Files (`-i avro`, `-o avro`): Value API only, without Arrow.
+apache-avro = { version = "0.22", default-features = false, features = ["snappy", "zstandard", "bzip", "xz"] }
 bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
@@ -195,6 +197,7 @@ codegen-units = 1
 
 [profile.release.package]
 parquet = { opt-level = "s" }
+apache-avro = { opt-level = "s" }
 calamine = { opt-level = "s" }
 async-nats = { opt-level = "s" }
 rumqttc = { opt-level = "s" }

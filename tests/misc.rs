@@ -2789,6 +2789,83 @@ fn parquet_output() {
 }
 
 #[test]
+fn avro_output_and_input() {
+    // -o avro writes the printed records as an Avro file (the first record is the header, where
+    // `name:TYPE` sets a column type); `.avro` files are read back as -i avro without -i.
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("out.avro");
+    let out = out.to_str().unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-oavro")
+            .arg("--out-file")
+            .arg(out)
+            .arg(r#"BEGIN { print "name", "age:int", "ok:BOOLEAN", "d:Date", "ts:Timestamp", "price:decimal(10,2)", "id:UUID", "url:http" }
+                { print $1, $2, $3, $4, $5, $6, $7, $8 }"#)
+            .write_stdin(
+                "Alice 30 true 2024-01-02 2024-01-02T03:04:05Z 12.5 67e55044-10b1-426f-9247-bb680e5fe0c8 a\n\
+                 Bob x maybe 86400 1700000000 -0.505 - b\n",
+            )
+            .assert()
+            .success()
+            .stderr(concat!(
+                "zawk: warning: avro: column \"url:http\" is written as the Avro field \"url_http\" (Avro names are [A-Za-z_][A-Za-z0-9_]* and unique)\n",
+                "zawk: avro column \"age\" (Int): 1 invalid value(s) written as null\n",
+                "zawk: avro column \"ok\" (Bool): 1 invalid value(s) written as null\n",
+                "zawk: avro column \"id\" (Uuid): 1 invalid value(s) written as null\n",
+            ));
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("{ print $0; print NF, $FI[\"price\"], $FI[\"ok\"] }")
+            .arg(out)
+            .assert()
+            .success()
+            .stdout(concat!(
+                r#"{"name":"Alice","age":30,"ok":true,"d":"2024-01-02","ts":"2024-01-02T03:04:05Z","price":12.50,"id":"67e55044-10b1-426f-9247-bb680e5fe0c8","url_http":"a"}"#,
+                "\n8 12.50 1\n",
+                r#"{"name":"Bob","age":null,"ok":null,"d":"1970-01-02","ts":"2023-11-14T22:13:20Z","price":-0.51,"id":null,"url_http":"b"}"#,
+                "\n8 -0.51 \n",
+            ));
+        // NULLs are the --null text; standard input needs -i avro.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-i", "avro", "--null", "NULL", r#"{ print $FI["age"], isnull($FI["age"]) }"#])
+            .pipe_stdin(out)
+            .unwrap()
+            .assert()
+            .success()
+            .stdout("30 0\nNULL 1\n");
+    }
+    // The existing demo file, and a file that is not Avro.
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/demo.avro");
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(r#"{ s += $FI["age"] } END { print NR, s }"#)
+        .arg(&demo)
+        .assert()
+        .success()
+        .stdout("5 139\n");
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-i", "avro", "{ print }", "Cargo.toml"])
+        .assert()
+        .code(2);
+    // An invalid decimal type is a fatal error.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-oavro")
+        .arg("--out-file")
+        .arg(out)
+        .arg(r#"BEGIN { print "a:decimal(0,1)" }"#)
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn infer_types_output() {
     // `:auto` (and --infer-types for columns without a suffix) keeps numbers and booleans typed:
     // per value for -o jsonl, per column from the first rows for -o parquet.

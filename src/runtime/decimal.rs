@@ -195,7 +195,7 @@ fn parse_mode(s: &str) -> Result<RoundingStrategy, String> {
 }
 
 /// Parse decimal text, see the module documentation.
-fn parse(s: &str) -> Result<Decimal, String> {
+pub(crate) fn parse(s: &str) -> Result<Decimal, String> {
     let invalid = || format!("invalid decimal {:?}", s);
     let t = s.trim();
     if t.is_empty() {

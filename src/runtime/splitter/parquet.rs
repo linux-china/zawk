@@ -116,7 +116,7 @@ impl Projection {
 
 /// How a value is written in JSON.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Kind {
+pub(super) enum Kind {
     Null,
     Bool,
     /// The text is valid JSON as is: numbers and nested values.
@@ -647,7 +647,7 @@ impl Read for ParquetJson {
     }
 }
 
-fn push_json(out: &mut String, text: &str, kind: Kind) {
+pub(super) fn push_json(out: &mut String, text: &str, kind: Kind) {
     match kind {
         Kind::Null => out.push_str("null"),
         Kind::Bool => out.push_str(if text == "1" { "true" } else { "false" }),
@@ -657,7 +657,7 @@ fn push_json(out: &mut String, text: &str, kind: Kind) {
 }
 
 /// A JSON string literal.
-fn push_json_str(out: &mut String, s: &str) {
+pub(super) fn push_json_str(out: &mut String, s: &str) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -791,7 +791,7 @@ fn scalar_text(field: &Field) -> (String, Kind) {
 
 /// A float in its shortest form, without a trailing ".0" (`3.5`, `100`, `1e300`). Infinities
 /// and NaN are not JSON numbers: they are written as null in JSON.
-fn float_text(v: f64, single: Option<f32>) -> (String, Kind) {
+pub(super) fn float_text(v: f64, single: Option<f32>) -> (String, Kind) {
     if !v.is_finite() {
         let text = if v.is_nan() {
             "nan"
@@ -889,7 +889,7 @@ fn decimal_text(d: &Decimal) -> Option<String> {
     Some(format!("{sign}{int}.{frac}"))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
@@ -905,20 +905,20 @@ fn uuid(b: &[u8]) -> String {
     )
 }
 
-fn date(days: i32) -> String {
+pub(super) fn date(days: i32) -> String {
     chrono::DateTime::from_timestamp(days as i64 * 86_400, 0)
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_default()
 }
 
 /// `2024-01-15 10:30:00`, with the fraction of a second only when it is not zero.
-fn timestamp_nanos(nanos: i64) -> String {
+pub(super) fn timestamp_nanos(nanos: i64) -> String {
     chrono::DateTime::from_timestamp_nanos(nanos)
         .naive_utc()
         .to_string()
 }
 
-fn time_nanos(nanos: i64) -> String {
+pub(super) fn time_nanos(nanos: i64) -> String {
     let secs = nanos.div_euclid(1_000_000_000);
     let frac = nanos.rem_euclid(1_000_000_000);
     let hms = format!("{:02}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60);

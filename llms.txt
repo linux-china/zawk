@@ -5,11 +5,12 @@
 Things to remember to write awk script with zawk:
 
 - standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS/Kafka etc.
-- input formats: `zawk -i csv|tsv|json|jsonl|parquet|markdown|xlsx`; `-H` makes the first line a header so that `$FI["col"]` reads a column by name (json, jsonl, parquet and markdown imply it)
+- input formats: `zawk -i csv|tsv|json|jsonl|parquet|avro|markdown|xlsx`; `-H` makes the first line a header so that `$FI["col"]` reads a column by name (json, jsonl, parquet, avro and markdown imply it)
 - JSON documents: `zawk '{ print $FI["name"] }' 'users.json#$.data'` (`-i json` is the default for `.json` files; each element of the array selected by the JSONPath after `#` is a record)
-- output formats: `zawk -o csv|tsv|jsonl|markdown|table|parquet|xlsx`; except csv/tsv, the first printed record is the header row: `zawk -i csv -H -o md 'NR==1 { print "name", "age" } { print $FI["name"], $FI["age"] }' users.csv`
+- output formats: `zawk -o csv|tsv|jsonl|markdown|table|parquet|avro|xlsx`; except csv/tsv, the first printed record is the header row: `zawk -i csv -H -o md 'NR==1 { print "name", "age" } { print $FI["name"], $FI["age"] }' users.csv`
   - `-o jsonl`: column names may end with `:number`, `:boolean`, `:auto` or `:string` (default; `--infer-types` makes it `:auto`)
   - `-o parquet --out-file out.parquet`: column names may end with `:TYPE` (INT32, INT64, DOUBLE, BOOLEAN, DATE, TIMESTAMP, JSON, UUID, STRING, AUTO)
+  - `-o avro --out-file out.avro`: column names may end with `:TYPE` (string, int, long, float, double, boolean, date, timestamp, time, uuid, decimal(P,S), bytes, auto); every column is nullable
   - `-o xlsx --out-file out.xlsx`: one sheet; numbers and true/false keep their type by default, `:string` keeps a column as text
   - `-o table` (terminal) and `-o md` accept `--summary` for per-column statistics
 - other run options: `--null '\N'` (tell database/JSON/Parquet NULLs from empty strings, test with `isnull`), `--stats` (record counts as JSON on stderr), `--lint` (lint before running)

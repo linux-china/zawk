@@ -5,6 +5,7 @@
 //! characters that cross chunk boundaries, or multi-chunk "lines".
 
 // TODO: add padding to the linereader trait
+pub mod avro;
 pub mod batch;
 pub mod chunk;
 pub mod database;

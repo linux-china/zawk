@@ -1,4 +1,4 @@
-//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines, Parquet or Excel file, or a database
+//! `zawk inspect`: a quick look at a CSV, TSV, JSON, JSON Lines, Parquet, Avro or Excel file, or a database
 //! table or query (`sqlite://app.db#user`), before writing a program for it.
 //!
 //! The report has three parts:
@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::runtime::splitter::{database, json, jsonl, parquet::ParquetJson, xlsx};
+use crate::runtime::splitter::{avro::AvroJson, database, json, jsonl, parquet::ParquetJson, xlsx};
 use crate::runtime::{decompress, http, s3};
 
 /// The number of last rows (or lines) shown.
@@ -57,6 +57,8 @@ pub enum Format {
     Json,
     Jsonl,
     Parquet,
+    /// An Avro Object Container File.
+    Avro,
     /// A database table or query (`sqlite://app.db#user`), read as CSV with a header line.
     Database,
     /// A sheet of an Excel workbook (`book.xlsx#Sheet2`), read as CSV.
@@ -71,6 +73,7 @@ impl Format {
             "json" => Format::Json,
             "jsonl" | "ndjson" => Format::Jsonl,
             "parquet" => Format::Parquet,
+            "avro" => Format::Avro,
             "database" => Format::Database,
             "xlsx" => Format::Xlsx,
             _ => return None,
@@ -84,6 +87,7 @@ impl Format {
             Format::Json => "json",
             Format::Jsonl => "jsonl",
             Format::Parquet => "parquet",
+            Format::Avro => "avro",
             Format::Database => "database",
             Format::Xlsx => "xlsx",
         }
@@ -97,6 +101,7 @@ impl Format {
             Format::Json => "-i json",
             Format::Jsonl => "-i jsonl",
             Format::Parquet => "-i parquet",
+            Format::Avro => "-i avro",
             // implied by the URL
             Format::Database => "",
             Format::Xlsx => "-i xlsx -H",
@@ -351,6 +356,7 @@ fn read(
             )));
         }
         Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
+        Some(Format::Avro) => (Format::Avro, read_avro(path, opts, &mut ins)?),
         Some(Format::Xlsx) => (Format::Xlsx, read_xlsx(path, opts, &mut ins)?),
         Some(format) => {
             let input = open(path)?;
@@ -364,6 +370,8 @@ fn read(
         None => {
             if path != "-" && extension_format(path) == Some(Format::Parquet) {
                 (Format::Parquet, read_parquet(path, opts, &mut ins)?)
+            } else if path != "-" && extension_format(path) == Some(Format::Avro) {
+                (Format::Avro, read_avro(path, opts, &mut ins)?)
             } else if path != "-" && extension_format(path) == Some(Format::Xlsx) {
                 (Format::Xlsx, read_xlsx(path, opts, &mut ins)?)
             } else {
@@ -374,6 +382,7 @@ fn read(
                 let format = match extension_format(path) {
                     Some(format) => format,
                     None if prefix.starts_with(b"PAR1") => Format::Parquet,
+                    None if prefix.starts_with(b"Obj\x01") => Format::Avro,
                     None => sniff_text(&prefix),
                 };
                 if format == Format::Parquet {
@@ -387,6 +396,15 @@ fn read(
                         tap.clear();
                     }
                     (format, read_parquet(path, opts, &mut ins)?)
+                } else if format == Format::Avro {
+                    if let Some(tap) = tap {
+                        tap.clear();
+                    }
+                    let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
+                    (
+                        format,
+                        read_avro_from(AvroJson::reader(input, path), opts, &mut ins)?,
+                    )
                 } else {
                     let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
                     let input = if format == Format::Json {
@@ -423,6 +441,7 @@ pub fn extension_format(path: &str) -> Option<Format> {
         "json" => Format::Json,
         "jsonl" | "ndjson" => Format::Jsonl,
         "parquet" | "pq" => Format::Parquet,
+        "avro" => Format::Avro,
         "xlsx" | "xlsm" | "xls" | "xlsb" | "ods" => Format::Xlsx,
         _ => return None,
     })
@@ -485,6 +504,33 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
     } else {
         ParquetJson::file(path.to_string())
     };
+    let mut table = source.table()?;
+    for (i, (name, ty)) in table.columns().into_iter().enumerate() {
+        ins.add_column(name.clone(), name, Some(ty), Some(i + 1));
+    }
+    while let Some(row) = table.next_row() {
+        if ins.full(opts.max_rows) {
+            return Ok(true);
+        }
+        ins.add_row(row?);
+    }
+    Ok(false)
+}
+
+/// Reads the records of an Avro file; returns whether reading stopped at `--max-rows`.
+fn read_avro(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+    if path != "-" {
+        AvroJson::check(path).map_err(io::Error::other)?;
+    }
+    let source = if path == "-" {
+        AvroJson::stdin()
+    } else {
+        AvroJson::file(path.to_string())
+    };
+    read_avro_from(source, opts, ins)
+}
+
+fn read_avro_from(source: AvroJson, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
     let mut table = source.table()?;
     for (i, (name, ty)) in table.columns().into_iter().enumerate() {
         ins.add_column(name.clone(), name, Some(ty), Some(i + 1));
@@ -634,7 +680,7 @@ fn read_text(
                 }
             }
         }
-        Format::Parquet | Format::Database | Format::Xlsx => unreachable!(),
+        Format::Parquet | Format::Avro | Format::Database | Format::Xlsx => unreachable!(),
     }
     Ok(false)
 }
@@ -645,7 +691,7 @@ pub enum Sample {
     /// Lines of text (the header line first, with `-H`), to be split by the program's `FS`.
     Lines(Vec<String>),
     /// Records split by an input format: the `FI` keys (a CSV/TSV header line with `-H`, the
-    /// keys of the first JSON object, the Parquet columns) and the fields of each record, as
+    /// keys of the first JSON object, the Parquet and Avro columns) and the fields of each record, as
     /// awk sees them (a null is "").
     Fields {
         header: Option<Vec<String>>,
@@ -738,6 +784,29 @@ pub fn sample(
             while rows.len() < max_records {
                 match table.next_row() {
                     Some(row) => rows.push(row?.iter().map(|v| v.text().to_string()).collect()),
+                    None => break,
+                }
+            }
+            return Ok(Sample::Fields {
+                header: Some(header),
+                rows,
+            });
+        }
+        Some(Format::Avro) => {
+            if path != "-" {
+                AvroJson::check(path).map_err(io::Error::other)?;
+            }
+            let source = if path == "-" {
+                AvroJson::stdin()
+            } else {
+                AvroJson::file(path.to_string())
+            };
+            let mut table = source.table()?;
+            let header = table.columns().into_iter().map(|(name, _)| name).collect();
+            let mut rows = Vec::new();
+            while rows.len() < max_records {
+                match table.next_row() {
+                    Some(row) => rows.push(row?.iter().map(|c| awk_text(c).to_string()).collect()),
                     None => break,
                 }
             }
