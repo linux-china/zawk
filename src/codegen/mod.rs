@@ -1234,6 +1234,21 @@ pub(crate) trait CodeGenerator: Backend {
             MkBool(dst, text) => self.unop(intrinsic!(mkbool), dst, text),
             MkPassword(dst, len) => self.unop(intrinsic!(mkpass), dst, len),
             Fend(dst, src) => self.unop(intrinsic!(fend), dst, src),
+            Decimal(op, dst, a, b, c, d) => {
+                let op = self.const_int(op.code() as i64);
+                let a = self.get_val(a.reflect())?;
+                let b = self.get_val(b.reflect())?;
+                let c = self.get_val(c.reflect())?;
+                let d = self.get_val(d.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(decimal), &mut [op, a, b, c, d])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            DecCmp(dst, a, b) => {
+                let a = self.get_val(a.reflect())?;
+                let b = self.get_val(b.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(dec_cmp), &mut [a, b])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             MapStrIntEval(dst, formula, context) => {
                 let formula = self.get_val(formula.reflect())?;
                 let context = self.get_val(context.reflect())?;

@@ -46,6 +46,7 @@ const PARSER: &str = "Parser";
 const ID: &str = "ID";
 const ARRAY: &str = "Array";
 const MATH: &str = "Math";
+const DECIMAL: &str = "Decimal";
 const BITWISE: &str = "Bitwise";
 const DATETIME: &str = "Date/Time";
 const COLOR: &str = "Color";
@@ -931,6 +932,56 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "fend(expr: str) -> str",
         "Evaluate with the fend calculator (units supported).",
         r#"fend("1+2")"#,
+    ),
+    // Decimal
+    d(
+        "dec_add",
+        DECIMAL,
+        "dec_add(a: str, b: str) -> str",
+        "Exact decimal sum of a and b, as text (no float rounding); \"\" is 0, so `t = dec_add(t, $3)` needs no initialization.",
+        r#"dec_add("0.1", "0.2")"#,
+    ),
+    d(
+        "dec_sub",
+        DECIMAL,
+        "dec_sub(a: str, b: str) -> str",
+        "Exact decimal difference a - b, as text.",
+        r#"dec_sub("1.00", "0.99")"#,
+    ),
+    d(
+        "dec_mul",
+        DECIMAL,
+        "dec_mul(a: str, b: str) -> str",
+        "Exact decimal product of a and b, as text; the scale is the sum of the scales (1.10 * 1.10 = 1.2100).",
+        r#"dec_mul("19.99", 3)"#,
+    ),
+    d(
+        "dec_div",
+        DECIMAL,
+        "dec_div(a: str, b: str[, scale: int[, mode: str]]) -> str",
+        "Decimal quotient a / b (28 significant digits, trailing zeros removed), rounded to scale places with mode if given; \"\" with a warning when b is 0.",
+        r#"dec_div(10, 3, 2)"#,
+    ),
+    d(
+        "dec_round",
+        DECIMAL,
+        "dec_round(a: str[, scale: int[, mode: str]]) -> str",
+        "Round decimal text to scale places (default 0, negative to the left of the point), padding with zeros; mode: half_up (default), half_even, half_down, up, down, ceil, floor.",
+        r#"dec_round("2.675", 2)"#,
+    ),
+    d(
+        "dec_format",
+        DECIMAL,
+        "dec_format(a: str[, scale: int[, mode: str]]) -> str",
+        "Decimal text with its integer digits grouped by thousands with `,`, rounded to scale places with mode if given.",
+        r#"dec_format("1234567.5", 2)"#,
+    ),
+    d(
+        "dec_cmp",
+        DECIMAL,
+        "dec_cmp(a: str, b: str) -> int",
+        "Compare two decimals: -1, 0 or 1 as a is less than, equal to or greater than b.",
+        r#"dec_cmp("1.10", "1.1")"#,
     ),
     d(
         "mkbool",

@@ -59,6 +59,7 @@ ulid = "3.0"
 tsid = "0.3"
 rs-snowflake = "0.6"
 fend-core = "1.5"
+rust_decimal = { version = "1.43", default-features = false, features = ["std"] }
 evalexpr = "13.1"
 chrono = "0.4"
 chrono-systemd-time = "0.4.0"

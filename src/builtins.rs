@@ -4,6 +4,7 @@ use crate::ast;
 use crate::common::Either;
 use crate::common::{CompileError, NodeIx, Result};
 use crate::compile;
+pub use crate::runtime::decimal::DecOp;
 use crate::runtime::{Int, IntMap, Str, StrMap};
 use crate::types::{self, SmallVec};
 use smallvec::smallvec;
@@ -72,6 +73,9 @@ pub enum Function {
     MkBool,
     MkPassword,
     Fend,
+    // Exact decimal arithmetic on decimal text (`dec_add`, ... see runtime::decimal).
+    Decimal(DecOp),
+    DecCmp,
     Eval,
     Trim,
     Truncate,
@@ -522,6 +526,13 @@ static_map!(
     ["mkbool", Function::MkBool],
     ["mkpass", Function::MkPassword],
     ["fend", Function::Fend],
+    ["dec_add", Function::Decimal(DecOp::Add)],
+    ["dec_sub", Function::Decimal(DecOp::Sub)],
+    ["dec_mul", Function::Decimal(DecOp::Mul)],
+    ["dec_div", Function::Decimal(DecOp::Div)],
+    ["dec_round", Function::Decimal(DecOp::Round)],
+    ["dec_format", Function::Decimal(DecOp::Format)],
+    ["dec_cmp", Function::DecCmp],
     ["eval", Function::Eval],
     ["trim", Function::Trim],
     ["encode", Function::Encode],
@@ -1112,6 +1123,9 @@ impl Function {
             MkBool => (smallvec![Str], Int),
             MkPassword => (smallvec![Int], Str),
             Fend => (smallvec![Str], Str),
+            // Optional arguments are filled with "" (see cfg.rs).
+            Decimal(_) => (smallvec![Str; 4], Str),
+            DecCmp => (smallvec![Str, Str], Int),
             Eval => (smallvec![Str, incoming[1]], Float),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str, Str, Str], MapStrStr),
@@ -1383,6 +1397,8 @@ impl Function {
             DateTrunc => 2,
             ToIso8601 => 1,
             StrCmp => 2,
+            Decimal(_) => 4,
+            DecCmp => 2,
             Similar => 2,
             CharAt => 2,
             Chars => 1,
@@ -1622,6 +1638,8 @@ impl Function {
                 _ => Ok(Scalar(BaseTy::Float).abs()),
             },
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
+            Decimal(_) => Ok(Scalar(BaseTy::Str).abs()),
+            DecCmp => Ok(Scalar(BaseTy::Int).abs()),
             Similar => Ok(Scalar(BaseTy::Float).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetExit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),

@@ -191,6 +191,8 @@ impl Display for Function {
             MkBool => write!(f, "mkbool"),
             MkPassword => write!(f, "mkpass"),
             Fend => write!(f, "fend"),
+            Decimal(op) => write!(f, "{}", op.func_name()),
+            DecCmp => write!(f, "dec_cmp"),
             Eval => write!(f, "eval"),
             Trim => write!(f, "trim"),
             Truncate => write!(f, "truncate"),

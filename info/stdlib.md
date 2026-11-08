@@ -730,6 +730,33 @@ Please refer https://github.com/isibboi/evalexpr for more.
 
 Please refer https://printfn.github.io/fend/documentation/ for more.
 
+### Decimal: dec_add, dec_sub, dec_mul, dec_div, dec_round, dec_format, dec_cmp
+
+awk numbers are 64-bit floats, so `0.1 + 0.2` is `0.30000000000000004` and money columns drift. The `dec_*` functions
+take decimal text and return decimal text, computing exactly in between (28 significant digits):
+
+```awk
+dec_add("0.1", "0.2")              # 0.3
+dec_sub("1.00", "0.99")            # 0.01
+dec_mul("19.99", 3)                # 59.97, the scale is the sum of the scales: dec_mul("1.10", "1.10") is 1.2100
+dec_div(10, 3, 2)                  # 3.33; without a scale: 28 significant digits, trailing zeros removed
+dec_round("2.675", 2)              # 2.68 (round(2.675, 2) is 2.67 on floats)
+dec_round("2.665", 2, "half_even") # 2.66
+dec_round("1250", -2)              # 1300
+dec_format("1234567.5", 2)         # 1,234,567.50
+dec_cmp("1.10", "1.1")             # 0; -1 or 1 when the first is smaller or greater
+```
+
+* Inputs: blanks, a sign, digits with an optional fraction and exponent (`1.5e3`), and integer digits optionally grouped
+  by thousands with `,` or `_` (`1,234.50`). An empty string is 0: `t[$1] = dec_add(t[$1], $2)` needs no
+  initialization.
+* Rounding modes: `half_up` (default, as Excel `ROUND`), `half_even` (banker's rounding), `half_down`, `up`, `down`,
+  `ceil`, `floor`. A scale is an integer from -28 to 28.
+* Invalid text, a division by zero, a bad scale or mode, and an overflow return `""` (`0` for `dec_cmp`) with a
+  warning, and set `ERRNO`.
+* Pass amounts as fields or strings, not as float expressions: a float argument is converted with `CONVFMT` (`%.6g`)
+  first, so `dec_add(x, 1234567.89)` adds `1.23457e+06`. Fields, string literals and integers are exact.
+
 ### min/max
 
 `min(1,2,3)`, `max("A","B")`,

@@ -388,6 +388,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | ID | `uuid` (v4/v7), `ulid`, `tsid`, `snowflake` |
 | Array | `seq`, `uniq`, `asort`, `asorti`, `_max`, `_min`, `_sum`, `_mean`, `_median`, `_quantile`, `_var`, `_stddev`, `_mode`, `_count_distinct`, `_top`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |
 | Math | `rand`, `srand`, `int`, `float`, `strtonum`, `abs`, `ceil`, `floor`, `round`, `exp`, `log`, `log2`, `log10`, `sqrt`, `sin`, `cos`, `atan`, `atan2`, `intdiv0`, `min`, `max`, `eval`, `fend`, `mkbool` |
+| Decimal | `dec_add`, `dec_sub`, `dec_mul`, `dec_div`, `dec_round`, `dec_format`, `dec_cmp`: exact decimal arithmetic on text, for money (`dec_add("0.1", "0.2")` is `0.3`); pass fields or strings, not floats |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` (negative values are a fatal error as in gawk, except the first argument of `rshiftl`; `compl(0)` is `2^53 - 1`; numbers and results keep their low 63 bits; shift counts of 64 and above shift everything out) |
 | Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc`, `to_iso8601` |
 | Color | `hex2rgb`, `rgb2hex`, `color` (terminal color/style, e.g. `color("red+bold", s)`; plain text when stdout is not a terminal) |

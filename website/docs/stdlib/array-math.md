@@ -69,3 +69,38 @@ fend("1 GiB to MB")        # unit-aware calculator, see https://github.com/print
 ```
 
 Bitwise: `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl`.
+
+## Exact decimals (money)
+
+awk numbers are 64-bit floats: `0.1 + 0.2` is `0.30000000000000004`, `round(2.675, 2)` is `2.67`, and a sum over
+millions of amounts drifts. The `dec_*` functions take decimal text and return decimal text, computing exactly in
+between (28 significant digits):
+
+| Function | Result |
+|----------|--------|
+| `dec_add("0.1", "0.2")` | `0.3` |
+| `dec_sub("1.00", "0.99")` | `0.01` |
+| `dec_mul("19.99", 3)` | `59.97` (the scale is the sum of the scales: `dec_mul("1.10", "1.10")` is `1.2100`) |
+| `dec_div(10, 3, 2)` | `3.33`; without a scale, 28 significant digits with trailing zeros removed |
+| `dec_round("2.675", 2)` | `2.68`; `dec_round(3, 2)` is `3.00`, `dec_round("1250", -2)` is `1300` |
+| `dec_format("1234567.5", 2)` | `1,234,567.50` |
+| `dec_cmp("1.10", "1.1")` | `0`; `-1` or `1` when the first is smaller or greater |
+
+`dec_div`, `dec_round` and `dec_format` take an optional rounding mode after the scale: `half_up` (default, as Excel
+`ROUND`), `half_even` (banker's rounding), `half_down`, `up`, `down`, `ceil`, `floor`.
+
+```shell
+# Revenue per customer, with 13% tax, exact to the cent
+zawk -i csv -H '
+  { total[$FI["customer"]] = dec_add(total[$FI["customer"]], dec_mul($FI["price"], $FI["qty"])) }
+  END {
+    for (c in total) print c, total[c], dec_round(dec_mul(total[c], "0.13"), 2)
+  }' orders.csv
+```
+
+- Inputs may have blanks, a sign, an exponent (`1.5e3`) and thousands separators (`1,234.50`, `1_234.50`); an empty
+  string is 0, so accumulators need no initialization.
+- Invalid text, a division by zero and an overflow return `""` (`0` for `dec_cmp`) with a warning, and set `ERRNO`.
+- Pass fields or strings, not float expressions: a float is converted with `CONVFMT` (`%.6g`) before the decimal
+  function sees it, so `dec_add(x, 1234567.89)` adds `1.23457e+06`. Compare amounts with `dec_cmp`, not `<`, when
+  they have different scales or come from different sources.

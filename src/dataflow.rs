@@ -326,6 +326,16 @@ pub(crate) mod boilerplate {
             MkBool(dst, text) => f(dst.into(), Some(text.into())),
             MkPassword(dst, len) => f(dst.into(), Some(len.into())),
             Fend(dst, src) => f(dst.into(), Some(src.into())),
+            Decimal(_, dst, a, b, c, d) => {
+                f(dst.into(), Some(a.into()));
+                f(dst.into(), Some(b.into()));
+                f(dst.into(), Some(c.into()));
+                f(dst.into(), Some(d.into()));
+            }
+            DecCmp(dst, a, b) => {
+                f(dst.into(), Some(a.into()));
+                f(dst.into(), Some(b.into()));
+            }
             MapStrIntEval(dst, formula, context) => {
                 f(dst.into(), Some(formula.into()));
                 f(dst.into(), Some(context.into()));

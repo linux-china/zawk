@@ -2734,6 +2734,27 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Fend(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Decimal(op) => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Decimal(
+                        *op,
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                        conv_regs[3].into(),
+                    ))
+                }
+            }
+            DecCmp => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::DecCmp(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Eval => {
                 if res_reg != UNUSED {
                     match conv_tys[1] {

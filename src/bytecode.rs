@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::builtins::{Bitwise, FloatFunc, Variable};
+use crate::builtins::{Bitwise, DecOp, FloatFunc, Variable};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::{self, Ty};
 use crate::interp::{Storage, index, index_mut};
@@ -296,6 +296,16 @@ pub(crate) enum Instr<'a> {
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
+    // dst = op(a, b, c, d), see runtime::decimal.
+    Decimal(
+        DecOp,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
+    DecCmp(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>),
     MapStrIntEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Int>>),
     MapStrFloatEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Float>>),
     MapStrStrEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
@@ -997,6 +1007,18 @@ impl<'a> Instr<'a> {
             Fend(dst, src) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
+            }
+            Decimal(_, dst, a, b, c, d) => {
+                dst.accum(&mut f);
+                a.accum(&mut f);
+                b.accum(&mut f);
+                c.accum(&mut f);
+                d.accum(&mut f);
+            }
+            DecCmp(dst, a, b) => {
+                dst.accum(&mut f);
+                a.accum(&mut f);
+                b.accum(&mut f);
             }
             MapStrIntEval(dst, formula, context) => {
                 dst.accum(&mut f);

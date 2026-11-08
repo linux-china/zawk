@@ -3719,6 +3719,74 @@ fn stdlib_failures_return_empty_with_warning() {
 }
 
 #[test]
+fn decimal_functions_are_exact() {
+    let prog = r#"BEGIN {
+        print dec_add("0.1", "0.2"), dec_sub("1.00", "0.99"), dec_mul("19.99", 3), dec_mul("1.10", "1.10")
+        print dec_div(10, 4), dec_div(10, 3, 2), dec_div(2, 3, 2, "down")
+        print dec_round("2.675", 2), dec_round("2.665", 2, "half_even"), dec_round(3, 2), dec_round("1250", -2)
+        print dec_format("1234567.5", 2), dec_format("-1234"), dec_add("1,234.50", "1_000")
+        print dec_cmp("11", "5"), dec_cmp("1.10", "1.1"), dec_cmp("-1", "0")
+    }
+    { t[$1] = dec_add(t[$1], $2) }
+    END { print t["a"], t["b"] }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg("-F,")
+            .arg(prog)
+            .write_stdin("a,0.10\nb,0.20\na,0.20\na,1e1\n")
+            .assert()
+            .success()
+            .stdout(
+                "0.3 0.01 59.97 1.2100\n\
+                 2.5 3.33 0.66\n\
+                 2.68 2.66 3.00 1300\n\
+                 1,234,567.50 -1,234 2234.50\n\
+                 1 0 -1\n\
+                 10.30 0.20\n",
+            );
+    }
+}
+
+#[test]
+fn decimal_failures_return_empty_with_warning() {
+    let prog = r#"BEGIN { ERRNO = ""; print "[" dec_div(1, 0) "][" dec_add("abc", 1) "][" dec_round(1, 2, "nearest") "][" dec_cmp("x", 1) "]"; print (ERRNO != "") }"#;
+    for backend_arg in BACKEND_ARGS {
+        let output = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{}: {}", backend_arg, stderr);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "[][][][0]\n1\n",
+            "{}",
+            backend_arg
+        );
+        for expected in [
+            r#"zawk: warning: dec_div: division by zero: "1" / "0""#,
+            r#"zawk: warning: dec_add: invalid decimal "abc""#,
+            r#"zawk: warning: dec_round: invalid rounding mode "nearest""#,
+            r#"zawk: warning: dec_cmp: invalid decimal "x""#,
+        ] {
+            assert!(stderr.contains(expected), "{}: {}", backend_arg, stderr);
+        }
+    }
+    assert_fatal(
+        "BEGIN { print dec_add(1) }",
+        "function `dec_add` expects 2 arguments, got 1",
+    );
+    assert_fatal(
+        "BEGIN { print dec_round(1, 2, \"down\", 4) }",
+        "function `dec_round` expects 1 to 3 arguments, got 4",
+    );
+}
+
+#[test]
 fn array_scalar_errors_name_the_variable() {
     assert_fatal(
         "function f(a) { return a + 1 } BEGIN { x[1] = 1; f(x) }",

@@ -1145,6 +1145,24 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = index(&self.strs, src).fend();
                         *index_mut(&mut self.strs, dst) = res;
                     }
+                    Decimal(op, dst, a, b, c, d) => {
+                        let res = runtime::decimal::eval(
+                            *op,
+                            &*index(&self.strs, a).as_str(),
+                            &*index(&self.strs, b).as_str(),
+                            &*index(&self.strs, c).as_str(),
+                            &*index(&self.strs, d).as_str(),
+                        );
+                        *index_mut(&mut self.strs, dst) = Str::from(res);
+                    }
+                    DecCmp(dst, a, b) => {
+                        let res = runtime::decimal::cmp(
+                            &*index(&self.strs, a).as_str(),
+                            &*index(&self.strs, b).as_str(),
+                        );
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     MapStrIntEval(dst, formula, context) => {
                         let formula = index(&self.strs, formula);
                         let context = self.get(*context);

@@ -3460,6 +3460,16 @@ where
                     builtins::Function::GetEnv if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b""));
                     }
+                    // dec_round(x) => dec_round(x, "", "", ""), dec_add(a, b) => dec_add(a, b, "", "")
+                    builtins::Function::Decimal(op) => {
+                        let (min, max) = op.arg_range();
+                        if !(min..=max).contains(&args_len) {
+                            return Err(builtins::arity_error(&call_name(fname), args_len, max));
+                        }
+                        for _ in args_len..4 {
+                            prim_args.push(PrimVal::StrLit(b""));
+                        }
+                    }
                     // eval() => eval(formula, context)
                     builtins::Function::Eval if args_len == 1 => {
                         prim_args.push(PrimVal::Var(Ident::unused()));

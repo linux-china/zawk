@@ -225,6 +225,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
+        [ReadOnly] decimal(int_ty, str_ref_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] dec_cmp(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] eval_int_context(str_ref_ty, map_ty) -> float_ty;
         [ReadOnly] eval_float_context(str_ref_ty, map_ty) -> float_ty;
         [ReadOnly] eval_context(str_ref_ty, map_ty) -> float_ty;
@@ -2220,6 +2222,38 @@ pub(crate) unsafe extern "C" fn fend(s: *mut U128) -> U128 {
     guard_panic(stringify!(fend), || {
         let res = (*(s as *mut Str as *const Str)).fend();
         mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn decimal(
+    op: Int,
+    a: *mut U128,
+    b: *mut U128,
+    c: *mut U128,
+    d: *mut U128,
+) -> U128 {
+    guard_panic(stringify!(decimal), || {
+        let op = crate::runtime::decimal::DecOp::from_code(op).expect("invalid decimal op");
+        let a = &*(a as *mut Str);
+        let b = &*(b as *mut Str);
+        let c = &*(c as *mut Str);
+        let d = &*(d as *mut Str);
+        let text = crate::runtime::decimal::eval(
+            op,
+            &*a.as_str(),
+            &*b.as_str(),
+            &*c.as_str(),
+            &*d.as_str(),
+        );
+        mem::transmute::<Str, U128>(Str::from(text))
+    })
+}
+
+pub(crate) unsafe extern "C" fn dec_cmp(a: *mut U128, b: *mut U128) -> Int {
+    guard_panic(stringify!(dec_cmp), || {
+        let a = &*(a as *mut Str);
+        let b = &*(b as *mut Str);
+        crate::runtime::decimal::cmp(&*a.as_str(), &*b.as_str())
     })
 }
 

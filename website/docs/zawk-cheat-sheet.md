@@ -1024,6 +1024,9 @@ See: [JSON / XML / HTML / CSV](./stdlib/json-xml-html.md)
 | `abs(x)`, `ceil(x)`, `floor(x)`, `round(x[, n])` | Rounding              |
 | `min(1, 2)`, `max("A", "B")`              | Smallest, largest            |
 | `eval("1+2*3")`, `fend("1 km to m")`      | `7`, `1000 m`                |
+| `dec_add("0.1", "0.2")`, `dec_mul("19.99", 3)` | `0.3`, `59.97` (exact decimals) |
+| `dec_div(10, 3, 2)`, `dec_round("2.675", 2)` | `3.33`, `2.68`               |
+| `dec_format("1234567.5", 2)`, `dec_cmp(a, b)` | `1,234,567.50`, `-1`/`0`/`1` |
 
 See: [Array & Math](./stdlib/array-math.md)
 
