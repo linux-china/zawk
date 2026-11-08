@@ -268,6 +268,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] encode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] decode(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] escape(str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] color(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] digest(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] hmac(str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] jwt(str_ref_ty, str_ref_ty, map_ty) -> str_ty;
@@ -1407,6 +1408,15 @@ pub(crate) unsafe extern "C" fn escape(format: *mut U128, text: *mut U128) -> U1
         let format = &*(format as *mut Str);
         let text = &*(text as *mut Str);
         let res = text.escape(&format);
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn color(spec: *mut U128, text: *mut U128) -> U128 {
+    guard_panic(stringify!(color), || {
+        let spec = &*(spec as *mut Str);
+        let text = &*(text as *mut Str);
+        let res = text.color(&spec);
         mem::transmute::<Str, U128>(res)
     })
 }

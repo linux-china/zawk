@@ -252,6 +252,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(text.into()));
             }
+            Color(dst, spec, text) => {
+                f(dst.into(), Some(spec.into()));
+                f(dst.into(), Some(text.into()));
+            }
             Hmac(dst, algorithm, key, text) => {
                 f(dst.into(), Some(algorithm.into()));
                 f(dst.into(), Some(key.into()));

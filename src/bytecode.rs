@@ -474,6 +474,7 @@ pub(crate) enum Instr<'a> {
     MapIntStrToCsv(Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
     Trim(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Escape(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Color(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Truncate(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     Parse(
         Reg<runtime::StrMap<'a, Str<'a>>>,
@@ -886,6 +887,11 @@ impl<'a> Instr<'a> {
             Escape(res, format, text) => {
                 res.accum(&mut f);
                 format.accum(&mut f);
+                text.accum(&mut f);
+            }
+            Color(res, spec, text) => {
+                res.accum(&mut f);
+                spec.accum(&mut f);
                 text.accum(&mut f);
             }
             Digest(res, algorithm, text) => {

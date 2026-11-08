@@ -62,3 +62,17 @@ assert(NF == 5, "bad record")  # exit 2 at once, END does not run
 hex2rgb("#FF0000")     # array [255, 0, 0]; #rgb shorthand is expanded
 rgb2hex(255, 0, 0)     # #FF0000
 ```
+
+`color(spec, s)` colors and styles text for the terminal with ANSI escape codes:
+
+```awk
+color("red", "this is red")
+color("red+bold", "ERROR")            # color and styles joined by + or spaces
+color("bold underline green", "OK")   # any order, case-insensitive
+color("pink", "plain")                # unknown names are ignored: "plain"
+```
+
+- Colors: `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`.
+- Styles: `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
+- Escape codes are written only when stdout is a terminal, so piped or redirected output stays plain text.
+  `NO_COLOR` turns them off and `CLICOLOR_FORCE=1` forces them, e.g. `CLICOLOR_FORCE=1 zawk '...' | less -R`.

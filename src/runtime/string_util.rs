@@ -835,10 +835,67 @@ pub fn wrap(text: &str, width: Int) -> String {
     out
 }
 
+/// Apply a terminal color and/or styles to `text`, as `color("red+bold", s)`.
+/// `spec` holds tokens separated by `+` or whitespace, in any order and case-insensitive:
+/// colors `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`, and styles
+/// `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
+/// Unknown tokens are ignored, so an unknown spec returns `text` unchanged. As with the
+/// `colored` crate, no escape codes are emitted when stdout is not a terminal or `NO_COLOR`
+/// is set (`CLICOLOR_FORCE=1` forces them).
+pub fn color(spec: &str, text: &str) -> String {
+    use colored::{Color, Colorize};
+    let mut colored = text.normal();
+    for token in spec.split(|c: char| c == '+' || c.is_whitespace()) {
+        let token = token.trim().to_ascii_lowercase();
+        let color = match token.as_str() {
+            "red" => Some(Color::Red),
+            "green" => Some(Color::Green),
+            "blue" => Some(Color::Blue),
+            "yellow" => Some(Color::Yellow),
+            "magenta" => Some(Color::Magenta),
+            "cyan" => Some(Color::Cyan),
+            "white" => Some(Color::White),
+            "black" => Some(Color::Black),
+            _ => None,
+        };
+        colored = match (color, token.as_str()) {
+            (Some(c), _) => colored.color(c),
+            (None, "bold") => colored.bold(),
+            (None, "underline") => colored.underline(),
+            (None, "italic") => colored.italic(),
+            (None, "dimmed") => colored.dimmed(),
+            (None, "reversed") => colored.reversed(),
+            (None, "blink") => colored.blink(),
+            (None, "hidden") => colored.hidden(),
+            (None, "strikethrough") => colored.strikethrough(),
+            _ => colored,
+        };
+    }
+    colored.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use unicode_segmentation::UnicodeSegmentation;
+
+    #[test]
+    fn test_color() {
+        colored::control::set_override(true);
+        assert_eq!(color("red", "hi"), "\x1b[31mhi\x1b[0m");
+        assert_eq!(color("red+bold", "hi"), "\x1b[1;31mhi\x1b[0m");
+        assert_eq!(color("bold red", "hi"), color("red+bold", "hi"));
+        assert_eq!(color(" Bold + RED ", "hi"), color("red bold", "hi"));
+        assert_eq!(color("green underline", "hi"), "\x1b[4;32mhi\x1b[0m");
+        // Unknown colors and styles are ignored.
+        assert_eq!(color("pink", "hi"), "hi");
+        assert_eq!(color("", "hi"), "hi");
+        assert_eq!(color("pink+bold", "hi"), color("bold", "hi"));
+        assert_eq!(color("red+shiny", "hi"), color("red", "hi"));
+        colored::control::set_override(false);
+        assert_eq!(color("red+bold", "hi"), "hi");
+        colored::control::unset_override();
+    }
 
     #[test]
     fn test_wrap() {

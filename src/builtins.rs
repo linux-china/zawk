@@ -113,6 +113,7 @@ pub enum Function {
     Quote,
     DoubleQuote,
     Escape,
+    Color,
     Encode,
     Decode,
     Digest,
@@ -650,6 +651,7 @@ static_map!(
     ["words", Function::Words],
     ["lines", Function::Lines],
     ["escape", Function::Escape],
+    ["color", Function::Color],
     ["typeof", Function::TypeOfVariable],
     ["isarray", Function::IsArray],
     ["isint", Function::IsInt],
@@ -1179,6 +1181,7 @@ impl Function {
             Words => (smallvec![Str], MapIntStr),
             Lines => (smallvec![Str], MapIntStr),
             Escape => (smallvec![Str, Str], Str),
+            Color => (smallvec![Str, Str], Str),
             Encode => (smallvec![Str, Str], Str),
             Decode => (smallvec![Str, Str], Str),
             Digest => (smallvec![Str, Str], Str),
@@ -1413,7 +1416,7 @@ impl Function {
             Publish => 2,
             IsInt | IsNum | IsNull => 1,
             IsFormat => 2,
-            Encode | Decode | Digest | Escape => 2,
+            Encode | Decode | Digest | Escape | Color => 2,
             Hmac | Jwt => 3,
             LogDebug | LogInfo | LogWarn | LogError => 1,
             ArrayMax | ArrayMin | ArraySum | ArrayMean => 1,
@@ -1487,7 +1490,7 @@ impl Function {
             .abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | RecordCSV | RecordTSV | Uuid | Ulid | Tsid
             | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols | EscapeCSV | EscapeTSV
-            | Escape | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin
+            | Escape | Color | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin
             | GenSub | Substr | CharAt | Encode | Decode | Digest | Hmac | Jwt | ToJson
             | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv
             | TypeOfVariable | TypeOfUntyped | IntMapJoin => Ok(Scalar(BaseTy::Str).abs()),

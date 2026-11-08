@@ -2371,6 +2371,15 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Color => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Color(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             Truncate => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Truncate(

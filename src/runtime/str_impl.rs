@@ -916,6 +916,11 @@ impl<'a> Str<'a> {
         Str::from_text(escape(&format.as_str(), &self.as_text()))
     }
 
+    /// Color and style the string for a terminal, see [`color`](crate::runtime::string_util::color).
+    pub fn color<'b>(&self, spec: &Str<'b>) -> Str<'b> {
+        Str::from_text(crate::runtime::string_util::color(&spec.as_str(), &self.as_text()))
+    }
+
     /// Truncate the string to at most `len` chars, ending with `place_holder` when truncated.
     /// If `place_holder` does not fit in `len` chars, the string is cut to `len` chars without
     /// it. A negative `len` is treated as 0.

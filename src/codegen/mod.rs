@@ -1118,6 +1118,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(escape), &mut [format, text])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            Color(dst, spec, text) => {
+                let spec = self.get_val(spec.reflect())?;
+                let text = self.get_val(text.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(color), &mut [spec, text])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Digest(dst, algorithm, text) => {
                 let algorithm = self.get_val(algorithm.reflect())?;
                 let text = self.get_val(text.reflect())?;

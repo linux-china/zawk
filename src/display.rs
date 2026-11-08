@@ -230,6 +230,7 @@ impl Display for Function {
             Words => write!(f, "words"),
             Lines => write!(f, "lines"),
             Escape => write!(f, "escape"),
+            Color => write!(f, "color"),
             Encode => write!(f, "encode"),
             Decode => write!(f, "decode"),
             Digest => write!(f, "digest"),

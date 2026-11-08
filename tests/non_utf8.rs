@@ -121,6 +121,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
         "escape(\"json\", $0) escape(\"xml\", $0) escape(\"sql\", $0)",
         Some(b"caf\xe9xcaf\xe9xcaf\xe9x"),
     ),
+    ("color", "color(\"red+bold\", $0)", Some(b"caf\xe9x")),
     ("escape_csv", "escape_csv($0)", Some(b"caf\xe9x")),
     ("escape_tsv", "escape_tsv($0)", Some(b"caf\xe9x")),
     ("shlex", "shlex(\"a \" $0)[2]", Some(b"caf\xe9x")),

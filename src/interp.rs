@@ -984,6 +984,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let escaped_text = text.escape(format);
                         *index_mut(&mut self.strs, dst) = escaped_text;
                     }
+                    Color(dst, spec, text) => {
+                        let spec = index(&self.strs, spec);
+                        let text = index(&self.strs, text);
+                        let colored_text = text.color(spec);
+                        *index_mut(&mut self.strs, dst) = colored_text;
+                    }
                     Hmac(dst, algorithm, key, text) => {
                         let algorithm = index(&self.strs, algorithm);
                         let key = index(&self.strs, key);

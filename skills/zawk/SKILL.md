@@ -390,7 +390,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Math | `rand`, `srand`, `int`, `float`, `strtonum`, `abs`, `ceil`, `floor`, `round`, `exp`, `log`, `log2`, `log10`, `sqrt`, `sin`, `cos`, `atan`, `atan2`, `intdiv0`, `min`, `max`, `eval`, `fend`, `mkbool` |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` (negative values are a fatal error as in gawk, except the first argument of `rshiftl`; `compl(0)` is `2^53 - 1`; numbers and results keep their low 63 bits; shift counts of 64 and above shift everything out) |
 | Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc`, `to_iso8601` |
-| Color | `hex2rgb`, `rgb2hex` |
+| Color | `hex2rgb`, `rgb2hex`, `color` (terminal color/style, e.g. `color("red+bold", s)`; plain text when stdout is not a terminal) |
 | Fake | `fake` |
 | Decision | `jev`, `jev_prob`, `jev_choice`, `jev_score` |
 | JSON | `from_json`, `json_flatten`, `to_json`, `json_value` (JSONPath), `json_query`, `json_has`, `json_get`, `json_set`, `json_del` |

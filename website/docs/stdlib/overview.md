@@ -23,7 +23,7 @@ of data processing does not need a pipeline of other tools.
 | [Crypto & Encoding](./crypto-encoding.md) | `digest`, `hmac`, `encrypt`, `decrypt`, `jwt`, `dejwt`, `encode`, `decode`, `uuid`, `ulid`, `tsid`, `snowflake` |
 | [Network](./network.md) | `http_get`, `http_post`, `send_mail`, `s3_get`, `s3_put`, `publish`, `local_ip`, `jev*` |
 | [Database & KV](./database-kv.md) | `sqlite_*`, `mysql_*`, `pg_*`, `kv_get`, `kv_put`, `kv_delete`, `kv_clear` |
-| [OS, I/O & Misc](./os-io.md) | `getenv`, `system2`, `read_all`, `write_all`, `read_config`, `var_dump`, `log_info`, `typeof`, `version`, `fake`, `hex2rgb` |
+| [OS, I/O & Misc](./os-io.md) | `getenv`, `system2`, `read_all`, `write_all`, `read_config`, `var_dump`, `log_info`, `typeof`, `version`, `fake`, `hex2rgb`, `color` |
 
 ## Discover functions from the command line
 

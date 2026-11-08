@@ -1117,6 +1117,7 @@ kv_put("nats://127.0.0.1:4222/bucket1", "offset", NR)
 | `var_dump(x)`, `pprint(x)`             | Print a value to stderr        |
 | `log_info(msg)`                        | Also `log_debug`, `log_warn`, `log_error` |
 | `fake("email")`                        | Fake data                      |
+| `color("red+bold", s)`                 | Terminal color and style       |
 
 See: [OS, I/O & Misc](./stdlib/os-io.md)
 

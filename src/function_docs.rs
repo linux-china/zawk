@@ -1068,6 +1068,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "RGB to hex color.",
         "rgb2hex(255, 0, 0)",
     ),
+    d(
+        "color",
+        COLOR,
+        "color(spec: str, s: str) -> str",
+        "Color and style s for a terminal; spec joins a color (red green blue yellow magenta cyan white black) and styles (bold underline italic dimmed reversed blink hidden strikethrough) with + or spaces, unknown names are ignored; plain text when stdout is not a terminal or NO_COLOR is set.",
+        r#"color("red+bold", "error")"#,
+    ),
     // Fake
     d(
         "fake",

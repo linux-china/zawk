@@ -842,6 +842,14 @@ Convert between hex and rgb.
 - `hex2rgb("#FF0000") # [255,0,0]`: result is array `[r,g,b]`. `#rgb`/`#rgba` shorthand is expanded (`#fff` → `[255,255,255]`), alpha of `#rgba`/`#rrggbbaa` is ignored, other lengths give a warning and an empty array
 - `rgb2hex(255,0,0) # #FF0000`
 
+Color and style text for the terminal: `color("red", "this is red")` or `color("red+bold", "this is red")`.
+
+* colors: `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`.
+* styles: `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
+* Color and styles are separated by `+` or spaces, in any order and case-insensitive: `red bold` is the same as `bold+red`.
+* An unknown color or style is ignored, so `color("pink", s)` returns `s` unchanged.
+* Escape codes are emitted only when stdout is a terminal; `NO_COLOR` disables them and `CLICOLOR_FORCE=1` forces them (e.g. `CLICOLOR_FORCE=1 zawk ... | less -R`).
+
 # Fake
 
 Generate fake data for testing: `fake("name")` or `fake("name","cn")`.
