@@ -382,7 +382,8 @@ const DERIVED_KEYS_CAPACITY: usize = 1024;
 /// plaintext password, and the tag is useless outside this process
 type PasswordTag = [u8; 32];
 
-static PASSWORD_TAG_KEY: LazyLock<[u8; 32]> = LazyLock::new(|| random_bytes::<32>().unwrap_or_default());
+static PASSWORD_TAG_KEY: LazyLock<[u8; 32]> =
+    LazyLock::new(|| random_bytes::<32>().unwrap_or_default());
 
 /// derived keys by (password tag, salt, key length), because derivation is slow by design;
 /// least recently used keys are evicted beyond `DERIVED_KEYS_CAPACITY`

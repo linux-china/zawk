@@ -1098,7 +1098,10 @@ mod tests {
         );
         assert_eq!(sprintf!(b"[%c]", ""), "[\0]");
         // Negative codes are not code points: a NUL byte, as in gawk.
-        assert_eq!(sprintf!(b"[%c][%c][%c]", -1, -200, -4294967231i64), "[\0][\0][\0]");
+        assert_eq!(
+            sprintf!(b"[%c][%c][%c]", -1, -200, -4294967231i64),
+            "[\0][\0][\0]"
+        );
     }
 
     #[test]

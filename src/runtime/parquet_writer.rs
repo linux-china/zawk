@@ -292,7 +292,6 @@ fn push_some<T>(v: &mut Vec<T>, x: Option<T>) -> bool {
     }
 }
 
-
 /// A column of the header: its name, and its type (`None` for `AUTO`).
 type ColumnSpec = (String, Option<Kind>);
 
@@ -334,7 +333,6 @@ fn parse_header(header: &[u8], infer: bool) -> io::Result<Vec<ColumnSpec>> {
         .map(|(i, f)| parse_column(i, f, infer))
         .collect()
 }
-
 
 /// The Parquet type of an `AUTO` column.
 fn inferred_kind(sample: &[Vec<u8>], index: usize) -> Kind {

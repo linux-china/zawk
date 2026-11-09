@@ -130,7 +130,10 @@ pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, 
             // a pair without kv_sep is kept as a key with an empty value
             let (key, value) = pair.split_once(kv_sep).unwrap_or((pair, ""));
             // keys are trimmed so `a=1, b=2` yields `b`, not ` b`; values are kept as-is
-            map.insert(Str::from(key.trim().to_string()), Str::from(value.to_string()));
+            map.insert(
+                Str::from(key.trim().to_string()),
+                Str::from(value.to_string()),
+            );
         }
     }
     SharedMap::from(map)
@@ -670,7 +673,8 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     map
 }
 
-static PHONE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9+][0-9-]{5,16}$").unwrap());
+static PHONE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[0-9+][0-9-]{5,16}$").unwrap());
 
 pub fn is_format(format: &str, text: &str) -> Int {
     let result = match format {
@@ -1156,7 +1160,10 @@ mod tests {
         assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247"));
         assert_eq!(1, is_format("uuid", "67e5504410b1426f9247bb680e5fe0c8"));
         assert_eq!(0, is_format("uuid", "6-7e55044-10b1-426f-9247bb680e5fe0c8"));
-        assert_eq!(0, is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8x"));
+        assert_eq!(
+            0,
+            is_format("uuid", "67e55044-10b1-426f-9247-bb680e5fe0c8x")
+        );
         assert_eq!(0, is_format("phone", "abc12345678"));
         assert_eq!(0, is_format("phone", "12345678abc"));
         assert_eq!(1, is_format("phone", "+86-186-6713-5137"));

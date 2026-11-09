@@ -49,6 +49,7 @@ use common::{CancelSignal, ExecutionStrategy, Stage};
 use runtime::{
     CHUNK_SIZE, ChainedReader, LineReader,
     splitter::{
+        avro::{self, AvroJson},
         batch::{ByteReader, CSVReader, InputFormat},
         database,
         json::JsonRecords,
@@ -57,7 +58,6 @@ use runtime::{
         markdown::MarkdownCsv,
         message::{self, MessageReader, MessageSource},
         nats,
-        avro::{self, AvroJson},
         parquet::{self, ParquetJson},
         regex::RegexSplitter,
         xlsx,

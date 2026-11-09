@@ -1508,9 +1508,9 @@ impl Function {
             .abs()),
             ToUpper | ToLower | JoinCSV | JoinTSV | RecordCSV | RecordTSV | Uuid | Ulid | Tsid
             | LocalIp | Strftime | Fend | Trim | Truncate | JoinCols | EscapeCSV | EscapeTSV
-            | Escape | Color | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd | NextlineStdin
-            | GenSub | Substr | CharAt | Encode | Decode | Digest | Hmac | Jwt | ToJson
-            | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv
+            | Escape | Color | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd
+            | NextlineStdin | GenSub | Substr | CharAt | Encode | Decode | Digest | Hmac | Jwt
+            | ToJson | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv
             | TypeOfVariable | TypeOfUntyped | IntMapJoin => Ok(Scalar(BaseTy::Str).abs()),
             Chars => Ok(Map {
                 key: BaseTy::Int,

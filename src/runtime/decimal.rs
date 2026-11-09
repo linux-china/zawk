@@ -227,7 +227,11 @@ pub(crate) fn parse(s: &str) -> Result<Decimal, String> {
     if neg {
         text.push('-');
     }
-    text.push_str(if int_digits.is_empty() { "0" } else { &int_digits });
+    text.push_str(if int_digits.is_empty() {
+        "0"
+    } else {
+        &int_digits
+    });
     if !frac.is_empty() {
         text.push('.');
         text.push_str(frac);
@@ -320,7 +324,10 @@ mod tests {
         assert_eq!(ev(DecOp::Div, "10", "3", "2", ""), "3.33");
         assert_eq!(ev(DecOp::Div, "2", "3", "2", ""), "0.67");
         assert_eq!(ev(DecOp::Div, "2", "3", "2", "down"), "0.66");
-        assert_eq!(ev(DecOp::Div, "1", "3", "", ""), "0.3333333333333333333333333333");
+        assert_eq!(
+            ev(DecOp::Div, "1", "3", "", ""),
+            "0.3333333333333333333333333333"
+        );
         assert!(ev(DecOp::Div, "1", "0", "", "").starts_with("ERR division by zero"));
     }
 
@@ -364,7 +371,17 @@ mod tests {
         assert_eq!(parse("5.").unwrap().to_string(), "5");
         assert_eq!(parse("-0.0").unwrap().is_zero(), true);
         for bad in [
-            "abc", "1,23", "1,234_567", "12,34.5", "1.2.3", "--1", "1e", "0x10", ".", "inf", "1 2",
+            "abc",
+            "1,23",
+            "1,234_567",
+            "12,34.5",
+            "1.2.3",
+            "--1",
+            "1e",
+            "0x10",
+            ".",
+            "inf",
+            "1 2",
         ] {
             assert!(parse(bad).is_err(), "{:?} should be invalid", bad);
         }

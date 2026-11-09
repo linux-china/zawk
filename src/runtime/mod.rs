@@ -16,6 +16,7 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) mod array_stats;
+pub mod avro_writer;
 pub(crate) mod awk_regex;
 pub(crate) mod command;
 pub(crate) mod compare;
@@ -26,10 +27,8 @@ pub mod encoding;
 pub mod float_parse;
 pub mod math_util;
 pub(crate) mod numfmt;
-pub mod avro_writer;
 pub mod parquet_writer;
 
-pub(crate) mod typed_value;
 pub mod printf;
 pub(crate) mod regex_memory;
 pub(crate) mod sorted_in;
@@ -38,6 +37,7 @@ pub mod stats;
 pub mod str_escape;
 pub mod str_impl;
 pub mod string_search;
+pub(crate) mod typed_value;
 pub mod utf8;
 pub mod writers;
 pub mod xlsx_writer;

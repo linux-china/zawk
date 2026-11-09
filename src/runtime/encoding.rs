@@ -4,10 +4,9 @@ use crate::runtime::{SharedMap, Str, stdlib_warning};
 use base58;
 use base58::{FromBase58, ToBase58};
 use base64::{
-    Engine as _,
-    alphabet,
-    engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE_NO_PAD},
+    Engine as _, alphabet,
     engine::DecodePaddingMode,
+    engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE_NO_PAD},
 };
 use flate2::Compression;
 use flate2::read::ZlibDecoder;

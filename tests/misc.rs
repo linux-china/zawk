@@ -2833,7 +2833,13 @@ fn avro_output_and_input() {
         Command::cargo_bin("zawk")
             .unwrap()
             .arg(backend_arg)
-            .args(["-i", "avro", "--null", "NULL", r#"{ print $FI["age"], isnull($FI["age"]) }"#])
+            .args([
+                "-i",
+                "avro",
+                "--null",
+                "NULL",
+                r#"{ print $FI["age"], isnull($FI["age"]) }"#,
+            ])
             .pipe_stdin(out)
             .unwrap()
             .assert()

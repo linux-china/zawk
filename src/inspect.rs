@@ -999,7 +999,9 @@ impl Inspector {
             self.samples.push(sample_row(&cells));
         }
         for (i, column) in self.columns.iter_mut().enumerate() {
-            column.stats.add(cells.get(i).unwrap_or(&Cell::Null), &mut self.rng);
+            column
+                .stats
+                .add(cells.get(i).unwrap_or(&Cell::Null), &mut self.rng);
         }
         if self.tail.len() == TAIL_ROWS {
             self.tail.pop_front();

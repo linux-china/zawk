@@ -2647,24 +2647,37 @@ mod tests {
         assert_eq!(codes(&v), ["W122"]);
         assert_eq!(v["diagnostics"][0]["column"], 16);
         assert_eq!(codes(&run("BEGIN { a[i++] += i; print a[1] }")), ["W122"]);
-        assert_eq!(codes(&run("BEGIN { a[x] = (x = 2); print a[2] }")), ["W122"]);
         assert_eq!(
-            codes(&run("function p(x) { return x }\nBEGIN { a[p(1)] = p(2); print a[1] }")),
+            codes(&run("BEGIN { a[x] = (x = 2); print a[2] }")),
             ["W122"]
         );
         assert_eq!(
-            codes(&run("function p(x) { return x }\n{ a[n++] = p($1) } END { print n }")),
+            codes(&run(
+                "function p(x) { return x }\nBEGIN { a[p(1)] = p(2); print a[1] }"
+            )),
+            ["W122"]
+        );
+        assert_eq!(
+            codes(&run(
+                "function p(x) { return x }\n{ a[n++] = p($1) } END { print n }"
+            )),
             ["W122"]
         );
         // Independent sides: the order does not matter.
         assert!(codes(&run("{ a[n++] = $0 } END { print n, a[0] }")).is_empty());
         assert!(codes(&run("{ c[$1] = c[$1] + 1 } END { for (k in c) print k }")).is_empty());
-        assert!(codes(&run(
-            "function p(x) { return x }\n{ a[$1] = p($2) } END { for (k in a) print k }"
-        ))
-        .is_empty());
-        assert!(codes(&run("{ n = split($0, parts); b[$1] = n } END { for (k in b) print k }"))
-            .is_empty());
+        assert!(
+            codes(&run(
+                "function p(x) { return x }\n{ a[$1] = p($2) } END { for (k in a) print k }"
+            ))
+            .is_empty()
+        );
+        assert!(
+            codes(&run(
+                "{ n = split($0, parts); b[$1] = n } END { for (k in b) print k }"
+            ))
+            .is_empty()
+        );
     }
 
     #[test]

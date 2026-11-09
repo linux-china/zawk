@@ -83,7 +83,9 @@ pub fn run_command(cmd: &str) -> Int {
 
 /// Decode command output and drop one trailing newline (`\n` or `\r\n`), as `cmd | getline` does.
 fn lossy_trim_newline(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_suffix(b"\n").map_or(bytes, |b| b.strip_suffix(b"\r").unwrap_or(b));
+    let bytes = bytes
+        .strip_suffix(b"\n")
+        .map_or(bytes, |b| b.strip_suffix(b"\r").unwrap_or(b));
     String::from_utf8_lossy(bytes).into_owned()
 }
 

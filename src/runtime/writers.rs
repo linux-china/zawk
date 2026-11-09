@@ -537,7 +537,10 @@ mod markdown_tests {
         }
         let out = String::from_utf8(out).unwrap();
         assert!(out.starts_with("| a |\n| --- |\n| x\\ny |\n"), "{out}");
-        assert!(out.contains("| a | string | 1 | 1 | x\\ny | x\\ny |  |  |\n"), "{out}");
+        assert!(
+            out.contains("| a | string | 1 | 1 | x\\ny | x\\ny |  |  |\n"),
+            "{out}"
+        );
     }
 }
 

@@ -17,10 +17,11 @@
 //! streamed. All codecs of the specification (null, deflate, snappy, zstandard, bzip2, xz) are
 //! detected from the header.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 
-use apache_avro::schema::{RecordField, UnionSchema};
+use apache_avro::schema::{Name, RecordField, ResolvedSchema, UnionSchema};
 use apache_avro::types::Value;
 use apache_avro::{Reader, Schema};
 
@@ -59,12 +60,37 @@ enum Source {
 
 type AvroReader = Reader<'static, Box<dyn Read + Send>>;
 
+/// The named types (records, enums, fixed) of a schema by their full names: a named type that is
+/// used again after its definition is a `Schema::Ref` to it.
+type Names = HashMap<Name, Schema>;
+
+/// The named types defined in `schema` (empty when they cannot be resolved).
+fn named_types(schema: &Schema) -> Names {
+    ResolvedSchema::try_from(schema)
+        .map(|r| {
+            r.get_names()
+                .iter()
+                .map(|(name, schema)| (name.clone(), (*schema).clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The schema itself, or the definition of the named type it refers to.
+fn resolve<'a>(names: &'a Names, schema: Option<&'a Schema>) -> Option<&'a Schema> {
+    match schema {
+        Some(Schema::Ref { name }) => names.get(name),
+        s => s,
+    }
+}
+
 struct Rows {
     reader: AvroReader,
     /// The top-level fields: their names and schemas (empty when the file schema is not a record:
     /// each value is then a record with a single field `value`).
     fields: Vec<(String, Schema)>,
     record: bool,
+    names: Names,
 }
 
 /// The records of an Avro file (or of standard input) as JSON Lines.
@@ -151,6 +177,7 @@ impl AvroJson {
 
     fn open_reader(&self, input: Box<dyn Read + Send>) -> io::Result<Rows> {
         let reader = Reader::new(input).map_err(|e| self.error(e))?;
+        let names = named_types(reader.writer_schema());
         let (fields, record) = match reader.writer_schema() {
             Schema::Record(r) => (
                 r.fields
@@ -165,6 +192,7 @@ impl AvroJson {
             reader,
             fields,
             record,
+            names,
         })
     }
 
@@ -188,13 +216,14 @@ impl AvroJson {
             };
             line.clear();
             line.push('{');
+            let names = &rows.names;
             for (i, (name, value, schema)) in rows.columns(value).enumerate() {
                 if i > 0 {
                     line.push(',');
                 }
                 push_json_str(&mut line, name);
                 line.push(':');
-                let (text, kind) = value_text(&value, Some(schema));
+                let (text, kind) = value_text(names, &value, Some(schema));
                 push_json(&mut line, &text, kind);
             }
             line.push_str("}\n");
@@ -258,7 +287,7 @@ impl AvroTable {
         self.rows
             .fields
             .iter()
-            .map(|(name, schema)| (name.clone(), type_name(schema)))
+            .map(|(name, schema)| (name.clone(), type_name(&self.rows.names, schema)))
             .collect()
     }
 
@@ -270,21 +299,22 @@ impl AvroTable {
                 return Some(Err(io::Error::other(msg)));
             }
         };
+        let names = &self.rows.names;
         let cells = self
             .rows
             .columns(value)
-            .map(|(_, value, schema)| value_cell(&value, schema))
+            .map(|(_, value, schema)| value_cell(names, &value, schema))
             .collect();
         Some(Ok(cells))
     }
 }
 
-fn value_cell(value: &Value, schema: &Schema) -> Cell {
+fn value_cell(names: &Names, value: &Value, schema: &Schema) -> Cell {
     let (value, schema) = match value {
-        Value::Union(index, v) => (v.as_ref(), branch(Some(schema), *index)),
+        Value::Union(index, v) => (v.as_ref(), branch(names, Some(schema), *index)),
         v => (v, Some(schema)),
     };
-    let (text, kind) = value_text(value, schema);
+    let (text, kind) = value_text(names, value, schema);
     match value {
         Value::Null => Cell::Null,
         Value::Record(_) | Value::Array(_) | Value::Map(_) | Value::Duration(_) => {
@@ -301,7 +331,9 @@ fn value_cell(value: &Value, schema: &Schema) -> Cell {
 
 /// The type of a top-level field, named as in `-o avro` headers where possible. A union of null
 /// and one type is named after that type.
-fn type_name(schema: &Schema) -> String {
+fn type_name(names: &Names, schema: &Schema) -> String {
+    // an unknown name stays a `Ref`
+    let schema = resolve(names, Some(schema)).unwrap_or(schema);
     let name = match schema {
         Schema::Union(u) => {
             let types: Vec<&Schema> = u
@@ -310,7 +342,7 @@ fn type_name(schema: &Schema) -> String {
                 .filter(|s| !matches!(s, Schema::Null))
                 .collect();
             return match types.as_slice() {
-                [one] => type_name(one),
+                [one] => type_name(names, one),
                 _ => "UNION".to_string(),
             };
         }
@@ -343,16 +375,17 @@ fn type_name(schema: &Schema) -> String {
 }
 
 /// The schema of the branch `index` of a union schema.
-fn branch(schema: Option<&Schema>, index: u32) -> Option<&Schema> {
-    match schema {
-        Some(Schema::Union(u)) => UnionSchema::variants(u).get(index as usize),
+fn branch<'a>(names: &'a Names, schema: Option<&'a Schema>, index: u32) -> Option<&'a Schema> {
+    match resolve(names, schema) {
+        Some(Schema::Union(u)) => resolve(names, UnionSchema::variants(u).get(index as usize)),
         _ => None,
     }
 }
 
 /// The awk text of a value, and how it is written in the JSON of `$0`. The schema, when known,
 /// gives the scale of decimals.
-fn value_text(value: &Value, schema: Option<&Schema>) -> (String, Kind) {
+fn value_text(names: &Names, value: &Value, schema: Option<&Schema>) -> (String, Kind) {
+    let schema = resolve(names, schema);
     let int = |v: i128| (v.to_string(), Kind::Raw);
     let micros = |us: i64| us.saturating_mul(1_000);
     let millis = |ms: i64| ms.saturating_mul(1_000_000);
@@ -366,7 +399,7 @@ fn value_text(value: &Value, schema: Option<&Schema>) -> (String, Kind) {
         Value::Bytes(b) | Value::Fixed(_, b) => (hex(b), Kind::Str),
         Value::String(s) => (s.clone(), Kind::Str),
         Value::Enum(_, symbol) => (symbol.clone(), Kind::Str),
-        Value::Union(index, v) => value_text(v, branch(schema, *index)),
+        Value::Union(index, v) => value_text(names, v, branch(names, schema, *index)),
         Value::Date(days) => (date(*days), Kind::Str),
         Value::Decimal(d) => {
             let scale = match schema {
@@ -399,16 +432,17 @@ fn value_text(value: &Value, schema: Option<&Schema>) -> (String, Kind) {
         ),
         Value::Record(_) | Value::Array(_) | Value::Map(_) => {
             let mut json = String::new();
-            write_json(&mut json, value, schema);
+            write_json(names, &mut json, value, schema);
             (json, Kind::Raw)
         }
     }
 }
 
 /// Write a value as JSON: records and maps as objects, arrays as arrays, scalars as for `$0`.
-fn write_json(out: &mut String, value: &Value, schema: Option<&Schema>) {
+fn write_json(names: &Names, out: &mut String, value: &Value, schema: Option<&Schema>) {
+    let schema = resolve(names, schema);
     match value {
-        Value::Union(index, v) => write_json(out, v, branch(schema, *index)),
+        Value::Union(index, v) => write_json(names, out, v, branch(names, schema, *index)),
         Value::Record(fields) => {
             let field_schemas = match schema {
                 Some(Schema::Record(r)) => Some(&r.fields),
@@ -422,7 +456,7 @@ fn write_json(out: &mut String, value: &Value, schema: Option<&Schema>) {
                 push_json_str(out, name);
                 out.push(':');
                 let s = field_schemas.and_then(|f| f.get(i)).map(|f| &f.schema);
-                write_json(out, v, s);
+                write_json(names, out, v, s);
             }
             out.push('}');
         }
@@ -436,7 +470,7 @@ fn write_json(out: &mut String, value: &Value, schema: Option<&Schema>) {
                 if i > 0 {
                     out.push(',');
                 }
-                write_json(out, v, s);
+                write_json(names, out, v, s);
             }
             out.push(']');
         }
@@ -455,12 +489,12 @@ fn write_json(out: &mut String, value: &Value, schema: Option<&Schema>) {
                 }
                 push_json_str(out, key);
                 out.push(':');
-                write_json(out, &entries[key], s);
+                write_json(names, out, &entries[key], s);
             }
             out.push('}');
         }
         _ => {
-            let (text, kind) = value_text(value, schema);
+            let (text, kind) = value_text(names, value, schema);
             push_json(out, &text, kind);
         }
     }
@@ -655,6 +689,58 @@ mod tests {
                 r#"{"id":2,"name":null,"ok":false,"score":null,"color":"RED","d":"1970-01-01","t":"00:00:00","ts":"1970-01-01T00:00:00Z","lts":"1970-01-01 00:00:00","price":null,"u":"67e55044-10b1-426f-9247-bb680e5fe0c8","raw":"","tags":[],"attrs":{},"inner":{"x":0,"amount":0.0}}"#,
             ]
         );
+    }
+
+    #[test]
+    fn reused_named_types() {
+        // `money` and `Item` are defined once and then used by name (`Schema::Ref`)
+        let schema = Schema::parse_str(
+            r#"{"type":"record","name":"Row","namespace":"shop","fields":[
+                {"name":"a","type":{"type":"fixed","name":"money","size":4,"logicalType":"decimal","precision":9,"scale":2}},
+                {"name":"b","type":"money"},
+                {"name":"c","type":["null","shop.money"]},
+                {"name":"first","type":{"type":"record","name":"Item","fields":[
+                    {"name":"price","type":"money"}]}},
+                {"name":"second","type":"Item"},
+                {"name":"items","type":{"type":"array","items":"Item"}}
+            ]}"#,
+        )
+        .unwrap();
+        let money = || Value::Decimal(apache_avro::Decimal::from(vec![0x00, 0x00, 0x30, 0x39]));
+        let item = || Value::Record(vec![("price".into(), money())]);
+        let mut writer = Writer::new(&schema, Vec::new()).unwrap();
+        let mut r = Record::new(&schema).unwrap();
+        r.put("a", money());
+        r.put("b", money());
+        r.put("c", Value::Union(1, Box::new(money())));
+        r.put("first", item());
+        r.put("second", item());
+        r.put("items", Value::Array(vec![item()]));
+        writer.append_value(r).unwrap();
+        let data = writer.into_inner().unwrap();
+        assert_eq!(
+            json_lines(data.clone()),
+            "{\"a\":123.45,\"b\":123.45,\"c\":123.45,\"first\":{\"price\":123.45},\
+             \"second\":{\"price\":123.45},\"items\":[{\"price\":123.45}]}\n"
+        );
+
+        let reader: Box<dyn Read + Send> = Box::new(io::Cursor::new(data));
+        let mut table = AvroJson::reader(reader, "t").table().unwrap();
+        let types: Vec<String> = table.columns().into_iter().map(|(_, t)| t).collect();
+        assert_eq!(
+            types,
+            [
+                "DECIMAL(9,2)",
+                "DECIMAL(9,2)",
+                "DECIMAL(9,2)",
+                "RECORD",
+                "RECORD",
+                "ARRAY"
+            ]
+        );
+        let cells = table.next_row().unwrap().unwrap();
+        assert!(matches!(&cells[1], Cell::Num(t) if t == "123.45"));
+        assert!(matches!(&cells[2], Cell::Num(t) if t == "123.45"));
     }
 
     #[test]
