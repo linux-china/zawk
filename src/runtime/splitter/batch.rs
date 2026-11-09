@@ -1112,6 +1112,16 @@ unsafe fn find_indexes_ascii_whitespace_sse2(
     generic::find_indexes_ascii_whitespace::<sse2::Impl>(buf, offsets, start_ws)
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "ssse3")]
+unsafe fn find_indexes_ascii_whitespace_ssse3(
+    buf: &[u8],
+    offsets: &mut WhitespaceOffsets,
+    start_ws: u64,
+) -> u64 {
+    generic::find_indexes_ascii_whitespace::<sse2::Impl<true>>(buf, offsets, start_ws)
+}
+
 pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "x86_64")] {
@@ -1121,6 +1131,8 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
             const ALLOW_AVX2: bool = false;
             if ALLOW_AVX2 && is_x86_feature_detected!("avx2") {
                 find_indexes_ascii_whitespace_avx2
+            } else if is_x86_feature_detected!("ssse3") {
+                find_indexes_ascii_whitespace_ssse3
             } else if is_x86_feature_detected!("sse2") {
                 find_indexes_ascii_whitespace_sse2
             } else {
@@ -1302,21 +1314,45 @@ mod generic {
             /* newlines */ u64,
             /* next start_ws */ u64,
         ) {
-            // TODO: we could probably use a shuffle to do this faster.
-            let space = self.cmp_against_input(b' ');
-            let tab = self.cmp_against_input(b'\t');
-            let nl = self.cmp_against_input(b'\n');
-            let cr = self.cmp_against_input(b'\r');
-            let ws1 = space.or(tab).or(nl).or(cr).mask();
+            let (ws1, nl) = self.whitespace_and_newline_masks();
             let mut ws2 = ws1.wrapping_shl(1) | start_ws;
             if Self::INPUT_SIZE != 64 {
                 ws2 &= !(1 << Self::INPUT_SIZE as u32)
             }
             let ws_res = ws1 ^ ws2;
             let next_start_ws = ws1.wrapping_shr(Self::INPUT_SIZE as u32 - 1);
-            (ws_res, nl.mask(), next_start_ws)
+            (ws_res, nl, next_start_ws)
+        }
+
+        /// Masks of the ASCII whitespace bytes (` `, `\t`, `\n`, `\r`) and of `\n` alone. SIMD
+        /// implementations with a byte shuffle override this with a table lookup (see
+        /// [WS_BY_LOW_NIBBLE]).
+        #[inline(always)]
+        unsafe fn whitespace_and_newline_masks(self) -> (u64, u64) {
+            cmp_whitespace_and_newline_masks(self)
         }
     }
+
+    /// Four compares and three ORs: the fallback for vectors without a byte shuffle.
+    #[inline(always)]
+    pub unsafe fn cmp_whitespace_and_newline_masks<V: Vector>(v: V) -> (u64, u64) {
+        let nl = v.cmp_against_input(b'\n');
+        let ws = v
+            .cmp_against_input(b' ')
+            .or(v.cmp_against_input(b'\t'))
+            .or(nl)
+            .or(v.cmp_against_input(b'\r'));
+        (ws.mask(), nl.mask())
+    }
+
+    /// Whitespace classification by one table lookup (the simdjson trick). The four whitespace
+    /// bytes have distinct low nibbles (`' '` = 0x20, `\t` = 0x09, `\n` = 0x0A, `\r` = 0x0D), so
+    /// entry `i` holds the whitespace byte whose low nibble is `i`, and a byte `x` is whitespace
+    /// iff `table[x & 0xF] == x`. The other entries are 0, which never matches: a byte with low
+    /// nibble `i != 0` is not 0. Bytes >= 0x80 look up 0 as well (`pshufb` zeroes lanes whose index
+    /// has the top bit set; NEON masks the index to the low nibble first).
+    pub const WS_BY_LOW_NIBBLE: [u8; 16] =
+        [b' ', 0, 0, 0, 0, 0, 0, 0, 0, b'\t', b'\n', 0, 0, b'\r', 0, 0];
 
     #[derive(Copy, Clone)]
     pub struct Impl([u8; 32]);
@@ -1793,21 +1829,25 @@ mod generic {
 
 #[cfg(target_arch = "x86_64")]
 mod sse2 {
-    use super::generic::{Vector, default_x86_find_quote_mask};
+    use super::generic::{
+        Vector, WS_BY_LOW_NIBBLE, cmp_whitespace_and_newline_masks, default_x86_find_quote_mask,
+    };
     // This is in a large part based on geofflangdale/simdcsv, which is an adaptation of some of
     // the techniques from the simdjson paper (by that paper's authors, it appears) to CSV parsing.
     use std::arch::x86_64::*;
+    /// `SSSE3` enables the `pshufb` whitespace lookup; callers must then run inside a function
+    /// with `#[target_feature(enable = "ssse3")]`.
     #[derive(Copy, Clone)]
-    pub struct Impl {
+    pub struct Impl<const SSSE3: bool = false> {
         lo: __m128i,
         hi: __m128i,
     }
 
-    impl Vector for Impl {
+    impl<const SSSE3: bool> Vector for Impl<SSSE3> {
         const VEC_BYTES: usize = 16;
         #[inline(always)]
         unsafe fn fill_input(bptr: *const u8) -> Self {
-            Impl {
+            Self {
                 lo: _mm_loadu_si128(bptr as *const _),
                 hi: _mm_loadu_si128(bptr.add(Self::VEC_BYTES) as *const _),
             }
@@ -1824,14 +1864,14 @@ mod sse2 {
         unsafe fn or(self, rhs: Self) -> Self {
             let lo = _mm_or_si128(self.lo, rhs.lo);
             let hi = _mm_or_si128(self.hi, rhs.hi);
-            Impl { lo, hi }
+            Self { lo, hi }
         }
 
         #[inline(always)]
         unsafe fn and(self, rhs: Self) -> Self {
             let lo = _mm_and_si128(self.lo, rhs.lo);
             let hi = _mm_and_si128(self.hi, rhs.hi);
-            Impl { lo, hi }
+            Self { lo, hi }
         }
 
         #[inline(always)]
@@ -1840,7 +1880,7 @@ mod sse2 {
             let mask = _mm_set1_epi8(m as i8);
             let lo = _mm_cmpeq_epi8(self.lo, mask);
             let hi = _mm_cmpeq_epi8(self.hi, mask);
-            Impl { lo, hi }
+            Self { lo, hi }
         }
 
         #[inline(always)]
@@ -1850,12 +1890,25 @@ mod sse2 {
         ) -> (/*inside quotes*/ u64, /*quote locations*/ u64) {
             default_x86_find_quote_mask::<Self>(self, prev_iter_inside_quote)
         }
+
+        #[inline(always)]
+        unsafe fn whitespace_and_newline_masks(self) -> (u64, u64) {
+            if !SSSE3 {
+                return cmp_whitespace_and_newline_masks(self);
+            }
+            let table = _mm_loadu_si128(WS_BY_LOW_NIBBLE.as_ptr() as *const _);
+            let ws = Self {
+                lo: _mm_cmpeq_epi8(_mm_shuffle_epi8(table, self.lo), self.lo),
+                hi: _mm_cmpeq_epi8(_mm_shuffle_epi8(table, self.hi), self.hi),
+            };
+            (ws.mask(), self.cmp_mask_against_input(b'\n'))
+        }
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use super::generic::{Vector, default_x86_find_quote_mask};
+    use super::generic::{Vector, WS_BY_LOW_NIBBLE, default_x86_find_quote_mask};
     // This is in a large part based on geofflangdale/simdcsv, which is an adaptation of some of
     // the techniques from the simdjson paper (by that paper's authors, it appears) to CSV parsing.
     use std::arch::x86_64::*;
@@ -1912,12 +1965,24 @@ mod avx2 {
         ) -> (/*inside quotes*/ u64, /*quote locations*/ u64) {
             default_x86_find_quote_mask::<Self>(self, prev_iter_inside_quote)
         }
+
+        #[inline(always)]
+        unsafe fn whitespace_and_newline_masks(self) -> (u64, u64) {
+            // vpshufb looks up within each 128-bit lane, so the table is in both lanes.
+            let table =
+                _mm256_broadcastsi128_si256(_mm_loadu_si128(WS_BY_LOW_NIBBLE.as_ptr() as *const _));
+            let ws = Impl {
+                lo: _mm256_cmpeq_epi8(_mm256_shuffle_epi8(table, self.lo), self.lo),
+                hi: _mm256_cmpeq_epi8(_mm256_shuffle_epi8(table, self.hi), self.hi),
+            };
+            (ws.mask(), self.cmp_mask_against_input(b'\n'))
+        }
     }
 }
 
 #[cfg(target_arch = "aarch64")]
 mod neon {
-    use super::generic::Vector;
+    use super::generic::{Vector, WS_BY_LOW_NIBBLE};
     // NEON is part of the aarch64 baseline, so no runtime detection is needed.
     use std::arch::aarch64::*;
 
@@ -2024,6 +2089,19 @@ mod neon {
             let quote_mask = prefix ^ *prev_iter_inside_quote;
             *prev_iter_inside_quote = (quote_mask as i64).wrapping_shr(63) as u64;
             (quote_mask, quote_bits)
+        }
+
+        // tbl returns 0 for indexes >= 16, so the index is masked to the low nibble first.
+        #[inline(always)]
+        unsafe fn whitespace_and_newline_masks(self) -> (u64, u64) {
+            let [a, b, c, d] = self.0;
+            unsafe {
+                let table = vld1q_u8(WS_BY_LOW_NIBBLE.as_ptr());
+                let low = vdupq_n_u8(0x0F);
+                let ws = |v| vceqq_u8(vqtbl1q_u8(table, vandq_u8(v, low)), v);
+                let ws = Impl([ws(a), ws(b), ws(c), ws(d)]);
+                (ws.mask(), self.cmp_mask_against_input(b'\n'))
+            }
         }
     }
 }
@@ -2763,6 +2841,71 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         }
     }
 
+    /// The vector's whitespace and newline masks agree with a byte-by-byte check, over random
+    /// inputs drawn from all 256 byte values and from a whitespace-heavy alphabet.
+    fn whitespace_masks_match_naive<V: generic::Vector>() {
+        let mut seed = 0x0123_4567_89AB_CDEFu64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        const ALPHABET: &[u8] = b" \t\n\r\0)*-a\x80\x8a\xa0\xff\x0b\x0c";
+        let mut buf = [0u8; 64];
+        // Every byte value at least once in each position class.
+        for start in (0..256).step_by(V::INPUT_SIZE) {
+            for (i, b) in buf.iter_mut().enumerate().take(V::INPUT_SIZE) {
+                *b = ((start + i) % 256) as u8;
+            }
+            check_whitespace_masks::<V>(&buf);
+        }
+        for round in 0..20_000 {
+            for b in buf.iter_mut() {
+                let r = next();
+                *b = if round % 2 == 0 {
+                    r as u8
+                } else {
+                    ALPHABET[(r % ALPHABET.len() as u64) as usize]
+                };
+            }
+            check_whitespace_masks::<V>(&buf);
+        }
+    }
+
+    fn check_whitespace_masks<V: generic::Vector>(buf: &[u8; 64]) {
+        let naive = |p: fn(u8) -> bool| {
+            buf[..V::INPUT_SIZE]
+                .iter()
+                .enumerate()
+                .fold(0u64, |acc, (i, b)| acc | (p(*b) as u64) << i)
+        };
+        let want_ws = naive(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+        let want_nl = naive(|b| b == b'\n');
+        let v = unsafe { V::fill_input(buf.as_ptr()) };
+        let (ws, nl) = unsafe { v.whitespace_and_newline_masks() };
+        assert_eq!(ws, want_ws, "buf={:?}", &buf[..V::INPUT_SIZE]);
+        assert_eq!(nl, want_nl, "buf={:?}", &buf[..V::INPUT_SIZE]);
+    }
+
+    #[test]
+    fn whitespace_masks_match_naive_all_impls() {
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "x86_64")] {
+                if is_x86_feature_detected!("avx2") {
+                    whitespace_masks_match_naive::<avx2::Impl>();
+                }
+                if is_x86_feature_detected!("ssse3") {
+                    whitespace_masks_match_naive::<sse2::Impl<true>>();
+                }
+                whitespace_masks_match_naive::<sse2::Impl>();
+            } else if #[cfg(target_arch = "aarch64")] {
+                whitespace_masks_match_naive::<neon::Impl>();
+            }
+        }
+        whitespace_masks_match_naive::<generic::Impl>();
+    }
+
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn neon_masks_match_naive() {
@@ -3191,6 +3334,9 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         if is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq") {
             resumed_scan_matches_full_scan::<sse2::Impl>();
         }
+        if is_x86_feature_detected!("ssse3") && is_x86_feature_detected!("pclmulqdq") {
+            resumed_scan_matches_full_scan::<sse2::Impl<true>>();
+        }
     }
 
     #[test]
@@ -3586,6 +3732,9 @@ xxxxxxxxxxxxxxxxxxxxxxxxxx    yyyyyyyyyyyyyyyyyyyyyyyy     4444444
                 }
                 if is_x86_feature_detected!("sse2") {
                     whitespace_splitter_generic::<sse2::Impl>()
+                }
+                if is_x86_feature_detected!("ssse3") {
+                    whitespace_splitter_generic::<sse2::Impl<true>>()
                 }
             } else if #[cfg(target_arch = "aarch64")] {
                 whitespace_splitter_generic::<neon::Impl>();
