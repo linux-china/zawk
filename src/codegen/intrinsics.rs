@@ -107,6 +107,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         // Not ReadOnly: these depend on CONVFMT and OFMT.
         float_to_str(float_ty) -> str_ty;
         float_to_str_ofmt(float_ty) -> str_ty;
+        [ReadOnly] float_to_str_exact(float_ty) -> str_ty;
         [ReadOnly] str_to_int(str_ref_ty) -> int_ty;
         [ReadOnly] float_to_bits(float_ty) -> int_ty;
         [ReadOnly] complement(int_ty) -> int_ty;
@@ -3678,6 +3679,12 @@ pub(crate) unsafe extern "C" fn float_to_str(f: Float) -> U128 {
 pub(crate) unsafe extern "C" fn float_to_str_ofmt(f: Float) -> U128 {
     guard_panic(stringify!(float_to_str_ofmt), || {
         mem::transmute::<Str, U128>(Str::from_float_output(f))
+    })
+}
+
+pub(crate) unsafe extern "C" fn float_to_str_exact(f: Float) -> U128 {
+    guard_panic(stringify!(float_to_str_exact), || {
+        mem::transmute::<Str, U128>(Str::from(runtime::numfmt::float_to_text(f)))
     })
 }
 

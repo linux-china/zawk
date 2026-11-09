@@ -333,6 +333,7 @@ impl Display for Function {
             Strnum => write!(f, "strnum"),
             ToFloat => write!(f, "to_float"),
             OfmtStr => write!(f, "ofmt_str"),
+            ExactStr => write!(f, "exact_str"),
             Contains => write!(f, "contains"),
             Delete => write!(f, "delete"),
             Clear => write!(f, "clear"),

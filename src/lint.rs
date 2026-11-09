@@ -484,6 +484,9 @@ struct Facts<'a, 'p> {
     dynamic_formats: Vec<Option<Loc>>,
     /// `$NF-1` (meaning `$(NF-1)`): the operator, the number and the location.
     field_offsets: Vec<(&'static str, i64, Option<Loc>)>,
+    /// Arithmetic as an argument of a `dec_*` function (`dec_add(t, $3 * 1.06)`): the function
+    /// name and the location of the call.
+    decimal_float_args: Vec<(&'static str, Option<Loc>)>,
     /// Comparisons of a field with a numeric string (`$3 > "100"`): the field, the string and
     /// the location.
     string_comparisons: Vec<(String, &'a [u8], Option<Loc>)>,
@@ -1147,6 +1150,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                 }
             }
             Call(f, args) => {
+                self.check_decimal_args(f, args, self.loc(e));
                 let read_only = match f {
                     Either::Left(name) => {
                         self.calls.push((name, args.len(), self.loc(e)));
@@ -1181,6 +1185,46 @@ impl<'a, 'p> Facts<'a, 'p> {
                         _ => self.expr(arg),
                     }
                 }
+            }
+        }
+    }
+}
+
+impl<'a, 'p> Facts<'a, 'p> {
+    /// `dec_add(t, $3 * 1.06)`: the product is a float, computed in binary floating point
+    /// before `dec_add` sees it, so the decimal result is not exact.
+    fn check_decimal_args(
+        &mut self,
+        f: &Either<&'a str, Function>,
+        args: &[&AstExpr<'a>],
+        loc: Option<Loc>,
+    ) {
+        let name = match f {
+            Either::Right(Function::Decimal(op)) => op.func_name(),
+            Either::Right(Function::DecCmp) => "dec_cmp",
+            Either::Left(name) => match crate::builtins::FUNCTIONS.get(name) {
+                Some(Function::Decimal(op)) => op.func_name(),
+                Some(Function::DecCmp) => "dec_cmp",
+                _ => return,
+            },
+            _ => return,
+        };
+        for arg in args {
+            let arith = matches!(
+                arg,
+                ast::Expr::Binop(
+                    ast::Binop::Plus
+                        | ast::Binop::Minus
+                        | ast::Binop::Mult
+                        | ast::Binop::Div
+                        | ast::Binop::Mod
+                        | ast::Binop::Pow,
+                    _,
+                    _
+                )
+            );
+            if arith {
+                self.decimal_float_args.push((name, loc));
             }
         }
     }
@@ -1322,6 +1366,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         formats: Vec::new(),
         dynamic_formats: Vec::new(),
         field_offsets: Vec::new(),
+        decimal_float_args: Vec::new(),
         string_comparisons: Vec::new(),
         main_fs_sets: Vec::new(),
         string_conds: Vec::new(),
@@ -1527,6 +1572,17 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             format!(
                 "{} is compared with the string \"{}\", so it is compared as a string (\"99\" > \"100\"); drop the quotes (`{}`) to compare as numbers",
                 field, s.escape_debug(), s.trim()
+            ),
+            *loc,
+        ));
+    }
+
+    // `dec_add(t, $3 * 1.06)`: the arithmetic is done in binary floating point first.
+    for (name, loc) in &facts.decimal_float_args {
+        diags.push(warning(
+            "W123",
+            format!(
+                "argument of `{name}` is computed with floating-point arithmetic before `{name}` sees it (`0.1 + 0.2` is 0.30000000000000004), so the result is not exact decimal; compute it with the dec_* functions instead, e.g. `dec_add(t, dec_mul($3, \"1.06\"))`"
             ),
             *loc,
         ));
@@ -2563,6 +2619,14 @@ mod tests {
         assert_eq!(codes(&run("{ printf $0 }")), ["W118"]);
         assert_eq!(codes(&run("{ printf($1 \"\\n\") }")), ["W118"]);
         assert!(codes(&run("{ printf \"%s\\n\", $0 }")).is_empty());
+        let v = run("{ t = dec_add(t, $3 * 1.06) } END { print t, dec_cmp(t - 1, 0) }");
+        assert_eq!(codes(&v), ["W123", "W123"]);
+        assert!(message(&v, 0).contains("dec_add"));
+        assert!(message(&v, 1).contains("dec_cmp"));
+        assert!(codes(&run(
+            "{ t = dec_add(t, dec_mul($3, \"1.06\")) } END { print dec_round(t, 2), dec_add(t, -1) }"
+        ))
+        .is_empty());
         let v = run("BEGIN { OFS = \"-\" }\n{ FS = \",\"; print $2 } { FS = \";\" }");
         assert_eq!(codes(&v), ["W119"]);
         assert_eq!(v["diagnostics"][0]["line"], 2);

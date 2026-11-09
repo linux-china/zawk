@@ -1586,6 +1586,12 @@ impl<'a, 'b> View<'a, 'b> {
                 let reg = self.regs.stats.reg_of_ty(cty);
                 self.pushl(LL::FloatToBits(reg.into(), freg.into()));
                 *creg = reg;
+            } else if matches!(bf, Decimal(_) | DecCmp) && aty == Ty::Float && cty == Ty::Str {
+                // `dec_*` work on decimal text: a float argument becomes its shortest round-trip
+                // form, not CONVFMT's `%.6g` (`dec_add(1234567.89, 0)` is "1234567.89").
+                let reg = self.regs.stats.reg_of_ty(cty);
+                self.pushl(LL::FloatToStrExact(reg.into(), areg.into()));
+                *creg = reg;
             } else {
                 let reg = self.regs.stats.reg_of_ty(cty);
 
@@ -2155,6 +2161,17 @@ impl<'a, 'b> View<'a, 'b> {
                     match conv_tys[0] {
                         Ty::Float => {
                             self.pushl(LL::FloatToStrOfmt(res_reg.into(), conv_regs[0].into()))
+                        }
+                        Ty::Int => self.pushl(LL::IntToStr(res_reg.into(), conv_regs[0].into())),
+                        _ => self.mov(res_reg, conv_regs[0], Ty::Str)?,
+                    }
+                }
+            }
+            ExactStr => {
+                if res_reg != UNUSED {
+                    match conv_tys[0] {
+                        Ty::Float => {
+                            self.pushl(LL::FloatToStrExact(res_reg.into(), conv_regs[0].into()))
                         }
                         Ty::Int => self.pushl(LL::IntToStr(res_reg.into(), conv_regs[0].into())),
                         _ => self.mov(res_reg, conv_regs[0], Ty::Str)?,

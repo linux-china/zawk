@@ -88,6 +88,7 @@ zawk --lint -f report.awk data.csv     # lint, then run if there is no error
 | W117 | field compared with a numeric string (`$3 > "100"`): a string comparison |
 | W118 | `printf $0`: a `%` in the data breaks it |
 | W119 | `FS` assigned in a main rule: applies from the next record only |
+| W123 | arithmetic in a `dec_*` argument (`dec_add(t, $3 * 1.06)`): computed in floating point first |
 | W201 | variable read but never set |
 | W202 / W203 | `printf` format with more / fewer arguments than given |
 | W206 | variable set but never read (typo: `totl += $1` ... `print total`) |

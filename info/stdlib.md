@@ -754,8 +754,11 @@ dec_cmp("1.10", "1.1")             # 0; -1 or 1 when the first is smaller or gre
   `ceil`, `floor`. A scale is an integer from -28 to 28.
 * Invalid text, a division by zero, a bad scale or mode, and an overflow return `""` (`0` for `dec_cmp`) with a
   warning, and set `ERRNO`.
-* Pass amounts as fields or strings, not as float expressions: a float argument is converted with `CONVFMT` (`%.6g`)
-  first, so `dec_add(x, 1234567.89)` adds `1.23457e+06`. Fields, string literals and integers are exact.
+* Pass amounts as fields or strings (their original text), not as float expressions. A float argument is converted to
+  its shortest round-trip text, not with `CONVFMT`, so `x = 1234567.89; dec_add(x, 0)` is `1234567.89`; but the
+  arithmetic before the call is still binary floating point: `dec_add(t, $3 * 1.06)` adds the float product, and
+  `dec_add(0.1 + 0.2, 0)` is `0.30000000000000004`. Compute with the `dec_*` functions instead
+  (`dec_add(t, dec_mul($3, "1.06"))`); `zawk lint` warns about arithmetic in a `dec_*` argument (W123).
 
 ### min/max
 

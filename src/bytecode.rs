@@ -78,6 +78,9 @@ pub(crate) enum Instr<'a> {
     FloatToStr(Reg<Str<'a>>, Reg<Float>),
     // Like FloatToStr, but formats with OFMT instead of CONVFMT (for print).
     FloatToStrOfmt(Reg<Str<'a>>, Reg<Float>),
+    // Like FloatToStr, but in the shortest round-trip form, ignoring CONVFMT (for `dec_*`
+    // arguments, which must not lose precision).
+    FloatToStrExact(Reg<Str<'a>>, Reg<Float>),
     StrToInt(Reg<Int>, Reg<Str<'a>>),
     HexStrToInt(Reg<Int>, Reg<Str<'a>>),
     FloatToInt(Reg<Int>, Reg<Float>),
@@ -851,7 +854,7 @@ impl<'a> Instr<'a> {
                 sr.accum(&mut f);
                 ir.accum(&mut f)
             }
-            FloatToStr(sr, fr) | FloatToStrOfmt(sr, fr) => {
+            FloatToStr(sr, fr) | FloatToStrOfmt(sr, fr) | FloatToStrExact(sr, fr) => {
                 sr.accum(&mut f);
                 fr.accum(&mut f);
             }

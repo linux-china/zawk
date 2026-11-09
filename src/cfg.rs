@@ -1086,7 +1086,7 @@ where
                 let strs = uninit::printf_str_args(fmt, args.len());
                 for (i, a) in args.iter().enumerate() {
                     let (next, arg_v) = if strs.as_ref().is_some_and(|s| s[i]) {
-                        self.convert_str_operand(a, current_open, /*ofmt=*/ false)?
+                        self.convert_str_operand(a, current_open, /*conv=*/ None)?
                     } else {
                         self.convert_val(a, current_open)?
                     };
@@ -1203,7 +1203,7 @@ where
                         let leaf = leaves[j];
                         let (next, mut to_print) = if split {
                             let (next, v) =
-                                self.convert_str_operand(leaf, current_open, /*ofmt=*/ false)?;
+                                self.convert_str_operand(leaf, current_open, /*conv=*/ None)?;
                             if matches!(
                                 leaf,
                                 ast::Expr::StrLit(_) | ast::Expr::Unop(Unop::Column, _)
@@ -1218,7 +1218,11 @@ where
                                 (next, self.to_val(s, next)?)
                             }
                         } else {
-                            self.convert_str_operand(leaf, current_open, /*ofmt=*/ true)?
+                            self.convert_str_operand(
+                                leaf,
+                                current_open,
+                                /*conv=*/ Some(builtins::Function::OfmtStr),
+                            )?
                         };
                         to_print = self.snapshot_before(to_print, &leaves[j + 1..], next)?;
                         to_print = self.escape(to_print, next)?;
@@ -1719,7 +1723,7 @@ where
             Binop(op, e1, e2) => {
                 let (str1, str2) = uninit::string_operands(expr);
                 let (next, v1) = if str1.is_some() {
-                    self.convert_str_operand(e1, current_open, /*ofmt=*/ false)?
+                    self.convert_str_operand(e1, current_open, /*conv=*/ None)?
                 } else {
                     self.convert_val(e1, current_open)?
                 };
@@ -1727,7 +1731,7 @@ where
                 let (next, v2) = if let ast::Binop::IsMatch = op {
                     self.convert_regex_arg(e2, next)?
                 } else if str2.is_some() {
-                    self.convert_str_operand(e2, next, /*ofmt=*/ false)?
+                    self.convert_str_operand(e2, next, /*conv=*/ None)?
                 } else {
                     self.convert_val(e2, next)?
                 };
@@ -2234,7 +2238,7 @@ where
         let strs = uninit::printf_str_args(args[0], args.len() - 1);
         for (i, a) in args.iter().enumerate().skip(1) {
             let (next, v) = if strs.as_ref().is_some_and(|s| s[i - 1]) {
-                self.convert_str_operand(a, current_open, /*ofmt=*/ false)?
+                self.convert_str_operand(a, current_open, /*conv=*/ None)?
             } else {
                 self.convert_val(a, current_open)?
             };
@@ -2464,18 +2468,18 @@ where
     }
 
     /// Converts `e`, which is read as a string. An uninitialized tracked variable, or a missing
-    /// element of a tracked array, is "" rather than "0". With `ofmt`, numbers are converted to
-    /// strings as print does.
+    /// element of a tracked array, is "" rather than "0". With `conv` (`OfmtStr` or `ExactStr`),
+    /// numbers are converted to strings by that builtin instead of with CONVFMT.
     fn convert_str_operand<'c>(
         &mut self,
         e: &'c Expr<'c, 'b, I>,
         current_open: NodeIx,
-        ofmt: bool,
+        conv: Option<builtins::Function>,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         if let Some(flag) = self.uninit_flag(e) {
             let (next, v) = self.convert_val(e, current_open)?;
             let flag = PrimVal::Var(self.get_identifier(&flag));
-            return self.str_or_empty(flag, v, ofmt, next);
+            return self.str_or_empty(flag, v, conv, next);
         }
         if let Expr::Index(arr, ix) = e {
             if self.uninit_map_elem(e) {
@@ -2489,7 +2493,7 @@ where
                 );
                 let present = self.to_val(present, next)?;
                 let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
-                return self.str_or_empty(present, v, ofmt, next);
+                return self.str_or_empty(present, v, conv, next);
             }
         }
         self.convert_val(e, current_open)
@@ -2650,7 +2654,7 @@ where
         &mut self,
         cond: PrimVal<'b>,
         v: PrimVal<'b>,
-        ofmt: bool,
+        conv: Option<builtins::Function>,
         current_open: NodeIx,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         let res = self.fresh_local();
@@ -2658,8 +2662,8 @@ where
         let set = self.f.cfg.add_node(Default::default());
         let empty = self.f.cfg.add_node(Default::default());
         let next = self.f.cfg.add_node(Default::default());
-        let v = if ofmt {
-            PrimExpr::CallBuiltin(builtins::Function::OfmtStr, smallvec![v])
+        let v = if let Some(conv) = conv {
+            PrimExpr::CallBuiltin(conv, smallvec![v])
         } else {
             PrimExpr::Val(v)
         };
@@ -2914,7 +2918,7 @@ where
         let mut next = current_open;
         let mut vs = SmallVec::with_capacity(leaves.len());
         for (i, leaf) in leaves.iter().enumerate() {
-            let (n, v) = self.convert_str_operand(leaf, next, /*ofmt=*/ false)?;
+            let (n, v) = self.convert_str_operand(leaf, next, /*conv=*/ None)?;
             next = n;
             vs.push(self.snapshot_before(v, &leaves[i + 1..], next)?);
         }
@@ -2959,7 +2963,7 @@ where
         // A missing element of a tracked array is "" as a subscript (`b[a[k]]`), as elsewhere
         // where a string is expected.
         if self.uninit_map_elem(ix) {
-            return self.convert_str_operand(ix, current_open, /*ofmt=*/ false);
+            return self.convert_str_operand(ix, current_open, /*conv=*/ None);
         }
         self.convert_val_inner(ix, current_open, in_cond)
     }
@@ -3060,7 +3064,7 @@ where
             Some(flag) if str_case => {
                 let flag = PrimVal::Var(self.get_identifier(&flag));
                 let (next, v) =
-                    self.str_or_empty(flag, num_v.clone(), /*ofmt=*/ false, current_open)?;
+                    self.str_or_empty(flag, num_v.clone(), /*conv=*/ None, current_open)?;
                 current_open = next;
                 v
             }
@@ -3361,11 +3365,17 @@ where
             let (next, v) = if key_arg && i == 1 {
                 self.convert_index(a, open, /*in_cond=*/ false)?
             } else if matches!(bi, Either::Right(builtins::Function::Length)) {
-                self.convert_str_operand(a, open, /*ofmt=*/ false)?
+                self.convert_str_operand(a, open, /*conv=*/ None)?
             } else if matches!(&bi, Either::Right(f)
                 if !matches!(a, Expr::PatLit(_)) && uninit::builtin_str_arg(*f, args, i))
             {
-                self.convert_str_operand(a, open, /*ofmt=*/ false)?
+                // `dec_*` read decimal text: a number keeps all its digits (not CONVFMT's).
+                let conv = matches!(
+                    bi,
+                    Either::Right(builtins::Function::Decimal(_) | builtins::Function::DecCmp)
+                )
+                .then_some(builtins::Function::ExactStr);
+                self.convert_str_operand(a, open, conv)?
             } else if matches!(bi, Either::Right(_)) {
                 // Builtins take regex literals as patterns (split, sub, match, ...); for user
                 // defined functions, as in gawk, a regex literal argument is `$0 ~ /re/`.

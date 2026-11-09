@@ -892,6 +892,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let sr = *sr;
                         *self.get_mut(sr) = s;
                     }
+                    FloatToStrExact(sr, fr) => {
+                        let s = Str::from(runtime::numfmt::float_to_text(*self.get(*fr)));
+                        let sr = *sr;
+                        *self.get_mut(sr) = s;
+                    }
                     Uuid(dst, version) => {
                         let version = index(&self.strs, version);
                         let res = Str::from(runtime::math_util::uuid(&*version.as_str()));

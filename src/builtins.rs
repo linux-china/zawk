@@ -24,6 +24,8 @@ pub enum Function {
     // Internal: converts a value to a string the way print does, formatting floats with OFMT.
     // Used for print arguments that may be uninitialized (see `uninit`).
     OfmtStr,
+    // Number to string in its shortest round-trip form, ignoring CONVFMT (for `dec_*` arguments).
+    ExactStr,
     Unop(ast::Unop),
     Binop(ast::Binop),
     FloatFunc(FloatFunc),
@@ -1250,7 +1252,7 @@ impl Function {
             Fflush => (smallvec![Str], Int),
             Strnum => (smallvec![Str], Str),
             ToFloat => (smallvec![Float], Float),
-            OfmtStr => (
+            OfmtStr | ExactStr => (
                 smallvec![if matches!(incoming[0], Int | Float) {
                     incoming[0]
                 } else {
@@ -1412,7 +1414,7 @@ impl Function {
             Min | Max => 3,
             Seq => 3,
             Uniq => 2,
-            Strnum | ToFloat | OfmtStr => 1,
+            Strnum | ToFloat | OfmtStr | ExactStr => 1,
             Asort => 3,
             Asorti => 3,
             ArrayMedian | ArrayVar | ArrayStddev | ArrayMode | ArrayCountDistinct => 1,
@@ -1601,7 +1603,7 @@ impl Function {
             SqliteExecute | MysqlExecute | PgExecute => Ok(Scalar(BaseTy::Int).abs()),
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
             ToFloat => Ok(Scalar(BaseTy::Float).abs()),
-            OfmtStr => Ok(Scalar(BaseTy::Str).abs()),
+            OfmtStr | ExactStr => Ok(Scalar(BaseTy::Str).abs()),
             Uniq => Ok(Map {
                 key: BaseTy::Int,
                 val: BaseTy::Str,

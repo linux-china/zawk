@@ -101,6 +101,8 @@ zawk -i csv -H '
 - Inputs may have blanks, a sign, an exponent (`1.5e3`) and thousands separators (`1,234.50`, `1_234.50`); an empty
   string is 0, so accumulators need no initialization.
 - Invalid text, a division by zero and an overflow return `""` (`0` for `dec_cmp`) with a warning, and set `ERRNO`.
-- Pass fields or strings, not float expressions: a float is converted with `CONVFMT` (`%.6g`) before the decimal
-  function sees it, so `dec_add(x, 1234567.89)` adds `1.23457e+06`. Compare amounts with `dec_cmp`, not `<`, when
-  they have different scales or come from different sources.
+- Pass fields or strings (their original text), not float expressions. A float argument is converted to its shortest
+  round-trip text (not with `CONVFMT`), so `dec_add(x, 0)` with `x = 1234567.89` is `1234567.89`; but arithmetic before
+  the call is binary floating point: `dec_add(0.1 + 0.2, 0)` is `0.30000000000000004`. Write
+  `dec_add(t, dec_mul($3, "1.06"))`, not `dec_add(t, $3 * 1.06)`; `zawk lint` warns about the latter (W123). Compare
+  amounts with `dec_cmp`, not `<`, when they have different scales or come from different sources.

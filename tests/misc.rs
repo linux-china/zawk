@@ -3827,6 +3827,34 @@ fn decimal_functions_are_exact() {
 }
 
 #[test]
+fn decimal_float_arguments_keep_all_digits() {
+    // A float argument is converted to its shortest round-trip text, not with CONVFMT (`%.6g`),
+    // also when the variable may be uninitialized (`x` is "" then) or CONVFMT is changed.
+    let prog = r#"BEGIN {
+        x = 1234567.891; print dec_add(x, 0), dec_add(0.1, 0.2), dec_mul(1e-7, 1), dec_add(2^53, 1)
+        print dec_add(u, 1), dec_add(a["k"], 0.25), dec_cmp(x, "1234567.891"), x
+        CONVFMT = "%.2f"; print dec_add(x, 0), x ""
+    }
+    { t = dec_add(t, $1 * 1) }
+    END { print t }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .write_stdin("1234567.89\n0.01\n")
+            .assert()
+            .success()
+            .stdout(
+                "1234567.891 0.3 0.0000001 9007199254740993\n\
+                 1 0.25 0 1.23457e+06\n\
+                 1234567.891 1234567.89\n\
+                 1234567.90\n",
+            );
+    }
+}
+
+#[test]
 fn decimal_failures_return_empty_with_warning() {
     let prog = r#"BEGIN { ERRNO = ""; print "[" dec_div(1, 0) "][" dec_add("abc", 1) "][" dec_round(1, 2, "nearest") "][" dec_cmp("x", 1) "]"; print (ERRNO != "") }"#;
     for backend_arg in BACKEND_ARGS {
