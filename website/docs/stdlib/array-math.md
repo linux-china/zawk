@@ -101,6 +101,21 @@ zawk -i csv -H '
 - Inputs may have blanks, a sign, an exponent (`1.5e3`) and thousands separators (`1,234.50`, `1_234.50`); an empty
   string is 0, so accumulators need no initialization.
 - Invalid text, a division by zero and an overflow return `""` (`0` for `dec_cmp`) with a warning, and set `ERRNO`.
+  The warning is printed once per distinct message, so a bad value in every record shows up only once.
+- A value has at most 28 significant digits and at most 28 fractional digits. A rounding scale that does not fit is an
+  overflow: `dec_round("79228162514264337593543950335", 2)` is `""`, not the value without `.00`. A result with more
+  than 28 fractional digits is rounded to 28 without a warning: `dec_mul("0.0000000000000001", "0.0000000000000001")`
+  is `0.0000000000000000000000000000`; an input with more is out of range: `dec_add("1e-30", 1)` is `""`.
+- `dec_cmp` returns `0` on invalid input, which reads as "equal": `if (dec_cmp(amount, limit) > 0)` silently takes the
+  "not greater" branch for a bad `amount`. When the data may be dirty, handle the failure explicitly:
+
+  ```awk
+  c = try dec_cmp($FI["amount"], limit) else "bad"
+  if (c == "bad") { print "invalid amount:", $FI["amount"] > "/dev/stderr"; next }
+  if (c > 0) print "over limit:", $0
+  ```
+
+  or clear `ERRNO` before the call (`ERRNO = ""; c = dec_cmp(a, b); if (ERRNO != "") ...`).
 - Pass fields or strings (their original text), not float expressions. A float argument is converted to its shortest
   round-trip text (not with `CONVFMT`), so `dec_add(x, 0)` with `x = 1234567.89` is `1234567.89`; but arithmetic before
   the call is binary floating point: `dec_add(0.1 + 0.2, 0)` is `0.30000000000000004`. Write

@@ -966,7 +966,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "dec_round",
         DECIMAL,
         "dec_round(a: str[, scale: int[, mode: str]]) -> str",
-        "Round decimal text to scale places (default 0, negative to the left of the point), padding with zeros; mode: half_up (default), half_even, half_down, up, down, ceil, floor.",
+        "Round decimal text to scale places (default 0, negative to the left of the point), padding with zeros (\"\" with a warning when the padded value exceeds 28 digits); mode: half_up (default), half_even, half_down, up, down, ceil, floor.",
         r#"dec_round("2.675", 2)"#,
     ),
     d(
@@ -980,7 +980,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "dec_cmp",
         DECIMAL,
         "dec_cmp(a: str, b: str) -> int",
-        "Compare two decimals: -1, 0 or 1 as a is less than, equal to or greater than b.",
+        "Compare two decimals: -1, 0 or 1 as a is less than, equal to or greater than b; 0 with a warning and ERRNO set on invalid input, so check it with `try dec_cmp(a, b) else ...` for dirty data.",
         r#"dec_cmp("1.10", "1.1")"#,
     ),
     d(

@@ -135,12 +135,17 @@ fn overflow() -> String {
 }
 
 /// Round to `scale` fractional digits, padding with zeros: `round(3, 2)` is `3.00`. A negative
-/// scale rounds to the left of the decimal point: `round(1250, -2)` is `1300`.
+/// scale rounds to the left of the decimal point: `round(1250, -2)` is `1300`. An overflow error
+/// when the padded value exceeds 28 significant digits (`rescale` would silently keep a smaller
+/// scale).
 fn round(x: Decimal, scale: i32, mode: RoundingStrategy) -> Result<Decimal, String> {
     if scale >= 0 {
         let scale = scale as u32;
         let mut r = x.round_dp_with_strategy(scale, mode);
         r.rescale(scale);
+        if r.scale() != scale {
+            return Err(overflow());
+        }
         return Ok(r);
     }
     let unit = Decimal::from_i128_with_scale(10i128.pow(scale.unsigned_abs()), 0);
@@ -392,6 +397,26 @@ mod tests {
         let big = "79228162514264337593543950335";
         assert!(ev(DecOp::Add, big, "1", "", "").starts_with("ERR overflow"));
         assert!(ev(DecOp::Mul, big, "2", "", "").starts_with("ERR overflow"));
+        // No room for the padding zeros: an error, not a smaller scale.
+        assert!(ev(DecOp::Round, big, "2", "", "").starts_with("ERR overflow"));
+        assert!(ev(DecOp::Format, big, "1", "", "").starts_with("ERR overflow"));
+        assert!(ev(DecOp::Div, big, "1", "2", "").starts_with("ERR overflow"));
+        assert_eq!(ev(DecOp::Round, big, "0", "", ""), big);
+        assert_eq!(
+            ev(DecOp::Round, "1", "28", "", ""),
+            "1.0000000000000000000000000000"
+        );
+        assert!(ev(DecOp::Round, "10", "28", "", "").starts_with("ERR overflow"));
+    }
+
+    #[test]
+    fn fractional_digits_beyond_28_are_rounded() {
+        let tiny = "0.0000000000000001";
+        assert_eq!(
+            ev(DecOp::Mul, tiny, tiny, "", ""),
+            "0.0000000000000000000000000000"
+        );
+        assert!(ev(DecOp::Add, "1e-30", "1", "", "").contains("out of range"));
     }
 
     #[test]
