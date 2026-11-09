@@ -422,8 +422,19 @@ impl Generator {
 
         view.call_udf(NumTy::try_from(udf).expect("function Id too large"), &[])?;
         for (var, ty) in vars {
-            let val = view.builder.use_var(var);
-            view.drop_val(ty, val);
+            // `var` holds the address of the stack slot backing the global, not the value
+            // itself. Strings are dropped through that pointer (`drop_str` takes a `*mut Str`),
+            // but maps must be dropped by the map pointer stored in the slot.
+            let addr = view.builder.use_var(var);
+            if ty.is_array() {
+                let map = view
+                    .builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::trusted(), addr, 0);
+                view.drop_val(ty, map);
+            } else {
+                view.drop_val(ty, addr);
+            }
         }
         view.builder.ins().return_(&[]);
         let frontend_config = view.shared.module.target_config();
