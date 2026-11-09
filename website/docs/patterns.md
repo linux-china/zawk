@@ -232,9 +232,9 @@ zawk 'BEGIN{printf "%-10s %5s\n", "NAME", "AGE"} {printf "%-10s %5d\n", $1, $2}'
 ### Pattern 27: Turn a CSV into an aligned table
 
 ```shell
-zawk -F, '{printf "%-12s %-12s %8s\n", $1, $2, $3}' data.csv
+zawk -i csv '{printf "%-12s %-12s %8s\n", $1, $2, $3}' data.csv
 # Auto width: two passes over the same file
-zawk -F, 'NR==FNR {for (i=1;i<=NF;i++) if (length($i) > w[i]) w[i] = length($i); next}
+zawk -i csv 'NR==FNR {for (i=1;i<=NF;i++) if (length($i) > w[i]) w[i] = length($i); next}
          {for (i=1;i<=NF;i++) printf "%-*s ", w[i], $i; print ""}' data.csv data.csv
 ```
 
