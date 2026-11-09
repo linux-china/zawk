@@ -11,7 +11,7 @@ use crate::common::Result;
 use crate::runtime::awk_regex;
 use crate::runtime::compare::{fold_key, looks_numeric};
 use crate::runtime::float_parse::str_to_num;
-use crate::runtime::{Float, Int, SharedMap, Str, StrMap, Uninit};
+use crate::runtime::{Detach, Float, Int, SharedMap, Str, StrMap, Uninit};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Key {
@@ -196,7 +196,7 @@ pub(crate) fn asorti<'a, K1, V, K2>(
 where
     K1: Hash + Eq + SortItem + Into<Str<'a>>,
     V: SortItem,
-    K2: Hash + Eq + From<Int>,
+    K2: Hash + Eq + From<Int> + Detach,
 {
     let order = how.with_bytes(|bs| SortedIn::parse_for(bs, "asorti"))?;
     let keys = sorted_keys(src, order);
@@ -218,9 +218,9 @@ pub(crate) fn asort<K1, V, K2>(
     how: &Str,
 ) -> Result<Int>
 where
-    K1: Hash + Eq + SortItem,
-    V: SortItem + Uninit,
-    K2: Hash + Eq + From<Int>,
+    K1: Hash + Eq + SortItem + Detach,
+    V: SortItem + Uninit + Detach,
+    K2: Hash + Eq + From<Int> + Detach,
 {
     let order = how.with_bytes(|bs| SortedIn::parse_for(bs, "asort"))?;
     let vals: Vec<V> = sorted_keys(src, order).iter().map(|k| src.get(k)).collect();

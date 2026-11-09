@@ -136,6 +136,8 @@ impl<'a> Concat<'a> {
     unsafe fn new(len: u64, left: Str<'a>, right: Str<'a>) -> Concat<'a> {
         debug_assert!(len > MAX_INLINE_SIZE as u64);
         debug_assert_eq!(len, (left.bytes_len() + right.bytes_len()) as u64);
+        // A rope can outlive the record its pieces were read from (`s = s $2`).
+        let (left, right) = (left.detached(), right.detached());
         Concat {
             len,
             inner: Rc::new(ConcatInner { left, right }),
@@ -1147,6 +1149,49 @@ impl<'a> Str<'a> {
 
     pub fn bytes_len(&self) -> usize {
         unsafe { self.rep_mut() }.len()
+    }
+
+    /// `self`, copied out of its buffer when it is a short slice of a much larger one.
+    ///
+    /// Fields and `$0` are `Shared` slices of the input chunk they were read from, which is cheap
+    /// while splitting but keeps the whole chunk alive for as long as the slice lives. Call this
+    /// before storing a string somewhere that can outlive the current record (an array key or
+    /// value, a piece of a concatenation), so that keeping a few short fields does not pin every
+    /// chunk of the input in memory.
+    ///
+    /// Slices that fit inline are always copied (that costs no allocation); longer ones when they
+    /// are under a quarter of their buffer. When most of the input is kept anyway (`a[NR] = $0`),
+    /// this costs an allocation per stored string, which a shared chunk would not need; the
+    /// buffer's refcount cannot tell the two cases apart, as the copies no longer refer to it.
+    pub fn detached(self) -> Str<'a> {
+        let rep = unsafe { self.rep_mut() };
+        if rep.get_tag() != StrTag::Shared {
+            return self;
+        }
+        let copy = unsafe {
+            rep.view_as(|s: &Shared| {
+                let len = (s.end - s.start) as usize;
+                let ptr = s.buf.as_ptr().add(s.start as usize);
+                if len <= MAX_INLINE_SIZE {
+                    Some(StrRep::from(Inline::from_raw(ptr, len)))
+                } else if len < s.buf.len() / 4 {
+                    let buf = Buf::read_from_raw(ptr, len);
+                    Some(
+                        Boxed {
+                            len: len as u64,
+                            buf,
+                        }
+                        .into(),
+                    )
+                } else {
+                    None
+                }
+            })
+        };
+        match copy {
+            Some(rep) => Str::from_rep(rep),
+            None => self,
+        }
     }
 
     /// Length in chars; each invalid UTF-8 sequence counts as one char. The count of a long
@@ -2443,6 +2488,32 @@ mod tests {
         assert_eq!(ascii.len(), 5);
         let cjk: Str = "你好Hello".into();
         assert_eq!(cjk.len(), 7);
+    }
+
+    #[test]
+    fn detached_releases_large_buffers() {
+        let chunk = Buf::read_from_bytes(&b"0123456789".repeat(1000));
+        let tag = |s: &Str| unsafe { s.rep_mut() }.get_tag();
+        // Short slice: inlined.
+        let short = chunk.slice_to_str(3, 10).detached();
+        assert_eq!(tag(&short), StrTag::Inline);
+        assert_eq!(short, Str::from("3456789"));
+        // Longer slice of a much larger buffer: copied into its own buffer.
+        let mid = chunk.slice_to_str(5, 105).detached();
+        assert_eq!(tag(&mid), StrTag::Boxed);
+        assert_eq!(mid.bytes_len(), 100);
+        assert_eq!(mid, chunk.slice_to_str(5, 105));
+        // Most of the buffer: kept as a slice, copying would not save memory.
+        let big = chunk.slice_to_str(0, 9000).detached();
+        assert_eq!(tag(&big), StrTag::Shared);
+        // Only the buffer itself still refers to it.
+        drop((short, mid, big));
+        assert_eq!(chunk.refcount(), 1);
+        // Pieces of a rope do not keep the input chunk alive either.
+        let rope = Str::concat("x".repeat(20).into(), chunk.slice_to_str(10, 17));
+        assert_eq!(chunk.refcount(), 1);
+        let want = format!("{}0123456", "x".repeat(20));
+        rope.with_bytes(|bs| assert_eq!(bs, want.as_bytes()));
     }
 
     #[test]

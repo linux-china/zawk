@@ -139,9 +139,9 @@ pub(crate) fn asort<K1, K2, V>(
     how: &Str,
 ) -> crate::common::Result<Int>
 where
-    K1: Hash + Eq + SortItem,
-    K2: Hash + Eq + From<Int>,
-    V: AsortValue + SortItem + crate::runtime::Uninit,
+    K1: Hash + Eq + SortItem + crate::runtime::Detach,
+    K2: Hash + Eq + From<Int> + crate::runtime::Detach,
+    V: AsortValue + SortItem + crate::runtime::Uninit + crate::runtime::Detach,
 {
     if !how.is_empty() {
         return crate::runtime::sorted_in::asort(src, dst, how);

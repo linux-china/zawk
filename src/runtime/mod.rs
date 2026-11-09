@@ -307,8 +307,8 @@ fn fill_seps_maps<'a, K1, K2>(
     seps: &SharedMap<K2, Str<'a>>,
 ) -> Int
 where
-    K1: Hash + Eq + From<Int>,
-    K2: Hash + Eq + From<Int>,
+    K1: Hash + Eq + From<Int> + Detach,
+    K2: Hash + Eq + From<Int> + Detach,
 {
     let n = flds.len() as Int;
     arr.clear();
@@ -711,8 +711,8 @@ impl RegexCache {
         patsplit: bool,
     ) -> Result<Int>
     where
-        K1: Hash + Eq + From<Int>,
-        K2: Hash + Eq + From<Int>,
+        K1: Hash + Eq + From<Int> + Detach,
+        K2: Hash + Eq + From<Int> + Detach,
     {
         let (flds, sep_list) = if patsplit {
             self.patsplit_seps(pat, s)?
@@ -732,8 +732,8 @@ impl RegexCache {
         patsplit: bool,
     ) -> Int
     where
-        K1: Hash + Eq + From<Int>,
-        K2: Hash + Eq + From<Int>,
+        K1: Hash + Eq + From<Int> + Detach,
+        K2: Hash + Eq + From<Int> + Detach,
     {
         let (flds, sep_list) = if patsplit {
             patsplit_seps_with(re, s)
@@ -1895,8 +1895,12 @@ impl<K: Hash + Eq, V> SharedMap<K, V> {
     pub(crate) fn len(&self) -> usize {
         self.0.borrow().len()
     }
-    pub(crate) fn insert(&self, k: K, v: V) {
-        self.borrow_mut().insert(k, v);
+    pub(crate) fn insert(&self, k: K, v: V)
+    where
+        K: Detach,
+        V: Detach,
+    {
+        self.borrow_mut().insert(k.detach(), v.detach());
     }
     pub(crate) fn delete(&self, k: &K) {
         self.borrow_mut().remove(k);
@@ -1912,7 +1916,7 @@ impl<K: Hash + Eq, V> SharedMap<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: Inc + Default + Clone> SharedMap<K, V> {
+impl<K: Hash + Eq + Clone + Detach, V: Inc + Default + Clone> SharedMap<K, V> {
     pub(crate) fn inc_int(&self, k: &K, by: Int) -> V {
         self.with_inserted(k, |kref| {
             kref.inc_int(by);
@@ -1932,7 +1936,7 @@ impl<K: Hash + Eq + Clone, V: Inc + Default + Clone> SharedMap<K, V> {
         if let Some(k) = slf.get_mut(k) {
             f(k)
         } else {
-            f(slf.entry(k.clone()).or_insert(Default::default()))
+            f(slf.entry(k.clone().detach()).or_insert(Default::default()))
         }
     }
 }
@@ -1999,6 +2003,34 @@ impl<K: Hash + Eq, V: Clone> SharedMap<K, V> {
     }
 }
 
+/// Values that an array stores as keys or elements. Strings sliced out of the input are copied
+/// out of their chunk first (see [`Str::detached`]), so that an array holding a few fields does
+/// not keep every input chunk they came from alive.
+pub(crate) trait Detach {
+    fn detach(self) -> Self;
+}
+
+impl Detach for Int {
+    #[inline(always)]
+    fn detach(self) -> Int {
+        self
+    }
+}
+
+impl Detach for Float {
+    #[inline(always)]
+    fn detach(self) -> Float {
+        self
+    }
+}
+
+impl<'a> Detach for Str<'a> {
+    #[inline(always)]
+    fn detach(self) -> Str<'a> {
+        self.detached()
+    }
+}
+
 /// The value of a missing array element.
 pub(crate) trait Uninit {
     fn uninit() -> Self;
@@ -2022,12 +2054,12 @@ impl<'a> Uninit for Str<'a> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: Clone + Uninit> SharedMap<K, V> {
+impl<K: Hash + Eq + Clone + Detach, V: Clone + Uninit> SharedMap<K, V> {
     pub(crate) fn get(&self, k: &K) -> V {
         self.borrow_mut()
             .raw_entry_mut()
             .from_key(k)
-            .or_insert_with(|| (k.clone(), V::uninit()))
+            .or_insert_with(|| (k.clone().detach(), V::uninit()))
             .1
             .clone()
     }
