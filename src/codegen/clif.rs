@@ -1737,7 +1737,8 @@ impl<'a> View<'a> {
         match ty {
             Int | Float => self.bind_val_inner((dst, ty), src, skip_drop)?,
             Str => {
-                self.call_external_void(external!(ref_str), &[src]);
+                // Goes through the inline tag check: most strings need no call.
+                self.ref_val(Str, src);
                 let str_ty = self.get_ty(Str);
                 let loaded = self
                     .builder
