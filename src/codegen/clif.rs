@@ -195,6 +195,24 @@ struct EntryDeclaration {
     ty: compile::Ty,
 }
 
+/// Memory flags for loads and stores of `Str` values (`I128`).
+///
+/// `MemFlagsData::trusted()` also sets `aligned`, which promises *natural* alignment (16 bytes for
+/// an `I128`). Strings only live in 8-byte aligned memory: `runtime::Str` has Rust alignment 8 and
+/// Cranelift stack slots are word aligned. Today both x64 and aarch64 split `I128` accesses into
+/// two 64-bit ones so `aligned` is harmless, but it is not true, so only claim `notrap`.
+const STR_MEM_FLAGS: MemFlagsData = MemFlagsData::new().with_notrap();
+
+/// Memory flags for a load/store of a value of Cranelift type `ty`: everything at most 8 bytes is
+/// naturally aligned in our memory, wider types (strings) are not; see [`STR_MEM_FLAGS`].
+fn mem_flags_for(ty: Type) -> MemFlagsData {
+    if ty.bytes() > 8 {
+        STR_MEM_FLAGS
+    } else {
+        MemFlagsData::trusted()
+    }
+}
+
 /// Map frawk-level type to its type when passed as a parameter to a cranelift function.
 ///
 /// Iterator types are disallowed; they are never passed as function parameterse.
@@ -468,13 +486,13 @@ impl Generator {
     }
 
     fn define_functions(&mut self, typer: &mut Typer) -> Result<()> {
+        // Import every intrinsic once, before any function body (or main function) refers to them
+        // through `external_funcs`.
+        intrinsics::register_all(&mut self.shared)?;
         self.declare_local_funcs(typer)?;
         for (i, frame) in typer.frames.iter().enumerate() {
             if let Some(prelude) = self.funcs[i].take() {
-                let mut view = self.create_view(prelude);
-                if i == 0 {
-                    intrinsics::register_all(&mut view)?;
-                }
+                let view = self.create_view(prelude);
                 view.gen_function_body(frame)?;
                 // func_id and prelude entries should be initialized in lockstep.
                 let id = self.shared.func_ids[i].as_ref().unwrap().func_id;
@@ -622,7 +640,9 @@ impl<'a> View<'a> {
     fn str_ptr_array(&mut self, args: &[StrReg]) -> Result<(Value, Value)> {
         let len = i32::try_from(args.len()).expect("too many string arguments") as u32;
         let slot_size = mem::size_of::<usize>() as i32;
+        // Stack slots must be non-empty: allocate at least one entry for an empty `args`.
         let bytes = len
+            .max(1)
             .checked_mul(slot_size as u32)
             .expect("too many string arguments");
         let slot = self.stack_slot_bytes(bytes);
@@ -724,9 +744,14 @@ impl<'a> View<'a> {
                     }
 
                     // Now scan any phi nodes in the successor block for references back to the current
-                    // one. If we find one, we issue an assignment, though we skip the drop as it will
-                    // be covered by predecessor blocks (alternatively, we could issue a "mov" here,
-                    // but this does less work).
+                    // one. If we find one, we issue a full `mov` (with `skip_drop=false`): the phi
+                    // target is an ordinary local, so the reference taken here is released either by
+                    // the next assignment to it or by `drop_all` at the end of the function.
+                    //
+                    // The movs are emitted sequentially, not as a parallel copy. That is only correct
+                    // because no phi argument is the target of another phi in the same successor
+                    // block (no "swap problem"): the frontend keeps the `Mov`s that feed phis. If copy
+                    // propagation is ever added upstream of this, these must become a parallel copy.
                     //
                     // NB We could avoid scanning duplicate Phis here by tracking dependencies a bit
                     // more carefully, but in practice the extra work done seems fairly low given the
@@ -851,7 +876,7 @@ impl<'a> View<'a> {
                 let s = self
                     .builder
                     .ins()
-                    .load(str_ty, MemFlagsData::trusted(), val, 0);
+                    .load(str_ty, STR_MEM_FLAGS, val, 0);
                 let slot = self.stack_slot_bytes(mem::size_of::<runtime::Str>() as u32);
                 self.store_string(slot, s);
                 self.f.str_slots[var] = Some(slot);
@@ -989,7 +1014,7 @@ impl<'a> View<'a> {
                     v = self
                         .builder
                         .ins()
-                        .load(str_ty, MemFlagsData::trusted(), v, 0);
+                        .load(str_ty, STR_MEM_FLAGS, v, 0);
                 }
                 self.drop_all();
                 // Free key arrays of loops left early (e.g. `return` inside `for (k in a)`).
@@ -1049,7 +1074,7 @@ impl<'a> View<'a> {
         let addr = self.builder.ins().stack_addr(ptr_ty, ss, 0);
         self.builder
             .ins()
-            .store(MemFlagsData::trusted(), v, addr, 0);
+            .store(STR_MEM_FLAGS, v, addr, 0);
     }
 
     /// Read the current value of a variable. For local strings this is the (constant) address of
@@ -1666,7 +1691,7 @@ impl<'a> View<'a> {
                 // first, drop the value currently in the pointer
                 let p = self.var_val(var);
                 self.drop_val(Str, p);
-                self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
+                self.builder.ins().store(STR_MEM_FLAGS, v, p, 0);
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 if let VarKind::Global = kind {
@@ -1681,6 +1706,14 @@ impl<'a> View<'a> {
                     // And slot the new value in
                     self.builder.ins().store(MemFlagsData::trusted(), v, p, 0);
                 } else {
+                    // Map parameters are borrowed from the caller and never dropped by `drop_all`,
+                    // so rebinding one here would drop the caller's map and leak `v`. The IR never
+                    // assigns to a map parameter register today; catch it if that changes.
+                    debug_assert!(
+                        !matches!(kind, VarKind::Param),
+                        "attempt to rebind map parameter {:?}",
+                        r
+                    );
                     let cur = self.builder.use_var(var);
                     self.drop_val(r.1, cur);
                     self.builder.def_var(var, v);
@@ -1709,7 +1742,7 @@ impl<'a> View<'a> {
                 let loaded = self
                     .builder
                     .ins()
-                    .load(str_ty, MemFlagsData::trusted(), src, 0);
+                    .load(str_ty, STR_MEM_FLAGS, src, 0);
                 self.bind_val_inner((dst, Str), loaded, skip_drop)?;
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
@@ -1775,11 +1808,13 @@ impl Backend for RegistrationState {
     }
 }
 
-impl<'a> Backend for View<'a> {
+/// The import step: declares every intrinsic in the module and records its `FuncId` in
+/// `external_funcs`. This only needs the module, so it is done once up front, independent of which
+/// functions end up being generated.
+impl Backend for Shared {
     type Ty = Type;
-    // mappings from compile::Ty to Self::Ty
     fn void_ptr_ty(&self) -> Self::Ty {
-        self.shared.module.target_config().pointer_type()
+        self.module.target_config().pointer_type()
     }
     fn ptr_to(&self, _ty: Self::Ty) -> Self::Ty {
         // Cranelift pointers are all a single type, though we may eventually need to care more
@@ -1805,7 +1840,7 @@ impl<'a> Backend for View<'a> {
         addr: *const u8,
         sig: Sig<Self>,
     ) -> Result<()> {
-        let cl_sig = &mut self.shared.sig;
+        let cl_sig = &mut self.sig;
         cl_sig.params.clear();
         cl_sig.returns.clear();
         cl_sig
@@ -1815,14 +1850,45 @@ impl<'a> Backend for View<'a> {
             .returns
             .extend(sig.ret.as_ref().into_iter().cloned().map(AbiParam::new));
         let id = self
-            .shared
             .module
             .declare_function(name, Linkage::Import, cl_sig)
             .map_err(|e| {
                 CompileError::new(format!("error declaring {} in module: {}", name, e,))
             })?;
-        self.shared.external_funcs.insert(addr, id);
+        self.external_funcs.insert(addr, id);
         Ok(())
+    }
+}
+
+impl<'a> Backend for View<'a> {
+    type Ty = Type;
+    // mappings from compile::Ty to Self::Ty
+    fn void_ptr_ty(&self) -> Self::Ty {
+        self.shared.void_ptr_ty()
+    }
+    fn ptr_to(&self, ty: Self::Ty) -> Self::Ty {
+        self.shared.ptr_to(ty)
+    }
+    fn usize_ty(&self) -> Self::Ty {
+        self.shared.usize_ty()
+    }
+    fn u32_ty(&self) -> Self::Ty {
+        self.shared.u32_ty()
+    }
+    fn get_ty(&self, ty: compile::Ty) -> Self::Ty {
+        self.shared.get_ty(ty)
+    }
+
+    fn register_external_fn(
+        &mut self,
+        name: &'static str,
+        name_c: *const u8,
+        addr: *const u8,
+        sig: Sig<Self>,
+    ) -> Result<()> {
+        let Sig { attrs, args, ret } = sig;
+        self.shared
+            .register_external_fn(name, name_c, addr, Sig { attrs, args, ret })
     }
 }
 
@@ -1849,7 +1915,7 @@ impl<'a> CodeGenerator for View<'a> {
             | Float => {
                 if is_global {
                     let ty = self.get_ty(r.1);
-                    Ok(self.builder.ins().load(ty, MemFlagsData::trusted(), val, 0))
+                    Ok(self.builder.ins().load(ty, mem_flags_for(ty), val, 0))
                 } else {
                     Ok(val)
                 }
@@ -2043,7 +2109,7 @@ impl<'a> CodeGenerator for View<'a> {
         let cur_val = self.builder.use_var(cur);
         let ptr = self.builder.ins().iadd(base, cur_val);
         let ty = self.get_ty(dst.1);
-        let contents = self.builder.ins().load(ty, MemFlagsData::trusted(), ptr, 0);
+        let contents = self.builder.ins().load(ty, mem_flags_for(ty), ptr, 0);
 
         // Increment cur
         let type_size = self.get_ty(dst.1).lane_bits() / 8;
