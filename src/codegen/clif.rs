@@ -810,6 +810,7 @@ impl<'a> View<'a> {
     fn branch(&mut self, tcase: Option<(Ref, Block)>, ecase: Block) -> Result<()> {
         if let Some((cond, b)) = tcase {
             let cv = self.get_val(cond)?;
+            let cv = self.peel_bool(cv);
             self.builder.ins().brif(cv, b, &[], ecase, &[]);
         } else {
             self.builder.ins().jump(ecase, &[]);
@@ -1343,11 +1344,31 @@ impl<'a> View<'a> {
     ///
     /// NB: It would be interesting and likely useful to add a "bool" type (with consequent
     /// coercions).
+    ///
+    /// The results of `icmp`/`fcmp` are 0 or 1, so a zero extension suffices; lowering usually
+    /// folds it into the `cset`/`setcc` of the comparison.
     fn bool_to_int(&mut self, b: Value) -> Value {
         let int_ty = self.get_ty(compile::Ty::Int);
-        let zero = self.builder.ins().iconst(int_ty, 0);
-        let one = self.builder.ins().iconst(int_ty, 1);
-        self.builder.ins().select(b, one, zero)
+        self.builder.ins().uextend(int_ty, b)
+    }
+
+    /// If `v` is a boolean widened by `bool_to_int`, return the narrow boolean instead. Branching
+    /// on it directly lets lowering fuse the comparison with the branch (`cmp` + `b.cond`)
+    /// rather than materializing 0/1 and testing it again. This is always sound: the narrow value
+    /// dominates the `uextend`, and both are non-zero exactly when the other one is.
+    fn peel_bool(&self, v: Value) -> Value {
+        use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
+        let dfg = &self.builder.func.dfg;
+        if let ValueDef::Result(inst, 0) = dfg.value_def(v)
+            && let InstructionData::Unary {
+                opcode: Opcode::Uextend,
+                arg,
+            } = dfg.insts[inst]
+            && dfg.value_type(arg) == types::I8
+        {
+            return arg;
+        }
+        v
     }
 
     /// Generate a new value according to the comparison instruction, applied to `l` and `r`, which
@@ -1559,9 +1580,12 @@ impl<'a> View<'a> {
             Log10 => self.call_external(external!(_frawk_log10), args),
             Sqrt => self.builder.ins().sqrt(args[0]),
             Exp => self.call_external(external!(_frawk_exp), args),
-            Abs => self.call_external(external!(_frawk_abs), args),
-            Ceil => self.call_external(external!(_frawk_ceil), args),
-            Floor => self.call_external(external!(_frawk_floor), args),
+            // Same IEEE 754 semantics as `f64::{abs,ceil,floor}` (NaN and ±0 included). Without
+            // SSE4.1 on x86_64, Cranelift lowers `ceil`/`floor` to libcalls resolved by
+            // `default_libcall_names`.
+            Abs => self.builder.ins().fabs(args[0]),
+            Ceil => self.builder.ins().ceil(args[0]),
+            Floor => self.builder.ins().floor(args[0]),
             Round => self.call_external(external!(_frawk_round), args),
             Trunc => self.builder.ins().trunc(args[0]),
         }

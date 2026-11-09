@@ -1533,6 +1533,35 @@ this as well"#
         "1 z plain\n"
     );
 
+    // `abs`/`ceil`/`floor` are native instructions in the Cranelift backend; check the IEEE 754
+    // edge cases against the bytecode interpreter.
+    test_program!(
+        abs_ceil_floor_edge_cases,
+        r#"BEGIN {
+    nan = log(-1); inf = -log(0)
+    print abs(-0.0), floor(-0.5), ceil(-0.5), (atan2(0, ceil(-0.5)) > 3), (atan2(0, abs(-0.0)) > 3)
+    print abs(-2.5), floor(-1.5), ceil(-1.5), floor(2.5), ceil(2.5)
+    print abs(nan), floor(nan), ceil(nan), abs(-inf), floor(-inf), ceil(inf)
+}"#,
+        "0 -1 0 1 0\n2.5 -2 -1 2 3\n+nan +nan +nan +inf -inf +inf\n"
+    );
+
+    // Comparisons used as values and as branch conditions, including NaN (ordered comparisons).
+    test_program!(
+        compare_as_value_and_branch,
+        r#"BEGIN {
+    nan = log(-1)
+    x = (5 > 3); y = (1.5 >= 2); print x, y, x + y + (nan == nan) + (nan < 1)
+    if (nan < 1) print "bad"; else print "ok"
+    if (!(2 > 1)) print "bad"; else print "ok"
+    n = 0; for (i = 0; i < 10; i++) if (i % 3 == 0) n++
+    w = 0; while (w < 5) w++
+    a["x"]; a["y"]; a["z"]; c = 0; for (k in a) c++
+    print n, w, c
+}"#,
+        "1 0 1\nok\nok\n4 5 3\n"
+    );
+
     test_program!(map_global_var, r#"
 BEGIN {
 	unused_string_map["a"] = "abc"
