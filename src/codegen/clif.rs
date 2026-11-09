@@ -306,13 +306,21 @@ fn jit_builder() -> Result<JITBuilder> {
     let mut flag_builder = settings::builder();
     // Cranelift's optimizer (`opt_level = "speed"`: e-graph rewrites, GVN, LICM) is deliberately
     // off, and `-O` does not change it. Generated code calls into the runtime at almost every
-    // instruction, and LICM hoists constants out of loops, which then live across those calls and
-    // are spilled and reloaded on every iteration (and saved in the prologue of every UDF). On
-    // aarch64 (cranelift 0.137), "speed" made `fib(32)` 20% slower, a float loop calling a UDF 33%
-    // slower, an arithmetic loop 1.6x slower on average (bimodal: 0.93x-1.9x), and changed the
-    // other benchmarks (fields, arrays, strings, compile time) by less than 5%. Measure again
-    // before turning it on.
-    flag_builder.set("opt_level", "none").unwrap();
+    // instruction, so values that GVN shares across those calls (the stack pointer for the UDF
+    // stack check, `stack_addr` of string slots, the runtime pointer) need callee-saved registers
+    // or spill slots. Re-measured on aarch64 (cranelift 0.137) after the R1-R3 changes, with
+    // pinned function alignment: "speed" executes 0-7% fewer instructions but is not faster:
+    // `fib(32)` is 19% slower (one more callee-saved register saved/restored on every call,
+    // including the base case), arithmetic, UDF float, and string loops are within +-2%. It also
+    // makes compiling large functions ~50x slower (3000 rules: 0.24s -> 11.8s, 4.4GB RSS).
+    // Measure again (see cranelift-optimize.md, R5) before turning it on.
+    //
+    // Development only (not a supported option): `ZAWK_CLIF_OPT=speed` overrides the optimization
+    // level so the two settings can be compared without rebuilding.
+    let opt_level = std::env::var("ZAWK_CLIF_OPT").unwrap_or_else(|_| "none".into());
+    flag_builder
+        .set("opt_level", &opt_level)
+        .map_err(|e| err_raw!("invalid ZAWK_CLIF_OPT={:?}: {}", opt_level, e))?;
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "aarch64")] {
             // See https://github.com/bytecodealliance/wasmtime/issues/2735
@@ -332,6 +340,16 @@ fn jit_builder() -> Result<JITBuilder> {
     // debug builds and tests only.
     if !cfg!(debug_assertions) {
         flag_builder.set("enable_verifier", "false").unwrap();
+    }
+    // Development only: extra comma-separated Cranelift settings, applied last, e.g.
+    // `ZAWK_CLIF_FLAGS=log2_min_function_alignment=6` to pin code alignment while benchmarking.
+    if let Ok(flags) = std::env::var("ZAWK_CLIF_FLAGS") {
+        for kv in flags.split(',').map(str::trim).filter(|kv| !kv.is_empty()) {
+            let (k, v) = kv.split_once('=').unwrap_or((kv, "true"));
+            flag_builder
+                .set(k, v)
+                .map_err(|e| err_raw!("invalid ZAWK_CLIF_FLAGS entry {:?}: {}", kv, e))?;
+        }
     }
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
@@ -477,10 +495,17 @@ impl Generator {
     }
 
     fn define_cur_function(&mut self, id: FuncId) -> Result<()> {
+        // Development only: `ZAWK_CLIF_DISASM=1` prints the final machine code (vcode) of every
+        // function to stderr, e.g. to see which values are spilled across calls.
+        let disasm = std::env::var_os("ZAWK_CLIF_DISASM").is_some();
+        self.cctx.set_disasm(disasm);
         self.shared
             .module
             .define_function(id, &mut self.cctx)
             .map_err(|e| CompileError::new(e.to_string()))?;
+        if disasm && let Some(vcode) = self.cctx.compiled_code().and_then(|c| c.vcode.as_deref()) {
+            eprintln!("; function {:?}\n{}", id, vcode);
+        }
         self.shared.module.clear_context(&mut self.cctx);
         Ok(())
     }
