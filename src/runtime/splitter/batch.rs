@@ -292,11 +292,15 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> CSVReader<P> {
 #[derive(Default, Debug)]
 pub struct OffsetInner {
     pub start: usize,
-    // NB We're using u64s to potentially handle huge input streams.
+    // Offsets are relative to the start of the chunk: the producers reject chunks of more than
+    // `MAX_CHUNK_LEN` bytes, so `u32` is enough and halves the memory and write bandwidth of u64.
     // An alternative option would be to save lines and fields in separate vectors, but this is
     // more efficient for iteration
-    pub fields: Vec<u64>,
+    pub fields: Vec<u32>,
 }
+
+/// The largest chunk whose offsets fit in [OffsetInner::fields].
+pub const MAX_CHUNK_LEN: usize = u32::MAX as usize;
 
 impl OffsetInner {
     pub(crate) fn clear(&mut self) {
@@ -315,6 +319,26 @@ pub struct Offsets {
     /// whitespace splitting): records are read without their fields, which `DefaultLine` splits
     /// from `$0` if they are used after all.
     pub lines_only: bool,
+    /// Where the last SIMD scan can be continued (set by `generic::find_indexes`): when a chunk
+    /// holds no complete record, the producer reads a larger buffer starting with the same bytes,
+    /// and only the bytes from the last whole vector before the end of the old buffer on have to
+    /// be scanned. Reset when the offsets are rewritten otherwise (e.g. by the lenient CSV scan).
+    pub checkpoint: Resume,
+    /// Armed by [Offsets::continue_scan] and consumed by the next scan.
+    pub resume: Resume,
+}
+
+/// The state of a scan at a vector boundary (see [Offsets::resume]). `ix == 0` means there is
+/// nothing to resume: the next scan starts over.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Resume {
+    /// The byte offset at which to continue; a multiple of the kernel's vector size.
+    pub ix: usize,
+    /// The lengths of `rel.fields` and `nl.fields` for the bytes before `ix`.
+    pub rel: usize,
+    pub nl: usize,
+    /// The kernel's carried state (quote parity, trailing `\r`, whitespace, ...) at `ix`.
+    pub state: [u64; 6],
 }
 
 // Newtype wrapper, because chunks are processed slightly differently in the whitespace case.
@@ -322,9 +346,17 @@ pub struct Offsets {
 pub struct WhitespaceOffsets(pub Offsets);
 
 impl Offsets {
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.rel.clear();
         self.nl.clear();
+        self.checkpoint = Resume::default();
+        self.resume = Resume::default();
+    }
+
+    /// Make the next scan continue from [Offsets::checkpoint] instead of starting over. The
+    /// buffer it scans must start with the bytes of the previous scan.
+    pub(crate) fn continue_scan(&mut self) {
+        self.resume = self.checkpoint;
     }
 }
 
@@ -956,15 +988,15 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
     while i < len {
         match buf[i] {
             b',' | b'\n' => {
-                fields.push(i as u64);
+                fields.push(i as u32);
                 field_start = true;
             }
             b'\r' => {
-                fields.push(i as u64);
+                fields.push(i as u32);
                 field_start = false;
             }
             b'"' if field_start => {
-                fields.push(i as u64);
+                fields.push(i as u32);
                 i += 1;
                 // Once a literal quote shows up, records end as in gawk: at a newline outside
                 // quotes by parity, counting every quote. Without this, a single malformed field
@@ -985,9 +1017,9 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
                         // End the field and the record here; the [Stepper] sees the line end
                         // while still inside the quoted field.
                         if q > 0 && buf[q - 1] == b'\r' {
-                            fields.push(q as u64 - 1);
+                            fields.push(q as u32 - 1);
                         }
-                        fields.push(q as u64);
+                        fields.push(q as u32);
                         field_start = true;
                         i = q + 1;
                         break;
@@ -995,18 +1027,18 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
                     i = q + 1;
                     match buf.get(q + 1) {
                         Some(b'"') => {
-                            fields.extend_from_slice(&[q as u64, q as u64 + 1]);
+                            fields.extend_from_slice(&[q as u32, q as u32 + 1]);
                             i = q + 2;
                         }
                         None | Some(b',' | b'\n') => {
                             // The closing quote; the separator or line end after it is handled
                             // next.
-                            fields.push(q as u64);
+                            fields.push(q as u32);
                             field_start = false;
                             break;
                         }
                         Some(b'\r') if matches!(buf.get(q + 2), None | Some(b'\n')) => {
-                            fields.push(q as u64);
+                            fields.push(q as u32);
                             field_start = false;
                             break;
                         }
@@ -1204,7 +1236,8 @@ mod escape_tests {
 }
 
 mod generic {
-    use super::{Offsets, WhitespaceOffsets};
+    use super::{MAX_CHUNK_LEN, Offsets, Resume, WhitespaceOffsets};
+    use std::mem;
     const MAX_INPUT_SIZE: usize = 64;
 
     pub trait Vector: Copy {
@@ -1400,7 +1433,12 @@ mod generic {
     }
 
     #[inline(always)]
-    unsafe fn flatten_bits(base_p: *mut u64, start_offset: &mut u64, start_ix: u64, mut bits: u64) {
+    unsafe fn flatten_bits(
+        base_p: *mut u32,
+        start_offset: &mut usize,
+        start_ix: u32,
+        mut bits: u64,
+    ) {
         // We want to write indexes of set bits into the array base_p.
         // start_offset is the initial offset into base_p where we start writing.
         // start_ix is the index into the corpus pointed to by the initial bits of `bits`.
@@ -1408,7 +1446,7 @@ mod generic {
             return;
         }
         let count = bits.count_ones();
-        let next_start = (*start_offset) + count as u64;
+        let next_start = (*start_offset) + count as usize;
         // Unroll the loop for the first 8 bits. As in simdjson, we are potentially "overwriting"
         // here. We do not know if we have 8 bits to write, but we are writing them anyway! This is
         // "safe" so long as we have enough space in the array pointed to by base_p because:
@@ -1417,8 +1455,7 @@ mod generic {
         // Why do the extra work? We want to avoid extra branches.
         macro_rules! write_offset_inner {
             ($ix:expr) => {
-                *base_p.offset(*start_offset as isize + $ix) =
-                    start_ix + bits.trailing_zeros() as u64;
+                *base_p.add(*start_offset + $ix) = start_ix + bits.trailing_zeros();
                 bits = bits & bits.wrapping_sub(1);
             };
         }
@@ -1444,6 +1481,50 @@ mod generic {
         *start_offset = next_start;
     }
 
+    /// Make room for `room` more entries after the first `len` (initialized) entries of `v`, and
+    /// return its (possibly moved) buffer. The capacity grows with the number of offsets actually
+    /// found, rather than being reserved up front for one offset per input byte.
+    #[inline(always)]
+    unsafe fn ensure_room(v: &mut Vec<u32>, len: usize, room: usize) -> *mut u32 {
+        if v.capacity() - len < room {
+            // `reserve` only keeps the first `v.len()` entries.
+            unsafe { v.set_len(len) };
+            v.reserve(room);
+        }
+        v.as_mut_ptr()
+    }
+
+    /// The kernel state carried from one vector to the next, saved in [Resume] to continue a scan.
+    pub trait ScanState: Copy {
+        fn save(self) -> [u64; 6];
+        fn load(saved: [u64; 6]) -> Self;
+    }
+
+    impl ScanState for () {
+        fn save(self) -> [u64; 6] {
+            [0; 6]
+        }
+        fn load(_: [u64; 6]) -> Self {}
+    }
+
+    impl ScanState for u64 {
+        fn save(self) -> [u64; 6] {
+            [self, 0, 0, 0, 0, 0]
+        }
+        fn load(saved: [u64; 6]) -> Self {
+            saved[0]
+        }
+    }
+
+    impl ScanState for (u64, u64, u64, u64, u64, u64) {
+        fn save(self) -> [u64; 6] {
+            [self.0, self.1, self.2, self.3, self.4, self.5]
+        }
+        fn load(s: [u64; 6]) -> Self {
+            (s[0], s[1], s[2], s[3], s[4], s[5])
+        }
+    }
+
     // The find_indexes functions are variations on "do a vectorized comparison against a byte
     // sequence, write the indexes of matching indexes into Offsets." The first is very close to
     // the simd-csv variant; simpler formats do a bit less.
@@ -1455,6 +1536,11 @@ mod generic {
     // We should see about rearchitecting the TSV algorithm to make better use of sparse rows,
     // where lots of columns are present in the inputs, but only a few are used.
 
+    /// Scan `buf`, starting over unless `offsets.resume` was armed (see
+    /// [Offsets::continue_scan]), in which case `buf` must start with the bytes of the previous
+    /// scan and only the bytes from `offsets.resume.ix` on are scanned, from the saved state.
+    /// Either way, `offsets.checkpoint` is set to the state at the last whole vector, from which
+    /// a scan of a longer buffer can continue.
     pub unsafe fn find_indexes<V, F, S>(
         buf: &[u8],
         offsets: &mut Offsets,
@@ -1463,27 +1549,44 @@ mod generic {
     ) -> S
     where
         V: Vector,
+        S: ScanState,
         F: FnMut(S, *const u8) -> (S, /* rel */ u64, /* newlines */ u64),
     {
-        offsets.clear();
-        let field_offsets = &mut offsets.rel;
-        let newline_offsets = &mut offsets.nl;
-        // flatten_bits may write up to 16 entries past the last offset; leave room for that.
-        field_offsets.fields.reserve(buf.len() + MAX_INPUT_SIZE);
-        newline_offsets.fields.reserve(buf.len() + MAX_INPUT_SIZE);
-
-        // This may cause us to overuse memory, but it's a safe upper bound and the plan is to
-        // reuse this across different chunks.
+        const BUFFER_SIZE: usize = 4;
+        // flatten_bits writes up to max(popcount, 16) entries from its start offset, so a batch
+        // of BUFFER_SIZE vectors writes at most this many entries.
+        const ROOM: usize = MAX_INPUT_SIZE * BUFFER_SIZE + 16;
+        assert!(
+            buf.len() <= MAX_CHUNK_LEN,
+            "chunk of {} bytes is too large",
+            buf.len()
+        );
+        let resume = mem::take(&mut offsets.resume);
+        let mut ix = if resume.ix != 0 && resume.ix <= buf.len() {
+            debug_assert_eq!(resume.ix % V::INPUT_SIZE, 0);
+            offsets.rel.start = 0;
+            offsets.nl.start = 0;
+            offsets.rel.fields.truncate(resume.rel);
+            offsets.nl.fields.truncate(resume.nl);
+            state = S::load(resume.state);
+            resume.ix
+        } else {
+            offsets.clear();
+            0
+        };
         let buf_ptr = buf.as_ptr();
         let len = buf.len();
         let len_minus_64 = len.saturating_sub(V::INPUT_SIZE);
-        let mut ix = 0;
-        let field_base_ptr: *mut u64 = field_offsets.fields.as_mut_ptr();
-        let newline_base_ptr: *mut u64 = newline_offsets.fields.as_mut_ptr();
-        let mut field_base = 0;
-        let mut newline_base = 0;
-
-        const BUFFER_SIZE: usize = 4;
+        let mut field_base = offsets.rel.fields.len();
+        let mut newline_base = offsets.nl.fields.len();
+        let mut field_base_ptr: *mut u32;
+        let mut newline_base_ptr: *mut u32;
+        macro_rules! ensure_room {
+            () => {{
+                field_base_ptr = ensure_room(&mut offsets.rel.fields, field_base, ROOM);
+                newline_base_ptr = ensure_room(&mut offsets.nl.fields, newline_base, ROOM);
+            }};
+        }
         macro_rules! iterate {
             ($buf:expr) => {{
                 #[cfg(feature = "unstable")]
@@ -1502,20 +1605,11 @@ mod generic {
                     fields[b] = rel;
                     nls[b] = nl;
                 }
+                ensure_room!();
                 for b in 0..BUFFER_SIZE {
-                    let internal_ix = V::INPUT_SIZE * b + ix;
-                    flatten_bits(
-                        field_base_ptr,
-                        &mut field_base,
-                        internal_ix as u64,
-                        fields[b],
-                    );
-                    flatten_bits(
-                        newline_base_ptr,
-                        &mut newline_base,
-                        internal_ix as u64,
-                        nls[b],
-                    );
+                    let internal_ix = (V::INPUT_SIZE * b + ix) as u32;
+                    flatten_bits(field_base_ptr, &mut field_base, internal_ix, fields[b]);
+                    flatten_bits(newline_base_ptr, &mut newline_base, internal_ix, nls[b]);
                 }
                 ix += V::INPUT_SIZE * BUFFER_SIZE;
             }
@@ -1523,10 +1617,19 @@ mod generic {
         // Do an unbuffered version for the remaining data
         while ix < len_minus_64 {
             let (fields, nl) = iterate!(buf_ptr.add(ix));
-            flatten_bits(field_base_ptr, &mut field_base, ix as u64, fields);
-            flatten_bits(newline_base_ptr, &mut newline_base, ix as u64, nl);
+            ensure_room!();
+            flatten_bits(field_base_ptr, &mut field_base, ix as u32, fields);
+            flatten_bits(newline_base_ptr, &mut newline_base, ix as u32, nl);
             ix += V::INPUT_SIZE;
         }
+        // The rest is scanned with zero padding, so the state after it does not carry over to a
+        // longer buffer: a continued scan starts from here.
+        offsets.checkpoint = Resume {
+            ix,
+            rel: field_base,
+            nl: newline_base,
+            state: state.save(),
+        };
         // For any text that remains, just copy the results to the stack with some padding and do
         // one more iteration.
         let remaining = len - ix;
@@ -1534,11 +1637,14 @@ mod generic {
             let mut rest = [0u8; MAX_INPUT_SIZE];
             std::ptr::copy_nonoverlapping(buf_ptr.add(ix), rest.as_mut_ptr(), remaining);
             let (fields, nl) = iterate!(rest.as_mut_ptr());
-            flatten_bits(field_base_ptr, &mut field_base, ix as u64, fields);
-            flatten_bits(newline_base_ptr, &mut newline_base, ix as u64, nl);
+            ensure_room!();
+            flatten_bits(field_base_ptr, &mut field_base, ix as u32, fields);
+            flatten_bits(newline_base_ptr, &mut newline_base, ix as u32, nl);
         }
-        field_offsets.fields.set_len(field_base as usize);
-        newline_offsets.fields.set_len(newline_base as usize);
+        debug_assert!(field_base <= offsets.rel.fields.capacity());
+        debug_assert!(newline_base <= offsets.nl.fields.capacity());
+        offsets.rel.fields.set_len(field_base);
+        offsets.nl.fields.set_len(newline_base);
         state
     }
 
@@ -2544,7 +2650,7 @@ impl ByteReaderBase for ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<Whi
 // adapted from Frank McSherry:
 // https://github.com/frankmcsherry/blog/blob/master/posts/2018-05-19.md
 
-fn gallop(slice: &[u64], mut cmp: impl FnMut(u64) -> bool) -> usize {
+fn gallop(slice: &[u32], mut cmp: impl FnMut(u32) -> bool) -> usize {
     let mut res = 0;
     // if empty slice, or already >= element, return
     if slice.len() > res && cmp(slice[res]) {
@@ -3002,6 +3108,163 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 .collect();
             assert_eq!(read_records(br, used, "w"), want_bytes);
         }
+    }
+
+    /// Scan `buf[..n]` after a scan of `buf[..p]`, continuing from its checkpoint, and check that
+    /// the offsets and the returned state are the same as for a fresh scan of `buf[..n]`.
+    fn check_resumed_scan<S: PartialEq + std::fmt::Debug>(
+        buf: &[u8],
+        p: usize,
+        mut scan: impl FnMut(&[u8], &mut Offsets) -> S,
+    ) {
+        let mut fresh = Offsets::default();
+        let want = scan(buf, &mut fresh);
+        let mut off = Offsets::default();
+        scan(&buf[..p], &mut off);
+        off.continue_scan();
+        let got = scan(buf, &mut off);
+        assert_eq!(
+            got,
+            want,
+            "state; p={p} buf={:?}",
+            String::from_utf8_lossy(buf)
+        );
+        assert_eq!(off.rel.fields, fresh.rel.fields, "rel; p={p}");
+        assert_eq!(off.nl.fields, fresh.nl.fields, "nl; p={p}");
+        // Without continue_scan, the next scan starts over.
+        let got = scan(buf, &mut off);
+        assert_eq!(got, want);
+        assert_eq!(off.rel.fields, fresh.rel.fields);
+    }
+
+    fn resumed_scan_matches_full_scan<V: generic::Vector>() {
+        let mut seed = 0x51_7C_C1_B7_27_22_0A_95u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        // Quotes are rare, so that most buffers have regular quotes and take the SIMD path.
+        const ALPHABET: &[u8] = b"aaaabbbcc  \t\t,,,,\n\r\"\\w";
+        for _ in 0..400 {
+            let n = (next() % 700) as usize;
+            let mut buf: Vec<u8> = (0..n)
+                .map(|_| ALPHABET[(next() % ALPHABET.len() as u64) as usize])
+                .collect();
+            if next() % 2 == 0 {
+                buf.retain(|b| *b != b'"');
+            }
+            let p = (next() as usize) % (buf.len() + 1);
+            check_resumed_scan(&buf, p, |b, off| unsafe {
+                generic::find_indexes_csv::<V>(b, off, 0, 0)
+            });
+            check_resumed_scan(&buf, p, |b, off| unsafe {
+                generic::find_indexes_tsv::<V>(b, off, 0, 0)
+            });
+            check_resumed_scan(&buf, p, |b, off| unsafe {
+                generic::find_indexes_byte::<V>(b, off, b'w', b'\n')
+            });
+            check_resumed_scan(&buf, p, |b, off| unsafe {
+                let mut ws = WhitespaceOffsets(mem::take(off));
+                let next_ws = generic::find_indexes_ascii_whitespace::<V>(b, &mut ws, 1);
+                *off = ws.0;
+                next_ws
+            });
+        }
+    }
+
+    #[test]
+    fn resumed_scan_matches_full_scan_generic() {
+        resumed_scan_matches_full_scan::<generic::Impl>();
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn resumed_scan_matches_full_scan_neon() {
+        resumed_scan_matches_full_scan::<neon::Impl>();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn resumed_scan_matches_full_scan_sse2() {
+        if is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq") {
+            resumed_scan_matches_full_scan::<sse2::Impl>();
+        }
+    }
+
+    #[test]
+    fn long_records_across_buffer_growth() {
+        // Records much longer than the chunk size: the buffer is doubled several times before a
+        // record separator shows up, and each doubling continues the previous scan.
+        let corpus: String = [1usize, 3000, 7, 20000, 0, 513, 64, 65, 4100]
+            .iter()
+            .enumerate()
+            .map(|(i, &nf)| {
+                let fields: Vec<String> = (0..nf).map(|j| format!("f{i}w{j}")).collect();
+                format!("{}\n", fields.join(if i % 2 == 0 { " " } else { "\t " }))
+            })
+            .collect();
+        let corpus: &'static str = Box::leak(corpus.into_boxed_str());
+        for used in [FieldSet::all(), FieldSet::singleton(0), FieldSet::empty()] {
+            let want: Vec<(String, usize)> = corpus
+                .lines()
+                .map(|l| (l.to_string(), l.split_whitespace().count()))
+                .collect();
+            let br = ByteReader::new_whitespace(
+                iter::once((io::Cursor::new(corpus), String::from("-"))),
+                64,
+                true,
+                ExecutionStrategy::Serial,
+                CancelSignal::default(),
+            );
+            assert_eq!(read_records(br, used.clone(), " "), want);
+            let want: Vec<(String, usize)> = corpus
+                .lines()
+                // An empty record has no fields.
+                .map(|l| {
+                    (
+                        l.to_string(),
+                        if l.is_empty() {
+                            0
+                        } else {
+                            l.split('w').count()
+                        },
+                    )
+                })
+                .collect();
+            let br = ByteReader::new(
+                iter::once((io::Cursor::new(corpus), String::from("-"))),
+                b'w',
+                b'\n',
+                64,
+                true,
+                ExecutionStrategy::Serial,
+                CancelSignal::default(),
+            );
+            assert_eq!(read_records(br, used, "w"), want);
+        }
+        // CSV, with quoted fields holding newlines and commas.
+        let csv: String = (0..3)
+            .map(|i| {
+                let fields: Vec<String> = (0..2000 * (i + 1))
+                    .map(|j| match j % 3 {
+                        0 => format!("\"q,{j}\nx\""),
+                        1 => format!("p{j}"),
+                        _ => String::new(),
+                    })
+                    .collect();
+                format!("{}\r\n", fields.join(","))
+            })
+            .collect();
+        let want: Vec<Vec<String>> = csv
+            .split("\r\n")
+            .filter(|l| !l.is_empty())
+            .map(|l| split_record(l.as_bytes(), InputFormat::CSV))
+            .map(|fs| fs.iter().map(|s| s.to_string()).collect())
+            .collect();
+        assert_eq!(want[0][0], "q,0\nx");
+        assert_eq!(csv_read_all(&csv, 64), want);
     }
 
     fn bytes_split(kernel: BytesIndexKernel, fs: u8, rs: u8, corpus: &'static str) {

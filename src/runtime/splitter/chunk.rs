@@ -11,8 +11,8 @@ use crate::runtime::{
     splitter::{
         Reader,
         batch::{
-            BytesIndexKernel, InputFormat, Offsets, WhitespaceIndexKernel, WhitespaceOffsets,
-            get_find_indexes,
+            BytesIndexKernel, InputFormat, MAX_CHUNK_LEN, Offsets, WhitespaceIndexKernel,
+            WhitespaceOffsets, get_find_indexes,
         },
     },
     str_impl::UniqueBuf,
@@ -83,9 +83,31 @@ impl<R, F> OffsetChunkProducer<R, F> {
     }
 }
 
-/// Write the offsets of every `sep` in `buf` to `out`.
-fn find_record_seps(buf: &[u8], out: &mut Vec<u64>, sep: u8) {
-    out.extend(memchr::memchr_iter(sep, buf).map(|i| i as u64));
+/// Append the offsets of every `sep` in `buf[from..]` to `out`.
+fn find_record_seps(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
+    out.extend(memchr::memchr_iter(sep, &buf[from..]).map(|i| (from + i) as u32));
+}
+
+/// Offsets are stored as `u32` (see `OffsetInner::fields`): a record cannot be longer than that.
+fn check_chunk_len(len: usize) -> Result<()> {
+    if len > MAX_CHUNK_LEN {
+        return err!(
+            "record too long: more than {} bytes without a record separator",
+            MAX_CHUNK_LEN
+        );
+    }
+    Ok(())
+}
+
+/// A scan of a buffer without a complete record, to be continued on the next (longer) buffer,
+/// which starts with the same bytes.
+#[derive(Copy, Clone)]
+struct PartialScan {
+    lines_only: bool,
+    /// The bytes scanned.
+    end: usize,
+    /// The number of offsets in `rel` that are known not to end a record.
+    rel: usize,
 }
 
 pub fn new_offset_chunk_producer_csv<R: Read>(
@@ -300,6 +322,7 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
         Ok(false)
     }
     fn get_chunk(&mut self, chunk: &mut OffsetChunk) -> Result<bool> {
+        let mut pending: Option<PartialScan> = None;
         loop {
             match self.state {
                 ChunkState::Init => {
@@ -314,42 +337,61 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
                     chunk.name = self.name.clone();
                     let buf = self.inner.buf.clone();
                     let bs = buf.as_bytes();
+                    check_chunk_len(self.inner.end)?;
+                    // A buffer without a complete record is read again with more data after it:
+                    // only scan the new bytes (the ones before are unchanged).
+                    let lines_only = self.lines_only();
+                    let partial = pending.take().filter(|p| p.lines_only == lines_only);
+                    chunk.off.lines_only = lines_only;
                     // Only scan the bytes read: the CSV kernel needs to know where the input ends.
-                    chunk.off.lines_only = self.lines_only();
-                    if chunk.off.lines_only {
-                        chunk.off.rel.clear();
-                        chunk.off.nl.clear();
+                    if lines_only {
+                        let from = match partial {
+                            Some(p) => p.end,
+                            None => {
+                                chunk.off.clear();
+                                0
+                            }
+                        };
                         find_record_seps(
                             &bs[..self.inner.end],
+                            from,
                             &mut chunk.off.rel.fields,
                             self.record_sep,
                         );
                     } else {
+                        if partial.is_some() {
+                            chunk.off.continue_scan();
+                        }
                         (self.find_indexes)(&bs[..self.inner.end], &mut chunk.off);
                     }
+                    // The offsets kept from the previous scan do not end a record.
+                    let known = partial.map_or(0, |p| p.rel).min(chunk.off.rel.fields.len());
                     let mut target = None;
-                    let mut new_len = chunk.off.rel.fields.len();
-                    let mut always_truncate = new_len;
-                    for offset in chunk.off.rel.fields.iter().rev() {
+                    let mut new_len = 0;
+                    let mut always_truncate = chunk.off.rel.fields.len();
+                    for (i, offset) in chunk.off.rel.fields.iter().enumerate().skip(known).rev() {
                         let offset = *offset as usize;
                         if offset >= self.inner.end {
-                            always_truncate -= 1;
-                            new_len -= 1;
+                            always_truncate = i;
                             continue;
                         }
                         if bs[offset] == self.record_sep {
                             target = Some(offset + 1);
+                            new_len = i + 1;
                             break;
                         }
-                        new_len -= 1;
                     }
                     debug_assert!(new_len <= always_truncate);
                     let is_partial = if let Some(chunk_end) = target {
                         self.inner.start = chunk_end;
                         false
                     } else {
-                        debug_assert_eq!(new_len, 0);
                         true
+                    };
+                    let scanned = PartialScan {
+                        lines_only,
+                        end: self.inner.end,
+                        rel: always_truncate,
                     };
                     // chunk.len is a bit tricky. There are two signals that we have to take into
                     // account:
@@ -395,8 +437,11 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
                         }
                         // We read an entire chunk, but we didn't find a full record. Try again
                         // (note that the call to reset read in a larger chunk and would have kept
-                        // a prefix)
-                        (true, false) => continue,
+                        // a prefix), continuing this scan.
+                        (true, false) => {
+                            pending = Some(scanned);
+                            continue;
+                        }
                     };
                 }
                 ChunkState::Done => return Ok(true),
@@ -417,6 +462,7 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
         Ok(false)
     }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool> {
+        let mut pending: Option<PartialScan> = None;
         loop {
             match self.0.state {
                 ChunkState::Init => {
@@ -434,20 +480,46 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                     // Whether the byte before this buffer is whitespace. The scan below updates
                     // `self.1` to the state at the end of the buffer.
                     let start_ws = self.1;
-                    chunk.off.0.lines_only = self.0.lines_only();
-                    if chunk.off.0.lines_only {
+                    check_chunk_len(self.0.inner.end)?;
+                    // See OffsetChunkProducer::get_chunk: continue the scan of a buffer without
+                    // a complete record.
+                    let lines_only = self.0.lines_only();
+                    let partial = pending.take().filter(|p| p.lines_only == lines_only);
+                    chunk.off.0.lines_only = lines_only;
+                    if lines_only {
                         // The records end at newlines; the fields are split when they are used.
-                        chunk.off.0.rel.clear();
-                        chunk.off.0.nl.clear();
+                        let from = match partial {
+                            Some(p) => p.end,
+                            None => {
+                                chunk.off.0.clear();
+                                0
+                            }
+                        };
                         find_record_seps(
                             &bs[..self.0.inner.end],
+                            from,
                             &mut chunk.off.0.nl.fields,
                             b'\n',
                         );
                         self.1 = 1;
                     } else {
-                        self.1 = (self.0.find_indexes)(bs, &mut chunk.off, start_ws);
+                        if partial.is_some() {
+                            // The saved state is used instead of start_ws.
+                            chunk.off.0.continue_scan();
+                        }
+                        // Only scan the bytes read, so that the scan can be continued on a
+                        // longer buffer; the zero padding after them is not whitespace either.
+                        self.1 = (self.0.find_indexes)(
+                            &bs[..self.0.inner.end],
+                            &mut chunk.off,
+                            start_ws,
+                        );
                     }
+                    let scanned = PartialScan {
+                        lines_only,
+                        end: self.0.inner.end,
+                        rel: 0,
+                    };
                     // Find the last newline in the buffer, if there is one.
                     let (is_partial, truncate_to, len_if_not_last) =
                         if let Some(nl_off) = chunk.off.0.nl.fields.last().cloned() {
@@ -498,6 +570,7 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                         // from the same whitespace state, not the one at the end of this buffer.
                         (true, false) => {
                             self.1 = start_ws;
+                            pending = Some(scanned);
                             continue;
                         }
                     };
