@@ -2759,7 +2759,7 @@ fn parquet_output() {
                 { print $1, $2, $3, $4, $5, $6, $7 }"#)
             .write_stdin(
                 "Alice 30 true 2024-01-02 2024-01-02T03:04:05Z {\"a\":1} 67e55044-10b1-426f-9247-bb680e5fe0c8\n\
-                 Bob x 0 86400 1700000000 {} -\n",
+                 Bob x 0 2024 1700000000 {} -\n",
             )
             .assert()
             .success();
@@ -2773,7 +2773,7 @@ fn parquet_output() {
             .stdout(concat!(
                 r#"{"name":"Alice","age":30,"ok":true,"d":"2024-01-02","ts":"2024-01-02 03:04:05","j":{"a":1},"id":"67e55044-10b1-426f-9247-bb680e5fe0c8"}"#,
                 "\n",
-                r#"{"name":"Bob","age":null,"ok":false,"d":"1970-01-02","ts":"2023-11-14 22:13:20","j":{},"id":null}"#,
+                r#"{"name":"Bob","age":null,"ok":false,"d":null,"ts":"2023-11-14 22:13:20","j":{},"id":null}"#,
                 "\n",
             ));
     }
@@ -2806,7 +2806,7 @@ fn avro_output_and_input() {
                 { print $1, $2, $3, $4, $5, $6, $7, $8 }"#)
             .write_stdin(
                 "Alice 30 true 2024-01-02 2024-01-02T03:04:05Z 12.5 67e55044-10b1-426f-9247-bb680e5fe0c8 a\n\
-                 Bob x maybe 86400 1700000000 -0.505 - b\n",
+                 Bob x maybe 20240115 1700000000 -0.505 - b\n",
             )
             .assert()
             .success()
@@ -2826,7 +2826,7 @@ fn avro_output_and_input() {
             .stdout(concat!(
                 r#"{"name":"Alice","age":30,"ok":true,"d":"2024-01-02","ts":"2024-01-02T03:04:05Z","price":12.50,"id":"67e55044-10b1-426f-9247-bb680e5fe0c8","url_http":"a"}"#,
                 "\n8 12.50 1\n",
-                r#"{"name":"Bob","age":null,"ok":null,"d":"1970-01-02","ts":"2023-11-14T22:13:20Z","price":-0.51,"id":null,"url_http":"b"}"#,
+                r#"{"name":"Bob","age":null,"ok":null,"d":"2024-01-15","ts":"2023-11-14T22:13:20Z","price":-0.51,"id":null,"url_http":"b"}"#,
                 "\n8 -0.51 \n",
             ));
         // NULLs are the --null text; standard input needs -i avro.

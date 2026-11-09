@@ -710,6 +710,12 @@ mod tests {
         );
         assert_eq!(parse_timestamp("1000"), Some(1000 * MICROS_PER_SEC));
         assert_eq!(parse_date("1970-01-03"), Some(2));
+        assert_eq!(parse_date(" 20240115 "), Some(19737));
+        assert_eq!(parse_date("2024-01-15T23:59:59Z"), Some(19737));
+        assert_eq!(parse_date("1960-01-01"), Some(-3653));
+        for bad in ["2024", "20241345", "1705276800", "-1", "1.5", ""] {
+            assert_eq!(parse_date(bad), None, "{bad}");
+        }
         assert_eq!(parse_int(" 42 "), Some(42));
         assert_eq!(parse_int("1e3"), Some(1000));
         assert_eq!(parse_int("-2.0"), Some(-2));

@@ -99,6 +99,14 @@ zawk -i csv -H -o parquet --out-file users.parquet \
 Supported Parquet column types: `BOOLEAN`, `INT8`, `INT16`, `INT32`, `INT64`, `FLOAT`, `DOUBLE`, `DATE`, `TIME`,
 `TIMESTAMP`, `JSON`, `UUID` and `STRING` (the default).
 
+`DATE` and `TIMESTAMP` columns (Parquet and Avro) take date and date-time text (`2024-01-15`,
+`2024/01/15`, `2024-01-15 10:30:00`, RFC 3339 such as `2024-01-15T10:30:00+08:00`; naive values are UTC). A `DATE`
+also takes 8 digits as `YYYYMMDD` (`20240115`), and any other bare number (`2024`, `1705276800`) is invalid. A
+`TIMESTAMP` also takes a Unix timestamp: an integer is seconds, or milliseconds from 12 digits (absolute value
+`>= 10^11`), microseconds from 15 digits and nanoseconds from 18 digits; a decimal such as `1705276800.5` is seconds.
+So `20240115` in a `TIMESTAMP` column is 1970-08-23: write `2024-01-15`. Invalid values are written as null and
+counted in a warning on standard error.
+
 ### Avro
 
 `-i avro` maps the fields of the record schema to `$1..$NF` (and `FI`), and `$0` is the record as a JSON object:

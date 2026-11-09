@@ -67,6 +67,10 @@ zawk -i csv -H -o parquet --out-file users.parquet \
    { print $FI["id"], $FI["name"], $FI["age"], $FI["created_at"] }' users.csv
 ```
 
+A `date` column takes `2024-01-15` or `20240115` (`YYYYMMDD`); a `timestamp` column takes date-time text or a Unix
+timestamp (seconds, or milliseconds/microseconds/nanoseconds for 12/15/18+ digits), so write `20240115` as `2024-01-15`
+there. Invalid values become null, with a warning.
+
 ### Convert JSON Lines to Parquet
 
 ```shell

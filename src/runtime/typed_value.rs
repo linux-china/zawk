@@ -170,9 +170,15 @@ pub(crate) fn parse_timestamp(s: &str) -> Option<i64> {
     epoch_micros(s).or_else(|| parse_date_time_str(s))
 }
 
-/// Days since the Unix epoch.
+/// Days since the Unix epoch from a date or date-time string. Eight digits are `YYYYMMDD`; any
+/// other bare number (such as `2024` or a Unix timestamp) is invalid, not a timestamp in seconds.
 pub(crate) fn parse_date(s: &str) -> Option<i32> {
-    let micros = parse_timestamp(s)?;
+    let s = s.trim();
+    if s.bytes().all(|b| b.is_ascii_digit()) {
+        let d = NaiveDate::parse_from_str(s, "%Y%m%d").ok().filter(|_| s.len() == 8)?;
+        return i32::try_from(d.signed_duration_since(DateTime::UNIX_EPOCH.date_naive()).num_days()).ok();
+    }
+    let micros = parse_date_time_str(s)?;
     i32::try_from(micros.div_euclid(MICROS_PER_SEC * SECS_PER_DAY)).ok()
 }
 
