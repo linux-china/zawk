@@ -1534,7 +1534,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "system2",
         OS,
         "system2(cmd: str) -> map[str]str",
-        "Run a shell command; returns code, stdout and stderr (one trailing newline removed).",
+        "Run a shell command; returns code, stdout and stderr (raw bytes, one trailing newline removed). code is 127 and ERRNO is set if the command cannot be started.",
         r#"system2("echo hi")["stdout"]"#,
     ),
     // I/O

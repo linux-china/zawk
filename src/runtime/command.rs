@@ -81,43 +81,49 @@ pub fn run_command(cmd: &str) -> Int {
     run_command_inner(cmd).unwrap_or_else(|e| e.raw_os_error().map(Int::from).unwrap_or(1))
 }
 
-/// Decode command output and drop one trailing newline (`\n` or `\r\n`), as `cmd | getline` does.
-fn lossy_trim_newline(bytes: &[u8]) -> String {
+/// Command output with one trailing newline (`\n` or `\r\n`) dropped, as `cmd | getline` does.
+/// The bytes are kept as they are: awk strings are byte strings, so non-UTF-8 output survives.
+fn trim_newline<'b>(bytes: &[u8]) -> Str<'b> {
     let bytes = bytes
         .strip_suffix(b"\n")
         .map_or(bytes, |b| b.strip_suffix(b"\r").unwrap_or(b));
-    String::from_utf8_lossy(bytes).into_owned()
+    Str::from_bytes(bytes)
 }
+
+/// The `code` of `system2` when the command could not be started, as a shell reports a command
+/// it cannot run.
+const SYSTEM2_START_FAILURE: Int = 127;
 
 pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
-    if let Ok(mut command) = prepare_command(cmd, command_env().as_ref()) {
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-        if let Ok(output) = command.output() {
+    let output = prepare_command(cmd, command_env().as_ref()).and_then(|mut command| {
+        command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+    });
+    match output {
+        Ok(output) => {
             map.insert(
                 Str::from("code"),
-                Str::from(exit_status_code(output.status).to_string()),
+                Str::from(exit_status_code(output.status)),
             );
             if !output.stdout.is_empty() {
-                map.insert(
-                    Str::from("stdout"),
-                    Str::from(lossy_trim_newline(&output.stdout)),
-                );
+                map.insert(Str::from("stdout"), trim_newline(&output.stdout));
             }
             if !output.stderr.is_empty() {
-                map.insert(
-                    Str::from("stderr"),
-                    Str::from(lossy_trim_newline(&output.stderr)),
-                );
+                map.insert(Str::from("stderr"), trim_newline(&output.stderr));
             }
-        } else {
-            map.insert(Str::from("stderr"), Str::from("Failed to execute command"));
         }
-    } else {
-        map.insert(
-            Str::from("stderr"),
-            Str::from("Failed to construct command line"),
-        );
+        Err(e) => {
+            // A failed start must not look like success: `r["code"]` would otherwise be "" (0).
+            map.insert(Str::from("code"), Str::from(SYSTEM2_START_FAILURE));
+            map.insert(
+                Str::from("stderr"),
+                Str::from(format!("Failed to execute command: {}", e)),
+            );
+            crate::runtime::set_errno_io(&e);
+        }
     }
     StrMap::from(map)
 }
@@ -193,15 +199,46 @@ pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
 
 #[cfg(test)]
 mod tests {
-    use super::lossy_trim_newline;
+    use super::{run_command2, trim_newline};
+    use crate::runtime::{errno, set_errno, Str};
+
+    fn trimmed(bs: &[u8]) -> Vec<u8> {
+        trim_newline(bs).with_bytes(<[u8]>::to_vec)
+    }
+
+    fn get<'a>(map: &crate::runtime::StrMap<'a, Str<'a>>, key: &'a str) -> Vec<u8> {
+        map.get(&Str::from(key)).with_bytes(<[u8]>::to_vec)
+    }
 
     #[test]
     fn trims_one_trailing_newline() {
-        assert_eq!(lossy_trim_newline(b"hi\n"), "hi");
-        assert_eq!(lossy_trim_newline(b"hi\r\n"), "hi");
-        assert_eq!(lossy_trim_newline(b"a\nb\n\n"), "a\nb\n");
-        assert_eq!(lossy_trim_newline(b"hi"), "hi");
-        assert_eq!(lossy_trim_newline(b"hi\r"), "hi\r");
-        assert_eq!(lossy_trim_newline(b"\n"), "");
+        assert_eq!(trimmed(b"hi\n"), b"hi");
+        assert_eq!(trimmed(b"hi\r\n"), b"hi");
+        assert_eq!(trimmed(b"a\nb\n\n"), b"a\nb\n");
+        assert_eq!(trimmed(b"hi"), b"hi");
+        assert_eq!(trimmed(b"hi\r"), b"hi\r");
+        assert_eq!(trimmed(b"\n"), b"");
+        // non-UTF-8 bytes are kept, not replaced by U+FFFD
+        assert_eq!(trimmed(b"\xff\xfe\n"), b"\xff\xfe");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn system2_keeps_raw_bytes() {
+        let r = run_command2(r"printf '\377a\n'; printf '\376\n' >&2; exit 3");
+        assert_eq!(get(&r, "code"), b"3");
+        assert_eq!(get(&r, "stdout"), b"\xffa");
+        assert_eq!(get(&r, "stderr"), b"\xfe");
+    }
+
+    #[test]
+    fn system2_start_failure_sets_code_and_errno() {
+        set_errno(String::new());
+        // a NUL byte in the command line makes the spawn fail before any shell runs
+        let r = run_command2("echo a\0b");
+        assert_eq!(get(&r, "code"), b"127");
+        assert!(get(&r, "stderr").starts_with(b"Failed to execute command"));
+        assert_ne!(errno(), "");
+        set_errno(String::new());
     }
 }

@@ -1,6 +1,7 @@
 # Unreleased
 
 * Add `color(spec, s)`: color and style text for the terminal, e.g. `color("red", "this is red")` or `color("red+bold", "error")`. `spec` joins one color (`red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`) and styles (`bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`) with `+` or spaces, in any order and case-insensitive; unknown names are ignored, so `color("pink", s)` is `s`. Escape codes are written only when stdout is a terminal; `NO_COLOR` turns them off and `CLICOLOR_FORCE=1` forces them
+* Fix `system2(cmd)` changing bytes of the output that are not valid UTF-8 into U+FFFD: `stdout` and `stderr` now keep the bytes as they are (one trailing newline is still removed). When the command cannot be started, `code` is `127` instead of empty (which read as `0`, a success) and `ERRNO` is set
 
 # Version 0.6.9 (2026-11-07)
 
