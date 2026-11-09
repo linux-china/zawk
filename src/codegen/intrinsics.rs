@@ -3902,12 +3902,18 @@ pub(crate) unsafe extern "C" fn cmp_str_num(s: *mut c_void, n: Float, code: Int)
 }
 
 pub(crate) unsafe extern "C" fn drop_iter_int(iter: *mut Int, len: usize) {
+    if iter.is_null() {
+        return;
+    }
     guard_panic(stringify!(drop_iter_int), || {
         mem::drop(Box::from_raw(slice::from_raw_parts_mut(iter, len)))
     })
 }
 
 pub(crate) unsafe extern "C" fn drop_iter_str(iter: *mut U128, len: usize) {
+    if iter.is_null() {
+        return;
+    }
     guard_panic(stringify!(drop_iter_str), || {
         let p = iter as *mut Str;
         mem::drop(Box::from_raw(slice::from_raw_parts_mut(p, len)))

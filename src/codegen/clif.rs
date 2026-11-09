@@ -964,6 +964,12 @@ impl<'a> View<'a> {
                         .load(str_ty, MemFlagsData::trusted(), v, 0);
                 }
                 self.drop_all();
+                // Free key arrays of loops left early (e.g. `return` inside `for (k in a)`).
+                let mut iters: Vec<Ref> = self.f.iters.keys().cloned().collect();
+                iters.sort_unstable_by_key(|r| r.0);
+                for iter in iters {
+                    self.drop_iter_if_live(iter)?;
+                }
                 if crate::common::backtrace_enabled() {
                     let rt = self.f.runtime_param;
                     self.call_unlocated(external!(trace_leave), &[rt]);
@@ -973,21 +979,7 @@ impl<'a> View<'a> {
             }
             // Handled by `gen_function_body`.
             Loc(_) => Ok(()),
-            DropIter(reg, ty) => {
-                use compile::Ty::*;
-                let drop_fn = match ty {
-                    IterInt => external!(drop_iter_int),
-                    IterStr => external!(drop_iter_str),
-                    _ => return err!("can only drop iterators, got {:?}", ty),
-                };
-                let IterState { base, bytes, .. } = self.get_iter((*reg, *ty))?;
-                let base = self.builder.use_var(base);
-                let bytes = self.builder.use_var(bytes);
-                let key_ty = self.get_ty(ty.iter()?);
-                let len = self.div_by_type_size(key_ty, bytes)?;
-                self.call_external_void(drop_fn, &[base, len]);
-                Ok(())
-            }
+            DropIter(reg, ty) => self.drop_iter_if_live((*reg, *ty)),
             // Phis are handled in predecessor blocks
             Phi(..) => Ok(()),
         }
@@ -1063,6 +1055,16 @@ impl<'a> View<'a> {
     }
 
     fn execute_actions(&mut self) -> Result<()> {
+        // Iterators start out empty: a null `base` means "no key array to free".
+        let iters: Vec<IterState> = self.f.iters.values().cloned().collect();
+        for IterState { bytes, cur, base } in iters {
+            let zero = self.const_int(0);
+            self.builder.def_var(bytes, zero);
+            self.builder.def_var(cur, zero);
+            let ptr_ty = self.void_ptr_ty();
+            let null = self.builder.ins().iconst(ptr_ty, 0);
+            self.builder.def_var(base, null);
+        }
         let header_actions = mem::take(&mut self.f.header_actions);
         for EntryDeclaration { var, ty } in header_actions {
             use compile::Ty::*;
@@ -1446,6 +1448,36 @@ impl<'a> View<'a> {
             Round => self.call_external(external!(_frawk_round), args),
             Trunc => self.builder.ins().trunc(args[0]),
         }
+    }
+
+    /// Free the key array of `iter` if it holds one, and mark it empty.
+    fn drop_iter_if_live(&mut self, iter: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let drop_fn = match iter.1 {
+            IterInt => external!(drop_iter_int),
+            IterStr => external!(drop_iter_str),
+            ty => return err!("can only drop iterators, got {:?}", ty),
+        };
+        let key_ty = self.get_ty(iter.1.iter()?);
+        let IterState { base, bytes, .. } = self.get_iter(iter)?;
+        let base_v = self.builder.use_var(base);
+        let drop_block = self.builder.create_block();
+        let cont_block = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(base_v, drop_block, &[], cont_block, &[]);
+        self.builder.seal_block(drop_block);
+        self.builder.switch_to_block(drop_block);
+        let bytes_v = self.builder.use_var(bytes);
+        let len = self.div_by_type_size(key_ty, bytes_v)?;
+        self.call_external_void(drop_fn, &[base_v, len]);
+        self.builder.ins().jump(cont_block, &[]);
+        self.builder.seal_block(cont_block);
+        self.builder.switch_to_block(cont_block);
+        let ptr_ty = self.void_ptr_ty();
+        let null = self.builder.ins().iconst(ptr_ty, 0);
+        self.builder.def_var(base, null);
+        Ok(())
     }
 
     fn get_iter(&mut self, iter: Ref) -> Result<IterState> {
@@ -1885,6 +1917,9 @@ impl<'a> CodeGenerator for View<'a> {
             }
         };
         let key_ty = self.get_ty(dst.1.iter()?);
+        // Re-entering a loop that was left without reaching its `DropIter` (e.g. via `next`):
+        // free the previous key array before allocating a new one.
+        self.drop_iter_if_live(dst)?;
         let map = self.get_val(map)?;
         let IterState { bytes, cur, base } = self.get_iter(dst)?;
         let rt = self.runtime_val();
