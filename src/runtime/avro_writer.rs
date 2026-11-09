@@ -171,10 +171,8 @@ fn decimal_kind(name: &str, args: &str) -> io::Result<Kind> {
     if precision == 0 || precision > 38 {
         return Err(invalid("the precision must be between 1 and 38"));
     }
-    if scale > precision || scale > 28 {
-        return Err(invalid(
-            "the scale must not exceed the precision (and at most 28)",
-        ));
+    if scale > precision {
+        return Err(invalid("the scale must not exceed the precision"));
     }
     Ok(Kind::Decimal(precision, scale))
 }
@@ -234,19 +232,33 @@ fn avro_name(name: &str) -> String {
     out
 }
 
-/// The Avro names of the columns: valid and unique (`a`, `a_2`, `a_3`).
+/// The Avro names of the columns: valid and unique (`a`, `a_2`, `a_3`). A name that is valid and
+/// unique as given is kept, so that a column renamed to be valid does not take it.
 fn field_names(names: &[String]) -> Vec<String> {
-    let mut used = HashSet::new();
+    let valid: Vec<Option<String>> = names
+        .iter()
+        .map(|name| Some(avro_name(name)).filter(|n| n == name))
+        .collect();
+    // Taken by the valid names; of duplicates, the first is kept and the others renamed.
+    let mut used: HashSet<String> = valid.iter().flatten().cloned().collect();
+    let mut seen = HashSet::new();
     names
         .iter()
-        .map(|name| {
+        .zip(&valid)
+        .map(|(name, valid)| {
+            if let Some(v) = valid {
+                if seen.insert(v.clone()) {
+                    return v.clone();
+                }
+            }
             let base = avro_name(name);
             let mut candidate = base.clone();
             let mut n = 2;
-            while !used.insert(candidate.clone()) {
+            while used.contains(&candidate) {
                 candidate = format!("{}_{}", base, n);
                 n += 1;
             }
+            used.insert(candidate.clone());
             candidate
         })
         .collect()
@@ -308,21 +320,91 @@ impl Column {
     }
 }
 
+/// The unscaled value of decimal text at `scale`, rounded half away from zero; `None` if it is
+/// not a number or needs more than `precision` (at most 38) digits. The text is read as by the
+/// `dec_*` functions (sign, thousands separators, fraction, exponent), but into an `i128`, so
+/// that the precision is not limited to the 28 digits of `rust_decimal`.
+fn unscaled_decimal(text: &str, precision: u32, scale: u32) -> Option<i128> {
+    let t = text.trim();
+    let (neg, body) = match t.as_bytes().first()? {
+        b'-' => (true, &t[1..]),
+        b'+' => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let (mantissa, exp) = match body.find(['e', 'E']) {
+        Some(i) => {
+            let e = &body[i + 1..];
+            let digits = e.strip_prefix(['+', '-']).unwrap_or(e);
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            // A longer exponent cannot give a value of at most 38 digits, unless it is zero.
+            let e: i64 = if digits.len() > 6 {
+                if e.starts_with('-') { -1_000_000 } else { 1_000_000 }
+            } else {
+                e.parse().ok()?
+            };
+            (&body[..i], e)
+        }
+        None => (body, 0),
+    };
+    let (int_part, frac) = match mantissa.find('.') {
+        Some(i) => (&mantissa[..i], &mantissa[i + 1..]),
+        None => (mantissa, ""),
+    };
+    let int_digits = crate::runtime::decimal::ungroup(int_part)?;
+    if (int_digits.is_empty() && frac.is_empty())
+        || !int_digits.bytes().all(|b| b.is_ascii_digit())
+        || !frac.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    // value = digits * 10^shift
+    let mut digits: Vec<u8> = int_digits.bytes().chain(frac.bytes()).collect();
+    let shift = exp + scale as i64 - frac.len() as i64;
+    let first = digits.iter().position(|&d| d != b'0').unwrap_or(digits.len());
+    digits.drain(..first);
+    if digits.is_empty() {
+        return Some(0);
+    }
+    let round_up = if shift >= 0 {
+        if digits.len() as i64 + shift > precision as i64 {
+            return None;
+        }
+        digits.extend(std::iter::repeat_n(b'0', shift as usize));
+        false
+    } else {
+        let drop = (-shift) as usize;
+        if drop > digits.len() {
+            digits.clear();
+            false
+        } else {
+            let up = digits[digits.len() - drop] >= b'5';
+            digits.truncate(digits.len() - drop);
+            up
+        }
+    };
+    if digits.len() > precision as usize {
+        return None;
+    }
+    let mut n: i128 = 0;
+    for d in digits {
+        n = n * 10 + (d - b'0') as i128;
+    }
+    if round_up {
+        n += 1;
+        if n.to_string().len() > precision as usize {
+            return None;
+        }
+    }
+    Some(if neg { -n } else { n })
+}
+
 /// The unscaled value of a decimal, as the minimal big-endian two's complement bytes: the text
 /// rounded half away from zero to `scale` digits; `None` if it is not a number or needs more than
 /// `precision` digits.
 fn decimal_bytes(text: &str, precision: u32, scale: u32) -> Option<Vec<u8>> {
-    use rust_decimal::RoundingStrategy;
-    let d = crate::runtime::decimal::parse(text).ok()?;
-    let mut d = d.round_dp_with_strategy(scale, RoundingStrategy::MidpointAwayFromZero);
-    d.rescale(scale);
-    if d.scale() != scale {
-        return None;
-    }
-    let unscaled = d.mantissa();
-    if unscaled.unsigned_abs().to_string().len() > precision as usize {
-        return None;
-    }
+    let unscaled = unscaled_decimal(text, precision, scale)?;
     let bytes = unscaled.to_be_bytes();
     // drop the leading bytes that only repeat the sign
     let mut start = 0;
@@ -709,11 +791,11 @@ mod tests {
         let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(
             names,
-            ["first_name", "url_http", "_1st", "a_b", "a_b_2", "c6"]
+            ["first_name", "url_http", "_1st", "a_b_2", "a_b", "c6"]
         );
         assert_eq!(r.fields[0].doc.as_deref(), Some("first name"));
         assert_eq!(r.fields[3].doc.as_deref(), Some("a-b"));
-        assert_eq!(r.fields[4].doc.as_deref(), Some("a_b"));
+        assert_eq!(r.fields[4].doc, None);
         assert_eq!(r.fields[5].doc, None);
         assert_eq!(fields(&rows[0])[1], Value::String("2".into()));
     }
@@ -757,6 +839,32 @@ mod tests {
         assert_eq!(decimal_bytes("0", 3, 0), Some(vec![0x00]));
         assert_eq!(decimal_bytes("1000", 3, 0), None);
         assert_eq!(decimal_bytes("abc", 3, 0), None);
+        // beyond the 28 digits of rust_decimal
+        let max38 = "9".repeat(38);
+        assert_eq!(
+            unscaled_decimal(&max38, 38, 0),
+            Some(max38.parse::<i128>().unwrap())
+        );
+        assert_eq!(unscaled_decimal(&format!("{}0", max38), 38, 0), None);
+        assert_eq!(
+            unscaled_decimal("-12345678901234567890123456789012.3456", 38, 4),
+            Some(-123456789012345678901234567890123456)
+        );
+        assert_eq!(unscaled_decimal("1.005", 5, 2), Some(101));
+        assert_eq!(unscaled_decimal("-1.005", 5, 2), Some(-101));
+        assert_eq!(unscaled_decimal("0.004", 5, 2), Some(0));
+        assert_eq!(unscaled_decimal("0.5", 3, 0), Some(1));
+        assert_eq!(unscaled_decimal("9.995", 3, 2), None);
+        assert_eq!(unscaled_decimal("1,234.5", 6, 1), Some(12345));
+        assert_eq!(unscaled_decimal("1.5e3", 6, 1), Some(15000));
+        assert_eq!(unscaled_decimal("15e-1", 3, 0), Some(2));
+        assert_eq!(unscaled_decimal("0e99999999", 3, 0), Some(0));
+        assert_eq!(unscaled_decimal("1e99999999", 38, 0), None);
+        assert_eq!(unscaled_decimal("1e-99999999", 38, 0), Some(0));
+        assert_eq!(unscaled_decimal("1.2.3", 5, 0), None);
+        assert_eq!(unscaled_decimal("1e", 5, 0), None);
+        assert_eq!(unscaled_decimal(".", 5, 0), None);
+        assert!(Kind::parse("decimal(38,38)").is_ok());
         assert!(matches!(
             Kind::parse("DECIMAL(38, 4)").unwrap(),
             Suffix::Type(Some(Kind::Decimal(38, 4)))
@@ -765,6 +873,14 @@ mod tests {
         assert!(Kind::parse("decimal(x)").is_err());
         assert_eq!(parse_hex("0xDEAD"), Some(vec![0xde, 0xad]));
         assert_eq!(parse_hex("abc"), None);
+    }
+
+    #[test]
+    fn valid_names_are_kept() {
+        let names = |v: &[&str]| field_names(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(names(&["a b", "a_b"]), ["a_b_2", "a_b"]);
+        assert_eq!(names(&["a", "a", "a_2"]), ["a", "a_3", "a_2"]);
+        assert_eq!(names(&["1x", "_1x", "x"]), ["_1x_2", "_1x", "x"]);
     }
 
     #[test]

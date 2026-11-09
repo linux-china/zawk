@@ -259,7 +259,7 @@ pub(crate) fn parse(s: &str) -> Result<Decimal, String> {
 
 /// Integer digits without thousands separators: `1,234,567` and `1_234` are grouped by threes,
 /// with one kind of separator. `None` if the grouping is invalid.
-fn ungroup(int_part: &str) -> Option<std::borrow::Cow<'_, str>> {
+pub(crate) fn ungroup(int_part: &str) -> Option<std::borrow::Cow<'_, str>> {
     let sep = match (int_part.contains(','), int_part.contains('_')) {
         (false, false) => return Some(int_part.into()),
         (true, true) => return None,
