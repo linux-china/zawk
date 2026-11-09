@@ -13,6 +13,34 @@ services:
     image: nats:2.15.0-alpine
     ports:
       - "14222:4222"
+      - "18222:8222"
+    command:
+      - "-js"
+      - "-m"
+      - "8222"
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:8222/healthz?js-enabled-only=true" ]
+  nats-init:
+    image: natsio/nats-box:latest
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      NATS_URL: nats://nats:4222
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        set -e
+        # create KV Bucket
+        nats kv info bucket1 >/dev/null 2>&1 || \
+        nats kv add bucket1 \
+          --history 5 \
+          --ttl 24h \
+          --storage file \
+          --replicas 1
+        echo "NATS init done"
+        nats kv ls
+    restart: "no"
   kafka:
     image: apache/kafka-native:4.4.0
     ports:
