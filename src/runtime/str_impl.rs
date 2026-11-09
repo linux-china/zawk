@@ -342,7 +342,7 @@ impl<'a> UniqueStr<'a> {
             StrTag::Inline | StrTag::Literal => self.0.clone(),
             StrTag::Boxed => unsafe {
                 rep.view_as(|b: &Boxed| {
-                    let bs = b.buf.as_bytes();
+                    let bs = &b.buf.as_bytes()[..b.len as usize];
                     Str::from_rep(
                         Boxed {
                             buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
@@ -373,8 +373,7 @@ impl<'a> From<Str<'a>> for UniqueStr<'a> {
                     None
                 } else {
                     // Copy a new buffer.
-                    let bs = b.buf.as_bytes();
-                    debug_assert_eq!(bs.len() as u64, b.len);
+                    let bs = &b.buf.as_bytes()[..b.len as usize];
                     Some(Boxed {
                         buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
                         len: bs.len() as u64,
@@ -1289,9 +1288,26 @@ impl<'a> Str<'a> {
 
     /// Calls `f` with the char cursor of `bs`, the bytes of `self`, replacing the cached cursor
     /// (of another string) if needed; `f` gets `None` if `self` has no heap buffer to key it on.
+    /// A cursor of a string that `self` extends (appended to in place, see [`Str::append`]) is
+    /// kept: the bytes it was computed from are unchanged.
     fn with_char_cursor<R>(&self, bs: &[u8], f: impl FnOnce(Option<&mut CharCursor>) -> R) -> R {
         CHAR_CURSOR.with(|cursor| {
             let mut cursor = cursor.borrow_mut();
+            if let Some(c) = &mut *cursor
+                && c.ptr == bs.as_ptr()
+                && c.len < bs.len()
+            {
+                // The cursor's buffer is alive (it holds a reference), so `bs` starts with the
+                // `c.len` bytes it was computed from: only bytes past a buffer's fill mark are
+                // ever written. The counts add up unless the new bytes start with a UTF-8
+                // continuation byte (which could complete a char at the end of the old ones).
+                let tail = &bs[c.len..];
+                c.chars = c
+                    .chars
+                    .filter(|_| tail[0] & 0xC0 != 0x80)
+                    .map(|n| n + char_count(tail));
+                c.len = bs.len();
+            }
             if !matches!(&*cursor, Some(c) if c.ptr == bs.as_ptr() && c.len == bs.len()) {
                 match unsafe { self.rep_mut() }.buf() {
                     Some(buf) => {
@@ -1337,20 +1353,67 @@ impl<'a> Str<'a> {
                 Str::from_rep(Inline::from_raw(buf.as_ptr(), new_len).into())
             }
         } else {
-            // TODO: we can add another case here. If `left` is boxed and has a refcount of 1, we
-            // can move it into a dynamicbuf and push `right` onto it, avoiding the heap
-            // allocation. We _only_ want to do this if we reevaluate the `realloc` that DynamicBuf
-            // does when you convert it back into a string, though. We would have to keep a
-            // capacity around as well as a length.
-            let concat = unsafe { Concat::new(new_len as u64, left, right) };
-            Str::from_rep(concat.into())
+            unsafe { Str::append(left, right, new_len) }
         }
+    }
+
+    /// `left` followed by `right`, `new_len` (more than MAX_INLINE_SIZE) bytes in all.
+    ///
+    /// Appending to a string in a loop (`s = s x`) must neither copy `s` every time nor keep a
+    /// node per append. So the result goes in an append buffer: one with spare capacity and a
+    /// fill mark (see [`Buf::fill`]). A `Boxed` left that ends at its append buffer's fill mark
+    /// gets `right` written into the spare capacity, even while other strings share the buffer:
+    /// they only read bytes before the mark. Any other `Boxed` left, or a `Concat` one (appended
+    /// to before), is copied with `right` into a new append buffer with half as much again of
+    /// spare capacity, so appends cost amortized O(1) and the string stays flat for `length`,
+    /// `substr`, matching, etc. A slice (`$0 "x"`) or a literal on the left only gets a `Concat`
+    /// node: such one-off concatenations are often just printed piece by piece.
+    unsafe fn append(left: Str<'a>, right: Str<'a>, new_len: usize) -> Str<'a> {
+        let rep = left.rep_mut();
+        let llen = rep.len();
+        match rep.get_tag() {
+            StrTag::Boxed => {
+                let buf = rep.view_as(|b: &Boxed| b.buf.clone());
+                if llen < buf.len() {
+                    let fill = buf.fill();
+                    if fill.read_unaligned() == llen
+                        && buf.len() - FILL_MARK_SIZE - llen >= new_len - llen
+                    {
+                        right.copy_to(buf.as_ptr().add(llen) as *mut u8);
+                        fill.write_unaligned(new_len);
+                        return Str::from_rep(
+                            Boxed {
+                                buf,
+                                len: new_len as u64,
+                            }
+                            .into(),
+                        );
+                    }
+                }
+            }
+            StrTag::Concat => {}
+            _ => return Str::from_rep(Concat::new(new_len as u64, left, right).into()),
+        }
+        let cap = new_len.saturating_add(new_len / 2);
+        let mut buf = UniqueBuf::new(cap.saturating_add(FILL_MARK_SIZE));
+        let dst = buf.as_mut_ptr();
+        left.copy_to(dst);
+        right.copy_to(dst.add(llen));
+        let buf = buf.into_buf();
+        buf.fill().write_unaligned(new_len);
+        Str::from_rep(
+            Boxed {
+                buf,
+                len: new_len as u64,
+            }
+            .into(),
+        )
     }
 
     /// The concatenation of `pieces`, left to right, as a chain of `concat` would give, built in
     /// one go: `$1 "," $2 "," $3` would otherwise make a `Concat` node per operand and flatten
-    /// them again when the result is used. Long results are still built as `Concat` ropes, so that
-    /// appending to a string in a loop (`s = s "," $i`) does not copy the string every time.
+    /// them again when the result is used. Long results are built by `concat`, so that appending to
+    /// a string in a loop (`s = s "," $i`) appends in place rather than copying the string.
     pub fn concat_n(pieces: &[&Str<'a>]) -> Str<'a> {
         const MAX_FLAT_LEN: usize = 256;
         let total: usize = pieces.iter().map(|p| p.bytes_len()).sum();
@@ -1543,7 +1606,6 @@ impl<'a> Str<'a> {
     //         If we add force to a public API (e.g. for garbage collection), we'll need to ensure
     //         that we don't call with_bytes around it, or clone the string before forcing.
 
-    #[allow(clippy::never_loop)]
     unsafe fn force(&self) {
         let (tag, len) = {
             let rep = self.rep_mut();
@@ -1552,59 +1614,41 @@ impl<'a> Str<'a> {
         if tag.forced() {
             return;
         }
-        let mut whead = 0;
         let mut res = UniqueBuf::new(len);
-        macro_rules! push_bytes {
-            ($slice:expr, [$from:expr, $to:expr]) => {{
-                let from = $from;
-                let slen = $to - from;
-                push_bytes!(&$slice[$from], slen);
-            }};
-            ($at:expr, $len:expr) => {{
-                let slen = $len;
-                debug_assert!((len - whead) >= slen);
-                let head = &mut res.as_mut_bytes()[whead];
-                ptr::copy_nonoverlapping($at, head, slen);
-                whead += slen;
-            }};
+        self.copy_to(res.as_mut_ptr());
+        *self.rep_mut() = Boxed {
+            len: len as u64,
+            buf: res.into_buf(),
         }
-        let mut todos = SmallVec::<[Str<'a>; 16]>::new();
-        let mut cur: Str<'a> = self.clone();
-        let new_rep: StrRep<'a> = 'outer: loop {
-            let rep = cur.rep_mut();
-            let tag = rep.get_tag();
-            cur = loop {
-                match tag {
-                    StrTag::Inline => rep.view_as_inline(|i| {
-                        push_bytes!(i.bytes(), [0, i.len()]);
-                    }),
-                    StrTag::Literal => rep.view_as(|l: &Literal| {
-                        push_bytes!(l.ptr, l.len as usize);
-                    }),
-                    StrTag::Boxed => rep.view_as(|b: &Boxed| {
-                        push_bytes!(b.buf.as_bytes(), [0, b.len as usize]);
-                    }),
-                    StrTag::Shared => rep.view_as(|s: &Shared| {
-                        push_bytes!(s.buf.as_bytes(), [s.start as usize, s.end as usize]);
-                    }),
-                    StrTag::Concat => {
-                        break rep.view_as(|c: &Concat| {
-                            todos.push(c.right());
-                            c.left()
-                        });
-                    }
-                }
-                if let Some(c) = todos.pop() {
-                    break c;
-                }
-                break 'outer Boxed {
-                    len: len as u64,
-                    buf: res.into_buf(),
-                }
-                .into();
-            };
-        };
-        *self.rep_mut() = new_rep;
+        .into();
+    }
+
+    /// Copies the bytes of `self` to `dst`, which must have room for `self.bytes_len()` bytes,
+    /// walking the pieces of a concatenation without flattening it.
+    unsafe fn copy_to(&self, dst: *mut u8) {
+        let mut at = 0;
+        let mut todo = SmallVec::<[*const Str<'a>; 16]>::new();
+        todo.push(self as *const _);
+        while let Some(s) = todo.pop() {
+            // The pieces are owned by `self`'s Concat nodes, which outlive this loop.
+            let s = &*s;
+            let rep = s.rep_mut();
+            if rep.get_tag() == StrTag::Concat {
+                let (l, r) = rep.view_as(|c: &Concat<'a>| {
+                    (
+                        &c.inner.left as *const Str<'a>,
+                        &c.inner.right as *const Str<'a>,
+                    )
+                });
+                todo.push(r);
+                todo.push(l);
+                continue;
+            }
+            let bs = &*s.get_bytes();
+            // `dst` may lie in the spare capacity of the buffer `bs` is in, never inside `bs`.
+            ptr::copy(bs.as_ptr(), dst.add(at), bs.len());
+            at += bs.len();
+        }
     }
 
     // Avoid using this function; subsequent immutable calls to &self can invalidate the pointer.
@@ -1620,7 +1664,9 @@ impl<'a> Str<'a> {
                 StrTag::Shared => rep.view_as(|s: &Shared| {
                     &s.buf.as_bytes()[s.start as usize..s.end as usize] as *const _
                 }),
-                StrTag::Boxed => rep.view_as(|b: &Boxed| b.buf.as_bytes() as *const _),
+                StrTag::Boxed => {
+                    rep.view_as(|b: &Boxed| &b.buf.as_bytes()[..b.len as usize] as *const _)
+                }
                 StrTag::Concat => {
                     self.force();
                     self.get_bytes()
@@ -2133,6 +2179,9 @@ impl Write for DynamicBuf {
 #[repr(transparent)]
 pub struct Buf(*const BufHeader);
 
+/// The size of the fill mark at the end of an append buffer (see [`Buf::fill`]).
+const FILL_MARK_SIZE: usize = mem::size_of::<usize>();
+
 impl Clone for Buf {
     fn clone(&self) -> Buf {
         let header: &BufHeader = unsafe { &(*self.0) };
@@ -2230,6 +2279,13 @@ impl Buf {
     fn refcount(&self) -> usize {
         let header: &BufHeader = unsafe { &(*self.0) };
         header.count.get()
+    }
+
+    /// The fill mark of an append buffer (see [`Str::append`]), kept in its last bytes: the end
+    /// of the bytes some string owns. Bytes past it are spare capacity, bytes before it are
+    /// never written again. Only `Boxed` strings of append buffers are shorter than the buffer.
+    fn fill(&self) -> *mut usize {
+        unsafe { self.as_ptr().add(self.len() - FILL_MARK_SIZE) as *mut usize }
     }
 
     // Unsafe because `from` and `to` must point to the start of characters.
@@ -2488,6 +2544,72 @@ mod tests {
         assert_eq!(ascii.len(), 5);
         let cjk: Str = "你好Hello".into();
         assert_eq!(cjk.len(), 7);
+    }
+
+    #[test]
+    fn append_in_place_reuses_buffer() {
+        let tag = |s: &Str| unsafe { s.rep_mut() }.get_tag();
+        let ptr = |s: &Str| s.with_bytes(|bs| bs.as_ptr());
+        // Appending in a loop keeps one flat buffer and grows it only now and then.
+        let mut s = Str::default();
+        let mut expected = Vec::new();
+        let mut bufs = std::collections::HashSet::new();
+        for i in 0..10_000 {
+            let piece = format!("{},", i);
+            expected.extend_from_slice(piece.as_bytes());
+            let keep = s.clone(); // a variable read keeps the old value alive
+            s = Str::concat(s, Str::from(piece));
+            drop(keep);
+            if s.bytes_len() > MAX_INLINE_SIZE {
+                bufs.insert(ptr(&s));
+            }
+        }
+        assert_eq!(tag(&s), StrTag::Boxed);
+        assert_eq!(s.with_bytes(|bs| bs.to_vec()), expected);
+        assert!(bufs.len() < 40, "{} buffers", bufs.len());
+    }
+
+    #[test]
+    fn append_keeps_shared_prefixes_intact() {
+        let base = Str::concat(Str::from("0123456789abcdef"), Str::from("ghij"));
+        let base = Str::concat(base, Str::from("k")); // an append buffer with spare room
+        let a = Str::concat(base.clone(), Str::from("-A"));
+        // `a` took the spare capacity: `b` must not write over it.
+        let b = Str::concat(base.clone(), Str::from("-B"));
+        let a2 = Str::concat(a.clone(), Str::from("+"));
+        let self_cat = Str::concat(base.clone(), base.clone());
+        assert_eq!(base, Str::from("0123456789abcdefghijk"));
+        assert_eq!(a, Str::from("0123456789abcdefghijk-A"));
+        assert_eq!(b, Str::from("0123456789abcdefghijk-B"));
+        assert_eq!(a2, Str::from("0123456789abcdefghijk-A+"));
+        assert_eq!(
+            self_cat,
+            Str::from("0123456789abcdefghijk0123456789abcdefghijk")
+        );
+        // Slices, hashes and copies only see a string's own bytes.
+        let sl = a2.slice(1, a2.bytes_len());
+        assert_eq!(sl, Str::from("123456789abcdefghijk-A+"));
+        let u = UniqueStr::from(a2.clone());
+        assert_eq!(u.bytes(), b"0123456789abcdefghijk-A+");
+        assert_eq!(u.clone_str(), a2);
+    }
+
+    #[test]
+    fn append_updates_char_count() {
+        // `length(s)` after each append counts only the new bytes, also across UTF-8 chars
+        // split between appends.
+        let mut s = Str::from("é".repeat(600));
+        let mut want = 600;
+        for i in 0..300 {
+            s = Str::concat(s, Str::from(if i % 3 == 0 { "x" } else { "你" }));
+            want += 1;
+            assert_eq!(s.len(), want);
+        }
+        let e = "é".as_bytes();
+        s = Str::concat(s, Str::from(&e[..1]));
+        assert_eq!(s.len(), want + 1); // an invalid byte counts as a char
+        s = Str::concat(s, Str::from(&e[1..]));
+        assert_eq!(s.len(), want + 1); // completed into one char
     }
 
     #[test]
