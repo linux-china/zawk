@@ -299,7 +299,7 @@ pub struct OffsetInner {
 }
 
 impl OffsetInner {
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.start = 0;
         self.fields.clear();
     }
@@ -311,6 +311,10 @@ impl OffsetInner {
 pub struct Offsets {
     pub rel: OffsetInner,
     pub nl: OffsetInner,
+    /// Only the record separators were found (in `rel` for single-byte splitting, in `nl` for
+    /// whitespace splitting): records are read without their fields, which `DefaultLine` splits
+    /// from `$0` if they are used after all.
+    pub lines_only: bool,
 }
 
 // Newtype wrapper, because chunks are processed slightly differently in the whitespace case.
@@ -863,6 +867,40 @@ unsafe fn find_indexes_tsv_sse2(
     generic::find_indexes_tsv::<sse2::Impl>(buf, offsets, prev_iter_inside_quote, prev_iter_cr_end)
 }
 
+#[cfg(target_arch = "aarch64")]
+unsafe fn find_indexes_csv_neon(
+    buf: &[u8],
+    offsets: &mut Offsets,
+    prev_iter_inside_quote: u64,
+    prev_iter_cr_end: u64,
+) -> (u64, u64) {
+    unsafe {
+        generic::find_indexes_csv::<neon::Impl>(
+            buf,
+            offsets,
+            prev_iter_inside_quote,
+            prev_iter_cr_end,
+        )
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn find_indexes_tsv_neon(
+    buf: &[u8],
+    offsets: &mut Offsets,
+    prev_iter_inside_quote: u64,
+    prev_iter_cr_end: u64,
+) -> (u64, u64) {
+    unsafe {
+        generic::find_indexes_tsv::<neon::Impl>(
+            buf,
+            offsets,
+            prev_iter_inside_quote,
+            prev_iter_cr_end,
+        )
+    }
+}
+
 pub fn get_find_indexes(
     ifmt: InputFormat,
 ) -> unsafe fn(&[u8], &mut Offsets, u64, u64) -> (u64, u64) {
@@ -888,6 +926,11 @@ pub fn get_find_indexes(
                      InputFormat::TSV => generic::find_indexes_tsv::<generic::Impl>,
                  }
              }
+        } else if #[cfg(target_arch = "aarch64")] {
+            match ifmt {
+                InputFormat::CSV => find_indexes_csv_neon,
+                InputFormat::TSV => find_indexes_tsv_neon,
+            }
         } else {
             match ifmt {
                 InputFormat::CSV => generic::find_indexes_csv::<generic::Impl>,
@@ -1007,6 +1050,8 @@ pub fn get_find_indexes_bytes() -> BytesIndexKernel {
             } else {
                 generic::find_indexes_byte::<generic::Impl>
             }
+        } else if #[cfg(target_arch = "aarch64")] {
+            generic::find_indexes_byte::<neon::Impl>
         } else {
             generic::find_indexes_byte::<generic::Impl>
         }
@@ -1049,6 +1094,8 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
             } else {
                 generic::find_indexes_ascii_whitespace::<generic::Impl>
             }
+        } else if #[cfg(target_arch = "aarch64")] {
+            generic::find_indexes_ascii_whitespace::<neon::Impl>
         } else {
             generic::find_indexes_ascii_whitespace::<generic::Impl>
         }
@@ -1762,6 +1809,119 @@ mod avx2 {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    use super::generic::Vector;
+    // NEON is part of the aarch64 baseline, so no runtime detection is needed.
+    use std::arch::aarch64::*;
+
+    /// 64 bytes at a time, as four 128-bit registers.
+    #[derive(Copy, Clone)]
+    pub struct Impl([uint8x16_t; 4]);
+
+    impl Vector for Impl {
+        const VEC_BYTES: usize = 32;
+
+        #[inline(always)]
+        unsafe fn fill_input(bptr: *const u8) -> Self {
+            unsafe {
+                Impl([
+                    vld1q_u8(bptr),
+                    vld1q_u8(bptr.add(16)),
+                    vld1q_u8(bptr.add(32)),
+                    vld1q_u8(bptr.add(48)),
+                ])
+            }
+        }
+
+        #[inline(always)]
+        unsafe fn or(self, rhs: Self) -> Self {
+            let [a, b, c, d] = self.0;
+            let [e, f, g, h] = rhs.0;
+            unsafe {
+                Impl([
+                    vorrq_u8(a, e),
+                    vorrq_u8(b, f),
+                    vorrq_u8(c, g),
+                    vorrq_u8(d, h),
+                ])
+            }
+        }
+
+        #[inline(always)]
+        unsafe fn and(self, rhs: Self) -> Self {
+            let [a, b, c, d] = self.0;
+            let [e, f, g, h] = rhs.0;
+            unsafe {
+                Impl([
+                    vandq_u8(a, e),
+                    vandq_u8(b, f),
+                    vandq_u8(c, g),
+                    vandq_u8(d, h),
+                ])
+            }
+        }
+
+        // The lanes are all ones or all zeros (comparison results). As in simdjson: keep one bit
+        // weight per lane, then add neighboring lanes three times, which packs the 64 lanes into
+        // the 64 bits of the low half.
+        #[inline(always)]
+        unsafe fn mask(self) -> u64 {
+            const WEIGHTS: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
+            unsafe {
+                let w = vld1q_u8(WEIGHTS.as_ptr());
+                let [a, b, c, d] = self.0;
+                let ab = vpaddq_u8(vandq_u8(a, w), vandq_u8(b, w));
+                let cd = vpaddq_u8(vandq_u8(c, w), vandq_u8(d, w));
+                let s = vpaddq_u8(ab, cd);
+                let s = vpaddq_u8(s, s);
+                vgetq_lane_u64::<0>(vreinterpretq_u64_u8(s))
+            }
+        }
+
+        #[inline(always)]
+        unsafe fn cmp_against_input(self, m: u8) -> Self {
+            let [a, b, c, d] = self.0;
+            unsafe {
+                let m = vdupq_n_u8(m);
+                Impl([
+                    vceqq_u8(a, m),
+                    vceqq_u8(b, m),
+                    vceqq_u8(c, m),
+                    vceqq_u8(d, m),
+                ])
+            }
+        }
+
+        #[inline(always)]
+        unsafe fn find_quote_mask(
+            self,
+            prev_iter_inside_quote: &mut u64,
+        ) -> (/*inside quotes*/ u64, /*quote locations*/ u64) {
+            let quote_bits = unsafe { self.cmp_mask_against_input(b'"') };
+            // Prefix XOR: bit i is the parity of the quotes at positions 0..=i. With the `aes`
+            // feature (Apple Silicon, Graviton, ...) this is a carry-less multiplication by all
+            // ones, as on x86 with pclmulqdq.
+            #[cfg(target_feature = "aes")]
+            let prefix = unsafe { vmull_p64(quote_bits, !0u64) as u64 };
+            #[cfg(not(target_feature = "aes"))]
+            let prefix = {
+                let mut res = quote_bits;
+                res ^= res << 1;
+                res ^= res << 2;
+                res ^= res << 4;
+                res ^= res << 8;
+                res ^= res << 16;
+                res ^= res << 32;
+                res
+            };
+            let quote_mask = prefix ^ *prev_iter_inside_quote;
+            *prev_iter_inside_quote = (quote_mask as i64).wrapping_shr(63) as u64;
+            (quote_mask, quote_bits)
+        }
+    }
+}
+
 pub struct ByteReader<P: ChunkProducer> {
     prod: P,
     cur_chunk: P::Chunk,
@@ -1776,6 +1936,8 @@ pub struct ByteReader<P: ChunkProducer> {
     check_utf8: bool,
     // The (unused) fields of records read by `read_record`, kept to reuse the allocation.
     scratch: Vec<Str<'static>>,
+    // Shared with the chunk producers, see `chunk::LinesOnly`.
+    lines_only: chunk::LinesOnly,
 }
 
 impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
@@ -1823,9 +1985,11 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         I: Iterator<Item = (S, String)> + 'static + Send,
         S: Read + Send + 'static,
     {
+        let lines_only = chunk::LinesOnly::default();
+        let lo = lines_only.clone();
         let prod: Box<dyn ChunkProducer<Chunk = OffsetChunk>> = match exec_strategy {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_bytes(
-                rs, chunk_size, field_sep, record_sep, check_utf8, kernel,
+                rs, chunk_size, field_sep, record_sep, check_utf8, kernel, lo,
             )),
             x @ ExecutionStrategy::ShardPerRecord => {
                 Box::new(CancellableChunkProducer::new(
@@ -1833,7 +1997,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
                     ParallelChunkProducer::new(
                         move || {
                             chunk::new_chained_offset_chunk_producer_bytes(
-                                rs, chunk_size, field_sep, record_sep, check_utf8, kernel,
+                                rs, chunk_size, field_sep, record_sep, check_utf8, kernel, lo,
                             )
                         },
                         /*channel_size*/ x.num_workers() * 2,
@@ -1842,6 +2006,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             }
             ExecutionStrategy::ShardPerFile => {
                 let iter = rs.enumerate().map(move |(i, (r, name))| {
+                    let lo = lo.clone();
                     move || {
                         chunk::new_offset_chunk_producer_bytes(
                             r,
@@ -1852,6 +2017,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
                             i as u32 + 1,
                             check_utf8,
                             kernel,
+                            lo,
                         )
                     }
                 });
@@ -1872,6 +2038,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             last_len: usize::MAX,
             check_utf8,
             scratch: Vec::new(),
+            lines_only,
         }
     }
 }
@@ -1909,6 +2076,8 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
         I: Iterator<Item = (S, String)> + 'static + Send,
         S: Read + Send + 'static,
     {
+        let lines_only = chunk::LinesOnly::default();
+        let lo = lines_only.clone();
         let prod: Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>> =
             match exec_strategy {
                 ExecutionStrategy::Serial => {
@@ -1917,6 +2086,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                         chunk_size,
                         check_utf8,
                         find_indexes,
+                        lo,
                     ))
                 }
                 x @ ExecutionStrategy::ShardPerRecord => {
@@ -1929,6 +2099,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                                     chunk_size,
                                     check_utf8,
                                     find_indexes,
+                                    lo,
                                 )
                             },
                             /*channel_size*/ x.num_workers() * 2,
@@ -1937,6 +2108,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                 }
                 ExecutionStrategy::ShardPerFile => {
                     let iter = rs.enumerate().map(move |(i, (r, name))| {
+                        let lo = lo.clone();
                         move || {
                             chunk::new_offset_chunk_producer_ascii_whitespace(
                                 r,
@@ -1945,6 +2117,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                                 i as u32 + 1,
                                 check_utf8,
                                 find_indexes,
+                                lo,
                             )
                         }
                     });
@@ -1965,6 +2138,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
             last_len: usize::MAX,
             check_utf8,
             scratch: Vec::new(),
+            lines_only,
         }
     }
 }
@@ -1990,6 +2164,7 @@ where
             let used_fields = self.used_fields.clone();
             let record_sep = self.record_sep;
             let check_utf8 = self.check_utf8;
+            let lines_only = self.lines_only.clone();
             res.push(Box::new(move || ByteReader {
                 prod: p_factory(),
                 cur_chunk: Default::default(),
@@ -2001,6 +2176,7 @@ where
                 used_fields,
                 check_utf8,
                 scratch: Vec::new(),
+                lines_only,
             }) as _)
         }
         res
@@ -2023,7 +2199,7 @@ where
         if start {
             old.used_fields = self.used_fields.clone();
         } else if old.used_fields != self.used_fields {
-            self.used_fields = old.used_fields.clone()
+            self.apply_used_fields(old.used_fields.clone())
         }
         old.fields.clear();
         let changed = self.read_line_inner(&mut old.line, &mut old.fields)?;
@@ -2057,7 +2233,18 @@ where
     }
 
     fn set_used_fields(&mut self, field_set: &FieldSet) {
-        self.used_fields = field_set.clone();
+        self.apply_used_fields(field_set.clone());
+    }
+}
+
+impl<P: ChunkProducer> ByteReader<P> {
+    fn apply_used_fields(&mut self, used_fields: FieldSet) {
+        // Without fields or NF to compute, only the record boundaries have to be found.
+        self.lines_only.store(
+            used_fields.record_only(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.used_fields = used_fields;
     }
 }
 
@@ -2140,7 +2327,10 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> ByteReaderBase for ByteReader<P> {
         refresh_buf_impl(self)
     }
     fn maybe_done(&self) -> bool {
+        // A last record without a record separator (and without a field separator) has no offset
+        // left, but is not consumed yet: it would be lost if another file follows.
         self.cur_chunk.off.rel.start == self.cur_chunk.off.rel.fields.len()
+            && self.progress >= self.buf_len
     }
     fn wait(&self) -> bool {
         self.prod.wait()
@@ -2171,6 +2361,24 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> ByteReaderBase for ByteReader<P> {
         }
 
         let line_start = self.progress;
+        if self.cur_chunk.off.lines_only {
+            // `rel` holds the record separators only. The fields are left empty, so `DefaultLine`
+            // splits `$0` if they are used after all: keep `$0` whatever the used fields are.
+            let rel = &mut self.cur_chunk.off.rel;
+            let end = if rel.start < rel.fields.len() {
+                let end = rel.fields[rel.start] as usize;
+                rel.start += 1;
+                self.progress = end + 1;
+                end
+            } else {
+                self.progress = self.buf_len;
+                self.buf_len
+            };
+            return (
+                buf.slice_to_str(line_start, end),
+                self.progress - line_start,
+            );
+        }
         let max = self.used_fields.max_value() as usize;
         let offs = &mut self.cur_chunk.off;
         let end = offs
@@ -2241,6 +2449,10 @@ impl ByteReaderBase for ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<Whi
         refresh_buf_impl(self)
     }
     fn maybe_done(&self) -> bool {
+        if self.cur_chunk.off.0.lines_only {
+            // A last record without a newline has no offset left, but is not consumed yet.
+            return self.progress >= self.buf_len;
+        }
         // TODO: This is a pretty gross check; we should see if we can streamline the ws.fields check.
         self.cur_chunk.off.0.nl.start == self.cur_chunk.off.0.nl.fields.len()
             && (self.cur_chunk.off.0.rel.start == self.cur_chunk.off.0.rel.fields.len()
@@ -2318,7 +2530,10 @@ impl ByteReaderBase for ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<Whi
         }
         self.progress = record_end + 1;
         let consumed = self.progress - line_start;
-        if line_start < record_end {
+        if line_start < record_end && self.cur_chunk.off.0.lines_only {
+            // No field offsets: `DefaultLine` splits `$0` if fields are used after all.
+            (buf.slice_to_str(line_start, record_end), consumed)
+        } else if line_start < record_end {
             (get_field!(0, line_start, record_end), consumed)
         } else {
             (Str::default(), consumed)
@@ -2395,6 +2610,8 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 if is_x86_feature_detected!("sse2") {
                     smoke_test::<sse2::Impl>();
                 }
+            } else if #[cfg(target_arch = "aarch64")] {
+                smoke_test::<neon::Impl>();
             }
         }
         smoke_test::<generic::Impl>();
@@ -2437,6 +2654,56 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             assert_eq!(quotes, quote_mask);
             assert_eq!(in_quotes, naive, "buf={:?} prev={prev:#x}", buf);
             assert_eq!(got_prev, want_prev);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn neon_masks_match_naive() {
+        use generic::Vector;
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        const ALPHABET: &[u8] = b"a,\"\t \n\r;";
+        for _ in 0..20_000 {
+            let mut buf = [0u8; 64];
+            for b in buf.iter_mut() {
+                *b = ALPHABET[(next() % ALPHABET.len() as u64) as usize];
+            }
+            let naive_mask = |m: u8| {
+                buf.iter()
+                    .enumerate()
+                    .fold(0u64, |acc, (i, b)| acc | ((*b == m) as u64) << i)
+            };
+            let v = unsafe { neon::Impl::fill_input(buf.as_ptr()) };
+            for m in [b',', b'"', b'\t', b'\n', b'a'] {
+                assert_eq!(unsafe { v.cmp_mask_against_input(m) }, naive_mask(m));
+            }
+            let either = unsafe {
+                v.cmp_against_input(b',')
+                    .or(v.cmp_against_input(b'a'))
+                    .mask()
+            };
+            assert_eq!(either, naive_mask(b',') | naive_mask(b'a'));
+
+            let quotes = naive_mask(b'"');
+            let mut parity = 0u64;
+            let mut naive = 0u64;
+            for ix in 0..64 {
+                parity ^= (quotes >> ix) & 1;
+                naive |= parity << ix;
+            }
+            let prev = if next() & 1 == 0 { 0 } else { !0u64 };
+            naive ^= prev;
+            let mut got_prev = prev;
+            let (in_quotes, got_quotes) = unsafe { v.find_quote_mask(&mut got_prev) };
+            assert_eq!(got_quotes, quotes);
+            assert_eq!(in_quotes, naive);
+            assert_eq!(got_prev, (naive as i64 >> 63) as u64);
         }
     }
 
@@ -2607,6 +2874,136 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         tsv_split(crate::test_string_constants::PRIDE_PREJUDICE_CH2);
     }
 
+    /// Read every record of `files` (as separate inputs) with the given used fields, and return
+    /// each `$0` with its NF, as computed through `DefaultLine` (which splits lazily).
+    fn read_records<LR: LineReader<Line = DefaultLine>>(
+        mut reader: LR,
+        used: FieldSet,
+        fs: &str,
+    ) -> Vec<(String, usize)> {
+        use crate::runtime::splitter::Line;
+        let mut cache = RegexCache::default();
+        let pat = Str::from(fs).unmoor();
+        reader.set_used_fields(&used);
+        let mut res = Vec::new();
+        loop {
+            let (_, mut line) = reader.read_line(&pat, &mut cache).unwrap();
+            if reader.read_state() != 1 {
+                break;
+            }
+            let nf = line.nf(&pat, &mut cache).unwrap();
+            res.push((line.line.to_string(), nf));
+        }
+        res
+    }
+
+    #[test]
+    fn unterminated_record_before_next_file() {
+        // The first file ends with a record that has neither a record separator nor a field
+        // separator; it used to be dropped when another file followed.
+        let files = || {
+            [("a b\nc d e", "f1"), ("x,y\nlast", "f2"), ("z,1\n", "f3")]
+                .into_iter()
+                .map(|(s, n)| (io::Cursor::new(s), String::from(n)))
+        };
+        let want_comma: Vec<(String, usize)> = [
+            ("a b", 1),
+            ("c d e", 1),
+            ("x,y", 2),
+            ("last", 1),
+            ("z,1", 2),
+        ]
+        .iter()
+        .map(|(l, n)| (l.to_string(), *n))
+        .collect();
+        let want_ws: Vec<(String, usize)> = [
+            ("a b", 2),
+            ("c d e", 3),
+            ("x,y", 1),
+            ("last", 1),
+            ("z,1", 1),
+        ]
+        .iter()
+        .map(|(l, n)| (l.to_string(), *n))
+        .collect();
+        // All fields, only NF (fields counted by the kernel), and only $0 (lines only: NF comes
+        // from splitting $0 lazily).
+        let mut nf_only = FieldSet::singleton(0);
+        nf_only.union(&FieldSet::nf());
+        for used in [
+            FieldSet::all(),
+            nf_only,
+            FieldSet::singleton(0),
+            FieldSet::empty(),
+        ] {
+            for strategy in [ExecutionStrategy::Serial, ExecutionStrategy::ShardPerFile] {
+                let br = ByteReader::new(
+                    files(),
+                    b',',
+                    b'\n',
+                    1024,
+                    true,
+                    strategy,
+                    CancelSignal::default(),
+                );
+                assert_eq!(
+                    read_records(br, used.clone(), ","),
+                    want_comma,
+                    "used={used:?}"
+                );
+                let br = ByteReader::new_whitespace(
+                    files(),
+                    1024,
+                    true,
+                    strategy,
+                    CancelSignal::default(),
+                );
+                assert_eq!(
+                    read_records(br, used.clone(), " "),
+                    want_ws,
+                    "used={used:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lines_only_across_chunks() {
+        // Small chunks, so that records span buffers and the buffer grows.
+        let corpus: String = (0..2000)
+            .map(|i| format!("{i} {} x{}\n", "w ".repeat(i % 7), i % 5))
+            .collect();
+        let corpus: &'static str = Box::leak(corpus.into_boxed_str());
+        let want: Vec<(String, usize)> = corpus
+            .lines()
+            .map(|l| (l.to_string(), l.split_whitespace().count()))
+            .collect();
+        for used in [FieldSet::all(), FieldSet::singleton(0), FieldSet::empty()] {
+            let br = ByteReader::new_whitespace(
+                iter::once((io::Cursor::new(corpus), String::from("-"))),
+                64,
+                true,
+                ExecutionStrategy::Serial,
+                CancelSignal::default(),
+            );
+            assert_eq!(read_records(br, used.clone(), " "), want);
+            let br = ByteReader::new(
+                iter::once((io::Cursor::new(corpus), String::from("-"))),
+                b'w',
+                b'\n',
+                64,
+                true,
+                ExecutionStrategy::Serial,
+                CancelSignal::default(),
+            );
+            let want_bytes: Vec<(String, usize)> = corpus
+                .lines()
+                .map(|l| (l.to_string(), l.split('w').count()))
+                .collect();
+            assert_eq!(read_records(br, used, "w"), want_bytes);
+        }
+    }
+
     fn bytes_split(kernel: BytesIndexKernel, fs: u8, rs: u8, corpus: &'static str) {
         let mut _cache = RegexCache::default();
         let _pat = Str::default();
@@ -2737,6 +3134,8 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 if is_x86_feature_detected!("sse2") {
                     bytes_splitter_generic::<sse2::Impl>()
                 }
+            } else if #[cfg(target_arch = "aarch64")] {
+                bytes_splitter_generic::<neon::Impl>();
             }
         }
         bytes_splitter_generic::<generic::Impl>()
@@ -2925,6 +3324,8 @@ xxxxxxxxxxxxxxxxxxxxxxxxxx    yyyyyyyyyyyyyyyyyyyyyyyy     4444444
                 if is_x86_feature_detected!("sse2") {
                     whitespace_splitter_generic::<sse2::Impl>()
                 }
+            } else if #[cfg(target_arch = "aarch64")] {
+                whitespace_splitter_generic::<neon::Impl>();
             }
         }
         whitespace_splitter_generic::<generic::Impl>()

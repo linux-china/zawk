@@ -77,9 +77,13 @@ impl Default for FieldSet {
 // this library will be field-splitting routines, which will often be passing in counters or vector
 // lengths. We may as well handle the (however unlikely to be exercised) overflow logic here rather
 // than up the stack, in more complicated code, in multiple locations.
-const MAX_INDEX: usize = 62;
+const MAX_INDEX: usize = 61;
+// Bit 62 records that the program reads NF, so a reader must count the fields of each record
+// even when it does not slice out any of them.
+const NF_INDEX: usize = 62;
 const FI_INDEX: usize = 63;
-const FI_MASK: u64 = !(1 << FI_INDEX);
+// The bits that stand for field indexes.
+const FIELDS_MASK: u64 = !((1 << FI_INDEX) | (1 << NF_INDEX));
 
 impl FieldSet {
     pub fn singleton(index: usize) -> FieldSet {
@@ -97,6 +101,19 @@ impl FieldSet {
     }
     pub fn is_empty(&self) -> bool {
         self.0 == 0
+    }
+    /// The set that only says that NF is read.
+    pub fn nf() -> FieldSet {
+        FieldSet(1 << NF_INDEX)
+    }
+    /// Whether the program may read NF (always true for the full set).
+    pub fn reads_nf(&self) -> bool {
+        (1 << NF_INDEX) & self.0 != 0
+    }
+    /// Whether no field other than `$0` is used, and neither NF nor FI is read: a reader then
+    /// only has to find the record boundaries.
+    pub fn record_only(&self) -> bool {
+        self.0 & !1 == 0
     }
     pub fn all() -> FieldSet {
         FieldSet(!0)
@@ -119,10 +136,10 @@ impl FieldSet {
         }
     }
     fn min_bit(&self) -> u32 {
-        (FI_MASK & self.0).trailing_zeros()
+        (FIELDS_MASK & self.0).trailing_zeros()
     }
     fn max_bit(&self) -> u32 {
-        64 - (FI_MASK & self.0).leading_zeros()
+        64 - (FIELDS_MASK & self.0).leading_zeros()
     }
     // Fill is used for `join` constructions, it fills all bits (inclusive) from the minimum bit in
     // self to the maximum bit in rhs.
@@ -186,6 +203,9 @@ impl fmt::Debug for FieldSet {
             .filter(|i| self.get(*i))
             .map(|x| format!("{}", x))
             .collect();
+        if self.reads_nf() {
+            v.push("NF".into());
+        }
         if self.has_fi() {
             v.push("FI[..]".into());
         }
@@ -219,9 +239,9 @@ mod tests {
         assert_eq!(fs3, fieldset_of_range(3usize..=23));
 
         let mut fs5 = FieldSet::singleton(1);
-        let fs6 = FieldSet::singleton(62);
+        let fs6 = FieldSet::singleton(61);
         fs5.fill(&fs6);
-        assert_eq!(fs5, fieldset_of_range(1usize..=62));
+        assert_eq!(fs5, fieldset_of_range(1usize..=61));
 
         let mut fs7 = FieldSet::all();
         fs7.fill(&fs2);
@@ -236,6 +256,20 @@ mod tests {
         assert_eq!(FieldSet::singleton(23).max_value(), 24);
         assert_eq!(FieldSet::singleton(1024).max_value(), u32::MAX);
         assert_eq!(FieldSet::singleton(0).max_value(), 1);
+        let mut nf = FieldSet::singleton(3);
+        nf.union(&FieldSet::nf());
+        assert_eq!(nf.max_value(), 4);
+        assert!(nf.reads_nf());
+    }
+
+    #[test]
+    fn record_only() {
+        assert!(FieldSet::empty().record_only());
+        assert!(FieldSet::singleton(0).record_only());
+        assert!(!FieldSet::singleton(1).record_only());
+        assert!(!FieldSet::nf().record_only());
+        assert!(!FieldSet::fi().record_only());
+        assert!(!FieldSet::all().record_only());
     }
 }
 
@@ -254,6 +288,8 @@ pub struct UsedFieldAnalysis {
     fi_holds_lookups: bool,
     // The parameter registers of each function.
     params: Vec<crate::cfg::SmallVec<(NumTy, Ty)>>,
+    // Whether NF is read anywhere in the program.
+    reads_nf: bool,
 }
 
 impl Default for UsedFieldAnalysis {
@@ -265,6 +301,7 @@ impl Default for UsedFieldAnalysis {
             lookups: Default::default(),
             fi_holds_lookups: false,
             params: Default::default(),
+            reads_nf: false,
         };
         res.dfa.add_src(Key::Rng, FieldSet::all());
         res.dfa.add_src(Key::VarVal(Variable::FI), FieldSet::fi());
@@ -335,6 +372,10 @@ impl UsedFieldAnalysis {
                     self.dfa.add_src(dst, FieldSet::singleton(0))
                 }
             }),
+            LoadVarInt(dst, Variable::NF) => {
+                self.reads_nf = true;
+                self.dfa.add_src(dst, FieldSet::all())
+            }
             GetColumn(dst, col_reg) => {
                 self.dfa.add_query(col_reg);
                 self.dfa.add_src(dst, FieldSet::all());
@@ -383,6 +424,9 @@ impl UsedFieldAnalysis {
             }
         }
         let mut res = self.dfa.root().clone();
+        if self.reads_nf {
+            res.union(&FieldSet::nf());
+        }
         for (l, r) in self.joins.iter().cloned() {
             let mut l_flds = self.dfa.query(l).clone();
             let r_flds = self.dfa.query(r);

@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::io::Read;
 use std::mem;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
@@ -59,6 +60,11 @@ enum ChunkState {
     Done,
 }
 
+/// Set by the reader when the program uses no field and does not read NF: chunks produced while
+/// it is set only hold the record boundaries (see `Offsets::lines_only`). It is checked once per
+/// chunk, so it may change while chunks are being produced.
+pub type LinesOnly = Arc<AtomicBool>;
+
 pub struct OffsetChunkProducer<R, F> {
     inner: Reader<R>,
     cur_file_version: u32,
@@ -66,6 +72,20 @@ pub struct OffsetChunkProducer<R, F> {
     find_indexes: F,
     record_sep: u8,
     state: ChunkState,
+    lines_only: Option<LinesOnly>,
+}
+
+impl<R, F> OffsetChunkProducer<R, F> {
+    fn lines_only(&self) -> bool {
+        self.lines_only
+            .as_ref()
+            .is_some_and(|l| l.load(Ordering::Relaxed))
+    }
+}
+
+/// Write the offsets of every `sep` in `buf` to `out`.
+fn find_record_seps(buf: &[u8], out: &mut Vec<u64>, sep: u8) {
+    out.extend(memchr::memchr_iter(sep, buf).map(|i| i as u64));
 }
 
 pub fn new_offset_chunk_producer_csv<R: Read>(
@@ -86,6 +106,7 @@ pub fn new_offset_chunk_producer_csv<R: Read>(
         record_sep: b'\n',
         cur_file_version: start_version,
         state: ChunkState::Init,
+        lines_only: None,
     }
 }
 
@@ -98,6 +119,7 @@ pub fn new_offset_chunk_producer_bytes<R: Read>(
     start_version: u32,
     check_utf8: bool,
     find_indexes: BytesIndexKernel,
+    lines_only: LinesOnly,
 ) -> OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets) + use<R>> {
     OffsetChunkProducer {
         name: name.into(),
@@ -108,6 +130,7 @@ pub fn new_offset_chunk_producer_bytes<R: Read>(
         cur_file_version: start_version,
         record_sep,
         state: ChunkState::Init,
+        lines_only: Some(lines_only),
     }
 }
 
@@ -118,6 +141,7 @@ pub fn new_offset_chunk_producer_ascii_whitespace<R: Read>(
     start_version: u32,
     check_utf8: bool,
     find_indexes: WhitespaceIndexKernel,
+    lines_only: LinesOnly,
 ) -> WhitespaceChunkProducer<R, impl FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64 + use<R>> {
     WhitespaceChunkProducer(
         OffsetChunkProducer {
@@ -127,8 +151,9 @@ pub fn new_offset_chunk_producer_ascii_whitespace<R: Read>(
                 find_indexes(bs, offs, start)
             },
             cur_file_version: start_version,
-            record_sep: 0u8, // unused
+            record_sep: b'\n',
             state: ChunkState::Init,
+            lines_only: Some(lines_only),
         },
         1,
     )
@@ -171,6 +196,7 @@ pub fn new_chained_offset_chunk_producer_bytes<
     record_sep: u8,
     check_utf8: bool,
     kernel: BytesIndexKernel,
+    lines_only: LinesOnly,
 ) -> ChainedChunkProducer<OffsetChunkProducer<R, impl FnMut(&[u8], &mut Offsets)>> {
     ChainedChunkProducer::new(
         r.enumerate()
@@ -184,6 +210,7 @@ pub fn new_chained_offset_chunk_producer_bytes<
                     /*start_version=*/ (i as u32).wrapping_add(1),
                     check_utf8,
                     kernel,
+                    lines_only.clone(),
                 )
             })
             .collect(),
@@ -199,6 +226,7 @@ pub fn new_chained_offset_chunk_producer_ascii_whitespace<
     chunk_size: usize,
     check_utf8: bool,
     find_indexes: WhitespaceIndexKernel,
+    lines_only: LinesOnly,
 ) -> ChainedChunkProducer<
     WhitespaceChunkProducer<R, impl FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64>,
 > {
@@ -212,6 +240,7 @@ pub fn new_chained_offset_chunk_producer_ascii_whitespace<
                     /*start_version=*/ (i as u32).wrapping_add(1),
                     check_utf8,
                     find_indexes,
+                    lines_only.clone(),
                 )
             })
             .collect(),
@@ -286,7 +315,18 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
                     let buf = self.inner.buf.clone();
                     let bs = buf.as_bytes();
                     // Only scan the bytes read: the CSV kernel needs to know where the input ends.
-                    (self.find_indexes)(&bs[..self.inner.end], &mut chunk.off);
+                    chunk.off.lines_only = self.lines_only();
+                    if chunk.off.lines_only {
+                        chunk.off.rel.clear();
+                        chunk.off.nl.clear();
+                        find_record_seps(
+                            &bs[..self.inner.end],
+                            &mut chunk.off.rel.fields,
+                            self.record_sep,
+                        );
+                    } else {
+                        (self.find_indexes)(&bs[..self.inner.end], &mut chunk.off);
+                    }
                     let mut target = None;
                     let mut new_len = chunk.off.rel.fields.len();
                     let mut always_truncate = new_len;
@@ -394,7 +434,20 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
                     // Whether the byte before this buffer is whitespace. The scan below updates
                     // `self.1` to the state at the end of the buffer.
                     let start_ws = self.1;
-                    self.1 = (self.0.find_indexes)(bs, &mut chunk.off, start_ws);
+                    chunk.off.0.lines_only = self.0.lines_only();
+                    if chunk.off.0.lines_only {
+                        // The records end at newlines; the fields are split when they are used.
+                        chunk.off.0.rel.clear();
+                        chunk.off.0.nl.clear();
+                        find_record_seps(
+                            &bs[..self.0.inner.end],
+                            &mut chunk.off.0.nl.fields,
+                            b'\n',
+                        );
+                        self.1 = 1;
+                    } else {
+                        self.1 = (self.0.find_indexes)(bs, &mut chunk.off, start_ws);
+                    }
                     // Find the last newline in the buffer, if there is one.
                     let (is_partial, truncate_to, len_if_not_last) =
                         if let Some(nl_off) = chunk.off.0.nl.fields.last().cloned() {
