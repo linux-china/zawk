@@ -70,11 +70,33 @@ use crate::runtime::{
     command::{CommandEnv, command_env, command_for_write, exit_status_code},
 };
 
-/// The maximum number of pending requests in the per-file channels.
+/// The maximum number of pending requests in the channels of stdout and output commands.
 const IO_CHAN_SIZE: usize = 8;
+
+/// The maximum number of pending requests in the channels of output files. Programs may write to
+/// hundreds of files at once (`print > $1`), and each pending request holds a batch buffer.
+const FILE_CHAN_SIZE: usize = 2;
 
 /// The size of client-side batches.
 const BUFFER_SIZE: usize = 64 << 10;
+
+/// The smallest size of client-side batches for output files; see `FileHandle::batch_limit`.
+const MIN_FILE_BUFFER_SIZE: usize = 4 << 10;
+
+/// The batch buffers of output files share this budget once many files are open: with `n` open
+/// files, each batches up to `FILE_BUFFER_BUDGET / n` bytes (within `MIN_FILE_BUFFER_SIZE` and
+/// `BUFFER_SIZE`), so that splitting input into many files (`print > ($1 ".txt")`) does not take
+/// hundreds of megabytes.
+const FILE_BUFFER_BUDGET: usize = 2 << 20;
+
+/// Once more than this many output files are being written, files that are (re)opened are
+/// written synchronously by the threads printing to them rather than by writer threads (see
+/// `WriterSlot::send`): a thread per file costs far more than the file's buffer, and switching
+/// between hundreds of writer threads is slower than writing from the printing thread.
+const SYNC_FILES: usize = 16;
+
+/// The stack size of the writer threads of output files (see `build_handle`).
+const FILE_WRITER_STACK_SIZE: usize = 64 << 10;
 
 /// Set when an error writing output was reported at shutdown; see `exit_code`.
 static OUTPUT_FAILED: AtomicBool = AtomicBool::new(false);
@@ -190,8 +212,12 @@ fn report_spawn_error(e: &io::Error) -> CompileError {
 struct FdPool {
     clock: AtomicU64,
     next_id: AtomicUsize,
-    /// The number of running writer threads of output files.
+    /// The number of running writer threads of output files, and of output files open for
+    /// synchronous writing (see `SyncWriter`).
     threads: AtomicUsize,
+    /// The number of handles of output files written since they were last closed, which share
+    /// `FILE_BUFFER_BUDGET` (see `FileHandle::batch_limit`).
+    writing: AtomicUsize,
     /// Open files by id: their last use (a tick of `clock`) and their writer.
     open: Mutex<HashMap<usize, (Arc<AtomicU64>, Weak<WriterSlot>)>>,
 }
@@ -217,22 +243,38 @@ impl FdPool {
     /// This waits for the file's writer to close it. That cannot deadlock: the caller is not
     /// in the pool while it opens a file, and a writer only waits here while opening.
     fn evict_one(&self) -> bool {
-        let victim = {
-            let mut open = self.open.lock().unwrap();
-            let id = open
-                .iter()
-                .min_by_key(|(_, (last_used, _))| last_used.load(Ordering::Relaxed))
-                .map(|(id, _)| *id);
-            match id {
-                Some(id) => open.remove(&id).unwrap().1,
-                None => return false,
+        // Files that another thread is writing synchronously right now are skipped (see
+        // `WriterSlot::evict`).
+        let mut busy = Vec::new();
+        loop {
+            let (id, (last_used, victim)) = {
+                let mut open = self.open.lock().unwrap();
+                let id = open
+                    .iter()
+                    .filter(|(id, _)| !busy.contains(*id))
+                    .min_by_key(|(_, (last_used, _))| last_used.load(Ordering::Relaxed))
+                    .map(|(id, _)| *id);
+                match id {
+                    Some(id) => (id, open.remove(&id).unwrap()),
+                    None => return false,
+                }
+            };
+            // If the writer has already shut down, its file is closed anyway.
+            let Some(slot) = victim.upgrade() else {
+                return true;
+            };
+            match slot.evict() {
+                Ok(Some(n)) => {
+                    n.1.wait();
+                    return true;
+                }
+                Ok(None) => return true,
+                Err(Busy) => {
+                    busy.push(id);
+                    self.open.lock().unwrap().insert(id, (last_used, victim));
+                }
             }
-        };
-        // If the writer has already shut down, its file is closed anyway.
-        if let Some(n) = victim.upgrade().and_then(|slot| slot.evict()) {
-            n.1.wait();
         }
-        true
     }
 
     /// Called before starting a writer thread: close the least recently used open file if too
@@ -291,7 +333,7 @@ impl Drop for PoolMember {
 /// The factories themselves must also be Clone and thread-safe, as they are passed to writer
 /// threads at construction time.
 pub trait FileFactory: Clone + 'static + Send + Sync {
-    type Output: io::Write;
+    type Output: io::Write + Send + 'static;
     type Stdout: io::Write;
     // TODO: make Child an associated type, to permit better testing
     fn cmd(&self, cmd: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
@@ -302,8 +344,10 @@ pub trait FileFactory: Clone + 'static + Send + Sync {
     fn stdout(&self) -> Self::Stdout;
 }
 
-impl<W: io::Write, T: Fn(&Path, FileSpec) -> io::Result<W> + Clone + 'static + Send + Sync>
-    FileFactory for T
+impl<
+    W: io::Write + Send + 'static,
+    T: Fn(&Path, FileSpec) -> io::Result<W> + Clone + 'static + Send + Sync,
+> FileFactory for T
 {
     type Output = W;
     type Stdout = grep_cli::StandardStream;
@@ -1399,6 +1443,7 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
     is_stdout: bool,
     status: StatusSlot,
     pool: Option<Arc<FdPool>>,
+    sync_open: Option<SyncOpen>,
 ) -> RawHandle {
     let error = Arc::new(Mutex::new(None));
     let open = Arc::new(AtomicBool::new(false));
@@ -1408,7 +1453,12 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
         (error.clone(), open.clone(), evicted.clone());
     let thread_pool = pool.clone();
     let spawn = move |slot: Weak<WriterSlot>| {
-        let (sender, receiver) = bounded(IO_CHAN_SIZE);
+        let chan_size = if thread_pool.is_some() {
+            FILE_CHAN_SIZE
+        } else {
+            IO_CHAN_SIZE
+        };
+        let (sender, receiver) = bounded(chan_size);
         let member = thread_pool
             .clone()
             .map(|pool| PoolMember::new(pool, slot.clone()));
@@ -1418,7 +1468,13 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
             thread_evicted.clone(),
             f.clone(),
         );
-        std::thread::Builder::new().spawn(move || {
+        let mut builder = std::thread::Builder::new();
+        if thread_pool.is_some() {
+            // A file's writer only opens, writes and closes it: the default 2MB stack is wasted
+            // on programs that write to many files.
+            builder = builder.stack_size(FILE_WRITER_STACK_SIZE);
+        }
+        builder.spawn(move || {
             let state = WriterState {
                 open: &open,
                 evicted: &evicted,
@@ -1430,13 +1486,17 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
         Ok(sender)
     };
     RawHandle {
-        error,
+        error: error.clone(),
         writer: Arc::new(WriterSlot {
             sender: Mutex::new(None),
             spawn: Box::new(spawn),
             pool,
             open: open.clone(),
             evicted,
+            sync_open,
+            sync: Mutex::new(None),
+            is_sync: AtomicBool::new(false),
+            error,
         }),
         line_buffer: is_stdout
             && (io::stdout().is_terminal() || LINE_BUFFERED.load(Ordering::Relaxed)),
@@ -1444,6 +1504,23 @@ fn build_handle<W: io::Write, F: Fn(FileSpec) -> io::Result<W> + Send + Sync + '
         open,
     }
 }
+
+/// Opens an output file for synchronous writing (see `SyncWriter`).
+type SyncOpen = Box<dyn Fn(FileSpec) -> io::Result<Box<dyn Write + Send>> + Send + Sync>;
+
+/// An output file written synchronously by the threads printing to it, rather than by a writer
+/// thread. Requests are handled as they are sent (see `WriterSlot::handle_sync`), so the
+/// buffers of the file's handles are free again right away.
+struct SyncWriter {
+    /// The open file; `None` until the first write.
+    writer: Option<Box<dyn Write + Send>>,
+    member: Option<PoolMember>,
+    /// Set after an error: every later request fails, as with a writer thread.
+    failed: bool,
+}
+
+/// `WriterSlot::evict` could not close a file another thread is writing synchronously.
+struct Busy;
 
 /// The channel to the writer thread of a file or command, shared by all of its handles.
 ///
@@ -1462,6 +1539,15 @@ struct WriterSlot {
     /// Whether the file was closed to free its descriptor and thread (see `FdPool`): it is still
     /// open as far as the program is concerned, and the next write reopens it for appending.
     evicted: Arc<AtomicBool>,
+    /// Opens the file for synchronous writing; unset for commands and stdout.
+    sync_open: Option<SyncOpen>,
+    /// The file while it is written synchronously, rather than by a writer thread. It is only
+    /// used with `sender` locked, and is set only while `sender` is `None`.
+    sync: Mutex<Option<SyncWriter>>,
+    /// Whether `sync` is set; changed only with `sender` locked.
+    is_sync: AtomicBool,
+    /// See `RawHandle::error`.
+    error: Arc<Mutex<Option<CompileError>>>,
 }
 
 impl WriterSlot {
@@ -1470,6 +1556,10 @@ impl WriterSlot {
     fn send(self: &Arc<Self>, req: Request) -> io::Result<()> {
         let mut sender = self.sender.lock().unwrap();
         if sender.is_none() {
+            if self.is_sync.load(Ordering::Acquire) {
+                self.handle_sync(req);
+                return Ok(());
+            }
             if !matches!(req, Request::Write { .. }) {
                 // The output is closed and no request is pending: flushing or closing it is a
                 // no-op, not worth starting a thread for. Closing an evicted file closes it for
@@ -1488,6 +1578,10 @@ impl WriterSlot {
                 sender = self.sender.lock().unwrap();
             }
             if sender.is_none() {
+                if self.is_sync.load(Ordering::Acquire) || self.should_sync() {
+                    self.handle_sync(req);
+                    return Ok(());
+                }
                 match (self.spawn)(Arc::downgrade(self)) {
                     Ok(s) => *sender = Some(s),
                     Err(e) => {
@@ -1510,18 +1604,136 @@ impl WriterSlot {
 
     /// Ask a running writer thread to close its file to free the descriptor (see `FdPool`).
     /// Returns `None` if no thread is running: its file is closed already.
-    fn evict(&self) -> Option<Arc<(ErrorCode, Notification)>> {
-        let sender = self.sender.lock().unwrap();
-        let sender = sender.as_ref()?;
+    ///
+    /// A file written synchronously is closed right away, unless another thread is writing it
+    /// (`Busy`): that thread may be waiting for a file descriptor itself, so waiting for it
+    /// could deadlock.
+    fn evict(
+        self: &Arc<Self>,
+    ) -> std::result::Result<Option<Arc<(ErrorCode, Notification)>>, Busy> {
+        let sender = match self.sender.try_lock() {
+            Ok(sender) => sender,
+            Err(std::sync::TryLockError::WouldBlock) if self.is_sync.load(Ordering::Acquire) => {
+                return Err(Busy);
+            }
+            Err(_) => self.sender.lock().unwrap(),
+        };
+        if self.is_sync.load(Ordering::Acquire) {
+            let (n, req) = Request::evict();
+            self.handle_sync(req);
+            return Ok(Some(n));
+        }
+        let Some(sender) = sender.as_ref() else {
+            return Ok(None);
+        };
         let (n, req) = Request::evict();
         match sender.send(req) {
-            Ok(()) => Some(n),
+            Ok(()) => Ok(Some(n)),
             Err(e) => {
                 // The writer thread died: release the request.
                 e.0.set_code(ErrorCode::set_ok);
-                None
+                Ok(None)
             }
         }
+    }
+
+    /// Whether a file that is (re)opened now should be written synchronously (see `SYNC_FILES`).
+    fn should_sync(&self) -> bool {
+        self.sync_open.is_some()
+            && self
+                .pool
+                .as_ref()
+                .is_some_and(|pool| pool.writing.load(Ordering::Relaxed) > SYNC_FILES)
+    }
+
+    /// Handle `req` in the calling thread, which holds `sender`'s lock while no writer thread
+    /// runs: the file is written synchronously, as `receive_loop` would write it.
+    fn handle_sync(self: &Arc<Self>, req: Request) {
+        let mut sync = self.sync.lock().unwrap();
+        let state = sync.get_or_insert_with(|| SyncWriter {
+            writer: None,
+            member: None,
+            failed: false,
+        });
+        self.is_sync.store(true, Ordering::Release);
+        if state.failed {
+            req.set_code(ErrorCode::set_error);
+            return;
+        }
+        let mut end = false;
+        let res = match &req {
+            Request::Write {
+                data, spec, flush, ..
+            } => self.write_sync(state, unsafe { &**data }, *spec, *flush),
+            Request::Flush(_) => state.writer.as_mut().map_or(Ok(()), |w| w.flush()),
+            Request::Close | Request::Evict(_) => {
+                let res = state.writer.as_mut().map_or(Ok(()), |w| w.flush());
+                let was_open = state.writer.is_some();
+                state.writer = None;
+                state.member = None;
+                if matches!(req, Request::Close) {
+                    // An explicit close of an evicted file: it is truncated if reopened by `>`.
+                    self.evicted.store(false, Ordering::Release);
+                    self.open.store(false, Ordering::Release);
+                } else if was_open {
+                    self.evicted.store(true, Ordering::Release);
+                }
+                end = res.is_ok();
+                res
+            }
+        };
+        match res {
+            Ok(()) => req.set_code(ErrorCode::set_ok),
+            Err(e) => {
+                *self.error.lock().unwrap() = Some(CompileError::new(format!("{}", e)));
+                state.failed = true;
+                state.writer = None;
+                state.member = None;
+                req.set_code(ErrorCode::set_error);
+            }
+        }
+        if end {
+            // The file is closed: the next write decides again how to write it.
+            *sync = None;
+            self.is_sync.store(false, Ordering::Release);
+        }
+    }
+
+    fn write_sync(
+        self: &Arc<Self>,
+        state: &mut SyncWriter,
+        data: &[u8],
+        spec: FileSpec,
+        flush: bool,
+    ) -> io::Result<()> {
+        if state.writer.is_none() {
+            // As in `receive_loop`, an evicted file is reopened for appending.
+            let spec = if self.evicted.load(Ordering::Acquire) {
+                FileSpec::Append
+            } else {
+                spec
+            };
+            let open = self
+                .sync_open
+                .as_ref()
+                .expect("files can be written synchronously");
+            state.writer = Some(open(spec)?);
+            self.evicted.store(false, Ordering::Release);
+            self.open.store(true, Ordering::Release);
+            if let Some(pool) = &self.pool {
+                let member = PoolMember::new(pool.clone(), Arc::downgrade(self));
+                member.register();
+                state.member = Some(member);
+            }
+        } else if let Some(m) = &state.member {
+            m.touch();
+        }
+        let w = state.writer.as_mut().unwrap();
+        w.write_all(data)?;
+        if flush {
+            w.flush()?;
+        }
+        Ok(())
     }
 
     /// Called by the writer thread when its output is closed: returns whether the thread may
@@ -1837,6 +2049,7 @@ impl<F: FileFactory> RootImpl<F> {
             /*is_stdout*/ true,
             Default::default(),
             None,
+            None,
         );
         // Writes to stderr bypass this handle's writer thread (see FileHandle::direct), it only
         // gives the stderr FileHandle a RawHandle.
@@ -1844,6 +2057,7 @@ impl<F: FileFactory> RootImpl<F> {
             |_append| Ok(io::stderr()),
             /*is_stdout*/ false,
             Default::default(),
+            None,
             None,
         );
         RootImpl {
@@ -1941,6 +2155,7 @@ impl<F: FileFactory> Root for RootImpl<F> {
             /*is_stdout=*/ false,
             status,
             None,
+            None,
         );
         let _old = cmds.insert(global_name, handle.clone());
         debug_assert!(
@@ -1959,11 +2174,19 @@ impl<F: FileFactory> Root for RootImpl<F> {
         let local_name = Box::<[u8]>::from(fname);
         let global_name = local_name.clone();
         let pool = self.pool.clone();
+        let (sync_factory, sync_name, sync_pool) =
+            (local_factory.clone(), local_name.clone(), pool.clone());
+        let sync_open: SyncOpen = Box::new(move |spec| {
+            sync_pool
+                .open(|| sync_factory.build(&bytes_path(&sync_name), spec))
+                .map(|w| Box::new(w) as Box<dyn Write + Send>)
+        });
         let handle = build_handle(
             move |spec| pool.open(|| local_factory.build(&bytes_path(&local_name), spec)),
             /*is_stdout=*/ false,
             Default::default(),
             Some(self.pool.clone()),
+            Some(sync_open),
         );
         handles.insert(global_name, handle.clone());
         handle
@@ -2006,6 +2229,9 @@ pub struct FileHandle {
     direct: bool,
     /// Whether anything was written since the last flush.
     dirty: bool,
+    /// Whether this handle of an output file counts in `FdPool::writing`: it was written since
+    /// it was last closed.
+    writing: bool,
 }
 
 impl FileHandle {
@@ -2014,22 +2240,60 @@ impl FileHandle {
     }
 
     fn clear_guards(&mut self) -> Result<()> {
+        // The guards of the leading requests that completed.
         let mut done_count = 0;
-        for (i, guard) in self.guards.iter().enumerate() {
+        for guard in self.guards.iter() {
             match guard.status() {
                 RequestStatus::Ongoing => break,
-                RequestStatus::Ok => done_count = i,
+                RequestStatus::Ok => done_count += 1,
                 RequestStatus::Error => return Err(self.read_error()),
             }
         }
-        // TODO: off-by-one, should morally be ..=, but that doesn't handle the empty case.
+        let limit = self.batch_limit();
         for _ in 0..done_count {
             let old = self.guards.pop_front().unwrap();
-            if self.old_guards.len() < IO_CHAN_SIZE {
+            // Buffers grown for a larger batch limit (fewer files were open then) are released.
+            if self.old_guards.len() < self.chan_size() && old.data.capacity() <= 2 * limit {
                 self.old_guards.push(old);
             }
         }
         Ok(())
+    }
+
+    /// The number of pending requests the writer thread's channel holds.
+    fn chan_size(&self) -> usize {
+        if self.raw.writer.pool.is_some() {
+            FILE_CHAN_SIZE
+        } else {
+            IO_CHAN_SIZE
+        }
+    }
+
+    /// The number of bytes to batch before sending them to the writer thread: `BUFFER_SIZE` for
+    /// stdout and commands, and for files a share of `FILE_BUFFER_BUDGET` among the open files.
+    fn batch_limit(&self) -> usize {
+        match &self.raw.writer.pool {
+            None => BUFFER_SIZE,
+            Some(pool) => {
+                let open = pool.writing.load(Ordering::Relaxed).max(1);
+                (FILE_BUFFER_BUDGET / open).clamp(MIN_FILE_BUFFER_SIZE, BUFFER_SIZE)
+            }
+        }
+    }
+
+    /// Count this handle in `FdPool::writing` (`count`), or stop counting it.
+    fn set_writing(&mut self, count: bool) {
+        if self.writing == count {
+            return;
+        }
+        if let Some(pool) = &self.raw.writer.pool {
+            if count {
+                pool.writing.fetch_add(1, Ordering::Relaxed);
+            } else {
+                pool.writing.fetch_sub(1, Ordering::Relaxed);
+            }
+            self.writing = count;
+        }
     }
 
     fn guard(&mut self) -> Box<WriteGuard> {
@@ -2088,15 +2352,24 @@ impl FileHandle {
             return err.flush().map_err(|e| CompileError::new(format!("{}", e)));
         }
         self.dirty = true;
+        self.set_writing(true);
+        let limit = self.batch_limit();
+        // A file's buffer grows up to room for a batch and the write that ends it, rather than
+        // doubling past its batch limit.
+        let max_capacity = if self.raw.writer.pool.is_some() {
+            limit + limit / 8
+        } else {
+            usize::MAX
+        };
         let cur_len = self.cur_batch.data.len();
         let mut added_bytes = 0;
         let mut last_line = None;
         // Record the write even if every string is empty: `printf "" > f` must still open (and
         // truncate) f.
-        self.cur_batch.extend(&[], spec);
+        self.cur_batch.extend(&[], spec, max_capacity);
         for s in ss.iter() {
             s.for_each_chunk(|bs| {
-                self.cur_batch.extend(bs, spec);
+                self.cur_batch.extend(bs, spec, max_capacity);
                 if self.raw.line_buffer {
                     if let Some(ix) = memchr::memchr(b'\n', bs) {
                         // +1 to include the newline
@@ -2106,7 +2379,7 @@ impl FileHandle {
                 added_bytes += bs.len();
             });
         }
-        if (self.raw.line_buffer && last_line.is_some()) || (added_bytes + cur_len > BUFFER_SIZE) {
+        if (self.raw.line_buffer && last_line.is_some()) || (added_bytes + cur_len > limit) {
             self.clear_batch(last_line)?;
         }
         Ok(())
@@ -2144,6 +2417,7 @@ impl FileHandle {
         // Release the batch buffers: a program may close many files it never writes again.
         self.old_guards.clear();
         self.cur_batch.data = Vec::new();
+        self.set_writing(false);
         res
     }
 }
@@ -2151,6 +2425,7 @@ impl FileHandle {
 impl Drop for FileHandle {
     fn drop(&mut self) {
         let _ = self.flush();
+        self.set_writing(false);
         self.cur_batch.status.set_ok();
     }
 }
@@ -2277,14 +2552,24 @@ struct WriteGuard {
 }
 
 impl WriteGuard {
-    fn extend(&mut self, bs: &[u8], spec: FileSpec) {
+    /// Append `bs`, growing the buffer as a `Vec` does but beyond `max_capacity` bytes only as
+    /// much as needed.
+    fn extend(&mut self, bs: &[u8], spec: FileSpec, max_capacity: usize) {
         // The spec only matters when the batch (re)opens the file, so it is the spec of the
         // batch's first write: in `print "a" > f; print "b" >> f`, the file is still truncated.
         if !self.pending {
             self.spec = spec;
             self.pending = true;
         }
-        self.data.extend(bs);
+        let needed = self.data.len() + bs.len();
+        if needed > self.data.capacity() {
+            let target = (self.data.capacity() * 2)
+                .max(64)
+                .min(max_capacity)
+                .max(needed);
+            self.data.reserve_exact(target - self.data.len());
+        }
+        self.data.extend_from_slice(bs);
     }
 
     fn peel(&mut self, bytes: usize, next: &mut WriteGuard) {
@@ -2359,6 +2644,7 @@ impl RawHandle {
             checked: false,
             direct: false,
             dirty: false,
+            writing: false,
         }
     }
 
@@ -2768,6 +3054,69 @@ mod tests {
         assert_eq!(reg.close(&fname).unwrap(), Some(0));
         let data = fs.get_handle("/fake/out\u{FFFD}.txt").unwrap().read_data();
         assert_eq!(&data[..], b"x");
+    }
+
+    #[test]
+    fn many_files_written_synchronously() {
+        // Past `SYNC_FILES` files, files are written by the printing thread: check that the
+        // output, closing, reopening and errors behave as with writer threads.
+        const N: usize = 4 * SYNC_FILES;
+        let fs = FakeFs::default();
+        fs.build(Path::new("/fake/BAD"), FileSpec::Trunc)
+            .unwrap()
+            .set_poison(true);
+        let mut reg = Registry::from_factory(fs.clone());
+        let names: Vec<Str> = (0..N).map(|i| Str::from(format!("/fake/{}", i))).collect();
+        let big = Str::from("x".repeat(BUFFER_SIZE / 3));
+        for round in 0..4 {
+            for (i, name) in names.iter().enumerate() {
+                let h = reg.get_handle(Some(name), FileSpec::Trunc).unwrap();
+                h.write(&Str::from(format!("{} {}\n", i, round)), FileSpec::Trunc)
+                    .unwrap();
+                // Large enough to send batches before the end.
+                h.write(&big, FileSpec::Trunc).unwrap();
+            }
+        }
+        assert!(
+            reg.files[&names[N - 1].clone().unmoor()]
+                .raw
+                .writer
+                .is_sync
+                .load(Ordering::Acquire)
+        );
+        // A closed file is truncated when reopened by `>` and appended to by `>>`.
+        assert_eq!(reg.close(&names[0]).unwrap(), Some(0));
+        assert_eq!(reg.close(&names[0]).unwrap(), None);
+        let h = reg.get_handle(Some(&names[0]), FileSpec::Trunc).unwrap();
+        h.write(&Str::from("again\n"), FileSpec::Trunc).unwrap();
+        assert_eq!(reg.close(&names[1]).unwrap(), Some(0));
+        let h = reg.get_handle(Some(&names[1]), FileSpec::Append).unwrap();
+        h.write(&Str::from("more\n"), FileSpec::Append).unwrap();
+        // Write errors are reported, by the flush at the latest.
+        let bad = Str::from("/fake/BAD");
+        let h = reg.get_handle(Some(&bad), FileSpec::Trunc).unwrap();
+        let _ = h.write(&big, FileSpec::Trunc);
+        assert!(h.flush().is_err());
+        assert!(reg.flush_all().is_err());
+        reg.files.remove(&bad.unmoor());
+        reg.flush_all().unwrap();
+
+        let expected = |i: usize| {
+            let mut s = String::new();
+            for round in 0..4 {
+                s.push_str(&format!("{} {}\n", i, round));
+                s.push_str(&big.as_str());
+            }
+            s
+        };
+        let read = |i: usize| {
+            String::from_utf8(fs.get_handle(&format!("/fake/{}", i)).unwrap().read_data()).unwrap()
+        };
+        assert_eq!(read(0), "again\n");
+        assert_eq!(read(1), expected(1) + "more\n");
+        for i in 2..N {
+            assert_eq!(read(i), expected(i), "file {}", i);
+        }
     }
 
     #[test]
