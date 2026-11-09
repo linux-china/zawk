@@ -19,7 +19,7 @@
 //! the stack and then pass pointers to them.
 use cranelift::prelude::*;
 use cranelift_codegen::entity::SecondaryMap;
-use cranelift_codegen::ir::StackSlot;
+use cranelift_codegen::ir::{FuncRef, StackSlot};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use hashbrown::HashMap;
@@ -133,6 +133,9 @@ struct Frame {
     // `fail_if`). There are at most `MAX_FAIL_BLOCKS`: unbounded, they made compile time and memory
     // quadratic in the size of straight-line arithmetic.
     fail_blocks: HashMap<(*const u8, u32), Block>,
+    // Functions imported into this function, by id. `declare_func_in_func` does not deduplicate
+    // its imports, so calling it at every call site imported one signature per call.
+    func_refs: HashMap<FuncId, FuncRef>,
     // The location of the code being generated (see `parsing::site_of`).
     site: u32,
     // The location known to be in the runtime when control reaches the code being generated.
@@ -283,6 +286,15 @@ fn is_pure_numeric(inst: &compile::LL) -> bool {
 fn jit_builder() -> Result<JITBuilder> {
     // Adapted from the cranelift source.
     let mut flag_builder = settings::builder();
+    // Cranelift's optimizer (`opt_level = "speed"`: e-graph rewrites, GVN, LICM) is deliberately
+    // off, and `-O` does not change it. Generated code calls into the runtime at almost every
+    // instruction, and LICM hoists constants out of loops, which then live across those calls and
+    // are spilled and reloaded on every iteration (and saved in the prologue of every UDF). On
+    // aarch64 (cranelift 0.137), "speed" made `fib(32)` 20% slower, a float loop calling a UDF 33%
+    // slower, an arithmetic loop 1.6x slower on average (bimodal: 0.93x-1.9x), and changed the
+    // other benchmarks (fields, arrays, strings, compile time) by less than 5%. Measure again
+    // before turning it on.
+    flag_builder.set("opt_level", "none").unwrap();
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "aarch64")] {
             // See https://github.com/bytecodealliance/wasmtime/issues/2735
@@ -311,6 +323,7 @@ fn jit_builder() -> Result<JITBuilder> {
 
 impl Generator {
     pub(crate) fn init(typer: &mut Typer, _config: Config) -> Result<Generator> {
+        // `config.opt_level` only affects the frontend (see `jit_builder`).
         let builder = jit_builder()?;
         let mut regstate = RegistrationState { builder };
         intrinsics::register_all(&mut regstate)?;
@@ -437,6 +450,8 @@ impl Generator {
             }
         }
         view.builder.ins().return_(&[]);
+        // The cold block of the stack check in `call_udf` is left unsealed (see `fail_if`).
+        view.builder.seal_all_blocks();
         let frontend_config = view.shared.module.target_config();
         view.builder.finalize(frontend_config);
         self.define_cur_function(res)?;
@@ -492,6 +507,7 @@ impl Generator {
                 runtime: Variable::new(0),
                 runtime_param: Value::from_u32(0),
                 fail_blocks: Default::default(),
+                func_refs: Default::default(),
                 site: 0,
                 // Arguments are set up before the runtime is available, and cannot fail.
                 stored_site: Some(0),
@@ -867,34 +883,38 @@ impl<'a> View<'a> {
         let mut drops = Vec::new();
         for ((_, ty), VarRef { var, kind }) in self.f.vars.iter() {
             if let VarKind::Local { skip_drop: false } = kind {
-                use compile::Ty::*;
-                let drop_fn = match ty {
-                    MapIntInt => external!(drop_intint),
-                    MapIntFloat => external!(drop_intfloat),
-                    MapIntStr => external!(drop_intstr),
-                    MapStrInt => external!(drop_strint),
-                    MapStrFloat => external!(drop_strfloat),
-                    MapStrStr => external!(drop_strstr),
-                    Str => external!(drop_str),
-                    _ => continue,
-                };
-                drops.push((drop_fn, *var));
+                if ty.is_array() || matches!(ty, compile::Ty::Str) {
+                    drops.push((*ty, *var));
+                }
             }
         }
-        for (drop_fn, var) in drops {
+        for (ty, var) in drops {
             let val = self.var_val(var);
-            // NB: We could probably refactor call_external_void to only borrow non-f.vars fields
-            // and then avoid the auxiliary vector, but life is short, and we will only call this
-            // function once per live UDF.
-            self.call_external_void(drop_fn, &[val]);
+            // NB: We could probably refactor drop_val to only borrow non-f.vars fields and then
+            // avoid the auxiliary vector, but life is short, and we will only call this function
+            // once per live UDF.
+            self.drop_val(ty, val);
         }
     }
 
     /// Call a frawk-level (as opposed to builtin/external) function.
     fn call_udf(&mut self, id: NumTy, args: &[Ref]) -> Result<Value> {
-        // Report deep recursion as a fatal error rather than overflowing the native stack.
-        let rt = self.builder.use_var(self.f.runtime);
-        self.call_external_void(external!(check_stack), &[rt]);
+        // Report deep recursion as a fatal error rather than overflowing the native stack. The
+        // limit is cached in the runtime, so the check is a load and a compare (no call).
+        let ptr_ty = self.void_ptr_ty();
+        let rt = self.f.runtime_param;
+        let offset = std::mem::offset_of!(super::intrinsics::Runtime, stack_limit) as i32;
+        let limit = self
+            .builder
+            .ins()
+            .load(ptr_ty, MemFlagsData::trusted(), rt, offset);
+        let sp = self.builder.ins().get_stack_pointer(ptr_ty);
+        let exhausted = self.builder.ins().icmp(IntCC::UnsignedLessThan, sp, limit);
+        self.fail_if(exhausted, external!(stack_overflow));
+        if crate::common::backtrace_enabled() {
+            // `trace_enter` in the callee records the location of this call.
+            self.ensure_site_stored();
+        }
         let mut to_pass = SmallVec::<[Value; 6]>::with_capacity(args.len() + 1);
         for arg in args.iter().cloned() {
             let v = self.get_val(arg)?;
@@ -922,10 +942,7 @@ impl<'a> View<'a> {
             to_pass.push(ptr);
         }
         to_pass.push(self.builder.use_var(self.f.runtime));
-        let fref = self
-            .shared
-            .module
-            .declare_func_in_func(func_id, self.builder.func);
+        let fref = self.func_ref(func_id);
         let call_inst = self.builder.ins().call(fref, &to_pass[..]);
         // The callee moved on from this location.
         self.f.stored_site = None;
@@ -1157,7 +1174,7 @@ impl<'a> View<'a> {
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {
                 external!(ref_map)
             }
-            Str => external!(ref_str),
+            Str => return self.str_refcount(v, false),
             Null | Int | Float | IterInt | IterStr => return,
         };
         self.call_external_void(func, &[v]);
@@ -1175,10 +1192,59 @@ impl<'a> View<'a> {
             MapStrInt => external!(drop_strint),
             MapStrFloat => external!(drop_strfloat),
             MapStrStr => external!(drop_strstr),
-            Str => external!(drop_str),
+            Str => return self.str_refcount(v, true),
             Null | Int | Float | IterInt | IterStr => return,
         };
         self.call_external_void(func, &[v]);
+    }
+
+    /// Increment (or, if `drop`, decrement) the refcount of the string at `ptr`.
+    ///
+    /// Most strings (fields, strings of at most 15 bytes, literals) are `Inline` or `Literal`,
+    /// whose refcount operations do nothing: the tag is checked inline, and only the other
+    /// strings go through a call.
+    fn str_refcount(&mut self, ptr: Value, drop: bool) {
+        if self.f.numbers_in_memory {
+            // Very large functions avoid splitting blocks (see `LARGE_FUNCTION_BLOCKS`).
+            let func = if drop {
+                external!(drop_str)
+            } else {
+                external!(ref_str)
+            };
+            self.call_external_void(func, &[ptr]);
+            return;
+        }
+        // The tag is in the low 3 bits of the first word of a `Str` (see `StrRep`).
+        let hi = self
+            .builder
+            .ins()
+            .load(types::I64, MemFlagsData::trusted(), ptr, 0);
+        let tag = self.builder.ins().band_imm_u(hi, 7);
+        // `Inline` is 0 and `Literal` is 1.
+        let nontrivial = self
+            .builder
+            .ins()
+            .icmp_imm_u(IntCC::UnsignedGreaterThan, tag, 1);
+        let slow_block = self.builder.create_block();
+        let cont_block = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(nontrivial, slow_block, &[], cont_block, &[]);
+        self.builder.seal_block(slow_block);
+        self.builder.switch_to_block(slow_block);
+        let stored_site = self.f.stored_site;
+        if drop {
+            self.call_external_void(external!(drop_str_slow), &[ptr, tag]);
+        } else {
+            self.call_external_void(external!(ref_str), &[ptr]);
+        }
+        // The location is only stored on the slow path.
+        if self.f.stored_site != stored_site {
+            self.f.stored_site = None;
+        }
+        self.builder.ins().jump(cont_block, &[]);
+        self.builder.seal_block(cont_block);
+        self.builder.switch_to_block(cont_block);
     }
 
     /// Call and external function that returns a value.
@@ -1205,13 +1271,18 @@ impl<'a> View<'a> {
 
     /// Call an external function, which can report the location of the code being generated.
     fn call_inst(&mut self, func: *const u8, args: &[Value]) -> cranelift_codegen::ir::Inst {
+        self.ensure_site_stored();
+        self.call_unlocated(func, args)
+    }
+
+    /// Store the location of the code being generated in the runtime, unless it is there already.
+    fn ensure_site_stored(&mut self) {
         // Code zawk adds around the program has no location, and only fails reading the input,
         // which clears the location.
         if self.f.site != 0 && self.f.stored_site != Some(self.f.site) {
             self.store_site(self.f.site);
             self.f.stored_site = Some(self.f.site);
         }
-        self.call_unlocated(func, args)
     }
 
     fn store_site(&mut self, site: u32) {
@@ -1225,11 +1296,21 @@ impl<'a> View<'a> {
 
     fn call_unlocated(&mut self, func: *const u8, args: &[Value]) -> cranelift_codegen::ir::Inst {
         let id = self.shared.external_funcs[&func];
+        let fref = self.func_ref(id);
+        self.builder.ins().call(fref, args)
+    }
+
+    /// The reference to the function `id` in the current function, imported on first use.
+    fn func_ref(&mut self, id: FuncId) -> FuncRef {
+        if let Some(fref) = self.f.func_refs.get(&id) {
+            return *fref;
+        }
         let fref = self
             .shared
             .module
             .declare_func_in_func(id, self.builder.func);
-        self.builder.ins().call(fref, args)
+        self.f.func_refs.insert(id, fref);
+        fref
     }
 
     /// frawk does not have booleans, so for now we always convert the results of comparison

@@ -3519,7 +3519,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     }
     /// Bytes used by the interpreter's call stack and saved registers. They live on the heap, so
     /// recursion is bounded by this size rather than by the native stack: it is checked against
-    /// the same budget the cranelift backend gets (see `check_stack`), so both backends allow
+    /// the same budget the cranelift backend gets (see `stack_overflow`), so both backends allow
     /// recursion of a similar depth.
     fn call_stack_bytes(&self) -> usize {
         fn bytes<T>(s: &Storage<T>) -> usize {

@@ -249,6 +249,7 @@ unsafe fn run_stage(
                         }),
                         cancel_signal,
                         site: 0,
+                        stack_limit: crate::common::stack_limit(),
                         calls: Vec::new(),
                     };
                     main_loop_fn.invoke(&mut runtime);

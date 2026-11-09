@@ -174,7 +174,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_exit(rt_ty, int_ty, int_ty);
         exiting(rt_ty) -> int_ty;
         try_scope(int_ty) -> int_ty;
-        check_stack(rt_ty);
+        stack_overflow(rt_ty, int_ty);
         trace_enter(rt_ty, int_ty);
         trace_leave(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
@@ -820,6 +820,7 @@ macro_rules! impl_into_runtime {
                     core,
                     cleanup: Cleanup::null(),
                     site: 0,
+                    stack_limit: crate::common::stack_limit(),
                     calls: Vec::new(),
                     cancel_signal,
                 }
@@ -859,6 +860,10 @@ pub(crate) struct Runtime<'a> {
     // Where the program is (see `parsing::site_of`). Generated code stores it ahead of anything that
     // can fail.
     pub(crate) site: u32,
+    // Lowest stack address that user-defined function calls may reach on the thread running this
+    // runtime (see `common::stack_limit`); 0 means no limit. Generated code compares the stack
+    // pointer with it before each call.
+    pub(crate) stack_limit: usize,
     // The functions being run and the location of their calls, with `ZAWK_BACKTRACE` set.
     pub(crate) calls: Vec<CallFrame>,
 }
@@ -918,12 +923,15 @@ pub(crate) unsafe extern "C" fn try_scope(begin: Int) -> Int {
 }
 
 /// Called before each call of a user-defined function: fail instead of overflowing the stack.
-pub(crate) unsafe extern "C" fn check_stack(runtime: *mut c_void) {
-    #[cfg(test)]
-    let _ = runtime;
-    if crate::common::stack_exhausted() {
-        fail!(runtime, "function call nesting too deep");
-    }
+/// Called by generated code when a user-defined function call would go below
+/// `Runtime::stack_limit`; does not return.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn stack_overflow(rt: *mut c_void, site: Int) {
+    guard_panic(stringify!(stack_overflow), || {
+        (*(rt as *mut Runtime)).site = site as u32;
+        fail!(rt, "function call nesting too deep")
+    })
 }
 
 /// Called on entry to every function with `ZAWK_BACKTRACE` set.
