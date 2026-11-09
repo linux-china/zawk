@@ -88,6 +88,8 @@ pub struct AwkRegex {
     /// When the pattern is literal text (see `literal_parts`): searches go through memchr
     /// instead of the regex engines.
     literal: Option<LiteralSearch<'static>>,
+    /// Built on the first call of `single_byte`.
+    single_byte: OnceLock<Option<ByteSet>>,
 }
 
 impl AwkRegex {
@@ -101,6 +103,7 @@ impl AwkRegex {
             longest: OnceLock::new(),
             charged: None,
             literal,
+            single_byte: OnceLock::new(),
         }
     }
 
@@ -265,6 +268,7 @@ pub(crate) struct LightEngine {
     /// `captures_at`; `None` when it cannot be built).
     groups: OnceCell<Pike>,
     exact: OnceCell<Option<Pike>>,
+    single_byte: OnceCell<Option<ByteSet>>,
 }
 
 /// Numbers `LightEngine`s.
@@ -292,6 +296,7 @@ impl LightEngine {
             all: OnceCell::new(),
             groups: OnceCell::new(),
             exact: OnceCell::new(),
+            single_byte: OnceCell::new(),
         })
     }
 
@@ -373,6 +378,13 @@ impl Search for LightEngine {
             .groups
             .get_or_init(|| Pike::from_nfa(self.nfa.clone(), MatchKind::LeftmostFirst));
         groups.groups(&Input::new(hay).range(from..))
+    }
+
+    fn single_byte(&self) -> Option<SingleByte<'_>> {
+        self.single_byte
+            .get_or_init(|| ByteSet::of_hir(&self.hir))
+            .as_ref()
+            .map(ByteSet::as_single_byte)
     }
 }
 
@@ -693,6 +705,13 @@ impl Search for LiteralSearch<'_> {
     fn groups_at(&self, _: &[u8], from: usize, to: usize) -> Option<Groups> {
         Some(Groups(vec![Some((from, to))], Vec::new()))
     }
+
+    fn single_byte(&self) -> Option<SingleByte<'_>> {
+        match (self.kind, self.finder.needle()) {
+            (Literal::Contains, [b]) => Some(SingleByte::Byte(*b)),
+            _ => None,
+        }
+    }
 }
 
 /// The syntax error in `pat`, if any, e.g. "unclosed group".
@@ -891,6 +910,84 @@ pub(crate) trait Search {
     fn search_at(&self, hay: &[u8], start: usize) -> Option<(usize, usize)>;
     /// The capture groups for the match `from..to` of `hay` (as found by `search_at`).
     fn groups_at(&self, hay: &[u8], from: usize, to: usize) -> Option<Groups>;
+    /// When every match is exactly one byte, the bytes that match (see `SingleByte`): lets
+    /// `gsub` map the text byte by byte instead of searching for each match.
+    fn single_byte(&self) -> Option<SingleByte<'_>> {
+        None
+    }
+}
+
+/// The bytes matched by a pattern whose every match is a single byte, as with `/[0-9]/` or
+/// `/,/`. Such a match never splits a UTF-8 character: a class of characters only counts when all
+/// of them are ASCII, and a class of bytes matches any byte it lists.
+#[derive(Clone, Copy)]
+pub(crate) enum SingleByte<'a> {
+    Byte(u8),
+    Set(&'a [bool; 256]),
+}
+
+/// The owned form of `SingleByte`.
+pub(crate) enum ByteSet {
+    Byte(u8),
+    Set(Box<[bool; 256]>),
+}
+
+impl ByteSet {
+    fn as_single_byte(&self) -> SingleByte<'_> {
+        match self {
+            ByteSet::Byte(b) => SingleByte::Byte(*b),
+            ByteSet::Set(set) => SingleByte::Set(set),
+        }
+    }
+
+    /// The bytes matched by `hir`, when its every match is a single byte.
+    fn of_hir(hir: &regex_syntax::hir::Hir) -> Option<ByteSet> {
+        use regex_syntax::hir::{Class, HirKind};
+        let mut set = Box::new([false; 256]);
+        match hir.kind() {
+            HirKind::Literal(lit) => {
+                return match &*lit.0 {
+                    [b] => Some(ByteSet::Byte(*b)),
+                    _ => None,
+                };
+            }
+            HirKind::Capture(c) => return ByteSet::of_hir(&c.sub),
+            HirKind::Class(Class::Unicode(c)) => {
+                for r in c.ranges() {
+                    if r.end() > '\x7f' {
+                        return None;
+                    }
+                    for b in r.start() as u8..=r.end() as u8 {
+                        set[b as usize] = true;
+                    }
+                }
+            }
+            HirKind::Class(Class::Bytes(c)) => {
+                for r in c.ranges() {
+                    for b in r.start()..=r.end() {
+                        set[b as usize] = true;
+                    }
+                }
+            }
+            _ => return None,
+        }
+        let mut members = (0..=255u8).filter(|b| set[*b as usize]);
+        match (members.next(), members.next()) {
+            (None, _) => None,
+            (Some(b), None) => Some(ByteSet::Byte(b)),
+            _ => Some(ByteSet::Set(set)),
+        }
+    }
+
+    /// The bytes matched by `pat` (in the syntax of `regex`, see `compile`).
+    fn of_pattern(pat: &str) -> Option<ByteSet> {
+        let hir = regex_syntax::ParserBuilder::new()
+            .dot_matches_new_line(true)
+            .build()
+            .parse(pat)
+            .ok()?;
+        ByteSet::of_hir(&hir)
+    }
 }
 
 /// A pattern known not to match the text at hand (see `LightMatcher::may_match`).
@@ -945,6 +1042,13 @@ impl Search for AwkRegex {
             }
         }
         self.re.captures_at(hay, from).map(groups)
+    }
+
+    fn single_byte(&self) -> Option<SingleByte<'_>> {
+        self.single_byte
+            .get_or_init(|| ByteSet::of_pattern(self.re.as_str()))
+            .as_ref()
+            .map(ByteSet::as_single_byte)
     }
 }
 

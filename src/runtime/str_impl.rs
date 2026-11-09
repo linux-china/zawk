@@ -1029,6 +1029,28 @@ impl<'a> Str<'a> {
     ) -> (Str<'a>, Int) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
+                // Matches of a single byte, replaced by text without `&`: no search needed.
+                if memchr::memchr(b'&', subst).is_none() {
+                    if let Some(set) = pat.single_byte() {
+                        if let (super::awk_regex::SingleByte::Set(set), [c]) = (set, subst) {
+                            // One byte for one byte: map the text.
+                            if !s.iter().any(|b| set[*b as usize]) {
+                                return (self.clone(), 0);
+                            }
+                            let mut count = 0;
+                            let res = self.map_bytes(|b| {
+                                let hit = set[b as usize];
+                                count += hit as Int;
+                                if hit { *c } else { b }
+                            });
+                            return (res, count);
+                        }
+                        return match subst_bytes(s, set, subst) {
+                            Some((buf, count)) => (buf.into_str(), count),
+                            None => (self.clone(), 0),
+                        };
+                    }
+                }
                 let mut buf = DynamicBuf::default();
                 let mut prev = 0;
                 let mut count = 0;
@@ -2385,6 +2407,51 @@ fn subst_capacity(s: &[u8], subst: &[u8]) -> usize {
     s.len() + std::cmp::max(s.len() / 8, subst.len())
 }
 
+/// `subst_all` for a pattern matching the single bytes `set`, with `subst` free of `&`: the
+/// result and the number of replacements, or `None` when no byte of `s` matches.
+fn subst_bytes(
+    s: &[u8],
+    set: super::awk_regex::SingleByte,
+    subst: &[u8],
+) -> Option<(DynamicBuf, Int)> {
+    use super::awk_regex::SingleByte;
+    match set {
+        SingleByte::Byte(b) => {
+            let mut matches = memchr::memchr_iter(b, s);
+            let first = matches.next()?;
+            let mut buf = DynamicBuf::new(subst_capacity(s, subst));
+            buf.write_all(&s[..first]).unwrap();
+            buf.write_all(subst).unwrap();
+            let (mut prev, mut count) = (first + 1, 1);
+            for i in matches {
+                buf.write_all(&s[prev..i]).unwrap();
+                buf.write_all(subst).unwrap();
+                prev = i + 1;
+                count += 1;
+            }
+            buf.write_all(&s[prev..]).unwrap();
+            Some((buf, count))
+        }
+        SingleByte::Set(set) => {
+            let first = s.iter().position(|b| set[*b as usize])?;
+            let mut buf = DynamicBuf::new(subst_capacity(s, subst));
+            buf.write_all(&s[..first]).unwrap();
+            let mut count = 0;
+            let mut prev = first;
+            for (i, b) in s.iter().enumerate().skip(first) {
+                if set[*b as usize] {
+                    buf.write_all(&s[prev..i]).unwrap();
+                    buf.write_all(subst).unwrap();
+                    prev = i + 1;
+                    count += 1;
+                }
+            }
+            buf.write_all(&s[prev..]).unwrap();
+            Some((buf, count))
+        }
+    }
+}
+
 /// Helper function for `subst_first` and `subst_all`: handles '&' syntax.
 fn process_match(matched: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result<()> {
     if memchr::memchr(b'&', subst).is_none() {
@@ -2909,6 +2976,40 @@ And this is the second part"#
         let (s6, subbed) = s1.subst_first(&re1, &s5);
         s6.with_bytes(|bs| assert_eq!(bs, b"hz&hbhc"));
         assert!(subbed);
+    }
+
+    #[test]
+    fn subst_all_single_byte() {
+        use crate::runtime::awk_regex::{Literal, LiteralSearch, Search};
+        let long = "a1b22c333 é,日本9".repeat(4);
+        let cases: &[(&str, &str, &str)] = &[
+            ("[0-9]", "#", "a#b##c### é,日本#"),
+            ("[0-9]", "", "abc é,日本"),
+            ("[0-9]", "<>", "a<>b<><>c<><><> é,日本<>"),
+            (",", ";", "a1b22c333 é;日本9"),
+            ("([a-c])", "\\\\", "\\\\1\\\\22\\\\333 é,日本9"),
+            ("[x-z]", "#", "a1b22c333 é,日本9"),
+        ];
+        for (pat, subst, want) in cases {
+            let re = AwkRegex::new(Regex::new(pat).unwrap());
+            assert!(re.single_byte().is_some(), "{pat}");
+            for (text, want) in [
+                ("a1b22c333 é,日本9".to_string(), want.to_string()),
+                (long.clone(), want.repeat(4)),
+            ] {
+                let s: Str = text.as_str().into();
+                let (got, n) = s.subst_all(&re, &(*subst).into());
+                let m = Regex::new(pat).unwrap().find_iter(text.as_bytes()).count();
+                got.with_bytes(|bs| assert_eq!(bs, want.as_bytes(), "{pat}"));
+                assert_eq!(n as usize, m, "{pat}");
+            }
+        }
+        // Classes with non-ASCII characters and multi-byte patterns take the general path.
+        for pat in ["[é,]", "[^0-9]", ".", "ab"] {
+            assert!(AwkRegex::new(Regex::new(pat).unwrap()).single_byte().is_none(), "{pat}");
+        }
+        assert!(LiteralSearch::new(Literal::Contains, b",").single_byte().is_some());
+        assert!(LiteralSearch::new(Literal::Prefix, b",").single_byte().is_none());
     }
 
     #[test]
