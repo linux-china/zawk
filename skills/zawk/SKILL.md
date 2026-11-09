@@ -394,7 +394,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Decimal | `dec_add`, `dec_sub`, `dec_mul`, `dec_div`, `dec_round`, `dec_format`, `dec_cmp`: exact decimal arithmetic on text, for money (`dec_add("0.1", "0.2")` is `0.3`); pass fields or strings, not floats |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` (negative values are a fatal error as in gawk, except the first argument of `rshiftl`; `compl(0)` is `2^53 - 1`; numbers and results keep their low 63 bits; shift counts of 64 and above shift everything out) |
 | Date/Time | `systime`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc`, `to_iso8601` |
-| Color | `hex2rgb`, `rgb2hex`, `color` (terminal color/style, e.g. `color("red+bold", s)`; plain text when stdout is not a terminal) |
+| Color | `hex2rgb`, `rgb2hex`, `color` (terminal color/style, e.g. `color("red+bold", s)`; plain text when stdout is not a terminal; decided per process, so `> "file"` / `| "cmd"` still get codes when stdout is a terminal) |
 | Fake | `fake` |
 | Decision | `jev`, `jev_prob`, `jev_choice`, `jev_score` |
 | JSON | `from_json`, `json_flatten`, `to_json`, `json_value` (JSONPath), `json_query`, `json_has`, `json_get`, `json_set`, `json_del` |

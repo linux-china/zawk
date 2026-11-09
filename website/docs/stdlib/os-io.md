@@ -74,5 +74,8 @@ color("pink", "plain")                # unknown names are ignored: "plain"
 
 - Colors: `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`.
 - Styles: `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
-- Escape codes are written only when stdout is a terminal, so piped or redirected output stays plain text.
+- Escape codes are written only when zawk's stdout is a terminal, so `zawk ... | less` or `zawk ... > out.txt` stays plain text.
   `NO_COLOR` turns them off and `CLICOLOR_FORCE=1` forces them, e.g. `CLICOLOR_FORCE=1 zawk '...' | less -R`.
+- `color()` only returns a string and cannot know where it will be written: the check above is made once for the
+  whole process, not per output. When stdout is a terminal, `print color("red", s) > "out.txt"`, `print ... | "cmd"`
+  or a value built with `sprintf()` (e.g. into JSON) still holds the escape codes, so only color text meant for the terminal.

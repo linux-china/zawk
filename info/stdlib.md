@@ -878,7 +878,8 @@ Color and style text for the terminal: `color("red", "this is red")` or `color("
 * styles: `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
 * Color and styles are separated by `+` or spaces, in any order and case-insensitive: `red bold` is the same as `bold+red`.
 * An unknown color or style is ignored, so `color("pink", s)` returns `s` unchanged.
-* Escape codes are emitted only when stdout is a terminal; `NO_COLOR` disables them and `CLICOLOR_FORCE=1` forces them (e.g. `CLICOLOR_FORCE=1 zawk ... | less -R`).
+* Escape codes are emitted only when zawk's stdout is a terminal; `NO_COLOR` disables them and `CLICOLOR_FORCE=1` forces them (e.g. `CLICOLOR_FORCE=1 zawk ... | less -R`).
+* The check is made once for the whole process, not per output: `color()` returns a string and cannot know where it goes. When stdout is a terminal, `print color("red", s) > "out.txt"`, `print ... | "cmd"` or a `sprintf()` result still holds escape codes, so only color text meant for the terminal.
 
 # Fake
 

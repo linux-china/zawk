@@ -829,39 +829,59 @@ pub fn wrap(text: &str, width: Int) -> String {
 /// `spec` holds tokens separated by `+` or whitespace, in any order and case-insensitive:
 /// colors `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`, and styles
 /// `bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`.
-/// Unknown tokens are ignored, so an unknown spec returns `text` unchanged. As with the
-/// `colored` crate, no escape codes are emitted when stdout is not a terminal or `NO_COLOR`
-/// is set (`CLICOLOR_FORCE=1` forces them).
+/// Unknown tokens are ignored, so an unknown spec returns `text` unchanged.
+///
+/// `color()` returns a string and cannot know where that string will be written, so whether
+/// escape codes are emitted is decided once for the whole process, as with the `colored`
+/// crate: only when the process's stdout is a terminal and `NO_COLOR` is not set
+/// (`CLICOLOR_FORCE=1` forces them). With a terminal stdout, `print color(..) > "file"`,
+/// `| "cmd"` or a string built with `sprintf` still holds escape codes.
 pub fn color(spec: &str, text: &str) -> String {
-    use colored::{Color, Colorize};
-    let mut colored = text.normal();
-    for token in spec.split(|c: char| c == '+' || c.is_whitespace()) {
-        let token = token.trim().to_ascii_lowercase();
-        let color = match token.as_str() {
-            "red" => Some(Color::Red),
-            "green" => Some(Color::Green),
-            "blue" => Some(Color::Blue),
-            "yellow" => Some(Color::Yellow),
-            "magenta" => Some(Color::Magenta),
-            "cyan" => Some(Color::Cyan),
-            "white" => Some(Color::White),
-            "black" => Some(Color::Black),
-            _ => None,
-        };
-        colored = match (color, token.as_str()) {
-            (Some(c), _) => colored.color(c),
-            (None, "bold") => colored.bold(),
-            (None, "underline") => colored.underline(),
-            (None, "italic") => colored.italic(),
-            (None, "dimmed") => colored.dimmed(),
-            (None, "reversed") => colored.reversed(),
-            (None, "blink") => colored.blink(),
-            (None, "hidden") => colored.hidden(),
-            (None, "strikethrough") => colored.strikethrough(),
-            _ => colored,
-        };
+    color_with(spec, text, colored::control::SHOULD_COLORIZE.should_colorize())
+}
+
+/// Like [`color`], but `enabled` decides whether escape codes are emitted instead of the
+/// process-wide terminal detection.
+pub fn color_with(spec: &str, text: &str, enabled: bool) -> String {
+    if !enabled {
+        return text.to_string();
     }
-    colored.to_string()
+    // SGR codes: styles in ascending order, then the foreground color (the last one wins).
+    let mut styles = [false; 10];
+    let mut fg: Option<u8> = None;
+    for token in spec.split(|c: char| c == '+' || c.is_whitespace()) {
+        match token.to_ascii_lowercase().as_str() {
+            "black" => fg = Some(30),
+            "red" => fg = Some(31),
+            "green" => fg = Some(32),
+            "yellow" => fg = Some(33),
+            "blue" => fg = Some(34),
+            "magenta" => fg = Some(35),
+            "cyan" => fg = Some(36),
+            "white" => fg = Some(37),
+            "bold" => styles[1] = true,
+            "dimmed" => styles[2] = true,
+            "italic" => styles[3] = true,
+            "underline" => styles[4] = true,
+            "blink" => styles[5] = true,
+            "reversed" => styles[7] = true,
+            "hidden" => styles[8] = true,
+            "strikethrough" => styles[9] = true,
+            _ => {}
+        }
+    }
+    let codes: Vec<String> = (0u8..10)
+        .filter(|&i| styles[i as usize])
+        .chain(fg)
+        .map(|c| c.to_string())
+        .collect();
+    if codes.is_empty() {
+        return text.to_string();
+    }
+    let prefix = format!("\x1b[{}m", codes.join(";"));
+    // Re-apply this style after a reset inside `text`, so nested `color()` calls work.
+    let body = text.replace("\x1b[0m", &format!("\x1b[0m{prefix}"));
+    format!("{prefix}{body}\x1b[0m")
 }
 
 #[cfg(test)]
@@ -871,20 +891,23 @@ mod tests {
 
     #[test]
     fn test_color() {
-        colored::control::set_override(true);
-        assert_eq!(color("red", "hi"), "\x1b[31mhi\x1b[0m");
-        assert_eq!(color("red+bold", "hi"), "\x1b[1;31mhi\x1b[0m");
-        assert_eq!(color("bold red", "hi"), color("red+bold", "hi"));
-        assert_eq!(color(" Bold + RED ", "hi"), color("red bold", "hi"));
-        assert_eq!(color("green underline", "hi"), "\x1b[4;32mhi\x1b[0m");
+        // `color_with` takes the on/off switch explicitly, so this test does not touch the
+        // process-wide `colored::control` override other tests could depend on.
+        let c = |spec: &str, text: &str| color_with(spec, text, true);
+        assert_eq!(c("red", "hi"), "\x1b[31mhi\x1b[0m");
+        assert_eq!(c("red+bold", "hi"), "\x1b[1;31mhi\x1b[0m");
+        assert_eq!(c("bold red", "hi"), c("red+bold", "hi"));
+        assert_eq!(c(" Bold + RED ", "hi"), c("red bold", "hi"));
+        assert_eq!(c("green underline", "hi"), "\x1b[4;32mhi\x1b[0m");
+        assert_eq!(c("bold+bold", "hi"), "\x1b[1mhi\x1b[0m");
         // Unknown colors and styles are ignored.
-        assert_eq!(color("pink", "hi"), "hi");
-        assert_eq!(color("", "hi"), "hi");
-        assert_eq!(color("pink+bold", "hi"), color("bold", "hi"));
-        assert_eq!(color("red+shiny", "hi"), color("red", "hi"));
-        colored::control::set_override(false);
-        assert_eq!(color("red+bold", "hi"), "hi");
-        colored::control::unset_override();
+        assert_eq!(c("pink", "hi"), "hi");
+        assert_eq!(c("", "hi"), "hi");
+        assert_eq!(c("pink+bold", "hi"), c("bold", "hi"));
+        assert_eq!(c("red+shiny", "hi"), c("red", "hi"));
+        assert_eq!(color_with("red+bold", "hi", false), "hi");
+        // Nested: the outer style comes back after the inner reset.
+        assert_eq!(c("bold", &c("red", "a")), "\x1b[1m\x1b[31ma\x1b[0m\x1b[1m\x1b[0m");
     }
 
     #[test]
