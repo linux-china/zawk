@@ -929,24 +929,24 @@ impl FileWrite {
         self.0.destroy_and_flush_all_files()
     }
 
-    /// Write the output of a `printf` (already formatted with `printf::format`).
+    /// Write the output of a `printf` (already formatted with `printf::FormatCache::printf`).
     ///
     /// Formatting and writing are kept separate so that callers can report format errors while
     /// still exiting silently on write errors (e.g. a closed pipe).
-    pub(crate) fn write_printf(&mut self, path: Option<(&Str, FileSpec)>, s: &Str) -> Result<()> {
+    pub(crate) fn write_printf(&mut self, path: Option<(&Str, FileSpec)>, s: &[u8]) -> Result<()> {
         let (handle, fspec) = if let Some((out_file, fspec)) = path {
             if !matches!(fspec, FileSpec::Cmd) && writers::is_stdout(out_file) {
-                s.with_bytes(stats::output_text);
+                stats::output_text(s);
             }
             (self.0.get_handle(Some(out_file), fspec)?, fspec)
         } else {
-            s.with_bytes(stats::output_text);
+            stats::output_text(s);
             (
                 self.0.get_handle(None, FileSpec::default())?,
                 FileSpec::default(),
             )
         };
-        handle.write(s, fspec)
+        handle.write_bytes(s, fspec)
     }
     pub(crate) fn write_all(
         &mut self,

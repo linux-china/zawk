@@ -80,7 +80,7 @@ impl<'a> FormatArg<'a> {
     fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         use FormatArg::*;
         let s: Str<'a> = match self {
-            S(s) | Strnum(s) => s.clone(),
+            S(s) | Strnum(s) => return s.with_bytes(f),
             F(f) => convert::<_, Str>(*f),
             I(i) => convert::<_, Str>(*i),
             Null => return f(&[]),
@@ -90,7 +90,7 @@ impl<'a> FormatArg<'a> {
 }
 
 /// A parsed conversion specification: `%[flags][width][.precision][length]conversion`.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct Spec {
     minus: bool,
     plus: bool,
@@ -136,9 +136,14 @@ impl Spec {
         f
     }
 
-    /// Pad `s` (whose width in characters is `chars`) to the field width with spaces.
-    fn pad(&self, mut w: impl Write, s: &[u8], chars: usize) -> Result<()> {
-        let fill = self.width.unwrap_or(0).saturating_sub(chars);
+    /// Pad `s` (whose width in characters is `chars(s)`) to the field width with spaces.
+    /// Characters are only counted when the width may call for padding.
+    fn pad(&self, mut w: impl Write, s: &[u8], chars: impl FnOnce(&[u8]) -> usize) -> Result<()> {
+        let fill = match self.width {
+            // A UTF-8 character takes at most 4 bytes, so `s` has at least `len / 4` of them.
+            Some(width) if width > s.len() / 4 => width.saturating_sub(chars(s)),
+            _ => 0,
+        };
         if self.minus {
             write_bytes(&mut w, s)?;
             write_repeated(&mut w, b' ', fill)
@@ -455,14 +460,14 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 group_digits(&buf, sep, spec.zero && !spec.minus, spec.width.unwrap_or(0))
             };
             let buf = grouped.unwrap_or(buf);
-            return spec.pad(&mut w, &buf, char_count(&buf));
+            return spec.pad(&mut w, &buf, char_count);
         }
     }
     match spec.conv {
         b'd' | b'i' => match arg.to_integer() {
             Ok(i) => spec.write_int(w, i),
             Err(f) => match special_float(f) {
-                Some(s) => spec.pad(w, s, s.len()),
+                Some(s) => spec.pad(w, s, <[u8]>::len),
                 // Integral values beyond the range of an i64.
                 None => {
                     let fmt = Spec {
@@ -480,7 +485,7 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 Err(f) if f > 0.0 && f <= u64::MAX as f64 => f as u64,
                 Err(f) => {
                     return match special_float(f) {
-                        Some(s) => spec.pad(w, s, s.len()),
+                        Some(s) => spec.pad(w, s, <[u8]>::len),
                         // Values beyond the range of a u64 (or negative ones beyond an i64) are
                         // written with `%g`, as in gawk.
                         None => snprintf_with(w, &spec.c_format(b"", b'g'), CArg::Double(f)),
@@ -492,7 +497,7 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
         b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a' | b'A' => {
             let f = arg.to_float();
             match special_float(f) {
-                Some(s) => spec.pad(w, s, s.len()),
+                Some(s) => spec.pad(w, s, <[u8]>::len),
                 None if matches!(spec.conv, b'f' | b'F') && !spec.alt => spec.write_fixed(w, f),
                 None => snprintf_with(w, &spec.c_format(b"", spec.conv), CArg::Double(f)),
             }
@@ -524,21 +529,100 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                     }
                 }),
             };
-            spec.pad(w, &bytes, 1)
+            spec.pad(w, &bytes, |_| 1)
         }
         b's' => arg.with_bytes(|bs| {
             let bs = match spec.precision {
                 Some(p) => take_chars(bs, p),
                 None => bs,
             };
-            spec.pad(w, bs, char_count(bs))
+            spec.pad(w, bs, char_count)
         }),
         c => err!("unsupported format specifier: {}", c as char),
     }
 }
 
+/// The number of distinct format strings a [`FormatCache`] keeps parsed.
+const CACHE_SIZE: usize = 16;
+
+/// Parsed format strings, so that a `printf` or `sprintf` in a loop parses its format once,
+/// and a scratch buffer for the output of `printf`.
+///
+/// Format strings are looked up by their bytes: almost all of them are literals, and the few
+/// built at run time are usually repeated as well.
+#[derive(Default)]
+pub(crate) struct FormatCache {
+    formats: Vec<Format>,
+    /// The index of the format used last, checked first.
+    last: usize,
+    /// The slot of `formats` replaced next once it is full.
+    next_evict: usize,
+    /// The output of the last `printf`.
+    buf: Vec<u8>,
+}
+
+impl FormatCache {
+    /// The parsed form of `fmt`.
+    fn get(&mut self, fmt: &[u8]) -> &Format {
+        if self.formats.get(self.last).is_some_and(|f| *f.text == *fmt) {
+            return &self.formats[self.last];
+        }
+        if let Some(ix) = self.formats.iter().position(|f| *f.text == *fmt) {
+            self.last = ix;
+            return &self.formats[ix];
+        }
+        let parsed = Format::parse(fmt);
+        let ix = if self.formats.len() < CACHE_SIZE {
+            self.formats.push(parsed);
+            self.formats.len() - 1
+        } else {
+            let ix = self.next_evict;
+            self.next_evict = (ix + 1) % CACHE_SIZE;
+            self.formats[ix] = parsed;
+            ix
+        };
+        self.last = ix;
+        &self.formats[ix]
+    }
+
+    /// Write `fmt` formatted with `args` to `w`, for `func` (`printf` or `sprintf`), which names
+    /// it in the warning about missing arguments.
+    fn write(&mut self, w: impl Write, func: &str, fmt: &Str, args: &[FormatArg]) -> Result<()> {
+        fmt.with_bytes(|bs| {
+            let format = self.get(bs);
+            if format.write(w, args)? {
+                warn_missing(func, bs);
+            }
+            Ok(())
+        })
+    }
+
+    /// `sprintf(fmt, args...)`.
+    pub(crate) fn sprintf<'b>(&mut self, fmt: &Str, args: &[FormatArg]) -> Result<Str<'b>> {
+        let mut buf = crate::runtime::str_impl::DynamicBuf::default();
+        self.write(&mut buf, "sprintf", fmt, args)?;
+        Ok(buf.into_str())
+    }
+
+    /// The output of `printf fmt, args...`, valid until the next call.
+    pub(crate) fn printf(&mut self, fmt: &Str, args: &[FormatArg]) -> Result<&[u8]> {
+        let mut buf = std::mem::take(&mut self.buf);
+        // Don't hold on to a buffer grown by an unusually large output.
+        if buf.capacity() > 64 << 10 {
+            buf = Vec::new();
+        } else {
+            buf.clear();
+        }
+        let res = self.write(&mut buf, "printf", fmt, args);
+        self.buf = buf;
+        res?;
+        Ok(&self.buf[..])
+    }
+}
+
 /// Format `spec` with `args` for `func` (`printf` or `sprintf`), which names it in the warning
-/// about missing arguments.
+/// about missing arguments, without caching the parsed format.
+#[cfg(test)]
 pub(crate) fn format<'a>(func: &str, spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
     let mut buf = crate::runtime::str_impl::DynamicBuf::default();
     spec.with_bytes(|bs| {
@@ -580,16 +664,11 @@ fn parse_position(fmt: &[u8], i: &mut usize) -> Option<usize> {
     Some(n - 1)
 }
 
-/// Parse the conversion specification at `fmt[i..]` (just after a `%`), taking `*` widths and
-/// precisions from `next_int` (with the zero-based index of a positional `*N$`, or `None` for the
-/// next argument). Returns the spec, the positional index of its value (`%N$...`) if any, and the
-/// index after it, or `None` if it is not a valid specification (in which case it is written
-/// literally, as in awk).
-fn parse_spec(
-    fmt: &[u8],
-    mut i: usize,
-    next_int: &mut impl FnMut(Option<usize>) -> Int,
-) -> Option<(Spec, Option<usize>, usize)> {
+/// Parse the conversion specification at `fmt[i..]` (just after a `%`), recording its `*` widths
+/// and precisions in `stars`. Returns the spec, the positional index of its value (`%N$...`) if
+/// any, and the index after it, or `None` if it is not a valid specification (in which case it is
+/// written literally, as in awk; its `*`s still take their arguments).
+fn parse_spec(fmt: &[u8], mut i: usize, stars: &mut Stars) -> Option<(Spec, Option<usize>, usize)> {
     let mut spec = Spec::default();
     // `%N$...`: the value is argument N, as in gawk and POSIX.
     let position = parse_position(fmt, &mut i);
@@ -625,12 +704,7 @@ fn parse_spec(
     };
     if fmt.get(i) == Some(&b'*') {
         i += 1;
-        let pos = parse_position(fmt, &mut i);
-        let w = next_int(pos);
-        if w < 0 {
-            spec.minus = true;
-        }
-        spec.width = Some(w.unsigned_abs() as usize);
+        stars.width = Some(parse_position(fmt, &mut i));
     } else {
         spec.width = number(&mut i);
     }
@@ -638,10 +712,7 @@ fn parse_spec(
         i += 1;
         if fmt.get(i) == Some(&b'*') {
             i += 1;
-            let pos = parse_position(fmt, &mut i);
-            let p = next_int(pos);
-            // A negative precision is taken as if it were omitted.
-            spec.precision = if p < 0 { None } else { Some(p as usize) };
+            stars.precision = Some(parse_position(fmt, &mut i));
         } else {
             spec.precision = Some(number(&mut i).unwrap_or(0));
         }
@@ -717,29 +788,116 @@ fn warn_missing(func: &str, fmt: &[u8]) {
     );
 }
 
-/// Write `fmt` formatted with `args`, returning whether a conversion had no argument.
-fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
-    // Missing arguments are empty strings (as in onetrue awk).
-    let default = FormatArg::S(Default::default());
-    let missing = std::cell::Cell::new(false);
-    // Whether any conversion (or `*`) took a positional / sequential argument: mixing them is
-    // fatal, as in gawk.
-    let positional = std::cell::Cell::new(false);
-    let sequential = std::cell::Cell::new(false);
-    let mut arg_ix = 0;
-    let mut i = 0;
-    let mut raw_start = 0;
-    while i < fmt.len() {
-        if fmt[i] != b'%' {
-            i += 1;
-            continue;
+/// The `*` widths and precisions of a conversion: `None` if there is none, or the zero-based
+/// index of the argument of a positional `*N$` (`Some(Some(N - 1))`), or `Some(None)` for the
+/// next argument.
+#[derive(Default, Clone, Copy)]
+struct Stars {
+    width: Option<Option<usize>>,
+    precision: Option<Option<usize>>,
+}
+
+impl Stars {
+    fn args(&self) -> impl Iterator<Item = Option<usize>> {
+        self.width.into_iter().chain(self.precision)
+    }
+}
+
+/// A part of a parsed format string.
+enum Piece {
+    /// Text written as is: `text[start..end]` of the format.
+    Literal(usize, usize),
+    /// A literal `%`: `%%` (with any flags or width), or a `%` that does not start a valid
+    /// conversion. Its `*`s still take their arguments.
+    Percent(Stars),
+    /// A conversion of the argument at `position` (zero-based, for `%N$...`), or the next one.
+    Conv {
+        spec: Spec,
+        stars: Stars,
+        position: Option<usize>,
+    },
+}
+
+/// A parsed format string.
+struct Format {
+    text: Box<[u8]>,
+    pieces: Vec<Piece>,
+    /// The index of the conversion (in `pieces`) at which positional and sequential arguments
+    /// are first mixed, which is fatal (as in gawk).
+    mixed_at: Option<usize>,
+}
+
+impl Format {
+    fn parse(fmt: &[u8]) -> Format {
+        let mut pieces = Vec::new();
+        let mut i = 0;
+        let mut raw_start = 0;
+        while let Some(off) = memchr::memchr(b'%', &fmt[i..]) {
+            i += off;
+            if raw_start < i {
+                pieces.push(Piece::Literal(raw_start, i));
+            }
+            let mut stars = Stars::default();
+            match parse_spec(fmt, i + 1, &mut stars) {
+                Some((spec, position, end)) if spec.conv != b'%' => {
+                    pieces.push(Piece::Conv {
+                        spec,
+                        stars,
+                        position,
+                    });
+                    i = end;
+                }
+                Some((_, _, end)) => {
+                    pieces.push(Piece::Percent(stars));
+                    i = end;
+                }
+                None => {
+                    // Not a conversion: write the `%` literally and continue after it.
+                    pieces.push(Piece::Percent(stars));
+                    i += 1;
+                }
+            }
+            raw_start = i;
         }
-        write_bytes(&mut w, &fmt[raw_start..i])?;
+        if raw_start < fmt.len() {
+            pieces.push(Piece::Literal(raw_start, fmt.len()));
+        }
+        // Whether any conversion (or `*`) took a positional / sequential argument so far.
+        let (mut positional, mut sequential) = (false, false);
+        let mut mixed_at = None;
+        for (ix, piece) in pieces.iter().enumerate() {
+            let (stars, position) = match piece {
+                Piece::Literal(..) => continue,
+                Piece::Percent(stars) => (stars, None),
+                Piece::Conv {
+                    stars, position, ..
+                } => (stars, Some(*position)),
+            };
+            for pos in stars.args().chain(position) {
+                positional |= pos.is_some();
+                sequential |= pos.is_none();
+            }
+            if position.is_some() && positional && sequential {
+                mixed_at = Some(ix);
+                break;
+            }
+        }
+        Format {
+            text: fmt.into(),
+            pieces,
+            mixed_at,
+        }
+    }
+
+    /// Write this format with `args`, returning whether a conversion had no argument.
+    fn write(&self, mut w: impl Write, args: &[FormatArg]) -> Result<bool> {
+        // Missing arguments are empty strings (as in onetrue awk).
+        let default = FormatArg::S(Default::default());
+        let mut missing = false;
+        let mut arg_ix = 0;
         // Positional references (`%2$s`, `*2$`) take the given argument and leave the sequential
         // position unchanged.
-        let mut next_int = |pos: Option<usize>| {
-            positional.set(positional.get() || pos.is_some());
-            sequential.set(sequential.get() || pos.is_none());
+        let mut next_arg = |pos: Option<usize>| {
             let arg = match pos {
                 Some(p) => args.get(p),
                 None => {
@@ -747,43 +905,53 @@ fn printf(mut w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
                     args.get(arg_ix - 1)
                 }
             };
-            missing.set(missing.get() || arg.is_none());
-            arg.map_or(0, FormatArg::to_int)
+            missing |= arg.is_none();
+            arg
         };
-        match parse_spec(fmt, i + 1, &mut next_int) {
-            Some((spec, position, end)) => {
-                if spec.conv == b'%' {
-                    // "%%" (with any flags or width) is a literal percent sign.
+        for (ix, piece) in self.pieces.iter().enumerate() {
+            match piece {
+                Piece::Literal(start, end) => write_bytes(&mut w, &self.text[*start..*end])?,
+                Piece::Percent(stars) => {
+                    for pos in stars.args() {
+                        next_arg(pos);
+                    }
                     write_bytes(&mut w, b"%")?;
-                } else {
+                }
+                Piece::Conv {
+                    spec,
+                    stars,
+                    position,
+                } => {
+                    let mut spec = *spec;
+                    if let Some(pos) = stars.width {
+                        let width = next_arg(pos).map_or(0, FormatArg::to_int);
+                        if width < 0 {
+                            spec.minus = true;
+                        }
+                        spec.width = Some(width.unsigned_abs() as usize);
+                    }
+                    if let Some(pos) = stars.precision {
+                        let p = next_arg(pos).map_or(0, FormatArg::to_int);
+                        // A negative precision is taken as if it were omitted.
+                        spec.precision = if p < 0 { None } else { Some(p as usize) };
+                    }
                     spec.check_limits()?;
-                    positional.set(positional.get() || position.is_some());
-                    sequential.set(sequential.get() || position.is_none());
-                    if positional.get() && sequential.get() {
+                    if self.mixed_at == Some(ix) {
                         return err!("must use `count$' on all formats or none");
                     }
-                    let arg = match position {
-                        Some(p) => args.get(p),
-                        None => {
-                            arg_ix += 1;
-                            args.get(arg_ix - 1)
-                        }
-                    };
-                    missing.set(missing.get() || arg.is_none());
+                    let arg = next_arg(*position);
                     process_spec(&mut w, &spec, arg.unwrap_or(&default))?;
                 }
-                i = end;
-            }
-            None => {
-                // Not a conversion: write the `%` literally and continue after it.
-                write_bytes(&mut w, b"%")?;
-                i += 1;
             }
         }
-        raw_start = i;
+        Ok(missing)
     }
-    write_bytes(&mut w, &fmt[raw_start..])?;
-    Ok(missing.get())
+}
+
+/// Write `fmt` formatted with `args`, returning whether a conversion had no argument.
+#[cfg(test)]
+fn printf(w: impl Write, fmt: &[u8], args: &[FormatArg]) -> Result<bool> {
+    Format::parse(fmt).write(w, args)
 }
 
 #[cfg(test)]

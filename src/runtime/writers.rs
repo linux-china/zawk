@@ -2234,6 +2234,26 @@ pub struct FileHandle {
     writing: bool,
 }
 
+/// Text written to a [`FileHandle`] in one go: the strings of a `print`, or the bytes of a
+/// `printf`.
+trait Chunks {
+    fn for_each_chunk(&self, f: impl FnMut(&[u8]));
+}
+
+impl Chunks for [&Str<'_>] {
+    fn for_each_chunk(&self, mut f: impl FnMut(&[u8])) {
+        for s in self {
+            s.for_each_chunk(&mut f);
+        }
+    }
+}
+
+impl Chunks for [u8] {
+    fn for_each_chunk(&self, mut f: impl FnMut(&[u8])) {
+        f(self)
+    }
+}
+
 impl FileHandle {
     fn raw(&self) -> RawHandle {
         self.raw.clone()
@@ -2341,15 +2361,26 @@ impl FileHandle {
     }
 
     pub fn write_all(&mut self, ss: &[&Str], spec: FileSpec) -> Result<()> {
+        self.write_chunks(ss, spec)
+    }
+
+    /// Write `bs` (e.g. the output of a `printf`).
+    pub fn write_bytes(&mut self, bs: &[u8], spec: FileSpec) -> Result<()> {
+        self.write_chunks(bs, spec)
+    }
+
+    fn write_chunks<C: Chunks + ?Sized>(&mut self, ss: &C, spec: FileSpec) -> Result<()> {
         if self.direct {
             let mut err = io::stderr().lock();
-            for s in ss.iter() {
-                let bs = unsafe { &*s.get_bytes() };
-                if let Err(e) = err.write_all(bs) {
-                    return Err(CompileError::new(format!("{}", e)));
+            let mut res = Ok(());
+            ss.for_each_chunk(|bs| {
+                if res.is_ok() {
+                    res = err.write_all(bs);
                 }
-            }
-            return err.flush().map_err(|e| CompileError::new(format!("{}", e)));
+            });
+            return res
+                .and_then(|_| err.flush())
+                .map_err(|e| CompileError::new(format!("{}", e)));
         }
         self.dirty = true;
         self.set_writing(true);
@@ -2367,18 +2398,16 @@ impl FileHandle {
         // Record the write even if every string is empty: `printf "" > f` must still open (and
         // truncate) f.
         self.cur_batch.extend(&[], spec, max_capacity);
-        for s in ss.iter() {
-            s.for_each_chunk(|bs| {
-                self.cur_batch.extend(bs, spec, max_capacity);
-                if self.raw.line_buffer {
-                    if let Some(ix) = memchr::memchr(b'\n', bs) {
-                        // +1 to include the newline
-                        last_line = Some(cur_len + added_bytes + ix + 1);
-                    }
+        ss.for_each_chunk(|bs| {
+            self.cur_batch.extend(bs, spec, max_capacity);
+            if self.raw.line_buffer {
+                if let Some(ix) = memchr::memchr(b'\n', bs) {
+                    // +1 to include the newline
+                    last_line = Some(cur_len + added_bytes + ix + 1);
                 }
-                added_bytes += bs.len();
-            });
-        }
+            }
+            added_bytes += bs.len();
+        });
         if (self.raw.line_buffer && last_line.is_some()) || (added_bytes + cur_len > limit) {
             self.clear_batch(last_line)?;
         }

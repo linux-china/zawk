@@ -4028,17 +4028,15 @@ pub(crate) unsafe extern "C" fn printf_impl_file(
         ));
         let format_args = wrap_args(&mut *(rt as *mut _), args, tys, num_args);
         let rt = rt as *mut Runtime;
+        let core = &mut (*rt).core;
         let text = try_abort!(
             rt,
-            runtime::printf::format("printf", &*(spec as *mut Str), &format_args[..]),
+            core.formats.printf(&*(spec as *mut Str), &format_args[..]),
             "printf:"
         );
-        try_abort!(rt, (*rt).core.write_files.check_output(output_wrapped));
+        try_abort!(rt, core.write_files.check_output(output_wrapped));
         // Like print, exit silently on write errors.
-        try_silent_abort!(
-            rt,
-            (*rt).core.write_files.write_printf(output_wrapped, &text)
-        )
+        try_silent_abort!(rt, core.write_files.write_printf(output_wrapped, text))
     })
 }
 
@@ -4055,7 +4053,7 @@ pub(crate) unsafe extern "C" fn sprintf_impl(
         let spec = &*(spec as *mut Str);
         let res = try_abort!(
             rt,
-            runtime::printf::format("sprintf", spec, &format_args[..]),
+            rt.core.formats.sprintf(spec, &format_args[..]),
             "sprintf:"
         );
         mem::transmute::<Str, U128>(res)
@@ -4072,13 +4070,14 @@ pub(crate) unsafe extern "C" fn printf_impl_stdout(
     guard_panic(stringify!(printf_impl_stdout), || {
         let format_args = wrap_args(&mut *(rt as *mut _), args, tys, num_args);
         let rt = rt as *mut Runtime;
+        let core = &mut (*rt).core;
         let text = try_abort!(
             rt,
-            runtime::printf::format("printf", &*(spec as *mut Str), &format_args[..]),
+            core.formats.printf(&*(spec as *mut Str), &format_args[..]),
             "printf:"
         );
         // Like print, exit silently on write errors (e.g. stdout piped to `head`).
-        try_silent_abort!(rt, (*rt).core.write_files.write_printf(None, &text))
+        try_silent_abort!(rt, core.write_files.write_printf(None, text))
     })
 }
 

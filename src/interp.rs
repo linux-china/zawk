@@ -30,6 +30,8 @@ pub(crate) struct Storage<T> {
 pub(crate) struct Core<'a> {
     pub vars: runtime::Variables<'a>,
     pub regexes: runtime::RegexCache,
+    /// Parsed `printf`/`sprintf` format strings.
+    pub formats: runtime::printf::FormatCache,
     pub write_files: runtime::FileWrite,
     pub rng: StdRng,
     pub current_seed: u64,
@@ -241,6 +243,7 @@ impl<'a> Core<'a> {
             Core {
                 vars,
                 regexes: Default::default(),
+                formats: Default::default(),
                 write_files: fw,
                 rng: rand::rngs::StdRng::seed_from_u64(seed),
                 current_seed: seed,
@@ -257,6 +260,7 @@ impl<'a> Core<'a> {
         Core {
             vars: Default::default(),
             regexes: Default::default(),
+            formats: Default::default(),
             write_files: runtime::FileWrite::new(ff),
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             current_seed: seed,
@@ -2815,7 +2819,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             scratch.push(self.format_arg(*a, *strnum).map_err(at!())?);
                         }
                         let fmt_str = index(&self.strs, fmt);
-                        let res = runtime::printf::format("sprintf", fmt_str, &scratch[..])
+                        let res = self
+                            .core
+                            .formats
+                            .sprintf(fmt_str, &scratch[..])
                             .map_err(at!())?;
                         scratch.clear();
                         let dst = *dst;
@@ -2856,7 +2863,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         }
                         let fmt_str = index(&self.strs, fmt);
                         // Format errors are fatal; write errors exit silently, as with print.
-                        let text = runtime::printf::format("printf", fmt_str, &scratch[..])
+                        let text = self
+                            .core
+                            .formats
+                            .printf(fmt_str, &scratch[..])
                             .map_err(at!())?;
                         let res = if let Some((out_path_reg, fspec)) = output {
                             let out_path = index(&self.strs, out_path_reg);
@@ -2866,10 +2876,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                                 .map_err(at!())?;
                             self.core
                                 .write_files
-                                .write_printf(Some((out_path, *fspec)), &text)
+                                .write_printf(Some((out_path, *fspec)), text)
                         } else {
                             // print to stdout.
-                            self.core.write_files.write_printf(None, &text)
+                            self.core.write_files.write_printf(None, text)
                         };
                         if res.is_err() {
                             return Ok(0);
