@@ -1089,6 +1089,29 @@ fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format:
     }
 }
 
+/// Warns about each Parquet or Avro input file (the extension and the magic both match) that the
+/// run does not read in its own format, such as `zawk '...' demo.avro in.txt`: the binary file
+/// would otherwise be split into lines of garbage without any notice.
+fn warn_binary_read_as_text(format: Option<&str>, input_files: &[String]) {
+    for file in input_files.iter().filter(|f| !is_operand_assignment(f)) {
+        let kind = if format != Some("parquet") && parquet::is_parquet_file(file) {
+            "parquet"
+        } else if format != Some("avro") && avro::is_avro_file(file) {
+            "avro"
+        } else {
+            continue;
+        };
+        eprintln!(
+            "zawk: warning: `{}' is a binary {} file but is read as {}; use -i {} with only {} input files",
+            file,
+            kind,
+            format.unwrap_or("text"),
+            kind,
+            kind
+        );
+    }
+}
+
 /// The input format of a run (or of `zawk lint`): `-i`, or, when it is not given, `parquet` when
 /// every input file is a Parquet file (`.parquet` that starts with `PAR1`), `avro` when every
 /// input file is an Avro file (`.avro` that starts with `Obj\x01`), and, unless a field
@@ -1946,6 +1969,7 @@ fn real_main() {
         runtime::str_escape::set_null_text(text.clone());
     }
     let input_format = input_format(&matches, &input_files);
+    warn_binary_read_as_text(input_format.as_deref(), &input_files);
     let json = matches!(input_format.as_deref(), Some("json"));
     let jsonl = matches!(input_format.as_deref(), Some("jsonl") | Some("ndjson"));
     let parquet = matches!(input_format.as_deref(), Some("parquet"));

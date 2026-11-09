@@ -2872,6 +2872,51 @@ fn avro_output_and_input() {
 }
 
 #[test]
+fn binary_input_read_as_text_warns() {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let avro = format!("{dir}/tests/demo.avro");
+    let parquet = format!("{dir}/tests/demo.parquet");
+    // Mixed with a text file, a Parquet/Avro file is read as text: warn about it.
+    let err = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["END { }", &avro, "Cargo.toml"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&err)
+            .contains("is a binary avro file but is read as text; use -i avro")
+    );
+    let err = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-i", "csv", "END { }", &parquet])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&err)
+            .contains("is a binary parquet file but is read as csv; use -i parquet")
+    );
+    // Read in their own format: no warning.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["END { }", &avro])
+        .assert()
+        .success()
+        .stderr("");
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["END { }", &parquet])
+        .assert()
+        .success()
+        .stderr("");
+}
+
+#[test]
 fn infer_types_output() {
     // `:auto` (and --infer-types for columns without a suffix) keeps numbers and booleans typed:
     // per value for -o jsonl, per column from the first rows for -o parquet.

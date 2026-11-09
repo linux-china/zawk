@@ -608,7 +608,7 @@ mod tests {
         let got = rows(
             b"name\tage:int32\tok:Boolean\td:DATE\tts:timestamp\tt:Time\tj:json\tu:UUID\n\
               Alice\t30\ttrue\t2024-01-02\t2024-01-02 03:04:05\t03:04:05\t{\"a\":1}\t67e55044-10b1-426f-9247-bb680e5fe0c8\n\
-              Bob\tx\t0\t86400\t1700000000000\t3600\tnot json\t\n\
+              Bob\tx\t0\t19700102\t1700000000000\t3600\tnot json\t\n\
               \t\t\t\t\t\t\t",
         );
         assert_eq!(got.len(), 3);
