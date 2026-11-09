@@ -305,6 +305,39 @@ unsafe fn run_end(mut rt: Runtime, end: Option<MainFunction>) {
 pub(crate) struct Handles {
     res: Vec<Arc<AwkRegex>>,
     slices: Vec<Arc<[u8]>>,
+    /// 8-byte aligned copies of string literals whose drop is not trivial (e.g. `Boxed`), so
+    /// generated code can embed them as `Literal`s that are safe to drop repeatedly.
+    lits: Vec<Box<[u64]>>,
+}
+
+impl Handles {
+    /// Returns a string with the same contents as `s` whose drop is trivial (`Inline` or
+    /// `Literal`), so its bits can be baked into generated code and dropped any number of times.
+    /// When `s` itself does not have a trivial drop, its bytes are copied into an 8-byte aligned
+    /// buffer owned by `self`; the result must not outlive `self`.
+    pub(crate) fn trivial_drop_str(&mut self, s: &UniqueStr) -> runtime::Str<'static> {
+        let st = s.clone_str();
+        if st.drop_is_trivial() {
+            // SAFETY: Inline strings are self-contained, and Literal strings in a UniqueStr
+            // point to memory that outlives the generated code (see UniqueStr docs).
+            return unsafe { std::mem::transmute::<runtime::Str<'_>, runtime::Str<'static>>(st) };
+        }
+        drop(st);
+        let bs = s.bytes();
+        let words = bs.len().div_ceil(8);
+        let mut buf = vec![0u64; words].into_boxed_slice();
+        // SAFETY: `buf` holds at least `bs.len()` bytes and does not overlap `bs`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bs.as_ptr(), buf.as_mut_ptr() as *mut u8, bs.len())
+        };
+        // SAFETY: the boxed slice's heap allocation never moves and lives as long as `self`.
+        let aligned: &'static [u8] =
+            unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, bs.len()) };
+        self.lits.push(buf);
+        let res = runtime::Str::from(aligned);
+        debug_assert!(res.drop_is_trivial());
+        res
+    }
 }
 
 pub(crate) trait Backend {
@@ -2355,4 +2388,32 @@ fn map_valid(map: compile::Ty, key: compile::Ty, val: compile::Ty) -> Result<()>
         return err!("map value type does not match: {:?} vs {:?}", map, val);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trivial_drop_str_converts_boxed_literal() {
+        // Build an unaligned slice longer than the inline limit so `Str::from` yields `Boxed`.
+        let backing = vec![b'x'; 64];
+        let start = if backing.as_ptr() as usize & 0x7 == 0 { 1 } else { 0 };
+        let bs = &backing[start..start + 40];
+        let s: UniqueStr = runtime::Str::from(bs).into();
+        assert!(!s.clone_str().drop_is_trivial());
+
+        let mut handles = Handles::default();
+        let lit = handles.trivial_drop_str(&s);
+        assert!(lit.drop_is_trivial());
+        assert_eq!(lit.with_bytes(|b| b.to_vec()), bs.to_vec());
+        // Dropping copies of the constant's bits repeatedly must be safe.
+        let bits = lit.into_bits();
+        for _ in 0..3 {
+            drop(unsafe { std::mem::transmute::<u128, runtime::Str<'static>>(bits) });
+        }
+
+        let short: UniqueStr = runtime::Str::from(&b"short"[..]).into();
+        assert!(handles.trivial_drop_str(&short).drop_is_trivial());
+    }
 }

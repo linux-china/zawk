@@ -1791,7 +1791,9 @@ impl<'a> CodeGenerator for View<'a> {
     }
     fn const_str(&mut self, s: &UniqueStr) -> Self::Val {
         // iconst does not support I128, so we concatenate two I64 constants.
-        let bits: u128 = s.clone_str().into_bits();
+        // The same bits are stored (and later dropped) on every execution, so the constant must
+        // have a trivial drop; `trivial_drop_str` copies non-trivial ones into `Handles`.
+        let bits: u128 = self.shared.handles.trivial_drop_str(s).into_bits();
         let low = bits as i64;
         let high = (bits >> 64) as i64;
         let low_v = self.builder.ins().iconst(types::I64, low);
