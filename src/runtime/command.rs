@@ -200,7 +200,7 @@ pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
 #[cfg(test)]
 mod tests {
     use super::{run_command2, trim_newline};
-    use crate::runtime::{errno, set_errno, Str};
+    use crate::runtime::{Str, errno, set_errno};
 
     fn trimmed(bs: &[u8]) -> Vec<u8> {
         trim_newline(bs).with_bytes(<[u8]>::to_vec)

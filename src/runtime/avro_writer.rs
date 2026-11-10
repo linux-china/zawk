@@ -340,7 +340,11 @@ fn unscaled_decimal(text: &str, precision: u32, scale: u32) -> Option<i128> {
             }
             // A longer exponent cannot give a value of at most 38 digits, unless it is zero.
             let e: i64 = if digits.len() > 6 {
-                if e.starts_with('-') { -1_000_000 } else { 1_000_000 }
+                if e.starts_with('-') {
+                    -1_000_000
+                } else {
+                    1_000_000
+                }
             } else {
                 e.parse().ok()?
             };
@@ -362,7 +366,10 @@ fn unscaled_decimal(text: &str, precision: u32, scale: u32) -> Option<i128> {
     // value = digits * 10^shift
     let mut digits: Vec<u8> = int_digits.bytes().chain(frac.bytes()).collect();
     let shift = exp + scale as i64 - frac.len() as i64;
-    let first = digits.iter().position(|&d| d != b'0').unwrap_or(digits.len());
+    let first = digits
+        .iter()
+        .position(|&d| d != b'0')
+        .unwrap_or(digits.len());
     digits.drain(..first);
     if digits.is_empty() {
         return Some(0);

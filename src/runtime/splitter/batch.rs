@@ -1380,8 +1380,9 @@ mod generic {
     /// iff `table[x & 0xF] == x`. The other entries are 0, which never matches: a byte with low
     /// nibble `i != 0` is not 0. Bytes >= 0x80 look up 0 as well (`pshufb` zeroes lanes whose index
     /// has the top bit set; NEON masks the index to the low nibble first).
-    pub const WS_BY_LOW_NIBBLE: [u8; 16] =
-        [b' ', 0, 0, 0, 0, 0, 0, 0, 0, b'\t', b'\n', 0, 0, b'\r', 0, 0];
+    pub const WS_BY_LOW_NIBBLE: [u8; 16] = [
+        b' ', 0, 0, 0, 0, 0, 0, 0, 0, b'\t', b'\n', 0, 0, b'\r', 0, 0,
+    ];
 
     #[derive(Copy, Clone)]
     pub struct Impl([u8; 32]);
@@ -2902,7 +2903,10 @@ mod tests {
         assert_eq!(esc("a\rb"), "\"a\rb\"");
         assert_eq!(esc(" lead"), "\" lead\"");
         assert_eq!(esc("say \"hi\""), "\"say \"\"hi\"\"\"");
-        assert_eq!(esc("\"\"\"\"\"\"\"\"\"\""), format!("\"{}\"", "\"".repeat(20)));
+        assert_eq!(
+            esc("\"\"\"\"\"\"\"\"\"\""),
+            format!("\"{}\"", "\"".repeat(20))
+        );
     }
 
     fn smoke_test<V: generic::Vector>() {

@@ -4509,9 +4509,18 @@ fn ignorecase_parallel() {
 fn parallel_regex_splitter_warns() {
     // The regex splitter reads on one thread: -p must say it runs serially, not stay silent.
     let cases = [
-        (vec!["-pr", "-F::"], "-p r ignored: field separator '::' needs the regex splitter"),
-        (vec!["-pr", "-F[:]+"], "-p r ignored: field separator '[:]+' needs the regex splitter"),
-        (vec!["-pf", "-F::"], "-p f ignored: field separator '::' needs the regex splitter"),
+        (
+            vec!["-pr", "-F::"],
+            "-p r ignored: field separator '::' needs the regex splitter",
+        ),
+        (
+            vec!["-pr", "-F[:]+"],
+            "-p r ignored: field separator '[:]+' needs the regex splitter",
+        ),
+        (
+            vec!["-pf", "-F::"],
+            "-p f ignored: field separator '::' needs the regex splitter",
+        ),
     ];
     for (args, warning) in cases {
         let out = Command::cargo_bin("zawk")

@@ -827,42 +827,41 @@ impl<'a> Str<'a> {
         let end = l.saturating_add(r);
         let ascii_range = || (l < bs.len()).then(|| (l, end.min(bs.len())));
         let prefix = end.min(bs.len());
-        let range = if characters_as_bytes()
-            || (prefix < CHAR_CURSOR_MIN_LEN && bs[..prefix].is_ascii())
-        {
-            ascii_range()
-        } else {
-            self.with_char_cursor(bs, |cur| {
-                let Some(cur) = cur else {
-                    return if bs[..prefix].is_ascii() {
-                        ascii_range()
-                    } else {
-                        char_byte_range(bs, 0, 0, l, r)
+        let range =
+            if characters_as_bytes() || (prefix < CHAR_CURSOR_MIN_LEN && bs[..prefix].is_ascii()) {
+                ascii_range()
+            } else {
+                self.with_char_cursor(bs, |cur| {
+                    let Some(cur) = cur else {
+                        return if bs[..prefix].is_ascii() {
+                            ascii_range()
+                        } else {
+                            char_byte_range(bs, 0, 0, l, r)
+                        };
                     };
-                };
-                // The ASCII prefix of a long buffer is measured once, so `substr(s, i, 1)` over
-                // an ASCII `s` doesn't rescan `s[..i]` on every call.
-                if prefix <= *cur.ascii_len.get_or_insert_with(|| ascii_prefix_len(bs)) {
-                    return ascii_range();
-                }
-                if cur.chars.is_some_and(|n| l >= n) {
-                    return None;
-                }
-                let (ci, bo) = if cur.char_ix <= l {
-                    (cur.char_ix, cur.byte_off)
-                } else if cur.char_ix - l <= l {
-                    char_back(bs, cur.char_ix, cur.byte_off, l).map_or((0, 0), |bo| (l, bo))
-                } else {
-                    (0, 0)
-                };
-                let range = char_byte_range(bs, ci, bo, l, r);
-                if let Some((from, _)) = range {
-                    cur.char_ix = l;
-                    cur.byte_off = from;
-                }
-                range
-            })
-        };
+                    // The ASCII prefix of a long buffer is measured once, so `substr(s, i, 1)` over
+                    // an ASCII `s` doesn't rescan `s[..i]` on every call.
+                    if prefix <= *cur.ascii_len.get_or_insert_with(|| ascii_prefix_len(bs)) {
+                        return ascii_range();
+                    }
+                    if cur.chars.is_some_and(|n| l >= n) {
+                        return None;
+                    }
+                    let (ci, bo) = if cur.char_ix <= l {
+                        (cur.char_ix, cur.byte_off)
+                    } else if cur.char_ix - l <= l {
+                        char_back(bs, cur.char_ix, cur.byte_off, l).map_or((0, 0), |bo| (l, bo))
+                    } else {
+                        (0, 0)
+                    };
+                    let range = char_byte_range(bs, ci, bo, l, r);
+                    if let Some((from, _)) = range {
+                        cur.char_ix = l;
+                        cur.byte_off = from;
+                    }
+                    range
+                })
+            };
         match range {
             Some((from, to)) if from < to => self.slice(from, to),
             _ => Str::default(),
@@ -3074,10 +3073,23 @@ And this is the second part"#
         }
         // Classes with non-ASCII characters and multi-byte patterns take the general path.
         for pat in ["[é,]", "[^0-9]", ".", "ab"] {
-            assert!(AwkRegex::new(Regex::new(pat).unwrap()).single_byte().is_none(), "{pat}");
+            assert!(
+                AwkRegex::new(Regex::new(pat).unwrap())
+                    .single_byte()
+                    .is_none(),
+                "{pat}"
+            );
         }
-        assert!(LiteralSearch::new(Literal::Contains, b",").single_byte().is_some());
-        assert!(LiteralSearch::new(Literal::Prefix, b",").single_byte().is_none());
+        assert!(
+            LiteralSearch::new(Literal::Contains, b",")
+                .single_byte()
+                .is_some()
+        );
+        assert!(
+            LiteralSearch::new(Literal::Prefix, b",")
+                .single_byte()
+                .is_none()
+        );
     }
 
     #[test]
@@ -3312,7 +3324,10 @@ fn ascii_prefix_len(bs: &[u8]) -> usize {
     while i + CHUNK <= bs.len() && bs[i..i + CHUNK].is_ascii() {
         i += CHUNK;
     }
-    i + bs[i..].iter().position(|b| !b.is_ascii()).unwrap_or(bs.len() - i)
+    i + bs[i..]
+        .iter()
+        .position(|b| !b.is_ascii())
+        .unwrap_or(bs.len() - i)
 }
 
 /// `length`/`index`/`match` count shorter strings (or prefixes) directly: rescanning them is

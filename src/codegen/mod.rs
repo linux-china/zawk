@@ -2417,7 +2417,11 @@ mod tests {
     fn trivial_drop_str_converts_boxed_literal() {
         // Build an unaligned slice longer than the inline limit so `Str::from` yields `Boxed`.
         let backing = vec![b'x'; 64];
-        let start = if backing.as_ptr() as usize & 0x7 == 0 { 1 } else { 0 };
+        let start = if backing.as_ptr() as usize & 0x7 == 0 {
+            1
+        } else {
+            0
+        };
         let bs = &backing[start..start + 40];
         let s: UniqueStr = runtime::Str::from(bs).into();
         assert!(!s.clone_str().drop_is_trivial());

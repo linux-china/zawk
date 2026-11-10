@@ -2313,7 +2313,11 @@ mod tests {
         assert_eq!(fields(b"tail"), vec![&b"tail"[..]]);
         assert!(fields(b" \t\r\n ").is_empty());
         let long = format!(" {} b\t{}", "x".repeat(40), "y".repeat(16));
-        let want = vec!["x".repeat(40).into_bytes(), b"b".to_vec(), "y".repeat(16).into_bytes()];
+        let want = vec![
+            "x".repeat(40).into_bytes(),
+            b"b".to_vec(),
+            "y".repeat(16).into_bytes(),
+        ];
         assert_eq!(fields(long.as_bytes()), want);
         let long_cr = format!("{}\r{} z", "x".repeat(20), "y".repeat(20));
         assert_eq!(fields(long_cr.as_bytes()).len(), 3);
@@ -2433,7 +2437,10 @@ mod tests {
         for _ in 0..20 {
             pass(&mut rc);
         }
-        assert!(pats.iter().any(|p| rc.0.was_evicted(p)), "nothing was evicted");
+        assert!(
+            pats.iter().any(|p| rc.0.was_evicted(p)),
+            "nothing was evicted"
+        );
         if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
             let round = regex_memory::round();
             for _ in 0..10 {

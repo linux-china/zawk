@@ -3101,11 +3101,17 @@ mod tests {
         // Array elements assigned in main and read in END are merged by summing (W303); keys
         // only, counts and sums are fine.
         assert_eq!(
-            codes(&run_with("{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }", &pr)),
+            codes(&run_with(
+                "{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }",
+                &pr
+            )),
             ["W303"]
         );
         assert_eq!(
-            codes(&run_with("{ last[$1] = $2 } END { for (k in last) print k, last[k] }", &pr)),
+            codes(&run_with(
+                "{ last[$1] = $2 } END { for (k in last) print k, last[k] }",
+                &pr
+            )),
             ["W303"]
         );
         assert_eq!(
@@ -3122,7 +3128,12 @@ mod tests {
         ] {
             assert!(codes(&run_with(ok, &pr)).is_empty(), "{}", ok);
         }
-        assert!(codes(&run("{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }")).is_empty());
+        assert!(
+            codes(&run(
+                "{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }"
+            ))
+            .is_empty()
+        );
         assert!(codes(&run_with("FNR == 1 { print FILENAME }", &pf)).is_empty());
         assert_eq!(
             codes(&run_with("FNR == 1 { print FILENAME }", &pr)),

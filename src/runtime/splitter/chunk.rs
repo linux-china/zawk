@@ -108,7 +108,10 @@ impl ScanOffsets for Offsets {
             } => {
                 unsafe { kernel(buf, self, field_sep, record_sep) };
                 // As the producer does: no offset is past the end of the chunk.
-                let keep = self.rel.fields.partition_point(|&off| (off as usize) < buf.len());
+                let keep = self
+                    .rel
+                    .fields
+                    .partition_point(|&off| (off as usize) < buf.len());
                 self.rel.fields.truncate(keep);
             }
             DeferredScan::Whitespace { .. } => {
@@ -132,7 +135,9 @@ impl ScanOffsets for WhitespaceOffsets {
                 find_record_seps(buf, 0, &mut self.0.nl.fields, record_sep);
             }
             DeferredScan::Whitespace { kernel, trim } => {
-                unsafe { kernel(buf, self, /*start: after whitespace*/ 1) };
+                unsafe {
+                    kernel(buf, self, /*start: after whitespace*/ 1)
+                };
                 if trim {
                     let fields = &mut self.0.rel.fields;
                     let keep = fields.partition_point(|&off| (off as usize) < buf.len());

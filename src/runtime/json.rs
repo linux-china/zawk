@@ -3,9 +3,9 @@ use crate::runtime::{CostModel, Float, Int, IntMap, Str, StrLru, StrMap, stdlib_
 use miniserde::json;
 use miniserde::json::Value;
 use serde_json_path::JsonPath;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
-use std::sync::{LazyLock, Mutex};
 
 /// JSON text of a scalar float: non-finite values (`inf`, `-inf`, `NaN`) become `null`,
 /// matching the map encoder and `-o jsonl`.
@@ -241,17 +241,24 @@ const JSON_PATH_COST: CostModel = CostModel {
     per_byte: 32,
 };
 
-static JSON_PATHS: LazyLock<Mutex<StrLru<JsonPath>>> =
-    LazyLock::new(|| Mutex::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST)));
+thread_local! {
+    /// Compiled JSON paths, one cache per thread: compiling a path is cheap, and a per-thread
+    /// cache keeps `-pr`/`-pf` workers from serializing on a shared lock while they query.
+    static JSON_PATHS: RefCell<StrLru<JsonPath>> =
+        RefCell::new(StrLru::new(JSON_PATHS_BUDGET, JSON_PATH_COST));
+}
 
-fn compiled_json_path<'p>(
-    pool: &'p mut StrLru<JsonPath>,
-    func: &str,
-    json_path: &str,
-) -> Option<&'p JsonPath> {
-    pool.get_or_try_insert(json_path, || JsonPath::parse(json_path))
-        .map_err(|e| stdlib_warning(func, format!("{:?}: {}", json_path, e)))
-        .ok()
+/// Runs `query` with the compiled `json_path`, or returns `None` (with a warning) for an invalid
+/// path. The thread's cache stays borrowed only for this thread, so no other worker waits on it.
+fn with_json_path<T>(func: &str, json_path: &str, query: impl FnOnce(&JsonPath) -> T) -> Option<T> {
+    JSON_PATHS.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        let path = pool
+            .get_or_try_insert(json_path, || JsonPath::parse(json_path))
+            .map_err(|e| stdlib_warning(func, format!("{:?}: {}", json_path, e)))
+            .ok()?;
+        Some(query(path))
+    })
 }
 
 /// Text of a JSONPath result: strings are decoded, null is empty, other values stay JSON text.
@@ -285,15 +292,11 @@ pub(crate) fn json_value(json_text: &str, json_path: &str) -> String {
     let Some(json) = parse_json("json_value", json_text) else {
         return "".to_owned();
     };
-    let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(json_path) = compiled_json_path(&mut pool, "json_value", json_path) else {
-        return "".to_owned();
-    };
-    json_path
-        .query(&json)
-        .first()
-        .map(|node| json_node_text(node))
-        .unwrap_or_default()
+    with_json_path("json_value", json_path, |path| {
+        path.query(&json).first().map(json_node_text)
+    })
+    .flatten()
+    .unwrap_or_default()
 }
 
 pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>> {
@@ -301,13 +304,11 @@ pub(crate) fn json_query<'a>(json_text: &str, json_path: &str) -> IntMap<Str<'a>
     let Some(json) = parse_json("json_query", json_text) else {
         return map;
     };
-    let mut pool = JSON_PATHS.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(json_path) = compiled_json_path(&mut pool, "json_query", json_path) else {
-        return map;
-    };
-    for (i, item) in json_path.query(&json).iter().enumerate() {
-        map.insert((i + 1) as i64, Str::from(json_node_text(item)));
-    }
+    with_json_path("json_query", json_path, |path| {
+        for (i, item) in path.query(&json).iter().enumerate() {
+            map.insert((i + 1) as i64, Str::from(json_node_text(item)));
+        }
+    });
     map
 }
 

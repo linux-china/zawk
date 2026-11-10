@@ -293,11 +293,7 @@ impl<'a> Core<'a> {
         StageResult {
             slots: mem::take(&mut self.slots),
             nr: self.vars.nr,
-            file: (
-                file_version,
-                self.vars.filename.to_string(),
-                self.vars.fnr,
-            ),
+            file: (file_version, self.vars.filename.to_string(), self.vars.fnr),
             rc,
             exit: self.exiting.then_some(self.exit_code),
         }

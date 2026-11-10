@@ -899,10 +899,7 @@ impl<'a> View<'a> {
                 // would clobber the caller's variable.
                 self.ref_val(compile::Ty::Str, val);
                 let str_ty = self.get_ty(compile::Ty::Str);
-                let s = self
-                    .builder
-                    .ins()
-                    .load(str_ty, STR_MEM_FLAGS, val, 0);
+                let s = self.builder.ins().load(str_ty, STR_MEM_FLAGS, val, 0);
                 let slot = self.stack_slot_bytes(mem::size_of::<runtime::Str>() as u32);
                 self.store_string(slot, s);
                 self.f.str_slots[var] = Some(slot);
@@ -1037,10 +1034,7 @@ impl<'a> View<'a> {
                 }
                 if let compile::Ty::Str = ty {
                     let str_ty = self.get_ty(*ty);
-                    v = self
-                        .builder
-                        .ins()
-                        .load(str_ty, STR_MEM_FLAGS, v, 0);
+                    v = self.builder.ins().load(str_ty, STR_MEM_FLAGS, v, 0);
                 }
                 self.drop_all();
                 // Free key arrays of loops left early (e.g. `return` inside `for (k in a)`).
@@ -1098,9 +1092,7 @@ impl<'a> View<'a> {
         let ptr_ty = self.ptr_to(str_ty);
         // We get an error if we do a direct stack_store here
         let addr = self.builder.ins().stack_addr(ptr_ty, ss, 0);
-        self.builder
-            .ins()
-            .store(STR_MEM_FLAGS, v, addr, 0);
+        self.builder.ins().store(STR_MEM_FLAGS, v, addr, 0);
     }
 
     /// Read the current value of a variable. For local strings this is the (constant) address of
@@ -1789,10 +1781,7 @@ impl<'a> View<'a> {
                 // Goes through the inline tag check: most strings need no call.
                 self.ref_val(Str, src);
                 let str_ty = self.get_ty(Str);
-                let loaded = self
-                    .builder
-                    .ins()
-                    .load(str_ty, STR_MEM_FLAGS, src, 0);
+                let loaded = self.builder.ins().load(str_ty, STR_MEM_FLAGS, src, 0);
                 self.bind_val_inner((dst, Str), loaded, skip_drop)?;
             }
             MapIntInt | MapIntFloat | MapIntStr | MapStrInt | MapStrFloat | MapStrStr => {

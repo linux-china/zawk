@@ -837,7 +837,11 @@ pub fn wrap(text: &str, width: Int) -> String {
 /// (`CLICOLOR_FORCE=1` forces them). With a terminal stdout, `print color(..) > "file"`,
 /// `| "cmd"` or a string built with `sprintf` still holds escape codes.
 pub fn color(spec: &str, text: &str) -> String {
-    color_with(spec, text, colored::control::SHOULD_COLORIZE.should_colorize())
+    color_with(
+        spec,
+        text,
+        colored::control::SHOULD_COLORIZE.should_colorize(),
+    )
 }
 
 /// Like [`color`], but `enabled` decides whether escape codes are emitted instead of the
@@ -907,7 +911,10 @@ mod tests {
         assert_eq!(c("red+shiny", "hi"), c("red", "hi"));
         assert_eq!(color_with("red+bold", "hi", false), "hi");
         // Nested: the outer style comes back after the inner reset.
-        assert_eq!(c("bold", &c("red", "a")), "\x1b[1m\x1b[31ma\x1b[0m\x1b[1m\x1b[0m");
+        assert_eq!(
+            c("bold", &c("red", "a")),
+            "\x1b[1m\x1b[31ma\x1b[0m\x1b[1m\x1b[0m"
+        );
     }
 
     #[test]
