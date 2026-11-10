@@ -134,6 +134,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W218 | a field, `NF` or `$0` read in BEGIN, before any input is read: use `NR == 1 { ... }` or `getline` first |
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
+| W303 | with `-p`: array element set with `=` in the main loop (`a[k] = 1`, `last[k] = $2`) and its value read in END is merged over workers (numbers summed), so a key seen by several workers is multiplied; use `a[k]++` / `+=`, or collect per-worker values in PREPARE |
 
 Only the first error is reported: fix it and lint again.
 

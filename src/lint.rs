@@ -543,6 +543,11 @@ struct Facts<'a, 'p> {
     /// Assignments to an array element whose result depends on whether the subscript or the
     /// right-hand side is evaluated first (`a[i++] = i`, `a[p(1)] = p(2)`): the location.
     order_dependent: Vec<Option<Loc>>,
+    /// Assignments to array elements (`a[k] = v`, `a[k]++`): the array, how it is set and where.
+    element_sets: Vec<Set<'a>>,
+    /// Reads of array element values (`a[k]`, or the array passed to a user-defined function),
+    /// as opposed to only its keys (`k in a`, `for (k in a)`, `length(a)`): the array and region.
+    element_reads: Vec<(&'a str, Region)>,
 }
 
 /// What evaluating an expression may read and write, for spotting evaluation-order dependencies.
@@ -1006,7 +1011,17 @@ impl<'a, 'p> Facts<'a, 'p> {
             ast::Expr::Index(arr, ix) => {
                 self.array(arr);
                 match arr {
-                    ast::Expr::Var(name) => self.set(name, SetKind::Indirect, self.loc(arr)),
+                    ast::Expr::Var(name) => {
+                        self.set(name, SetKind::Indirect, self.loc(arr));
+                        if !self.is_local(name) {
+                            self.element_sets.push(Set {
+                                name,
+                                region: self.region,
+                                kind,
+                                loc: self.loc(e),
+                            });
+                        }
+                    }
                     // `a[i][j] = v` (an error reported by the type checker) sets `a`.
                     ast::Expr::Index(..) => self.lvalue(arr, SetKind::Indirect),
                     _ => self.expr(arr),
@@ -1095,6 +1110,9 @@ impl<'a, 'p> Facts<'a, 'p> {
                     };
                     self.header_columns.push((name, self.loc(e)));
                 }
+                if let Var(name) = arr {
+                    self.element_reads.push((name, self.region));
+                }
                 self.array(arr);
                 self.expr(arr);
                 self.expr(ix);
@@ -1110,6 +1128,11 @@ impl<'a, 'p> Facts<'a, 'p> {
                 let sum = match (lhs, rhs) {
                     (Var(x), Binop(ast::Binop::Plus | ast::Binop::Minus, l, r)) => {
                         matches!(l, Var(y) if y == x) || matches!(r, Var(y) if y == x)
+                    }
+                    // `a[k] = a[k] + e`
+                    (Index(Var(x), _), Binop(ast::Binop::Plus | ast::Binop::Minus, l, r)) => {
+                        matches!(l, Index(Var(y), _) if y == x)
+                            || matches!(r, Index(Var(y), _) if y == x)
                     }
                     _ => false,
                 };
@@ -1180,6 +1203,11 @@ impl<'a, 'p> Facts<'a, 'p> {
                     Either::Right(_) => true,
                 };
                 for arg in args.iter() {
+                    if let (Either::Left(f), Var(name)) = (f, arg) {
+                        if self.user_funcs.contains(f) {
+                            self.element_reads.push((name, self.region));
+                        }
+                    }
                     match arg {
                         Var(name) if !read_only => self.set(name, SetKind::Indirect, self.loc(arg)),
                         _ => self.expr(arg),
@@ -1390,6 +1418,8 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         string_fields: Vec::new(),
         user_funcs: prog.decs.iter().map(|d| d.name).collect(),
         order_dependent: Vec::new(),
+        element_sets: Vec::new(),
+        element_reads: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1411,7 +1441,11 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         .iter()
         .chain(prog.endfile.iter())
         .chain(prog.prepare.iter());
+    // Elements set once per worker (`PREPARE { m[PID] = max }`) are the documented way to
+    // collect per-worker values, not a W303.
+    let main_element_sets = facts.element_sets.len();
     worker_blocks.for_each(|s| facts.stmt(s));
+    facts.element_sets.truncate(main_element_sets);
     facts.region = Region::End;
     prog.end.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Function;
@@ -2130,6 +2164,33 @@ fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
             "W302",
             format!(
                 "in parallel mode END sees `{}` aggregated over the workers (numbers summed, strings from one worker), not its last value; collect per-worker values in PREPARE, e.g. `PREPARE {{ v[PID] = {} }}`",
+                s.name, s.name
+            ),
+            s.loc,
+        ));
+    }
+    // Arrays whose elements the main loop assigns (`a[k] = 1`, `last[k] = $2`) and END reads:
+    // the workers' arrays are merged key by key, numbers summed and strings from one worker, so
+    // a value seen by several workers is multiplied. Keys alone (`for (k in a)`, `length(a)`)
+    // are the union and stay right.
+    let mut reported: Vec<&str> = Vec::new();
+    for s in &facts.element_sets {
+        if s.region != Region::Main
+            || s.kind != SetKind::Other
+            || reported.contains(&s.name)
+            || crate::builtins::VARIABLES.contains_key(s.name)
+            || !facts
+                .element_reads
+                .iter()
+                .any(|(n, r)| *r == Region::End && *n == s.name)
+        {
+            continue;
+        }
+        reported.push(s.name);
+        diags.push(warning(
+            "W303",
+            format!(
+                "in parallel mode END sees the elements of `{}` merged over the workers (numbers summed, strings from one worker), so a key assigned in several workers is counted several times; count with `{}[k]++` / `+=`, or collect per-worker values in PREPARE",
                 s.name, s.name
             ),
             s.loc,
@@ -3037,6 +3098,31 @@ mod tests {
             parallel: Some(Parallel::File),
             ..Options::default()
         };
+        // Array elements assigned in main and read in END are merged by summing (W303); keys
+        // only, counts and sums are fine.
+        assert_eq!(
+            codes(&run_with("{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }", &pr)),
+            ["W303"]
+        );
+        assert_eq!(
+            codes(&run_with("{ last[$1] = $2 } END { for (k in last) print k, last[k] }", &pr)),
+            ["W303"]
+        );
+        assert_eq!(
+            codes(&run_with(
+                "function show(x, k) { for (k in x) print x[k] } { m[$1] = $2 } END { show(m) }",
+                &pr
+            )),
+            ["W303"]
+        );
+        for ok in [
+            "{ a[$4] = 1 } END { for (k in a) n++; print n, length(a) }",
+            "{ c[$1]++; s[$1] += $2; t[$1] = t[$1] + $3 } END { for (k in c) print c[k], s[k], t[k] }",
+            "{ a[$1] = $2 } END { print length(a) }",
+        ] {
+            assert!(codes(&run_with(ok, &pr)).is_empty(), "{}", ok);
+        }
+        assert!(codes(&run("{ a[$4] = 1 } END { for (k in a) s += a[k]; print s }")).is_empty());
         assert!(codes(&run_with("FNR == 1 { print FILENAME }", &pf)).is_empty());
         assert_eq!(
             codes(&run_with("FNR == 1 { print FILENAME }", &pr)),

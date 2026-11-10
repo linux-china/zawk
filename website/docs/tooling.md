@@ -94,6 +94,7 @@ zawk --lint -f report.awk data.csv     # lint, then run if there is no error
 | W206 | variable set but never read (typo: `totl += $1` ... `print total`) |
 | W207 | function defined but never called |
 | W301 / W302 | `NR` and END aggregation semantics in parallel mode |
+| W303 | array elements assigned in a main rule (`a[k] = 1`, `last[k] = $2`) and read in END: merged by summing in parallel mode |
 
 ## `zawk fmt`
 

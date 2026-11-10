@@ -1251,7 +1251,7 @@ impl<'a> Str<'a> {
     /// string is cached with its buffer's char cursor, so `length(s)` in a loop doesn't rescan `s`,
     /// and the count of a concatenation is summed from its pieces, so neither does `s = s "é";
     /// length(s)`.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         if characters_as_bytes() {
             return self.bytes_len();
         }
@@ -2292,6 +2292,9 @@ impl UniqueBuf {
             );
             UniqueBuf(alloced)
         }
+    }
+    pub(crate) fn len(&self) -> usize {
+        unsafe { &(*self.0) }.size
     }
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         let header: &BufHeader = unsafe { &(*self.0) };

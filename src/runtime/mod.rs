@@ -1004,7 +1004,7 @@ impl FileWrite {
     }
 }
 
-pub const CHUNK_SIZE: usize = 8 << 10;
+pub const CHUNK_SIZE: usize = 128 << 10;
 
 #[derive(Default)]
 pub(crate) struct Inputs {

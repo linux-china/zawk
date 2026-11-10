@@ -527,6 +527,8 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
         self.defer = true;
     }
     fn get_chunk(&mut self, chunk: &mut OffsetChunk) -> Result<bool> {
+        // The buffer of the consumed chunk is overwritten below: read the next chunk into it.
+        self.inner.recycle(chunk.buf.take());
         if let Some(res) = self.get_deferred_chunk(chunk) {
             return res;
         }
@@ -673,6 +675,7 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
         self.0.defer = true;
     }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool> {
+        self.0.inner.recycle(chunk.buf.take());
         if let Some(res) = self.0.get_deferred_chunk(chunk) {
             return res;
         }
@@ -1265,6 +1268,82 @@ mod tests {
                         );
                     }
                     assert_eq!(a.len(), b.len());
+                }
+            }
+        }
+    }
+
+    // Reading into the buffers of consumed chunks (which hold the bytes of earlier chunks) yields
+    // the same chunks and offsets as reading into new, zeroed, buffers.
+    #[test]
+    fn recycled_buffers_match_new_buffers() {
+        use crate::runtime::splitter::batch::{
+            get_find_indexes_ascii_whitespace, get_find_indexes_bytes,
+        };
+        // Drops the buffer of each chunk instead of handing it back to the producer.
+        fn dump_fresh<P: ChunkProducer<Chunk = OffsetChunk<Off>>, Off: ScanOffsets>(
+            mut p: P,
+            offsets: impl Fn(&Off) -> &Offsets,
+        ) -> ChunkDump {
+            let mut res = Vec::new();
+            loop {
+                let mut chunk = OffsetChunk::<Off>::default();
+                if p.get_chunk(&mut chunk).expect("get_chunk should succeed") {
+                    return res;
+                }
+                chunk.finish();
+                let data = chunk.buf.as_mut().unwrap().as_mut_bytes()[..chunk.len].to_vec();
+                let off = offsets(&chunk.off);
+                res.push((data, off.rel.fields.clone(), off.nl.fields.clone()));
+            }
+        }
+        let mut inputs = deferred_inputs();
+        // A short last chunk after full ones that leave non-whitespace bytes in the buffer.
+        inputs.push(b"aaaaaaaaaaaaa bbbbbbbbbbbbbb\ncccccccccccccc dddddddddd\ne".to_vec());
+        for input in inputs {
+            for defer in [false, true] {
+                for chunk_size in [16, 64, 4096] {
+                    let bytes = || {
+                        let mut p = new_offset_chunk_producer_bytes(
+                            &input[..],
+                            chunk_size,
+                            "x",
+                            b' ',
+                            b'\n',
+                            1,
+                            false,
+                            get_find_indexes_bytes(),
+                            LinesOnly::new(AtomicBool::new(false)),
+                        );
+                        if defer {
+                            p.defer_scan();
+                        }
+                        p
+                    };
+                    assert_eq!(
+                        dump_chunks(bytes(), |o: &Offsets| o),
+                        dump_fresh(bytes(), |o: &Offsets| o)
+                    );
+                    let ws = || {
+                        let mut p = new_offset_chunk_producer_ascii_whitespace(
+                            &input[..],
+                            chunk_size,
+                            "x",
+                            1,
+                            false,
+                            get_find_indexes_ascii_whitespace(),
+                            LinesOnly::new(AtomicBool::new(false)),
+                        );
+                        if defer {
+                            p.defer_scan();
+                        }
+                        p
+                    };
+                    assert_eq!(
+                        dump_chunks(ws(), |o: &WhitespaceOffsets| &o.0),
+                        dump_fresh(ws(), |o: &WhitespaceOffsets| &o.0),
+                        "defer={defer} chunk_size={chunk_size}"
+                    );
                 }
             }
         }

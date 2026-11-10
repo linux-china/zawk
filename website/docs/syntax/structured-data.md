@@ -179,4 +179,4 @@ zawk -i csv -p r -j 8 '{ sum += $3 } END { print sum }' big.csv
 ```
 
 Scalars set in the main loop and read in `END` are aggregated over workers. `zawk lint -pr` reports code whose
-meaning changes in parallel mode (W301, W302).
+meaning changes in parallel mode (W301, W302, W303).

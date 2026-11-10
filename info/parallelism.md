@@ -157,6 +157,11 @@ END { print budget }
   `BEGIN { t = 5 } { t = $1 } END { print t }` every worker's `t` is a value it
   assigned, and END sees their sum. `zawk lint -p r` reports such variables
   (`W302`).
+  The same goes for array elements: with `{ a[$4] = 1 }` a key seen by three
+  workers has the value 3 in END, and `{ last[$1] = $2 }` adds up the last
+  values of each worker. The keys (`for (k in a)`, `length(a)`) are right;
+  the values are not. Count with `a[k]++` / `a[k] += v`, or collect per-worker
+  values in PREPARE. `zawk lint -p r` reports such arrays (`W303`).
 
 This, among other things, means that simple aggregations like sums:
 ```awk

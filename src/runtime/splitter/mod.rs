@@ -547,6 +547,9 @@ struct Reader<R> {
     check_utf8: bool,
     // No bytes have been read yet; a UTF-8 byte order mark at the start of the input is dropped.
     at_start: bool,
+    // A spent buffer of `chunk_size + padding` bytes, reused for the next read instead of
+    // allocating (and zeroing) a new one.
+    spare: Option<UniqueBuf>,
 }
 
 const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -597,6 +600,7 @@ impl<R: Read> Reader<R> {
             last_len: 0,
             check_utf8,
             at_start: true,
+            spare: None,
         }
     }
 
@@ -637,12 +641,27 @@ impl<R: Read> Reader<R> {
         self.buf = UniqueBuf::new(0).into_buf();
     }
 
+    /// Hands back a buffer that is no longer used (e.g. the one of a consumed chunk), to read the
+    /// next chunk into.
+    pub(crate) fn recycle(&mut self, buf: Option<UniqueBuf>) {
+        if let Some(b) = buf
+            && b.len() == self.chunk_size + self.padding
+        {
+            self.spare = Some(b);
+        }
+    }
+
     fn reset(&mut self) -> Result</*done*/ bool> {
         if self.state == ReaderState::Eof {
             return Ok(true);
         }
         let (next_buf, next_len, input_len) = self.get_next_buf(self.start)?;
-        self.buf = next_buf.into_buf();
+        let old = std::mem::replace(&mut self.buf, next_buf.into_buf());
+        // Nothing else refers to the old buffer (no record or chunk kept a slice of it): read the
+        // next chunk into it.
+        if let Ok(old) = old.try_unique() {
+            self.recycle(Some(old));
+        }
         self.end = next_len;
         self.input_end = input_len;
         self.start = 0;
@@ -660,19 +679,30 @@ impl<R: Read> Reader<R> {
         if plen > self.chunk_size / 2 {
             self.chunk_size = std::cmp::max(self.chunk_size * 2, 1024);
         }
-        // NB: UniqueBuf fills the allocation with zeros.
-        let mut data = UniqueBuf::new(self.chunk_size + self.padding);
+        // Reuse a spent buffer when there is one. A new UniqueBuf is zeroed; a reused one only gets
+        // the bytes after the input zeroed below, so that the padding reads as zeros either way.
+        let size = self.chunk_size + self.padding;
+        let mut data = match self.spare.take() {
+            Some(b) if b.len() == size => b,
+            _ => UniqueBuf::new(size),
+        };
 
         // First, append the remaining bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(self.buf.as_ptr().add(consume), data.as_mut_ptr(), plen);
         }
-        let mut bytes = &mut data.as_mut_bytes()[..self.chunk_size];
-        let mut bytes_read = plen + read_to_slice(&mut self.inner, &mut bytes[plen..])?;
+        let mut bytes_read = {
+            let bytes = &mut data.as_mut_bytes()[plen..self.chunk_size];
+            plen + read_to_slice(&mut self.inner, bytes)?
+        };
         if bytes_read != self.chunk_size {
             done = true;
-            bytes = &mut bytes[..bytes_read];
         }
+        // Zero the padding (and, for the last chunk, the unused bytes before it). The scans copy
+        // the tail of the input to a zeroed block rather than read the padding, so this only keeps
+        // stale bytes of an earlier chunk out of it; it is `padding` bytes except at the end.
+        data.as_mut_bytes()[bytes_read..].fill(0);
+        let mut bytes = &mut data.as_mut_bytes()[..bytes_read];
         if self.at_start {
             self.at_start = false;
             // Excel and many Windows tools start UTF-8 files with a byte order mark; drop it so
