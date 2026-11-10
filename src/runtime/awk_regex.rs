@@ -232,7 +232,10 @@ impl std::fmt::Debug for AwkRegex {
 /// Unicode classes (`[[:alpha:]]` is `\p{Alphabetic}`, `.` any character) make up most of the
 /// build time of the NFA, so the engine is built for the characters of the text at hand (see
 /// `restrict`): a match can only consume characters of the text, so the result is the same. The
-/// engine for ASCII text is kept; for other text one is built per call.
+/// engine for ASCII text is kept. For other text, the engine is built for the blocks of 4096
+/// characters the text uses (see `Blocks`) and kept too, and built again only for text with
+/// characters of other blocks; a pattern without large Unicode classes (`[^0-9]`, `.`) needs no
+/// restricting, and its engine is built once for all text.
 ///
 /// Before any engine is used, the text is checked for the literals every match starts and ends
 /// with (see `may_match`): a pattern built from the input mostly does not match it.
@@ -244,11 +247,18 @@ pub(crate) struct LightMatcher {
     /// Literals one of which every match starts with, and whether matches start at the start of
     /// the text; `None` when unknown.
     prefixes: Option<(Vec<Vec<u8>>, bool)>,
-    /// The same for the end of matches.
-    suffixes: Option<(Vec<Vec<u8>>, bool)>,
+    /// The same for the end of matches, extracted on first need: most patterns used once are
+    /// ruled out by their prefixes.
+    suffixes: OnceCell<Option<(Vec<Vec<u8>>, bool)>>,
     /// The engine for ASCII text, once built; `Some(None)` when it cannot be built. Boxed, as the
     /// registry of matchers keeps them in its table.
     ascii: Option<Option<Box<LightEngine>>>,
+    /// Whether the pattern has a Unicode class large enough to be worth restricting to the
+    /// characters of the text (see `has_large_class`).
+    large_classes: bool,
+    /// The engine for other text, for the blocks of characters it was built for (`Blocks::ALL`
+    /// without large classes), once built; `None` inside when it cannot be built.
+    wide: Option<(Blocks, Option<Box<LightEngine>>)>,
     /// How many times the matcher was used.
     pub(crate) uses: u32,
 }
@@ -500,17 +510,75 @@ fn ascii_chars() -> regex_syntax::hir::ClassUnicode {
     ClassUnicode::new([ClassUnicodeRange::new('\0', '\x7F')])
 }
 
-/// The ASCII characters and those of `hay`.
-fn chars_of(hay: &[u8]) -> regex_syntax::hir::ClassUnicode {
-    use regex_syntax::hir::{ClassUnicode, ClassUnicodeRange};
-    let mut chars = ascii_chars();
-    chars.union(&ClassUnicode::new(
-        hay.utf8_chunks()
-            .flat_map(|c| c.valid().chars())
-            .filter(|c| !c.is_ascii())
-            .map(|c| ClassUnicodeRange::new(c, c)),
-    ));
-    chars
+/// A set of blocks of 4096 characters (`U+x000`–`U+xFFF`, those whose UTF-8 encodings share the
+/// lead byte, for 3-byte ones), to restrict the engines of a `LightMatcher` to (see `restrict`).
+/// Restricting to the blocks of the text rather than to its very characters keeps the restricted
+/// classes to a few ranges just the same (text mostly comes from a few scripts), takes a pass
+/// over the text without sorting, and lets an engine serve all the text from the same blocks
+/// (all Chinese text, say), so that it is built once rather than per call.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Blocks([u64; Blocks::WORDS]);
+
+impl Blocks {
+    const COUNT: usize = (char::MAX as usize >> 12) + 1;
+    const WORDS: usize = Blocks::COUNT.div_ceil(64);
+    const ALL: Blocks = Blocks([u64::MAX; Blocks::WORDS]);
+
+    /// The blocks of the non-ASCII characters of `hay` (bytes that are not valid UTF-8 are
+    /// matched by byte classes, which are not restricted).
+    fn of(hay: &[u8]) -> Blocks {
+        let mut b = Blocks::default();
+        for c in hay.utf8_chunks().flat_map(|c| c.valid().chars()) {
+            if !c.is_ascii() {
+                let i = c as usize >> 12;
+                b.0[i / 64] |= 1 << (i % 64);
+            }
+        }
+        b
+    }
+    fn contains(&self, other: &Blocks) -> bool {
+        self.0.iter().zip(&other.0).all(|(a, b)| b & !a == 0)
+    }
+    fn union(&self, other: &Blocks) -> Blocks {
+        let mut b = *self;
+        b.0.iter_mut().zip(&other.0).for_each(|(a, b)| *a |= b);
+        b
+    }
+    /// The ASCII characters and those of the blocks.
+    fn chars(&self) -> regex_syntax::hir::ClassUnicode {
+        use regex_syntax::hir::{ClassUnicode, ClassUnicodeRange};
+        let mut ranges = vec![ClassUnicodeRange::new('\0', '\x7F')];
+        let mut i = 0;
+        while i < Blocks::COUNT {
+            if self.0[i / 64] & (1 << (i % 64)) == 0 {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < Blocks::COUNT && self.0[i / 64] & (1 << (i % 64)) != 0 {
+                i += 1;
+            }
+            // Surrogates (U+D800–U+DFFF) are not characters: a run can end with theirs.
+            let lo = char::from_u32((start << 12).max(0x80) as u32).unwrap();
+            let hi = char::from_u32(((i << 12) - 1) as u32).unwrap_or('\u{D7FF}');
+            ranges.push(ClassUnicodeRange::new(lo, hi));
+        }
+        ClassUnicode::new(ranges)
+    }
+}
+
+/// Whether `hir` has a Unicode class with more than a few ranges (`\p{Alphabetic}`, `\w`),
+/// whose compiled UTF-8 automaton restricting to the characters of the text makes smaller. A
+/// class of a few ranges (`[^0-9]`, `.`) compiles to a few states however wide the ranges are.
+fn has_large_class(hir: &regex_syntax::hir::Hir) -> bool {
+    use regex_syntax::hir::{Class, HirKind};
+    match hir.kind() {
+        HirKind::Class(Class::Unicode(c)) => c.ranges().len() > 8,
+        HirKind::Repetition(r) => has_large_class(&r.sub),
+        HirKind::Capture(c) => has_large_class(&c.sub),
+        HirKind::Concat(hs) | HirKind::Alternation(hs) => hs.iter().any(has_large_class),
+        _ => false,
+    }
 }
 
 /// Whether compiling `hir` with all of Unicode could exceed `regex`'s size limit, which the
@@ -533,17 +601,27 @@ fn may_be_too_big(hir: &regex_syntax::hir::Hir) -> bool {
 }
 
 /// Literals one of which every match of `hir` starts with (or ends with, for
-/// `ExtractKind::Suffix`), when there are a few, none empty.
+/// `ExtractKind::Suffix`), when there are a few, none empty. Of more, the longest prefix (or
+/// suffix) they share, which every match starts (or ends) with too: `^ABC12[0-9]*$` has the
+/// literals `ABC120` to `ABC129` and `ABC12`, which share `ABC12`.
 fn required_literals(
     hir: &regex_syntax::hir::Hir,
     kind: regex_syntax::hir::literal::ExtractKind,
 ) -> Option<Vec<Vec<u8>>> {
+    use regex_syntax::hir::literal::ExtractKind;
     let mut extractor = regex_syntax::hir::literal::Extractor::new();
-    extractor.kind(kind).limit_total(64);
+    extractor.kind(kind.clone()).limit_total(64);
     let seq = extractor.extract(hir);
     let lits = seq.literals()?;
-    if lits.len() > 8 || lits.iter().any(|l| l.is_empty()) {
+    if lits.iter().any(|l| l.is_empty()) {
         return None;
+    }
+    if lits.len() > 8 {
+        let common = match kind {
+            ExtractKind::Suffix => seq.longest_common_suffix(),
+            _ => seq.longest_common_prefix(),
+        };
+        return common.filter(|c| !c.is_empty()).map(|c| vec![c.to_vec()]);
     }
     Some(lits.iter().map(|l| l.as_bytes().to_vec()).collect())
 }
@@ -562,17 +640,20 @@ impl LightMatcher {
         if may_be_too_big(&hir) {
             return None;
         }
-        let props = hir.properties();
-        let prefixes = required_literals(&hir, ExtractKind::Prefix)
-            .map(|lits| (lits, props.look_set_prefix().contains(Look::Start)));
-        let suffixes = required_literals(&hir, ExtractKind::Suffix)
-            .map(|lits| (lits, props.look_set_suffix().contains(Look::End)));
+        let prefixes = required_literals(&hir, ExtractKind::Prefix).map(|lits| {
+            (
+                lits,
+                hir.properties().look_set_prefix().contains(Look::Start),
+            )
+        });
         Some(LightMatcher {
             longest: hir_needs_longest(&hir),
+            large_classes: has_large_class(&hir),
             hir,
             prefixes,
-            suffixes,
+            suffixes: OnceCell::new(),
             ascii: None,
+            wide: None,
             uses: 0,
         })
     }
@@ -598,14 +679,28 @@ impl LightMatcher {
                 }
             })
         };
-        self.prefixes.as_ref().is_none_or(prefix) && self.suffixes.as_ref().is_none_or(suffix)
+        self.prefixes.as_ref().is_none_or(prefix) && self.suffixes().as_ref().is_none_or(suffix)
+    }
+
+    fn suffixes(&self) -> &Option<(Vec<Vec<u8>>, bool)> {
+        use regex_syntax::hir::{Look, literal::ExtractKind};
+        self.suffixes.get_or_init(|| {
+            required_literals(&self.hir, ExtractKind::Suffix).map(|lits| {
+                let end = self.hir.properties().look_set_suffix().contains(Look::End);
+                (lits, end)
+            })
+        })
     }
 
     /// Builds what the first use of the matcher on `hay` needs, so that its memory can be
-    /// measured with the matcher's (see `RegexCache::light_matcher`).
+    /// measured with the matcher's (see `RegexCache::with_light_matcher`).
     pub(crate) fn prepare(&mut self, hay: &[u8]) {
-        if hay.is_ascii() && self.may_match(hay) {
-            self.ascii_engine();
+        if self.may_match(hay) {
+            if hay.is_ascii() {
+                self.ascii_engine();
+            } else {
+                self.wide_engine(hay);
+            }
         }
     }
 
@@ -616,6 +711,29 @@ impl LightMatcher {
                 LightEngine::new(restrict(hir, &ascii_chars(), true), longest).map(Box::new)
             })
             .as_deref()
+    }
+
+    /// The engine for the non-ASCII text `hay`: the one kept, when built for the blocks of `hay`
+    /// (see `Blocks`), or one built for those and the blocks of the one kept, which it replaces.
+    /// The blocks only grow, so this rebuilds the engine a few times at most.
+    fn wide_engine(&mut self, hay: &[u8]) -> Option<&LightEngine> {
+        let blocks = if self.large_classes {
+            Blocks::of(hay)
+        } else {
+            Blocks::ALL
+        };
+        let reuse = matches!(&self.wide, Some((b, _)) if b.contains(&blocks));
+        if !reuse {
+            let blocks = self.wide.as_ref().map_or(blocks, |(b, _)| b.union(&blocks));
+            let hir = if blocks == Blocks::ALL {
+                self.hir.clone()
+            } else {
+                restrict(&self.hir, &blocks.chars(), false)
+            };
+            let engine = LightEngine::new(hir, self.longest).map(Box::new);
+            self.wide = Some((blocks, engine));
+        }
+        self.wide.as_ref().and_then(|(_, e)| e.as_deref())
     }
 
     /// Runs `f` with the engine for `hay` (and other text made of the same characters), or
@@ -629,7 +747,7 @@ impl LightMatcher {
         if hay.is_ascii() {
             return self.ascii_engine().map(f);
         }
-        LightEngine::new(restrict(&self.hir, &chars_of(hay), false), self.longest).map(|e| f(&e))
+        self.wide_engine(hay).map(f)
     }
 
     /// Whether the pattern matches `hay`, or `None` when the engine for it cannot be built.
@@ -1992,8 +2110,12 @@ mod tests {
             "\\351",
             "(foo)?bar$",
             "^(user[0-9]+) ([^ ]+)",
+            "[[:alpha:]]+",
+            "([[:alpha:]]+) ([^[:alpha:] ]+)",
+            "\\w+$",
+            "[^[:alpha:]]+",
         ];
-        let hays: [&[u8]; 14] = [
+        let hays: [&[u8]; 18] = [
             b"",
             b"abcd",
             b"xyz",
@@ -2008,6 +2130,11 @@ mod tests {
             b"\xe9a",
             b"\xe6\x95\xb0\xe6\x8d\xae data",
             b"aaaa",
+            // Other scripts, after the engine was built for some (see `Blocks`).
+            "Привет мир 123 Ωμέγα".as_bytes(),
+            "日本語テキスト abc ー１２".as_bytes(),
+            "𝔘nicode 😀 x\u{e000}\u{d7ff}\u{ffff}".as_bytes(),
+            "中文 数据 ＡＢＣ 東京".as_bytes(),
         ];
         for ic in [false, true] {
             set_ignore_case(ic);
@@ -2044,6 +2171,68 @@ mod tests {
     }
 
     #[test]
+    fn blocks_cover_their_text() {
+        let texts = [
+            "",
+            "abc",
+            "é",
+            "中文 data",
+            "Привет 日本 😀",
+            "\u{d7ff}\u{e000}\u{fff}\u{1000}\u{10ffff}",
+        ];
+        for t in texts {
+            let chars = Blocks::of(t.as_bytes()).chars();
+            for c in t.chars() {
+                assert!(
+                    chars
+                        .ranges()
+                        .iter()
+                        .any(|r| r.start() <= c && c <= r.end()),
+                    "{:?} in {:?}",
+                    c,
+                    t
+                );
+            }
+        }
+        // Whole blocks, merged when adjacent.
+        let b = Blocks::of("\u{fff}\u{1000}中".as_bytes());
+        let ranges: Vec<_> = b
+            .chars()
+            .ranges()
+            .iter()
+            .map(|r| (r.start(), r.end()))
+            .collect();
+        assert_eq!(ranges, [('\0', '\u{1fff}'), ('\u{4000}', '\u{4fff}')]);
+        assert!(
+            Blocks::ALL.contains(&b) && b.contains(&Blocks::default()) && !b.contains(&Blocks::ALL)
+        );
+        let surrogates = Blocks::of("\u{d000}".as_bytes()).chars();
+        assert_eq!(surrogates.ranges()[1].end(), '\u{d7ff}');
+    }
+
+    #[test]
+    fn light_matcher_keeps_engines_for_other_text() {
+        let engine_id = |m: &mut LightMatcher, hay: &str| m.with_engine(hay.as_bytes(), |e| e.id);
+        // Without large classes: one engine for all non-ASCII text.
+        let mut m = LightMatcher::new("^k[0-9]+ [^0-9]+$").unwrap();
+        let id = engine_id(&mut m, "k1 中文");
+        assert_eq!(engine_id(&mut m, "k2 Привет"), id);
+        assert_eq!(m.wide.as_ref().unwrap().0, Blocks::ALL);
+        // With large ones: an engine for the blocks of the text, built again when other blocks
+        // show up, with those of before.
+        let mut m = LightMatcher::new("^k[0-9]+ [[:alpha:]]+$").unwrap();
+        let id = engine_id(&mut m, "k1 中文");
+        assert_eq!(engine_id(&mut m, "k2 数据东京"), id);
+        let id2 = engine_id(&mut m, "k3 Привет");
+        assert_ne!(id2, id);
+        assert_eq!(engine_id(&mut m, "k4 中文"), id2);
+        assert_eq!(m.is_match("k5 Мир".as_bytes()), Some(true));
+        assert_eq!(m.is_match("k6 日本 Мир".as_bytes()), Some(false));
+        assert_eq!(m.is_match("k7 日本Мир".as_bytes()), Some(true));
+        assert_eq!(m.is_match("k8 。，—".as_bytes()), Some(false));
+    }
+
+    #[test]
     fn light_matcher_required_literals() {
         let may = |pat: &str, hay: &str| LightMatcher::new(pat).unwrap().may_match(hay.as_bytes());
         assert!(may("^user1 [^ ]+ foo", "user1 x foo"));
@@ -2054,6 +2243,13 @@ mod tests {
         assert!(!may("(foo|bar)x", "a bazx"));
         assert!(may("[a-z]+", "1"));
         assert!(may("\\<abc", "abc"));
+        // Too many literals to check: the prefix (or suffix) they share.
+        assert!(may("^ABC12[0-9]*$", "ABC123"));
+        assert!(!may("^ABC12[0-9]*$", "ABC5"));
+        assert!(!may("^ABCABC5[0-9]*$", "ABC5"));
+        assert!(may("x[0-9]?end$", "a x1end"));
+        assert!(!may("x[0-9]?end$", "a x1enx"));
+        assert!(may("([0-9]|[a-f])x", "fx"));
         set_ignore_case(true);
         assert!(may("^user", "USER"));
         set_ignore_case(false);

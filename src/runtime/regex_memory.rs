@@ -49,11 +49,16 @@ pub(crate) fn set_budget(budget: usize) {
     LIMIT.set(budget);
 }
 
+/// Whether an entry of `cost` bytes fits in the budget without an eviction round.
+pub(crate) fn has_room(cost: usize) -> bool {
+    USED.get() + cost <= LIMIT.get()
+}
+
 /// Called before adding an entry of `cost` bytes to a cache: when that would take the caches past
 /// the budget, starts a new eviction round and returns true; the caller then evicts its least
 /// recently used half before adding the entry.
 pub(crate) fn make_room(cost: usize) -> bool {
-    if USED.get() + cost <= LIMIT.get() {
+    if has_room(cost) {
         return false;
     }
     ROUND.set(ROUND.get() + 1);

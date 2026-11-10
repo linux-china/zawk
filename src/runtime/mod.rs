@@ -99,7 +99,7 @@ const REGEX_COST: EntryCost = EntryCost {
 };
 
 /// How the memory of a `LightMatcher` counts against `regex_memory`: measured while it is built
-/// with the engine its first use builds (see `RegexCache::light_matcher`).
+/// with the engine its first use builds (see `RegexCache::with_light_matcher`).
 const LIGHT_COST: EntryCost = EntryCost {
     measured_percent: 100,
     estimate: CostModel {
@@ -119,14 +119,35 @@ pub struct RegexCache(
     // a program that toggles IGNORECASE per record keeps both sets of regexes cached.
     (bool, Registry<AwkRegex>, Registry<awk_regex::LightMatcher>),
     // Dynamic patterns that have not been used often enough yet to be worth compiling into the
-    // first registry (see `light_matcher`).
+    // first registry (see `with_light_matcher`).
     Registry<awk_regex::LightMatcher>,
     // The eviction round of `regex_memory` the registries last took part in.
     u64,
     // In a parallel run, the cache of compiled regexes shared by the workers: the first registry
     // is the first level, which needs no lock, and this the second (see `shared_lookup`).
     Option<Arc<shared_regex::SharedRegexes>>,
+    // The dynamic patterns seen once, which the first registries admit when seen again (see
+    // `with_light_matcher`).
+    Doorkeeper,
 );
+
+/// The hashes of the dynamic patterns seen recently (in two generations, as `Ghosts`). A
+/// pattern built from the input is often used once (`$0 ~ ("^ABC" $0 "[0-9]*$")`, one per
+/// record): caching it costs more than the match (copying the key, measuring its memory,
+/// eviction rounds), and pushes the patterns that are reused out of the cache. So a pattern is
+/// cached when seen for the second time only.
+#[derive(Default)]
+struct Doorkeeper(Ghosts);
+
+impl Doorkeeper {
+    /// Whether the pattern with hash `hash` was seen recently, noting that it was seen now.
+    fn seen(&mut self, hash: u64) -> bool {
+        self.0.contains(hash) || {
+            self.0.add(hash);
+            false
+        }
+    }
+}
 
 /// A thread that takes a compiled regex from `SharedRegexes` counts this fraction of its memory
 /// against its own budget: the compiled program is shared, but the copy has search caches of its
@@ -146,11 +167,12 @@ impl Default for RegexCache {
             (
                 false,
                 Registry::with_memory_limit_and_ghosts(REGEX_COST),
-                Registry::with_memory_limit(LIGHT_COST),
+                Registry::with_memory_limit_and_ghosts(LIGHT_COST),
             ),
-            Registry::with_memory_limit(LIGHT_COST),
+            Registry::with_memory_limit_and_ghosts(LIGHT_COST),
             regex_memory::round(),
             None,
+            Doorkeeper::default(),
         )
     }
 }
@@ -486,7 +508,7 @@ impl RegexCache {
         }
     }
     /// Runs `f` with a searcher for the dynamic pattern `pat`, to search `s` (and only `s`, see
-    /// `light_matcher`).
+    /// `with_light_matcher`).
     pub(crate) fn with_search<T>(
         &mut self,
         pat: &Str,
@@ -518,12 +540,13 @@ impl RegexCache {
             return f.take().unwrap()(re);
         }
         let light = s.with_bytes(|bs| {
-            let m = self.light_matcher(pat, bs)?;
             let f = &mut f;
-            if !m.may_match(bs) {
-                return Some(f.take().unwrap()(&awk_regex::NoMatch));
-            }
-            m.with_engine(bs, |e| f.take().unwrap()(e))
+            self.with_light_matcher(pat, bs, |m| {
+                if !m.may_match(bs) {
+                    return Some(f.take().unwrap()(&awk_regex::NoMatch));
+                }
+                m.with_engine(bs, |e| f.take().unwrap()(e))
+            })
         });
         if let Some(res) = light {
             return res;
@@ -533,33 +556,56 @@ impl RegexCache {
         self.compile_and_cache(pat, |re| f(re))
     }
 
-    /// The light matcher (see `awk_regex::LightMatcher`) for a dynamic pattern that is not
-    /// compiled yet, with this use counted, to search `hay`; `None` once the pattern has been used
-    /// `LIGHT_USES` times (it is then compiled fully), or when it does not parse (`compile` then
-    /// reports the error). Patterns built from the input are often each used once
-    /// (`$0 ~ ("^[a-z]+ " $9)`, `match($0, "^" $1)`), so a new pattern starts with the matcher
-    /// that is cheap to build.
+    /// Runs `f` with the light matcher (see `awk_regex::LightMatcher`) for a dynamic pattern that
+    /// is not compiled yet, with this use counted, to search `hay`; `None` once the pattern has
+    /// been used `LIGHT_USES` times (it is then compiled fully), or when it does not parse
+    /// (`compile` then reports the error), or when `f` returns `None`. Patterns built from the
+    /// input are often each used once (`$0 ~ ("^[a-z]+ " $9)`, `match($0, "^" $1)`), so a new
+    /// pattern starts with the matcher that is cheap to build; and the matcher for a pattern seen
+    /// for the first time (see `Doorkeeper`) is not even cached, but dropped after this use.
     ///
     /// A pattern whose compiled regex was evicted recently is not compiled again (see `Ghosts`):
     /// when the patterns in use do not fit in the budget as compiled regexes, compiling them
     /// again (25–90µs) on every round through them costs more than matching with the light
     /// matcher, which also takes several times less memory, so that more of them stay cached.
-    fn light_matcher(&mut self, pat: &Str, hay: &[u8]) -> Option<&mut awk_regex::LightMatcher> {
+    fn with_light_matcher<T>(
+        &mut self,
+        pat: &Str,
+        hay: &[u8],
+        f: impl FnOnce(&mut awk_regex::LightMatcher) -> Option<T>,
+    ) -> Option<T> {
+        let new = || {
+            pat.with_bytes(|bs| {
+                str::from_utf8(bs)
+                    .ok()
+                    .and_then(awk_regex::LightMatcher::new)
+            })
+        };
         let uses = match self.3.lookup(pat) {
             Some(m) => m.uses,
             None => {
+                // A pattern seen for the first time is matched with a matcher that is dropped
+                // after this use; so is one whose matcher was evicted recently, unless it fits
+                // without evicting others: when the patterns in use do not fit in the budget even
+                // as light matchers, building a matcher costs less than caching it only to evict
+                // it (and others) again.
+                let hash = pat.with_bytes(|bs| self.3.key_hash(bs));
+                let thrashing = || {
+                    self.3.was_evicted_hash(hash)
+                        && !regex_memory::has_room(self.3.cost(pat.len(), None))
+                };
+                if !self.6.seen(hash) || thrashing() {
+                    return f(&mut new()?);
+                }
                 // Measure the memory of the matcher with the engine its first use builds.
                 let (m, measured) = regex_memory::measure(|| {
-                    let mut m = pat.with_bytes(|bs| {
-                        str::from_utf8(bs)
-                            .ok()
-                            .and_then(awk_regex::LightMatcher::new)
-                    })?;
+                    let mut m = new()?;
                     m.prepare(hay);
                     Some(m)
                 });
-                self.3.insert(pat, m?, measured);
-                0
+                // Count the use that let the pattern in.
+                self.3.insert(pat, m?, measured).uses = 1;
+                1
             }
         };
         if uses >= LIGHT_USES && !self.0.was_evicted(pat) {
@@ -568,7 +614,7 @@ impl RegexCache {
         }
         let m = self.3.lookup(pat)?;
         m.uses = m.uses.saturating_add(1);
-        Some(m)
+        f(m)
     }
 
     pub(crate) fn get_line<'a, LR: LineReader>(
@@ -980,7 +1026,7 @@ impl RegexCache {
             return Ok(found.is_some());
         }
         // Patterns built from the input are often each used once (`$0 ~ ("^[a-z]+ " $9)`): see
-        // `light_matcher`.
+        // `with_light_matcher`.
         self.sync();
         if let Some(re) = self.0.lookup(pat) {
             return Ok(Self::regex_const_match(re, s));
@@ -988,7 +1034,7 @@ impl RegexCache {
         if let Some(re) = self.shared_lookup(pat) {
             return Ok(Self::regex_const_match(re, s));
         }
-        if let Some(res) = s.with_bytes(|bs| self.light_matcher(pat, bs)?.is_match(bs)) {
+        if let Some(res) = s.with_bytes(|bs| self.with_light_matcher(pat, bs, |m| m.is_match(bs))) {
             return Ok(res);
         }
         self.with_regex(pat, |re| Self::regex_const_match(re, s))
@@ -1587,7 +1633,7 @@ impl<T> Default for Registry<T> {
 /// A key that is used again soon after it was evicted shows that the entries in use do not fit in
 /// the budget (cycling through a table of patterns, `for (i in rules) if ($0 ~ rules[i])`): the
 /// least recently used one is then always the next one needed, and rebuilding the entries is
-/// what the time goes to (see `RegexCache::light_matcher`). Hashes take 8 bytes rather than the
+/// what the time goes to (see `RegexCache::with_light_matcher`). Hashes take 8 bytes rather than the
 /// entry's ~20KB, so the ghosts remember many more keys than the registry holds.
 #[derive(Default)]
 struct Ghosts {
@@ -1650,9 +1696,11 @@ impl<T> Registry<T> {
     /// Whether `s` was evicted recently (see `Ghosts`); always false for a registry without
     /// ghosts.
     fn was_evicted(&self, s: &Str) -> bool {
-        self.ghosts
-            .as_ref()
-            .is_some_and(|g| s.with_bytes(|bs| g.contains(self.key_hash(bs))))
+        self.ghosts.is_some() && s.with_bytes(|bs| self.was_evicted_hash(self.key_hash(bs)))
+    }
+    /// `was_evicted` for the key with hash `hash` (see `key_hash`).
+    fn was_evicted_hash(&self, hash: u64) -> bool {
+        self.ghosts.as_ref().is_some_and(|g| g.contains(hash))
     }
     /// The memory to count for an entry for a key of `key_len` bytes, of which building took
     /// `measured` bytes (if known), not counting `measured_percent`. A measured entry also counts
@@ -2626,6 +2674,102 @@ mod tests {
     }
 
     #[test]
+    fn patterns_used_once_skip_the_cache() {
+        // One pattern per record (`$0 ~ ("^ABC" $0 "[0-9]*$")`): matched, but neither cached nor
+        // evicting anything.
+        let mut rc = test_cache();
+        let round = regex_memory::round();
+        for i in 0..5000 {
+            let s = Str::from(format!("ABC{}", i));
+            let pat = Str::from(format!("^ABC{}[0-9]*$", i));
+            assert!(rc.is_regex_match(&pat, &s).unwrap());
+            let pat = Str::from(format!("^XYZ{}[0-9]*$", i));
+            assert!(!rc.is_regex_match(&pat, &s).unwrap());
+            let pat = Str::from(format!("B(C{})[0-9]*", i));
+            let found = rc.with_search(&pat, &s, |re| {
+                s.with_bytes(|bs| awk_regex::captures_at(re, bs, 1, bs.len()).map(|g| g.get(1)))
+            });
+            assert_eq!(found.unwrap(), Some(Some((2, s.len()))));
+        }
+        assert!(rc.3.cached.is_empty() && rc.0.cached.is_empty());
+        assert_eq!(
+            regex_memory::round(),
+            round,
+            "patterns used once caused evictions"
+        );
+        // A pattern seen again is cached, and compiled after `LIGHT_USES` uses in all.
+        let pat = Str::from("^ABC[0-9]*7$");
+        let s = Str::from("ABC77");
+        for i in 0..LIGHT_USES {
+            assert!(rc.is_regex_match(&pat, &s).unwrap());
+            let cached = (i > 0) as usize;
+            assert_eq!(
+                (rc.0.cached.len(), rc.3.cached.len()),
+                (0, cached),
+                "use {}",
+                i + 1
+            );
+        }
+        assert!(rc.is_regex_match(&pat, &s).unwrap());
+        assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (1, 0));
+        // Invalid patterns report the error of `compile` on their first use.
+        let err = rc
+            .is_regex_match(&Str::from("b("), &Str::from("b"))
+            .unwrap_err();
+        assert!(format!("{}", err).contains("invalid regex /b(/"), "{}", err);
+    }
+
+    #[test]
+    fn regex_cache_admits_cycling_patterns() {
+        // Patterns used in turn (`$0 ~ pats[NR % K]`) are all seen again, and cached.
+        regex_memory::set_budget(64 << 20);
+        let mut rc = RegexCache::default();
+        let hay = Str::from("alpha::beta::12::gamma");
+        let pats: Vec<Str> = (0..3000)
+            .map(|i| Str::from(format!("beta::[0-9]*{}::", i)))
+            .collect();
+        for _ in 0..2 {
+            for p in &pats {
+                rc.is_regex_match(p, &hay).unwrap();
+            }
+        }
+        assert_eq!(rc.3.cached.len(), pats.len());
+        // When they do not fit even as light matchers, those evicted are cached again only when
+        // they fit without evicting others: rather than a few eviction rounds per pass (each
+        // evicting half of the light matchers, which are then built again), a round every few
+        // passes.
+        drop(rc);
+        regex_memory::set_budget(2 << 20);
+        let mut rc = RegexCache::default();
+        // `beta::[0-9]*2::` and `beta::[0-9]*12::` match.
+        let pass = |rc: &mut RegexCache| {
+            for (i, p) in pats.iter().enumerate() {
+                assert_eq!(
+                    rc.is_regex_match(p, &hay).unwrap(),
+                    i == 2 || i == 12,
+                    "{}",
+                    i
+                );
+            }
+        };
+        for _ in 0..8 {
+            pass(&mut rc);
+        }
+        assert!(
+            pats.iter().any(|p| rc.3.was_evicted(p)),
+            "nothing was evicted"
+        );
+        if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
+            let round = regex_memory::round();
+            for _ in 0..4 {
+                pass(&mut rc);
+            }
+            let rounds = regex_memory::round() - round;
+            assert!(rounds <= 4, "the cache keeps evicting: {} rounds", rounds);
+        }
+    }
+
+    #[test]
     fn regex_cache_keeps_recently_used() {
         let mut rc = test_cache();
         let hot = Str::from("hot".to_string());
@@ -2679,11 +2823,15 @@ mod tests {
         }
         assert!(rc.0.cached.is_empty() && rc.3.cached.is_empty());
         // Patterns with operators still go through a regex engine: the cheap one for the first
-        // `LIGHT_USES` uses, then a fully compiled regex.
+        // `LIGHT_USES` uses (cached from the second, see `Doorkeeper`), then a fully compiled
+        // regex.
         let pat = Str::from("^u.er$");
-        for _ in 0..LIGHT_USES {
+        for i in 0..LIGHT_USES {
             assert!(rc.is_regex_match(&pat, &Str::from("user")).unwrap());
-            assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (0, 1));
+            assert_eq!(
+                (rc.0.cached.len(), rc.3.cached.len()),
+                (0, (i > 0) as usize)
+            );
         }
         assert!(!rc.is_regex_match(&pat, &Str::from("users")).unwrap());
         assert_eq!((rc.0.cached.len(), rc.3.cached.len()), (1, 0));
@@ -2756,7 +2904,9 @@ mod tests {
                     i + 1
                 );
             }
+            // Start the next case afresh: the doorkeeper would count the uses of this one.
             rc.0.cached.clear();
+            rc.6 = Doorkeeper::default();
         }
         let err = rc
             .with_search(&Str::from("a("), &Str::from("a"), |_| ())
