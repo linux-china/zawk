@@ -182,6 +182,7 @@ zawk '!seen[$1]++ {n++} END {print n}' access.log
 ```shell
 zawk '!seen[$0]++' file.txt          # Unlike sort -u, keeps original order
 zawk '!seen[$2]++' file.txt          # Deduplicate by the 2nd field
+zawk 'x[$0]++ { i++ } END { print i }' file.txt
 ```
 
 ## String Manipulation — How Do You Replace and Reshape Text?

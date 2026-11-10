@@ -815,7 +815,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         // Ignore errors, as it means another thread executed with an error and we are
                         // exiting anyway.
                         let _ = match res {
-                            Err(e) => sender.send(Err(e)),
+                            Err(e) => {
+                                // Stop the main thread and the other workers from reading the
+                                // rest of the input, otherwise a streaming input never ends.
+                                interp.core.cancel_signal.cancel(2);
+                                sender.send(Err(e))
+                            }
                             Ok(rc) => {
                                 let version = interp.read_files.stdin_file_version();
                                 sender.send(Ok(interp.core.extract_result(rc, version)))
@@ -826,11 +831,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             }
             mem::drop(sender);
             self.core.vars.pid = 1;
-            let mut rc = self.run_at(main_loop)?;
+            // On error, cancel the workers before leaving the scope: `scope` joins every worker,
+            // and they would otherwise keep consuming (possibly unbounded) input.
+            let cancel_signal = self.core.cancel_signal.clone();
+            let cancel_on_err = |e: CompileError| {
+                cancel_signal.cancel(2);
+                e
+            };
+            let mut rc = self.run_at(main_loop).map_err(cancel_on_err)?;
             self.core.vars.pid = 0;
             self.core.file_version = self.read_files.stdin_file_version();
             while let Ok(res) = receiver.recv() {
-                let res = res?;
+                let res = res.map_err(cancel_on_err)?;
                 let sub_rc = res.rc;
                 self.core.combine(res, &base_slots);
                 if rc == 0 && sub_rc != 0 {
