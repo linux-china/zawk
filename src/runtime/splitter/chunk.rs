@@ -47,10 +47,101 @@ pub trait ChunkProducer {
     }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool /*done*/>;
     fn next_file(&mut self) -> Result<bool /*new file available*/>;
+    // Leave the parts of a chunk that do not depend on the chunks before it to whoever consumes
+    // it (see `Chunk::finish`), when the producer supports it. Called by `ParallelChunkProducer`
+    // on the producer run by its reading thread, so that the workers do that work in parallel.
+    fn defer_scan(&mut self) {}
 }
 
 pub trait Chunk: Send + Default {
     fn get_name(&self) -> &str;
+    // Do the work a producer left after `defer_scan`; called once on each chunk received.
+    fn finish(&mut self) {}
+}
+
+/// The scan of a chunk left to the worker that takes it (see `ChunkProducer::defer_scan`). The
+/// chunk ends at a record separator (or at the end of its file), so the scan does not depend on
+/// the chunks before it, and gives the offsets the producer would have kept.
+#[derive(Copy, Clone)]
+pub enum DeferredScan {
+    /// Only the record separators (see `Offsets::lines_only`): in `rel` for single-byte splitting,
+    /// in `nl` for whitespace splitting.
+    Lines { record_sep: u8 },
+    Bytes {
+        kernel: BytesIndexKernel,
+        field_sep: u8,
+        record_sep: u8,
+    },
+    /// The chunk starts after a newline, i.e. after whitespace. `trim` drops the offsets after
+    /// the last byte, which the scan finds in the zero padding (zero is not whitespace), as the
+    /// producer does for all chunks but the last one of a file.
+    Whitespace {
+        kernel: WhitespaceIndexKernel,
+        trim: bool,
+    },
+}
+
+/// The offsets a [DeferredScan] fills in.
+pub trait ScanOffsets: Default + Send {
+    fn clear_offsets(&mut self);
+    fn set_lines_only(&mut self, lines_only: bool);
+    fn scan(&mut self, buf: &[u8], scan: DeferredScan);
+}
+
+impl ScanOffsets for Offsets {
+    fn clear_offsets(&mut self) {
+        self.clear();
+    }
+    fn set_lines_only(&mut self, lines_only: bool) {
+        self.lines_only = lines_only;
+    }
+    fn scan(&mut self, buf: &[u8], scan: DeferredScan) {
+        match scan {
+            DeferredScan::Lines { record_sep } => {
+                self.clear();
+                find_record_seps(buf, 0, &mut self.rel.fields, record_sep);
+            }
+            DeferredScan::Bytes {
+                kernel,
+                field_sep,
+                record_sep,
+            } => {
+                unsafe { kernel(buf, self, field_sep, record_sep) };
+                // As the producer does: no offset is past the end of the chunk.
+                let keep = self.rel.fields.partition_point(|&off| (off as usize) < buf.len());
+                self.rel.fields.truncate(keep);
+            }
+            DeferredScan::Whitespace { .. } => {
+                unreachable!("whitespace scan of single-byte offsets")
+            }
+        }
+    }
+}
+
+impl ScanOffsets for WhitespaceOffsets {
+    fn clear_offsets(&mut self) {
+        self.0.clear();
+    }
+    fn set_lines_only(&mut self, lines_only: bool) {
+        self.0.lines_only = lines_only;
+    }
+    fn scan(&mut self, buf: &[u8], scan: DeferredScan) {
+        match scan {
+            DeferredScan::Lines { record_sep } => {
+                self.0.clear();
+                find_record_seps(buf, 0, &mut self.0.nl.fields, record_sep);
+            }
+            DeferredScan::Whitespace { kernel, trim } => {
+                unsafe { kernel(buf, self, /*start: after whitespace*/ 1) };
+                if trim {
+                    let fields = &mut self.0.rel.fields;
+                    let keep = fields.partition_point(|&off| (off as usize) < buf.len());
+                    fields.truncate(keep);
+                }
+            }
+            DeferredScan::Bytes { .. } => unreachable!("single-byte scan of whitespace offsets"),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -73,13 +164,95 @@ pub struct OffsetChunkProducer<R, F> {
     record_sep: u8,
     state: ChunkState,
     lines_only: Option<LinesOnly>,
+    /// The scan the producer can leave to the consumers (none for CSV, whose quote state depends
+    /// on the chunks before), and whether it does (see `ChunkProducer::defer_scan`).
+    deferrable: Option<DeferredScan>,
+    defer: bool,
 }
 
-impl<R, F> OffsetChunkProducer<R, F> {
+impl<R: Read, F> OffsetChunkProducer<R, F> {
     fn lines_only(&self) -> bool {
         self.lines_only
             .as_ref()
             .is_some_and(|l| l.load(Ordering::Relaxed))
+    }
+
+    /// With `defer_scan`, yield the next chunk without scanning it: only find its last record
+    /// separator, and leave the scan to `Chunk::finish`. Returns `None` when the scan is not
+    /// deferred, the result of `get_chunk` otherwise.
+    fn get_deferred_chunk<Off: ScanOffsets>(
+        &mut self,
+        chunk: &mut OffsetChunk<Off>,
+    ) -> Option<Result<bool>> {
+        let scan = self.deferrable.filter(|_| self.defer)?;
+        Some(self.get_deferred_chunk_inner(chunk, scan))
+    }
+
+    fn get_deferred_chunk_inner<Off: ScanOffsets>(
+        &mut self,
+        chunk: &mut OffsetChunk<Off>,
+        scan: DeferredScan,
+    ) -> Result<bool> {
+        loop {
+            match self.state {
+                ChunkState::Init => {
+                    self.state = if self.inner.reset()? {
+                        ChunkState::Done
+                    } else {
+                        ChunkState::Main
+                    };
+                }
+                ChunkState::Main => {
+                    check_chunk_len(self.inner.end)?;
+                    let buf = self.inner.buf.clone();
+                    let end = self.inner.end;
+                    // A buffer without a record separator is read again with more data after
+                    // it; memrchr over it again is cheap next to the read.
+                    let target =
+                        memchr::memrchr(self.record_sep, &buf.as_bytes()[..end]).map(|i| i + 1);
+                    if let Some(t) = target {
+                        self.inner.start = t;
+                    }
+                    // See the comments on chunk.len in `OffsetChunkProducer::get_chunk`.
+                    let is_eof = self.inner.reset()?;
+                    let mut scan = scan;
+                    let len = match (target, is_eof) {
+                        (Some(t), false) => t,
+                        (None, true) if end == 0 => {
+                            self.inner.clear_buf();
+                            self.state = ChunkState::Done;
+                            continue;
+                        }
+                        (_, true) => {
+                            self.inner.clear_buf();
+                            self.state = ChunkState::Done;
+                            // The producer keeps every offset of the last chunk of a file.
+                            if let DeferredScan::Whitespace { trim, .. } = &mut scan {
+                                *trim = false;
+                            }
+                            end
+                        }
+                        (None, false) => continue,
+                    };
+                    let lines_only = self.lines_only();
+                    chunk.version = self.cur_file_version;
+                    chunk.name = self.name.clone();
+                    chunk.buf = Some(buf.try_unique().unwrap());
+                    chunk.len = len;
+                    chunk.off.clear_offsets();
+                    chunk.off.set_lines_only(lines_only);
+                    chunk.deferred = Some(if lines_only {
+                        DeferredScan::Lines {
+                            record_sep: self.record_sep,
+                        }
+                    } else {
+                        scan
+                    });
+                    return Ok(false);
+                }
+                ChunkState::Done => return Ok(true),
+            }
+        }
     }
 }
 
@@ -129,6 +302,8 @@ pub fn new_offset_chunk_producer_csv<R: Read>(
         cur_file_version: start_version,
         state: ChunkState::Init,
         lines_only: None,
+        deferrable: None,
+        defer: false,
     }
 }
 
@@ -153,6 +328,12 @@ pub fn new_offset_chunk_producer_bytes<R: Read>(
         record_sep,
         state: ChunkState::Init,
         lines_only: Some(lines_only),
+        deferrable: Some(DeferredScan::Bytes {
+            kernel: find_indexes,
+            field_sep,
+            record_sep,
+        }),
+        defer: false,
     }
 }
 
@@ -176,6 +357,11 @@ pub fn new_offset_chunk_producer_ascii_whitespace<R: Read>(
             record_sep: b'\n',
             state: ChunkState::Init,
             lines_only: Some(lines_only),
+            deferrable: Some(DeferredScan::Whitespace {
+                kernel: find_indexes,
+                trim: true,
+            }),
+            defer: false,
         },
         1,
     )
@@ -286,6 +472,9 @@ impl<C: Chunk> ChunkProducer for Box<dyn ChunkProducer<Chunk = C>> {
     fn get_chunk(&mut self, chunk: &mut C) -> Result<bool> {
         (**self).get_chunk(chunk)
     }
+    fn defer_scan(&mut self) {
+        (**self).defer_scan()
+    }
 }
 
 pub struct OffsetChunk<Off = Offsets> {
@@ -294,6 +483,9 @@ pub struct OffsetChunk<Off = Offsets> {
     pub buf: Option<UniqueBuf>,
     pub len: usize,
     pub off: Off,
+    /// The scan of `buf[..len]` that fills `off`, when the producer left it (see
+    /// `ChunkProducer::defer_scan`).
+    pub deferred: Option<DeferredScan>,
 }
 
 impl<Off: Default> Default for OffsetChunk<Off> {
@@ -304,13 +496,23 @@ impl<Off: Default> Default for OffsetChunk<Off> {
             buf: None,
             len: 0,
             off: Default::default(),
+            deferred: None,
         }
     }
 }
 
-impl<Off: Default + Send> Chunk for OffsetChunk<Off> {
+impl<Off: ScanOffsets> Chunk for OffsetChunk<Off> {
     fn get_name(&self) -> &str {
         &self.name
+    }
+    fn finish(&mut self) {
+        if let Some(scan) = self.deferred.take() {
+            let bs = match self.buf.as_mut() {
+                Some(b) => &b.as_mut_bytes()[..self.len],
+                None => &[],
+            };
+            self.off.scan(bs, scan);
+        }
     }
 }
 
@@ -321,7 +523,13 @@ impl<R: Read, F: FnMut(&[u8], &mut Offsets)> ChunkProducer for OffsetChunkProduc
         self.inner.force_eof();
         Ok(false)
     }
+    fn defer_scan(&mut self) {
+        self.defer = true;
+    }
     fn get_chunk(&mut self, chunk: &mut OffsetChunk) -> Result<bool> {
+        if let Some(res) = self.get_deferred_chunk(chunk) {
+            return res;
+        }
         let mut pending: Option<PartialScan> = None;
         loop {
             match self.state {
@@ -461,7 +669,13 @@ impl<R: Read, F: FnMut(&[u8], &mut WhitespaceOffsets, u64) -> u64> ChunkProducer
         self.0.inner.force_eof();
         Ok(false)
     }
+    fn defer_scan(&mut self) {
+        self.0.defer = true;
+    }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool> {
+        if let Some(res) = self.0.get_deferred_chunk(chunk) {
+            return res;
+        }
         let mut pending: Option<PartialScan> = None;
         loop {
             match self.0.state {
@@ -614,6 +828,12 @@ impl<P: ChunkProducer> ChunkProducer for ChainedChunkProducer<P> {
         }
     }
 
+    fn defer_scan(&mut self) {
+        for p in self.0.iter_mut() {
+            p.defer_scan();
+        }
+    }
+
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
         while let Some(cur) = self.0.last_mut() {
             if !cur.get_chunk(chunk)? {
@@ -658,9 +878,9 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
         let error = Arc::new(Mutex::new(None));
         let reader_error = error.clone();
         std::thread::spawn(move || {
-            let mut n_workers = 0;
             let mut p = p_factory();
-            let mut n_failures = 0;
+            // The workers scan the chunks, so that this thread only reads them.
+            p.defer_scan();
             loop {
                 let mut chunk = spent_receiver.try_recv().ok().unwrap_or_default();
                 match p.get_chunk(&mut chunk) {
@@ -672,41 +892,19 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
                     }
                 }
                 match in_sender.try_send(chunk) {
-                    Ok(()) => {
-                        n_failures = 0;
-                        continue;
-                    }
-                    Err(TrySendError::Full(c)) => {
-                        n_failures += 1;
-                        chunk = c;
-                    }
-                    Err(TrySendError::Disconnected(_)) => {
-                        return;
-                    }
+                    Ok(()) => continue,
+                    Err(TrySendError::Full(c)) => chunk = c,
+                    Err(TrySendError::Disconnected(_)) => return,
                 }
-
-                // TODO: This heuristic works fairly well when the target is a relatively small
-                // number of workers. The idea here is that we require progressively stronger
-                // signals that we are producing chunks too fast before starting a new worker.
-                //
-                // However, for extremely expensive worker functions, this heuristic will not
-                // learn the optimal number of workers before the 2s timeout in wait()
-                //
-                // One alternative is to keep a running average of the amount of time it takes
-                // to read a chunk, and a running average of the amount of time spent blocking
-                // to send a chunk (perhaps a rolling window, or one that downweights previous
-                // runs).
-                //
-                // The amount of time we spend blocking will give us an idea of the total parallel
-                // throughput of the workers. If the throughput is lower than the speed at which we
-                // read the chunks, that's a signal to up the number of workers (potentially not
-                // just incrementing them, but adding them 'all at once').
-                if n_failures == (2 << n_workers) {
-                    if start_sender.try_send(()).is_ok() {
-                        n_workers += 1;
-                    }
-                    n_failures = 0;
-                }
+                // The channel is full: the running workers consume chunks slower than we produce
+                // them, so start one more. Workers start one at a time, each time the channel
+                // fills up again, so an IO-bound input (the channel never fills) keeps running on
+                // one worker, while a CPU-bound one reaches all of them after `-j` full channels.
+                // A worker that is not started waits until the input ends (see `wait`), it does
+                // not give up after a timeout. A token sent while no worker waits stays in the
+                // channel and starts the next one that asks; `try_send` fails once the channel
+                // holds `chan_size` unused tokens, which is more than enough.
+                let _ = start_sender.try_send(());
                 if in_sender.send(chunk).is_err() {
                     return;
                 }
@@ -734,24 +932,16 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
     fn next_file(&mut self) -> Result<bool> {
         err!("nextfile is not supported in record-oriented parallel mode")
     }
+    // Blocks until the reading thread asks for one more worker (true), or until it stops, at the
+    // end of the input or on an error, and drops the sender (false).
     fn wait(&self) -> bool {
-        self.start
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .is_ok()
+        self.start.recv().is_ok()
     }
     fn wait_cancellable(&self, signal: &CancelSignal) -> bool {
         use crossbeam_channel::RecvTimeoutError;
-        use std::time::{Duration, Instant};
-        let deadline = Instant::now() + Duration::from_secs(2);
+        use std::time::Duration;
         while !signal.cancelled() {
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            match self
-                .start
-                .recv_timeout((deadline - now).min(Duration::from_millis(20)))
-            {
+            match self.start.recv_timeout(Duration::from_millis(20)) {
                 Ok(()) => return true,
                 Err(RecvTimeoutError::Disconnected) => return false,
                 Err(RecvTimeoutError::Timeout) => {}
@@ -763,6 +953,7 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
         if let Ok(mut new_chunk) = self.incoming.recv() {
             mem::swap(chunk, &mut new_chunk);
             let _ = self.spent.try_send(new_chunk);
+            chunk.finish();
             Ok(false)
         } else {
             // All chunks are consumed. One consumer takes the error; the others just stop.
@@ -975,6 +1166,106 @@ mod tests {
                 Ok(false)
             } else {
                 Ok(true)
+            }
+        }
+    }
+
+    // The offsets of each chunk, with its bytes.
+    type ChunkDump = Vec<(Vec<u8>, Vec<u32>, Vec<u32>)>;
+
+    fn dump_chunks<P: ChunkProducer<Chunk = OffsetChunk<Off>>, Off: ScanOffsets>(
+        mut p: P,
+        offsets: impl Fn(&Off) -> &Offsets,
+    ) -> ChunkDump {
+        let mut res = Vec::new();
+        let mut chunk = OffsetChunk::<Off>::default();
+        while !p.get_chunk(&mut chunk).expect("get_chunk should succeed") {
+            chunk.finish();
+            let data = chunk.buf.as_mut().unwrap().as_mut_bytes()[..chunk.len].to_vec();
+            let off = offsets(&chunk.off);
+            res.push((data, off.rel.fields.clone(), off.nl.fields.clone()));
+        }
+        res
+    }
+
+    fn deferred_inputs() -> Vec<Vec<u8>> {
+        let mut long = Vec::new();
+        for i in 0..200 {
+            long.extend_from_slice(format!("w{i} ").as_bytes());
+        }
+        long.extend_from_slice(b"\nx y\n");
+        vec![
+            b"".to_vec(),
+            b"a b\nc d e".to_vec(),
+            b"a  b\t c\n\n  d\n".to_vec(),
+            (0..500)
+                .map(|i| format!("{i} f{} {}\n", i % 7, i % 3))
+                .collect::<String>()
+                .into_bytes(),
+            long,
+        ]
+    }
+
+    // A producer that leaves the scan to `Chunk::finish` yields the chunks and offsets of one
+    // that scans itself.
+    #[test]
+    fn deferred_scan_matches_producer_scan() {
+        use crate::runtime::splitter::batch::{
+            get_find_indexes_ascii_whitespace, get_find_indexes_bytes,
+        };
+        for input in deferred_inputs() {
+            for lines_only in [false, true] {
+                for chunk_size in [16, 64, 4096] {
+                    let bytes = |defer: bool, record_sep: u8| {
+                        let lo = LinesOnly::new(AtomicBool::new(lines_only));
+                        let mut p = new_offset_chunk_producer_bytes(
+                            &input[..],
+                            chunk_size,
+                            "x",
+                            b' ',
+                            record_sep,
+                            1,
+                            false,
+                            get_find_indexes_bytes(),
+                            lo,
+                        );
+                        if defer {
+                            p.defer_scan();
+                        }
+                        dump_chunks(p, |o: &Offsets| o)
+                    };
+                    for &record_sep in b"\n " {
+                        assert_eq!(bytes(false, record_sep), bytes(true, record_sep));
+                    }
+                    let ws = |defer: bool| {
+                        let lo = LinesOnly::new(AtomicBool::new(lines_only));
+                        let mut p = new_offset_chunk_producer_ascii_whitespace(
+                            &input[..],
+                            chunk_size,
+                            "x",
+                            1,
+                            false,
+                            get_find_indexes_ascii_whitespace(),
+                            lo,
+                        );
+                        if defer {
+                            p.defer_scan();
+                        }
+                        dump_chunks(p, |o: &WhitespaceOffsets| &o.0)
+                    };
+                    let (a, b) = (ws(false), ws(true));
+                    assert!(!input.is_empty() || a.is_empty());
+                    for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+                        assert_eq!(
+                            x,
+                            y,
+                            "chunk {i} of {}, lines_only={lines_only} chunk_size={chunk_size} data={:?}",
+                            a.len(),
+                            String::from_utf8_lossy(&x.0)
+                        );
+                    }
+                    assert_eq!(a.len(), b.len());
+                }
             }
         }
     }
