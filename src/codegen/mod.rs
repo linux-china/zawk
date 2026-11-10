@@ -194,13 +194,24 @@ unsafe fn run_stage(
             return Ok(());
         }
     };
+    // In release builds, print only the message of a panic (no thread name / location noise);
+    // payloads that are not strings go to the previous hook. Restored once the workers are done.
+    #[cfg(not(debug_assertions))]
+    let prev_hook: std::sync::Arc<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send> =
+        std::sync::Arc::from(std::panic::take_hook());
     #[cfg(not(debug_assertions))]
     {
-        std::panic::set_hook(Box::new(|pi| {
-            if let Some(s) = pi.payload().downcast_ref::<&str>() {
-                if s.len() > 0 {
-                    eprintln_ignore!("{}", s);
-                }
+        let prev = prev_hook.clone();
+        std::panic::set_hook(Box::new(move |pi| {
+            let payload = pi.payload();
+            let msg = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str));
+            match msg {
+                Some(s) if !s.is_empty() => eprintln_ignore!("{}", s),
+                Some(_) => {}
+                None => prev(pi),
             }
         }));
     }
@@ -283,6 +294,11 @@ unsafe fn run_stage(
         }
         run_end(rt, end);
     });
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |pi| prev_hook(pi)));
+    }
     if scope_res.is_err() {
         return err!("failed to execute parallel script");
     }
