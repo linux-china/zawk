@@ -166,9 +166,42 @@ fn is_blank(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r')
 }
 
+/// Whether any byte of the little-endian word `w` is a blank: the lowest set bit of the result
+/// is the high bit of the first blank byte (bits above it may be false positives).
+#[inline]
+fn blank_bytes(w: u64) -> u64 {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    let zero = |x: u64| x.wrapping_sub(LO) & !x & HI;
+    zero(w ^ (LO * b' ' as u64))
+        | zero(w ^ (LO * b'\t' as u64))
+        | zero(w ^ (LO * b'\n' as u64))
+        | zero(w ^ (LO * b'\r' as u64))
+}
+
+/// The index of the first blank in `bs[i..]` (or `bs.len()`), searched 8 bytes at a time
+/// (SWAR). Out of line so the short-field loop of [`blank_fields`] stays small.
+#[inline(never)]
+fn find_blank(bs: &[u8], mut i: usize) -> usize {
+    while let Some(word) = bs.get(i..i + 8) {
+        let mask = blank_bytes(u64::from_le_bytes(word.try_into().unwrap()));
+        if mask != 0 {
+            return i + (mask.trailing_zeros() / 8) as usize;
+        }
+        i += 8;
+    }
+    while i < bs.len() && !is_blank(bs[i]) {
+        i += 1;
+    }
+    i
+}
+
 /// The `(start, end)` byte ranges of the fields of `bs` under the default FS: the maximal runs
 /// of non-blanks.
 fn blank_fields(bs: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    // Most fields are short, and a plain byte loop is fastest for them; a field still running
+    // after 16 bytes is finished by the word-at-a-time `find_blank`.
+    const SCALAR_PREFIX: usize = 16;
     let mut i = 0;
     std::iter::from_fn(move || {
         while i < bs.len() && is_blank(bs[i]) {
@@ -178,8 +211,12 @@ fn blank_fields(bs: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
             return None;
         }
         let start = i;
-        while i < bs.len() && !is_blank(bs[i]) {
+        let scalar_end = bs.len().min(i + SCALAR_PREFIX);
+        while i < scalar_end && !is_blank(bs[i]) {
             i += 1;
+        }
+        if i == scalar_end && i < bs.len() {
+            i = find_blank(bs, i);
         }
         Some((start, i))
     })
@@ -2198,6 +2235,22 @@ impl<S> Iter<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blank_fields_with_and_without_cr() {
+        fn fields(bs: &[u8]) -> Vec<&[u8]> {
+            blank_fields(bs).map(|(s, e)| &bs[s..e]).collect()
+        }
+        assert_eq!(fields(b"  a\tbb \n ccc  "), vec![&b"a"[..], b"bb", b"ccc"]);
+        assert_eq!(fields(b"a\r\nb\rc d"), vec![&b"a"[..], b"b", b"c", b"d"]);
+        assert_eq!(fields(b"tail"), vec![&b"tail"[..]]);
+        assert!(fields(b" \t\r\n ").is_empty());
+        let long = format!(" {} b\t{}", "x".repeat(40), "y".repeat(16));
+        let want = vec!["x".repeat(40).into_bytes(), b"b".to_vec(), "y".repeat(16).into_bytes()];
+        assert_eq!(fields(long.as_bytes()), want);
+        let long_cr = format!("{}\r{} z", "x".repeat(20), "y".repeat(20));
+        assert_eq!(fields(long_cr.as_bytes()).len(), 3);
+    }
 
     #[test]
     fn warnings_are_bounded() {

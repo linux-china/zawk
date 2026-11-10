@@ -1151,7 +1151,12 @@ pub fn get_find_indexes_ascii_whitespace() -> WhitespaceIndexKernel {
 pub fn csv_needs_quotes(bs: &[u8]) -> bool {
     matches!(bs.first(), Some(b' ' | b'\t'))
         || matches!(bs.last(), Some(b' ' | b'\t'))
-        || bs.iter().any(|b| matches!(b, b'"' | b',' | b'\n' | b'\r'))
+        || if bs.len() < 32 {
+            // A `memchr` call costs more than a short byte loop.
+            bs.iter().any(|b| matches!(b, b'"' | b',' | b'\n' | b'\r'))
+        } else {
+            memchr::memchr3(b'"', b',', b'\n', bs).is_some() || memchr::memchr(b'\r', bs).is_some()
+        }
 }
 
 /// Escape a field per RFC 4180: quote it if needed and double any quotes. Line breaks and tabs
@@ -1162,15 +1167,17 @@ pub fn escape_csv<'a>(s: &Str<'a>) -> Str<'a> {
         if !csv_needs_quotes(bs) {
             return s.clone();
         }
-        let quotes = bs.iter().filter(|b| **b == b'"').count();
-        let mut buf = DynamicBuf::new(bs.len() + quotes + 2);
+        // One pass: copy the runs between quotes, writing each quote twice (the buffer grows
+        // on the rare field with many quotes).
+        let mut buf = DynamicBuf::new(bs.len() + 4);
         buf.write_all(b"\"").unwrap();
-        for (i, part) in bs.split(|b| *b == b'"').enumerate() {
-            if i > 0 {
-                buf.write_all(b"\"\"").unwrap();
-            }
-            buf.write_all(part).unwrap();
+        let mut start = 0;
+        for q in memchr::memchr_iter(b'"', bs) {
+            buf.write_all(&bs[start..=q]).unwrap();
+            buf.write_all(b"\"").unwrap();
+            start = q + 1;
         }
+        buf.write_all(&bs[start..]).unwrap();
         buf.write_all(b"\"").unwrap();
         buf.into_str()
     })
@@ -2759,6 +2766,18 @@ mod tests {
     use super::*;
     use std::io;
     use std::iter;
+
+    #[test]
+    fn escape_csv_quotes_only_when_needed() {
+        let esc = |t: &str| escape_csv(&Str::from(t)).as_str().into_owned();
+        assert_eq!(esc("plain"), "plain");
+        assert_eq!(esc(""), "");
+        assert_eq!(esc("a,b"), "\"a,b\"");
+        assert_eq!(esc("a\rb"), "\"a\rb\"");
+        assert_eq!(esc(" lead"), "\" lead\"");
+        assert_eq!(esc("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(esc("\"\"\"\"\"\"\"\"\"\""), format!("\"{}\"", "\"".repeat(20)));
+    }
 
     fn smoke_test<V: generic::Vector>() {
         let text: &'static str = r#"This,is,"a line with a quoted, comma",and

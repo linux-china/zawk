@@ -526,7 +526,7 @@ impl<'a> Str<'a> {
     /// awk's `tolower`. Despite the name, non-ASCII UTF-8 text is converted too (see
     /// `map_case`).
     pub fn to_lower_ascii<'b>(&self) -> Str<'b> {
-        self.map_case(|b| b.to_ascii_lowercase(), char::to_lowercase)
+        self.map_case(<[u8]>::make_ascii_lowercase, char::to_lowercase)
     }
 
     pub fn fend<'b>(&self) -> Str<'b> {
@@ -825,13 +825,26 @@ impl<'a> Str<'a> {
     pub fn sub_str(&self, l: usize, r: usize) -> Str<'a> {
         let bs = unsafe { &*self.get_bytes() };
         let end = l.saturating_add(r);
-        let range = if characters_as_bytes() || bs[..end.min(bs.len())].is_ascii() {
-            (l < bs.len()).then(|| (l, end.min(bs.len())))
+        let ascii_range = || (l < bs.len()).then(|| (l, end.min(bs.len())));
+        let prefix = end.min(bs.len());
+        let range = if characters_as_bytes()
+            || (prefix < CHAR_CURSOR_MIN_LEN && bs[..prefix].is_ascii())
+        {
+            ascii_range()
         } else {
             self.with_char_cursor(bs, |cur| {
                 let Some(cur) = cur else {
-                    return char_byte_range(bs, 0, 0, l, r);
+                    return if bs[..prefix].is_ascii() {
+                        ascii_range()
+                    } else {
+                        char_byte_range(bs, 0, 0, l, r)
+                    };
                 };
+                // The ASCII prefix of a long buffer is measured once, so `substr(s, i, 1)` over
+                // an ASCII `s` doesn't rescan `s[..i]` on every call.
+                if prefix <= *cur.ascii_len.get_or_insert_with(|| ascii_prefix_len(bs)) {
+                    return ascii_range();
+                }
                 if cur.chars.is_some_and(|n| l >= n) {
                     return None;
                 }
@@ -951,7 +964,7 @@ impl<'a> Str<'a> {
     /// awk's `toupper`. Despite the name, non-ASCII UTF-8 text is converted too (see
     /// `map_case`).
     pub fn to_upper_ascii<'b>(&self) -> Str<'b> {
-        self.map_case(|b| b.to_ascii_uppercase(), char::to_uppercase)
+        self.map_case(<[u8]>::make_ascii_uppercase, char::to_uppercase)
     }
 
     /// Case conversion for toupper/tolower. ASCII strings take the fast byte-wise path. Otherwise
@@ -960,11 +973,11 @@ impl<'a> Str<'a> {
     /// are not valid UTF-8 are kept as is.
     fn map_case<'b, I: Iterator<Item = char> + ExactSizeIterator>(
         &self,
-        ascii: impl FnMut(u8) -> u8,
+        ascii: fn(&mut [u8]),
         unicode: impl Fn(char) -> I,
     ) -> Str<'b> {
         if self.with_bytes(|bs| bs.is_ascii()) {
-            return self.map_bytes(ascii);
+            return self.map_ascii(ascii);
         }
         self.with_bytes(|bs| {
             let mut out = DynamicBufHeap::new(bs.len());
@@ -981,6 +994,25 @@ impl<'a> Str<'a> {
                 out.write_all(chunk.invalid()).unwrap();
             }
             out.into_str()
+        })
+    }
+
+    /// Copies the bytes of `self` and converts the copy in place with `f` (such as
+    /// `make_ascii_lowercase`, which the standard library vectorizes).
+    fn map_ascii<'b>(&self, f: fn(&mut [u8])) -> Str<'b> {
+        self.with_bytes(|bs| {
+            if bs.len() <= MAX_INLINE_SIZE {
+                let mut buf = [0u8; MAX_INLINE_SIZE];
+                let buf = &mut buf[..bs.len()];
+                buf.copy_from_slice(bs);
+                f(buf);
+                unsafe { Str::from_rep(Inline::from_unchecked(buf).into()) }
+            } else {
+                let mut buf = DynamicBufHeap::new(bs.len());
+                buf.write_all(bs).unwrap();
+                f(&mut buf.as_mut_bytes()[..bs.len()]);
+                buf.into_str()
+            }
         })
     }
 
@@ -1328,6 +1360,9 @@ impl<'a> Str<'a> {
                     .chars
                     .filter(|_| tail[0] & 0xC0 != 0x80)
                     .map(|n| n + char_count(tail));
+                if c.ascii_len == Some(c.len) {
+                    c.ascii_len = Some(c.len + ascii_prefix_len(tail));
+                }
                 c.len = bs.len();
             }
             if !matches!(&*cursor, Some(c) if c.ptr == bs.as_ptr() && c.len == bs.len()) {
@@ -1340,6 +1375,7 @@ impl<'a> Str<'a> {
                             char_ix: 0,
                             byte_off: 0,
                             chars: None,
+                            ascii_len: None,
                         })
                     }
                     None => return f(None),
@@ -2749,6 +2785,35 @@ mod tests {
     }
 
     #[test]
+    fn s7_scalar_hotspots() {
+        // char_count: valid UTF-8 counts lead bytes; invalid sequences count as one char each.
+        assert_eq!(char_count("aé中😀".as_bytes()), 4);
+        assert_eq!(char_count(b"a\x80\xffb\xe4\xb8"), 5);
+        assert_eq!(ascii_prefix_len(&[b'a'; 200]), 200);
+        let mut long = vec![b'x'; 130];
+        long.push(0xC3);
+        long.push(0xA9);
+        assert_eq!(ascii_prefix_len(&long), 130);
+
+        // sub_str on a long buffer: ASCII prefix cached, non-ASCII tail still counted by chars.
+        let mut text = "a".repeat(2000);
+        text.push_str("é中b");
+        let s: Str = Buf::read_from_bytes(text.as_bytes()).into_str();
+        assert_eq!(s.sub_str(1990, 5).as_str(), "aaaaa");
+        assert_eq!(s.sub_str(1999, 3).as_str(), "aé中");
+        assert_eq!(s.sub_str(2002, 1).as_str(), "b");
+        assert_eq!(s.sub_str(5, 2).as_str(), "aa");
+
+        // tolower/toupper ASCII paths, inline and heap.
+        let short: Str = "AbC".into();
+        assert_eq!(short.to_lower_ascii().as_str(), "abc");
+        assert_eq!(short.to_upper_ascii().as_str(), "ABC");
+        let big: Str = "Hello World! ".repeat(20).into();
+        assert_eq!(big.to_lower_ascii().as_str(), "hello world! ".repeat(20));
+        assert_eq!(big.to_upper_ascii().as_str(), "HELLO WORLD! ".repeat(20));
+    }
+
+    #[test]
     fn sub_str_counts_chars_and_keeps_bytes() {
         // 'a', 0xFF, 0xFE, 'b', 中, 文, and a truncated 中 (0xE4 0xB8): 7 chars
         let bytes: &[u8] = b"a\xff\xfeb\xe4\xb8\xad\xe6\x96\x87\xe4\xb8";
@@ -3233,6 +3298,18 @@ struct CharCursor {
     char_ix: usize,
     byte_off: usize,
     chars: Option<usize>,
+    /// Length of the all-ASCII prefix of the buffer, measured lazily by `sub_str`.
+    ascii_len: Option<usize>,
+}
+
+/// The length of the longest all-ASCII prefix of `bs`.
+fn ascii_prefix_len(bs: &[u8]) -> usize {
+    const CHUNK: usize = 64;
+    let mut i = 0;
+    while i + CHUNK <= bs.len() && bs[i..i + CHUNK].is_ascii() {
+        i += CHUNK;
+    }
+    i + bs[i..].iter().position(|b| !b.is_ascii()).unwrap_or(bs.len() - i)
 }
 
 /// `length`/`index`/`match` count shorter strings (or prefixes) directly: rescanning them is
@@ -3307,7 +3384,8 @@ pub(crate) fn char_count(bs: &[u8]) -> usize {
     if bs.is_ascii() || characters_as_bytes() {
         bs.len()
     } else if let Ok(text) = simdutf8::basic::from_utf8(bs) {
-        // SIMD validation dominates; `chars().count()` is already a word-at-a-time count.
+        // SIMD validation dominates; `chars().count()` is std's word-at-a-time count of
+        // non-continuation bytes (measured faster than a `filter(..).count()` over the bytes).
         text.chars().count()
     } else {
         // Each invalid sequence is one char, as `String::from_utf8_lossy` would replace it.
