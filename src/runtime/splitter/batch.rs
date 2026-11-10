@@ -979,17 +979,32 @@ pub fn get_find_indexes(
 /// are not reported, so the [Stepper] copies them as field data; the offsets are otherwise the
 /// same as the SIMD pass would produce. After a literal quote, a newline outside quotes (by
 /// parity) ends the field and the record, as gawk does.
+#[cfg(test)]
 fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
     offsets.clear();
-    let fields = &mut offsets.rel.fields;
+    csv_lenient_scan(buf, &mut offsets.rel.fields, 0, usize::MAX);
+}
+
+/// The scan of [find_indexes_csv_lenient] from `from`, which must be the start of a record,
+/// appending the offsets to `fields`. It stops at the first record start at or after `stop_at`
+/// and returns it (`buf.len()` if it reaches the end): the state there (outside quotes, at a
+/// field start, no `\r` pending) is the initial state of a fresh SIMD scan.
+fn csv_lenient_scan(buf: &[u8], fields: &mut Vec<u32>, from: usize, stop_at: usize) -> usize {
     let len = buf.len();
     let mut field_start = true;
-    let mut i = 0;
+    let mut i = from;
     while i < len {
         match buf[i] {
-            b',' | b'\n' => {
+            b',' => {
                 fields.push(i as u32);
                 field_start = true;
+            }
+            b'\n' => {
+                fields.push(i as u32);
+                field_start = true;
+                if i + 1 >= stop_at {
+                    return i + 1;
+                }
             }
             b'\r' => {
                 fields.push(i as u32);
@@ -1010,7 +1025,7 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
                     };
                     let Some(j) = found else {
                         // Unterminated: the rest of the buffer is inside the quotes.
-                        return;
+                        return len;
                     };
                     let q = i + j;
                     if buf[q] == b'\n' {
@@ -1022,6 +1037,9 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
                         fields.push(q as u32);
                         field_start = true;
                         i = q + 1;
+                        if i >= stop_at {
+                            return i;
+                        }
                         break;
                     }
                     i = q + 1;
@@ -1052,6 +1070,7 @@ fn find_indexes_csv_lenient(buf: &[u8], offsets: &mut Offsets) {
         }
         i += 1;
     }
+    len
 }
 
 pub type BytesIndexKernel = unsafe fn(&[u8], &mut Offsets, u8, u8);
@@ -1584,18 +1603,40 @@ mod generic {
     /// scan and only the bytes from `offsets.resume.ix` on are scanned, from the saved state.
     /// Either way, `offsets.checkpoint` is set to the state at the last whole vector, from which
     /// a scan of a longer buffer can continue.
-    pub unsafe fn find_indexes<V, F, S>(
-        buf: &[u8],
-        offsets: &mut Offsets,
-        mut state: S,
-        mut f: F,
-    ) -> S
+    pub unsafe fn find_indexes<V, F, S>(buf: &[u8], offsets: &mut Offsets, state: S, f: F) -> S
     where
         V: Vector,
         S: ScanState,
         F: FnMut(S, *const u8) -> (S, /* rel */ u64, /* newlines */ u64),
     {
-        const BUFFER_SIZE: usize = 4;
+        find_indexes_from::<V, F, S, _>(buf, offsets, 0, state, f, |_| false).0
+    }
+
+    /// The vectors [find_indexes_from] scans at a time.
+    pub const BUFFER_SIZE: usize = 4;
+
+    /// [find_indexes], generalized in two ways:
+    ///
+    /// * With `from > 0`, the scan starts at `buf[from]` from `state` and appends to the offsets
+    ///   already there (`offsets.resume` is ignored and `offsets.checkpoint` left alone).
+    /// * After each group of vectors (up to [BUFFER_SIZE] of them) the scan stops as soon as
+    ///   `stop(&state)` holds, and returns the index of the first byte of that group. The offsets
+    ///   of the group are dropped, so the ones kept are exactly those before that index, and
+    ///   `offsets.checkpoint` is reset.
+    pub unsafe fn find_indexes_from<V, F, S, G>(
+        buf: &[u8],
+        offsets: &mut Offsets,
+        from: usize,
+        mut state: S,
+        mut f: F,
+        stop: G,
+    ) -> (S, Option<usize>)
+    where
+        V: Vector,
+        S: ScanState,
+        F: FnMut(S, *const u8) -> (S, /* rel */ u64, /* newlines */ u64),
+        G: Fn(&S) -> bool,
+    {
         // flatten_bits writes up to max(popcount, 16) entries from its start offset, so a batch
         // of BUFFER_SIZE vectors writes at most this many entries.
         const ROOM: usize = MAX_INPUT_SIZE * BUFFER_SIZE + 16;
@@ -1604,8 +1645,15 @@ mod generic {
             "chunk of {} bytes is too large",
             buf.len()
         );
-        let resume = mem::take(&mut offsets.resume);
-        let mut ix = if resume.ix != 0 && resume.ix <= buf.len() {
+        let resume = if from == 0 {
+            mem::take(&mut offsets.resume)
+        } else {
+            Resume::default()
+        };
+        let mut ix = if from != 0 {
+            debug_assert!(from <= buf.len());
+            from
+        } else if resume.ix != 0 && resume.ix <= buf.len() {
             debug_assert_eq!(resume.ix % V::INPUT_SIZE, 0);
             offsets.rel.start = 0;
             offsets.nl.start = 0;
@@ -1639,6 +1687,18 @@ mod generic {
                 (mask, nl)
             }};
         }
+        macro_rules! check_stop {
+            () => {
+                if stop(&state) {
+                    offsets.rel.fields.set_len(field_base);
+                    offsets.nl.fields.set_len(newline_base);
+                    if from == 0 {
+                        offsets.checkpoint = Resume::default();
+                    }
+                    return (state, Some(ix));
+                }
+            };
+        }
         if len_minus_64 > V::INPUT_SIZE * BUFFER_SIZE {
             let mut fields = [0u64; BUFFER_SIZE];
             let mut nls = [0u64; BUFFER_SIZE];
@@ -1648,6 +1708,7 @@ mod generic {
                     fields[b] = rel;
                     nls[b] = nl;
                 }
+                check_stop!();
                 ensure_room!();
                 for b in 0..BUFFER_SIZE {
                     let internal_ix = (V::INPUT_SIZE * b + ix) as u32;
@@ -1660,6 +1721,7 @@ mod generic {
         // Do an unbuffered version for the remaining data
         while ix < len_minus_64 {
             let (fields, nl) = iterate!(buf_ptr.add(ix));
+            check_stop!();
             ensure_room!();
             flatten_bits(field_base_ptr, &mut field_base, ix as u32, fields);
             flatten_bits(newline_base_ptr, &mut newline_base, ix as u32, nl);
@@ -1667,7 +1729,7 @@ mod generic {
         }
         // The rest is scanned with zero padding, so the state after it does not carry over to a
         // longer buffer: a continued scan starts from here.
-        offsets.checkpoint = Resume {
+        let checkpoint = Resume {
             ix,
             rel: field_base,
             nl: newline_base,
@@ -1680,6 +1742,7 @@ mod generic {
             let mut rest = [0u8; MAX_INPUT_SIZE];
             std::ptr::copy_nonoverlapping(buf_ptr.add(ix), rest.as_mut_ptr(), remaining);
             let (fields, nl) = iterate!(rest.as_mut_ptr());
+            check_stop!();
             ensure_room!();
             flatten_bits(field_base_ptr, &mut field_base, ix as u32, fields);
             flatten_bits(newline_base_ptr, &mut newline_base, ix as u32, nl);
@@ -1688,7 +1751,10 @@ mod generic {
         debug_assert!(newline_base <= offsets.nl.fields.capacity());
         offsets.rel.fields.set_len(field_base);
         offsets.nl.fields.set_len(newline_base);
-        state
+        if from == 0 {
+            offsets.checkpoint = checkpoint;
+        }
+        (state, None)
     }
 
     pub unsafe fn find_indexes_csv<V: Vector>(
@@ -1701,8 +1767,9 @@ mod generic {
         // field and every closing quote ends one. Alongside the offsets we check exactly that:
         // an opening quote must follow the start of the buffer, a separator, a newline or a
         // closing quote (the `""` escape); a closing quote must be followed by a quote, a
-        // separator, `\n` or `\r\n`. Any other quote ("irregular") makes us redo the buffer with
-        // `find_indexes_csv_lenient`.
+        // separator, `\n` or `\r\n`. Any other quote ("irregular") stops the SIMD scan: the
+        // record holding it is redone with the byte-by-byte `csv_lenient_scan`, which hands back
+        // to the SIMD scan at a record start some way after it (see `LENIENT_SPAN`).
         let valid = if V::INPUT_SIZE == 64 {
             !0u64
         } else {
@@ -1761,17 +1828,70 @@ mod generic {
                 0,
             )
         };
-        let (inside_quote, cr_end, _, _, _, irregular) = find_indexes::<V, _, _>(
+        let irregular = |s: &(u64, u64, u64, u64, u64, u64)| s.5 != 0;
+        let (state, mut stopped) = find_indexes_from::<V, _, _, _>(
             buf,
             offsets,
+            0,
             (prev_iter_inside_quote, prev_iter_cr_end, 1, 0, 0, 0),
             f,
+            irregular,
         );
-        if irregular != 0 {
-            super::find_indexes_csv_lenient(buf, offsets);
+        if stopped.is_none() {
+            return (state.0, state.1);
         }
-        (inside_quote, cr_end)
+        // The SIMD scans that stopped all started at a record start, outside quotes.
+        let len = buf.len();
+        let mut seg_start = 0;
+        let mut span = LENIENT_SPAN;
+        while let Some(group) = stopped {
+            // The first irregular quote is in the group starting at `group` (an irregular byte
+            // after a closing quote can be up to 2 bytes after the quote), and every offset
+            // before it is right. Back up to the start of its record: past the last newline
+            // before it, which is outside quotes like every newline among the offsets.
+            let lo = group.saturating_sub(2).max(seg_start);
+            let fields = &mut offsets.rel.fields;
+            let before = fields.partition_point(|&o| (o as usize) < lo);
+            let rec_start = fields[..before]
+                .iter()
+                .rposition(|&o| buf[o as usize] == b'\n')
+                .map_or(seg_start, |k| fields[k] as usize + 1)
+                .max(seg_start);
+            let keep = fields.partition_point(|&o| (o as usize) < rec_start);
+            fields.truncate(keep);
+            let stop_at = group + V::INPUT_SIZE * BUFFER_SIZE + span;
+            let resume_at = super::csv_lenient_scan(buf, fields, rec_start, stop_at);
+            if resume_at >= len {
+                break;
+            }
+            let (_, next) = find_indexes_from::<V, _, _, _>(
+                buf,
+                offsets,
+                resume_at,
+                (0, 0, 1, 0, 0, 0),
+                f,
+                irregular,
+            );
+            // Dirty data with irregular quotes close together: scan more of it byte by byte
+            // before trying the SIMD scan again.
+            span = match next {
+                Some(g) if g - resume_at < span => (span * 2).min(LENIENT_SPAN_MAX),
+                _ => LENIENT_SPAN,
+            };
+            seg_start = resume_at;
+            stopped = next;
+        }
+        // Only a scan of the whole buffer in one go can be continued.
+        offsets.checkpoint = Resume::default();
+        // The quote state is no longer tracked by parity.
+        (0, 0)
     }
+
+    /// How far (in bytes) past the group of vectors with an irregular quote the lenient CSV scan
+    /// goes at least before handing back to the SIMD scan; it doubles, up to
+    /// `LENIENT_SPAN_MAX`, while irregular quotes keep showing up within that distance.
+    const LENIENT_SPAN: usize = 256;
+    const LENIENT_SPAN_MAX: usize = 1 << 16;
 
     pub unsafe fn find_indexes_tsv<V: Vector>(
         buf: &[u8],
@@ -2787,7 +2907,9 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         let mut offsets: Offsets = Default::default();
         let (in_quote, in_cr) =
             unsafe { generic::find_indexes_csv::<V>(&mem[..], &mut offsets, 0, 0) };
-        assert_ne!(in_quote, 0);
+        // The final `"` is irregular, so the last record is scanned by the lenient scan, which
+        // does not track the quote state by parity.
+        assert_eq!(in_quote, 0);
         assert_eq!(in_cr, 0);
         // The final `"` follows `it.`, so it is a literal quote and not an offset.
         assert_eq!(
@@ -3355,6 +3477,87 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         }
         if is_x86_feature_detected!("ssse3") && is_x86_feature_detected!("pclmulqdq") {
             resumed_scan_matches_full_scan::<sse2::Impl<true>>();
+        }
+    }
+
+    /// The SIMD CSV scan, which only redoes the records around irregular quotes byte by byte,
+    /// finds the same offsets as the lenient scan of the whole buffer, also when continued.
+    fn csv_irregular_quotes_match_lenient<V: generic::Vector>() {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        const WORDS: &[&[u8]] = &[
+            b"abc",
+            b"",
+            b"\"q,u\noted\"",
+            b"\"esc\"\"aped\"",
+            b"x y",
+            b"\"\"",
+            b"\"cr\r\nin\"",
+        ];
+        const DIRT: &[&[u8]] = &[b"\"", b"a\"b", b"\"x\" y", b"\"x\"\ry", b"\r", b"\"open"];
+        for round in 0..600 {
+            // Mostly well-formed records, with irregular quotes now and then (or often).
+            let dirt_rate = [3u64, 30, 300][round % 3];
+            let records = (next() % 120) as usize;
+            let mut buf = Vec::new();
+            for _ in 0..records {
+                let nfields = 1 + (next() % 5) as usize;
+                for i in 0..nfields {
+                    if i > 0 {
+                        buf.push(b',');
+                    }
+                    if next() % dirt_rate == 0 {
+                        buf.extend_from_slice(DIRT[(next() % DIRT.len() as u64) as usize]);
+                    } else {
+                        buf.extend_from_slice(WORDS[(next() % WORDS.len() as u64) as usize]);
+                    }
+                }
+                buf.extend_from_slice(if next() % 4 == 0 { b"\r\n" } else { b"\n" });
+            }
+            if next() % 2 == 0 {
+                buf.truncate((next() as usize) % (buf.len() + 1));
+            }
+            let mut want = Offsets::default();
+            find_indexes_csv_lenient(&buf, &mut want);
+            let mut got = Offsets::default();
+            unsafe { generic::find_indexes_csv::<V>(&buf, &mut got, 0, 0) };
+            assert_eq!(
+                got.rel.fields,
+                want.rel.fields,
+                "buf={:?}",
+                String::from_utf8_lossy(&buf)
+            );
+            let p = (next() as usize) % (buf.len() + 1);
+            check_resumed_scan(&buf, p, |b, off| unsafe {
+                generic::find_indexes_csv::<V>(b, off, 0, 0)
+            });
+        }
+    }
+
+    #[test]
+    fn csv_irregular_quotes_match_lenient_generic() {
+        csv_irregular_quotes_match_lenient::<generic::Impl>();
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn csv_irregular_quotes_match_lenient_neon() {
+        csv_irregular_quotes_match_lenient::<neon::Impl>();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn csv_irregular_quotes_match_lenient_sse2() {
+        if is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq") {
+            csv_irregular_quotes_match_lenient::<sse2::Impl>();
+        }
+        if is_x86_feature_detected!("avx2") {
+            csv_irregular_quotes_match_lenient::<avx2::Impl>();
         }
     }
 
