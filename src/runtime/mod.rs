@@ -523,6 +523,13 @@ impl RegexCache {
         s: &Str,
         f: impl FnOnce(&dyn awk_regex::Search) -> Result<T>,
     ) -> Result<T> {
+        // The cache comes first: a hit skips scanning the pattern for literal text, which
+        // dynamic patterns are seldom cached as (only through paths without the literal check,
+        // and `AwkRegex` then searches literal text without its regex anyway).
+        self.sync();
+        if let Some(re) = self.0.lookup(pat) {
+            return f(re);
+        }
         let mut f = Some(f);
         // Literal text (`gsub("eps", "E")`) needs no regex, cached or not.
         let literal = pat.with_bytes(|p| {
@@ -531,10 +538,6 @@ impl RegexCache {
         });
         if let Some(res) = literal {
             return res;
-        }
-        self.sync();
-        if let Some(re) = self.0.lookup(pat) {
-            return f.take().unwrap()(re);
         }
         if let Some(re) = self.shared_lookup(pat) {
             return f.take().unwrap()(re);
@@ -942,9 +945,7 @@ impl RegexCache {
         pat: &Str,
         s: &Str,
     ) -> Result<Int> {
-        if let Some(found) = Self::find_literal(pat, s) {
-            return Self::store_match_loc(vars, s, |_| found);
-        }
+        // `with_search_fallible` checks for literal text itself, after the cache.
         self.with_search_fallible(pat, s, |re| Self::regex_const_match_loc(vars, re, s))
     }
 
@@ -1022,15 +1023,16 @@ impl RegexCache {
     }
 
     pub(crate) fn is_regex_match(&mut self, pat: &Str, s: &Str) -> Result<bool> {
+        // The cache comes first, as in `with_search_fallible`.
+        self.sync();
+        if let Some(re) = self.0.lookup(pat) {
+            return Ok(Self::regex_const_match(re, s));
+        }
         if let Some(found) = Self::find_literal(pat, s) {
             return Ok(found.is_some());
         }
         // Patterns built from the input are often each used once (`$0 ~ ("^[a-z]+ " $9)`): see
         // `with_light_matcher`.
-        self.sync();
-        if let Some(re) = self.0.lookup(pat) {
-            return Ok(Self::regex_const_match(re, s));
-        }
         if let Some(re) = self.shared_lookup(pat) {
             return Ok(Self::regex_const_match(re, s));
         }
