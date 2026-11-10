@@ -955,13 +955,13 @@ const LONGEST_COST: super::CostModel = super::CostModel {
     per_byte: 512,
 };
 
-/// Evicts the least recently used half of the caches here, for an eviction round of
+/// Evicts the entries of the caches here last used before the cutoff of an eviction round of
 /// `regex_memory`. A cache in use is skipped: it is the one adding an entry, which evicts by
 /// itself.
 pub(crate) fn evict_caches() {
     EXTENDERS.with(|cell| {
         cell.try_borrow_mut()
-            .map(|mut cache| cache.evict_lru())
+            .map(|mut cache| cache.evict_round())
             .ok()
     });
 }

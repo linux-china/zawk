@@ -395,7 +395,9 @@ where
 
 impl RegexCache {
     /// Switch to the regexes compiled with the current IGNORECASE setting, if it changed since the
-    /// last lookup, and take part in the eviction rounds of `regex_memory` that started since.
+    /// last lookup, and take part in the eviction rounds of `regex_memory` that started since: the
+    /// registries evict their entries last used before the cutoff of the round, which may be
+    /// none of them (see `Registry::evict_before`).
     fn sync(&mut self) {
         let ignore_case = awk_regex::ignore_case();
         if self.2.0 != ignore_case {
@@ -450,7 +452,9 @@ impl RegexCache {
         let shared = self.5.as_ref()?;
         let (re, cost) = pat.with_bytes(|bs| shared.get(self.2.0, bs))?;
         let re = AwkRegex::share(&re);
-        Some(self.0.insert(pat, re, Some(cost / SHARED_HIT_DIVISOR)))
+        self.0.insert(pat, re, Some(cost / SHARED_HIT_DIVISOR));
+        self.sync();
+        self.0.lookup(pat).map(|re| &*re)
     }
 
     /// Compiles `pat`, which is not cached, runs `f` with the regex and caches it, also in the
@@ -464,7 +468,7 @@ impl RegexCache {
         let ignore_case = self.2.0;
         // In a parallel run, the regex compiled, stored in `shared`; this worker uses a copy.
         let origin = Cell::new(None);
-        self.0.get_measured(
+        let res = self.0.get_measured(
             pat,
             |s| match awk_regex::compile(s) {
                 Ok(r) => Ok(match &shared {
@@ -489,7 +493,10 @@ impl RegexCache {
                 }
                 f(re)
             },
-        )
+        );
+        // Take part right away in an eviction round the new entry started.
+        self.sync();
+        res
     }
     /// Runs `f` with the regex that separates records for `rs`: a single-character `RS` is
     /// matched literally, as in POSIX awk and gawk; longer values are regexes.
@@ -608,6 +615,8 @@ impl RegexCache {
                 });
                 // Count the use that let the pattern in.
                 self.3.insert(pat, m?, measured).uses = 1;
+                // Take part right away in an eviction round the new entry started.
+                self.sync();
                 1
             }
         };
@@ -1480,7 +1489,8 @@ impl CostModel {
 /// A cache keyed by strings with a memory budget, for caches whose keys can come from input data
 /// and that `Registry` cannot serve (`Send` values behind a global lock, or keys built from
 /// several arguments). Once inserting an entry would take the estimated memory of the entries
-/// past the budget, the least recently used half is evicted (see `Registry::evict_lru`).
+/// past the budget, the least recently used half is evicted (see `evict_lru`). A cache
+/// counted against `regex_memory` evicts in its eviction rounds instead (see `evict_round`).
 pub(crate) struct StrLru<V> {
     // Each value is paired with the `clock` value of its last use and its memory.
     cached: HashMap<String, (V, u64, usize)>,
@@ -1510,10 +1520,22 @@ impl<V> StrLru<V> {
             ..StrLru::new(0, cost)
         }
     }
-    pub(crate) fn get(&mut self, key: &str) -> Option<&V> {
+    /// The tick of a use of an entry: from the clock of the caches counted against
+    /// `regex_memory`, which order their entries together, for such a cache.
+    fn next_tick(&mut self) -> u64 {
+        if self.budget.is_none() {
+            return regex_memory::tick();
+        }
         self.clock += 1;
-        let clock = self.clock;
-        self.cached.get_mut(key).map(|(v, tick, _)| {
+        self.clock
+    }
+    pub(crate) fn get(&mut self, key: &str) -> Option<&V> {
+        let clock = self.next_tick();
+        let counted = self.budget.is_none();
+        self.cached.get_mut(key).map(|(v, tick, cost)| {
+            if counted {
+                regex_memory::touch(*tick, clock, *cost);
+            }
             *tick = clock;
             &*v
         })
@@ -1525,28 +1547,30 @@ impl<V> StrLru<V> {
     /// `regex_memory::measure`).
     pub(crate) fn insert_measured(&mut self, key: String, v: V, measured: Option<usize>) -> &V {
         let cost = measured.unwrap_or_else(|| self.cost.cost(key.len()));
-        if let Some((_, _, old)) = self.cached.remove(&key) {
+        if let Some((_, tick, old)) = self.cached.remove(&key) {
             self.used -= old;
             if self.budget.is_none() {
-                regex_memory::release(old);
+                regex_memory::release_entry(tick, old);
             }
         }
-        let full = match self.budget {
-            Some(budget) => self.used + cost > budget,
-            None => regex_memory::make_room(cost),
-        };
-        if full {
-            self.evict_lru();
+        match self.budget {
+            Some(budget) if self.used + cost > budget => self.evict_lru(),
+            Some(_) => {}
+            None => {
+                if regex_memory::make_room(cost) {
+                    self.evict_round();
+                }
+            }
         }
+        let tick = self.next_tick();
         if self.budget.is_none() {
-            regex_memory::charge(cost);
+            regex_memory::charge_entry(tick, cost);
         }
-        self.clock += 1;
         self.used += cost;
         &self
             .cached
             .entry(key)
-            .insert((v, self.clock, cost))
+            .insert((v, tick, cost))
             .into_mut()
             .0
     }
@@ -1563,18 +1587,33 @@ impl<V> StrLru<V> {
         Ok(self.insert(key.to_owned(), v))
     }
     /// Evicts the least recently used half of the entries.
-    pub(crate) fn evict_lru(&mut self) {
+    fn evict_lru(&mut self) {
         let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick, _)| *tick).collect();
         if ticks.is_empty() {
             return;
         }
         let mid = ticks.len() / 2;
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
-        self.cached.retain(|_, (_, tick, _)| *tick > threshold);
-        let used = self.cached.values().map(|(_, _, cost)| *cost).sum();
-        if self.budget.is_none() {
-            regex_memory::release(self.used - used);
-        }
+        self.evict_before(threshold + 1);
+    }
+    /// For a cache counted against `regex_memory`, takes part in its current eviction round:
+    /// evicts the entries last used before `regex_memory::cutoff`.
+    pub(crate) fn evict_round(&mut self) {
+        self.evict_before(regex_memory::cutoff());
+    }
+    fn evict_before(&mut self, cutoff: u64) {
+        let counted = self.budget.is_none();
+        let mut used = self.used;
+        self.cached.retain(|_, (_, tick, cost)| {
+            let keep = *tick >= cutoff;
+            if !keep {
+                used -= *cost;
+                if counted {
+                    regex_memory::release_entry(*tick, *cost);
+                }
+            }
+            keep
+        });
         self.used = used;
     }
 }
@@ -1606,13 +1645,15 @@ pub(crate) struct Registry<T> {
     // Each value is paired with the `clock` value of its last use and its memory as counted
     // against `regex_memory` (0 when `limit` is not set).
     cached: HashMap<Str<'static>, (T, u64, usize)>,
-    // When set, the entries count against the budget of `regex_memory`, and the least recently
-    // used half of the registry is evicted in each eviction round.
+    // When set, the entries count against the budget of `regex_memory`, their ticks come from
+    // its clock, and the entries last used before the cutoff of each eviction round are evicted
+    // (see `sync_budget`).
     limit: Option<EntryCost>,
     // The memory of the entries, when `limit` is set.
     used: usize,
     // The eviction round of `regex_memory` the registry last took part in.
     round: u64,
+    // The clock of a registry not counted against `regex_memory`.
     clock: u64,
     // When set, the hashes of the keys evicted recently (see `was_evicted`).
     ghosts: Option<Ghosts>,
@@ -1660,7 +1701,9 @@ impl Ghosts {
 impl<T> Drop for Registry<T> {
     fn drop(&mut self) {
         if self.limit.is_some() {
-            regex_memory::release(self.used);
+            for (_, tick, cost) in self.cached.values() {
+                regex_memory::release_entry(*tick, *cost);
+            }
         }
     }
 }
@@ -1717,51 +1760,58 @@ impl<T> Registry<T> {
         self.take(s).is_some()
     }
     fn take(&mut self, s: &Str) -> Option<T> {
-        let (t, _, cost) = s.with_bytes(|bs| self.cached.remove(&BytesKey(bs)))?;
+        let (t, tick, cost) = s.with_bytes(|bs| self.cached.remove(&BytesKey(bs)))?;
         self.used -= cost;
         if self.limit.is_some() {
-            regex_memory::release(cost);
+            regex_memory::release_entry(tick, cost);
         }
         Some(t)
     }
-    /// Evicts the least recently used half of the entries. Evicting in batches keeps cache hits
-    /// down to a counter update while making eviction amortized O(1) per insertion.
-    fn evict_lru(&mut self) {
-        let mut ticks: Vec<u64> = self.cached.values().map(|(_, tick, _)| *tick).collect();
-        if ticks.is_empty() {
-            return;
-        }
-        let mid = ticks.len() / 2;
-        let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
-        // Ticks are unique, so this keeps exactly the entries more recent than the median.
-        if let Some(ghosts) = &mut self.ghosts {
-            let hasher = self.cached.hasher().clone();
-            self.cached.retain(|k, (_, tick, _)| {
-                let keep = *tick > threshold;
-                if !keep {
+    /// Evicts the entries last used before `cutoff`, for an eviction round of `regex_memory`
+    /// (see `regex_memory::make_room`). The rounds evict the least recently used half of the
+    /// memory of all the caches counted against it, as ordered by its clock: a registry that
+    /// adds entries all the time pushes out its own old ones rather than the entries in use in
+    /// the others. Evicting in batches keeps cache hits down to a counter update while making
+    /// eviction amortized O(1) per insertion.
+    fn evict_before(&mut self, cutoff: u64) {
+        let mut used = self.used;
+        let ghosts = &mut self.ghosts;
+        let hasher = self.cached.hasher().clone();
+        self.cached.retain(|k, (_, tick, cost)| {
+            let keep = *tick >= cutoff;
+            if !keep {
+                used -= *cost;
+                regex_memory::release_entry(*tick, *cost);
+                if let Some(ghosts) = ghosts {
                     ghosts.add(k.with_bytes(|bs| hasher.hash_one(BytesKey(bs))));
                 }
-                keep
-            });
-        } else {
-            self.cached.retain(|_, (_, tick, _)| *tick > threshold);
-        }
-        let used = self.cached.values().map(|(_, _, cost)| *cost).sum();
-        regex_memory::release(self.used - used);
+            }
+            keep
+        });
         self.used = used;
     }
     /// Takes part in the eviction rounds of `regex_memory` that started since the last call.
     fn sync_budget(&mut self, round: u64) {
         if self.limit.is_some() && self.round != round {
             self.round = round;
-            self.evict_lru();
+            self.evict_before(regex_memory::cutoff());
         }
+    }
+    /// The tick of a use of an entry: from the clock of `regex_memory`, which orders the entries
+    /// of all the caches counted against it, for such a registry.
+    #[inline]
+    fn next_tick(&mut self) -> u64 {
+        if self.limit.is_some() {
+            return regex_memory::tick();
+        }
+        self.clock += 1;
+        self.clock
     }
     /// The entry for `s`, if any, marked as just used.
     fn lookup(&mut self, s: &Str) -> Option<&mut T> {
-        self.clock += 1;
-        let clock = self.clock;
-        let (val, tick, _) = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)))?;
+        let clock = self.next_tick();
+        let (val, tick, cost) = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)))?;
+        regex_memory::touch(*tick, clock, *cost);
         *tick = clock;
         Some(val)
     }
@@ -1769,17 +1819,19 @@ impl<T> Registry<T> {
     /// (if known; see `regex_memory::measure`).
     fn insert(&mut self, s: &Str, val: T, measured: Option<usize>) -> &mut T {
         let cost = self.cost(s.len(), measured);
+        if self.limit.is_some() && regex_memory::make_room(cost) {
+            self.sync_budget(regex_memory::round());
+        }
+        // A tick after the cutoff of the round: the entry stays.
+        let tick = self.next_tick();
         if self.limit.is_some() {
-            if regex_memory::make_room(cost) {
-                self.sync_budget(regex_memory::round());
-            }
-            regex_memory::charge(cost);
+            regex_memory::charge_entry(tick, cost);
         }
         self.used += cost;
         &mut self
             .cached
             .entry(s.clone().unmoor())
-            .insert((val, self.clock, cost))
+            .insert((val, tick, cost))
             .into_mut()
             .0
     }
@@ -1807,11 +1859,11 @@ impl<T> Registry<T> {
         mut new: impl FnMut(&str) -> Result<T>,
         getter: impl FnOnce(&mut T, Option<usize>) -> Result<R>,
     ) -> Result<R> {
-        self.clock += 1;
-        let clock = self.clock;
+        let clock = self.next_tick();
         // Look up with the borrowed bytes: only a miss pays for an owned key.
         let hit = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)));
-        if let Some((val, tick, _)) = hit {
+        if let Some((val, tick, cost)) = hit {
+            regex_memory::touch(*tick, clock, *cost);
             *tick = clock;
             return getter(val, None);
         }
@@ -2769,6 +2821,44 @@ mod tests {
             let rounds = regex_memory::round() - round;
             assert!(rounds <= 4, "the cache keeps evicting: {} rounds", rounds);
         }
+    }
+
+    #[test]
+    fn eviction_rounds_spare_registries_in_use() {
+        // Light matchers for patterns from the input, each used a couple of times, fill the
+        // budget: the eviction rounds evict them, the least recently used memory, rather than
+        // half of the compiled regexes in use too.
+        let mut rc = test_cache();
+        let hay = Str::from("alpha::beta::12::gamma");
+        let hot: Vec<Str> = (0..8)
+            .map(|i| Str::from(format!("beta::[0-9]*{}::", i)))
+            .collect();
+        for _ in 0..=LIGHT_USES {
+            for p in &hot {
+                rc.is_regex_match(p, &hay).unwrap();
+            }
+        }
+        assert!(hot.iter().all(|p| rc.0.cached.contains_key(&p.clone().unmoor())));
+        let round = regex_memory::round();
+        for i in 0..20_000 {
+            for p in &hot {
+                rc.is_regex_match(p, &hay).unwrap();
+            }
+            let p = Str::from(format!("gamma::[a-z]*{}$", i));
+            for _ in 0..2 {
+                assert!(!rc.is_regex_match(&p, &hay).unwrap());
+            }
+            assert!(regex_memory::used() <= TEST_BUDGET);
+            for p in &hot {
+                assert!(
+                    rc.0.cached.contains_key(&p.clone().unmoor()),
+                    "{} evicted at {}",
+                    p,
+                    i
+                );
+            }
+        }
+        assert!(regex_memory::round() > round, "nothing was evicted");
     }
 
     #[test]
