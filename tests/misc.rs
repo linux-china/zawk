@@ -4506,6 +4506,40 @@ fn ignorecase_parallel() {
 }
 
 #[test]
+fn parallel_regex_splitter_warns() {
+    // The regex splitter reads on one thread: -p must say it runs serially, not stay silent.
+    let cases = [
+        (vec!["-pr", "-F::"], "-p r ignored: field separator '::' needs the regex splitter"),
+        (vec!["-pr", "-F[:]+"], "-p r ignored: field separator '[:]+' needs the regex splitter"),
+        (vec!["-pf", "-F::"], "-p f ignored: field separator '::' needs the regex splitter"),
+    ];
+    for (args, warning) in cases {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .args(["-j4", "{ s += $3 } END { print s }"])
+            .write_stdin("a::b::1\nc::d::2\n")
+            .assert()
+            .success()
+            .stdout("3\n")
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8(out).unwrap();
+        assert!(err.contains(warning), "stderr: {err}");
+    }
+    // A single-byte FS runs in parallel without a warning.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["-pr", "-j4", "-F:", "{ s += $5 } END { print s }"])
+        .write_stdin("a::b::1\nc::d::2\n")
+        .assert()
+        .success()
+        .stdout("3\n")
+        .stderr("");
+}
+
+#[test]
 fn parallel_begin_values_counted_once() {
     // Every worker starts from the values BEGIN set; aggregating them must count those values
     // once, not once per worker, so these programs print the same in serial and parallel mode.
