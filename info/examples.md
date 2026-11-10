@@ -6,7 +6,7 @@ AWK Examples
 ```
 db_url = ENVIRON["DB_URL"]
 # or by `getenv` function
-user_namme = getenv("USER", "guest")
+user_name = getenv("USER", "guest")
 ```
 
 **Attention**: zawk reads `.env` file by default.
@@ -18,7 +18,9 @@ if(name =="") {
    name = "guest"
 }
 # or by ternary operator
-guest_name = (name =="" ? "geust" : name)
+guest_name = (name =="" ? "guest" : name)
+# or by the `??` default operator
+guest_name = name ?? "guest"
 ```
 
 # awk file help support
@@ -60,7 +62,7 @@ $ zawk dump --prometheus http://localhost:8081/actuator/prometheus
 
 # Output as CSV
 
-`zawk -o csv 'BEGIN { print 1, "first,seccond"}'`
+`zawk -o csv 'BEGIN { print 1, "first,second"}'`
 
 # NCSA Common Log Format
 
@@ -89,7 +91,7 @@ BEGIN {
     method = trim($6, "\"")
     protocol = trim($(NF - 2), "\"")
     request_path = join_fields(7, NF - 3, " ")
-    print $1, $2, $3, $4, trim(date, "[]"), status, bytes, method, protocol, request_path
+    print $1, $2, $3, trim(date, "[]"), status, bytes, method, protocol, request_path
 }
 ```
 
@@ -141,8 +143,6 @@ $ ./spring-log.awk spring.log | duckdb -c "SELECT * FROM read_csv('/dev/stdin') 
 `%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n`
 
 https://logback.qos.ch/manual/layouts.html
-
-`%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n`
 
 # remove duplicate lines
 

@@ -30,6 +30,10 @@ Errors:
 * Add function name in `fn type_sig(`(函数类型签名) of [src/builtins.rs](../src/builtins.rs)
 * Add function name in `fn step(`(函数返回值类型) of [src/builtins.rs](../src/builtins.rs)
 * Dynamic parameters in `fn call<'c>(` of [src/cfg.rs](../src/cfg.rs)
+* Add the reference doc entry (category, signature, summary, example) in
+  [src/function_docs.rs](../src/function_docs.rs): it is used by `zawk functions [--json]` and `zawk llm`, and its
+  optional parameters (`[, p: type]`) define the accepted number of arguments. The tests of `function_docs.rs` fail if a
+  builtin has no entry, or if [info/stdlib.md](stdlib.md) does not mention the function, so document it there too.
 
 ### Bind function with AWK compiler
 
@@ -104,9 +108,12 @@ please refer `ENVIRON` as example.
 
 ### File format support
 
-* text
-* csv
-* Apache Parquet - use dr to convert Parquet to CSV
+Input (`-i`): text, csv, tsv, json, jsonl, parquet, avro, markdown, xlsx; database tables/queries
+(`sqlite://`, `mysql://`, `postgresql://`) and message streams (`nats://`, `kafka://`) as input files.
+Readers live in [src/runtime/splitter](../src/runtime/splitter).
+
+Output (`-o`): csv, tsv, jsonl, markdown, table, parquet, avro, xlsx
+(see `parquet_writer.rs`, `avro_writer.rs`, `xlsx_writer.rs` in [src/runtime](../src/runtime)).
 
 ### References
 
@@ -116,4 +123,4 @@ please refer `ENVIRON` as example.
 
 # Tools
 
-* Apache Parquet Read: please use [dr](https://crates.io/crates/dr) to convert parquet to CSV file.
+* Apache Parquet: read natively with `zawk -i parquet`, and inspect with `zawk inspect file.parquet`.

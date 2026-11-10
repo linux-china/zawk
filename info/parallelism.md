@@ -9,11 +9,19 @@ to successfully run in parallel, running a script in
 this mode _can_ change the meaning of a script. The second portion provides an
 overview of the semantics of a zawk script when it is run in parallel.
 
-> Note: zawk only supports parallel execution for CSV, TSV, scripts that only
-> split by whitespace, and scripts that only use a unique, single-byte field
-> separator and single-byte record separator. In time, this limitation may be
-> relaxed, but those formats are unlikely to support the same level of
-> performance with record-level parallelism.
+> Note: parallel execution works with every input format (text, CSV, TSV,
+> JSON/JSON Lines, Parquet, Avro, Excel, Markdown) and with any field separator,
+> including multi-byte and regex ones, which are split in the workers. zawk runs
+> the script serially instead, with a warning when it says nothing else, when:
+>
+> * the record separator `RS` is longer than one byte, or may be assigned at
+>   run time (`-p r ignored: record separator '...' needs the regex splitter`);
+> * `-H` is used with several input files (each file has its own header);
+> * an operand is a `var=value` assignment, or the input is a `nats://` or
+>   `kafka://` message stream.
+>
+> SIMD scanning of structural characters is used on x86_64 (SSE2/AVX2) and on
+> aarch64 (NEON).
 
 ## Reading Input In Parallel
 

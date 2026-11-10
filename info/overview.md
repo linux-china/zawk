@@ -6,7 +6,7 @@ while the [grymoire entry](https://www.grymoire.com/Unix/Awk.html) provides
 more detail. In keeping with common practice, I have been inconsistent in this
 repo with how I capitalize "AWK."_
 
-My copy of the [AWK book](https://en.wikipedia.org/wiki/The_AWK_Programming_Language)
+The copy of the [AWK book](https://en.wikipedia.org/wiki/The_AWK_Programming_Language)
 begins with a simple message:
 
 > Computer users spend a lot of time doing simple, mechanical data manipulation
@@ -23,7 +23,7 @@ for zawk to be a version of Awk with higher-level features; I appreciate that
 Awk rarely escapes the lab of one-liners and have no desire to write large
 programs in an Awk-like language.
 
-zawk addresses two primary shortcomings I have found in Awk.
+zawk addresses three primary shortcomings I have found in Awk.
 
 1. Lack of support for structured CSV input data.
 2. Sometimes-lackluster performance.
@@ -32,8 +32,9 @@ zawk addresses two primary shortcomings I have found in Awk.
 We can take each of these in turn, and then move on to how zawk is implemented.
 Before getting too far into the weeds, I want to clarify that my main goal in
 starting this project was to learn something new: I wanted to write a small
-compiler, I wanted to learn about LLVM, and I wanted to do some basic static
-analysis. On that score zawk has been an unalloyed success.
+compiler, I wanted to learn about code generation (Cranelift), 
+and I wanted to do some basic static analysis. On that
+score zawk has been an unalloyed success.
 
 **Disclaimer** zawk is still incomplete. I have found that it is sufficient for
 my day-to-day scripting needs, but some features from Awk are not implemented
@@ -103,7 +104,9 @@ zawk's higher performance are:
    fairly simple Cranelift IR (CLIF) and then JIT that IR to machine code at
    runtime. This avoids the overhead of an interpreter at the cost of a few
    milliseconds of time at startup. zawk provides a bytecode interpreter
-   (enabled via the `-Binterp` option) for smaller scripts and for help in testing.
+   (enabled via the `-B interp` or `-O -1` option) for smaller scripts and for
+   help in testing. Cranelift is the only JIT backend: the LLVM backend has been
+   removed.
 3. zawk uses some fairly recent techniques for [efficiently validating
    UTF-8](https://github.com/lemire/fastvalidate-utf-8), [parsing
    CSV](https://github.com/geofflangdale/simdcsv), and [parsing floating point
@@ -240,8 +243,9 @@ surprised to discover there were bugs in zawk's parser.
   `SUBSEP`. Most "book" awk builtin functions and commands are supported at
   this point, but please file an issue if you notice any gaps.
 * While it has never been tried, I sincerely doubt that zawk will run at all
-  well --- or at all --- on a 32-bit platform. I suspect it would run much
-  slower on a 64-bit non-x86 architecture.
+  well --- or at all --- on a 32-bit platform. zawk is built and tested on
+  x86_64 and aarch64 (Apple Silicon, ARM Linux); its SIMD input parsing uses
+  AVX2/SSE2 on x86_64 and NEON on aarch64.
 
 ### What is new
 
@@ -259,9 +263,14 @@ surprised to discover there were bugs in zawk's parser.
   field that is never closed runs to the end of the file; zawk reads it as one
   field and warns on stderr (`zawk: warning: <file>: record <n>: unterminated
   quoted field runs to the end of the file`).
-* zawk reads JSON Lines (`-i jsonl`) and Apache Parquet files (`-i parquet`).
+* zawk reads JSON (`-i json`), JSON Lines (`-i jsonl`), Apache Parquet
+  (`-i parquet`), Avro (`-i avro`), Excel (`-i xlsx`) and Markdown tables
+  (`-i markdown`), and database tables or queries given as input files
+  (`sqlite://app.db#user`, `mysql://...#table`, `postgresql://...#select ...`).
   `$1..$NF` are the columns, `FI` maps column names to their index (as with
-  `-H`), and for Parquet `$0` is the row as a JSON object. See the
+  `-H`), and for Parquet and Avro `$0` is the row as a JSON object. Output can
+  be written as CSV, TSV, JSON Lines, Markdown, an aligned table, Parquet, Avro
+  or Excel with `-o`. See the
   [FAQ](https://github.com/linux-china/zawk/blob/master/info/faq.md) for the
   Parquet value mapping. A JSONL line that is not valid JSON is skipped (it is
   not a record, so it does not count in `NR`) and is reported on stderr as
@@ -272,10 +281,11 @@ surprised to discover there were bugs in zawk's parser.
 * zawk provides an `int` function for converting a scalar value to an integer,
   and a `hex` function for converting a hexadecimal string to an integer. It
   also supports hexadecimal numeric literals.
-* For scripts run with either of the `icsv`, `itsv` options, scripts that only
-  split by whitespace, or scripts that only use one single-byte record and
-  field separator, zawk supports executing the script [in
-  parallel](https://github.com/linux-china/zawk/blob/master/info/parallelism.md).
+* zawk supports executing a script [in
+  parallel](https://github.com/linux-china/zawk/blob/master/info/parallelism.md)
+  with `-p r` (records of one input) or `-p f` (input files), for every input
+  format and field separator; only a multi-byte record separator falls back to
+  a serial run.
 * Following `gawk`, bitwise operators are supported via the `and`, `or`, `compl`,
   `lshift`, `rshift`, and  `xor` builtins. `zawk` also supports `rshiftl` for
   logical right shift. Unlike `gawk`, the `and`, `or` and `xor` functions are
@@ -363,20 +373,21 @@ if you find that the following are a serious hindrance:
   concatenations, results of string functions) compare as strings. Use
   `x ""` to force a string comparison and `x + 0` to force a numeric one.
 * *Null values and join points* Null values in zawk may occasionally be coerced
-  to integers. For example `if (0) { x = 5 }; printf "[%s]", x;` will print `[]`
-  in Awk and will print `[0]` in zawk. This is the main pattern in which
+  to integers. Most common cases print as in Awk (`if (0) { x = 5 }; printf
+  "[%s]", x;` prints `[]`), but some do not: with a format that is not a string
+  literal (`fmt = "[%s]\n"; printf fmt, x` prints `[0]`), or when the value is
+  passed to a user-defined function. See the Incompatibilities section of the
+  [types doc](types.md) for the full list. This is the main pattern in which
   zawk's approach to types can "leak" into actual programs. The same applies to
-  missing elements of numeric arrays (`print c["missing"]` prints `0`), with one
-  exception: comparing an element with the empty string (`c[k] == ""`,
-  `c[k] != ""`) checks whether the element exists, as in Awk. That check no
-  longer helps once the element has been referenced, because a reference
-  creates the element, and in a numeric array its value is `0` rather than an
-  uninitialized value:
+  missing elements of numeric arrays: the first read of a missing element gives
+  `""`, but the read creates the element, and in a numeric array its value is
+  then `0` rather than an uninitialized value:
 
   ```awk
   { c[$1]++ }
   END {
-      print "[" c["zzz"] "]"     # [] in Awk, [0] in zawk; this also creates c["zzz"]
+      print "[" c["zzz"] "]"     # [] in Awk and zawk; this also creates c["zzz"]
+      print "[" c["zzz"] "]"     # [] in Awk, [0] in zawk
       print (c["zzz"] == "")     # 1 in Awk, 0 in zawk
   }
   ```
@@ -398,12 +409,11 @@ if you find that the following are a serious hindrance:
   (with any `RS`), records read by `getline < file` or `cmd | getline`,
   assigning `$0` (even `$0 = $0`) and `split(s, arr)`. To remove carriage
   returns explicitly, use `sub(/\r$/, "")` at the start of the main rule.
-* *`getline` with `-i csv`/`-i tsv`* The input format only applies to the main
-  input. `getline var < file` and `cmd | getline var` read raw lines (split by
-  `RS`, so a quoted field containing a newline is not kept together), and
-  assigning a record to `$0` (`getline < file`, `cmd | getline` or `$0 = ...`)
-  currently has no effect in these modes. Use `getline var < file` and parse
-  the line yourself, e.g. with `from_csv(var)`.
+* *`getline` with `-i csv`/`-i tsv`* `getline < file`, `getline var < file`
+  and `cmd | getline` read CSV/TSV records, so a quoted field containing a
+  newline is kept together, and a record assigned to `$0` (by `getline` or
+  `$0 = ...`) is split into fields with the CSV/TSV rules. `getline var` keeps
+  the record text as is; split it with `from_csv(var)` if needed.
 * *`getline < file`* The file name after `<` may be a concatenation:
   `getline line < dir "/" name` reads the file `dir "/" name` in zawk, while
   gawk reads it as `(getline line < dir) "/" name` and reads the file `dir`.

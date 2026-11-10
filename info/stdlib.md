@@ -58,10 +58,14 @@ Get char at index: `char_at($1, 1)`, starts from 1. If index is out of range, re
 
 Return char array of text: `ar=chars($1)`, starts from 1.
 
-### match(text, re)
+### match(text, re[, arr])
 
-if string text matches the regular expression in re. If s matches, the RSTART variable is set with the start of the
-leftmost match of re, and RLENGTH is set with the length of this match.
+Returns the position of the leftmost match of `re` in `text`, or `0` if there is none. `RSTART` is set with the start
+of the match and `RLENGTH` with its length (`-1` if there is no match).
+
+As in gawk, the optional array `arr` receives the matched text in `arr[0]` and the groups in `arr[1]`, `arr[2]`, ...;
+named groups `(?P<name>...)` are also stored as `arr["name"]`:
+`match("ab12", /(?P<w>[a-z]+)([0-9]+)/, m)` gives `m[0]="ab12"`, `m[1]="ab"`, `m[2]="12"` and `m["w"]="ab"`.
 
 ### substr(text, i[, j])
 
@@ -70,13 +74,14 @@ if i+j exceeds the length of s or if s is not provided.
 As in gawk, a start before the first character starts at the first character and keeps the length:
 `substr("hello", 0, 3)` and `substr("hello", -1, 3)` are both `hel`. Positions count characters, not bytes.
 
-### sub(re, text, s)
+### sub(re, repl[, target])
 
-Substitutes t for the first matching occurrence of regular expression re in the string s.
+Substitutes `repl` for the first matching occurrence of regular expression `re` in `target` (`$0` by default), in place,
+and returns the number of substitutions (0 or 1).
 
-### gsub(re, text, s)
+### gsub(re, repl[, target])
 
-Like sub, but with all occurrences substituted, not just the first.
+Like sub, but with all occurrences substituted, not just the first; returns the number of substitutions.
 
 ### index(haystack, needle)/last_index()
 
@@ -157,13 +162,12 @@ Like join_fields but with columns joined by tabs and escaped using escape_tsv.
 
 ### tolower(s)
 
-Returns a copy of s where all uppercase ASCII characters are replaced with their lowercase counterparts; other
-characters are unchanged.
+Returns a copy of s where all uppercase characters are replaced with their lowercase counterparts. It is Unicode aware:
+`tolower("ÄBC")` is `äbc`.
 
 ### toupper(s)
 
-Returns a copy of s where all lowercase ASCII characters are replaced with their uppercase counterparts; other
-characters are unchanged.
+Returns a copy of s where all lowercase characters are replaced with their uppercase counterparts (Unicode aware).
 
 ### strtonum:
 
@@ -232,7 +236,7 @@ decimal (with optional exponent) or `0x` hex, with optional sign and surrounding
 
 ### isnull
 
-`isnull($3)`: 1 if the value is the `--null` text, that is a NULL read from a database, JSON Lines or Parquet input.
+`isnull($3)`: 1 if the value is the `--null` text, that is a NULL read from a database, JSON Lines, Parquet or Avro input.
 Without `--null`, NULLs are read as the empty string and `isnull()` is always 0.
 
 ```shell
@@ -244,9 +248,10 @@ zawk --null '\N' '{print isnull($FI["age"]) ? "unknown" : $FI["age"]}' 'sqlite:/
 With `--null text`:
 
 - NULLs of database tables/queries (`sqlite://`, `mysql://`, `postgresql://` input and `*_query` results), and `null`
-  of JSON Lines and Parquet input are read as `text`; a missing JSON key is still the empty string.
+  of JSON Lines, Parquet and Avro input are read as `text`; a missing JSON key is still the empty string.
 - A field that is `text` is written as `\N` by `-o tsv` (other backslashes are escaped as `\\`), and as null by
-  `-o jsonl` and `-o parquet` (for every column type, including strings); `-o csv` and plain output write `text` as is.
+  `-o jsonl`, `-o parquet` and `-o avro` (for every column type, including strings); `-o csv` and plain output write
+  `text` as is.
 - A query parameter (`sqlite_execute`, `mysql_execute`, `pg_execute`, `*_query`) that is `text` is bound as NULL.
 
 ### is(format,txt)
@@ -390,7 +395,7 @@ Convert bytes to human-readable format, and vice versa. Units(case-insensitive):
 - `format_bytes(1024)`: 1 KB
 - `format_bytes(-2048)`: -2 KB (negative sizes are scaled by absolute value)
 - `format_bytes(1e30)`: 827180.6 YB (argument is a float, so it is not saturated to an int)
-- `to_bytes("2 KB")`: 2028
+- `to_bytes("2 KB")`: 2048 (`KB` and `KiB` are both 1024 bytes)
 
 ### mkpass
 
@@ -551,7 +556,7 @@ ID specs:
 ID specs:
 
 * length: 64 bits
-* machine_id: 16 bits, and max value is  `65535`;
+* machine_id: 10 bits, `0..=1023`, and `1` by default
 
 # Array functions
 
@@ -590,7 +595,9 @@ Example: `split("b 10 a b 9", arr); u = uniq(arr)` gives `9 10 a b`; `uniq(arr, 
 
 ### asort
 
-`n = asort(arr)`: sort array, and return sorted array length
+`n = asort(src[, dest[, how]])`: sort the values of `src` into `dest` (default: in place, replacing `src`), indexed from 1,
+and return their number. `how` is one of gawk's predefined orders (`"@val_num_asc"`, `"@val_str_desc"`, ...);
+user-defined comparison functions are not supported.
 
 ### asorti
 
@@ -665,12 +672,12 @@ END { t = _top(count, 10); for (i = 1; i <= length(t); i++) print t[i], count[t[
 * `bf_contains(item)` or `bf_contains(item, group)`
 * `bf_icontains(item)` or `bf_icontains(item, group)`: Insert if not found. It's useful for duplication check.
 
-Find unique phone numbers: `!bf_iconatins(phone) { }`
+Find unique phone numbers: `!bf_icontains(phone) { }`
 
 # Math
 
 Floating-point operations: `sin(x)`, `cos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`, `log2(x)`, `log10(x)`, `sqrt(x)`,
-`exp(x)` are delegated to the Rust standard library, or LLVM intrinsics where available.
+`exp(x)` are delegated to the Rust standard library.
 
 ### intdiv0(x, y)
 
@@ -770,7 +777,8 @@ the return value is `0` or `1` for `mkbool(s)`.
 
 **hint**: the words `false`, `f`, `no`, `n`, `off`, `𐄂` (any case), an empty or blank string, and a string that
 looks like a number equal to zero (`0`, `0.0`, `-0`, `0x0`) return 0; the words `true`, `t`, `yes`, `y`, `on`, `✓`
-and any other string return 1. The same rules apply to `:boolean` columns of `-o jsonl` and `-o parquet`.
+and any other string return 1. The same rules apply to `:boolean` columns of `-o jsonl`, `-o parquet`, `-o avro` and
+`-o xlsx`.
 
 examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mkbool("0.0")` `mkbool("  0  ")`,
 `mkbool("Y")`, `mkbool("Yes")`, `mkbool("")`,
@@ -787,7 +795,8 @@ A leading `0` alone is decimal: `float("017")` is `17`. There are no octal or bi
 
 # Date/Time
 
-utc by default.
+Times are Unix timestamps (seconds), and dates are formatted and parsed in the local time zone (set `TZ` for another
+zone) unless a function is asked for UTC.
 
 ### systime
 
@@ -1148,7 +1157,8 @@ and is not stored in the local SQLite database.
 
 ### KV with NATS
 
-namespace is NATS URL: `nats://localhost:4222/bucket_name`, please use `nats kv add bucket_name` to create bucket
+namespace is NATS URL: `nats://localhost:4222/bucket_name` (`nats+tls://` for TLS). The JetStream key-value bucket is
+created on first use if it does not exist (JetStream must be enabled on the server).
 
 `kv_get("nats://localhost:4222/bucket_name/nick")`
 
@@ -1336,7 +1346,7 @@ url: `mysql://root:123456@localhost:3306/test`
 
 # Data Time
 
-utc by default.
+Local time zone by default (set `TZ` to change it), see [Date/Time](#datetime).
 
 functions:
 
@@ -1362,13 +1372,12 @@ date/time array:
 - year: 2024
 - month: 1, 2
 - monthday: 24
-- hour
+- hour: 0-23
+- althour: 1-12
 - minute
 - second
 - yearday
-- weekday
-- hour: 1-24
-- althour: 1-12
+- weekday: 0-6, Sunday is 0
 
 # OS
 
@@ -1406,7 +1415,7 @@ With new `system2` function, you can get the output directly:
 
 ```
     result = system2("curl ifconfig.me")
-    println result["stdout"]
+    print result["stdout"]
 ```
 
 **Attention**: If you don't want to capture output, you can use `system` function.
@@ -1418,8 +1427,8 @@ With new `system2` function, you can get the output directly:
 - read file into text: `read_all(file_path)`, `read_all("https://example.com/text.txt")`
 - write text into file: `write_all(file_path, text)`  Replace if file exists.
 
-**Tips**: `read_all` reads a local file or an `http://`/`https://` URL as text. Compressed content is not
-decompressed, and other schemes (`ftp://`, `s3://`, ...) are not supported. If the file can't be read
+**Tips**: `read_all` reads a local file, an `http://`/`https://` URL or an `s3://bucket/key` object as text. Compressed
+content is not decompressed, and other schemes (`ftp://`, ...) are not supported. If the file can't be read
 (missing file, invalid UTF-8, network failure), a warning is printed and an empty string is returned.
 The HTTP status is not checked: the body of an error response (404, ...) is returned as is.
 
@@ -1471,16 +1480,17 @@ Use `RUST_LOG` (also loaded from `.env`) to adjust it, for example:
   `assert` is a statement: it can't be used in an expression such as `x = assert(...)` or `c && assert(...)`.
 - `assert_eq(left, right[, msg])`: as `assert(left == right, msg)` (values compare as with `==`), printing `left`, `right` and the location of the assertion. Each side is evaluated once, and `msg` only on a failure. Also a statement.
 - `zawk functions [--json] [FILTER]`: list builtin functions with signatures, descriptions and examples.
-- `zawk inspect [-i FORMAT] [-o table|markdown] [-n ROWS] [--max-rows N] FILE...`: look at a CSV, TSV, JSON Lines or Parquet file
-  before writing a program for it: the schema (field number, name and type of each column; a CSV header of `name:TYPE` declares the type),
-  the first rows (10 by default) and a summary of each column like DuckDB's `SUMMARIZE` (min, max, approx_unique, avg, std, q25, q50, q75,
+- `zawk inspect [-i FORMAT] [-o table|markdown] [-n ROWS] [--max-rows N] FILE...`: look at a CSV, TSV, JSON Lines, Parquet, Avro or
+  Excel (xlsx) file, or a database table or query (`sqlite://app.db#user`), before writing a program for it: the schema (field number,
+  name and type of each column; a CSV header of `name:TYPE` declares the type), the first rows (10 by default; and the last 10 rows of an
+  input with more than 50 rows) and a summary of each column like DuckDB's `SUMMARIZE` (min, max, approx_unique, avg, std, q25, q50, q75,
   count, null_percentage). The format comes from `-i`, the file extension or the content; compressed files, URLs and S3 objects are supported.
   `-o markdown` prints Markdown tables, handy for AI agents.
 - `zawk llm [-i FORMAT] [-H] [-F FS] [-o FORMAT] [-n ROWS] [--max-rows N] [FILE...] QUESTION`: print a prompt asking an LLM to write
   a zawk program that answers `QUESTION` (the last argument) about the input files, to be piped to an LLM tool, e.g.
   `zawk llm -i csv -H family.csv 'how many adults?' | llm -x`. The prompt has the command line of the run and what its options mean
   (input format, FS, header, output format), the first lines of every input file (10 by default; the first rows of a Parquet file),
-  the schema and the summary of `zawk inspect` for CSV, TSV, JSON, JSON Lines and Parquet input, the zawk language notes and builtin
+  the schema and the summary of `zawk inspect` for CSV, TSV, JSON, JSON Lines, Parquet, Avro and Excel input, the zawk language notes and builtin
   functions, how to check the program with `zawk lint`, and the question. The summary reads the first 100,000 rows (`--max-rows`).
 
 # Credits

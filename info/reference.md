@@ -5,11 +5,14 @@ zawk. For those interested in a source of truth on these components, check out
 the "builtins" module in
 [`src/builtins.rs`](https://github.com/linux-china/zawk/blob/master/src/builtins.rs).
 
-Unlike Awk, builtin functions must have parentheses directly following the
-function name. Awk supports C-style syntax like `length (s)`, but only with
-builtin functions: user-defined functions must still be called like `foo(x)`. In
-zawk, builtin and user-defined functions are called with the same syntax: with
-no spaces allowed.
+As in Awk, a builtin function may have blanks between its name and the `(`
+(`length ("abc")`), while a user-defined function must be called with the `(`
+directly after its name: `foo(x)`. `g (1)` for a user-defined `g` is a fatal
+error (`a call must not have a space before '('`).
+
+Run `zawk functions [FILTER]` (or `zawk functions --json`) to list every builtin
+function with its signature, a description and an example; the
+[stdlib](stdlib.md) doc describes the zawk extension functions in detail.
 
 ## Operators
 
@@ -90,8 +93,7 @@ _Unary Operators:_
 ## Math
 
 * Floating-point operations: `sin`, `cos`, `atan`, `atan2`, `log`, `log2`,
-  `log10`, `sqrt`, `exp` are delegated to the Rust standard library, or LLVM
-  intrinsics where available.
+  `log10`, `sqrt`, `exp` are delegated to the Rust standard library.
 * `rand()`: Returns a uniform random floating-point number between 0 and 1.
 * `srand(x)`: Seeds the random number generator used by `rand`, returns the old
   seed.
@@ -111,21 +113,30 @@ As in gawk, a negative value is a fatal error for all of these, except for the `
 
 * `s ~ re`: 1 if string `s` matches regular expression in `re`.
 * `s !~ re`: Equivalent to negating the result of `s ~ re`.
-* `match(s, re)`: 1 if string `s` matches the regular expression in `re`. If `s`
-  matches, the `RSTART` variable is set with the start of the leftmost match of
-  `re`, and `RLENGTH` is set with the length of this match.
+* `match(s, re[, arr])`: The (1-indexed) position of the leftmost match of `re`
+  in `s`, or 0 if there is none. `RSTART` is set with the start of the match and
+  `RLENGTH` with its length (`-1` if there is no match). As in gawk, the optional
+  array `arr` receives the matched text in `arr[0]` and the groups in `arr[1]`,
+  `arr[2]`, ...; named groups `(?P<name>...)` are also stored as `arr["name"]`.
 * `substr(s, i[, j])`: The 1-indexed substring of string `s` starting from index `i`
-  and continuing for the next `j` characters or until the end of `s` if `i+j`
-  exceeds the length of `s` or if `s` is not provided.
-* `sub(re, t, s)`: Substitutes `t` for the first matching occurrence of regular
-  expression `re` in the string `s`.
-* `gsub(re, t, s)`: Like `sub`, but with all occurrences substituted, not just
-  the first.
+  and continuing for the next `j` characters, or until the end of `s` if `j` is
+  not provided or `i+j` exceeds the length of `s`.
+* `sub(re, t[, s])`: Substitutes `t` for the first matching occurrence of regular
+  expression `re` in `s` (`$0` by default), and returns the number of
+  substitutions (0 or 1).
+* `gsub(re, t[, s])`: Like `sub`, but with all occurrences substituted, not just
+  the first; returns the number of substitutions.
+* `gensub(re, t, how[, s])`: As in gawk, returns `s` (`$0` by default) with the
+  `how`-th match (or all matches when `how` starts with `g`) replaced by `t`, in
+  which `\1`..`\9` refer to the groups; `s` itself is not changed.
 * `index(haystack, needle)`: The first index within `haystack` in which the
   string `needle` occurs, 0 if `needle` does not appear.
-* `split(s, m[, fs])`: Splits the string `s` according to `fs`, placing the
+* `split(s, m[, fs[, seps]])`: Splits the string `s` according to `fs`, placing the
   results in the array `m`. If `fs` is not specified then the `FS` variable is
-  used to split `s`.
+  used to split `s`. As in gawk, the optional array `seps` receives the
+  separators (`seps[i]` follows `m[i]`).
+* `patsplit(s, m, re[, seps])`: The gawk counterpart of `split`: the matches of
+  `re` become the elements of `m`, and the text between them goes to `seps`.
 * `sprintf(fmt, s, ...)`: Returns a string formatted according to `fmt` and
   provided arguments. The goal is to provide the semantics of the libc `sprintf`
   function.
@@ -158,10 +169,10 @@ As in gawk, a negative value is a fatal error for all of these, except for the `
 * `int(s)`: Convert `s` to an integer. Floating-point numbers are also converted
   (rounded down), potentially without a round-trip through a string
   representation.
-* `tolower(s)`: Returns a copy of `s` where all uppercase ASCII characters are
-  replaced with their lowercase counterparts; other characters are unchanged.
-* `toupper(s)`: Returns a copy of `s` where all lowercase ASCII characters are
-  replaced with their uppercase counterparts; other characters are unchanged.
+* `tolower(s)`: Returns a copy of `s` with all uppercase characters (Unicode
+  aware: `tolower("ÄBC")` is `äbc`) replaced with their lowercase counterparts.
+* `toupper(s)`: Returns a copy of `s` with all lowercase characters (Unicode
+  aware) replaced with their uppercase counterparts.
 * `exit [code]`: Exits the current process with the given code. `exit` attempts
   to flush any open file buffers. For parallel scripts, other worker threads
   have inputs cut off. Once those threads exit their main loop the process

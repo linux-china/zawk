@@ -72,8 +72,8 @@ Not only does representing a variable as an integer rather than an integer,
 string pair reduce space consumption. It also allows us to eliminate redundant
 string conversions (in the eager case) and branching during arithmetic (in the
 lazy case). The same goes for arrays with all-integer keys. Furthermore,
-representing variables as their raw types and making coercions explicit provides
-LLVM with more opportunities to optimize the zawk program.
+representing variables as their raw types and making coercions explicit gives
+the Cranelift JIT more opportunities to optimize the zawk program.
 
 The standard tactic for deducing types in a "dynamic" language is to observer
 program behavior within a [tracing

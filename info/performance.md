@@ -1,5 +1,11 @@
 # Performance
 
+> **Note**: the benchmark numbers below were measured for frawk, the project zawk is based on, on 2019-2021
+> hardware, and have not been re-run for zawk. They are kept for the methodology and as a rough comparison. Since
+> then the LLVM backend was removed (Cranelift is the only JIT backend), jemalloc is always used, and the SIMD
+> input parsing also supports aarch64 (NEON). Rows labelled "llvm" refer to the removed backend. The benchmark
+> scripts are in [scripts](scripts).
+
 ## Disclaimer
 
 One of zawk's goals is to be efficient. The abundance of such claims
@@ -31,8 +37,8 @@ reported as "2.5s (10.2s + 3.4s)". We also report throughput numbers, which
 are computed as wall time divided by input file size.
 
 This doc includes measurements for both parallel and serial invocations of
-zawk, and it also provides numbers for zawk using its LLVM and its Cranelift
-backend, with all optimizations enabled. Note that zawk adaptively chooses the
+zawk, using the Cranelift backend with all optimizations enabled (a few rows
+show the LLVM backend, which has since been removed). Note that zawk adaptively chooses the
 number of workers to launch for parallel invocations, so the ratio of CPU to
 wall time can vary across invocations. XSV supports parallelism but I noticed
 no performance benefit from this feature without first building an index of the
@@ -106,17 +112,15 @@ due to having a newer CPU with a much higher boost clock, but I am less sure
 about the relative performance differences between zawk and tsv-utils. One
 contributing factor might be zawk's use of AVX2 driving the clock rate down to
 a greater degree on the Broadwell-E CPU in Linux than the more recent CPU on the
-Mac configuration. zawk's LLVM backend generally performs better than Cranelift
-(this is as expected, as Cranelift does not implement as many optimizations as of
-yet), but the performance is usually pretty close.
+Mac configuration.
 
 ### Tools
 
 These benchmarks report values for a number of tools, each with slightly
 different intended use-cases and strengths. Not all of the tools are set up
 well to handle each task, but each makes an appearance in some subset of the
-benchmarks. All benchmarks include `zawk`, of course; in this case both the
-`use_jemalloc` and `allow_avx2` features were enabled.
+benchmarks. All benchmarks include `zawk`, of course; in this case the
+`allow_avx2` feature was enabled (jemalloc is now always used).
 
 * [`mawk`](https://invisible-island.net/mawk/) is an Awk implementation due to
   Mike Brennan. It is focused on the "Awk book" semantics for the language, and
@@ -180,10 +184,11 @@ function max(x,y) { return x < y ? y:x; }
 END { print accum; }
 ```
 
-> Note: the `+0`s ensure we are always performing a numeric comparison. In Awk
-> this is unnecessary if all instances of column $4 and column $5 are numeric;
-> in zawk this is required: max will perform a lexicographic comparison instead
-> of a numeric one without the explicit conversion.
+> Note: the `+0`s ensure we are always performing a numeric comparison. As in
+> Awk, this is unnecessary if all instances of column $4 and column $5 are
+> numeric: fields that look like numbers compare numerically in zawk too. Note
+> also that a user-defined `max` takes precedence over the stdlib `max`
+> function.
 
 But I have to preprocess the data to run Awk on it, as Awk doesn't properly
 support quoted CSV fields by default. Supposing I didn't want to do that, the
@@ -488,9 +493,7 @@ numbers are reported for TREE_GRM_ESTN.
 
 As can be seen below, zawk performed this task more quickly than any of the
 other benchmark programs, though the race is pretty close with xsv on the Linux
-desktop using a single core and CSV format. Note that zawk is noticeably slower
-using Cranelift when compared with LLVM in this benchmark; the other benchmark
-programs show performance of the two backends much closer together.
+desktop using a single core and CSV format.
 
 **MacOS**
 

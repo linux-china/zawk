@@ -3,30 +3,30 @@ FAQ
 
 # Why to create zawk?
 
-[zawk](https://github.com/linux-china/zawk) is good tool created by Eli Rosenthal.
+zawk is based on [frawk](https://github.com/ezrosent/frawk), a good tool created by Eli Rosenthal.
 We just want to make AWK more powerful with standard library. `zawk = frawk + stdlib`.
 
 Time flies, and we need a new Modern AWK to work with DuckDB, ClickHouse, S3, KV etc. for text processing.
 
-# Why not just contribute to zawk?
+# Why not just contribute to frawk?
 
-zawk is a foundation to awk for syntax, types, lex etc.,
+frawk is a foundation to awk for syntax, types, lex etc.,
 and zawk focuses to make AWK more powerful with standard library.
-Now I'm not sure that developers will accept my changes to zawk, and zawk just experimental
+Now I'm not sure that developers will accept my changes to frawk, and zawk just experimental
 work: `zawk = AWK + stdlib + Rust`.
 
-zawk still good for text processing, embedded etc.,
-and if possible I will contribute some work to zawk, for example:
+frawk still good for text processing, embedded etc.,
+and if possible I will contribute some work to frawk, for example:
 
 * Upgrade to Rust 2021
 * Upgrade to Clap 4.5
 * Dependencies updated to latest
 * gawk compatible: global variables(ENVIRON, PROCINFO) and functions(datetime etc.)
 
-# zawk will fix some bugs in zawk?
+# zawk will fix some bugs in frawk?
 
-Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for zawk,
-and I will try my best to fix bugs in zawk.
+Yes. Eli Rosenthal had much less time over the last 1-2 years to devote to bug fixes and feature requests for frawk,
+and I will try my best to fix these bugs in zawk.
 
 # Any roadmap for zawk?
 
@@ -72,6 +72,9 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
 - With the default `FS`, `\r` separates fields (in the main input, `getline`, `$0 = ...` and `split()` alike), so CRLF line endings are not part of the last field (see *Carriage returns* in [overview.md](overview.md))
 
 # How to query Apache Parquet?
+
+Avro (`-i avro`) and Excel (`-i xlsx`, `book.xlsx#Sheet2` for a sheet) files are read the same way, and the format
+is chosen from the file extension when every input file has the same one.
 
 Use `-i parquet`: `$1..$NF` are the top-level columns, `FI` maps column names to their index, and
 `$0` is the row as a JSON object.
