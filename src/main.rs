@@ -374,7 +374,7 @@ fn warn_regex_splitter(
 ) {
     let flag = match strategy {
         ExecutionStrategy::Serial => return,
-        ExecutionStrategy::ShardPerRecord => "r",
+        ExecutionStrategy::ShardPerRecord(_) => "r",
         ExecutionStrategy::ShardPerFile => "f",
     };
     let show = |sep: &[u8]| String::from_utf8_lossy(sep).escape_debug().to_string();
@@ -1817,7 +1817,7 @@ fn real_main() {
         .get_one::<String>("parallel-strategy")
         .map(|s| s.as_str())
     {
-        Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord,
+        Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord(num_cpus::get()),
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
         None => ExecutionStrategy::Serial,
         Some(x) => fail!(
@@ -1843,6 +1843,11 @@ fn real_main() {
         },
         None => exec_strategy.num_workers(),
     };
+    if let ExecutionStrategy::ShardPerRecord(n) = &mut exec_strategy {
+        // The reader thread reads ahead a number of chunks proportional to `-j`, not to the
+        // number of CPUs.
+        *n = num_workers.max(1);
+    }
     // As in gawk, ARGV[0] is the name zawk was invoked with, without its directory.
     let program_name = std::env::args_os()
         .next()

@@ -19,9 +19,10 @@ pub enum ExecutionStrategy {
     /// Execute the script in a single thread. This is the default.
     Serial,
     /// Attempt to parallelize the script, breaking the input into chunks of records with different
-    /// worker threads processing different chunks.
+    /// worker threads processing different chunks. Carries the number of workers (`-j`), which
+    /// also bounds how many chunks the reader thread reads ahead.
     // TODO: support multiple readers producing chunks from multiple files, if possible.
-    ShardPerRecord,
+    ShardPerRecord(usize),
     /// Attempt to parallelize the script, where multiple worker threads each process a file at a
     /// time.
     ShardPerFile,
@@ -31,14 +32,15 @@ impl ExecutionStrategy {
     pub fn num_workers(&self) -> usize {
         use ExecutionStrategy::*;
         match self {
-            ShardPerFile | ShardPerRecord => num_cpus::get(),
+            ShardPerRecord(n) => (*n).max(1),
+            ShardPerFile => num_cpus::get(),
             Serial => 1,
         }
     }
     pub fn stage(&self) -> Stage<()> {
         use ExecutionStrategy::*;
         match self {
-            ShardPerRecord | ShardPerFile => Stage::Par {
+            ShardPerRecord(_) | ShardPerFile => Stage::Par {
                 begin: None,
                 main_loop: None,
                 end: None,

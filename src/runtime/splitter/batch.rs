@@ -150,7 +150,7 @@ impl CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_csv(
                 rs, chunk_size, ifmt, check_utf8,
             )),
-            x @ ExecutionStrategy::ShardPerRecord => {
+            x @ ExecutionStrategy::ShardPerRecord(_) => {
                 Box::new(CancellableChunkProducer::new(
                     cancel_signal,
                     ParallelChunkProducer::new(
@@ -2305,7 +2305,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_bytes(
                 rs, chunk_size, field_sep, record_sep, check_utf8, kernel, lo,
             )),
-            x @ ExecutionStrategy::ShardPerRecord => {
+            x @ ExecutionStrategy::ShardPerRecord(_) => {
                 Box::new(CancellableChunkProducer::new(
                     cancel_signal,
                     ParallelChunkProducer::new(
@@ -2403,7 +2403,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                         lo,
                     ))
                 }
-                x @ ExecutionStrategy::ShardPerRecord => {
+                x @ ExecutionStrategy::ShardPerRecord(_) => {
                     Box::new(CancellableChunkProducer::new(
                         cancel_signal,
                         ParallelChunkProducer::new(
@@ -3832,7 +3832,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 iter::once((reader, String::from("fake-stdin"))),
                 /*chunk_size=*/ 1024,
                 /*check_utf8=*/ false,
-                ExecutionStrategy::ShardPerRecord,
+                ExecutionStrategy::ShardPerRecord(4),
                 Default::default(),
             )
         }
@@ -3843,7 +3843,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 /*record_sep=*/ b'\n',
                 /*chunk_size=*/ 1024,
                 /*check_utf8=*/ false,
-                ExecutionStrategy::ShardPerRecord,
+                ExecutionStrategy::ShardPerRecord(4),
                 Default::default(),
             )
         }
