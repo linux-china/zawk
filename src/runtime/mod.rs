@@ -6,7 +6,7 @@ use awk_regex::AwkRegex;
 use regex::bytes::Regex;
 use std::cell::{Cell, RefCell};
 use std::fs::File;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 use std::io;
 use std::iter::FromIterator;
 use std::mem;
@@ -130,11 +130,11 @@ const LIGHT_USES: u32 = 4;
 impl Default for RegexCache {
     fn default() -> Self {
         RegexCache(
-            Registry::with_memory_limit(REGEX_COST),
+            Registry::with_memory_limit_and_ghosts(REGEX_COST),
             Registry::with_memory_limit(REGEX_COST),
             (
                 false,
-                Registry::with_memory_limit(REGEX_COST),
+                Registry::with_memory_limit_and_ghosts(REGEX_COST),
                 Registry::with_memory_limit(LIGHT_COST),
             ),
             Registry::with_memory_limit(LIGHT_COST),
@@ -469,6 +469,11 @@ impl RegexCache {
     /// reports the error). Patterns built from the input are often each used once
     /// (`$0 ~ ("^[a-z]+ " $9)`, `match($0, "^" $1)`), so a new pattern starts with the matcher
     /// that is cheap to build.
+    ///
+    /// A pattern whose compiled regex was evicted recently is not compiled again (see `Ghosts`):
+    /// when the patterns in use do not fit in the budget as compiled regexes, compiling them
+    /// again (25–90µs) on every round through them costs more than matching with the light
+    /// matcher, which also takes several times less memory, so that more of them stay cached.
     fn light_matcher(&mut self, pat: &Str, hay: &[u8]) -> Option<&mut awk_regex::LightMatcher> {
         let uses = match self.3.lookup(pat) {
             Some(m) => m.uses,
@@ -487,12 +492,12 @@ impl RegexCache {
                 0
             }
         };
-        if uses >= LIGHT_USES {
+        if uses >= LIGHT_USES && !self.0.was_evicted(pat) {
             self.3.remove(pat);
             return None;
         }
         let m = self.3.lookup(pat)?;
-        m.uses += 1;
+        m.uses = m.uses.saturating_add(1);
         Some(m)
     }
 
@@ -1488,6 +1493,8 @@ pub(crate) struct Registry<T> {
     // The eviction round of `regex_memory` the registry last took part in.
     round: u64,
     clock: u64,
+    // When set, the hashes of the keys evicted recently (see `was_evicted`).
+    ghosts: Option<Ghosts>,
 }
 impl<T> Default for Registry<T> {
     fn default() -> Self {
@@ -1497,7 +1504,35 @@ impl<T> Default for Registry<T> {
             used: 0,
             round: 0,
             clock: 0,
+            ghosts: None,
         }
+    }
+}
+
+/// The hashes of the keys a registry evicted recently, in two generations: once the current one
+/// holds `GHOSTS_PER_GENERATION` hashes, it becomes the previous one, whose hashes are forgotten.
+/// A key that is used again soon after it was evicted shows that the entries in use do not fit in
+/// the budget (cycling through a table of patterns, `for (i in rules) if ($0 ~ rules[i])`): the
+/// least recently used one is then always the next one needed, and rebuilding the entries is
+/// what the time goes to (see `RegexCache::light_matcher`). Hashes take 8 bytes rather than the
+/// entry's ~20KB, so the ghosts remember many more keys than the registry holds.
+#[derive(Default)]
+struct Ghosts {
+    current: hashbrown::HashSet<u64, foldhash::fast::FixedState>,
+    previous: hashbrown::HashSet<u64, foldhash::fast::FixedState>,
+}
+
+const GHOSTS_PER_GENERATION: usize = 1 << 14;
+
+impl Ghosts {
+    fn add(&mut self, hash: u64) {
+        if self.current.len() >= GHOSTS_PER_GENERATION {
+            self.previous = mem::take(&mut self.current);
+        }
+        self.current.insert(hash);
+    }
+    fn contains(&self, hash: u64) -> bool {
+        self.current.contains(&hash) || self.previous.contains(&hash)
     }
 }
 
@@ -1527,7 +1562,24 @@ impl<T> Registry<T> {
             used: 0,
             round: regex_memory::round(),
             clock: 0,
+            ghosts: None,
         }
+    }
+    /// `with_memory_limit` for a registry that remembers the keys it evicts (see `was_evicted`).
+    fn with_memory_limit_and_ghosts(cost: EntryCost) -> Self {
+        let mut r = Registry::with_memory_limit(cost);
+        r.ghosts = Some(Ghosts::default());
+        r
+    }
+    fn key_hash(&self, bs: &[u8]) -> u64 {
+        self.cached.hasher().hash_one(BytesKey(bs))
+    }
+    /// Whether `s` was evicted recently (see `Ghosts`); always false for a registry without
+    /// ghosts.
+    fn was_evicted(&self, s: &Str) -> bool {
+        self.ghosts
+            .as_ref()
+            .is_some_and(|g| s.with_bytes(|bs| g.contains(self.key_hash(bs))))
     }
     /// The memory to count for an entry for a key of `key_len` bytes, of which building took
     /// `measured` bytes (if known), not counting `measured_percent`. A measured entry also counts
@@ -1559,7 +1611,18 @@ impl<T> Registry<T> {
         let mid = ticks.len() / 2;
         let (_, &mut threshold, _) = ticks.select_nth_unstable(mid);
         // Ticks are unique, so this keeps exactly the entries more recent than the median.
-        self.cached.retain(|_, (_, tick, _)| *tick > threshold);
+        if let Some(ghosts) = &mut self.ghosts {
+            let hasher = self.cached.hasher().clone();
+            self.cached.retain(|k, (_, tick, _)| {
+                let keep = *tick > threshold;
+                if !keep {
+                    ghosts.add(k.with_bytes(|bs| hasher.hash_one(BytesKey(bs))));
+                }
+                keep
+            });
+        } else {
+            self.cached.retain(|_, (_, tick, _)| *tick > threshold);
+        }
         let used = self.cached.values().map(|(_, _, cost)| *cost).sum();
         regex_memory::release(self.used - used);
         self.used = used;
@@ -2346,6 +2409,48 @@ mod tests {
                 .unwrap();
             assert!(regex_memory::used() <= TEST_BUDGET);
         }
+    }
+
+    #[test]
+    fn regex_cache_stops_compiling_thrashing_patterns() {
+        // Cycling through more patterns than fit in the budget as compiled regexes
+        // (`for (i in rules) if ($0 ~ rules[i])`): once a compiled pattern has been evicted, it
+        // stays with the light matcher rather than being compiled again on every round, so that
+        // the cache settles instead of evicting (and recompiling) on every pass.
+        const BUDGET: usize = 4 << 20;
+        regex_memory::set_budget(BUDGET);
+        let mut rc = RegexCache::default();
+        let hay = Str::from("alpha::beta::12::gamma");
+        let pats: Vec<Str> = (0..300)
+            .map(|i| Str::from(format!("beta::[0-9]*{}::", i)))
+            .collect();
+        let pass = |rc: &mut RegexCache| {
+            for p in &pats {
+                rc.is_regex_match(p, &hay).unwrap();
+                assert!(regex_memory::used() <= BUDGET);
+            }
+        };
+        for _ in 0..20 {
+            pass(&mut rc);
+        }
+        assert!(pats.iter().any(|p| rc.0.was_evicted(p)), "nothing was evicted");
+        if regex_memory::measure(|| vec![0u8; 1024]).1.is_some() {
+            let round = regex_memory::round();
+            for _ in 0..10 {
+                pass(&mut rc);
+            }
+            assert_eq!(regex_memory::round(), round, "the cache keeps evicting");
+        }
+        // The answers are unchanged.
+        assert!(rc.is_regex_match(&pats[12], &hay).unwrap());
+        assert!(!rc.is_regex_match(&pats[13], &hay).unwrap());
+        // Ghosts are bounded.
+        let mut g = Ghosts::default();
+        for h in 0..3 * GHOSTS_PER_GENERATION as u64 {
+            g.add(h);
+        }
+        assert!(g.current.len() + g.previous.len() <= 2 * GHOSTS_PER_GENERATION);
+        assert!(g.contains(3 * GHOSTS_PER_GENERATION as u64 - 1) && !g.contains(0));
     }
 
     #[test]
