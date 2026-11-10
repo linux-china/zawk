@@ -11,8 +11,8 @@
 //! The options (levels) array maps a name to its description; an entry whose key and value are
 //! the same, or whose key is an index (`split` arrays), is a plain option without description.
 //! A plain text options argument is a comma separated list.
-use std::collections::BTreeMap;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use serde_json::Value;
 
@@ -39,6 +39,20 @@ const ANSWER_COST: CostModel = CostModel {
 /// Answers by request: the same record asked the same question is evaluated once.
 static CACHE: LazyLock<Mutex<StrLru<Answer>>> =
     LazyLock::new(|| Mutex::new(StrLru::new(CACHE_BUDGET, ANSWER_COST)));
+
+/// The result of a request shared by every worker asking it while it is in flight.
+type Flight = Arc<OnceLock<Result<Answer, String>>>;
+
+/// Requests in flight by cache key: concurrent workers asking the same question wait for the
+/// first one's answer instead of calling the remote service again (single-flight).
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Flight>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Locks a mutex, ignoring poisoning: a panic in another worker leaves the cache consistent,
+/// since every critical section is a single map operation.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Clone)]
 enum Answer {
@@ -105,12 +119,42 @@ fn ask(record: &str, question: Question) -> Result<Answer, String> {
     let mut questions = Questions::new();
     questions.insert(QUESTION_ID.to_owned(), question);
     let cache_key = crate::runtime::jev::request_body(&state, &questions);
-    if let Some(answer) = CACHE.lock().unwrap().get(&cache_key).cloned() {
+    if let Some(answer) = lock(&CACHE).get(&cache_key).cloned() {
         return Ok(answer);
     }
+    let flight = {
+        let mut in_flight = lock(&IN_FLIGHT);
+        // Checked again under the in-flight lock: a request finishing in between caches its
+        // answer before leaving the in-flight map.
+        if let Some(answer) = lock(&CACHE).get(&cache_key).cloned() {
+            return Ok(answer);
+        }
+        in_flight.entry(cache_key.clone()).or_default().clone()
+    };
+    let result = flight
+        .get_or_init(|| {
+            let result = evaluate(&state, questions);
+            if let Ok(answer) = &result {
+                lock(&CACHE).insert(cache_key.clone(), answer.clone());
+            }
+            result
+        })
+        .clone();
+    let mut in_flight = lock(&IN_FLIGHT);
+    if in_flight
+        .get(&cache_key)
+        .is_some_and(|current| Arc::ptr_eq(current, &flight))
+    {
+        in_flight.remove(&cache_key);
+    }
+    result
+}
+
+/// Calls the remote service for the single question of `questions`.
+fn evaluate(state: &State, questions: Questions) -> Result<Answer, String> {
     let kind = questions[QUESTION_ID].clone();
     let evaluation = client()?
-        .evaluate(&state, questions)
+        .evaluate(state, questions)
         .map_err(|e: TypeSafeError| e.to_string())?;
     let answer = match kind {
         Question::Noul { .. } => {
@@ -129,7 +173,6 @@ fn ask(record: &str, question: Question) -> Result<Answer, String> {
                 .score,
         ),
     };
-    CACHE.lock().unwrap().insert(cache_key, answer.clone());
     Ok(answer)
 }
 
