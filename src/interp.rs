@@ -213,6 +213,7 @@ impl<'a> Core<'a> {
         let procinfo = self.vars.procinfo.shuttle();
         let slots = self.slots.clone();
         let cancel_signal = self.cancel_signal.clone();
+        let shared_regexes = self.regexes.shared();
         move || {
             let mut vars = Variables {
                 fs: fs.into_str(),
@@ -248,9 +249,13 @@ impl<'a> Core<'a> {
             runtime::numfmt::set_convfmt(&*vars.convfmt.as_str().as_bytes());
             runtime::numfmt::set_ofmt(&*vars.ofmt.as_str().as_bytes());
             runtime::awk_regex::set_ignore_case(vars.ignorecase != 0);
+            let mut regexes = runtime::RegexCache::default();
+            if let Some(shared) = shared_regexes {
+                regexes.join_shared(shared);
+            }
             Core {
                 vars,
-                regexes: Default::default(),
+                regexes,
                 formats: Default::default(),
                 write_files: fw,
                 rng: rand::rngs::StdRng::seed_from_u64(seed),
@@ -765,6 +770,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             }
         }
         let base_slots = self.core.base_slots();
+        // The workers (this thread included) share the regexes they compile.
+        self.core
+            .regexes
+            .join_shared(Arc::new(runtime::shared_regex::SharedRegexes::new()));
         let scope_res = scope(|s| {
             let (sender, receiver) = bounded(handles.len());
             let float_size = self.floats.regs.len();
@@ -848,6 +857,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             }
             Ok(rc)
         });
+        self.core.regexes.leave_shared();
         let rc = wrap_error(scope_res)?;
         if rc != 0 {
             return Ok(rc);

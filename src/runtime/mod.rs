@@ -12,8 +12,8 @@ use std::iter::FromIterator;
 use std::mem;
 use std::rc::Rc;
 use std::str;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 pub(crate) mod array_stats;
 pub mod avro_writer;
@@ -31,6 +31,7 @@ pub mod parquet_writer;
 
 pub mod printf;
 pub(crate) mod regex_memory;
+pub(crate) mod shared_regex;
 pub(crate) mod sorted_in;
 pub mod splitter;
 pub mod stats;
@@ -108,6 +109,8 @@ const LIGHT_COST: EntryCost = EntryCost {
 };
 
 pub struct RegexCache(
+    // Compiled dynamic regexes. In a parallel run, copies of those shared by the workers (see the
+    // last field).
     Registry<AwkRegex>,
     // Field separators that are a single character, which awk treats literally.
     Registry<AwkRegex>,
@@ -120,7 +123,15 @@ pub struct RegexCache(
     Registry<awk_regex::LightMatcher>,
     // The eviction round of `regex_memory` the registries last took part in.
     u64,
+    // In a parallel run, the cache of compiled regexes shared by the workers: the first registry
+    // is the first level, which needs no lock, and this the second (see `shared_lookup`).
+    Option<Arc<shared_regex::SharedRegexes>>,
 );
+
+/// A thread that takes a compiled regex from `SharedRegexes` counts this fraction of its memory
+/// against its own budget: the compiled program is shared, but the copy has search caches of its
+/// own (see `AwkRegex::share`), which the regex engines allocate on its first searches.
+const SHARED_HIT_DIVISOR: usize = 3;
 
 /// How many times a dynamic pattern is used with the cheap matcher (see
 /// `awk_regex::LightMatcher`) before compiling it fully: a full regex takes 10–50 times longer to
@@ -139,6 +150,7 @@ impl Default for RegexCache {
             ),
             Registry::with_memory_limit(LIGHT_COST),
             regex_memory::round(),
+            None,
         )
     }
 }
@@ -385,14 +397,76 @@ impl RegexCache {
         mut f: impl FnMut(&AwkRegex) -> T,
     ) -> Result<T> {
         self.sync();
-        self.0.get(
+        if let Some(re) = self.0.lookup(pat) {
+            return Ok(f(re));
+        }
+        if let Some(re) = self.shared_lookup(pat) {
+            return Ok(f(re));
+        }
+        self.compile_and_cache(pat, |re| Ok(f(re)))
+    }
+
+    /// Joins the workers of a parallel run in sharing their compiled regexes through `shared`.
+    pub(crate) fn join_shared(&mut self, shared: Arc<shared_regex::SharedRegexes>) {
+        self.5 = Some(shared);
+    }
+
+    /// Leaves the parallel run joined with `join_shared`.
+    pub(crate) fn leave_shared(&mut self) {
+        self.5 = None;
+    }
+
+    /// The cache of compiled regexes shared by the workers of the parallel run this thread is
+    /// part of, if any.
+    pub(crate) fn shared(&self) -> Option<Arc<shared_regex::SharedRegexes>> {
+        self.5.clone()
+    }
+
+    /// A copy of the compiled regex for `pat` from the cache shared by the workers of a parallel
+    /// run, cached in the first registry. To be called after a miss there.
+    fn shared_lookup(&mut self, pat: &Str) -> Option<&AwkRegex> {
+        let shared = self.5.as_ref()?;
+        let (re, cost) = pat.with_bytes(|bs| shared.get(self.2.0, bs))?;
+        let re = AwkRegex::share(&re);
+        Some(self.0.insert(pat, re, Some(cost / SHARED_HIT_DIVISOR)))
+    }
+
+    /// Compiles `pat`, which is not cached, runs `f` with the regex and caches it, also in the
+    /// cache shared by the workers of a parallel run.
+    fn compile_and_cache<R>(
+        &mut self,
+        pat: &Str,
+        f: impl FnOnce(&AwkRegex) -> Result<R>,
+    ) -> Result<R> {
+        let shared = self.5.clone();
+        let ignore_case = self.2.0;
+        // In a parallel run, the regex compiled, stored in `shared`; this worker uses a copy.
+        let origin = Cell::new(None);
+        self.0.get_measured(
             pat,
             |s| match awk_regex::compile(s) {
-                Ok(r) => Ok(r.counted()),
+                Ok(r) => Ok(match &shared {
+                    Some(sh) => {
+                        let r = Arc::new(r.counted_shared(sh.used_counter()));
+                        let copy = AwkRegex::share(&r);
+                        origin.set(Some(r));
+                        copy
+                    }
+                    None => r.counted(),
+                }),
                 Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
             },
-            // eta-expansion required to get this compiling..
-            |x| f(x),
+            |re, measured| {
+                if let (Some(sh), Some(origin)) = (&shared, origin.take()) {
+                    let cost = measured.unwrap_or_else(|| REGEX_COST.estimate.cost(pat.len()));
+                    let kept = pat.with_bytes(|bs| sh.insert(ignore_case, bs, &origin, cost));
+                    // Another worker compiled it meanwhile: share theirs.
+                    if !Arc::ptr_eq(&kept, &origin) {
+                        *re = AwkRegex::share(&kept);
+                    }
+                }
+                f(re)
+            },
         )
     }
     /// Runs `f` with the regex that separates records for `rs`: a single-character `RS` is
@@ -440,6 +514,9 @@ impl RegexCache {
         if let Some(re) = self.0.lookup(pat) {
             return f.take().unwrap()(re);
         }
+        if let Some(re) = self.shared_lookup(pat) {
+            return f.take().unwrap()(re);
+        }
         let light = s.with_bytes(|bs| {
             let m = self.light_matcher(pat, bs)?;
             let f = &mut f;
@@ -453,14 +530,7 @@ impl RegexCache {
         }
         // `f` was not called.
         let f = f.take().unwrap();
-        self.0.get_fallible(
-            pat,
-            |s| match awk_regex::compile(s) {
-                Ok(r) => Ok(r.counted()),
-                Err(e) => err!("{}", awk_regex::compile_error(s, &e)),
-            },
-            |re| f(re),
-        )
+        self.compile_and_cache(pat, |re| f(re))
     }
 
     /// The light matcher (see `awk_regex::LightMatcher`) for a dynamic pattern that is not
@@ -913,6 +983,9 @@ impl RegexCache {
         // `light_matcher`.
         self.sync();
         if let Some(re) = self.0.lookup(pat) {
+            return Ok(Self::regex_const_match(re, s));
+        }
+        if let Some(re) = self.shared_lookup(pat) {
             return Ok(Self::regex_const_match(re, s));
         }
         if let Some(res) = s.with_bytes(|bs| self.light_matcher(pat, bs)?.is_match(bs)) {
@@ -1644,7 +1717,7 @@ impl<T> Registry<T> {
     }
     /// Adds an entry for `s`, which must not have one yet, that took `measured` bytes to build
     /// (if known; see `regex_memory::measure`).
-    fn insert(&mut self, s: &Str, val: T, measured: Option<usize>) {
+    fn insert(&mut self, s: &Str, val: T, measured: Option<usize>) -> &mut T {
         let cost = self.cost(s.len(), measured);
         if self.limit.is_some() {
             if regex_memory::make_room(cost) {
@@ -1652,9 +1725,13 @@ impl<T> Registry<T> {
             }
             regex_memory::charge(cost);
         }
-        self.cached
-            .insert(s.clone().unmoor(), (val, self.clock, cost));
         self.used += cost;
+        &mut self
+            .cached
+            .entry(s.clone().unmoor())
+            .insert((val, self.clock, cost))
+            .into_mut()
+            .0
     }
     fn get<R>(
         &mut self,
@@ -1667,8 +1744,18 @@ impl<T> Registry<T> {
     fn get_fallible<R>(
         &mut self,
         s: &Str,
-        mut new: impl FnMut(&str) -> Result<T>,
+        new: impl FnMut(&str) -> Result<T>,
         getter: impl FnOnce(&mut T) -> Result<R>,
+    ) -> Result<R> {
+        self.get_measured(s, new, |t, _| getter(t))
+    }
+    /// `get_fallible`, also passing `getter` the memory it took to build a new entry (if
+    /// measured, as counted against `regex_memory`), or `None` on a hit.
+    fn get_measured<R>(
+        &mut self,
+        s: &Str,
+        mut new: impl FnMut(&str) -> Result<T>,
+        getter: impl FnOnce(&mut T, Option<usize>) -> Result<R>,
     ) -> Result<R> {
         self.clock += 1;
         let clock = self.clock;
@@ -1676,7 +1763,7 @@ impl<T> Registry<T> {
         let hit = s.with_bytes(|bs| self.cached.get_mut(&BytesKey(bs)));
         if let Some((val, tick, _)) = hit {
             *tick = clock;
-            return getter(val);
+            return getter(val, None);
         }
         let percent = self.limit.map(|limit| limit.measured_percent);
         let (val, res, measured) = s.with_bytes(|raw_str| {
@@ -1692,7 +1779,7 @@ impl<T> Registry<T> {
                 None => (new(s), None),
             };
             let mut val = val?;
-            let res = getter(&mut val);
+            let res = getter(&mut val, measured);
             Ok((val, res, measured))
         })?;
         self.insert(s, val, measured);
@@ -2413,6 +2500,84 @@ mod tests {
                 .unwrap();
             assert!(regex_memory::used() <= TEST_BUDGET);
         }
+    }
+
+    #[test]
+    fn workers_share_compiled_regexes() {
+        // Needs the leftmost-longest machinery: `ab` rather than `a`.
+        const PAT: &str = "(a|ab)c?[0-9]+";
+        let shared = Arc::new(shared_regex::SharedRegexes::new());
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let pat = Str::from(PAT);
+                let mut rc = RegexCache::default();
+                rc.join_shared(shared.clone());
+                assert!(rc.with_regex(&pat, |re| re.is_match(b"ab1")).unwrap());
+                rc.leave_shared();
+            });
+        });
+        let (first, _) = shared.get(false, PAT.as_bytes()).unwrap();
+        assert!(!first.longest_built());
+        // Another worker finds it compiled: every kind of lookup takes a copy of the shared
+        // regex, with search caches of its own.
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let pat = Str::from(PAT);
+                let hay = Str::from("xab12");
+                let lookups: [&dyn Fn(&mut RegexCache) -> bool; 3] = [
+                    &|rc| rc.is_regex_match(&pat, &hay).unwrap(),
+                    &|rc| rc.with_regex(&pat, |re| re.is_match(b"ab1")).unwrap(),
+                    &|rc| {
+                        rc.with_search(&pat, &hay, |re| {
+                            awk_regex::find_at(re, b"xab12", 0) == Some((1, 5))
+                        })
+                        .unwrap()
+                    },
+                ];
+                for lookup in lookups {
+                    let mut rc = RegexCache::default();
+                    rc.join_shared(shared.clone());
+                    assert!(lookup(&mut rc));
+                    let copy = rc.0.lookup(&pat).unwrap();
+                    assert!(Arc::ptr_eq(copy.origin().unwrap(), &first));
+                    assert!(rc.3.lookup(&pat).is_none(), "used the light matcher");
+                    rc.leave_shared();
+                }
+            });
+        });
+        // The leftmost-longest machinery is built once, by the shared regex.
+        assert!(first.longest_built());
+        // Under IGNORECASE, the pattern is compiled again.
+        let pat = Str::from(PAT);
+        let mut rc = RegexCache::default();
+        rc.join_shared(shared.clone());
+        awk_regex::set_ignore_case(true);
+        let found = rc.with_regex(&pat, |re| re.is_match(b"AB1")).unwrap();
+        awk_regex::set_ignore_case(false);
+        assert!(found);
+        assert!(!Arc::ptr_eq(
+            rc.0.lookup(&pat).unwrap().origin().unwrap(),
+            &first
+        ));
+        rc.leave_shared();
+    }
+
+    #[test]
+    fn shared_regexes_are_bounded() {
+        const BUDGET: usize = 1 << 20;
+        let shared = Arc::new(shared_regex::SharedRegexes::with_budget(BUDGET));
+        let mut rc = RegexCache::default();
+        rc.join_shared(shared.clone());
+        for i in 0..2000 {
+            let pat = Str::from(format!("[a-z]+(x|xy){}", i));
+            rc.with_regex(&pat, |re| awk_regex::find_at(re, b"axy0", 0))
+                .unwrap();
+            // An insert may overshoot by the entry it adds and the machinery of one search.
+            assert!(shared.used() <= BUDGET + (512 << 10), "{}", shared.used());
+        }
+        rc.leave_shared();
+        drop(rc);
+        assert!(Arc::strong_count(&shared) == 1);
     }
 
     #[test]

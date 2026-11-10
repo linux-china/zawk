@@ -13,8 +13,9 @@
 
 use std::cell::Cell;
 
-/// The memory budget, in bytes, of the regex caches of a thread.
-const BUDGET: usize = 64 << 20;
+/// The memory budget, in bytes, of the regex caches of a thread. In a parallel run, the compiled
+/// regexes the workers share have a process-level budget of the same size (see `shared_regex`).
+pub(crate) const BUDGET: usize = 64 << 20;
 
 thread_local! {
     static LIMIT: Cell<usize> = const { Cell::new(BUDGET) };

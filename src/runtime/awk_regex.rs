@@ -27,8 +27,8 @@ use regex_automata::{Anchored, Input, MatchKind};
 use std::cell::{OnceCell, RefCell};
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::rc::Rc;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 
 thread_local! {
     // gawk's IGNORECASE, set when the variable is assigned (see `Variables::store_int`). Worker
@@ -82,14 +82,17 @@ pub struct AwkRegex {
     /// it. `None` when leftmost-first is already leftmost-longest (see `needs_longest`) or the DFA
     /// cannot be built.
     longest: OnceLock<Option<Longest>>,
-    /// For the regexes of `RegexCache` (see `counted`): the memory of `longest`, charged to
-    /// `regex_memory` until the regex is dropped.
-    charged: Option<AtomicUsize>,
+    /// For the regexes of `RegexCache` (see `counted` and `counted_shared`): the memory of
+    /// `longest`, and what it is charged to until the regex is dropped.
+    charged: Option<(AtomicUsize, Charge)>,
     /// When the pattern is literal text (see `literal_parts`): searches go through memchr
     /// instead of the regex engines.
     literal: Option<LiteralSearch<'static>>,
     /// Built on the first call of `single_byte`.
     single_byte: OnceLock<Option<ByteSet>>,
+    /// For a copy made by `share`: the regex it was copied from, which builds `longest` for all
+    /// of its copies.
+    origin: Option<Arc<AwkRegex>>,
 }
 
 impl AwkRegex {
@@ -104,31 +107,77 @@ impl AwkRegex {
             charged: None,
             literal,
             single_byte: OnceLock::new(),
+            origin: None,
+        }
+    }
+
+    /// A copy of `this` for one worker of a parallel run (see `shared_regex`). It shares the
+    /// compiled program, and `longest` once built, but has search caches of its own: the workers
+    /// would otherwise contend for the caches of `this`, which costs more than building more of
+    /// them.
+    pub(crate) fn share(this: &Arc<AwkRegex>) -> AwkRegex {
+        AwkRegex {
+            re: this.re.clone(),
+            longest: OnceLock::new(),
+            charged: None,
+            literal: this.literal.as_ref().map(LiteralSearch::share),
+            single_byte: OnceLock::new(),
+            origin: Some(this.clone()),
         }
     }
 
     /// Counts the memory of what is built for leftmost-longest matches against `regex_memory`,
     /// for regexes of a thread's `RegexCache`, which are dropped on the thread that built them.
     pub(crate) fn counted(mut self) -> AwkRegex {
-        self.charged = Some(AtomicUsize::new(0));
+        self.charged = Some((AtomicUsize::new(0), Charge::Thread));
         self
+    }
+
+    /// Like `counted`, for a regex shared by the workers of a parallel run (see
+    /// `shared_regex`): any of them may build the machinery or drop the regex, so its memory is
+    /// charged to `used`, the shared cache's counter, rather than to a thread's.
+    pub(crate) fn counted_shared(mut self, used: Arc<AtomicUsize>) -> AwkRegex {
+        self.charged = Some((AtomicUsize::new(0), Charge::Shared(used)));
+        self
+    }
+
+    /// The regex this one is a copy of (see `share`).
+    #[cfg(test)]
+    pub(crate) fn origin(&self) -> Option<&Arc<AwkRegex>> {
+        self.origin.as_ref()
+    }
+
+    /// Whether the leftmost-longest machinery was built (or found not needed).
+    #[cfg(test)]
+    pub(crate) fn longest_built(&self) -> bool {
+        self.longest.get().is_some()
     }
 
     fn longest(&self) -> Option<&Longest> {
         self.longest
             .get_or_init(|| {
+                if let Some(origin) = &self.origin {
+                    return origin.longest().map(Longest::fork);
+                }
                 let pat = self.re.as_str();
                 if !needs_longest(pat) {
                     return None;
                 }
-                let Some(charged) = &self.charged else {
+                let Some((charged, charge)) = &self.charged else {
                     return Longest::new(pat);
                 };
                 let (l, measured) = super::regex_memory::measure(|| Longest::new(pat));
                 if l.is_some() {
                     let cost = measured.unwrap_or_else(|| LONGEST_COST.cost(pat.len()));
-                    super::regex_memory::make_room(cost);
-                    super::regex_memory::charge(cost);
+                    match charge {
+                        Charge::Thread => {
+                            super::regex_memory::make_room(cost);
+                            super::regex_memory::charge(cost);
+                        }
+                        Charge::Shared(used) => {
+                            used.fetch_add(cost, Ordering::Relaxed);
+                        }
+                    }
                     charged.store(cost, Ordering::Relaxed);
                 }
                 l
@@ -139,10 +188,26 @@ impl AwkRegex {
 
 impl Drop for AwkRegex {
     fn drop(&mut self) {
-        if let Some(charged) = &self.charged {
-            super::regex_memory::release(charged.load(Ordering::Relaxed));
+        if let Some((charged, charge)) = &self.charged {
+            let cost = charged.load(Ordering::Relaxed);
+            match charge {
+                Charge::Thread => super::regex_memory::release(cost),
+                Charge::Shared(used) => {
+                    let _ = used.try_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
+                        Some(u.saturating_sub(cost))
+                    });
+                }
+            }
         }
     }
+}
+
+/// What the memory of the leftmost-longest machinery of a cached regex is charged to.
+enum Charge {
+    /// The `regex_memory` budget of the thread.
+    Thread,
+    /// The counter of a `SharedRegexes`.
+    Shared(Arc<AtomicUsize>),
 }
 
 impl std::ops::Deref for AwkRegex {
@@ -676,6 +741,13 @@ impl<'p> LiteralSearch<'p> {
         }
     }
 
+    fn share(&self) -> LiteralSearch<'p> {
+        LiteralSearch {
+            kind: self.kind,
+            finder: self.finder.clone(),
+        }
+    }
+
     fn into_owned(self) -> LiteralSearch<'static> {
         LiteralSearch {
             kind: self.kind,
@@ -815,6 +887,30 @@ fn hir_needs_longest(hir: &regex_syntax::hir::Hir) -> bool {
 }
 
 impl Longest {
+    /// A copy sharing the automata, with search caches of its own (see `AwkRegex::share`).
+    fn fork(&self) -> Longest {
+        let dfa = self.dfa.clone();
+        let cache = {
+            let dfa = dfa.clone();
+            Pool::new(Box::new(move || dfa.create_cache()) as CacheFn<Cache>)
+        };
+        let pike = OnceLock::new();
+        if let Some((p, _)) = self.pike.get() {
+            let _ = pike.set((p.clone(), pike_cache(p)));
+        }
+        let exact = OnceLock::new();
+        if let Some(e) = self.exact.get() {
+            let _ = exact.set(e.clone());
+        }
+        Longest {
+            dfa,
+            cache,
+            pike,
+            nfa: self.nfa.clone(),
+            exact,
+        }
+    }
+
     fn new(pat: &str) -> Option<Longest> {
         use regex_automata::nfa::thompson::{Config, NFA, WhichCaptures};
         let nfa = NFA::compiler()
@@ -865,13 +961,18 @@ fn longest_end(l: &Longest, hay: &[u8], start: usize) -> Option<usize> {
             .configure(PikeVM::config().match_kind(MatchKind::All))
             .build_from_nfa(l.nfa.clone())
             .expect("PikeVM supports every NFA");
-        let cache = {
-            let pike = pike.clone();
-            Pool::new(Box::new(move || pike.create_cache()) as CacheFn<_>)
-        };
+        let cache = pike_cache(&pike);
         (pike, cache)
     });
     pike.find(&mut cache.get(), input).map(|m| m.end())
+}
+
+type PikeCache = regex_automata::nfa::thompson::pikevm::Cache;
+
+/// A pool of search caches for `pike`.
+fn pike_cache(pike: &PikeVM) -> Pool<PikeCache, CacheFn<PikeCache>> {
+    let pike = pike.clone();
+    Pool::new(Box::new(move || pike.create_cache()) as CacheFn<_>)
 }
 
 /// The capture groups of a match, as byte ranges of the text; `None` for groups that did not

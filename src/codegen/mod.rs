@@ -227,6 +227,10 @@ unsafe fn run_stage(
     }
 
     rt.concurrent = true;
+    // The workers (this thread included) share the regexes they compile.
+    rt.core.regexes.join_shared(std::sync::Arc::new(
+        runtime::shared_regex::SharedRegexes::new(),
+    ));
 
     let (sender, receiver) = crossbeam_channel::bounded(reads.len());
     let launch_data: Vec<_> = reads
@@ -289,6 +293,7 @@ unsafe fn run_stage(
             std::process::exit(runtime::writers::exit_code(rc));
         }
         rt.concurrent = false;
+        rt.core.regexes.leave_shared();
         if end.is_some() {
             *rt.input_data.inputs_mut() = old_read_files;
         }
