@@ -18,7 +18,6 @@ Please ignore the following differences with gawk：
 
 -  `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
 - `FIELDWIDTHS` / `FPAT`
-- `@include "nonexistent"`
 - `RT`
 -  readonly
 - `a[i][j]` 
@@ -37,6 +36,8 @@ Architecture:
 - BLOB in Database: not support now, and treated as empty string
 
 Development environment:
+
+MacOS arm64 with M5 chips and Rosetta installed for x64 testing.
 
 All configuration are in the `.env`, and you can read it if necessary.
 
@@ -74,4 +75,4 @@ Notes:
 
 - `Z` is the alias of `target/release/zawk`
 - DO NOT use `--release` option for `cargo test`
-- DO NOT use `f` as function name for test, and it's reserved for f-string.
+- DO NOT use `f` or `r` as function name for test, and it's reserved for f-string.
