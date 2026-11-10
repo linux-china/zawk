@@ -85,6 +85,9 @@ rparse("Hello World", "(\\w+) (\\w+)")[2]            # regex groups -> "World"
 join_fields(2, NF, "-")                      # fields 2..NF joined by "-"
 ```
 
+`join_fields`, `join_csv` and `join_tsv` take column numbers from 1; unlike `$(-1)`, negative
+indexes are an error (use `NF - 1` instead). An end past `NF` is clamped to `NF`.
+
 ## Privacy, quoting and escaping
 
 ```awk

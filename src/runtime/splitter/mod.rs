@@ -221,7 +221,8 @@ fn resolve_negative_col(col: Int, nf: usize) -> Result<Option<Int>> {
 
 fn normalize_join_indexes(start: Int, end: Int, nf: usize) -> Result<(usize, usize)> {
     if start <= 0 || end <= 0 {
-        return err!("smallest joinable column is 1, got {}", start);
+        let bad = if start <= 0 { start } else { end };
+        return err!("smallest joinable column is 1, got {}", bad);
     }
     let mut start = start as usize - 1;
     let mut end = end as usize;
@@ -320,8 +321,8 @@ impl<'a> Line<'a> for DefaultLine {
     where
         F: FnMut(Str<'static>) -> Str<'static>,
     {
-        // Should have split before calling this function.
-        debug_assert!(!self.fields.is_empty());
+        // The caller has split the record already; `fields` may still be empty (in BEGIN, or for
+        // an empty record), and `normalize_join_indexes` clamps the range to it.
         let (start, end) = normalize_join_indexes(start, end, nf)?;
         Ok(sep
             .clone()

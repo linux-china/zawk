@@ -183,7 +183,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "join_fields",
         TEXT,
         "join_fields(i: int, j: int[, sep: str]) -> str",
-        "Join columns i..j (inclusive) with sep (default OFS).",
+        "Join columns i..j (inclusive) with sep (default OFS); i and j must be >= 1 (no negative indexes as in $(-1)), j is clamped to NF.",
         r#"join_fields(2, 4, "-")"#,
     ),
     d(

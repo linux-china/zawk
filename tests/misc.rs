@@ -7848,3 +7848,40 @@ fn parallel_printf_lines_not_torn() {
         assert_eq!(lines, 1_000_000);
     }
 }
+
+#[test]
+fn join_fields_bad_index_and_empty_record() {
+    for backend_arg in BACKEND_ARGS {
+        // the error names the out-of-range index, whichever one it is
+        for (prog, bad) in [
+            ("{print join_fields(2, -1)}", "-1"),
+            ("{print join_fields(0, 3)}", "0"),
+            ("{print join_csv(1, 0)}", "0"),
+        ] {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin("a b c d e\n")
+                .assert()
+                .failure()
+                .get_output()
+                .stderr
+                .clone();
+            let err = String::from_utf8_lossy(&out);
+            assert!(
+                err.contains(&format!("smallest joinable column is 1, got {bad}")),
+                "{prog}: {err}"
+            );
+        }
+        // no fields to join: in BEGIN, and for an empty record
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"BEGIN{print "[" join_fields(1, 2) "]"} {print "[" join_fields(1, 3) "]" join_tsv(1, 2) "|"}"#)
+            .write_stdin("\n")
+            .assert()
+            .success()
+            .stdout("[]\n[]|\n");
+    }
+}
