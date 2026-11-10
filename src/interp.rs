@@ -42,7 +42,9 @@ pub(crate) struct Core<'a> {
     pub exit_code: Int,
     pub cancel_signal: CancelSignal,
     /// In a parallel program, the main input file (1-based, see `LineReader::file_version`) that
-    /// `FNR` and `FILENAME` describe: 0 before any record was read. [`Core::combine`] keeps the
+    /// `FNR` and `FILENAME` describe: 0 before any record was read. It is set together with
+    /// `FILENAME` when the thread reads its first record of a file, not from the chunk the thread
+    /// holds last: a thread may get only the end of a file and no record of it. [`Core::combine`] keeps the
     /// counters of the last file, so END sees the values of a serial run.
     pub file_version: u32,
 }
@@ -54,6 +56,12 @@ impl<'a> Drop for Core<'a> {
             eprintln_ignore!("{}", e);
         }
     }
+}
+
+/// Takes the value stored in `slot`, or returns the default ("uninitialized") value when the slot
+/// was never written, e.g. when `exit` in BEGIN skips the main loop of a parallel program.
+fn take_slot<T: Default>(slots: &mut [T], slot: usize) -> T {
+    slots.get_mut(slot).map(mem::take).unwrap_or_default()
 }
 
 /// Slots are used for transmitting data across different "stages" of a parallel computation. In
@@ -292,13 +300,12 @@ impl<'a> Core<'a> {
         self.slots.clone()
     }
 
-    /// The result of a worker; `file_version` is that of the input it read last (see
-    /// `LineReader::file_version`).
-    pub fn extract_result(&mut self, rc: i32, file_version: u32) -> StageResult {
+    /// The result of a worker.
+    pub fn extract_result(&mut self, rc: i32) -> StageResult {
         StageResult {
             slots: mem::take(&mut self.slots),
             nr: self.vars.nr,
-            file: (file_version, self.vars.filename.to_string(), self.vars.fnr),
+            file: (self.file_version, self.vars.filename.to_string(), self.vars.fnr),
             rc,
             exit: self.exiting.then_some(self.exit_code),
         }
@@ -315,8 +322,7 @@ impl<'a> Core<'a> {
     }
 
     /// Add the result of a worker; `base` is a copy of the slots taken before the workers started
-    /// (after `BEGIN`), see [`Core::base_slots`]. Set [`Core::file_version`] to the input this
-    /// thread read last before the first call.
+    /// (after `BEGIN`), see [`Core::base_slots`].
     pub fn combine(
         &mut self,
         StageResult {
@@ -337,6 +343,9 @@ impl<'a> Core<'a> {
             self.vars.filename = filename.into();
             self.vars.fnr = fnr;
         } else if version == self.file_version && version != 0 {
+            if self.vars.filename.is_empty() {
+                self.vars.filename = filename.into();
+            }
             self.vars.fnr = self.vars.fnr.agg(fnr, None);
         }
         if let (Some(code), false) = (exit, self.exiting) {
@@ -374,40 +383,40 @@ impl<'a> Core<'a> {
     }
 
     pub fn load_int(&mut self, slot: usize) -> Int {
-        self.slots.int[slot]
+        self.slots.int.get(slot).copied().unwrap_or_default()
     }
     pub fn load_float(&mut self, slot: usize) -> Float {
-        self.slots.float[slot]
+        self.slots.float.get(slot).copied().unwrap_or_default()
     }
     pub fn load_str(&mut self, slot: usize) -> Str<'a> {
-        mem::take(&mut self.slots.strs[slot]).into_str().upcast()
+        take_slot(&mut self.slots.strs, slot).into_str().upcast()
     }
     pub fn load_intint(&mut self, slot: usize) -> runtime::IntMap<Int> {
-        mem::take(&mut self.slots.intint[slot]).into()
+        take_slot(&mut self.slots.intint, slot).into()
     }
     pub fn load_intfloat(&mut self, slot: usize) -> runtime::IntMap<Float> {
-        mem::take(&mut self.slots.intfloat[slot]).into()
+        take_slot(&mut self.slots.intfloat, slot).into()
     }
     pub fn load_intstr(&mut self, slot: usize) -> runtime::IntMap<Str<'a>> {
-        mem::take(&mut self.slots.intstr[slot])
+        take_slot(&mut self.slots.intstr, slot)
             .into_iter()
             .map(|(k, v)| (k, v.into_str().upcast()))
             .collect()
     }
     pub fn load_strint(&mut self, slot: usize) -> runtime::StrMap<'a, Int> {
-        mem::take(&mut self.slots.strint[slot])
+        take_slot(&mut self.slots.strint, slot)
             .into_iter()
             .map(|(k, v)| (k.into_str().upcast(), v))
             .collect()
     }
     pub fn load_strfloat(&mut self, slot: usize) -> runtime::StrMap<'a, Float> {
-        mem::take(&mut self.slots.strfloat[slot])
+        take_slot(&mut self.slots.strfloat, slot)
             .into_iter()
             .map(|(k, v)| (k.into_str().upcast(), v))
             .collect()
     }
     pub fn load_strstr(&mut self, slot: usize) -> runtime::StrMap<'a, Str<'a>> {
-        mem::take(&mut self.slots.strstr[slot])
+        take_slot(&mut self.slots.strstr, slot)
             .into_iter()
             .map(|(k, v)| (k.into_str().upcast(), v.into_str().upcast()))
             .collect()
@@ -692,6 +701,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
     fn reset_file_vars(&mut self) {
         self.core.vars.fnr = 0;
         self.core.vars.filename = self.read_files.stdin_filename().upcast();
+        self.core.file_version = self.read_files.stdin_file_version();
         self.core.vars.load_message();
     }
 
@@ -827,10 +837,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                                 interp.core.cancel_signal.cancel(2);
                                 sender.send(Err(e))
                             }
-                            Ok(rc) => {
-                                let version = interp.read_files.stdin_file_version();
-                                sender.send(Ok(interp.core.extract_result(rc, version)))
-                            }
+                            Ok(rc) => sender.send(Ok(interp.core.extract_result(rc))),
                         };
                     }
                 });
@@ -846,7 +853,6 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             };
             let mut rc = self.run_at(main_loop).map_err(cancel_on_err)?;
             self.core.vars.pid = 0;
-            self.core.file_version = self.read_files.stdin_file_version();
             while let Ok(res) = receiver.recv() {
                 let res = res.map_err(cancel_on_err)?;
                 let sub_rc = res.rc;

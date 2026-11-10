@@ -260,8 +260,7 @@ unsafe fn run_stage(
                         core: shuttle(),
                         input_data,
                         cleanup: Cleanup::<Runtime>::new(move |rt| {
-                            let version = rt.stdin_file_version();
-                            sender.send(rt.core.extract_result(0, version)).unwrap();
+                            sender.send(rt.core.extract_result(0)).unwrap();
                         }),
                         cancel_signal,
                         site: 0,
@@ -282,7 +281,6 @@ unsafe fn run_stage(
             rt.cleanup.cancel();
         }
         rt.core.vars.pid = 0;
-        rt.core.file_version = rt.stdin_file_version();
 
         while let Ok(res) = receiver.recv() {
             rt.core.combine(res, &base_slots);

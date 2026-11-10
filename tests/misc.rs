@@ -4693,19 +4693,24 @@ fn parallel_begin_values_counted_once() {
 #[test]
 fn parallel_end_sees_fnr_and_filename_of_last_file() {
     // Several workers may share the last file (`-pr`): END sees the sum of their FNR, and the
-    // FNR and FILENAME of the last file, as in serial mode.
+    // FNR and FILENAME of the last file, as in serial mode. Threads that get no record of a file
+    // (only its end, e.g. the small `c.txt` with `-j4`) must not hide its FILENAME.
     let tmp = tempdir().unwrap();
     let a = tmp.path().join("a.txt");
     let b = tmp.path().join("b.txt");
+    let c = tmp.path().join("c.txt");
     let lines = |n: usize| -> String { (1..=n).map(|i| format!("{}\n", i)).collect() };
     std::fs::write(&a, lines(20000)).unwrap();
     std::fs::write(&b, lines(15000)).unwrap();
+    std::fs::write(&c, lines(3)).unwrap();
     let prog = r#"END { n = split(FILENAME, p, "/"); print NR, FNR, p[n] }"#;
-    let cases: [(&[&std::path::Path], &str); 4] = [
+    let cases: [(&[&std::path::Path], &str); 6] = [
         (&[&a], "20000 20000 a.txt\n"),
         (&[&a, &b], "35000 15000 b.txt\n"),
         (&[&b, &a], "35000 20000 a.txt\n"),
         (&[&a, &a], "40000 20000 a.txt\n"),
+        (&[&c], "3 3 c.txt\n"),
+        (&[&a, &c], "20003 3 c.txt\n"),
     ];
     for backend_arg in BACKEND_ARGS {
         for mode in ["-pr", "-pf"] {
@@ -4763,6 +4768,16 @@ fn parallel_exit_runs_end() {
         (
             r#"BEGIN { exit 2 } { print "no" } END { print "end" }"#,
             "end\n",
+            2,
+        ),
+        (
+            r#"BEGIN { exit 2 } { n++; a[$1]; s = s $1 } END { print n+0, length(a), s "|" }"#,
+            "0 0 |\n",
+            2,
+        ),
+        (
+            r#"BEGIN { x = 1; exit 2 } { n++; m[$1] = $1; t = t $1 } END { print n+0, x, length(m), t "|" }"#,
+            "0 1 0 |\n",
             2,
         ),
         (r#"$1 == 100 { exit 7 }"#, "", 7),

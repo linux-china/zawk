@@ -913,6 +913,7 @@ impl<'a> Runtime<'a> {
         self.core.vars.filename = with_input!(&mut self.input_data, |(_, read_files)| {
             read_files.stdin_filename().upcast()
         });
+        self.core.file_version = self.stdin_file_version();
         self.core.vars.load_message();
     }
 }
