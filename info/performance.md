@@ -270,8 +270,6 @@ program.
 | Rust                        | CSV    | 25.9s (24.8s + 1.1s)     | 345.57 MB/s  |
 | zawk (cranelift)           | CSV    | 19.9s (18.8s + 1.1s)     | 450.13 MB/s  |
 | zawk (cranelift, parallel) | CSV    | 4.9s (23.2s + 1.2s)      | 1827.84 MB/s |
-| zawk (llvm)                | CSV    | 19.6s (18.5s + 1.1s)     | 457.12 MB/s  |
-| zawk (llvm, parallel)      | CSV    | 4.9s (22.9s + 1.2s)      | 1842.90 MB/s |
 
 **Linux**
 
@@ -281,8 +279,6 @@ program.
 | Rust                        | CSV    | 29.9s (28.4s + 1.6s)     | 299.05 MB/s |
 | zawk (cranelift)           | CSV    | 29.4s (27.3s + 2.2s)     | 304.02 MB/s |
 | zawk (cranelift, parallel) | CSV    | 9.8s (35.5s + 3.5s)      | 908.81 MB/s |
-| zawk (llvm)                | CSV    | 28.4s (26.6s + 1.8s)     | 315.46 MB/s |
-| zawk (llvm, parallel)      | CSV    | 9.9s (35.2s + 3.8s)      | 905.22 MB/s |
 
 zawk is a good deal faster than the other options, particularly on the newer
 hardware, or when run in parallel. Now, the Rust script could of course be
@@ -323,10 +319,6 @@ both configurations.
 | gawk                        | CSV    | NA                           | NA                         | 10.4s (9.5s + 0.9s)      | 500.19 MB/s            |
 | gawk                        | TSV    | 14.0s (12.7s + 1.3s)         | 562.60 MB/s                | 10.4s (9.6s + 0.9s)      | 496.07 MB/s            |
 | tsv-utils                   | TSV    | 5.6s (5.0s + 0.6s)           | 1397.24 MB/s               | 2.7s (2.2s + 0.4s)       | 1953.39 MB/s           |
-| zawk (llvm)                | CSV    | 18.0s (16.9s + 1.1s)         | 496.91 MB/s                | 3.6s (3.0s + 0.6s)       | 1436.06 MB/s           |
-| zawk (llvm)                | TSV    | 10.0s (9.0s + 1.0s)          | 790.27 MB/s                | 3.1s (2.5s + 0.6s)       | 1650.23 MB/s           |
-| zawk (llvm, parallel)      | CSV    | 4.9s (23.1s + 1.3s)          | 1822.99 MB/s               | 1.8s (4.7s + 0.7s)       | 2846.86 MB/s           |
-| zawk (llvm, parallel)      | TSV    | 3.4s (12.4s + 1.0s)          | 2332.73 MB/s               | 1.7s (4.3s + 0.7s)       | 3065.98 MB/s           |
 | zawk (cranelift)           | CSV    | 18.2s (17.0s + 1.1s)         | 492.75 MB/s                | 3.7s (3.0s + 0.6s)       | 1405.66 MB/s           |
 | zawk (cranelift)           | TSV    | 10.3s (9.3s + 1.0s)          | 763.36 MB/s                | 3.1s (2.5s + 0.6s)       | 1652.34 MB/s           |
 | zawk (cranelift, parallel) | CSV    | 4.9s (23.3s + 1.3s)          | 1807.89 MB/s               | 1.8s (4.7s + 0.6s)       | 2896.22 MB/s           |
@@ -341,10 +333,6 @@ both configurations.
 | gawk                        | CSV    | NA                           | NA                         | 11.5s (10.2s + 1.3s)     | 451.24 MB/s            |
 | gawk                        | TSV    | 23.1s (21.7s + 1.4s)         | 341.23 MB/s                | 11.4s (10.4s + 0.9s)     | 456.21 MB/s            |
 | tsv-utils                   | TSV    | 7.5s (6.3s + 1.2s)           | 1047.75 MB/s               | 3.6s (2.9s + 0.7s)       | 1430.11 MB/s           |
-| zawk (llvm)                | CSV    | 26.0s (24.3s + 1.8s)         | 343.79 MB/s                | 5.4s (4.3s + 1.0s)       | 960.04 MB/s            |
-| zawk (llvm)                | TSV    | 14.7s (13.2s + 1.5s)         | 536.59 MB/s                | 4.6s (3.8s + 0.9s)       | 1119.42 MB/s           |
-| zawk (llvm, parallel)      | CSV    | 9.9s (34.1s + 4.6s)          | 899.67 MB/s                | 4.0s (9.0s + 2.5s)       | 1307.69 MB/s           |
-| zawk (llvm, parallel)      | TSV    | 8.1s (21.0s + 3.0s)          | 978.75 MB/s                | 3.5s (8.3s + 2.0s)       | 1462.83 MB/s           |
 | zawk (cranelift)           | CSV    | 26.0s (24.4s + 1.6s)         | 344.47 MB/s                | 5.3s (4.4s + 0.9s)       | 973.02 MB/s            |
 | zawk (cranelift)           | TSV    | 15.3s (13.8s + 1.4s)         | 516.87 MB/s                | 4.8s (3.9s + 0.9s)       | 1085.85 MB/s           |
 | zawk (cranelift, parallel) | CSV    | 9.8s (33.7s + 4.4s)          | 913.45 MB/s                | 4.2s (8.7s + 2.2s)       | 1233.25 MB/s           |
@@ -514,9 +502,6 @@ programs show performance of the two backends much closer together.
 | zawk (cranelift)           | TSV    | 18.8s (17.8s + 1.0s)     | 420.73 MB/s  |
 | zawk (cranelift, parallel) | CSV    | 5.3s (29.0s + 1.3s)      | 1686.23 MB/s |
 | zawk (cranelift, parallel) | TSV    | 3.5s (16.6s + 1.0s)      | 2223.62 MB/s |
-| zawk (llvm)                | CSV    | 20.0s (18.9s + 1.1s)     | 447.41 MB/s  |
-| zawk (llvm)                | TSV    | 12.5s (11.5s + 1.0s)     | 631.23 MB/s  |
-| zawk (llvm, parallel)      | CSV    | 5.1s (23.6s + 1.2s)      | 1762.30 MB/s |
 | zawk (llvm, parallel)      | TSV    | 3.6s (16.4s + 1.1s)      | 2178.20 MB/s |
 | xsv                         | CSV    | 34.7s (33.6s + 1.1s)     | 258.14 MB/s  |
 | xsv                         | TSV    | 32.8s (31.8s + 0.9s)     | 240.78 MB/s  |
@@ -531,10 +516,6 @@ programs show performance of the two backends much closer together.
 | zawk (cranelift)           | TSV    | 28.3s (26.7s + 1.6s)     | 278.42 MB/s  |
 | zawk (cranelift, parallel) | CSV    | 9.9s (42.2s + 4.8s)      | 900.58 MB/s  |
 | zawk (cranelift, parallel) | TSV    | 8.1s (32.3s + 5.1s)      | 979.96 MB/s  |
-| zawk (llvm)                | CSV    | 29.1s (27.4s + 1.7s)     | 307.05 MB/s  |
-| zawk (llvm)                | TSV    | 18.7s (17.0s + 1.7s)     | 422.67 MB/s  |
-| zawk (llvm, parallel)      | CSV    | 10.0s (35.9s + 3.4s)     | 891.33 MB/s  |
-| zawk (llvm, parallel)      | TSV    | 7.8s (26.3s + 3.7s)      | 1010.97 MB/s |
 | xsv                         | CSV    | 34.2s (32.5s + 1.7s)     | 261.54 MB/s  |
 | xsv                         | TSV    | 31.7s (30.3s + 1.4s)     | 248.89 MB/s  |
 
@@ -574,10 +555,6 @@ while preserving the input's row ordering.
 | zawk (cranelift)           | TSV    | 3.3s (2.8s + 0.7s) | 1569.70 MB/s |
 | zawk (cranelift, parallel) | CSV    | 1.9s (5.1s + 0.7s) | 2745.72 MB/s |
 | zawk (cranelift, parallel) | TSV    | 1.7s (4.6s + 0.7s) | 2972.70 MB/s |
-| zawk (llvm)                | CSV    | 3.8s (3.2s + 0.7s) | 1373.59 MB/s |
-| zawk (llvm)                | TSV    | 3.2s (2.7s + 0.7s) | 1598.78 MB/s |
-| zawk (llvm, parallel)      | CSV    | 1.9s (5.1s + 0.7s) | 2678.96 MB/s |
-| zawk (llvm, parallel)      | TSV    | 1.8s (4.6s + 0.7s) | 2930.64 MB/s |
 | tsv-utils                   | TSV    | 2.0s (1.6s + 0.4s) | 2589.22 MB/s |
 | xsv                         | CSV    | 5.4s (4.8s + 0.6s) | 961.28 MB/s  |
 | xsv                         | TSV    | 5.3s (4.7s + 0.6s) | 970.65 MB/s  |
@@ -594,10 +571,6 @@ while preserving the input's row ordering.
 | zawk (cranelift)           | TSV    | 4.7s (4.0s + 1.0s) | 1100.39 MB/s |
 | zawk (cranelift, parallel) | CSV    | 4.0s (9.5s + 2.3s) | 1294.29 MB/s |
 | zawk (cranelift, parallel) | TSV    | 3.5s (8.5s + 2.0s) | 1476.18 MB/s |
-| zawk (llvm)                | CSV    | 5.3s (4.6s + 1.0s) | 978.36 MB/s  |
-| zawk (llvm)                | TSV    | 4.6s (4.0s + 0.9s) | 1115.08 MB/s |
-| zawk (llvm, parallel)      | CSV    | 4.1s (9.4s + 2.5s) | 1259.35 MB/s |
-| zawk (llvm, parallel)      | TSV    | 3.7s (8.8s + 2.2s) | 1406.04 MB/s |
 | tsv-utils                   | TSV    | 2.9s (2.0s + 0.9s) | 1756.00 MB/s |
 | xsv                         | CSV    | 8.1s (7.2s + 0.9s) | 642.73 MB/s  |
 | xsv                         | TSV    | 8.0s (7.2s + 0.8s) | 646.66 MB/s  |
@@ -635,10 +608,6 @@ of wall time on MacOS, and a still good deal slower in the Linux configuration.
 | zawk (cranelift)           | TSV    | 3.1s (2.6s + 0.7s)  | 1670.46 MB/s |
 | zawk (cranelift, parallel) | CSV    | 1.9s (5.2s + 0.8s)  | 2684.52 MB/s |
 | zawk (cranelift, parallel) | TSV    | 1.7s (4.7s + 0.7s)  | 2969.29 MB/s |
-| zawk (llvm)                | CSV    | 3.6s (3.1s + 0.7s)  | 1422.65 MB/s |
-| zawk (llvm)                | TSV    | 3.1s (2.6s + 0.7s)  | 1684.04 MB/s |
-| zawk (llvm, parallel)      | CSV    | 1.9s (5.2s + 0.8s)  | 2670.67 MB/s |
-| zawk (llvm, parallel)      | TSV    | 1.8s (4.8s + 0.8s)  | 2873.72 MB/s |
 | tsv-utils                   | TSV    | 2.3s (1.9s + 0.4s)  | 2213.95 MB/s |
 
 **Linux**
@@ -653,10 +622,6 @@ of wall time on MacOS, and a still good deal slower in the Linux configuration.
 | zawk (cranelift)           | TSV    | 4.8s (3.8s + 1.3s)  | 1083.13 MB/s |
 | zawk (cranelift, parallel) | CSV    | 4.3s (9.5s + 2.8s)  | 1204.29 MB/s |
 | zawk (cranelift, parallel) | TSV    | 3.6s (8.5s + 2.3s)  | 1432.09 MB/s |
-| zawk (llvm)                | CSV    | 5.2s (4.5s + 1.0s)  | 1002.21 MB/s |
-| zawk (llvm)                | TSV    | 4.5s (4.0s + 0.9s)  | 1146.69 MB/s |
-| zawk (llvm, parallel)      | CSV    | 4.4s (9.6s + 2.6s)  | 1180.40 MB/s |
-| zawk (llvm, parallel)      | TSV    | 3.9s (8.8s + 2.3s)  | 1337.75 MB/s |
 | tsv-utils                   | TSV    | 3.4s (2.7s + 0.7s)  | 1532.53 MB/s |
 
 ## Group By Key
@@ -694,10 +659,6 @@ where we only read a small number of columns.
 | zawk (cranelift)           | TSV    | 15.1s (14.1s + 1.0s) | 523.84 MB/s  |
 | zawk (cranelift, parallel) | CSV    | 5.3s (29.5s + 1.3s)  | 1701.62 MB/s |
 | zawk (cranelift, parallel) | TSV    | 3.5s (16.6s + 1.0s)  | 2225.50 MB/s |
-| zawk (llvm)                | CSV    | 21.8s (20.7s + 1.1s) | 410.47 MB/s  |
-| zawk (llvm)                | TSV    | 14.8s (13.8s + 1.0s) | 534.66 MB/s  |
-| zawk (llvm, parallel)      | CSV    | 5.2s (29.0s + 1.3s)  | 1720.27 MB/s |
-| zawk (llvm, parallel)      | TSV    | 3.6s (16.5s + 1.0s)  | 2221.74 MB/s |
 | tsv-utils                   | TSV    | 4.9s (4.3s + 0.6s)   | 1614.16 MB/s |
 
 **Linux**
@@ -710,8 +671,4 @@ where we only read a small number of columns.
 | zawk (cranelift)           | TSV    | 22.9s (21.1s + 1.8s) | 343.91 MB/s  |
 | zawk (cranelift, parallel) | CSV    | 10.2s (41.5s + 5.5s) | 881.24 MB/s  |
 | zawk (cranelift, parallel) | TSV    | 7.9s (32.0s + 5.0s)  | 1001.35 MB/s |
-| zawk (llvm)                | CSV    | 31.8s (30.1s + 1.7s) | 281.08 MB/s  |
-| zawk (llvm)                | TSV    | 22.1s (20.5s + 1.6s) | 356.80 MB/s  |
-| zawk (llvm, parallel)      | CSV    | 10.4s (42.5s + 6.0s) | 859.72 MB/s  |
-| zawk (llvm, parallel)      | TSV    | 7.5s (27.3s + 2.4s)  | 1054.19 MB/s |
 | tsv-utils                   | TSV    | 5.9s (4.6s + 1.3s)   | 1333.27 MB/s |
