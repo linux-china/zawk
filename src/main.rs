@@ -366,23 +366,20 @@ fn read_program_source(prog_file: &str) -> (String, Option<&std::path::Path>) {
 }
 
 /// The regex splitter reads its input on one thread: say so when `-p` asked for workers
-/// instead of running serially without a word.
-fn warn_regex_splitter(
-    strategy: ExecutionStrategy,
-    field_sep: Option<&[u8]>,
-    record_sep: Option<&[u8]>,
-) {
+/// instead of running serially without a word. Only a record separator of several bytes (or one
+/// that may be assigned at run time) needs it: any field separator is split in the workers.
+fn warn_regex_splitter(strategy: ExecutionStrategy, record_sep: Option<&[u8]>) {
     let flag = match strategy {
         ExecutionStrategy::Serial => return,
         ExecutionStrategy::ShardPerRecord(_) => "r",
         ExecutionStrategy::ShardPerFile => "f",
     };
-    let show = |sep: &[u8]| String::from_utf8_lossy(sep).escape_debug().to_string();
-    let reason = match (field_sep, record_sep) {
-        (Some(fs), _) if fs.len() != 1 => format!("field separator '{}'", show(fs)),
-        (_, Some(rs)) if rs.len() != 1 => format!("record separator '{}'", show(rs)),
-        (_, Some(rs)) => format!("the default field separator with RS '{}'", show(rs)),
-        _ => String::from("a separator assigned at run time"),
+    let reason = match record_sep {
+        Some(rs) => format!(
+            "record separator '{}'",
+            String::from_utf8_lossy(rs).escape_debug()
+        ),
+        None => String::from("a separator assigned at run time"),
     };
     eprintln!("zawk: warning: -p {flag} ignored: {reason} needs the regex splitter");
 }
@@ -2424,15 +2421,26 @@ fn real_main() {
                                 );
                                 $body
                             }
+                        } else if record_sep.len() == 1 {
+                            // Other field separators are split from `$0` in the workers.
+                            let $inp = ByteReader::new_records(
+                                once((_reader, String::from("-"))),
+                                record_sep[0],
+                                chunk_size,
+                                check_utf8,
+                                exec_strategy,
+                                signal.clone(),
+                            );
+                            $body
                         } else {
-                            warn_regex_splitter(exec_strategy, Some(field_sep), Some(record_sep));
+                            warn_regex_splitter(exec_strategy, Some(record_sep));
                             let $inp =
                                 chained(RegexSplitter::new(_reader, chunk_size, "-", check_utf8));
                             $body
                         }
                     }
                     (None, cfg::SepAssign::Unsure) => {
-                        warn_regex_splitter(exec_strategy, None, None);
+                        warn_regex_splitter(exec_strategy, None);
                         let $inp =
                             chained(RegexSplitter::new(_reader, chunk_size, "-", check_utf8));
                         $body
@@ -2504,8 +2512,24 @@ fn real_main() {
                                 );
                                 $body
                             }
+                        } else if record_sep.len() == 1 {
+                            // Other field separators are split from `$0` in the workers.
+                            let file_handles: Vec<_> = input_files
+                                .iter()
+                                .cloned()
+                                .map(move |file| (open_file_read(file.as_str()), file))
+                                .collect();
+                            let $inp = ByteReader::new_records(
+                                file_handles.into_iter(),
+                                record_sep[0],
+                                chunk_size,
+                                check_utf8,
+                                exec_strategy,
+                                signal.clone(),
+                            );
+                            $body
                         } else {
-                            warn_regex_splitter(exec_strategy, Some(field_sep), Some(record_sep));
+                            warn_regex_splitter(exec_strategy, Some(record_sep));
                             let iter = input_files.iter().cloned().map(|file| {
                                 let reader: Box<dyn io::Read + Send> =
                                     Box::new(open_file_read(file.as_str()));
@@ -2516,7 +2540,7 @@ fn real_main() {
                         }
                     }
                     cfg::SepAssign::Unsure => {
-                        warn_regex_splitter(exec_strategy, None, None);
+                        warn_regex_splitter(exec_strategy, None);
                         let iter = input_files.iter().cloned().map(|file| {
                             let reader: Box<dyn io::Read + Send> =
                                 Box::new(open_file_read(file.as_str()));

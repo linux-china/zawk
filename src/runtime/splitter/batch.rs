@@ -2253,6 +2253,8 @@ pub struct ByteReader<P: ChunkProducer> {
     scratch: Vec<Str<'static>>,
     // Shared with the chunk producers, see `chunk::LinesOnly`.
     lines_only: chunk::LinesOnly,
+    // Only find the records: the fields are split from `$0` with FS when used (see `new_records`).
+    records_only: bool,
 }
 
 impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
@@ -2281,6 +2283,36 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         )
     }
 
+    /// A reader that only splits records on `record_sep`, leaving the fields to be split from
+    /// `$0` with the current FS when they are used (`DefaultLine` splits a record without
+    /// fields). This lets a field separator the single-byte and whitespace scans can't handle
+    /// (several bytes, a regex, or blanks with a record separator other than newline) still
+    /// read the input in chunks, and so in parallel.
+    pub fn new_records<I, S>(
+        rs: I,
+        record_sep: u8,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        cancel_signal: CancelSignal,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + 'static + Send,
+        S: Read + Send + 'static,
+    {
+        Self::new_impl(
+            rs,
+            /*field_sep: never scanned*/ record_sep,
+            record_sep,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            get_find_indexes_bytes(),
+            cancel_signal,
+            /*records_only*/ true,
+        )
+    }
+
     // Not great, but grouping into a separate type is a bit awkward given the
     // different permutations used between these modules.
     //
@@ -2300,7 +2332,37 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         I: Iterator<Item = (S, String)> + 'static + Send,
         S: Read + Send + 'static,
     {
-        let lines_only = chunk::LinesOnly::default();
+        Self::new_impl(
+            rs,
+            field_sep,
+            record_sep,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            kernel,
+            cancel_signal,
+            /*records_only*/ false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_impl<I, S>(
+        rs: I,
+        field_sep: u8,
+        record_sep: u8,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        kernel: BytesIndexKernel,
+        cancel_signal: CancelSignal,
+        records_only: bool,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + 'static + Send,
+        S: Read + Send + 'static,
+    {
+        // Set before the producers start, which may scan chunks right away.
+        let lines_only = chunk::LinesOnly::new(std::sync::atomic::AtomicBool::new(records_only));
         let lo = lines_only.clone();
         let prod: Box<dyn ChunkProducer<Chunk = OffsetChunk>> = match exec_strategy {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_bytes(
@@ -2354,6 +2416,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             check_utf8,
             scratch: Vec::new(),
             lines_only,
+            records_only,
         }
     }
 }
@@ -2454,6 +2517,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
             check_utf8,
             scratch: Vec::new(),
             lines_only,
+            records_only: false,
         }
     }
 }
@@ -2483,6 +2547,7 @@ where
             let record_sep = self.record_sep;
             let check_utf8 = self.check_utf8;
             let lines_only = self.lines_only.clone();
+            let records_only = self.records_only;
             res.push(Box::new(move || ByteReader {
                 prod: p_factory(),
                 cur_chunk: Default::default(),
@@ -2495,6 +2560,7 @@ where
                 check_utf8,
                 scratch: Vec::new(),
                 lines_only,
+                records_only,
             }) as _)
         }
         res
@@ -2559,7 +2625,7 @@ impl<P: ChunkProducer> ByteReader<P> {
     fn apply_used_fields(&mut self, used_fields: FieldSet) {
         // Without fields or NF to compute, only the record boundaries have to be found.
         self.lines_only.store(
-            used_fields.record_only(),
+            self.records_only || used_fields.record_only(),
             std::sync::atomic::Ordering::Relaxed,
         );
         self.used_fields = used_fields;

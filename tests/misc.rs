@@ -4507,27 +4507,24 @@ fn ignorecase_parallel() {
 
 #[test]
 fn parallel_regex_splitter_warns() {
-    // The regex splitter reads on one thread: -p must say it runs serially, not stay silent.
+    // Only a record separator of several bytes needs the regex splitter, which reads on one
+    // thread: -p must say it runs serially, not stay silent.
     let cases = [
         (
-            vec!["-pr", "-F::"],
-            "-p r ignored: field separator '::' needs the regex splitter",
+            vec!["-pr", "-v", "RS=;;"],
+            "-p r ignored: record separator ';;' needs the regex splitter",
         ),
         (
-            vec!["-pr", "-F[:]+"],
-            "-p r ignored: field separator '[:]+' needs the regex splitter",
-        ),
-        (
-            vec!["-pf", "-F::"],
-            "-p f ignored: field separator '::' needs the regex splitter",
+            vec!["-pf", "-v", "RS=;;"],
+            "-p f ignored: record separator ';;' needs the regex splitter",
         ),
     ];
     for (args, warning) in cases {
         let out = Command::cargo_bin("zawk")
             .unwrap()
             .args(args)
-            .args(["-j4", "{ s += $3 } END { print s }"])
-            .write_stdin("a::b::1\nc::d::2\n")
+            .args(["-F:", "-j4", "{ s += $3 } END { print s }"])
+            .write_stdin("a:b:1;;c:d:2;;")
             .assert()
             .success()
             .stdout("3\n")
@@ -4546,6 +4543,89 @@ fn parallel_regex_splitter_warns() {
         .success()
         .stdout("3\n")
         .stderr("");
+}
+
+#[test]
+fn parallel_multi_byte_field_separator() {
+    // With a single-byte RS, any FS (several bytes, a regex, blanks with another RS) reads the
+    // input in chunks and splits the fields in the workers: -p runs in parallel, silently, and
+    // gives the serial result.
+    let input: String = (1..=50000)
+        .map(|i| format!("k{i}::x{i}, y;{i}\n"))
+        .collect();
+    let expected_sum = (1..=50000u64).sum::<u64>() * 2;
+    let cases: Vec<(Vec<&str>, &str, String)> = vec![
+        (
+            vec!["-F::"],
+            "{ sub(/^k/, \"\", $1); s += $1 } END { print s, NR }",
+            format!("{} 50000\n", expected_sum / 2),
+        ),
+        (
+            vec!["-F[,;]"],
+            "{ s += $3; n += NF } END { print s, n }",
+            format!("{} 150000\n", expected_sum / 2),
+        ),
+        (
+            vec!["-F, "],
+            "{ n += NF } END { print n }",
+            "100000\n".to_string(),
+        ),
+        (
+            vec!["-F[:;]+"],
+            "{ s += $3 + $3 } END { print s }",
+            format!("{expected_sum}\n"),
+        ),
+    ];
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), &input).unwrap();
+    for (args, prog, expected) in &cases {
+        for mode in [vec![], vec!["-pr", "-j4"]] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args(&mode)
+                .args(args)
+                .arg(prog)
+                .write_stdin(input.clone())
+                .assert()
+                .success()
+                .stdout(expected.clone())
+                .stderr("");
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-pf", "-j4"])
+            .args(args)
+            .arg(prog)
+            .arg(file.path())
+            .assert()
+            .success()
+            .stdout(expected.clone())
+            .stderr("");
+    }
+    // The default FS with an RS other than newline: newlines separate fields too.
+    for mode in [vec![], vec!["-pr", "-j4"]] {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(&mode)
+            .args(["-v", "RS=;", "{ n += NF } END { print n, NR }"])
+            .write_stdin("a b\nc;d\te f;g")
+            .assert()
+            .success()
+            .stdout("7 3\n")
+            .stderr("");
+    }
+    // FS assigned in BEGIN, and a field assignment rebuilding $0 with OFS.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args([
+            "-pr",
+            "-j2",
+            "BEGIN { FS = \"::\"; OFS = \"-\" } { $2 = \"X\"; print }",
+        ])
+        .write_stdin("a::b::c\n")
+        .assert()
+        .success()
+        .stdout("a-X-c\n");
 }
 
 #[test]
