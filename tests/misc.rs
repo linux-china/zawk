@@ -7682,3 +7682,45 @@ fn json_output_is_valid() {
         }
     }
 }
+
+#[test]
+fn parallel_printf_lines_not_torn() {
+    // A line built by several writes must reach the shared output in one piece: batches of the
+    // workers of -p are sent to the writer thread up to their last newline only.
+    let tmpdir = tempdir().unwrap();
+    let input = tmpdir.path().join("in.txt");
+    let mut file = File::create(&input).unwrap();
+    for i in 0..1_000_000 {
+        writeln!(file, "{}", i).unwrap();
+    }
+    drop(file);
+    let out = tmpdir.path().join("out.txt");
+    for to_file in [false, true] {
+        let redirect = if to_file { " > out" } else { "" };
+        let prog = format!(
+            r#"{{ printf "%s", "X" PID{r}; printf "%s\n", "Y" PID{r} }}"#,
+            r = redirect
+        );
+        let mut cmd = Command::cargo_bin("zawk").unwrap();
+        cmd.args(["-pr", "-j8", "-v"])
+            .arg(format!("out={}", out.display()))
+            .arg(prog)
+            .arg(&input);
+        let stdout = cmd.assert().success().get_output().stdout.clone();
+        let text = if to_file {
+            read_to_string(&out).unwrap()
+        } else {
+            String::from_utf8(stdout).unwrap()
+        };
+        let mut lines = 0;
+        for line in text.lines() {
+            lines += 1;
+            let (x, y) = line
+                .strip_prefix('X')
+                .and_then(|l| l.split_once('Y'))
+                .unwrap_or_else(|| panic!("torn line: {:?}", line));
+            assert_eq!(x, y, "torn line: {:?}", line);
+        }
+        assert_eq!(lines, 1_000_000);
+    }
+}

@@ -2341,15 +2341,13 @@ impl FileHandle {
         }
     }
 
-    fn clear_batch(&mut self, upto: Option<usize>) -> Result<()> {
+    /// Send the batch up to byte `upto` (all of it when `None`) to the writer thread, keeping the
+    /// rest for the next batch; `flush` asks the writer thread to flush after writing it.
+    fn clear_batch(&mut self, upto: Option<usize>, flush: bool) -> Result<()> {
         if !self.cur_batch.pending {
             return Ok(());
         }
-        let (flush, upto) = if let Some(ix) = upto {
-            (true, ix)
-        } else {
-            (false, self.cur_batch.data.len())
-        };
+        let upto = upto.unwrap_or(self.cur_batch.data.len());
         self.clear_guards()?;
         let mut next_batch = self.guard();
         self.cur_batch.peel(upto, &mut next_batch);
@@ -2408,8 +2406,15 @@ impl FileHandle {
             }
             added_bytes += bs.len();
         });
-        if (self.raw.line_buffer && last_line.is_some()) || (added_bytes + cur_len > limit) {
-            self.clear_batch(last_line)?;
+        if self.raw.line_buffer && last_line.is_some() {
+            self.clear_batch(last_line, true)?;
+        } else if added_bytes + cur_len > limit {
+            // Send only whole lines: handles of other threads (`-j`) write to the same file, and
+            // a line built by several writes (`printf "a"; printf "b\n"`) must not be split
+            // between two batches with another thread's output in between. The partial last line
+            // stays for the next batch; a batch without any newline is sent as is.
+            let upto = memchr::memrchr(b'\n', &self.cur_batch.data).map(|ix| ix + 1);
+            self.clear_batch(upto, false)?;
         }
         Ok(())
     }
@@ -2424,7 +2429,7 @@ impl FileHandle {
         // Even if an earlier write failed, wait for the writer thread to get through every
         // pending request before releasing the guards: those requests point into them. After an
         // error the writer thread answers all requests with an error, so the wait terminates.
-        let res = self.clear_batch(None);
+        let res = self.clear_batch(None, false);
         let (n, req) = Request::flush();
         // Only writes start a writer thread, so this cannot fail.
         let _ = self.raw.writer.send(req);
@@ -2440,7 +2445,7 @@ impl FileHandle {
     }
 
     pub fn close(&mut self) -> Result<()> {
-        self.clear_batch(None)?;
+        self.clear_batch(None, false)?;
         let _ = self.raw.writer.send(Request::Close);
         let res = self.flush();
         // Release the batch buffers: a program may close many files it never writes again.
@@ -2605,6 +2610,11 @@ impl WriteGuard {
         if bytes < self.data.len() {
             next.data.extend(self.data[bytes..].iter().cloned());
             next.pending = true;
+            // The rest continues output this batch opens, so it never truncates the file.
+            next.spec = match self.spec {
+                FileSpec::Cmd => FileSpec::Cmd,
+                _ => FileSpec::Append,
+            };
             self.data.truncate(bytes);
         }
     }
