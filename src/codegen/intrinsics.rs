@@ -584,8 +584,11 @@ macro_rules! fail {
         {
             let msg = format!($($es),*);
             // Output printed before the error appears before the error message.
-            let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
-            eprintln_ignore!("{}", (*($rt as *mut Runtime)).error_message(&msg));
+            let rt = &mut *($rt as *mut Runtime);
+            let _ = rt.core.write_files.flush_stdout();
+            if rt.should_report() {
+                eprintln_ignore!("{}", rt.error_message(&msg));
+            }
             // fatal errors exit with code 2, as in gawk
             exit!($rt, 2)
         }
@@ -619,8 +622,11 @@ macro_rules! try_abort_input {
                 }
                 #[cfg(not(test))]
                 {
-                    let _ = (*($rt as *mut Runtime)).core.write_files.flush_stdout();
-                    eprintln_ignore!("zawk: {}", e);
+                    let rt = &mut *($rt as *mut Runtime);
+                    let _ = rt.core.write_files.flush_stdout();
+                    if rt.should_report() {
+                        eprintln_ignore!("zawk: {}", e);
+                    }
                     exit!($rt, 2)
                 }
             }
@@ -869,6 +875,14 @@ pub(crate) struct Runtime<'a> {
 }
 
 impl<'a> Runtime<'a> {
+    /// Whether this runtime should print its fatal error: in parallel mode only the first worker
+    /// to fail does, the others exit silently.
+    #[cold]
+    #[cfg_attr(test, allow(dead_code))]
+    fn should_report(&self) -> bool {
+        !self.concurrent || self.cancel_signal.claim_report()
+    }
+
     /// The message of a fatal error at the current location.
     #[cold]
     #[cfg_attr(test, allow(dead_code))]

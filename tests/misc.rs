@@ -4506,6 +4506,26 @@ fn ignorecase_parallel() {
 }
 
 #[test]
+fn parallel_fatal_reported_once() {
+    // Every worker of -pr fails on its first record: only the first one prints the error.
+    let input: String = (1..=200_000).map(|i| format!("{}\n", i)).collect();
+    for _ in 0..5 {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-Bcranelift", "-pr", "-j4"])
+            .arg(r#"{ re = "(" $1 % 2; if ($0 ~ re) n++ }"#)
+            .write_stdin(input.clone())
+            .assert()
+            .code(2)
+            .get_output()
+            .stderr
+            .clone();
+        let stderr = String::from_utf8_lossy(&out);
+        assert_eq!(stderr.matches("fatal").count(), 1, "{}", stderr);
+    }
+}
+
+#[test]
 fn parallel_regex_splitter_warns() {
     // Only a record separator of several bytes needs the regex splitter, which reads on one
     // thread: -p must say it runs serially, not stay silent.

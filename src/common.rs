@@ -444,6 +444,8 @@ impl Notification {
 #[derive(Clone)]
 pub struct CancelSignal {
     state: Arc<AtomicI64>,
+    /// Set by the first worker that reports a fatal error, so that only it prints the message.
+    reported: Arc<AtomicBool>,
 }
 
 const SENTINEL: i64 = i64::MAX;
@@ -452,11 +454,17 @@ impl Default for CancelSignal {
     fn default() -> Self {
         Self {
             state: Arc::new(AtomicI64::new(SENTINEL)),
+            reported: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 impl CancelSignal {
+    /// Claim the right to report a fatal error: true only for the first caller. Workers failing
+    /// on the same input at once would otherwise all print the same message.
+    pub fn claim_report(&self) -> bool {
+        !self.reported.swap(true, Ordering::AcqRel)
+    }
     pub fn get_code(&self) -> Option<i32> {
         let raw = self.state.load(Ordering::Acquire);
         if raw == SENTINEL {
