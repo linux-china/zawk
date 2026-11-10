@@ -206,6 +206,7 @@ impl<'a> Core<'a> {
         let ofmt: UniqueStr<'a> = self.vars.ofmt.clone().into();
         let ignorecase = self.vars.ignorecase;
         let uses_procinfo = self.vars.uses_procinfo;
+        let argc = self.vars.argc;
         let argv = self.vars.argv.shuttle();
         let fi = self.vars.fi.shuttle();
         let environ = self.vars.environ.shuttle();
@@ -228,7 +229,7 @@ impl<'a> Core<'a> {
                 fnr: 0,
                 rstart: 0,
                 rlength: 0,
-                argc: 0,
+                argc,
                 argv: argv.into(),
                 fi: fi.into(),
                 fi_header: Default::default(),
