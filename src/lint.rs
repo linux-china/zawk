@@ -131,6 +131,64 @@ pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
     (errors, warnings, report(errors, warnings, &items))
 }
 
+/// The warnings a run in parallel `mode` prints to stderr before it starts: the variables
+/// (`W302`) and array elements (`W303`) that END sees aggregated over the workers, which
+/// otherwise give a wrong result without a word (e.g. a maximum summed over the workers).
+/// Only the syntax tree is checked, so this costs one more parse of the program; a program that
+/// does not parse gets no warning here (the run reports its error).
+pub fn parallel_warnings(sources: &[Source], mode: Parallel) -> Vec<String> {
+    let mut prog = String::new();
+    let mut starts = Vec::with_capacity(sources.len());
+    for src in sources {
+        starts.push(prog.matches('\n').count());
+        prog.push_str(&src.text);
+        prog.push('\n');
+    }
+    let a = Arena::default();
+    let text: &str = a.alloc_str(&prog);
+    let mut buf = Vec::new();
+    let mut program = ast::Prog::from_stage(&a, Stage::Main(()));
+    let parser = parsing::syntax::ProgParser::new();
+    if parser
+        .parse(&a, &mut buf, &mut program, lexer::Tokenizer::new(text))
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let opts = Options {
+        parallel: Some(mode),
+        ..Options::default()
+    };
+    let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
+        .into_iter()
+        .filter(|d| matches!(d.code, "W302" | "W303"))
+        .collect();
+    diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
+    let lines: Vec<&str> = prog.lines().collect();
+    let flag = match mode {
+        Parallel::Record => "r",
+        Parallel::File => "f",
+    };
+    diags
+        .iter()
+        .map(|d| {
+            let obj = to_json(d, &lines, sources, &starts);
+            let field = |k: &str| obj.0.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+            let place = match (field("line"), field("column")) {
+                (Some(line), Some(col)) => match field("file").and_then(|f| f.as_str().map(String::from)) {
+                    Some(file) => format!("{}:{}:{}: ", file, line, col),
+                    None => format!("line {}, column {}: ", line, col),
+                },
+                _ => String::new(),
+            };
+            format!(
+                "zawk: warning: -p {}: {}{} {} (`--lint` lists them, `--deny-warnings` refuses to run)",
+                flag, place, d.code, d.message
+            )
+        })
+        .collect()
+}
+
 /// The report for a program file that cannot be read.
 pub fn file_error(file: &str, reason: &str) -> String {
     let d = Object(vec![
@@ -3094,6 +3152,16 @@ mod tests {
         // Values collected per worker in PREPARE are the documented fix.
         let fixed = "{ max = max > $1 ? max : $1 } PREPARE { m[PID] = max } END { for (p in m) print m[p] }";
         assert!(codes(&run_with(fixed, &pr)).is_empty());
+        // A run with `-p` prints the W302/W303 warnings (not W301) to stderr, with their place.
+        let src = Source {
+            text: prog.to_string(),
+            ..Source::default()
+        };
+        let w = parallel_warnings(std::slice::from_ref(&src), Parallel::Record);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].starts_with("zawk: warning: -p r: line 2, column 3: W302 "), "{}", w[0]);
+        assert!(parallel_warnings(&[Source { text: fixed.to_string(), ..Source::default() }], Parallel::File).is_empty());
+        assert!(parallel_warnings(&[Source { text: "{ x = ".to_string(), ..Source::default() }], Parallel::File).is_empty());
         let pf = Options {
             parallel: Some(Parallel::File),
             ..Options::default()

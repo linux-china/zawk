@@ -2072,6 +2072,21 @@ fn real_main() {
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
     }
+    // Variables that END sees summed over the workers (`max`, `last`, a flag) give a wrong
+    // result silently: warn about them, unless `--lint` already reported them.
+    let linted = matches.get_flag("lint") || matches.get_flag("deny-warnings");
+    if !linted {
+        let mode = match exec_strategy {
+            ExecutionStrategy::Serial => None,
+            ExecutionStrategy::ShardPerRecord(_) => Some(lint::Parallel::Record),
+            ExecutionStrategy::ShardPerFile => Some(lint::Parallel::File),
+        };
+        if let Some(mode) = mode {
+            for w in lint::parallel_warnings(&includer.pieces, mode) {
+                eprintln!("{}", w);
+            }
+        }
+    }
 
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
