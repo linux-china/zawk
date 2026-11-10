@@ -2,42 +2,24 @@
 
 zawk is a modern AWK language implementation with Rust, and it's modern AWK + stdlib + Rust.
 
-Features:
+## Features:
 
+* Modern syntax 
 * AWK/gawk mostly compatible
-* More functions for data process
-* High performance
+* stdlib: 160+ functions built-in
+* High performance: parallel + SIMD
+* Multi input/output formats: csv/tsv, Excel, Parquet, Avro etc.
+* Third-party Integration: Databases(SQLite3, MySQL, PostgreSQL), HTTP/S3, Kafka/NATS, MQTT, SMTP, Redis
 
-Tech Stack:
+## Tech Stack:
 
 - AWK parser: [LALRPOP](https://github.com/lalrpop/lalrpop) - LR(1) parser generator for Rust
 - Compiler backend: Cranelift
 - Apache OpenDAL: operator for object storage, file systems
 
-Please ignore the following differences with gawk：
+## Development environment
 
--  `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
-- `FIELDWIDTHS` / `FPAT`
-- `RT`
--  readonly
-- `a[i][j]` 
-- ignore f-string difference
-- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
--  `$$1`, `$++i` not support
--  `@/re/`
-
-Security:
-
-- http is allowed 
-- No taint check required to execute command, and it is supported by third sandbox tool.
-
-Architecture: 
-
-- BLOB in Database: not support now, and treated as empty string
-
-Development environment:
-
-MacOS arm64 with M5 chips and Rosetta installed for x64 testing.
+macOS arm64 with M5 chip and Rosetta installed for x64 testing.
 
 All configuration are in the `.env`, and you can read it if necessary.
 
@@ -70,6 +52,29 @@ insert into people(id, name, age) values (4, 'Lucas', 10);
 insert into people(id, name, age) values (5, 'Laura', 8);
 insert into people(id, name, age) values (11, 'test', 18);
 ```
+
+## Misc
+
+Please ignore the following differences with gawk：
+
+-  `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
+- `FIELDWIDTHS` / `FPAT`
+- `RT`
+-  readonly
+- `a[i][j]` 
+- ignore f-string difference
+- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
+-  `$$1`, `$++i` not support
+-  `@/re/`
+
+Security:
+
+- http is allowed 
+- No taint check required to execute command, and it is supported by third sandbox tool.
+
+Architecture: 
+
+- BLOB in Database: not support now, and treated as empty string
 
 Notes:
 
