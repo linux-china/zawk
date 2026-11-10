@@ -132,6 +132,11 @@ pub trait Line<'a>: Default + Clone {
 pub trait LineReader: Sized {
     type Line: for<'a> Line<'a>;
     fn filename(&self) -> Str<'static>;
+    /// The position (1-based) of the current file among the main input files, for the readers a
+    /// parallel program uses; 0 before the first read or when not tracked.
+    fn file_version(&self) -> u32 {
+        0
+    }
     fn request_handles(&self, _size: usize) -> Vec<Box<dyn FnOnce() -> Self + Send>> {
         vec![]
     }
@@ -445,6 +450,9 @@ where
             .last()
             .map(LineReader::filename)
             .unwrap_or_else(Str::default)
+    }
+    fn file_version(&self) -> u32 {
+        self.0.last().map_or(0, LineReader::file_version)
     }
     fn read_line(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<(bool, R::Line)> {
         let mut line = R::Line::default();

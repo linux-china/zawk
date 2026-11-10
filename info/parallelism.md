@@ -96,7 +96,10 @@ in _parallel mode_. In this mode, the zawk program is broken into three "stages"
 3. The `END` block is executed by a single thread after all worker threads
    terminate. Variables mentioned in both the `END` block and the main loop are
    copied from each worker thread and _aggregated_ before being accessed by the
-   thread executing the `END` block.
+   thread executing the `END` block. The record counters are combined too:
+   `NR`, `FNR` and `FILENAME` in `END` have the values of a serial run (`FNR`
+   and `FILENAME` describe the last input file, whose records several workers
+   may have shared).
 
 `exit` works as in serial mode: `exit` in `BEGIN` skips the main loop, and
 `exit` in the main loop stops every worker. In both cases the `END` block still

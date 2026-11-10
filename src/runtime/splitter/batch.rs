@@ -60,6 +60,9 @@ impl LineReader for CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
     fn filename(&self) -> Str<'static> {
         Str::from(self.cur_chunk.get_name()).unmoor()
     }
+    fn file_version(&self) -> u32 {
+        self.cur_chunk.version
+    }
     fn wait(&self) -> bool {
         self.prod.wait()
     }
@@ -2461,6 +2464,9 @@ where
     type Line = DefaultLine;
     fn filename(&self) -> Str<'static> {
         Str::from(self.cur_chunk.get_name()).unmoor()
+    }
+    fn file_version(&self) -> u32 {
+        self.cur_chunk_version()
     }
     fn check_utf8(&self) -> bool {
         self.check_utf8

@@ -4582,6 +4582,39 @@ fn parallel_begin_values_counted_once() {
 }
 
 #[test]
+fn parallel_end_sees_fnr_and_filename_of_last_file() {
+    // Several workers may share the last file (`-pr`): END sees the sum of their FNR, and the
+    // FNR and FILENAME of the last file, as in serial mode.
+    let tmp = tempdir().unwrap();
+    let a = tmp.path().join("a.txt");
+    let b = tmp.path().join("b.txt");
+    let lines = |n: usize| -> String { (1..=n).map(|i| format!("{}\n", i)).collect() };
+    std::fs::write(&a, lines(20000)).unwrap();
+    std::fs::write(&b, lines(15000)).unwrap();
+    let prog = r#"END { n = split(FILENAME, p, "/"); print NR, FNR, p[n] }"#;
+    let cases: [(&[&std::path::Path], &str); 4] = [
+        (&[&a], "20000 20000 a.txt\n"),
+        (&[&a, &b], "35000 15000 b.txt\n"),
+        (&[&b, &a], "35000 20000 a.txt\n"),
+        (&[&a, &a], "40000 20000 a.txt\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for mode in ["-pr", "-pf"] {
+            for (files, expected) in cases {
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .arg(backend_arg)
+                    .args([mode, "-j4", "--chunk-size", "1024", prog])
+                    .args(files)
+                    .assert()
+                    .success()
+                    .stdout(expected.to_string());
+            }
+        }
+    }
+}
+
+#[test]
 fn parallel_exit_runs_end() {
     // `exit` in BEGIN or the main loop of a parallel program still runs END, and the program exits
     // with the code of `exit` (or of a later `exit code` in END), as in serial mode.

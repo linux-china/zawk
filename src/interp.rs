@@ -41,6 +41,10 @@ pub(crate) struct Core<'a> {
     pub exiting: bool,
     pub exit_code: Int,
     pub cancel_signal: CancelSignal,
+    /// In a parallel program, the main input file (1-based, see `LineReader::file_version`) that
+    /// `FNR` and `FILENAME` describe: 0 before any record was read. [`Core::combine`] keeps the
+    /// counters of the last file, so END sees the values of a serial run.
+    pub file_version: u32,
 }
 
 impl<'a> Drop for Core<'a> {
@@ -121,6 +125,9 @@ pub(crate) struct StageResult {
     // TODO: put more variables in here? Most builtin variables are just going to be propagated
     // from the initial thread.
     nr: Int,
+    // The main input file the worker read last (see `Core::file_version`), its name and the
+    // number of records the worker read from it.
+    file: (u32, String, Int),
     rc: i32,
     // The code of the worker's `exit`, if it called it.
     exit: Option<Int>,
@@ -251,6 +258,7 @@ impl<'a> Core<'a> {
                 exiting: false,
                 exit_code: 0,
                 cancel_signal,
+                file_version: 0,
             }
         }
     }
@@ -268,6 +276,7 @@ impl<'a> Core<'a> {
             exiting: false,
             exit_code: 0,
             cancel_signal: Default::default(),
+            file_version: 0,
         }
     }
 
@@ -277,10 +286,17 @@ impl<'a> Core<'a> {
         self.slots.clone()
     }
 
-    pub fn extract_result(&mut self, rc: i32) -> StageResult {
+    /// The result of a worker; `file_version` is that of the input it read last (see
+    /// `LineReader::file_version`).
+    pub fn extract_result(&mut self, rc: i32, file_version: u32) -> StageResult {
         StageResult {
             slots: mem::take(&mut self.slots),
             nr: self.vars.nr,
+            file: (
+                file_version,
+                self.vars.filename.to_string(),
+                self.vars.fnr,
+            ),
             rc,
             exit: self.exiting.then_some(self.exit_code),
         }
@@ -297,12 +313,14 @@ impl<'a> Core<'a> {
     }
 
     /// Add the result of a worker; `base` is a copy of the slots taken before the workers started
-    /// (after `BEGIN`), see [`Core::base_slots`].
+    /// (after `BEGIN`), see [`Core::base_slots`]. Set [`Core::file_version`] to the input this
+    /// thread read last before the first call.
     pub fn combine(
         &mut self,
         StageResult {
             slots,
             nr,
+            file: (version, filename, fnr),
             rc: _,
             exit,
         }: StageResult,
@@ -310,6 +328,15 @@ impl<'a> Core<'a> {
     ) {
         self.slots.combine(slots, base);
         self.vars.nr = self.vars.nr.agg(nr, None);
+        // Files are read in order: `FNR` counts the records of the last file, which several
+        // workers may have shared (`-pr`).
+        if version > self.file_version {
+            self.file_version = version;
+            self.vars.filename = filename.into();
+            self.vars.fnr = fnr;
+        } else if version == self.file_version && version != 0 {
+            self.vars.fnr = self.vars.fnr.agg(fnr, None);
+        }
         if let (Some(code), false) = (exit, self.exiting) {
             self.exiting = true;
             self.exit_code = code;
@@ -789,7 +816,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         // exiting anyway.
                         let _ = match res {
                             Err(e) => sender.send(Err(e)),
-                            Ok(rc) => sender.send(Ok(interp.core.extract_result(rc))),
+                            Ok(rc) => {
+                                let version = interp.read_files.stdin_file_version();
+                                sender.send(Ok(interp.core.extract_result(rc, version)))
+                            }
                         };
                     }
                 });
@@ -798,6 +828,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             self.core.vars.pid = 1;
             let mut rc = self.run_at(main_loop)?;
             self.core.vars.pid = 0;
+            self.core.file_version = self.read_files.stdin_file_version();
             while let Ok(res) = receiver.recv() {
                 let res = res?;
                 let sub_rc = res.rc;

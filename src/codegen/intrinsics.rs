@@ -887,6 +887,13 @@ impl<'a> Runtime<'a> {
         render_runtime_error(msg, self.site, &calls, self.core.worker_input())
     }
 
+    /// See `LineReader::file_version`.
+    pub(crate) fn stdin_file_version(&mut self) -> u32 {
+        with_input!(&mut self.input_data, |(_, read_files)| {
+            read_files.stdin_file_version()
+        })
+    }
+
     fn reset_file_vars(&mut self) {
         self.core.vars.fnr = 0;
         self.core.vars.filename = with_input!(&mut self.input_data, |(_, read_files)| {

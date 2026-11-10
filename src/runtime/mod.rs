@@ -1164,6 +1164,10 @@ impl<LR: LineReader> FileRead<LR> {
         self.stdin.filename()
     }
 
+    pub(crate) fn stdin_file_version(&self) -> u32 {
+        self.stdin.file_version()
+    }
+
     pub(crate) fn read_err_stdin(&mut self) -> Int {
         self.stdin.read_state()
     }
