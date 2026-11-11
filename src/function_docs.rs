@@ -908,15 +908,15 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
     d(
         "min",
         MATH,
-        "min(a: any, b: any[, c: any]) -> any",
-        "Smallest value (numbers or texts).",
-        "min(1, 2, 3)",
+        "min(a: any, b: any, rest: any...) -> any",
+        "Smallest of 2 or more values: as numbers if all are numeric, else as texts.",
+        "min(1, 2, 3, 4)",
     ),
     d(
         "max",
         MATH,
-        "max(a: any, b: any[, c: any]) -> any",
-        "Largest value (numbers or texts).",
+        "max(a: any, b: any, rest: any...) -> any",
+        "Largest of 2 or more values: as numbers if all are numeric, else as texts.",
         r#"max("A", "B")"#,
     ),
     d(

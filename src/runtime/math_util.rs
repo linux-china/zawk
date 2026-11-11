@@ -22,22 +22,20 @@ pub(crate) fn fmod(x: Float, y: Float) -> Float {
     x % y
 }
 
-pub fn min(first: &str, second: &str, third: &str) -> String {
-    pick(first, second, third, Ordering::Less)
+pub fn min(items: &[&str]) -> String {
+    pick(items, Ordering::Less)
 }
 
-pub fn max(first: &str, second: &str, third: &str) -> String {
-    pick(first, second, third, Ordering::Greater)
+pub fn max(items: &[&str]) -> String {
+    pick(items, Ordering::Greater)
 }
 
 /// Pick the min/max item: compare as numbers if all items are numeric, otherwise as strings.
-/// An empty `third` means only 2 params; on ties the earliest item wins.
-fn pick(first: &str, second: &str, third: &str, wanted: Ordering) -> String {
-    let items: &[&str] = if third.is_empty() {
-        &[first, second]
-    } else {
-        &[first, second, third]
-    };
+/// On ties the earliest item wins; no items give "".
+fn pick(items: &[&str], wanted: Ordering) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
     let nums: Option<Vec<f64>> = items.iter().map(|item| item.parse::<f64>().ok()).collect();
     let mut best = 0;
     for i in 1..items.len() {
@@ -804,25 +802,36 @@ mod tests {
     #[test]
     fn test_min_max() {
         // numbers
-        assert_eq!(min("2", "1", ""), "1");
-        assert_eq!(max("2", "10", ""), "10");
-        assert_eq!(min("2", "1", "1"), "1");
-        assert_eq!(min("1", "1", "2"), "1");
-        assert_eq!(max("1", "2", "2"), "2");
-        assert_eq!(max("3", "3", "1"), "3");
-        assert_eq!(min("-1.5", "0", "2"), "-1.5");
+        assert_eq!(min(&["2", "1"]), "1");
+        assert_eq!(max(&["2", "10"]), "10");
+        assert_eq!(min(&["2", "1", "1"]), "1");
+        assert_eq!(min(&["1", "1", "2"]), "1");
+        assert_eq!(max(&["1", "2", "2"]), "2");
+        assert_eq!(max(&["3", "3", "1"]), "3");
+        assert_eq!(min(&["-1.5", "0", "2"]), "-1.5");
+        // any number of items
+        assert_eq!(min(&["4", "2", "8", "1", "5"]), "1");
+        assert_eq!(max(&["4", "2", "8", "1", "5"]), "8");
+        assert_eq!(max(&["7"]), "7");
+        assert_eq!(min(&[]), "");
         // ties keep the earliest item
-        assert_eq!(min("1.0", "1", ""), "1.0");
-        assert_eq!(max("1", "1.0", "0"), "1");
+        assert_eq!(min(&["1.0", "1"]), "1.0");
+        assert_eq!(max(&["1", "1.0", "0"]), "1");
         // strings
-        assert_eq!(max("a", "b", ""), "b");
-        assert_eq!(min("b", "a", ""), "a");
-        assert_eq!(min("b", "c", "a"), "a");
-        assert_eq!(max("b", "c", "a"), "c");
-        assert_eq!(min("b", "b", "a"), "a");
-        // mixed numbers and strings compare as strings
-        assert_eq!(min("10", "9", "x"), "10");
-        assert_eq!(max("10", "9", "x"), "x");
+        assert_eq!(max(&["a", "b"]), "b");
+        assert_eq!(min(&["b", "a"]), "a");
+        assert_eq!(min(&["b", "c", "a"]), "a");
+        assert_eq!(max(&["b", "c", "a"]), "c");
+        assert_eq!(min(&["b", "b", "a"]), "a");
+        assert_eq!(max(&["A", "B", "c", "d", "e"]), "e");
+        // an empty string is an item like any other
+        assert_eq!(min(&["b", "a", ""]), "");
+        assert_eq!(max(&["", "", ""]), "");
+        // mixed numbers and strings compare as strings, over all the items
+        assert_eq!(min(&["10", "9", "x"]), "10");
+        assert_eq!(max(&["10", "9", "x"]), "x");
+        assert_eq!(min(&["10", "9", "x", "2"]), "10");
+        assert_eq!(max(&["10", "9", "x", "2"]), "x");
     }
 
     #[test]

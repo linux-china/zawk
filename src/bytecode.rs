@@ -313,8 +313,9 @@ pub(crate) enum Instr<'a> {
     MapStrFloatEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Float>>),
     MapStrStrEval(Reg<Float>, Reg<Str<'a>>, Reg<runtime::StrMap<'a, Str<'a>>>),
     Eval(Reg<Float>, Reg<Str<'a>>),
-    Min(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    Max(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    // min(a, b, ...) and max(a, b, ...): the smallest/largest of 2 or more items.
+    Min(Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
+    Max(Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
     Seq(
         Reg<runtime::IntMap<Float>>,
         Reg<Float>,
@@ -1438,17 +1439,11 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }
-            Max(dst, first, second, third) => {
+            Max(dst, args) | Min(dst, args) => {
                 dst.accum(&mut f);
-                first.accum(&mut f);
-                second.accum(&mut f);
-                third.accum(&mut f);
-            }
-            Min(dst, first, second, third) => {
-                dst.accum(&mut f);
-                first.accum(&mut f);
-                second.accum(&mut f);
-                third.accum(&mut f);
+                for a in args {
+                    a.accum(&mut f);
+                }
             }
             Seq(dst, start, step, end) => {
                 dst.accum(&mut f);

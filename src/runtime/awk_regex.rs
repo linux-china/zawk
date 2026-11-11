@@ -40,6 +40,20 @@ thread_local! {
 // so programs that do not use IGNORECASE do not pay for the thread-local lookup.
 static IGNORE_CASE_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+thread_local! {
+    // On the worker threads of a parallel run, the copies of the regexes embedded in the program,
+    // by address (see `AwkRegex::const_is_match`). `None` on other threads. Those regexes live as
+    // long as the program, so an address is not reused for another regex while the worker runs.
+    static WORKER_COPIES: RefCell<Option<hashbrown::HashMap<usize, Regex>>> =
+        const { RefCell::new(None) };
+}
+
+/// Marks this thread as a worker of a parallel run: it matches the regexes embedded in the
+/// program with copies of its own (see `AwkRegex::const_is_match`).
+pub(crate) fn mark_worker_thread() {
+    WORKER_COPIES.with(|c| *c.borrow_mut() = Some(Default::default()));
+}
+
 /// Set whether regexes compiled, string comparisons and index() on this thread ignore case
 /// (gawk's IGNORECASE).
 pub(crate) fn set_ignore_case(on: bool) {
@@ -124,6 +138,35 @@ impl AwkRegex {
             single_byte: OnceLock::new(),
             origin: Some(this.clone()),
         }
+    }
+
+    /// Whether `hay` contains a match. A literal pattern (`/ERROR/`) is searched with memchr, which
+    /// needs no search cache; this shadows `Regex::is_match` (reached through `Deref`).
+    #[inline]
+    pub(crate) fn is_match(&self, hay: &[u8]) -> bool {
+        match &self.literal {
+            Some(lit) => lit.search_at(hay, 0).is_some(),
+            None => self.re.is_match(hay),
+        }
+    }
+
+    /// `is_match` for a regex embedded in the program (`$0 ~ /re/`, `/re/ { ... }`), which all the
+    /// workers of a parallel run share. The search caches of a `Regex` are cheap only for the
+    /// thread that first used it; other threads take them from a pool behind a mutex, which the
+    /// workers then contend for. So each worker searches with a copy of its own (see
+    /// `mark_worker_thread`), made on its first use of the regex.
+    #[inline]
+    pub(crate) fn const_is_match(&self, hay: &[u8]) -> bool {
+        if let Some(lit) = &self.literal {
+            return lit.search_at(hay, 0).is_some();
+        }
+        WORKER_COPIES.with(|copies| match &mut *copies.borrow_mut() {
+            None => self.re.is_match(hay),
+            Some(copies) => copies
+                .entry(self as *const AwkRegex as usize)
+                .or_insert_with(|| self.re.clone())
+                .is_match(hay),
+        })
     }
 
     /// Counts the memory of what is built for leftmost-longest matches against `regex_memory`,
@@ -2422,5 +2465,45 @@ mod tests {
         }
         assert!(compile("(?:x)").unwrap().literal.is_some());
         assert!(compile("abc").unwrap().literal.is_some());
+    }
+
+    /// `is_match` and `const_is_match` agree with the regex, through the literal search and, on
+    /// worker threads, through each worker's own copy of the regex.
+    #[test]
+    fn const_is_match_agrees_with_regex() {
+        let pats = ["ERROR", "^ab", "b$", "^ab$", "a|ab", "[0-9]+ms", "x.y", "é"];
+        let res: Vec<_> = pats
+            .iter()
+            .map(|p| std::sync::Arc::new(compile(p).unwrap()))
+            .collect();
+        fn check(res: &[std::sync::Arc<AwkRegex>]) {
+            let hays = ["", "ab", "xab", "ERROR x", "an ERROR", "12ms", "x-y", "café", "abab"];
+            for re in res {
+                for hay in hays {
+                    let want = re.re.is_match(hay.as_bytes());
+                    assert_eq!(re.is_match(hay.as_bytes()), want, "{:?} {:?}", re, hay);
+                    for _ in 0..2 {
+                        assert_eq!(re.const_is_match(hay.as_bytes()), want, "{:?} {:?}", re, hay);
+                    }
+                }
+            }
+        }
+        check(&res);
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let res = res.clone();
+                std::thread::spawn(move || {
+                    mark_worker_thread();
+                    check(&res);
+                    // One copy per non-literal regex.
+                    let copies = WORKER_COPIES.with(|c| c.borrow().as_ref().unwrap().len());
+                    let non_literal = res.iter().filter(|re| re.literal.is_none()).count();
+                    assert_eq!(copies, non_literal);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 }

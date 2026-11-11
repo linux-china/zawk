@@ -3523,24 +3523,14 @@ impl<'a, 'b> View<'a, 'b> {
                     }
                 }
             }
-            Min => {
+            Min | Max => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Min(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                        conv_regs[2].into(),
-                    ))
-                }
-            }
-            Max => {
-                if res_reg != UNUSED {
-                    self.pushl(LL::Max(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                        conv_regs[2].into(),
-                    ))
+                    let args = conv_regs.iter().map(|r| (*r).into()).collect();
+                    self.pushl(if *bf == Min {
+                        LL::Min(res_reg.into(), args)
+                    } else {
+                        LL::Max(res_reg.into(), args)
+                    })
                 }
             }
             Seq => {

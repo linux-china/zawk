@@ -769,7 +769,7 @@ dec_cmp("1.10", "1.1")             # 0; -1 or 1 when the first is smaller or gre
 
 ### min/max
 
-`min(1,2,3)`, `max("A","B")`,
+`min(1,2,3,4)`, `max("A","B", "c", "d", "e")`,
 
 ### mkbool
 

@@ -257,6 +257,7 @@ impl<'a> Core<'a> {
             runtime::numfmt::set_convfmt(&*vars.convfmt.as_str().as_bytes());
             runtime::numfmt::set_ofmt(&*vars.ofmt.as_str().as_bytes());
             runtime::awk_regex::set_ignore_case(vars.ignorecase != 0);
+            runtime::awk_regex::mark_worker_thread();
             let mut regexes = runtime::RegexCache::default();
             if let Some(shared) = shared_regexes {
                 regexes.join_shared(shared);
@@ -897,6 +898,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         let mut failed_at = (entry, 0);
         self.run_from(entry, &mut failed_at)
             .map_err(|err| self.located_error(err, failed_at.0, failed_at.1))
+    }
+
+    /// Applies `pick` (`min` or `max`) to the strings in `args`.
+    fn pick_str(&self, args: &[Reg<Str<'a>>], pick: fn(&[&str]) -> String) -> String {
+        let strs = args
+            .iter()
+            .map(|a| index(&self.strs, a).as_str())
+            .collect::<smallvec::SmallVec<[_; 8]>>();
+        let items = strs
+            .iter()
+            .map(|s| &**s)
+            .collect::<smallvec::SmallVec<[&str; 8]>>();
+        pick(&items)
     }
 
     /// Runs the program from the start of `cur_fn`. On an error, `failed_at` gets the function and
@@ -1888,26 +1902,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = runtime::faker::fake(&*data.as_str(), &*locale.as_str());
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
-                    Min(dst, first, second, third) => {
-                        let num1 = index(&self.strs, first);
-                        let num2 = index(&self.strs, second);
-                        let num3 = index(&self.strs, third);
-                        let res = runtime::math_util::min(
-                            &*num1.as_str(),
-                            &*num2.as_str(),
-                            &*num3.as_str(),
-                        );
+                    Min(dst, args) => {
+                        let res = self.pick_str(args, runtime::math_util::min);
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
-                    Max(dst, first, second, third) => {
-                        let num1 = index(&self.strs, first);
-                        let num2 = index(&self.strs, second);
-                        let num3 = index(&self.strs, third);
-                        let res = runtime::math_util::max(
-                            &*num1.as_str(),
-                            &*num2.as_str(),
-                            &*num3.as_str(),
-                        );
+                    Max(dst, args) => {
+                        let res = self.pick_str(args, runtime::math_util::max);
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
                     Seq(dst, start, step, end) => {
@@ -2418,7 +2418,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     // `~`: 1 if the pattern matches, 0 otherwise.
                     IsMatchConst(res, x, pat) => {
                         *index_mut(&mut self.ints, res) =
-                            runtime::RegexCache::regex_const_match(pat, index(&self.strs, x))
+                            runtime::RegexCache::program_regex_match(pat, index(&self.strs, x))
                                 as Int;
                     }
                     SubstrIndex(res, s, t) => {

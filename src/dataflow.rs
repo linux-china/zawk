@@ -713,15 +713,10 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(data.into()));
                 f(dst.into(), Some(locale.into()));
             }
-            Max(dst, first, second, third) => {
-                f(dst.into(), Some(first.into()));
-                f(dst.into(), Some(second.into()));
-                f(dst.into(), Some(third.into()));
-            }
-            Min(dst, first, second, third) => {
-                f(dst.into(), Some(first.into()));
-                f(dst.into(), Some(second.into()));
-                f(dst.into(), Some(third.into()));
+            Max(dst, args) | Min(dst, args) => {
+                for x in args {
+                    f(dst.into(), Some(x.into()));
+                }
             }
             Seq(dst, start, step, end) => {
                 f(dst.into(), Some(start.into()));

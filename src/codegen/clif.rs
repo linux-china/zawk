@@ -1992,6 +1992,18 @@ impl<'a> CodeGenerator for View<'a> {
     fn handles(&mut self) -> &mut Handles {
         &mut self.shared.handles
     }
+    fn load_runtime_int(&mut self, offset: i32) -> Self::Val {
+        let rt = self.runtime_val();
+        self.builder
+            .ins()
+            .load(types::I64, MemFlagsData::trusted(), rt, offset)
+    }
+    fn store_runtime_int(&mut self, offset: i32, v: Self::Val) {
+        let rt = self.runtime_val();
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), v, rt, offset);
+    }
 
     fn call_void(&mut self, func: *const u8, args: &mut [Self::Val]) -> Result<()> {
         self.call_external_void(func, args);
@@ -2095,6 +2107,17 @@ impl<'a> CodeGenerator for View<'a> {
     fn concat_n(&mut self, dst: &StrReg, args: &[StrReg]) -> Result<()> {
         let (addr, num_args) = self.str_ptr_array(args)?;
         let res = self.call_intrinsic(Op::Intrinsic(external!(concat_n)), &mut [addr, num_args])?;
+        self.bind_val(dst.reflect(), res)
+    }
+
+    fn min_max_n(&mut self, dst: &StrReg, args: &[StrReg], is_max: bool) -> Result<()> {
+        let (addr, num_args) = self.str_ptr_array(args)?;
+        let func = if is_max {
+            external!(max)
+        } else {
+            external!(min)
+        };
+        let res = self.call_intrinsic(Op::Intrinsic(func), &mut [addr, num_args])?;
         self.bind_val(dst.reflect(), res)
     }
 

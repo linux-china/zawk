@@ -36,6 +36,23 @@ pub(crate) mod clif;
 
 use intrinsics::Runtime;
 
+/// The offset in `Runtime` of the integer special variables that generated code loads and stores
+/// directly instead of calling `load_var_int`/`store_var_int`: they are plain fields of
+/// `Variables`, with no side effects on load or store. The main loop increments NR and FNR for
+/// every record, which otherwise costs four runtime calls per record. NF (computed on load,
+/// rebuilds `$0` on store) and IGNORECASE (sets a thread-local) still go through the runtime.
+fn inline_int_var_offset(var: builtins::Variable) -> Option<i32> {
+    use builtins::Variable::*;
+    let off = match var {
+        NR => mem::offset_of!(Runtime<'static>, core.vars.nr),
+        FNR => mem::offset_of!(Runtime<'static>, core.vars.fnr),
+        RSTART => mem::offset_of!(Runtime<'static>, core.vars.rstart),
+        RLENGTH => mem::offset_of!(Runtime<'static>, core.vars.rlength),
+        _ => return None,
+    };
+    i32::try_from(off).ok()
+}
+
 pub(crate) type Ref = (NumTy, compile::Ty);
 pub(crate) type StrReg<'a> = bytecode::Reg<runtime::Str<'a>>;
 
@@ -404,6 +421,10 @@ pub(crate) trait CodeGenerator: Backend {
     // const ptr should not be called directly.
     fn const_ptr<T>(&mut self, r: *const T) -> Self::Val;
     fn handles(&mut self) -> &mut Handles;
+    /// Load the `Int` at byte `offset` of the `Runtime` (see `inline_int_var_offset`).
+    fn load_runtime_int(&mut self, offset: i32) -> Self::Val;
+    /// Store `v` as the `Int` at byte `offset` of the `Runtime`.
+    fn store_runtime_int(&mut self, offset: i32, v: Self::Val);
 
     // const_{re,slice} take an `Arc` so that it can store a pointer to `c` and ensure references
     // to `c` will live as long as the generated code.
@@ -459,6 +480,10 @@ pub(crate) trait CodeGenerator: Backend {
 
     /// Stores the concatenation of `args` in `dst` (see `Str::concat_n`).
     fn concat_n(&mut self, dst: &StrReg, args: &[StrReg]) -> Result<()>;
+
+    /// Stores the smallest (or, with `is_max`, the largest) of `args` in `dst` (see
+    /// `math_util::min`).
+    fn min_max_n(&mut self, dst: &StrReg, args: &[StrReg], is_max: bool) -> Result<()>;
 
     /// Moves the contents of `src` into `dst`, taking refcounts into consideration if necessary.
     fn mov(&mut self, ty: compile::Ty, dst: NumTy, src: NumTy) -> Result<()>;
@@ -1942,20 +1967,8 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(fake), &mut [data, locale])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Min(dst, first, second, third) => {
-                let first = self.get_val(first.reflect())?;
-                let second = self.get_val(second.reflect())?;
-                let third = self.get_val(third.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(min), &mut [first, second, third])?;
-                self.bind_val(dst.reflect(), resv)
-            }
-            Max(dst, first, second, third) => {
-                let first = self.get_val(first.reflect())?;
-                let second = self.get_val(second.reflect())?;
-                let third = self.get_val(third.reflect())?;
-                let resv = self.call_intrinsic(intrinsic!(max), &mut [first, second, third])?;
-                self.bind_val(dst.reflect(), resv)
-            }
+            Min(dst, args) => self.min_max_n(dst, &args[..], /*is_max=*/ false),
+            Max(dst, args) => self.min_max_n(dst, &args[..], /*is_max=*/ true),
             Seq(dst, start, step, end) => {
                 let start = self.get_val(start.reflect())?;
                 let step = self.get_val(step.reflect())?;
@@ -2304,6 +2317,16 @@ pub(crate) trait CodeGenerator: Backend {
                 let varv = self.const_int(*var as i64);
                 let srcv = self.get_val(src.reflect())?;
                 self.call_void(external!(store_var_str), &mut [rt, varv, srcv])?;
+                Ok(())
+            }
+            LoadVarInt(dst, var) if inline_int_var_offset(*var).is_some() => {
+                let res = self.load_runtime_int(inline_int_var_offset(*var).unwrap());
+                let dref = dst.reflect();
+                self.bind_val(dref, res)
+            }
+            StoreVarInt(var, src) if inline_int_var_offset(*var).is_some() => {
+                let srcv = self.get_val(src.reflect())?;
+                self.store_runtime_int(inline_int_var_offset(*var).unwrap(), srcv);
                 Ok(())
             }
             LoadVarInt(dst, var) => {

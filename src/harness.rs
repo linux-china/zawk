@@ -1562,6 +1562,21 @@ this as well"#
         "1 0 1\nok\nok\n4 5 3\n"
     );
 
+    // min/max take any number of items (2 or more), compared together: as numbers if all are
+    // numeric, otherwise as strings. An empty string is an item like any other.
+    test_program!(
+        min_max_variadic,
+        r#"BEGIN {
+    print min(3, 1), max(3, 1), min(3, 1, 2), max(3, 1, 2)
+    print min(4, 2, 8, 1, 5), max(4, 2, 8, 1, 5), max(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+    print max("A", "B", "c", "d", "e"), min("b", "c", "a", "d")
+    print min(10, 9, "x", 2), max(10, 9, "x", 2)
+    print "[" min("b", "a", "") "]", "[" max("", "a", "b", "") "]"
+    x = -1.5; print min(x, 0, x + 1, 2), max(x, -2, -3, -4)
+}"#,
+        "1 3 1 3\n1 8 11\ne a\n10 x\n[] [b]\n-1.5 -1.5\n"
+    );
+
     test_program!(map_global_var, r#"
 BEGIN {
 	unused_string_map["a"] = "abc"

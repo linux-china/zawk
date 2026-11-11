@@ -760,6 +760,21 @@ pub(crate) fn arity_error(name: &str, got: usize, arity: usize) -> CompileError 
     )
 }
 
+/// The fewest arguments `min` and `max` take: they take any number above it.
+pub(crate) const MIN_MAX_ARGS: usize = 2;
+
+/// The error for a call of the variadic builtin `name` with `got` arguments, fewer than `min`.
+pub(crate) fn min_arity_error(name: &str, got: usize, min: usize) -> CompileError {
+    let noun = if min == 1 { "argument" } else { "arguments" };
+    err_raw!(
+        "function `{}` expects at least {} {}, got {}",
+        name,
+        min,
+        noun,
+        got
+    )
+}
+
 /// The builtin functions of POSIX awk and gawk that zawk implements. A user-defined function may
 /// not have one of these names, as in gawk. The other builtins are zawk's stdlib extensions
 /// (`trim`, `max`, `abs`, ...): a user-defined function with the same name takes precedence, so
@@ -1007,7 +1022,8 @@ impl Function {
                 Int,
             ),
             LastPart => (smallvec![Str, Str], Str),
-            Min | Max => (smallvec![Str, Str, Str], Str),
+            // Any number of items (at least 2, checked in `cfg`), compared together.
+            Min | Max => (smallvec![Str; incoming.len()], Str),
             StrCmp => (smallvec![Str, Str], Int),
             Similar => (smallvec![Str, Str], Float),
             GetEnv => (smallvec![Str, Str], Str),
@@ -1411,7 +1427,8 @@ impl Function {
             | SnakeCase | TitleCase | PascalCase | Words | Lines => 1,
             Figlet => 1,
             Repeat | Wrap => 2,
-            Min | Max => 3,
+            // Two items or more (see `MIN_MAX_ARGS`).
+            Min | Max => return None,
             Seq => 3,
             Uniq => 2,
             Strnum | ToFloat | OfmtStr | ExactStr => 1,

@@ -415,8 +415,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_int_to_csv(map_ty) -> str_ty;
         [ReadOnly] map_int_float_to_csv(map_ty) -> str_ty;
         [ReadOnly] map_int_str_to_csv(map_ty) -> str_ty;
-        [ReadOnly] min(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
-        [ReadOnly] max(str_ref_ty,str_ref_ty,str_ref_ty) -> str_ty;
+        [ReadOnly] min(pa_args_ty, int_ty) -> str_ty;
+        [ReadOnly] max(pa_args_ty, int_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
         [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] type_of_array() -> str_ty;
@@ -2154,23 +2154,24 @@ pub(crate) unsafe extern "C" fn to_iso8601_str(date_time_text: *mut U128) -> U12
     })
 }
 
-pub(crate) unsafe extern "C" fn min(first: *mut U128, second: *mut U128, third: *mut U128) -> U128 {
+/// Applies `pick` (`math_util::min` or `max`) to the `num_args` strings pointed to by `args`.
+unsafe fn pick_strs(args: *mut usize, num_args: Int, pick: fn(&[&str]) -> String) -> U128 {
+    let items: &[&Str] =
+        slice::from_raw_parts(args as *const usize as *const &Str, num_args as usize);
+    let strs: smallvec::SmallVec<[_; 8]> = items.iter().map(|s| s.as_str()).collect();
+    let strs: smallvec::SmallVec<[&str; 8]> = strs.iter().map(|s| &**s).collect();
+    mem::transmute::<Str, U128>(Str::from(pick(&strs)))
+}
+
+pub(crate) unsafe extern "C" fn min(args: *mut usize, num_args: Int) -> U128 {
     guard_panic(stringify!(min), || {
-        let first = &*(first as *mut Str);
-        let second = &*(second as *mut Str);
-        let third = &*(third as *mut Str);
-        let min_item = math_util::min(&*first.as_str(), &*second.as_str(), &*third.as_str());
-        mem::transmute::<Str, U128>(Str::from(min_item))
+        pick_strs(args, num_args, math_util::min)
     })
 }
 
-pub(crate) unsafe extern "C" fn max(first: *mut U128, second: *mut U128, third: *mut U128) -> U128 {
+pub(crate) unsafe extern "C" fn max(args: *mut usize, num_args: Int) -> U128 {
     guard_panic(stringify!(max), || {
-        let first = &*(first as *mut Str);
-        let second = &*(second as *mut Str);
-        let third = &*(third as *mut Str);
-        let max_item = math_util::max(&*first.as_str(), &*second.as_str(), &*third.as_str());
-        mem::transmute::<Str, U128>(Str::from(max_item))
+        pick_strs(args, num_args, math_util::max)
     })
 }
 
@@ -3436,7 +3437,7 @@ pub(crate) unsafe extern "C" fn match_const_pat(s: *mut c_void, pat: *mut c_void
     guard_panic(stringify!(match_const_pat), || {
         let s = &*(s as *mut Str);
         let pat = &*(pat as *const AwkRegex);
-        RegexCache::regex_const_match(pat, s) as Int
+        RegexCache::program_regex_match(pat, s) as Int
     })
 }
 

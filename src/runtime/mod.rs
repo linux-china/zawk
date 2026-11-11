@@ -1031,6 +1031,11 @@ impl RegexCache {
         s.with_bytes(|bs| pat.is_match(bs))
     }
 
+    /// `regex_const_match` for a regex embedded in the program (see `AwkRegex::const_is_match`).
+    pub(crate) fn program_regex_match(pat: &AwkRegex, s: &Str) -> bool {
+        s.with_bytes(|bs| pat.const_is_match(bs))
+    }
+
     pub(crate) fn is_regex_match(&mut self, pat: &Str, s: &Str) -> Result<bool> {
         // The cache comes first, as in `with_search_fallible`.
         self.sync();
@@ -1140,6 +1145,8 @@ impl FileWrite {
 }
 
 pub const CHUNK_SIZE: usize = 128 << 10;
+/// The default chunk size with `-pr` (see `main`).
+pub const PARALLEL_CHUNK_SIZE: usize = 512 << 10;
 
 #[derive(Default)]
 pub(crate) struct Inputs {

@@ -3659,9 +3659,15 @@ where
                     builtins::Function::FloatFunc(builtins::FloatFunc::Round) if args_len == 1 => {
                         prim_args.push(PrimVal::ILit(0));
                     }
-                    // min($1, 10) => min($1, 10, "");
-                    builtins::Function::Min if args_len == 2 => {
-                        prim_args.push(PrimVal::StrLit(b""));
+                    // min(a, b, ...) and max(a, b, ...) take any number of items, at least 2.
+                    builtins::Function::Min | builtins::Function::Max
+                        if args_len < builtins::MIN_MAX_ARGS =>
+                    {
+                        return Err(builtins::min_arity_error(
+                            &call_name(fname),
+                            args_len,
+                            builtins::MIN_MAX_ARGS,
+                        ));
                     }
                     // jev(record, instructions) => jev(to_json(record), instructions, jev_threshold)
                     // jev_prob(record, instructions) => jev_prob(to_json(record), instructions)
@@ -3686,10 +3692,6 @@ where
                             open = next;
                             prim_args.push(v);
                         }
-                    }
-                    // max($1, 10) => max($1, 10, "");
-                    builtins::Function::Max if args_len == 2 => {
-                        prim_args.push(PrimVal::StrLit(b""));
                     }
                     // seq(10) => seq(1, 1, 10);
                     builtins::Function::Seq if args_len == 1 => {
