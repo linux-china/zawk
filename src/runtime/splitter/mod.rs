@@ -16,6 +16,7 @@ pub mod markdown;
 pub mod message;
 pub mod nats;
 pub mod parquet;
+pub mod pread;
 pub mod regex;
 pub mod xlsx;
 
@@ -561,7 +562,7 @@ struct Reader<R> {
     spare: Option<UniqueBuf>,
 }
 
-const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+pub(crate) const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
 fn read_to_slice(r: &mut impl Read, mut buf: &mut [u8]) -> Result<usize> {
     let mut read = 0;
@@ -751,6 +752,9 @@ impl<R: Read> Reader<R> {
         if done {
             self.state = ReaderState::Eof;
         }
+        // Every byte is written (the padding is zeroed above): strings sliced from this buffer may
+        // scan it to find out whether it is all ASCII.
+        data.set_ascii_checkable();
         Ok((data, ulen, bytes_read))
     }
 }

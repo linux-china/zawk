@@ -2388,6 +2388,68 @@ fn default_fs_records_across_buffers() {
 }
 
 #[test]
+fn char_functions_across_ascii_and_utf8_chunks() {
+    // With small buffers, all-ASCII chunks (whose strings count chars as bytes) alternate with
+    // chunks that hold UTF-8 text; the results must not depend on which chunk a record is in.
+    let mut input = String::new();
+    for i in 0..400 {
+        if i % 7 == 3 {
+            input.push_str(&format!("{i} héllo wörld 中文 latency={i}ms end\n"));
+        } else {
+            input.push_str(&format!("{i} hello world latency={i}ms end\n"));
+        }
+    }
+    let expected: String = input
+        .lines()
+        .map(|line| {
+            let chars: Vec<char> = line.chars().collect();
+            let pos = line.find("latency=").unwrap();
+            let rstart = line[..pos].chars().count() + 1;
+            let rlength = line[pos..].find("ms").unwrap() + 2;
+            let sub: String = chars[2..8.min(chars.len())].iter().collect();
+            format!(
+                "{} {} {} {} {} {}\n",
+                chars.len(),
+                rstart,
+                rlength,
+                rstart,
+                sub,
+                line.split(' ').nth(1).unwrap().to_uppercase()
+            )
+        })
+        .collect();
+    let prog = r#"{ match($0, /latency=[0-9]+ms/); print length($0), RSTART, RLENGTH, index($0, "latency="), substr($0, 3, 6), toupper($2) }"#;
+    for backend_arg in BACKEND_ARGS {
+        for extra in [
+            &["--chunk-size", "64"][..],
+            &["--chunk-size", "200"],
+            &["--chunk-size", "4096"],
+            &["-pr", "--chunk-size", "200"],
+        ] {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(extra)
+                .arg(prog)
+                .write_stdin(input.clone())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{} {:?}", backend_arg, extra);
+            let got = String::from_utf8_lossy(&output.stdout);
+            if extra[0] == "-pr" {
+                let mut got: Vec<&str> = got.lines().collect();
+                let mut want: Vec<&str> = expected.lines().collect();
+                got.sort_unstable();
+                want.sort_unstable();
+                assert_eq!(got, want, "{} {:?}", backend_arg, extra);
+            } else {
+                assert_eq!(got, expected, "{} {:?}", backend_arg, extra);
+            }
+        }
+    }
+}
+
+#[test]
 fn chunk_size_zero_is_rejected() {
     // A zero-sized buffer never reaches EOF: reading 0 bytes looks like a full chunk.
     Command::cargo_bin("zawk")

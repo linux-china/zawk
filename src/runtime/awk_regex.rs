@@ -2477,13 +2477,21 @@ mod tests {
             .map(|p| std::sync::Arc::new(compile(p).unwrap()))
             .collect();
         fn check(res: &[std::sync::Arc<AwkRegex>]) {
-            let hays = ["", "ab", "xab", "ERROR x", "an ERROR", "12ms", "x-y", "café", "abab"];
+            let hays = [
+                "", "ab", "xab", "ERROR x", "an ERROR", "12ms", "x-y", "café", "abab",
+            ];
             for re in res {
                 for hay in hays {
                     let want = re.re.is_match(hay.as_bytes());
                     assert_eq!(re.is_match(hay.as_bytes()), want, "{:?} {:?}", re, hay);
                     for _ in 0..2 {
-                        assert_eq!(re.const_is_match(hay.as_bytes()), want, "{:?} {:?}", re, hay);
+                        assert_eq!(
+                            re.const_is_match(hay.as_bytes()),
+                            want,
+                            "{:?} {:?}",
+                            re,
+                            hay
+                        );
                     }
                 }
             }

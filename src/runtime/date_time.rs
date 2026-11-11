@@ -339,7 +339,10 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     }
     result.insert(Str::from("weekday"), weekday);
     result.insert(Str::from("yearday"), local_now.ordinal() as Int);
-    result.insert(Str::from("quarter"), ((local_now.month() - 1) / 3 + 1) as Int);
+    result.insert(
+        Str::from("quarter"),
+        ((local_now.month() - 1) / 3 + 1) as Int,
+    );
     // last day of the month: 28-31
     let (next_year, next_month) = if local_now.month() == 12 {
         (local_now.year() + 1, 1)

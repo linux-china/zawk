@@ -23,6 +23,33 @@ overview of the semantics of a zawk script when it is run in parallel.
 > SIMD scanning of structural characters is used on x86_64 (SSE2/AVX2) and on
 > aarch64 (NEON).
 
+## Automatic Parallelism
+
+Without `-p`, zawk runs a program as with `-pr` when doing so cannot change what
+it prints:
+
+* the input is local regular files (text, `-F`, CSV or TSV; not stdin or URLs)
+  of 64 MiB or more in all;
+* the main loop has no visible effect: no `print`/`printf`, `getline`,
+  `system`, `exit`, user-defined function or range pattern, and only
+  side-effect-free builtins (`length`, `substr`, `split`, `match`, `int`, ...);
+* every variable the main loop writes is either a **whole-number sum**
+  (`c++`, `a[$1]++`, `n += length($0)`, `s += int($3)`, `hits += $3 > 500`),
+  not read in the main loop nor given a value in `BEGIN` or with `-v`, or a
+  **per-record temporary** that each record assigns before reading it
+  (`x = $3 * 2`, `n = split($2, parts)`, `for (i = 1; i <= NF; i++)`);
+* the main loop does not read `NR`, `FNR`, `FILENAME` or `PID` (END may: it
+  sees the values of a serial run), and END does not read the last record
+  (`$0`, `$n`, `NF`).
+
+For example `zawk '/ERROR/ { c++ } END { print c }' big.log` and
+`zawk -F, '{ n[$2]++ } END { for (k in n) print k, n[k] }' big.csv` run in
+parallel on their own. Sums of fractions such as `{ s += $3 }` stay serial:
+the workers add in another order, which changes the last bits of the sum (and
+may print `2.9997e+06` where the serial run prints `2999700`); add `-pr` to
+run them in parallel anyway. `-p0` (or `ZAWK_PARALLEL=0`) turns automatic
+parallelism off.
+
 ## Reading Input In Parallel
 
 Why expand the language in this way in the first place? After all, existing

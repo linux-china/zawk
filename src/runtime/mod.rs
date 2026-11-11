@@ -931,7 +931,7 @@ impl RegexCache {
         let (start, len) = s.with_bytes(|bs| match find(bs) {
             Some((from, to)) => {
                 let start = s.chars_before(bs, from) as Int;
-                let len = str_impl::char_count(&bs[from..to]) as Int;
+                let len = s.chars_between(bs, from, to) as Int;
                 (start + 1, len)
             }
             None => (0, -1),
@@ -984,14 +984,14 @@ impl RegexCache {
             let (start, len) = s.with_bytes(|bs| {
                 for &(i, from, to) in groups.iter() {
                     let start = s.chars_before(bs, from) as Int + 1;
-                    let len = str_impl::char_count(&bs[from..to]) as Int;
+                    let len = s.chars_between(bs, from, to) as Int;
                     let name = caps.as_ref().and_then(|c| c.name(i));
                     f(i as Int, name, s.slice(from, to), start, len);
                 }
                 match groups.first() {
                     Some(&(_, from, to)) => (
                         s.chars_before(bs, from) as Int + 1,
-                        str_impl::char_count(&bs[from..to]) as Int,
+                        s.chars_between(bs, from, to) as Int,
                     ),
                     None => (0, -1),
                 }
@@ -1574,12 +1574,7 @@ impl<V> StrLru<V> {
             regex_memory::charge_entry(tick, cost);
         }
         self.used += cost;
-        &self
-            .cached
-            .entry(key)
-            .insert((v, tick, cost))
-            .into_mut()
-            .0
+        &self.cached.entry(key).insert((v, tick, cost)).into_mut().0
     }
     /// The value for `key`, created by `new` when it is not cached.
     pub(crate) fn get_or_try_insert<E>(
@@ -2845,7 +2840,10 @@ mod tests {
                 rc.is_regex_match(p, &hay).unwrap();
             }
         }
-        assert!(hot.iter().all(|p| rc.0.cached.contains_key(&p.clone().unmoor())));
+        assert!(
+            hot.iter()
+                .all(|p| rc.0.cached.contains_key(&p.clone().unmoor()))
+        );
         let round = regex_memory::round();
         for i in 0..20_000 {
             for p in &hot {

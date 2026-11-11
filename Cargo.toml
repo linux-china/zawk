@@ -175,10 +175,11 @@ rstest = "0.28"
 lalrpop = "0.23.2"
 
 [features]
-default = []
-# Certain features leverage the AVX2 instruction set, but AVX2 can often make
-# the entire application slightly slower, even on chips that support it. For
-# those cases, consider disabling allow_avx2.
+default = ["allow_avx2"]
+# Use the AVX2 kernels (CSV/TSV/byte/whitespace splitters) when the CPU has AVX2,
+# detected at run time; SSE2 otherwise. The frequency drop that once made AVX2
+# slower overall was a Haswell/Broadwell-era issue; build with
+# `--no-default-features` to get the SSE2-only kernels.
 allow_avx2 = []
 unstable = []
 

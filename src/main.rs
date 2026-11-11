@@ -11,6 +11,7 @@ pub mod bytecode;
 pub mod cfg;
 #[macro_use]
 pub mod codegen;
+mod auto_parallel;
 pub mod awk_util;
 pub mod compile;
 pub mod cross_stage;
@@ -291,6 +292,31 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
     }))
 }
 
+/// With `-pr`, the input files when the workers can read them in ranges themselves (see
+/// `splitter::pread`): all of them local regular files, not compressed. Otherwise, or with
+/// `--utf8` (checked by the reading thread), `None`: the files are read by one thread.
+fn pread_inputs(
+    files: &[String],
+    exec_strategy: ExecutionStrategy,
+    check_utf8: bool,
+) -> Option<Vec<runtime::splitter::pread::PreadFile>> {
+    if !matches!(exec_strategy, ExecutionStrategy::ShardPerRecord(_)) || check_utf8 {
+        return None;
+    }
+    let local = |f: &str| {
+        !f.is_empty()
+            && f != "-"
+            && !runtime::s3::is_s3_url(f)
+            && !runtime::http::is_http_url(f)
+            && !database::is_db_url(f)
+            && !xlsx::is_xlsx_file(f)
+    };
+    if files.is_empty() || !files.iter().all(|f| local(f)) {
+        return None;
+    }
+    runtime::splitter::pread::pread_inputs(files.iter().map(|f| (raw_path(f), f.as_str())))
+}
+
 /// Maps `<user>/<repo>/<awk_file_path>` (the part after `gh:`) to its raw GitHub URL on the
 /// default branch, e.g. `https://raw.githubusercontent.com/<user>/<repo>/HEAD/<awk_file_path>`.
 fn github_raw_url(gh_path: &str) -> Option<String> {
@@ -363,6 +389,41 @@ fn read_program_source(prog_file: &str) -> (String, Option<&std::path::Path>) {
             ),
         }
     }
+}
+
+/// The smallest total input size that runs in parallel without `-p` (64 MiB, or
+/// `ZAWK_PARALLEL_MIN_SIZE` bytes): below it, starting the workers costs more than they save.
+const AUTO_PARALLEL_MIN_SIZE: u64 = 64 << 20;
+
+/// Whether automatic parallelism is on: `ZAWK_PARALLEL=0` (or `off`, `false`, `no`) turns it off.
+fn auto_parallel_enabled() -> bool {
+    !matches!(
+        std::env::var("ZAWK_PARALLEL").as_deref().map(str::trim),
+        Ok("0" | "off" | "false" | "no")
+    )
+}
+
+/// Whether the inputs suit automatic parallelism: plain text, CSV or TSV in local regular files
+/// (not stdin, URLs or workbooks) of `AUTO_PARALLEL_MIN_SIZE` bytes or more in all.
+fn auto_parallel_inputs(input_files: &[String], format: Option<&str>) -> bool {
+    if input_files.is_empty() || !matches!(format, None | Some("csv") | Some("tsv")) {
+        return false;
+    }
+    let min = std::env::var("ZAWK_PARALLEL_MIN_SIZE")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(AUTO_PARALLEL_MIN_SIZE);
+    let mut total = 0u64;
+    for file in input_files {
+        if file == "-" || file.contains("://") || xlsx::is_xlsx_file(file) {
+            return false;
+        }
+        match std::fs::metadata(file) {
+            Ok(m) if m.is_file() => total += m.len(),
+            _ => return false,
+        }
+    }
+    total >= min
 }
 
 /// The regex splitter reads its input on one thread: say so when `-p` asked for workers
@@ -1656,8 +1717,8 @@ fn real_main() {
             .help("Input files to be read by zawk program: local paths, `-` (stdin), http(s):// URLs, s3://bucket/key, a nats:// subject, a kafka:// topic, or a database table or query read as CSV with a header line (`sqlite://PATH#table`, `mysql://...#table`, `postgresql://...#select ...`; SQL when the text after `#` contains whitespace)"))
         .arg(Arg::new("parallel-strategy")
             .short('p')
-            .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files")
-            .value_parser(["r", "record", "f", "file"]))
+            .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files. Without -p, an aggregation over local files of 64 MiB or more whose result does not depend on the order of the records (e.g. `{s+=$3} END{print s}`) runs as with -pr; -p0 (or ZAWK_PARALLEL=0) runs it serially")
+            .value_parser(["r", "record", "f", "file", "0"]))
         .arg(Arg::new("chunk-size")
             .long("chunk-size")
             .num_args(1)
@@ -1816,7 +1877,7 @@ fn real_main() {
     {
         Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord(num_cpus::get()),
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
-        None => ExecutionStrategy::Serial,
+        Some("0") | None => ExecutionStrategy::Serial,
         Some(x) => fail!(
             "invalid execution strategy (clap arg parsing should handle this): {}",
             x
@@ -1825,13 +1886,14 @@ fn real_main() {
 
     // NB: do we want this to be a command-line param?
     // The default depends on the execution strategy, which may still change below.
-    let chunk_size_flag = matches.get_one::<String>("chunk-size").map(|cs| {
-        match cs.parse::<usize>() {
-            Ok(0) => fail!("value of 'chunk-size' flag must be at least 1"),
-            Ok(u) => u,
-            Err(e) => fail!("value of 'chunk-size' flag must be numeric: {}", e),
-        }
-    });
+    let chunk_size_flag =
+        matches
+            .get_one::<String>("chunk-size")
+            .map(|cs| match cs.parse::<usize>() {
+                Ok(0) => fail!("value of 'chunk-size' flag must be at least 1"),
+                Ok(u) => u,
+                Err(e) => fail!("value of 'chunk-size' flag must be numeric: {}", e),
+            });
     let mut num_workers = match matches.get_one::<String>("jobs") {
         Some(s) => match s.parse::<usize>() {
             Ok(u) => u,
@@ -2070,6 +2132,27 @@ fn real_main() {
         eprintln!("zawk: warning: -H with several input files: running serially");
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
+    }
+    // Without `-p`, a program whose result does not depend on how its records are shared out
+    // (an aggregation such as `{s+=$3} END{print s}`) runs with `-pr` on large local files.
+    if matches.get_one::<String>("parallel-strategy").is_none()
+        && matches!(exec_strategy, ExecutionStrategy::Serial)
+        && message_url.is_none()
+        && operand_assigns.is_empty()
+        && !multi_file_headers
+        && auto_parallel_enabled()
+        && auto_parallel_inputs(&input_files, input_format.as_deref())
+    {
+        let given: Vec<&str> = matches
+            .get_many::<String>("var")
+            .into_iter()
+            .flatten()
+            .map(|v| v.split_once('=').map_or(v.as_str(), |(n, _)| n).trim())
+            .collect();
+        if !given.contains(&"RS") && auto_parallel::record_parallel_safe(&program_code, &given) {
+            num_workers = num_cpus::get();
+            exec_strategy = ExecutionStrategy::ShardPerRecord(num_workers);
+        }
     }
     // With `-pr`, larger chunks mean fewer round trips between the reader and the workers (25-35%
     // faster on GB-sized inputs; 1 MiB is no faster and leaves workers idle at the end of a few
@@ -2484,8 +2567,9 @@ fn real_main() {
                         (reader, file)
                     })
                     .collect();
-                let $inp = CSVReader::new(
+                let $inp = CSVReader::new_with_pread(
                     file_handles.into_iter(),
+                    pread_inputs(&input_files, exec_strategy, check_utf8),
                     ifmt,
                     chunk_size,
                     check_utf8,
@@ -2512,9 +2596,11 @@ fn real_main() {
                                 .cloned()
                                 .map(move |file| (open_file_read(file.as_str()), file))
                                 .collect();
+                            let pread = pread_inputs(&input_files, exec_strategy, check_utf8);
                             if field_sep == b" " && record_sep == b"\n" {
-                                let $inp = ByteReader::new_whitespace(
+                                let $inp = ByteReader::new_whitespace_with_pread(
                                     file_handles.into_iter(),
+                                    pread,
                                     chunk_size,
                                     check_utf8,
                                     exec_strategy,
@@ -2522,8 +2608,9 @@ fn real_main() {
                                 );
                                 $body
                             } else {
-                                let $inp = ByteReader::new(
+                                let $inp = ByteReader::new_with_pread(
                                     file_handles.into_iter(),
+                                    pread,
                                     field_sep[0],
                                     record_sep[0],
                                     chunk_size,
@@ -2540,8 +2627,9 @@ fn real_main() {
                                 .cloned()
                                 .map(move |file| (open_file_read(file.as_str()), file))
                                 .collect();
-                            let $inp = ByteReader::new_records(
+                            let $inp = ByteReader::new_records_with_pread(
                                 file_handles.into_iter(),
+                                pread_inputs(&input_files, exec_strategy, check_utf8),
                                 record_sep[0],
                                 chunk_size,
                                 check_utf8,

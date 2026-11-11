@@ -3159,9 +3159,31 @@ mod tests {
         };
         let w = parallel_warnings(std::slice::from_ref(&src), Parallel::Record);
         assert_eq!(w.len(), 1);
-        assert!(w[0].starts_with("zawk: warning: -p r: line 2, column 3: W302 "), "{}", w[0]);
-        assert!(parallel_warnings(&[Source { text: fixed.to_string(), ..Source::default() }], Parallel::File).is_empty());
-        assert!(parallel_warnings(&[Source { text: "{ x = ".to_string(), ..Source::default() }], Parallel::File).is_empty());
+        assert!(
+            w[0].starts_with("zawk: warning: -p r: line 2, column 3: W302 "),
+            "{}",
+            w[0]
+        );
+        assert!(
+            parallel_warnings(
+                &[Source {
+                    text: fixed.to_string(),
+                    ..Source::default()
+                }],
+                Parallel::File
+            )
+            .is_empty()
+        );
+        assert!(
+            parallel_warnings(
+                &[Source {
+                    text: "{ x = ".to_string(),
+                    ..Source::default()
+                }],
+                Parallel::File
+            )
+            .is_empty()
+        );
         let pf = Options {
             parallel: Some(Parallel::File),
             ..Options::default()

@@ -837,41 +837,43 @@ impl<'a> Str<'a> {
         let end = l.saturating_add(r);
         let ascii_range = || (l < bs.len()).then(|| (l, end.min(bs.len())));
         let prefix = end.min(bs.len());
-        let range =
-            if characters_as_bytes() || (prefix < CHAR_CURSOR_MIN_LEN && bs[..prefix].is_ascii()) {
-                ascii_range()
-            } else {
-                self.with_char_cursor(bs, |cur| {
-                    let Some(cur) = cur else {
-                        return if bs[..prefix].is_ascii() {
-                            ascii_range()
-                        } else {
-                            char_byte_range(bs, 0, 0, l, r)
-                        };
-                    };
-                    // The ASCII prefix of a long buffer is measured once, so `substr(s, i, 1)` over
-                    // an ASCII `s` doesn't rescan `s[..i]` on every call.
-                    if prefix <= *cur.ascii_len.get_or_insert_with(|| ascii_prefix_len(bs)) {
-                        return ascii_range();
-                    }
-                    if cur.chars.is_some_and(|n| l >= n) {
-                        return None;
-                    }
-                    let (ci, bo) = if cur.char_ix <= l {
-                        (cur.char_ix, cur.byte_off)
-                    } else if cur.char_ix - l <= l {
-                        char_back(bs, cur.char_ix, cur.byte_off, l).map_or((0, 0), |bo| (l, bo))
+        let range = if characters_as_bytes()
+            || self.known_ascii()
+            || (prefix < CHAR_CURSOR_MIN_LEN && bs[..prefix].is_ascii())
+        {
+            ascii_range()
+        } else {
+            self.with_char_cursor(bs, |cur| {
+                let Some(cur) = cur else {
+                    return if bs[..prefix].is_ascii() {
+                        ascii_range()
                     } else {
-                        (0, 0)
+                        char_byte_range(bs, 0, 0, l, r)
                     };
-                    let range = char_byte_range(bs, ci, bo, l, r);
-                    if let Some((from, _)) = range {
-                        cur.char_ix = l;
-                        cur.byte_off = from;
-                    }
-                    range
-                })
-            };
+                };
+                // The ASCII prefix of a long buffer is measured once, so `substr(s, i, 1)` over
+                // an ASCII `s` doesn't rescan `s[..i]` on every call.
+                if prefix <= *cur.ascii_len.get_or_insert_with(|| ascii_prefix_len(bs)) {
+                    return ascii_range();
+                }
+                if cur.chars.is_some_and(|n| l >= n) {
+                    return None;
+                }
+                let (ci, bo) = if cur.char_ix <= l {
+                    (cur.char_ix, cur.byte_off)
+                } else if cur.char_ix - l <= l {
+                    char_back(bs, cur.char_ix, cur.byte_off, l).map_or((0, 0), |bo| (l, bo))
+                } else {
+                    (0, 0)
+                };
+                let range = char_byte_range(bs, ci, bo, l, r);
+                if let Some((from, _)) = range {
+                    cur.char_ix = l;
+                    cur.byte_off = from;
+                }
+                range
+            })
+        };
         match range {
             Some((from, to)) if from < to => self.slice(from, to),
             _ => Str::default(),
@@ -985,7 +987,7 @@ impl<'a> Str<'a> {
         ascii: fn(&mut [u8]),
         unicode: impl Fn(char) -> I,
     ) -> Str<'b> {
-        if self.with_bytes(|bs| bs.is_ascii()) {
+        if self.known_ascii() || self.with_bytes(|bs| bs.is_ascii()) {
             return self.map_ascii(ascii);
         }
         self.with_bytes(|bs| {
@@ -1213,6 +1215,29 @@ impl<'a> Str<'a> {
         unsafe { self.rep_mut() }.len()
     }
 
+    /// The string is known to be all ASCII without scanning it: it is a slice of (or the whole
+    /// of) an input chunk whose bytes are all ASCII (see [`UniqueBuf::set_ascii_checkable`]); the
+    /// chunk is scanned once, by the first string of it asked. Char counts and offsets of such a
+    /// string are byte ones. `false` says nothing.
+    #[inline]
+    pub(crate) fn known_ascii(&self) -> bool {
+        let rep = unsafe { self.rep_mut() };
+        match rep.get_tag() {
+            StrTag::Shared => unsafe { rep.view_as(|s: &Shared| s.buf.is_ascii()) },
+            StrTag::Boxed => unsafe { rep.view_as(|b: &Boxed| b.buf.is_ascii()) },
+            _ => false,
+        }
+    }
+
+    /// `char_count(&bs[from..to])`, where `bs` are the bytes of `self`: the length in chars of a
+    /// match that `match()` reports as RLENGTH.
+    pub(crate) fn chars_between(&self, bs: &[u8], from: usize, to: usize) -> usize {
+        if self.known_ascii() {
+            return to - from;
+        }
+        char_count(&bs[from..to])
+    }
+
     /// `self`, copied out of its buffer when it is a short slice of a much larger one.
     ///
     /// Fields and `$0` are `Shared` slices of the input chunk they were read from, which is cheap
@@ -1261,7 +1286,7 @@ impl<'a> Str<'a> {
     /// and the count of a concatenation is summed from its pieces, so neither does `s = s "é";
     /// length(s)`.
     pub(crate) fn len(&self) -> usize {
-        if characters_as_bytes() {
+        if characters_as_bytes() || self.known_ascii() {
             return self.bytes_len();
         }
         let known = self.concat_chars();
@@ -1328,6 +1353,9 @@ impl<'a> Str<'a> {
     /// char cursor when that lies at or before `x`, and the cursor then moves to `x` (if a char
     /// starts there), so repeated searches of one long string don't rescan its prefix.
     pub(crate) fn chars_before(&self, bs: &[u8], x: usize) -> usize {
+        if self.known_ascii() {
+            return x;
+        }
         if x < CHAR_CURSOR_MIN_LEN || characters_as_bytes() {
             return char_count(&bs[..x]);
         }
@@ -1734,9 +1762,7 @@ impl<'a> Str<'a> {
                 StrTag::Shared => rep.view_as(|s: &Shared| {
                     &s.buf.as_bytes()[s.start as usize..s.end as usize] as *const _
                 }),
-                StrTag::Boxed => {
-                    rep.view_as(|b: &Boxed| b.bytes() as *const _)
-                }
+                StrTag::Boxed => rep.view_as(|b: &Boxed| b.bytes() as *const _),
                 StrTag::Concat => {
                     self.force();
                     self.get_bytes()
@@ -2081,6 +2107,25 @@ struct BufHeader {
     size: usize,
     // We only have "strong counts"
     count: Cell<usize>,
+    /// Whether every byte of the buffer is ASCII, so that strings sliced from it count chars as
+    /// bytes: one of the `ASCII_*` states (see [`UniqueBuf::set_ascii_checkable`]).
+    ascii: Cell<u8>,
+}
+
+/// States of [`BufHeader::ascii`]: not to be scanned (bytes may be uninitialized or rewritten),
+/// not scanned yet, all ASCII, not all ASCII.
+const ASCII_UNCHECKABLE: u8 = 0;
+const ASCII_UNKNOWN: u8 = 1;
+const ASCII_YES: u8 = 2;
+const ASCII_NO: u8 = 3;
+
+/// Every byte of `bs` is ASCII. The bytes of each block are OR-ed together without branching,
+/// which the compiler vectorizes (`<[u8]>::is_ascii` goes a word at a time); a block with a
+/// non-ASCII byte ends the scan.
+fn all_ascii(bs: &[u8]) -> bool {
+    const BLOCK: usize = 4096;
+    bs.chunks(BLOCK)
+        .all(|block| block.iter().fold(0u8, |acc, &b| acc | b) < 0x80)
 }
 
 #[repr(transparent)]
@@ -2323,6 +2368,7 @@ impl UniqueBuf {
                 BufHeader {
                     size,
                     count: Cell::new(1),
+                    ascii: Cell::new(ASCII_UNCHECKABLE),
                 },
             );
             UniqueBuf(alloced)
@@ -2330,6 +2376,17 @@ impl UniqueBuf {
     }
     pub(crate) fn len(&self) -> usize {
         unsafe { &(*self.0) }.size
+    }
+    /// Lets strings sliced from this buffer find out whether all of its bytes are ASCII, and if
+    /// so take the byte paths of `length`, `substr`, `index` and `match`. The first one asked
+    /// scans the whole buffer (padding included) and caches the answer, so a script that never
+    /// counts chars never scans, and with `-pr` the scan runs on the worker, not the reader.
+    ///
+    /// Only for a buffer whose bytes are all initialized (an input chunk: its padding is zeroed),
+    /// called once they are all written. Mutable access to the bytes
+    /// ([`UniqueBuf::as_mut_bytes`], [`UniqueBuf::as_mut_ptr`]) clears it.
+    pub(crate) fn set_ascii_checkable(&mut self) {
+        unsafe { &(*self.0) }.ascii.set(ASCII_UNKNOWN);
     }
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         let header: &BufHeader = unsafe { &(*self.0) };
@@ -2339,7 +2396,20 @@ impl UniqueBuf {
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         let header: &BufHeader = unsafe { &(*self.0) };
         debug_assert_eq!(header.count.get(), 1);
+        // The bytes may be rewritten.
+        header.ascii.set(ASCII_UNCHECKABLE);
         unsafe { self.0.offset(1) as *mut u8 }
+    }
+    /// The whole buffer, read-only; only call this once all of it is written (see
+    /// [`UniqueBuf::new_uninit`]). Unlike [`UniqueBuf::as_mut_bytes`], this keeps the ASCII mark.
+    pub fn as_bytes(&self) -> &[u8] {
+        let header: &BufHeader = unsafe { &(*self.0) };
+        unsafe {
+            slice::from_raw_parts(
+                (self.0 as *const BufHeader).offset(1) as *const u8,
+                header.size,
+            )
+        }
     }
     pub fn into_buf(self) -> Buf {
         let res = Buf(self.0);
@@ -2375,6 +2445,22 @@ impl Buf {
     fn refcount(&self) -> usize {
         let header: &BufHeader = unsafe { &(*self.0) };
         header.count.get()
+    }
+
+    /// Every byte of the buffer is ASCII (see [`UniqueBuf::set_ascii_checkable`]); scans the
+    /// buffer the first time it is asked.
+    #[inline]
+    fn is_ascii(&self) -> bool {
+        let header: &BufHeader = unsafe { &(*self.0) };
+        match header.ascii.get() {
+            ASCII_YES => true,
+            ASCII_UNKNOWN => {
+                let ascii = all_ascii(self.as_bytes());
+                header.ascii.set(if ascii { ASCII_YES } else { ASCII_NO });
+                ascii
+            }
+            _ => false,
+        }
     }
 
     /// The fill mark of an append buffer (see [`Str::append`]), kept in its last bytes: the end
@@ -2849,6 +2935,50 @@ mod tests {
         let big: Str = "Hello World! ".repeat(20).into();
         assert_eq!(big.to_lower_ascii().as_str(), "hello world! ".repeat(20));
         assert_eq!(big.to_upper_ascii().as_str(), "HELLO WORLD! ".repeat(20));
+    }
+
+    #[test]
+    fn ascii_buffers_count_chars_as_bytes() {
+        let text = "id=7 latency=42ms path=/api/v1/items/9 ".repeat(40);
+        let mut ubuf = UniqueBuf::new(text.len());
+        ubuf.as_mut_bytes().copy_from_slice(text.as_bytes());
+        ubuf.set_ascii_checkable();
+        let buf = ubuf.into_buf();
+        let whole = buf.slice_to_str(0, text.len());
+        let field = buf.slice_to_str(5, 17);
+        assert!(whole.known_ascii() && field.known_ascii());
+        assert_eq!(whole.len(), text.len());
+        assert_eq!(field.len(), 12);
+        assert_eq!(field.sub_str(8, 2).as_str(), "42");
+        assert!(whole.sub_str(10, 100).known_ascii(), "slices keep the mark");
+        whole.with_bytes(|bs| {
+            assert_eq!(whole.chars_before(bs, 1500), 1500);
+            assert_eq!(whole.chars_between(bs, 10, 20), 10);
+        });
+        // Strings not sliced from a marked buffer, and buffers written again, are not known.
+        assert!(!Str::from("abc").known_ascii());
+        assert!(
+            !Buf::read_from_bytes(text.as_bytes())
+                .into_str()
+                .known_ascii()
+        );
+        drop((whole, field));
+        let mut ubuf = buf.try_unique().ok().unwrap();
+        assert_eq!(
+            unsafe { &(*ubuf.0) }.ascii.get(),
+            ASCII_YES,
+            "handing a buffer over keeps the mark"
+        );
+        ubuf.as_mut_bytes()[0] = 0xC3;
+        ubuf.set_ascii_checkable();
+        assert!(!ubuf.into_buf().into_str().known_ascii(), "rescanned");
+        // A buffer with a non-ASCII byte past the first scan block.
+        let mut long = "x".repeat(10_000).into_bytes();
+        long[9_000] = 0xE4;
+        let mut ubuf = UniqueBuf::new(long.len());
+        ubuf.as_mut_bytes().copy_from_slice(&long);
+        ubuf.set_ascii_checkable();
+        assert!(!ubuf.into_buf().slice_to_str(0, 100).known_ascii());
     }
 
     #[test]

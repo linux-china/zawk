@@ -87,7 +87,9 @@ impl Recency {
     fn median(&self) -> u64 {
         let base = self.base.get();
         let last = self.now.get() >> TICK_SHIFT;
-        let total: usize = (base..=last).map(|b| self.slot(b << TICK_SHIFT).get()).sum();
+        let total: usize = (base..=last)
+            .map(|b| self.slot(b << TICK_SHIFT).get())
+            .sum();
         let mut before = 0;
         for b in base..=last {
             let m = self.slot(b << TICK_SHIFT).get();

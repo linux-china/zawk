@@ -422,8 +422,12 @@ impl ParquetJson {
             .unwrap_or(1)
             .min(row_groups);
         for _ in 0..threads {
-            let (decoder, senders, next, cancel) =
-                (decoder.clone(), senders.clone(), next.clone(), cancel.clone());
+            let (decoder, senders, next, cancel) = (
+                decoder.clone(),
+                senders.clone(),
+                next.clone(),
+                cancel.clone(),
+            );
             let name = self.name().to_string();
             let worker = move || {
                 // Row groups are taken in order, so the one the reader waits for is always being
@@ -435,9 +439,8 @@ impl ParquetJson {
                     }
                     let tx: SyncSender<io::Result<Vec<u8>>> =
                         senders.lock().unwrap()[rg].take().unwrap();
-                    let mut emit = |buf: Vec<u8>| {
-                        !cancel.load(Ordering::Relaxed) && tx.send(Ok(buf)).is_ok()
-                    };
+                    let mut emit =
+                        |buf: Vec<u8>| !cancel.load(Ordering::Relaxed) && tx.send(Ok(buf)).is_ok();
                     if let Err(e) = decoder.decode(rg, &mut emit) {
                         let msg = format!("cannot read parquet file `{}': {}", name, e);
                         let _ = tx.send(Err(io::Error::other(msg)));
@@ -598,7 +601,10 @@ enum Values {
     Float(ColumnReaderImpl<FloatType>, Vec<f32>),
     Double(ColumnReaderImpl<DoubleType>, Vec<f64>),
     Bytes(ColumnReaderImpl<ByteArrayType>, Vec<ByteArray>),
-    Fixed(ColumnReaderImpl<FixedLenByteArrayType>, Vec<FixedLenByteArray>),
+    Fixed(
+        ColumnReaderImpl<FixedLenByteArrayType>,
+        Vec<FixedLenByteArray>,
+    ),
 }
 
 /// A primitive top-level column of a row group, read a batch of rows at a time.
@@ -1527,7 +1533,9 @@ mod tests {
                     .map(|i| -(*i as i32))
                     .collect();
                 let mut col = group.next_column().unwrap().unwrap();
-                col.typed::<Int64Type>().write_batch(&ids, None, None).unwrap();
+                col.typed::<Int64Type>()
+                    .write_batch(&ids, None, None)
+                    .unwrap();
                 col.close().unwrap();
                 let mut col = group.next_column().unwrap().unwrap();
                 col.typed::<ByteArrayType>()

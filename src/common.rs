@@ -20,8 +20,8 @@ pub enum ExecutionStrategy {
     Serial,
     /// Attempt to parallelize the script, breaking the input into chunks of records with different
     /// worker threads processing different chunks. Carries the number of workers (`-j`), which
-    /// also bounds how many chunks the reader thread reads ahead.
-    // TODO: support multiple readers producing chunks from multiple files, if possible.
+    /// also bounds how many chunks the reader thread reads ahead. With regular files (except
+    /// quoted CSV), the workers read their own ranges of the files (see `splitter::pread`).
     ShardPerRecord(usize),
     /// Attempt to parallelize the script, where multiple worker threads each process a file at a
     /// time.

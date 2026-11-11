@@ -28,10 +28,11 @@ use crate::runtime::{
 use super::{
     DefaultLine, LineReader, ReaderState,
     chunk::{
-        self, CancellableChunkProducer, Chunk, ChunkProducer, OffsetChunk, ParallelChunkProducer,
-        ShardedChunkProducer,
+        self, CancellableChunkProducer, Chunk, ChunkProducer, DeferredScan, OffsetChunk,
+        ParallelChunkProducer, ShardedChunkProducer,
     },
     display_name, field_from_end_offset, input_warning, normalize_join_indexes,
+    pread::{PreadChunkProducer, PreadFile},
     resolve_negative_col,
 };
 
@@ -146,10 +147,54 @@ impl CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         I: Iterator<Item = (S, String)> + Send + 'static,
         S: Read + Send + 'static,
     {
+        Self::new_with_pread(
+            rs,
+            None,
+            ifmt,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            cancel_signal,
+        )
+    }
+
+    /// Like [CSVReader::new]; with `-pr`, reads `pread` instead of `rs` when it is set (the same
+    /// files, see [pread_inputs](super::pread::pread_inputs)) and the input is TSV: the workers
+    /// then read their own ranges of the files. CSV can't be cut at any newline, so it is always
+    /// read from `rs`.
+    pub fn new_with_pread<I, S>(
+        rs: I,
+        pread: Option<Vec<PreadFile>>,
+        ifmt: InputFormat,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        cancel_signal: CancelSignal,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + Send + 'static,
+        S: Read + Send + 'static,
+    {
+        let pread = pread.filter(|_| ifmt == InputFormat::TSV && !check_utf8);
         let prod: Box<dyn ChunkProducer<Chunk = OffsetChunk>> = match exec_strategy {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_csv(
                 rs, chunk_size, ifmt, check_utf8,
             )),
+            x @ ExecutionStrategy::ShardPerRecord(_) if pread.is_some() => {
+                let scan = DeferredScan::Csv {
+                    kernel: get_find_indexes(ifmt),
+                    quoted: false,
+                };
+                Box::new(CancellableChunkProducer::new(
+                    cancel_signal,
+                    ParallelChunkProducer::new(
+                        move || {
+                            PreadChunkProducer::new(pread.unwrap(), chunk_size, b'\n', scan, None)
+                        },
+                        /*channel_size*/ x.num_workers() * 2,
+                    ),
+                ))
+            }
             x @ ExecutionStrategy::ShardPerRecord(_) => {
                 Box::new(CancellableChunkProducer::new(
                     cancel_signal,
@@ -902,6 +947,49 @@ unsafe fn find_indexes_tsv_sse2(
     generic::find_indexes_tsv::<sse2::Impl>(buf, offsets, prev_iter_inside_quote, prev_iter_cr_end)
 }
 
+/// Whether this aarch64 CPU has the `aes` feature, i.e. `vmull_p64` for the CSV/TSV quote
+/// parity. Checked at run time: `aarch64-unknown-linux-*` does not enable it at compile time.
+#[cfg(target_arch = "aarch64")]
+fn neon_has_aes() -> bool {
+    std::arch::is_aarch64_feature_detected!("aes")
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon,aes")]
+unsafe fn find_indexes_csv_neon_aes(
+    buf: &[u8],
+    offsets: &mut Offsets,
+    prev_iter_inside_quote: u64,
+    prev_iter_cr_end: u64,
+) -> (u64, u64) {
+    unsafe {
+        generic::find_indexes_csv::<neon::Impl<true>>(
+            buf,
+            offsets,
+            prev_iter_inside_quote,
+            prev_iter_cr_end,
+        )
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon,aes")]
+unsafe fn find_indexes_tsv_neon_aes(
+    buf: &[u8],
+    offsets: &mut Offsets,
+    prev_iter_inside_quote: u64,
+    prev_iter_cr_end: u64,
+) -> (u64, u64) {
+    unsafe {
+        generic::find_indexes_tsv::<neon::Impl<true>>(
+            buf,
+            offsets,
+            prev_iter_inside_quote,
+            prev_iter_cr_end,
+        )
+    }
+}
+
 #[cfg(target_arch = "aarch64")]
 unsafe fn find_indexes_csv_neon(
     buf: &[u8],
@@ -962,9 +1050,11 @@ pub fn get_find_indexes(
                  }
              }
         } else if #[cfg(target_arch = "aarch64")] {
-            match ifmt {
-                InputFormat::CSV => find_indexes_csv_neon,
-                InputFormat::TSV => find_indexes_tsv_neon,
+            match (ifmt, neon_has_aes()) {
+                (InputFormat::CSV, true) => find_indexes_csv_neon_aes,
+                (InputFormat::TSV, true) => find_indexes_tsv_neon_aes,
+                (InputFormat::CSV, false) => find_indexes_csv_neon,
+                (InputFormat::TSV, false) => find_indexes_tsv_neon,
             }
         } else {
             match ifmt {
@@ -1074,6 +1164,82 @@ fn csv_lenient_scan(buf: &[u8], fields: &mut Vec<u32>, from: usize, stop_at: usi
         i += 1;
     }
     len
+}
+
+/// The scan of a CSV/TSV chunk (see [get_find_indexes]).
+pub type CsvIndexKernel = unsafe fn(&[u8], &mut Offsets, u64, u64) -> (u64, u64);
+
+/// See [generic::csv_record_end].
+type CsvRecordEndKernel = unsafe fn(&[u8], usize, u64) -> Option<usize>;
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,pclmulqdq")]
+unsafe fn csv_record_end_avx2(buf: &[u8], from: usize, field_start: u64) -> Option<usize> {
+    generic::csv_record_end::<avx2::Impl>(buf, from, field_start)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2,pclmulqdq")]
+unsafe fn csv_record_end_sse2(buf: &[u8], from: usize, field_start: u64) -> Option<usize> {
+    generic::csv_record_end::<sse2::Impl>(buf, from, field_start)
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon,aes")]
+unsafe fn csv_record_end_neon_aes(buf: &[u8], from: usize, field_start: u64) -> Option<usize> {
+    unsafe { generic::csv_record_end::<neon::Impl<true>>(buf, from, field_start) }
+}
+
+fn select_csv_record_end_kernel() -> CsvRecordEndKernel {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "x86_64")] {
+            #[cfg(feature = "allow_avx2")]
+            const ALLOW_AVX2: bool = true;
+            #[cfg(not(feature = "allow_avx2"))]
+            const ALLOW_AVX2: bool = false;
+            if ALLOW_AVX2 && is_x86_feature_detected!("avx2") && is_x86_feature_detected!("pclmulqdq") {
+                csv_record_end_avx2
+            } else if is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq") {
+                csv_record_end_sse2
+            } else {
+                generic::csv_record_end::<generic::Impl>
+            }
+        } else if #[cfg(target_arch = "aarch64")] {
+            if neon_has_aes() {
+                csv_record_end_neon_aes
+            } else {
+                generic::csv_record_end::<neon::Impl>
+            }
+        } else {
+            generic::csv_record_end::<generic::Impl>
+        }
+    }
+}
+
+/// Where a parallel reader can cut a CSV buffer that starts at a record start, without the full
+/// scan: the end of its last record, when the scan of every byte before it (by
+/// [get_find_indexes]) tracks quotes by parity alone, i.e. finds no irregular quote and does not
+/// fall back to `csv_lenient_scan`. The scan of `buf[..end]` then gives the same offsets as the
+/// scan of all of `buf` up to `end`, and ends outside quotes, so the next chunk can be scanned on
+/// its own. `None` if there is no such record end (no newline outside quotes, or an irregular
+/// quote before the first one): the buffer has to be scanned in full.
+///
+/// Only the quotes need a vector scan: the bytes before the first one are found with `memchr`,
+/// and a buffer without quotes is cut after its last newline.
+pub fn csv_record_end(buf: &[u8]) -> Option<usize> {
+    static KERNEL: std::sync::OnceLock<CsvRecordEndKernel> = std::sync::OnceLock::new();
+    csv_record_end_with(buf, || *KERNEL.get_or_init(select_csv_record_end_kernel))
+}
+
+fn csv_record_end_with(buf: &[u8], kernel: impl FnOnce() -> CsvRecordEndKernel) -> Option<usize> {
+    let after_last_nl = |bs: &[u8]| memchr::memrchr(b'\n', bs).map(|i| i + 1);
+    let Some(q) = memchr::memchr(b'"', buf) else {
+        return after_last_nl(buf);
+    };
+    let kernel = kernel();
+    // Before the first quote, everything is outside quotes and regular.
+    let field_start = (q == 0 || matches!(buf[q - 1], b',' | b'\n')) as u64;
+    unsafe { kernel(buf, q, field_start) }.or_else(|| after_last_nl(&buf[..q]))
 }
 
 pub type BytesIndexKernel = unsafe fn(&[u8], &mut Offsets, u8, u8);
@@ -1807,6 +1973,118 @@ mod generic {
         (state, None)
     }
 
+    /// The state the CSV scan carries from one vector to the next: whether the previous byte was
+    /// inside quotes (all ones) or not, whether it was a `\r`, a field end, a closing quote, the
+    /// `\r` after a closing quote, and the irregular quotes found so far.
+    type CsvState = (u64, u64, u64, u64, u64, u64);
+
+    /// One vector of the CSV scan, from `state`: the offsets to report, the irregular quotes
+    /// found in this vector (see [find_indexes_csv]; each bit is at or after the quote that
+    /// makes it irregular), and the newlines outside quotes, which end records.
+    #[inline(always)]
+    unsafe fn csv_block<V: Vector>(
+        (
+            mut prev_iter_inside_quote,
+            mut prev_iter_cr_end,
+            mut prev_field_end,
+            mut prev_close,
+            mut prev_close_cr,
+            mut irregular,
+        ): CsvState,
+        buf: *const u8,
+    ) -> (
+        CsvState,
+        /*mask*/ u64,
+        /*irregular*/ u64,
+        /*record ends*/ u64,
+    ) {
+        let valid = if V::INPUT_SIZE == 64 {
+            !0u64
+        } else {
+            (1u64 << V::INPUT_SIZE) - 1
+        };
+        let last = V::INPUT_SIZE as u32 - 1;
+        let inp = V::fill_input(buf);
+        let (quote_mask, quote_locs) = inp.find_quote_mask(&mut prev_iter_inside_quote);
+        let sep = inp.cmp_mask_against_input(b',');
+
+        let cr = inp.cmp_mask_against_input(0x0d);
+        let cr_adjusted = cr.wrapping_shl(1) | prev_iter_cr_end;
+        let lf = inp.cmp_mask_against_input(0x0a);
+        // Allow for either \r\n or \n.
+        let end = (lf & cr_adjusted) | lf;
+        prev_iter_cr_end = cr.wrapping_shr(last);
+        // RFC 4180: the only escape inside a quoted field is "", so backslashes are plain data in
+        // CSV and are not reported (unlike TSV).
+        let mask = ((sep | cr | end) & !quote_mask) | quote_locs;
+
+        let opening = quote_locs & quote_mask;
+        let closing = quote_locs & !quote_mask;
+        let field_end = sep | lf | quote_locs;
+        let field_start = field_end.wrapping_shl(1) | prev_field_end;
+        let after_close = (closing.wrapping_shl(1) | prev_close) & valid;
+        let close_cr = after_close & cr;
+        let after_close_cr = (close_cr.wrapping_shl(1) | prev_close_cr) & valid;
+        let new_irregular =
+            (opening & !field_start) | (after_close & !(field_end | cr)) | (after_close_cr & !lf);
+        irregular |= new_irregular;
+        prev_field_end = field_end.wrapping_shr(last) & 1;
+        prev_close = closing.wrapping_shr(last) & 1;
+        prev_close_cr = close_cr.wrapping_shr(last) & 1;
+        (
+            (
+                prev_iter_inside_quote,
+                prev_iter_cr_end,
+                prev_field_end,
+                prev_close,
+                prev_close_cr,
+                irregular,
+            ),
+            mask,
+            new_irregular,
+            lf & !quote_mask,
+        )
+    }
+
+    /// The scan behind [super::csv_record_end]: `buf[from]` is outside quotes, `field_start` is 1
+    /// if it starts a field. Returns the end of the last record ending at or after `from` and
+    /// before the first irregular quote, if any.
+    pub unsafe fn csv_record_end<V: Vector>(
+        buf: &[u8],
+        from: usize,
+        field_start: u64,
+    ) -> Option<usize> {
+        let len = buf.len();
+        let mut state: CsvState = (0, 0, field_start, 0, 0, 0);
+        let mut last_nl = None;
+        let mut ix = from;
+        let mut rest = [0u8; MAX_INPUT_SIZE];
+        while ix < len {
+            let ptr = if len - ix >= V::INPUT_SIZE {
+                buf.as_ptr().add(ix)
+            } else {
+                // The zero padding after the end is not a field end: a closing quote at the end
+                // looks irregular, which only drops it (and what follows) from the split.
+                std::ptr::copy_nonoverlapping(buf.as_ptr().add(ix), rest.as_mut_ptr(), len - ix);
+                rest.as_ptr()
+            };
+            let (s, _, irregular, mut nl) = csv_block::<V>(state, ptr);
+            state = s;
+            if irregular != 0 {
+                // Only the newlines before the first irregular quote are known to end records.
+                nl &= irregular.isolate_lowest_one() - 1;
+            }
+            if nl != 0 {
+                last_nl = Some(ix + 63 - nl.leading_zeros() as usize);
+            }
+            if irregular != 0 {
+                break;
+            }
+            ix += V::INPUT_SIZE;
+        }
+        last_nl.map(|i| i + 1)
+    }
+
     pub unsafe fn find_indexes_csv<V: Vector>(
         buf: &[u8],
         offsets: &mut Offsets,
@@ -1820,65 +2098,11 @@ mod generic {
         // separator, `\n` or `\r\n`. Any other quote ("irregular") stops the SIMD scan: the
         // record holding it is redone with the byte-by-byte `csv_lenient_scan`, which hands back
         // to the SIMD scan at a record start some way after it (see `LENIENT_SPAN`).
-        let valid = if V::INPUT_SIZE == 64 {
-            !0u64
-        } else {
-            (1u64 << V::INPUT_SIZE) - 1
+        let f = |state: CsvState, buf| {
+            let (state, mask, _, _) = csv_block::<V>(state, buf);
+            (state, mask, 0)
         };
-        let last = V::INPUT_SIZE as u32 - 1;
-        let f = |(
-            mut prev_iter_inside_quote,
-            mut prev_iter_cr_end,
-            mut prev_field_end,
-            mut prev_close,
-            mut prev_close_cr,
-            mut irregular,
-        ): (u64, u64, u64, u64, u64, u64),
-                 buf| {
-            let inp = V::fill_input(buf);
-            let (quote_mask, quote_locs) = inp.find_quote_mask(&mut prev_iter_inside_quote);
-            let sep = inp.cmp_mask_against_input(b',');
-
-            let cr = inp.cmp_mask_against_input(0x0d);
-            let cr_adjusted = cr.wrapping_shl(1) | prev_iter_cr_end;
-            let lf = inp.cmp_mask_against_input(0x0a);
-            // Allow for either \r\n or \n.
-            let end = (lf & cr_adjusted) | lf;
-            prev_iter_cr_end = cr.wrapping_shr(last);
-            // NB: for now, NL is going to be unused for csv
-            // Don't use NL here for now
-            // let nl = end & !quote_mask;
-            // RFC 4180: the only escape inside a quoted field is "", so backslashes are plain
-            // data in CSV and are not reported (unlike TSV).
-            let mask = ((sep | cr | end) & !quote_mask) | quote_locs;
-
-            let opening = quote_locs & quote_mask;
-            let closing = quote_locs & !quote_mask;
-            let field_end = sep | lf | quote_locs;
-            let field_start = field_end.wrapping_shl(1) | prev_field_end;
-            let after_close = (closing.wrapping_shl(1) | prev_close) & valid;
-            let close_cr = after_close & cr;
-            let after_close_cr = (close_cr.wrapping_shl(1) | prev_close_cr) & valid;
-            irregular |= (opening & !field_start)
-                | (after_close & !(field_end | cr))
-                | (after_close_cr & !lf);
-            prev_field_end = field_end.wrapping_shr(last) & 1;
-            prev_close = closing.wrapping_shr(last) & 1;
-            prev_close_cr = close_cr.wrapping_shr(last) & 1;
-            (
-                (
-                    prev_iter_inside_quote,
-                    prev_iter_cr_end,
-                    prev_field_end,
-                    prev_close,
-                    prev_close_cr,
-                    irregular,
-                ),
-                mask,
-                0,
-            )
-        };
-        let irregular = |s: &(u64, u64, u64, u64, u64, u64)| s.5 != 0;
+        let irregular = |s: &CsvState| s.5 != 0;
         let (state, mut stopped) = find_indexes_from::<V, _, _, _>(
             buf,
             offsets,
@@ -1995,11 +2219,7 @@ mod generic {
         // flatten_bits writes up to max(popcount, 16) entries from its start offset.
         const ROOM: usize = MAX_INPUT_SIZE * UNROLL + 16;
         let len = buf.len();
-        assert!(
-            len <= MAX_CHUNK_LEN,
-            "chunk of {} bytes is too large",
-            len
-        );
+        assert!(len <= MAX_CHUNK_LEN, "chunk of {} bytes is too large", len);
         if from >= len {
             return;
         }
@@ -2221,17 +2441,20 @@ mod neon {
     // NEON is part of the aarch64 baseline, so no runtime detection is needed.
     use std::arch::aarch64::*;
 
-    /// 64 bytes at a time, as four 128-bit registers.
+    /// 64 bytes at a time, as four 128-bit registers. `AES` is whether the `aes` feature
+    /// (`vmull_p64`) is available, which callers check at run time (see [super::neon_has_aes]):
+    /// the Linux aarch64 targets do not enable it at compile time, though nearly every aarch64
+    /// CPU (Apple Silicon, Graviton, Ampere, ...) has it.
     #[derive(Copy, Clone)]
-    pub struct Impl([uint8x16_t; 4]);
+    pub struct Impl<const AES: bool = false>([uint8x16_t; 4]);
 
-    impl Vector for Impl {
+    impl<const AES: bool> Vector for Impl<AES> {
         const VEC_BYTES: usize = 32;
 
         #[inline(always)]
         unsafe fn fill_input(bptr: *const u8) -> Self {
             unsafe {
-                Impl([
+                Self([
                     vld1q_u8(bptr),
                     vld1q_u8(bptr.add(16)),
                     vld1q_u8(bptr.add(32)),
@@ -2245,7 +2468,7 @@ mod neon {
             let [a, b, c, d] = self.0;
             let [e, f, g, h] = rhs.0;
             unsafe {
-                Impl([
+                Self([
                     vorrq_u8(a, e),
                     vorrq_u8(b, f),
                     vorrq_u8(c, g),
@@ -2259,7 +2482,7 @@ mod neon {
             let [a, b, c, d] = self.0;
             let [e, f, g, h] = rhs.0;
             unsafe {
-                Impl([
+                Self([
                     vandq_u8(a, e),
                     vandq_u8(b, f),
                     vandq_u8(c, g),
@@ -2290,7 +2513,7 @@ mod neon {
             let [a, b, c, d] = self.0;
             unsafe {
                 let m = vdupq_n_u8(m);
-                Impl([
+                Self([
                     vceqq_u8(a, m),
                     vceqq_u8(b, m),
                     vceqq_u8(c, m),
@@ -2306,12 +2529,11 @@ mod neon {
         ) -> (/*inside quotes*/ u64, /*quote locations*/ u64) {
             let quote_bits = unsafe { self.cmp_mask_against_input(b'"') };
             // Prefix XOR: bit i is the parity of the quotes at positions 0..=i. With the `aes`
-            // feature (Apple Silicon, Graviton, ...) this is a carry-less multiplication by all
-            // ones, as on x86 with pclmulqdq.
-            #[cfg(target_feature = "aes")]
-            let prefix = unsafe { vmull_p64(quote_bits, !0u64) as u64 };
-            #[cfg(not(target_feature = "aes"))]
-            let prefix = {
+            // feature this is a carry-less multiplication by all ones, as on x86 with pclmulqdq;
+            // the caller then runs with `#[target_feature(enable = "aes")]`.
+            let prefix = if AES {
+                unsafe { vmull_p64(quote_bits, !0u64) as u64 }
+            } else {
                 let mut res = quote_bits;
                 res ^= res << 1;
                 res ^= res << 2;
@@ -2334,7 +2556,7 @@ mod neon {
                 let table = vld1q_u8(WS_BY_LOW_NIBBLE.as_ptr());
                 let low = vdupq_n_u8(0x0F);
                 let ws = |v| vceqq_u8(vqtbl1q_u8(table, vandq_u8(v, low)), v);
-                let ws = Impl([ws(a), ws(b), ws(c), ws(d)]);
+                let ws = Self([ws(a), ws(b), ws(c), ws(d)]);
                 (ws.mask(), self.cmp_mask_against_input(b'\n'))
             }
         }
@@ -2404,8 +2626,34 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
         I: Iterator<Item = (S, String)> + 'static + Send,
         S: Read + Send + 'static,
     {
+        Self::new_records_with_pread(
+            rs,
+            None,
+            record_sep,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            cancel_signal,
+        )
+    }
+
+    /// [ByteReader::new_records], reading `pread` with `-pr` (see [CSVReader::new_with_pread]).
+    pub fn new_records_with_pread<I, S>(
+        rs: I,
+        pread: Option<Vec<PreadFile>>,
+        record_sep: u8,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        cancel_signal: CancelSignal,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + 'static + Send,
+        S: Read + Send + 'static,
+    {
         Self::new_impl(
             rs,
+            pread,
             /*field_sep: never scanned*/ record_sep,
             record_sep,
             chunk_size,
@@ -2414,6 +2662,36 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             get_find_indexes_bytes(),
             cancel_signal,
             /*records_only*/ true,
+        )
+    }
+
+    /// [ByteReader::new], reading `pread` with `-pr` (see [CSVReader::new_with_pread]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_pread<I, S>(
+        rs: I,
+        pread: Option<Vec<PreadFile>>,
+        field_sep: u8,
+        record_sep: u8,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        cancel_signal: CancelSignal,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + 'static + Send,
+        S: Read + Send + 'static,
+    {
+        Self::new_impl(
+            rs,
+            pread,
+            field_sep,
+            record_sep,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            get_find_indexes_bytes(),
+            cancel_signal,
+            /*records_only*/ false,
         )
     }
 
@@ -2438,6 +2716,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
     {
         Self::new_impl(
             rs,
+            None,
             field_sep,
             record_sep,
             chunk_size,
@@ -2452,6 +2731,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
     #[allow(clippy::too_many_arguments)]
     fn new_impl<I, S>(
         rs: I,
+        pread: Option<Vec<PreadFile>>,
         field_sep: u8,
         record_sep: u8,
         chunk_size: usize,
@@ -2472,6 +2752,28 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>> {
             ExecutionStrategy::Serial => Box::new(chunk::new_chained_offset_chunk_producer_bytes(
                 rs, chunk_size, field_sep, record_sep, check_utf8, kernel, lo,
             )),
+            x @ ExecutionStrategy::ShardPerRecord(_) if pread.is_some() && !check_utf8 => {
+                let scan = DeferredScan::Bytes {
+                    kernel,
+                    field_sep,
+                    record_sep,
+                };
+                Box::new(CancellableChunkProducer::new(
+                    cancel_signal,
+                    ParallelChunkProducer::new(
+                        move || {
+                            PreadChunkProducer::new(
+                                pread.unwrap(),
+                                chunk_size,
+                                record_sep,
+                                scan,
+                                Some(lo),
+                            )
+                        },
+                        /*channel_size*/ x.num_workers() * 2,
+                    ),
+                ))
+            }
             x @ ExecutionStrategy::ShardPerRecord(_) => {
                 Box::new(CancellableChunkProducer::new(
                     cancel_signal,
@@ -2537,8 +2839,32 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
         I: Iterator<Item = (S, String)> + 'static + Send,
         S: Read + Send + 'static,
     {
+        Self::new_whitespace_with_pread(
+            rs,
+            None,
+            chunk_size,
+            check_utf8,
+            exec_strategy,
+            cancel_signal,
+        )
+    }
+    /// [ByteReader::new_whitespace], reading `pread` with `-pr` (see
+    /// [CSVReader::new_with_pread]).
+    pub fn new_whitespace_with_pread<I, S>(
+        rs: I,
+        pread: Option<Vec<PreadFile>>,
+        chunk_size: usize,
+        check_utf8: bool,
+        exec_strategy: ExecutionStrategy,
+        cancel_signal: CancelSignal,
+    ) -> Self
+    where
+        I: Iterator<Item = (S, String)> + 'static + Send,
+        S: Read + Send + 'static,
+    {
         Self::new_whitespace_internal(
             rs,
+            pread,
             chunk_size,
             check_utf8,
             exec_strategy,
@@ -2548,6 +2874,7 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
     }
     pub fn new_whitespace_internal<I, S>(
         rs: I,
+        pread: Option<Vec<PreadFile>>,
         chunk_size: usize,
         check_utf8: bool,
         exec_strategy: ExecutionStrategy,
@@ -2569,6 +2896,27 @@ impl ByteReader<Box<dyn ChunkProducer<Chunk = OffsetChunk<WhitespaceOffsets>>>> 
                         check_utf8,
                         find_indexes,
                         lo,
+                    ))
+                }
+                x @ ExecutionStrategy::ShardPerRecord(_) if pread.is_some() && !check_utf8 => {
+                    let scan = DeferredScan::Whitespace {
+                        kernel: find_indexes,
+                        trim: true,
+                    };
+                    Box::new(CancellableChunkProducer::new(
+                        cancel_signal,
+                        ParallelChunkProducer::new(
+                            move || {
+                                PreadChunkProducer::new(
+                                    pread.unwrap(),
+                                    chunk_size,
+                                    b'\n',
+                                    scan,
+                                    Some(lo),
+                                )
+                            },
+                            /*channel_size*/ x.num_workers() * 2,
+                        ),
                     ))
                 }
                 x @ ExecutionStrategy::ShardPerRecord(_) => {
@@ -2769,7 +3117,12 @@ where
         br.cur_chunk.version = std::cmp::max(prev_version, 1);
         return Ok((true, false));
     }
-    br.cur_buf = br.cur_chunk.buf.take().unwrap().into_buf();
+    let old_buf = mem::replace(&mut br.cur_buf, br.cur_chunk.buf.take().unwrap().into_buf());
+    // Hand the previous buffer back with the chunk, for the next one to be read into (see
+    // `Reader::recycle`, and `OffsetChunk::finish` with `-pr` on regular files), when no record
+    // refers to it any more. (Not before `get_chunk`: at the end of the input, the last record
+    // may still be read from the current buffer.)
+    br.cur_chunk.buf = old_buf.try_unique().ok();
     br.buf_len = br.cur_chunk.len;
     br.progress = 0;
     Ok((false, prev_version != br.cur_chunk.version))
@@ -3249,7 +3602,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                     .enumerate()
                     .fold(0u64, |acc, (i, b)| acc | ((*b == m) as u64) << i)
             };
-            let v = unsafe { neon::Impl::fill_input(buf.as_ptr()) };
+            let v = unsafe { neon::Impl::<false>::fill_input(buf.as_ptr()) };
             for m in [b',', b'"', b'\t', b'\n', b'a'] {
                 assert_eq!(unsafe { v.cmp_mask_against_input(m) }, naive_mask(m));
             }
@@ -3274,6 +3627,14 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             assert_eq!(got_quotes, quotes);
             assert_eq!(in_quotes, naive);
             assert_eq!(got_prev, (naive as i64 >> 63) as u64);
+            if neon_has_aes() {
+                let v = unsafe { neon::Impl::<true>::fill_input(buf.as_ptr()) };
+                let mut got_prev = prev;
+                let (in_quotes, got_quotes) = unsafe { v.find_quote_mask(&mut got_prev) };
+                assert_eq!(got_quotes, quotes);
+                assert_eq!(in_quotes, naive);
+                assert_eq!(got_prev, (naive as i64 >> 63) as u64);
+            }
         }
     }
 
@@ -3700,6 +4061,152 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         }
     }
 
+    /// A byte-by-byte model of [csv_record_end]: the quote state by parity, and the irregular
+    /// quotes as `generic::find_indexes_csv` defines them.
+    fn csv_record_end_model(buf: &[u8]) -> Option<usize> {
+        let (mut inside, mut field_start, mut after_close, mut after_close_cr) =
+            (false, true, false, false);
+        let mut last = None;
+        for (i, &b) in buf.iter().enumerate() {
+            let quote = b == b'"';
+            let field_end = matches!(b, b',' | b'\n' | b'"');
+            if (after_close_cr && b != b'\n')
+                || (after_close && !(field_end || b == b'\r'))
+                || (quote && !inside && !field_start)
+            {
+                break;
+            }
+            if quote {
+                inside = !inside;
+            }
+            if b == b'\n' && !inside {
+                last = Some(i + 1);
+            }
+            after_close_cr = after_close && b == b'\r';
+            after_close = quote && !inside;
+            field_start = field_end;
+        }
+        last
+    }
+
+    /// Random CSV: well-formed records (quoted fields with separators, line ends and `""`
+    /// inside, `\r\n` line ends) for most rounds, arbitrary bytes from a small alphabet for
+    /// the rest.
+    fn random_csv(next: &mut impl FnMut() -> u64, round: usize) -> Vec<u8> {
+        let mut buf = Vec::new();
+        if round % 3 == 2 {
+            const ALPHABET: &[u8] = b"aaaa,,\"\"\n\n\r ";
+            let n = (next() % 700) as usize;
+            buf.extend((0..n).map(|_| ALPHABET[(next() % ALPHABET.len() as u64) as usize]));
+            return buf;
+        }
+        const FIELDS: &[&[u8]] = &[
+            b"abc",
+            b"",
+            b"\"q\"",
+            b"\"a,b\"",
+            b"\"line\nbreak\"",
+            b"\"say \"\"hi\"\"\"",
+            b"\"\"",
+            b"\"crlf\r\nin\"",
+            b"x y z 0123456789",
+        ];
+        let rows = next() % 40;
+        for _ in 0..rows {
+            let nf = 1 + next() % 6;
+            for j in 0..nf {
+                if j > 0 {
+                    buf.push(b',');
+                }
+                buf.extend_from_slice(FIELDS[(next() % FIELDS.len() as u64) as usize]);
+            }
+            buf.extend_from_slice(if next() % 4 == 0 { b"\r\n" } else { b"\n" });
+        }
+        if next() % 3 == 0 {
+            // A last record without a line end, possibly with an unclosed quote.
+            buf.extend_from_slice(if next() % 2 == 0 {
+                b"tail,\"open"
+            } else {
+                b"tail"
+            });
+        }
+        buf
+    }
+
+    fn csv_record_end_matches_scan(kernel: CsvRecordEndKernel, scan: CsvIndexKernel) {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let offsets = |bs: &[u8]| {
+            let mut off = Offsets::default();
+            unsafe { scan(bs, &mut off, 0, 0) };
+            off.rel.fields
+        };
+        let (mut cut, mut dirty_cut, mut dirty_after) = (0, 0, 0);
+        for round in 0..3000 {
+            let buf = random_csv(&mut next, round);
+            let got = csv_record_end_with(&buf, || kernel);
+            let ctx = || {
+                format!(
+                    "round={round} got={got:?} buf={:?}",
+                    String::from_utf8_lossy(&buf)
+                )
+            };
+            assert_eq!(got, csv_record_end_model(&buf), "{}", ctx());
+            let Some(t) = got else { continue };
+            // The chunk cut there scans to the offsets of the whole buffer before the cut, and
+            // its last offset is the newline that ends it.
+            let head = offsets(&buf[..t]);
+            assert_eq!(head.last().copied(), Some(t as u32 - 1), "{}", ctx());
+            let mut whole = offsets(&buf);
+            dirty_after += (csv_record_end_model(&buf[t..]).is_none()
+                && csv_record_end_model(&[&buf[t..], b"\n"].concat()).is_none())
+                as usize;
+            whole.retain(|&o| (o as usize) < t);
+            assert_eq!(head, whole, "{}", ctx());
+            cut += 1;
+            dirty_cut += (round % 3 == 2) as usize;
+        }
+        // The cases that matter were generated: cuts in clean and dirty data, and dirty data
+        // after the cut.
+        assert!(
+            cut > 1000 && dirty_cut > 300 && dirty_after > 100,
+            "{cut} {dirty_cut} {dirty_after}"
+        );
+    }
+
+    #[test]
+    fn csv_record_end_matches_scan_generic() {
+        csv_record_end_matches_scan(
+            generic::csv_record_end::<generic::Impl>,
+            generic::find_indexes_csv::<generic::Impl>,
+        );
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn csv_record_end_matches_scan_neon() {
+        csv_record_end_matches_scan(generic::csv_record_end::<neon::Impl>, find_indexes_csv_neon);
+        if neon_has_aes() {
+            csv_record_end_matches_scan(csv_record_end_neon_aes, find_indexes_csv_neon_aes);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn csv_record_end_matches_scan_x86() {
+        if is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq") {
+            csv_record_end_matches_scan(csv_record_end_sse2, find_indexes_csv_sse2);
+        }
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("pclmulqdq") {
+            csv_record_end_matches_scan(csv_record_end_avx2, find_indexes_csv_avx2);
+        }
+    }
+
     #[test]
     fn resumed_scan_matches_full_scan_generic() {
         resumed_scan_matches_full_scan::<generic::Impl>();
@@ -3709,6 +4216,9 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
     #[test]
     fn resumed_scan_matches_full_scan_neon() {
         resumed_scan_matches_full_scan::<neon::Impl>();
+        if neon_has_aes() {
+            resumed_scan_matches_full_scan::<neon::Impl<true>>();
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -3790,6 +4300,9 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
     #[test]
     fn csv_irregular_quotes_match_lenient_neon() {
         csv_irregular_quotes_match_lenient::<neon::Impl>();
+        if neon_has_aes() {
+            csv_irregular_quotes_match_lenient::<neon::Impl<true>>();
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -4127,6 +4640,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         let reader = std::io::Cursor::new(corpus);
         let mut reader = ByteReader::new_whitespace_internal(
             std::iter::once((reader, String::from("fake-stdin"))),
+            None,
             1024,
             /*check_utf8=*/ false,
             ExecutionStrategy::Serial,
