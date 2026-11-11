@@ -385,7 +385,8 @@ Always wrap text in quotes and escape what is inside, so the result is safe to e
 
 - parse: use wild match - `parse("Hello World","{greet} {name}")["greet"]`
 - rparse: use regex group - `rparse("Hello World","(\\w+) (\\w+)")[1]`; an invalid regex gives an empty array with a
-  warning and `ERRNO` set, while text that does not match gives an empty array silently
+  warning and `ERRNO` set, while text that does not match gives an empty array silently; the text and the regex
+  are each limited to 1024 characters, a longer one gives an empty array with a warning and `ERRNO` set
 
 ### format_bytes/to_bytes
 
@@ -770,6 +771,13 @@ dec_cmp("1.10", "1.1")             # 0; -1 or 1 when the first is smaller or gre
 ### min/max
 
 `min(1,2,3,4)`, `max("A","B", "c", "d", "e")`,
+
+* Takes one or more arguments and returns the smallest/largest one, unchanged (`max(" 5", 10)` is `10`,
+  `max("0x20", 10)` is `0x20`). On ties the earliest argument wins; no arguments give `""`.
+* If every argument looks like a number, they compare as numbers; otherwise all of them compare as strings.
+  "Looks like a number" follows the same strnum rules as comparisons: surrounding blanks are allowed, hex such as
+  `0x20` is 32, and signed `+inf`/`-inf`/`+nan`/`-nan` are numbers, but a bare `inf`, `nan` or `infinity` is a string
+  (so `min("inf", 10, 9)` compares as strings and is `10`).
 
 ### mkbool
 

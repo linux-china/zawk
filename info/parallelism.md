@@ -50,6 +50,12 @@ may print `2.9997e+06` where the serial run prints `2999700`); add `-pr` to
 run them in parallel anyway. `-p0` (or `ZAWK_PARALLEL=0`) turns automatic
 parallelism off.
 
+`for (k in a)` in END visits the keys of an array filled by the workers in an
+order that depends only on the keys: the same from one run to the next, and
+whatever `-j` or `--chunk-size`. It may differ from the order of a serial run
+(AWK leaves the order unspecified); set `PROCINFO["sorted_in"]` (for example
+`"@ind_str_asc"`) or pipe the output to `sort` for a given order.
+
 ## Reading Input In Parallel
 
 Why expand the language in this way in the first place? After all, existing

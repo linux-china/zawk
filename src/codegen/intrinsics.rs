@@ -1049,10 +1049,12 @@ pub(crate) unsafe extern "C" fn next_line_stdin_fused(runtime: *mut c_void) {
         let changed = try_abort_input!(
             runtime,
             with_input!(&mut runtime.input_data, |(line, read_files)| {
-                runtime
-                    .core
-                    .regexes
-                    .get_line_stdin_reuse(&runtime.core.vars.rs, read_files, line)
+                runtime.core.regexes.get_line_stdin_reuse(
+                    &runtime.core.vars.rs,
+                    &runtime.core.vars.filename,
+                    read_files,
+                    line,
+                )
             }),
             "unexpected error when reading line from stdin:"
         );
@@ -1084,10 +1086,11 @@ pub(crate) unsafe extern "C" fn next_line_stdin(runtime: *mut c_void) -> U128 {
         let (changed, res) = try_abort_input!(
             runtime,
             with_input!(&mut runtime.input_data, |(_, read_files)| {
-                runtime
-                    .core
-                    .regexes
-                    .get_line_stdin(&runtime.core.vars.rs, read_files)
+                runtime.core.regexes.get_line_stdin(
+                    &runtime.core.vars.rs,
+                    &runtime.core.vars.filename,
+                    read_files,
+                )
             }),
             "unexpected error when reading line from stdin:"
         );

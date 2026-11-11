@@ -13,6 +13,7 @@ use crossbeam_channel::bounded;
 use rand::{self, RngExt, SeedableRng, rngs::StdRng};
 
 use crate::builtins;
+use std::hash::BuildHasher;
 use std::mem;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -47,6 +48,9 @@ pub(crate) struct Core<'a> {
     /// holds last: a thread may get only the end of a file and no record of it. [`Core::combine`] keeps the
     /// counters of the last file, so END sees the values of a serial run.
     pub file_version: u32,
+    /// The arrays of the workers whose results were added with [`Core::combine`], merged by
+    /// [`Core::finish_combine`] once every worker is done.
+    combined: Vec<Slots>,
 }
 
 impl<'a> Drop for Core<'a> {
@@ -114,18 +118,6 @@ impl<'a> Agg for UniqueStr<'a> {
     }
 }
 
-impl<K: std::hash::Hash + Eq, V: Agg + Default> Agg for HashMap<K, V> {
-    fn agg(mut self, other: HashMap<K, V>, base: Option<&HashMap<K, V>>) -> HashMap<K, V> {
-        for (k, v) in other {
-            let base_v = base.and_then(|b| b.get(&k));
-            let entry = self.entry(k).or_default();
-            let v2 = mem::take(entry);
-            *entry = v2.agg(v, base_v);
-        }
-        self
-    }
-}
-
 /// StageResult is a Send subset of Core that can be extracted for inter-stage aggregation in a
 /// parallel script.
 pub(crate) struct StageResult {
@@ -142,30 +134,288 @@ pub(crate) struct StageResult {
 }
 
 impl Slots {
-    /// Add the result of a worker to `self`; `base` holds the slots every worker started with.
-    fn combine(&mut self, mut other: Slots, base: &Slots) {
-        macro_rules! for_each_slot_pair {
-            ($s1:ident, $s2:ident, $body:expr) => {
-                for_each_slot_pair!(
-                    $s1, $s2, $body, int, float, strs, intint, intfloat, intstr, strint, strfloat,
-                    strstr
-                );
-            };
-            ($s1:ident, $s2:ident, $body:expr, $($fld:tt),*) => {$({
-                let $s1 = &mut self.$fld;
-                let $s2 = &mut other.$fld;
-                let base = &base.$fld;
-                $body(base)
-            });*};
-        }
-
-        for_each_slot_pair!(a, b, |base: &Vec<_>| {
-            a.resize_with(std::cmp::max(a.len(), b.len()), Default::default);
-            for (i, (a_elt, b_elt_v)) in a.iter_mut().zip(b.drain(..)).enumerate() {
-                let a_elt_v = mem::take(a_elt);
-                *a_elt = a_elt_v.agg(b_elt_v, base.get(i));
+    /// Add the numbers and strings of a worker to `self`; `base` holds the slots every worker
+    /// started with. The arrays of the worker stay in `other`: they are merged once every worker
+    /// is done (see [`Slots::merge_arrays`]).
+    fn combine_scalars(&mut self, other: &mut Slots, base: &Slots) {
+        fn add<T: Agg + Default>(a: &mut Vec<T>, b: &mut Vec<T>, base: &[T]) {
+            a.resize_with(a.len().max(b.len()), Default::default);
+            for (i, (x, y)) in a.iter_mut().zip(b.drain(..)).enumerate() {
+                *x = mem::take(x).agg(y, base.get(i));
             }
-        });
+        }
+        add(&mut self.int, &mut other.int, &base.int);
+        add(&mut self.float, &mut other.float, &base.float);
+        add(&mut self.strs, &mut other.strs, &base.strs);
+    }
+
+    /// Merge the arrays of `workers` into those of `self` (see [`merge_maps`]).
+    fn merge_arrays(&mut self, mut workers: Vec<Slots>, base: &Slots) {
+        fn merge<K: ArrayKey + Send, V: Agg + Default + Send>(
+            a: &mut Vec<HashMap<K, V>>,
+            others: Vec<Vec<HashMap<K, V>>>,
+            base: &[HashMap<K, V>],
+        ) {
+            let len = others.iter().map(Vec::len).fold(a.len(), usize::max);
+            a.resize_with(len, Default::default);
+            let mut others: Vec<_> = others.into_iter().map(Vec::into_iter).collect();
+            for (i, slot) in a.iter_mut().enumerate() {
+                let maps = others
+                    .iter_mut()
+                    .map(|o| o.next().unwrap_or_default())
+                    .collect();
+                *slot = merge_maps(mem::take(slot), maps, base.get(i));
+            }
+        }
+        macro_rules! merge_fields {
+            ($($f:ident),*) => {$(
+                merge(
+                    &mut self.$f,
+                    workers.iter_mut().map(|w| mem::take(&mut w.$f)).collect(),
+                    &base.$f,
+                );
+            )*};
+        }
+        merge_fields!(intint, intfloat, intstr, strint, strfloat, strstr);
+    }
+}
+
+/// The keys of arrays sent between stages, in a fixed total order (see [`merge_maps`]).
+trait ArrayKey: std::hash::Hash + Eq {
+    fn key_cmp(&self, other: &Self) -> std::cmp::Ordering;
+}
+
+impl ArrayKey for Int {
+    fn key_cmp(&self, other: &Int) -> std::cmp::Ordering {
+        self.cmp(other)
+    }
+}
+
+impl ArrayKey for UniqueStr<'_> {
+    fn key_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
+/// An entry of an array in [`merge_maps`]: its key, value and the hash of the key, and whether
+/// it comes from the main thread (whose values count in full).
+struct Entry<K, V> {
+    hash: u64,
+    key: K,
+    val: V,
+    first: bool,
+}
+
+/// Merge an array of the main thread (`first`, which counts in full) with the same array of the
+/// other workers (`others`, each counted minus `base` as [`Agg`] does), into a table whose layout
+/// depends only on its keys.
+///
+/// The order in which `for (k in a)` visits the keys is the layout of the table, and the layout
+/// depends on the order the keys were inserted in. Merging the workers' tables one into the other
+/// made it depend on which records each worker got, which changes with the scheduling of the
+/// chunks: END printed the keys of the same input in another order from one run to the next.
+/// Here the entries are sorted by the hash of their key (keys with the same hash by the key),
+/// which puts the entries of a key next to each other, to be aggregated (the main thread's
+/// first); the keys are then inserted into a table sized for them, in the order of the slots they
+/// take (`hash & (buckets - 1)`, keys with the same hash by the key). So the same keys give the
+/// same order, whatever `-j`, the chunk size or the scheduling. (It may differ from the order of
+/// a serial run, which follows the order of the records; AWK leaves it unspecified.)
+///
+/// Each sort is done in parts, by the top bits of its sort key, which gives the same order however
+/// many parts there are; large arrays are sorted on several threads, which makes this faster than
+/// merging the tables on one thread was. Inserting in the order of the slots writes the table
+/// front to back, and with the hashes already known.
+fn merge_maps<K: ArrayKey + Send, V: Agg + Default + Send>(
+    first: HashMap<K, V>,
+    others: Vec<HashMap<K, V>>,
+    base: Option<&HashMap<K, V>>,
+) -> HashMap<K, V> {
+    if first.len() < 2 && others.iter().all(HashMap::is_empty) {
+        return first;
+    }
+    let hasher = first.hasher().clone();
+    let base = base.filter(|b| !b.is_empty());
+    let total = first.len() + others.iter().map(HashMap::len).sum::<usize>();
+    // About 8K entries a part, in up to 4096 parts.
+    let part_bits = (total >> 13).checked_ilog2().map_or(0, |b| (b + 1).min(12));
+    let threads = if total >= PARALLEL_MERGE_MIN {
+        std::thread::available_parallelism().map_or(1, |n| n.get().min(16))
+    } else {
+        1
+    };
+    let part = |key: u64| key.checked_shr(64 - part_bits).unwrap_or(0) as usize;
+    // The entries of each map, with their hashes, split by the top bits of the hash.
+    let sources: Vec<(HashMap<K, V>, bool)> = std::iter::once((first, true))
+        .chain(others.into_iter().map(|m| (m, false)))
+        .filter(|(m, _)| !m.is_empty())
+        .collect();
+    let split: Vec<Vec<Vec<Entry<K, V>>>> = par_chunks(sources, threads, |chunk| {
+        chunk
+            .into_iter()
+            .map(|(m, first)| {
+                let mut parts: Vec<Vec<Entry<K, V>>> =
+                    (0..1 << part_bits).map(|_| Vec::new()).collect();
+                for (key, val) in m {
+                    let hash = hasher.hash_one(&key);
+                    parts[part(hash)].push(Entry {
+                        hash,
+                        key,
+                        val,
+                        first,
+                    });
+                }
+                parts
+            })
+            .collect::<Vec<_>>()
+    })
+    .into_iter()
+    .flatten()
+    .collect();
+    // The entries of each part, the main thread's first.
+    let mut parts: Vec<Vec<Vec<Entry<K, V>>>> = (0..1 << part_bits).map(|_| Vec::new()).collect();
+    for source in split {
+        for (p, entries) in source.into_iter().enumerate() {
+            parts[p].push(entries);
+        }
+    }
+    // Each part sorted, with one entry per key. `base` is not shared between threads (strings
+    // are not `Sync`): arrays with values from BEGIN, rare and small, are merged on this thread.
+    let folded: Vec<Vec<Entry<K, V>>> = match base {
+        Some(base) => parts
+            .into_iter()
+            .map(|p| fold_entries(p, Some(base)))
+            .collect(),
+        None => par_chunks(parts, threads, |chunk| {
+            chunk
+                .into_iter()
+                .map(|p| fold_entries(p, None))
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .flatten()
+        .collect(),
+    };
+    // The order of the slots: the low bits of the hash, which pick the slot, rotated to the top.
+    let n = folded.iter().map(Vec::len).sum();
+    let bits = table_buckets(n).trailing_zeros();
+    let slot_key = |e: &Entry<K, V>| e.hash.rotate_right(bits);
+    let scattered: Vec<Vec<Vec<Entry<K, V>>>> = par_chunks(folded, threads, |chunk| {
+        let mut parts: Vec<Vec<Entry<K, V>>> = (0..1 << part_bits).map(|_| Vec::new()).collect();
+        for e in chunk.into_iter().flatten() {
+            parts[part(slot_key(&e))].push(e);
+        }
+        parts
+    });
+    let mut by_slot: Vec<Vec<Vec<Entry<K, V>>>> =
+        (0..1 << part_bits).map(|_| Vec::new()).collect();
+    for chunk in scattered {
+        for (p, entries) in chunk.into_iter().enumerate() {
+            by_slot[p].push(entries);
+        }
+    }
+    let sorted: Vec<Vec<Entry<K, V>>> = par_chunks(by_slot, threads, |chunk| {
+        chunk
+            .into_iter()
+            .map(|p| {
+                let mut entries: Vec<Entry<K, V>> = p.into_iter().flatten().collect();
+                // The keys are distinct: an unstable sort gives one order.
+                entries.sort_unstable_by(|a, b| {
+                    slot_key(a)
+                        .cmp(&slot_key(b))
+                        .then_with(|| a.key.key_cmp(&b.key))
+                });
+                entries
+            })
+            .collect::<Vec<_>>()
+    })
+    .into_iter()
+    .flatten()
+    .collect();
+    let mut out = HashMap::with_capacity_and_hasher(n, hasher);
+    for Entry { hash, key, val, .. } in sorted.into_iter().flatten() {
+        // The keys are distinct and `hash` is what the table's hasher gives for `key`: insert with
+        // it rather than hash the key again (hashing a string is most of the cost of an insert).
+        match out.raw_entry_mut().from_hash(hash, |_| false) {
+            hashbrown::hash_map::RawEntryMut::Vacant(slot) => {
+                slot.insert_hashed_nocheck(hash, key, val);
+            }
+            hashbrown::hash_map::RawEntryMut::Occupied(_) => unreachable!("no key matches"),
+        }
+    }
+    out
+}
+
+/// The number of entries from which [`merge_maps`] sorts on several threads.
+const PARALLEL_MERGE_MIN: usize = 1 << 16;
+
+/// Sort the entries of a part of [`merge_maps`] (given by source, the main thread's first) by
+/// hash and key, and aggregate the entries of each key.
+fn fold_entries<K: ArrayKey, V: Agg + Default>(
+    sources: Vec<Vec<Entry<K, V>>>,
+    base: Option<&HashMap<K, V>>,
+) -> Vec<Entry<K, V>> {
+    let mut entries: Vec<Entry<K, V>> = sources.into_iter().flatten().collect();
+    // Stable: the entries of a key stay in the order of their sources.
+    entries.sort_by(|a, b| a.hash.cmp(&b.hash).then_with(|| a.key.key_cmp(&b.key)));
+    let mut out: Vec<Entry<K, V>> = Vec::with_capacity(entries.len());
+    for e in entries {
+        let base_v = base.and_then(|b| b.get(&e.key));
+        match out.last_mut() {
+            Some(last) if last.hash == e.hash && last.key == e.key => {
+                last.val = mem::take(&mut last.val).agg(e.val, base_v);
+            }
+            _ => {
+                let val = if e.first {
+                    e.val
+                } else {
+                    V::default().agg(e.val, base_v)
+                };
+                out.push(Entry { val, ..e });
+            }
+        }
+    }
+    out
+}
+
+/// `f` applied to `items` split into `threads` runs, each on a thread of its own (or all on this
+/// thread when `threads` is 1); the results in the order of the runs.
+fn par_chunks<T: Send, R: Send>(
+    items: Vec<T>,
+    threads: usize,
+    f: impl Fn(Vec<T>) -> R + Sync,
+) -> Vec<R> {
+    if threads <= 1 || items.len() <= 1 {
+        return vec![f(items)];
+    }
+    let per = items.len().div_ceil(threads);
+    let mut chunks = Vec::with_capacity(threads);
+    let mut items = items.into_iter();
+    loop {
+        let chunk: Vec<T> = items.by_ref().take(per).collect();
+        if chunk.is_empty() {
+            break;
+        }
+        chunks.push(chunk);
+    }
+    let f = &f;
+    std::thread::scope(|s| {
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| s.spawn(move || f(chunk)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    })
+}
+
+/// The number of buckets of a table with room for `n` keys, as `hashbrown` allocates them.
+fn table_buckets(n: usize) -> usize {
+    match n {
+        0..4 => 4,
+        4..8 => 8,
+        _ => n.saturating_mul(8).div_ceil(7).next_power_of_two(),
     }
 }
 
@@ -274,6 +524,7 @@ impl<'a> Core<'a> {
                 exit_code: 0,
                 cancel_signal,
                 file_version: 0,
+                combined: Vec::new(),
             }
         }
     }
@@ -292,6 +543,7 @@ impl<'a> Core<'a> {
             exit_code: 0,
             cancel_signal: Default::default(),
             file_version: 0,
+            combined: Vec::new(),
         }
     }
 
@@ -313,6 +565,19 @@ impl<'a> Core<'a> {
             ),
             rc,
             exit: self.exiting.then_some(self.exit_code),
+        }
+    }
+
+    /// After the results of the workers are combined: `FILENAME` and `FNR` as in a serial run
+    /// when the last input file is empty (see `runtime::input_end_file`). Not after `exit`, which
+    /// stops reading the input.
+    pub fn finish_input(&mut self) {
+        if self.exiting {
+            return;
+        }
+        if let Some(name) = runtime::input_end_file_version(self.file_version, self.vars.fnr) {
+            self.vars.filename = name.upcast();
+            self.vars.fnr = 0;
         }
     }
 
@@ -339,7 +604,9 @@ impl<'a> Core<'a> {
         }: StageResult,
         base: &Slots,
     ) {
-        self.slots.combine(slots, base);
+        let mut slots = slots;
+        self.slots.combine_scalars(&mut slots, base);
+        self.combined.push(slots);
         self.vars.nr = self.vars.nr.agg(nr, None);
         // Files are read in order: `FNR` counts the records of the last file, which several
         // workers may have shared (`-pr`).
@@ -357,6 +624,14 @@ impl<'a> Core<'a> {
             self.exiting = true;
             self.exit_code = code;
         }
+    }
+
+    /// Every worker's result was added with [`Core::combine`]: merge their arrays into those of
+    /// this thread, in an order that does not depend on the scheduling (see [`merge_maps`]).
+    /// `base` is the one passed to `combine`.
+    pub fn finish_combine(&mut self, base: &Slots) {
+        let workers = mem::take(&mut self.combined);
+        self.slots.merge_arrays(workers, base);
     }
 
     pub fn reseed(&mut self, seed: u64) -> u64 /* old seed */ {
@@ -874,6 +1149,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     rc = sub_rc;
                 }
             }
+            self.core.finish_input();
+            self.core.finish_combine(&base_slots);
             Ok(rc)
         });
         self.core.regexes.leave_shared();
@@ -3208,7 +3485,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let (changed, res) = self
                             .core
                             .regexes
-                            .get_line_stdin(&self.core.vars.rs, &mut self.read_files)
+                            .get_line_stdin(
+                                &self.core.vars.rs,
+                                &self.core.vars.filename,
+                                &mut self.read_files,
+                            )
                             .map_err(at!())?;
                         if changed {
                             self.reset_file_vars();
@@ -3222,6 +3503,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             .regexes
                             .get_line_stdin_reuse(
                                 &self.core.vars.rs,
+                                &self.core.vars.filename,
                                 &mut self.read_files,
                                 &mut self.line,
                             )
@@ -3738,5 +4020,67 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         self.maps_str_str.reset();
         self.iters_int.reset();
         self.iters_str.reset();
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    fn map<K: ArrayKey, V>(entries: impl IntoIterator<Item = (K, V)>) -> HashMap<K, V> {
+        entries.into_iter().collect()
+    }
+
+    fn order<K: Clone, V: Clone>(m: &HashMap<K, V>) -> Vec<(K, V)> {
+        m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    #[test]
+    fn sums_count_base_once() {
+        // BEGIN set a[1] = 10: every worker starts from it, the main thread's value counts in
+        // full and each other worker adds what it changed.
+        let base = map([(1, 10), (2, 0)]);
+        let first = map([(1, 13), (2, 1)]);
+        let others = vec![map([(1, 15), (3, 7)]), map([(1, 10), (2, 4), (3, 1)])];
+        let got = merge_maps(first, others, Some(&base));
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[&1], 13 + 5);
+        assert_eq!(got[&2], 1 + 4);
+        assert_eq!(got[&3], 8);
+    }
+
+    #[test]
+    fn strings_keep_a_value_a_worker_set() {
+        let s = |x: &str| UniqueStr::from(Str::from(x.to_string()));
+        let first = map([(s("a"), s("main")), (s("b"), s(""))]);
+        let others = vec![map([(s("b"), s("w1")), (s("c"), s("w1"))])];
+        let got = merge_maps(first, others, None);
+        assert_eq!(got[&s("a")].bytes(), b"main");
+        assert_eq!(got[&s("b")].bytes(), b"w1");
+        assert_eq!(got[&s("c")].bytes(), b"w1");
+    }
+
+    #[test]
+    fn order_depends_only_on_the_keys() {
+        // The same counts shared out between workers in different ways: the merges sort in one
+        // part or several, on one thread or several (`PARALLEL_MERGE_MIN`), and must agree.
+        for n in [10i64, 1000, 50_000, 200_000] {
+            let deal = |workers: usize, stride: usize| {
+                let mut maps: Vec<HashMap<Int, Int>> = (0..workers).map(|_| map([])).collect();
+                for (r, i) in (0..n * 3).enumerate() {
+                    let key = i * 7919 % n;
+                    *maps[(r / stride) % workers].entry(key).or_default() += 1;
+                }
+                let mut maps = maps.into_iter();
+                let first = maps.next().unwrap();
+                merge_maps(first, maps.collect(), None)
+            };
+            let want = order(&deal(1, 1));
+            assert_eq!(want.len() as i64, n);
+            assert!(want.iter().all(|&(_, c)| c == 3));
+            for (workers, stride) in [(2, 1), (3, 17), (8, 64), (5, 1000)] {
+                assert_eq!(order(&deal(workers, stride)), want, "n={n} -j {workers}");
+            }
+        }
     }
 }

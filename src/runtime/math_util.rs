@@ -37,7 +37,10 @@ fn pick(items: &[&str], wanted: Ordering) -> String {
     if items.is_empty() {
         return String::new();
     }
-    let nums: Option<Vec<f64>> = items.iter().map(|item| looks_numeric(item.as_bytes())).collect();
+    let nums: Option<Vec<f64>> = items
+        .iter()
+        .map(|item| looks_numeric(item.as_bytes()))
+        .collect();
     let mut best = 0;
     for i in 1..items.len() {
         let ordering = match &nums {

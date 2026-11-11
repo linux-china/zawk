@@ -504,10 +504,15 @@ where
     fn next_file(&mut self) -> Result<bool> {
         Ok(match self.0.last_mut() {
             Some(e) => {
-                if !e.next_file()? {
+                if e.next_file()? {
+                    true
+                } else if self.0.len() > 1 {
                     self.0.pop();
+                    true
+                } else {
+                    // The last reader stays at its end, so that FILENAME is still its name.
+                    false
                 }
-                true
             }
             None => false,
         })

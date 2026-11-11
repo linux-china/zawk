@@ -162,3 +162,69 @@ fn order_dependent_programs_stay_serial() {
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "9\n");
 }
+
+/// The arrays combined from the workers are visited by `for (k in a)` in an order that depends
+/// only on their keys: the same output (not only the same lines) from one run to the next, and
+/// whatever `-j` and the chunk size, which change how the records are shared out.
+#[test]
+fn combined_arrays_iterate_in_a_fixed_order() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("keys.csv");
+    let mut f = std::fs::File::create(&path).unwrap();
+    for i in 0..20000u64 {
+        writeln!(f, "{},k{},{}", i, i * 7919 % 1500, i % 613).unwrap();
+    }
+    drop(f);
+    let file = path.to_str().unwrap();
+    for prog in [
+        "{ c[$2]++ } END { for (k in c) print k, c[k] }",
+        "{ n[$3] += 1 } END { for (k in n) print k, n[k] }",
+        "{ s[$2] = \"v\" $2 } END { for (k in s) print k, s[k] }",
+    ] {
+        for backend in BACKEND_ARGS {
+            let mut first: Option<Vec<u8>> = None;
+            for (jobs, chunk) in [("2", "64"), ("8", "64"), ("3", "1000"), ("8", "100000")] {
+                for _ in 0..3 {
+                    let out = zawk(
+                        &[],
+                        &[
+                            backend,
+                            "-pr",
+                            "-j",
+                            jobs,
+                            "--chunk-size",
+                            chunk,
+                            "-F,",
+                            prog,
+                            file,
+                        ],
+                    );
+                    assert!(
+                        out.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    match &first {
+                        None => first = Some(out.stdout),
+                        Some(want) => assert!(
+                            *want == out.stdout,
+                            "{} {} -j {} --chunk-size {}: the order of the keys changed",
+                            prog,
+                            backend,
+                            jobs,
+                            chunk
+                        ),
+                    }
+                }
+            }
+            // The same keys as the serial run (in their own order).
+            let serial = zawk(&[], &[backend, "-p0", "-F,", prog, file]);
+            assert_eq!(
+                sorted_lines(first.as_ref().unwrap()),
+                sorted_lines(&serial.stdout),
+                "{}",
+                prog
+            );
+        }
+    }
+}

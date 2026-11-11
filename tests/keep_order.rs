@@ -181,7 +181,12 @@ fn exit_keeps_order_of_what_is_printed() {
         let mut lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.pop(), Some("end"), "{}", backend);
         let nums: Vec<u64> = lines.iter().map(|l| l.parse().unwrap()).collect();
-        assert!(nums.windows(2).all(|w| w[0] < w[1]), "{}: {:?}", backend, nums);
+        assert!(
+            nums.windows(2).all(|w| w[0] < w[1]),
+            "{}: {:?}",
+            backend,
+            nums
+        );
         assert!(!nums.contains(&1700));
     }
 }
@@ -193,7 +198,10 @@ fn keep_order_needs_record_parallelism() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("--keep-order"));
     // Serial runs are ordered anyway.
     assert_eq!(
-        run_ok(&["-p0", "--keep-order", "{ print $2 }"], Some(b"a b\nc d\n")),
+        run_ok(
+            &["-p0", "--keep-order", "{ print $2 }"],
+            Some(b"a b\nc d\n")
+        ),
         "b\nd\n"
     );
 }

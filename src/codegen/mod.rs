@@ -309,6 +309,8 @@ unsafe fn run_stage(
         while let Ok(res) = receiver.recv() {
             rt.core.combine(res, &base_slots);
         }
+        rt.core.finish_input();
+        rt.core.finish_combine(&base_slots);
         runtime::writers::ordered::finish();
         // Cancelled other than by `exit` (a worker failed to write its output): stop now.
         if let (Some(rc), false) = (cancel_signal.get_code(), rt.core.exiting) {

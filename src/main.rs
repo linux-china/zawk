@@ -1891,8 +1891,7 @@ fn real_main() {
             x
         ),
     };
-    if matches.get_flag("keep-order") && matches!(exec_strategy, ExecutionStrategy::ShardPerFile)
-    {
+    if matches.get_flag("keep-order") && matches!(exec_strategy, ExecutionStrategy::ShardPerFile) {
         fail!("--keep-order only works with -pr, not with -pf");
     }
 
@@ -2276,6 +2275,14 @@ fn real_main() {
         }
     });
     runtime::set_multi_file_headers(multi_file_headers);
+    // Text, CSV and TSV files: FILENAME and FNR in END when the last of them is empty.
+    if message_input.is_none()
+        && !database
+        && matches!(input_format.as_deref(), None | Some("csv") | Some("tsv"))
+        && let Some(last) = input_files.last()
+    {
+        runtime::set_last_input_file(last, input_files.len());
+    }
     let check_utf8 = matches.get_flag("utf8");
     let signal = CancelSignal::default();
 

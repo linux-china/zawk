@@ -4791,6 +4791,66 @@ fn parallel_end_sees_fnr_and_filename_of_last_file() {
 }
 
 #[test]
+fn end_sees_filename_of_empty_last_file() {
+    // As in gawk: when the last input file is empty, END sees its name in FILENAME and FNR 0,
+    // with every reader (whitespace, single-byte FS, CSV, regex RS) and in parallel mode. After
+    // `exit`, the input is not read to its end.
+    let tmp = tempdir().unwrap();
+    std::fs::write(tmp.path().join("one.txt"), "a\n").unwrap();
+    std::fs::write(tmp.path().join("two.txt"), "x\ny\n").unwrap();
+    std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
+    let end = "END { print NR, FNR, FILENAME }";
+    let cases: &[(&[&str], &str, &[&str], &str)] = &[
+        (&[], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (&[], end, &["empty.txt"], "0 0 empty.txt\n"),
+        (&[], end, &["empty.txt", "one.txt"], "1 1 one.txt\n"),
+        (&[], end, &["one.txt", "empty.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (&[], end, &["one.txt", "two.txt"], "3 2 two.txt\n"),
+        (
+            &[],
+            "{ print FILENAME, FNR } END { print NR, FNR, FILENAME }",
+            &["one.txt", "empty.txt", "two.txt"],
+            "one.txt 1\ntwo.txt 1\ntwo.txt 2\n3 2 two.txt\n",
+        ),
+        (&["-F,"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (&["-icsv"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (&["-vRS=a+"], end, &["one.txt", "empty.txt"], "2 0 empty.txt\n"),
+        // The regex reader used to clear FILENAME (and FNR) at the end of the input.
+        (&["-vRS=a+"], end, &["one.txt"], "2 2 one.txt\n"),
+        (&["-vRS=a+"], end, &["empty.txt"], "0 0 empty.txt\n"),
+        (&["-pr", "-j4"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (&["-pf", "-j4"], end, &["two.txt", "empty.txt"], "2 0 empty.txt\n"),
+        (&["-pr", "-j4"], end, &["empty.txt"], "0 0 empty.txt\n"),
+        (
+            &[],
+            "{ exit } END { print NR, FNR, FILENAME }",
+            &["one.txt", "empty.txt"],
+            "1 1 one.txt\n",
+        ),
+        (
+            &[],
+            "BEGIN { while ((getline l) > 0) n++; print n, FNR, FILENAME }",
+            &["one.txt", "empty.txt"],
+            "1 0 empty.txt\n",
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (opts, prog, files, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .current_dir(tmp.path())
+                .arg(backend_arg)
+                .args(*opts)
+                .arg(prog)
+                .args(*files)
+                .assert()
+                .success()
+                .stdout(expected.to_string());
+        }
+    }
+}
+
+#[test]
 fn parallel_exit_runs_end() {
     // `exit` in BEGIN or the main loop of a parallel program still runs END, and the program exits
     // with the code of `exit` (or of a later `exit code` in END), as in serial mode.

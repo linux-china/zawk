@@ -655,20 +655,26 @@ impl RegexCache {
     }
 
     // This only gets used if getline is invoked explicitly without an input file argument.
+    /// Reads the next record of the main input. `filename` is the current FILENAME, see
+    /// `FileRead::input_ended`.
     pub(crate) fn get_line_stdin<'a, LR: LineReader>(
         &mut self,
         pat: &Str<'a>,
+        filename: &Str,
         reg: &mut FileRead<LR>,
     ) -> Result<(/* file changed */ bool, Str<'a>)> {
-        let (changed, line) = reg.stdin.read_record(pat, self)?;
-        if reg.stdin.read_state() == 1 {
-            stats::input_record();
+        let (mut changed, line) = reg.stdin.read_record(pat, self)?;
+        match reg.stdin.read_state() {
+            0 => changed |= reg.input_ended(filename),
+            1 => stats::input_record(),
+            _ => {}
         }
         Ok((changed, line.upcast()))
     }
     pub(crate) fn get_line_stdin_reuse<LR: LineReader>(
         &mut self,
         pat: &Str,
+        filename: &Str,
         reg: &mut FileRead<LR>,
         old_line: &mut LR::Line,
     ) -> Result</*file changed */ bool> {
@@ -678,19 +684,24 @@ impl RegexCache {
         let spare = match &mut reg.spare_line {
             Some(spare) => spare,
             None => {
-                let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
-                if reg.stdin.read_state() == 1 {
-                    stats::input_record();
+                let mut changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
+                match reg.stdin.read_state() {
+                    0 => changed |= reg.input_ended(filename),
+                    1 => stats::input_record(),
+                    _ => {}
                 }
                 reg.spare_line = Some(old_line.clone());
                 return Ok(changed);
             }
         };
         mem::swap(old_line, spare);
-        let changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
+        let mut changed = reg.stdin.read_line_reuse(pat, self, old_line)?;
         match reg.stdin.read_state() {
             // End of input: no new record was read.
-            0 => mem::swap(old_line, spare),
+            0 => {
+                mem::swap(old_line, spare);
+                changed |= reg.input_ended(filename);
+            }
             1 => stats::input_record(),
             _ => {}
         }
@@ -1171,6 +1182,11 @@ pub(crate) struct FileRead<LR: LineReader = RegexSplitter<Box<dyn io::Read + Sen
     // The read state of the last `getline < file` (is_file = true) or `cmd | getline`, which
     // the read-error check that follows it takes instead of looking the reader up a second time.
     last_read_state: Option<(/* is_file */ bool, Int)>,
+    // Set once the main input is exhausted before a record of the last input file was read:
+    // that file's name, for `FILENAME` (see `input_end_file`). Never set for the readers of the
+    // workers of a parallel program, which do not see the whole input.
+    end_filename: Option<Str<'static>>,
+    is_worker: bool,
 }
 
 // Set when -H applies to more than one input file, see `FileRead::update_named_columns`.
@@ -1178,6 +1194,40 @@ static MULTI_FILE_HEADERS: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_multi_file_headers(multi: bool) {
     MULTI_FILE_HEADERS.store(multi, Ordering::Relaxed);
+}
+
+// The name and the position (1-based) of the last main input file, see `set_last_input_file`.
+static LAST_INPUT_FILE: std::sync::OnceLock<(String, u32)> = std::sync::OnceLock::new();
+
+/// Records the name (as in `FILENAME`) of the last main input file, and the number of input
+/// files. When the input ends without a record of that file (it is empty), `FILENAME` is that
+/// name and `FNR` is 0 in `END`, as in gawk: the readers skip empty files, so they never report
+/// the switch to it.
+pub(crate) fn set_last_input_file(name: &str, count: usize) {
+    let _ = LAST_INPUT_FILE.set((name.to_string(), count as u32));
+}
+
+/// The `FILENAME` once the main input is exhausted (with `FNR` 0): `None` when `filename` (that
+/// of the last record read) is already the last input file, or no input file was given.
+pub(crate) fn input_end_file(filename: &Str) -> Option<Str<'static>> {
+    let (last, _) = LAST_INPUT_FILE.get()?;
+    if filename.with_bytes(|bs| bs == last.as_bytes()) {
+        return None;
+    }
+    Some(Str::from(last.clone()).unmoor())
+}
+
+/// As `input_end_file`, for a parallel program once the results of its workers are combined:
+/// `version` is the position of the last file a record was read from (see
+/// `LineReader::file_version`) and `fnr` the number of records read from it. The name a worker
+/// reports may already be that of the empty file that follows, so the position decides; a worker
+/// that only saw the end of the input reports position 1 (or more) without a record.
+pub(crate) fn input_end_file_version(version: u32, fnr: Int) -> Option<Str<'static>> {
+    let (last, count) = LAST_INPUT_FILE.get()?;
+    if version >= *count && fnr > 0 {
+        return None;
+    }
+    Some(Str::from(last.clone()).unmoor())
 }
 
 impl<LR: LineReader> FileRead<LR> {
@@ -1201,6 +1251,8 @@ impl<LR: LineReader> FileRead<LR> {
                             backup_used_fields: fields,
                             named_columns_applied: true,
                             last_read_state: None,
+                            end_filename: None,
+                            is_worker: true,
                             stdin,
                         })
                     } else {
@@ -1245,6 +1297,8 @@ impl<LR: LineReader> FileRead<LR> {
             backup_used_fields,
             named_columns_applied: false,
             last_read_state: None,
+            end_filename: None,
+            is_worker: false,
             named_columns: named_columns
                 .map(|cs| cs.into_iter().map(|s| Str::from(s).unmoor()).collect()),
         };
@@ -1307,7 +1361,21 @@ impl<LR: LineReader> FileRead<LR> {
     }
 
     pub(crate) fn stdin_filename(&self) -> Str<'static> {
-        self.stdin.filename()
+        match &self.end_filename {
+            Some(name) => name.clone(),
+            None => self.stdin.filename(),
+        }
+    }
+
+    /// Called when a read of the main input reached its end, with the current FILENAME: whether
+    /// the file changed, because the last input file is empty (see `input_end_file`). The reader
+    /// cannot tell: it may already have taken the name of the empty file without reading a record.
+    fn input_ended(&mut self, filename: &Str) -> bool {
+        if self.is_worker || self.end_filename.is_some() {
+            return false;
+        }
+        self.end_filename = input_end_file(filename);
+        self.end_filename.is_some()
     }
 
     pub(crate) fn stdin_file_version(&self) -> u32 {

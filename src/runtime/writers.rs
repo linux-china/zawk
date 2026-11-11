@@ -2597,7 +2597,10 @@ impl Drop for Request {
                 // We have to have set this as either ok, or an error. (Not checked by reading
                 // the status: once it is set, the client may already have reset it for a new
                 // request in the same guard.)
-                assert!(*reported, "write request dropped without reporting its status");
+                assert!(
+                    *reported,
+                    "write request dropped without reporting its status"
+                );
             }
             Request::Flush(n) | Request::Evict(n) => {
                 assert!(n.1.has_been_notified());

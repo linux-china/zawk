@@ -644,8 +644,31 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
     SharedMap::from(map)
 }
 
+/// Upper bound (in characters) on both the text and the regex of `rparse`: very long inputs make
+/// regex compilation/matching take seconds, and `rparse` is meant for parsing short strings.
+pub(crate) const RPARSE_MAX_LEN: usize = 1024;
+
+fn exceeds_chars(s: &str, max: usize) -> bool {
+    // byte length is an upper bound of the char count, so only count chars when it may exceed
+    s.len() > max && s.chars().count() > max
+}
+
 pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
+    if exceeds_chars(template, RPARSE_MAX_LEN) {
+        stdlib_warning(
+            "rparse",
+            format!("regex longer than {} characters", RPARSE_MAX_LEN),
+        );
+        return map;
+    }
+    if exceeds_chars(text, RPARSE_MAX_LEN) {
+        stdlib_warning(
+            "rparse",
+            format!("text longer than {} characters", RPARSE_MAX_LEN),
+        );
+        return map;
+    }
     let re = match Regex::new(template) {
         Ok(re) => re,
         Err(e) => {
@@ -992,6 +1015,26 @@ mod tests {
             crate::runtime::errno(),
             r#"rparse: invalid regex "([": unclosed character class"#
         );
+    }
+
+    #[test]
+    fn test_rparse_length_limit() {
+        let long = "ab".repeat(70000);
+        crate::runtime::set_errno(String::new());
+        assert_eq!(rparse(&long, "(ab)").len(), 0);
+        assert_eq!(
+            crate::runtime::errno(),
+            "rparse: text longer than 1024 characters"
+        );
+        crate::runtime::set_errno(String::new());
+        assert_eq!(rparse("ab", &long).len(), 0);
+        assert_eq!(
+            crate::runtime::errno(),
+            "rparse: regex longer than 1024 characters"
+        );
+        // exactly at the limit (multi-byte chars count as one) still works
+        let text = "你".repeat(1024);
+        assert_eq!(rparse(&text, "^(你+)$").len(), 1);
     }
 
     #[test]
