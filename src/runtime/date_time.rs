@@ -280,11 +280,18 @@ fn parse_gawk_date_time(text: &str) -> Option<NaiveDateTime> {
         .checked_add_signed(chrono::TimeDelta::try_seconds(seconds)?)
 }
 
-/// ISO 8601 local date time without an offset, e.g. `2021-05-01T01:17:02`, which neither
-/// systemd time nor dateparser accepts: `YYYY-MM-DDTHH:MM[:SS[.fraction]]`.
+/// ISO 8601 local date time without an offset, `YYYY-MM-DD[T ]HH:MM[:SS[.fraction]]`, e.g.
+/// `2021-05-01T01:17:02` or `2021-05-01 01:17:02`. Parsed here rather than by systemd time or
+/// dateparser so that [`local_timestamp`] handles times in a DST gap or overlap, which those
+/// parsers reject.
 fn parse_iso_local_date_time(text: &str) -> Option<NaiveDateTime> {
     let text = text.trim();
-    ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M"]
+    [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M",
+    ]
         .iter()
         .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
 }
@@ -937,8 +944,22 @@ mod tests {
             mktime("2021-05-01T01:17:02", false, MKTIME_LOCAL_TIMEZONE),
             -1
         );
+        // space separated, same as `T`
+        assert_eq!(
+            mktime("2021-05-01 01:17:02", true, MKTIME_LOCAL_TIMEZONE),
+            1619831822
+        );
+        assert_eq!(
+            mktime("2021-05-01 01:17", true, MKTIME_LOCAL_TIMEZONE),
+            1619831820
+        );
+        assert_eq!(
+            mktime("2021-05-01 01:17:02", false, 8),
+            1619831822 - 8 * 3600
+        );
         // explicit offsets still win
         assert_eq!(mktime("2021-05-01T01:17:02Z", false, 8), 1619831822);
+        assert_eq!(mktime("2021-05-01 01:17:02Z", false, 8), 1619831822);
         assert_eq!(
             mktime("2021-05-01T01:17:02+08:00", true, MKTIME_LOCAL_TIMEZONE),
             1619831822 - 8 * 3600

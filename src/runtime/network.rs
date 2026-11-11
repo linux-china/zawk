@@ -385,9 +385,15 @@ static KAFKA_PRODUCERS: LazyLock<Mutex<HashMap<String, Arc<KafkaStringProducer>>
 fn kafka_producer(
     bootstrap_servers: &str,
 ) -> std::result::Result<Arc<KafkaStringProducer>, String> {
-    let mut pool = KAFKA_PRODUCERS.lock().map_err(|e| e.to_string())?;
-    if let Some(producer) = pool.get(bootstrap_servers) {
-        return Ok(producer.clone());
+    // The lock is not held while the producer is created (which may block up to `max.block.ms`),
+    // so that a slow broker does not hold back the publishing of other threads.
+    let cached = KAFKA_PRODUCERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(bootstrap_servers)
+        .cloned();
+    if let Some(producer) = cached {
+        return Ok(producer);
     }
     let props = HashMap::from([
         (
@@ -411,8 +417,13 @@ fn kafka_producer(
         KafkaProducer::new(config, StringSerializer::new(), StringSerializer::new())
             .map_err(|e| e.to_string())
     })?;
-    let producer = Arc::new(producer);
-    pool.insert(bootstrap_servers.to_string(), producer.clone());
+    // another thread may have created one meanwhile: keep the first
+    let producer = KAFKA_PRODUCERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(bootstrap_servers.to_string())
+        .or_insert_with(|| Arc::new(producer))
+        .clone();
     Ok(producer)
 }
 

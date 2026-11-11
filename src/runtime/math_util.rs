@@ -207,19 +207,10 @@ pub(crate) fn map_int_float_min(obj: &IntMap<Float>) -> Float {
         .unwrap_or(0.0)
 }
 
-pub(crate) fn map_int_int_sum(obj: &IntMap<Int>) -> Int {
-    let len = obj.len();
-    return if len == 0 {
-        0
-    } else {
-        let mut total = 0;
-        let items = obj.to_vec();
-        for index in items {
-            let item = obj.get(&index);
-            total = total + item;
-        }
-        total
-    };
+/// The sum of the values of `obj`, or `None` when it leaves the 64-bit range (the caller reports
+/// the same integer overflow error as `+`).
+pub(crate) fn map_int_int_sum(obj: &IntMap<Int>) -> Option<Int> {
+    obj.iter(|it| it.map(|(_, v)| *v).try_fold(0 as Int, Int::checked_add))
 }
 
 pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {

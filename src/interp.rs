@@ -1979,7 +1979,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     MapIntIntSum(dst, arr) => {
                         let arr = self.get(*arr);
-                        let value = runtime::math_util::map_int_int_sum(arr);
+                        let value = match runtime::math_util::map_int_int_sum(arr) {
+                            Some(x) => x,
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG).map_err(at!()),
+                        };
                         let dst = *dst;
                         *self.get_mut(dst) = value;
                     }

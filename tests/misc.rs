@@ -1480,6 +1480,36 @@ fn integer_overflow_halts_before_wrapped_value_is_used() {
 }
 
 #[test]
+fn sum_of_int_array_overflow_is_fatal() {
+    // `_sum` of an int array reports the same integer overflow error as `+` instead of wrapping.
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { a[1] = hex("7fffffffffffffff"); a[2] = 1; print _sum(a) }"#,
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{backend_arg}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{backend_arg}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("integer overflow"),
+            "{backend_arg}: {stderr}"
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { a[1] = hex("7ffffffffffffffe"); a[2] = 1; a[3] = -5; print _sum(a) }"#,
+            ))
+            .assert()
+            .stdout(String::from("9223372036854775802\n"));
+    }
+}
+
+#[test]
 fn float_array_keys() {
     // Floating-point keys are converted to strings, and can be mixed with integer keys.
     for backend_arg in BACKEND_ARGS {
@@ -8066,5 +8096,34 @@ fn join_fields_bad_index_and_empty_record() {
             .assert()
             .success()
             .stdout("[]\n[]|\n");
+    }
+}
+
+#[test]
+fn multibyte_single_char_separator_ignorecase() {
+    // As in gawk, only single-byte FS/RS/split separators skip IGNORECASE; a single multibyte
+    // character goes through the regex engine, so IGNORECASE applies to it.
+    let cases = [
+        (r#"BEGIN { IGNORECASE = 1; print split("AÉBÉC", a, "é") }"#, "", "3\n"),
+        (r#"BEGIN { print split("AÉBéC", a, "é") }"#, "", "2\n"),
+        (r#"BEGIN { IGNORECASE = 1; n = split("AÉBéC", a, "é", s); print n, s[1], s[2] }"#, "", "3 É é\n"),
+        (r#"BEGIN { IGNORECASE = 1; FS = "é" } { print NF }"#, "AÉBéC\n", "3\n"),
+        (r#"BEGIN { FS = "é" } { print NF }"#, "AÉBéC\n", "2\n"),
+        (r#"BEGIN { IGNORECASE = 1; FS = "x" } { print NF }"#, "aXbxc\n", "2\n"),
+        (r#"BEGIN { IGNORECASE = 1; RS = "é" } { print }"#, "aÉbéc", "a\nb\nc\n"),
+        (r#"BEGIN { RS = "é" } { print }"#, "aÉbéc", "aÉb\nc\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for opt in ["-O0", "-O3"] {
+            for (prog, input, expected) in cases {
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .args([*backend_arg, opt, prog])
+                    .write_stdin(input)
+                    .assert()
+                    .success()
+                    .stdout(expected);
+            }
+        }
     }
 }

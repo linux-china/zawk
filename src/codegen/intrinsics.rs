@@ -390,7 +390,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_float_max(map_ty) -> float_ty;
         [ReadOnly] map_int_int_min(map_ty) -> int_ty;
         [ReadOnly] map_int_float_min(map_ty) -> float_ty;
-        [ReadOnly] map_int_int_sum(map_ty) -> int_ty;
+        map_int_int_sum(rt_ty, map_ty) -> int_ty;
         [ReadOnly] map_int_float_sum(map_ty) -> float_ty;
         [ReadOnly] array_stat_int_int(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_int_int(map_ty) -> int_ty;
@@ -3183,12 +3183,19 @@ pub(crate) unsafe extern "C" fn map_int_float_min(arr: *mut c_void) -> Float {
     })
 }
 
-pub(crate) unsafe extern "C" fn map_int_int_sum(arr: *mut c_void) -> Int {
+/// `_sum` of an int array; fails with the integer overflow error of `+` when the sum leaves the
+/// 64-bit range.
+// Under cfg(test) `fail!` panics without using `rt`.
+#[cfg_attr(test, allow(unused_variables))]
+pub(crate) unsafe extern "C" fn map_int_int_sum(rt: *mut c_void, arr: *mut c_void) -> Int {
     guard_panic(stringify!(map_int_int_sum), || {
         let arr = mem::transmute::<*mut c_void, IntMap<Int>>(arr);
         let result = math_util::map_int_int_sum(&arr);
         mem::forget(arr);
-        result
+        match result {
+            Some(x) => x,
+            None => fail!(rt, "{}", runtime::INT_OVERFLOW_MSG),
+        }
     })
 }
 

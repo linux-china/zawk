@@ -177,8 +177,8 @@ impl Default for RegexCache {
     }
 }
 
-/// A regex matching the single character `c` literally. IGNORECASE does not apply to it, as in
-/// gawk.
+/// A regex matching the single ASCII character `c` literally. IGNORECASE does not apply to it,
+/// as in gawk (which only skips IGNORECASE for single-byte separators).
 fn literal_regex(c: &str) -> Result<AwkRegex> {
     match Regex::new(&regex::escape(c)) {
         Ok(r) => Ok(AwkRegex::new(r)),
@@ -186,10 +186,12 @@ fn literal_regex(c: &str) -> Result<AwkRegex> {
     }
 }
 
-/// Whether `pat` is a single character (other than " "), which awk treats literally when used
-/// as a field separator, in FS and in split().
+/// Whether `pat` is a single ASCII character (other than " "), which awk treats literally (and
+/// case-sensitively) when used as a field separator, in FS and in split(). A single multibyte
+/// character is not: like gawk, it goes through the regex engine so that IGNORECASE applies
+/// (it is never a regex metacharacter, so it still matches itself).
 fn is_literal_separator(pat: &Str) -> bool {
-    pat.with_bytes(|bs| bs != b" " && std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1))
+    pat.with_bytes(|bs| matches!(bs, [b] if *b != b' ' && b.is_ascii()))
 }
 
 /// The blanks that separate fields under the default FS (`" "`). This is the same set the
@@ -498,15 +500,15 @@ impl RegexCache {
         self.sync();
         res
     }
-    /// Runs `f` with the regex that separates records for `rs`: a single-character `RS` is
-    /// matched literally, as in POSIX awk and gawk; longer values are regexes.
+    /// Runs `f` with the regex that separates records for `rs`: a single ASCII character `RS` is
+    /// matched literally (ignoring IGNORECASE), as in POSIX awk and gawk; longer values, and a
+    /// single multibyte character (so that IGNORECASE applies to it, as in gawk), are regexes.
     pub(crate) fn with_record_separator<T>(
         &mut self,
         rs: &Str,
         mut f: impl FnMut(&AwkRegex) -> T,
     ) -> Result<T> {
-        let single_char =
-            rs.with_bytes(|bs| std::str::from_utf8(bs).is_ok_and(|s| s.chars().count() == 1));
+        let single_char = rs.with_bytes(|bs| matches!(bs, [b] if b.is_ascii()));
         if single_char {
             self.sync();
             self.1.get(rs, literal_regex, |x| f(x))
