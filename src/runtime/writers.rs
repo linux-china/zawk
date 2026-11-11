@@ -2605,7 +2605,9 @@ impl Drop for Request {
             Request::Flush(n) | Request::Evict(n) => {
                 assert!(n.1.has_been_notified());
             }
-            Request::Close | Request::Owned(_) => {}
+            // Only `--keep-order` sends owned data: its buffer is filled again by a worker.
+            Request::Owned(data) => ordered::recycle(std::mem::take(data)),
+            Request::Close => {}
         }
     }
 }
@@ -3001,6 +3003,45 @@ pub mod ordered {
     /// waits, so the run always makes progress.
     const MAX_HELD: usize = 64 << 20;
 
+    /// The output of a chunk is kept in blocks of `BLOCK` bytes, which the writer thread hands
+    /// back (`recycle`) for the workers to fill again. A buffer per chunk, grown by doubling in a
+    /// worker and freed by the writer thread, left jemalloc with freed pages of every size class
+    /// in every arena: the resident size reached 2-3 times the live output (about 250 MB instead
+    /// of 75 MB without `--keep-order` for 340 MB of output). Blocks of one size are reused as
+    /// they are, without copying when the output of a chunk grows.
+    const BLOCK: usize = BUFFER_SIZE;
+    /// At most this many spent blocks are kept (32 MiB); more are freed.
+    const POOL_BLOCKS: usize = 512;
+
+    static POOL: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+    /// An empty block: a spent one if there is one.
+    fn block() -> Vec<u8> {
+        POOL.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(BLOCK))
+    }
+
+    /// Hand back a block whose bytes are written (or not needed).
+    pub(super) fn recycle(mut buf: Vec<u8>) {
+        if buf.capacity() != BLOCK {
+            return;
+        }
+        buf.clear();
+        let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
+        if pool.len() < POOL_BLOCKS {
+            pool.push(buf);
+        }
+    }
+
+    /// The output of a chunk, in blocks.
+    type Blocks = Vec<Vec<u8>>;
+
+    fn size(blocks: &Blocks) -> usize {
+        blocks.iter().map(Vec::len).sum()
+    }
+
     /// Set by `--keep-order`.
     pub(super) static KEEP_ORDER: AtomicBool = AtomicBool::new(false);
 
@@ -3031,7 +3072,7 @@ pub mod ordered {
         /// The chunk whose output is to be written next.
         next: u64,
         /// The sealed output of chunks after `next`.
-        done: BTreeMap<u64, Vec<u8>>,
+        done: BTreeMap<u64, Blocks>,
         /// The total size of `done`.
         held: usize,
         /// Set by `finish`: output sealed afterwards (by a worker stopped late) is written at once.
@@ -3041,6 +3082,7 @@ pub mod ordered {
     impl Reorder {
         fn send(&self, data: Vec<u8>) {
             if data.is_empty() || self.failed.load(Ordering::Relaxed) {
+                recycle(data);
                 return;
             }
             let failed = self.out.writer.send(Request::Owned(data)).is_err()
@@ -3050,23 +3092,29 @@ pub mod ordered {
             }
         }
 
-        fn seal(&self, seq: u64, data: Vec<u8>) {
+        fn send_all(&self, data: Blocks) {
+            for block in data {
+                self.send(block);
+            }
+        }
+
+        fn seal(&self, seq: u64, data: Blocks) {
             let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let st = &mut *guard;
             if st.finished {
-                self.send(data);
+                self.send_all(data);
                 return;
             }
             if seq != st.next {
-                st.held += data.len();
+                st.held += size(&data);
                 st.done.insert(seq, data);
                 return;
             }
-            self.send(data);
+            self.send_all(data);
             st.next += 1;
             while let Some(data) = st.done.remove(&st.next) {
-                st.held -= data.len();
-                self.send(data);
+                st.held -= size(&data);
+                self.send_all(data);
                 st.next += 1;
             }
             self.head.store(st.next, Ordering::Release);
@@ -3091,16 +3139,13 @@ pub mod ordered {
             }
         }
 
-        /// Send `data` now if `seq` is the chunk to write next (taking it), otherwise leave it.
-        fn send_if_head(&self, seq: u64, data: &mut Vec<u8>) {
+        /// Whether chunk `seq` is the one to write next, so that its output can be sent now.
+        fn is_head(&self, seq: u64) -> bool {
             if self.head.load(Ordering::Acquire) != seq {
-                return;
+                return false;
             }
             let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            if st.next == seq || st.finished {
-                let cap = data.capacity();
-                self.send(mem::replace(data, Vec::with_capacity(cap)));
-            }
+            st.next == seq || st.finished
         }
 
         fn error(&self) -> CompileError {
@@ -3120,19 +3165,49 @@ pub mod ordered {
         order: Arc<Reorder>,
         /// The chunk being processed; `None` before the first one.
         seq: Option<u64>,
+        /// The full blocks of the chunk's output.
+        full: Blocks,
+        /// The block being filled (no capacity until the first byte).
         buf: Vec<u8>,
     }
 
     impl Worker {
+        fn push(&mut self, mut bs: &[u8]) {
+            while !bs.is_empty() {
+                if self.buf.capacity() == 0 {
+                    self.buf = block();
+                }
+                let n = (self.buf.capacity() - self.buf.len()).min(bs.len());
+                self.buf.extend_from_slice(&bs[..n]);
+                bs = &bs[n..];
+                if self.buf.len() == self.buf.capacity() {
+                    self.full.push(mem::take(&mut self.buf));
+                }
+            }
+        }
+
+        /// The output so far, leaving the worker with none.
+        fn take(&mut self) -> Blocks {
+            let mut data = mem::take(&mut self.full);
+            if !self.buf.is_empty() {
+                data.push(mem::take(&mut self.buf));
+            }
+            data
+        }
+
         fn seal(&mut self, next: Option<u64>) {
-            let cap = self.buf.len().min(BUFFER_SIZE);
-            let data = mem::replace(&mut self.buf, Vec::with_capacity(cap));
             match self.seq {
-                Some(seq) => self.order.seal(seq, data),
+                Some(seq) => {
+                    let data = self.take();
+                    self.order.seal(seq, data)
+                }
                 // Printed before the first chunk: it goes with that chunk.
-                None if next.is_some() => self.buf = data,
+                None if next.is_some() => {}
                 // A worker that got no chunk at all printed nothing.
-                None => self.order.send(data),
+                None => {
+                    let data = self.take();
+                    self.order.send_all(data)
+                }
             }
             self.seq = next;
             if let Some(seq) = next {
@@ -3182,6 +3257,7 @@ pub mod ordered {
             *w.borrow_mut() = Some(Worker {
                 order,
                 seq: None,
+                full: Vec::new(),
                 buf: Vec::new(),
             })
         });
@@ -3217,7 +3293,7 @@ pub mod ordered {
         if let Some(order) = order {
             let mut st = order.state.lock().unwrap_or_else(|e| e.into_inner());
             for (_, data) in mem::take(&mut st.done) {
-                order.send(data);
+                order.send_all(data);
             }
             st.held = 0;
             st.finished = true;
@@ -3233,10 +3309,14 @@ pub mod ordered {
             if w.order.failed.load(Ordering::Acquire) {
                 return Some(Err(w.order.error()));
             }
-            ss.for_each_chunk(|bs| w.buf.extend_from_slice(bs));
-            if w.buf.len() >= BUFFER_SIZE {
+            ss.for_each_chunk(|bs| w.push(bs));
+            // The chunk to write next streams its full blocks instead of holding them.
+            if !w.full.is_empty() {
                 if let Some(seq) = w.seq {
-                    w.order.send_if_head(seq, &mut w.buf);
+                    if w.order.is_head(seq) {
+                        let full = mem::take(&mut w.full);
+                        w.order.send_all(full);
+                    }
                 }
             }
             Some(Ok(()))
