@@ -1370,6 +1370,9 @@ datetime text format:
 date/time array:
 
 - year: 2024
+- quarter： 1-4
+- week: ISO 8601 week number
+- isoyear: ISO 8601 week year number
 - month: 1, 2
 - monthday: 24
 - hour: 0-23
