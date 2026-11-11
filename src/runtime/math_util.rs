@@ -30,13 +30,14 @@ pub fn max(items: &[&str]) -> String {
     pick(items, Ordering::Greater)
 }
 
-/// Pick the min/max item: compare as numbers if all items are numeric, otherwise as strings.
-/// On ties the earliest item wins; no items give "".
+/// Pick the min/max item: compare as numbers if all items look numeric (by the same strnum rules
+/// as comparisons: surrounding blanks allowed, hex such as `0x20`, but not a bare `inf`/`nan`),
+/// otherwise as strings. On ties the earliest item wins; no items give "".
 fn pick(items: &[&str], wanted: Ordering) -> String {
     if items.is_empty() {
         return String::new();
     }
-    let nums: Option<Vec<f64>> = items.iter().map(|item| item.parse::<f64>().ok()).collect();
+    let nums: Option<Vec<f64>> = items.iter().map(|item| looks_numeric(item.as_bytes())).collect();
     let mut best = 0;
     for i in 1..items.len() {
         let ordering = match &nums {
@@ -813,6 +814,12 @@ mod tests {
         assert_eq!(min(&["4", "2", "8", "1", "5"]), "1");
         assert_eq!(max(&["4", "2", "8", "1", "5"]), "8");
         assert_eq!(max(&["7"]), "7");
+        // strnum rules: blanks, hex, signed inf/nan; a bare inf/nan is a string
+        assert_eq!(max(&[" 5", "10"]), "10");
+        assert_eq!(max(&["5", "10", "0x20"]), "0x20");
+        assert_eq!(min(&["inf", "10", "9"]), "10");
+        assert_eq!(max(&["+inf", "5"]), "+inf");
+        assert_eq!(min(&["-inf", "5"]), "-inf");
         assert_eq!(min(&[]), "");
         // ties keep the earliest item
         assert_eq!(min(&["1.0", "1"]), "1.0");
