@@ -6,11 +6,14 @@
 //! (rather than a reader type of its own) keeps the binary small, as the interpreter and the
 //! compiled runtime are generic over the reader type.
 //!
-//! Rows are read with the record API of the `parquet` crate (without Arrow, also to keep the
-//! binary small). Value mapping, following `-i jsonl`: numbers (decimals exactly), strings,
-//! dates, times and timestamps (UTC) are plain text, booleans are `1`/`0`, null is empty (or the
-//! `--null` text), binary values are hex, and nested values (LIST, MAP, STRUCT) and JSON columns
-//! are JSON text.
+//! Columns are decoded a batch of rows at a time with the column readers of the `parquet` crate
+//! (without Arrow, also to keep the binary small): top-level primitive columns are written to
+//! the JSON text straight from the decoded values, nested columns (LIST, MAP, STRUCT) go through
+//! the record API. Row groups are decoded in parallel on background threads, and their rows are
+//! passed on in file order. Value mapping, following `-i jsonl`: numbers (decimals exactly),
+//! strings, dates, times and timestamps (UTC) are plain text, booleans are `1`/`0`, null is empty
+//! (or the `--null` text), binary values are hex, and nested values (LIST, MAP, STRUCT) and JSON
+//! columns are JSON text.
 //!
 //! Parquet keeps its metadata at the end of the file, so standard input and S3 objects
 //! (`s3://bucket/key`) are read into memory.
@@ -21,19 +24,28 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Read};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use ::parquet::basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType};
 use ::parquet::bloom_filter::Sbbf;
 use ::parquet::column::page::PageReader;
-use ::parquet::data_type::Decimal;
+use ::parquet::column::reader::{ColumnReader, ColumnReaderImpl};
+use ::parquet::data_type::{
+    BoolType, ByteArray, ByteArrayType, Decimal, DoubleType, FixedLenByteArray,
+    FixedLenByteArrayType, FloatType, Int32Type, Int64Type, Int96, Int96Type,
+};
+use ::parquet::errors::ParquetError;
 use ::parquet::file::metadata::{
     ColumnChunkMetaData, FileMetaData, ParquetMetaData, RowGroupMetaData,
 };
-use ::parquet::file::reader::{FileReader, RowGroupReader, SerializedFileReader};
+use ::parquet::file::reader::{
+    ChunkReader, FileReader, Length, RowGroupReader, SerializedFileReader,
+};
 use ::parquet::record::Field;
 use ::parquet::record::reader::RowIter;
-use ::parquet::schema::types::{SchemaDescriptor, Type, TypePtr};
+use ::parquet::schema::types::{ColumnDescPtr, SchemaDescriptor, Type, TypePtr};
 use bytes::Bytes;
 
 use crate::inspect::Cell;
@@ -142,13 +154,14 @@ enum Source {
 /// The rows of a Parquet file (or of standard input) as JSON Lines.
 pub struct ParquetJson {
     source: Source,
-    rows: Option<Rows>,
+    stream: Option<Stream>,
     buf: Vec<u8>,
     pos: usize,
     done: bool,
     projection: Option<Arc<Projection>>,
 }
 
+/// The rows of `-i parquet` for `zawk inspect`, read with the record API.
 struct Rows {
     iter: RowIter<'static>,
     columns: Vec<TypePtr>,
@@ -168,7 +181,7 @@ impl ParquetJson {
     fn new(source: Source) -> ParquetJson {
         ParquetJson {
             source,
-            rows: None,
+            stream: None,
             buf: Vec::new(),
             pos: 0,
             done: false,
@@ -237,7 +250,8 @@ impl ParquetJson {
         io::Error::other(format!("cannot read parquet file `{}': {}", self.name(), e))
     }
 
-    fn open(&self) -> io::Result<Rows> {
+    /// The reader of the file, and its top-level column names (made unique).
+    fn open_reader(&self) -> io::Result<(Box<dyn FileReader>, Vec<String>)> {
         let mut reader: Box<dyn FileReader> = match &self.source {
             Source::File(path) if crate::runtime::s3::is_s3_url(path) => {
                 // Parquet needs random access: read the whole object into memory.
@@ -250,7 +264,7 @@ impl ParquetJson {
                 Box::new(SerializedFileReader::new(data).map_err(|e| self.error(e))?)
             }
             Source::File(path) => {
-                let file = File::open(path).map_err(|e| self.error(e))?;
+                let file = PosFile::open(path).map_err(|e| self.error(e))?;
                 Box::new(SerializedFileReader::new(file).map_err(|e| self.error(e))?)
             }
             Source::Stdin => {
@@ -268,6 +282,12 @@ impl ParquetJson {
         if fields.iter().zip(&names).any(|(f, name)| f.name() != name) {
             reader = Box::new(RenamedReader::new(reader, &names).map_err(|e| self.error(e))?);
         }
+        Ok((reader, names))
+    }
+
+    /// The top-level columns of the file, their formats, and which of them cannot be read (with
+    /// a warning for each).
+    fn layout(&self, reader: &dyn FileReader) -> (Vec<TypePtr>, Vec<Format>, Vec<bool>) {
         let root = reader.metadata().file_metadata().schema_descr_ptr();
         let columns: Vec<TypePtr> = root.root_schema().get_fields().to_vec();
         let formats = columns.iter().map(|c| column_format(c)).collect();
@@ -284,30 +304,16 @@ impl ParquetJson {
                 );
             }
         }
-        // Skip the unsupported columns (the record API panics on them) and the columns that the
-        // program does not read.
-        let mut skipped = unsupported;
-        let selected = match &self.projection {
-            // An empty file has no first record: positions refer to the next file.
-            Some(p) if reader.metadata().file_metadata().num_rows() > 0 => p.select(&names),
-            _ => None,
-        };
-        if let Some(selected) = selected {
-            for (skip, read) in skipped.iter_mut().zip(&selected) {
-                *skip |= !read;
-            }
-            // Rows are counted by reading a column: keep one, a primitive one if possible.
-            if skipped.iter().all(|skip| *skip) {
-                let readable = |i: &usize| supported(&columns[*i]);
-                let keep = (0..columns.len())
-                    .filter(readable)
-                    .find(|i| columns[*i].is_primitive())
-                    .or_else(|| (0..columns.len()).find(readable));
-                if let Some(i) = keep {
-                    skipped[i] = false;
-                }
-            }
-        }
+        (columns, formats, unsupported)
+    }
+
+    /// The rows of the file, for `zawk inspect` (all columns, with the record API).
+    fn open(&self) -> io::Result<Rows> {
+        let (reader, _) = self.open_reader()?;
+        let root = reader.metadata().file_metadata().schema_descr_ptr();
+        let (columns, formats, unsupported) = self.layout(&*reader);
+        // Skip the unsupported columns (the record API panics on them).
+        let skipped = unsupported;
         let projection = if skipped.iter().any(|skip| *skip) {
             let fields: Vec<TypePtr> = columns
                 .iter()
@@ -334,50 +340,517 @@ impl ParquetJson {
         })
     }
 
-    /// Append the next rows (about 64KB) to the buffer as JSON Lines.
-    fn fill(&mut self) -> io::Result<()> {
-        if self.rows.is_none() {
-            self.rows = Some(self.open()?);
+    /// How each top-level column is decoded, from the schema and the projection.
+    fn decoder(&self) -> io::Result<Decoder> {
+        let (reader, names) = self.open_reader()?;
+        let (columns, formats, unsupported) = self.layout(&*reader);
+        let selected = match &self.projection {
+            // An empty file has no first record: positions refer to the next file.
+            Some(p) if reader.metadata().file_metadata().num_rows() > 0 => p.select(&names),
+            _ => None,
+        };
+        let descr = reader.metadata().file_metadata().schema_descr_ptr();
+        // The leaf column of each top-level primitive column.
+        let mut leaf_of = vec![None; columns.len()];
+        for leaf in 0..descr.num_columns() {
+            leaf_of[descr.get_column_root_idx(leaf)] = Some(leaf);
         }
-        self.buf.clear();
-        self.pos = 0;
-        let mut line = String::new();
-        while self.buf.len() < 64 << 10 {
-            let rows = self.rows.as_mut().unwrap();
-            let row = match rows.iter.next() {
-                Some(Ok(row)) => row,
-                Some(Err(e)) => return Err(self.error(e)),
-                None => {
-                    self.done = true;
-                    break;
+        let mut record_fields = Vec::new();
+        let mut plans = Vec::with_capacity(columns.len());
+        for (i, column) in columns.iter().enumerate() {
+            let read = selected.as_ref().is_none_or(|s| s[i]);
+            let plan = if unsupported[i] || !read {
+                // Unsupported columns (the record API panics on them) and the columns that the
+                // program does not read are null.
+                Plan::Skip
+            } else if column.is_primitive()
+                && let Some(leaf) = leaf_of[i]
+                && descr.column(leaf).max_rep_level() == 0
+            {
+                Plan::Leaf(leaf)
+            } else {
+                record_fields.push(column.clone());
+                Plan::Record
+            };
+            plans.push(plan);
+        }
+        let record = if record_fields.is_empty() {
+            None
+        } else {
+            let projection = Type::group_type_builder(descr.root_schema().name())
+                .with_fields(record_fields)
+                .build()
+                .map_err(|e| self.error(e))?;
+            Some(projection)
+        };
+        let keys = columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mut key = String::from(if i == 0 { "{" } else { "," });
+                push_json_str(&mut key, c.name());
+                key.push(':');
+                key
+            })
+            .collect();
+        Ok(Decoder {
+            reader,
+            formats,
+            plans,
+            keys,
+            record,
+        })
+    }
+
+    /// Start decoding the row groups on background threads.
+    fn start(&self) -> io::Result<Stream> {
+        let decoder = Arc::new(self.decoder()?);
+        let row_groups = decoder.reader.num_row_groups();
+        let mut senders = Vec::with_capacity(row_groups);
+        let mut receivers = Vec::with_capacity(row_groups);
+        for _ in 0..row_groups {
+            // A worker runs at most this many batches ahead of the reader in its row group.
+            let (tx, rx) = sync_channel(2);
+            senders.push(Some(tx));
+            receivers.push(rx);
+        }
+        let senders = Arc::new(Mutex::new(senders));
+        let next = Arc::new(AtomicUsize::new(0));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(row_groups);
+        for _ in 0..threads {
+            let (decoder, senders, next, cancel) =
+                (decoder.clone(), senders.clone(), next.clone(), cancel.clone());
+            let name = self.name().to_string();
+            let worker = move || {
+                // Row groups are taken in order, so the one the reader waits for is always being
+                // decoded (or done): the bounded channels cannot deadlock.
+                loop {
+                    let rg = next.fetch_add(1, Ordering::Relaxed);
+                    if rg >= row_groups || cancel.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let tx: SyncSender<io::Result<Vec<u8>>> =
+                        senders.lock().unwrap()[rg].take().unwrap();
+                    let mut emit = |buf: Vec<u8>| {
+                        !cancel.load(Ordering::Relaxed) && tx.send(Ok(buf)).is_ok()
+                    };
+                    if let Err(e) = decoder.decode(rg, &mut emit) {
+                        let msg = format!("cannot read parquet file `{}': {}", name, e);
+                        let _ = tx.send(Err(io::Error::other(msg)));
+                    }
                 }
             };
-            line.clear();
-            line.push('{');
-            let mut values = row.get_column_iter();
-            for (i, column) in rows.columns.iter().enumerate() {
-                if i > 0 {
-                    line.push(',');
+            std::thread::Builder::new()
+                .name("zawk-parquet".to_string())
+                .spawn(worker)?;
+        }
+        Ok(Stream {
+            receivers,
+            current: 0,
+            cancel,
+        })
+    }
+
+    /// Fill the buffer with the next batch of rows as JSON Lines.
+    fn fill(&mut self) -> io::Result<()> {
+        if self.stream.is_none() {
+            self.stream = Some(self.start()?);
+        }
+        let stream = self.stream.as_mut().unwrap();
+        self.pos = 0;
+        while let Some(rx) = stream.receivers.get(stream.current) {
+            match rx.recv() {
+                Ok(Ok(buf)) => {
+                    self.buf = buf;
+                    return Ok(());
                 }
-                push_json_str(&mut line, column.name());
-                line.push(':');
-                if rows.skipped[i] {
-                    line.push_str("null");
-                    continue;
-                }
-                match values.next() {
-                    Some((_, field)) => {
-                        let (text, kind) = field_text(field, rows.formats[i]);
-                        push_json(&mut line, &text, kind);
-                    }
-                    None => line.push_str("null"),
-                }
+                Ok(Err(e)) => return Err(e),
+                // The row group is done.
+                Err(_) => stream.current += 1,
             }
-            line.push_str("}\n");
-            self.buf.extend_from_slice(line.as_bytes());
+        }
+        self.buf.clear();
+        self.done = true;
+        Ok(())
+    }
+}
+
+/// The batches of JSON Lines of the row groups, decoded on background threads; a receiver for
+/// each row group, read in order.
+struct Stream {
+    receivers: Vec<Receiver<io::Result<Vec<u8>>>>,
+    current: usize,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // The rest of the input is not read (`exit`): stop the workers.
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+/// How a top-level column is decoded.
+enum Plan {
+    /// Not read: written as null.
+    Skip,
+    /// A primitive column, decoded with the column reader of this leaf column.
+    Leaf(usize),
+    /// A nested column, decoded with the record API.
+    Record,
+}
+
+/// The rows of row groups as JSON Lines.
+struct Decoder {
+    reader: Box<dyn FileReader>,
+    formats: Vec<Format>,
+    plans: Vec<Plan>,
+    // The JSON text before the value of each column: `{"name":` or `,"name":`.
+    keys: Vec<String>,
+    // The nested columns that are read, for the record API.
+    record: Option<Type>,
+}
+
+/// The rows decoded at a time.
+const BATCH_ROWS: usize = 4096;
+
+impl Decoder {
+    /// Decode row group `rg`, passing each batch of rows to `emit`, until `emit` returns false.
+    fn decode(
+        &self,
+        rg: usize,
+        emit: &mut dyn FnMut(Vec<u8>) -> bool,
+    ) -> ::parquet::errors::Result<()> {
+        let group = self.reader.get_row_group(rg)?;
+        let mut left = usize::try_from(group.metadata().num_rows()).unwrap_or(0);
+        let mut leaves = Vec::with_capacity(self.plans.len());
+        for plan in &self.plans {
+            leaves.push(match plan {
+                Plan::Leaf(i) => {
+                    let descr = group.metadata().schema_descr().column(*i);
+                    Some(Leaf::new(group.get_column_reader(*i)?, descr))
+                }
+                _ => None,
+            });
+        }
+        let mut records = match &self.record {
+            Some(projection) => Some(RowIter::from_row_group(Some(projection.clone()), &*group)?),
+            None => None,
+        };
+        let mut capacity = 0;
+        while left > 0 {
+            let n = left.min(BATCH_ROWS);
+            for leaf in leaves.iter_mut().flatten() {
+                leaf.fill(n)?;
+            }
+            let mut out = String::with_capacity(capacity);
+            for _ in 0..n {
+                let row = match records.as_mut() {
+                    Some(rows) => match rows.next() {
+                        Some(row) => Some(row?),
+                        None => return Err(ParquetError::General("missing rows".to_string())),
+                    },
+                    None => None,
+                };
+                let mut fields = row.as_ref().map(|row| row.get_column_iter());
+                for (i, plan) in self.plans.iter().enumerate() {
+                    out.push_str(&self.keys[i]);
+                    match plan {
+                        Plan::Skip => out.push_str("null"),
+                        Plan::Leaf(_) => {
+                            let leaf = leaves[i].as_mut().unwrap();
+                            leaf.push_next(&mut out, self.formats[i])?;
+                        }
+                        Plan::Record => match fields.as_mut().and_then(|f| f.next()) {
+                            Some((_, field)) => {
+                                let (text, kind) = field_text(field, self.formats[i]);
+                                push_json(&mut out, &text, kind);
+                            }
+                            None => out.push_str("null"),
+                        },
+                    }
+                }
+                if self.plans.is_empty() {
+                    out.push('{');
+                }
+                out.push_str("}\n");
+            }
+            left -= n;
+            capacity = capacity.max(out.len());
+            if !emit(out.into_bytes()) {
+                break;
+            }
         }
         Ok(())
     }
+}
+
+/// The decoded values of a batch of rows of a primitive column.
+enum Values {
+    Bool(ColumnReaderImpl<BoolType>, Vec<bool>),
+    Int32(ColumnReaderImpl<Int32Type>, Vec<i32>),
+    Int64(ColumnReaderImpl<Int64Type>, Vec<i64>),
+    Int96(ColumnReaderImpl<Int96Type>, Vec<Int96>),
+    Float(ColumnReaderImpl<FloatType>, Vec<f32>),
+    Double(ColumnReaderImpl<DoubleType>, Vec<f64>),
+    Bytes(ColumnReaderImpl<ByteArrayType>, Vec<ByteArray>),
+    Fixed(ColumnReaderImpl<FixedLenByteArrayType>, Vec<FixedLenByteArray>),
+}
+
+/// A primitive top-level column of a row group, read a batch of rows at a time.
+struct Leaf {
+    descr: ColumnDescPtr,
+    converted: ConvertedType,
+    max_def: i16,
+    // The definition levels of the batch (when the column is optional), and the next one.
+    defs: Vec<i16>,
+    def_pos: usize,
+    // The non-null values of the batch, and the next one.
+    values: Values,
+    pos: usize,
+}
+
+impl Leaf {
+    fn new(reader: ColumnReader, descr: ColumnDescPtr) -> Leaf {
+        let values = match reader {
+            ColumnReader::BoolColumnReader(r) => Values::Bool(r, Vec::new()),
+            ColumnReader::Int32ColumnReader(r) => Values::Int32(r, Vec::new()),
+            ColumnReader::Int64ColumnReader(r) => Values::Int64(r, Vec::new()),
+            ColumnReader::Int96ColumnReader(r) => Values::Int96(r, Vec::new()),
+            ColumnReader::FloatColumnReader(r) => Values::Float(r, Vec::new()),
+            ColumnReader::DoubleColumnReader(r) => Values::Double(r, Vec::new()),
+            ColumnReader::ByteArrayColumnReader(r) => Values::Bytes(r, Vec::new()),
+            ColumnReader::FixedLenByteArrayColumnReader(r) => Values::Fixed(r, Vec::new()),
+        };
+        Leaf {
+            converted: descr.converted_type(),
+            max_def: descr.max_def_level(),
+            descr,
+            defs: Vec::new(),
+            def_pos: 0,
+            values,
+            pos: 0,
+        }
+    }
+
+    /// Decode the next `n` rows.
+    fn fill(&mut self, n: usize) -> ::parquet::errors::Result<()> {
+        self.defs.clear();
+        self.def_pos = 0;
+        self.pos = 0;
+        let defs = if self.max_def > 0 {
+            Some(&mut self.defs)
+        } else {
+            None
+        };
+        let read = match &mut self.values {
+            Values::Bool(r, v) => read_rows(r, n, defs, v),
+            Values::Int32(r, v) => read_rows(r, n, defs, v),
+            Values::Int64(r, v) => read_rows(r, n, defs, v),
+            Values::Int96(r, v) => read_rows(r, n, defs, v),
+            Values::Float(r, v) => read_rows(r, n, defs, v),
+            Values::Double(r, v) => read_rows(r, n, defs, v),
+            Values::Bytes(r, v) => read_rows(r, n, defs, v),
+            Values::Fixed(r, v) => read_rows(r, n, defs, v),
+        }?;
+        if read < n {
+            return Err(ParquetError::General(format!(
+                "column `{}' has {} values fewer than the rows of its row group",
+                self.descr.path(),
+                n - read
+            )));
+        }
+        Ok(())
+    }
+
+    /// Write the value of the next row as JSON.
+    fn push_next(&mut self, out: &mut String, format: Format) -> ::parquet::errors::Result<()> {
+        use ConvertedType as C;
+        if self.max_def > 0 {
+            let def = self.defs[self.def_pos];
+            self.def_pos += 1;
+            if def < self.max_def {
+                out.push_str("null");
+                return Ok(());
+            }
+        }
+        let i = self.pos;
+        self.pos += 1;
+        // The common types are written directly; the others (and the columns with a special
+        // format) as the record API reads them, so that their text is the same.
+        let plain = format == Format::Plain;
+        let field = match &self.values {
+            Values::Bool(_, v) => {
+                out.push_str(if v[i] { "true" } else { "false" });
+                return Ok(());
+            }
+            Values::Int32(_, v) => {
+                let v = v[i];
+                let int = match self.converted {
+                    C::NONE | C::INT_32 => Some(v as i64),
+                    C::INT_16 => Some(v as i16 as i64),
+                    C::INT_8 => Some(v as i8 as i64),
+                    C::UINT_32 => Some(v as u32 as i64),
+                    C::UINT_16 => Some(v as u16 as i64),
+                    C::UINT_8 => Some(v as u8 as i64),
+                    _ => None,
+                };
+                match int {
+                    Some(int) if plain => {
+                        out.push_str(itoa::Buffer::new().format(int));
+                        return Ok(());
+                    }
+                    _ => Field::convert_int32(&self.descr, v),
+                }
+            }
+            Values::Int64(_, v) => match self.converted {
+                C::NONE | C::INT_64 if plain => {
+                    out.push_str(itoa::Buffer::new().format(v[i]));
+                    return Ok(());
+                }
+                C::UINT_64 if plain => {
+                    out.push_str(itoa::Buffer::new().format(v[i] as u64));
+                    return Ok(());
+                }
+                _ => Field::convert_int64(&self.descr, v[i]),
+            },
+            Values::Int96(_, v) => Field::convert_int96(&self.descr, v[i]),
+            Values::Float(_, v) => {
+                push_float(out, v[i] as f64, Some(v[i]));
+                return Ok(());
+            }
+            Values::Double(_, v) => {
+                push_float(out, v[i], None);
+                return Ok(());
+            }
+            Values::Bytes(_, v) => match self.converted {
+                C::UTF8 | C::ENUM if plain => match std::str::from_utf8(v[i].data()) {
+                    Ok(s) => {
+                        push_json_str(out, s);
+                        return Ok(());
+                    }
+                    // the error of the record API
+                    Err(_) => Field::convert_byte_array(&self.descr, v[i].clone())?,
+                },
+                C::NONE | C::BSON if plain => {
+                    out.push('"');
+                    push_hex(out, v[i].data());
+                    out.push('"');
+                    return Ok(());
+                }
+                _ => Field::convert_byte_array(&self.descr, v[i].clone())?,
+            },
+            Values::Fixed(_, v) => {
+                Field::convert_byte_array(&self.descr, ByteArray::from(v[i].clone()))?
+            }
+        };
+        let (text, kind) = field_text(&field, format);
+        push_json(out, &text, kind);
+        Ok(())
+    }
+}
+
+/// Read the next `n` rows (records) of a column, appending to `defs` and `values`; the number of
+/// rows read is less than `n` only at the end of the column chunk.
+fn read_rows<T: ::parquet::data_type::DataType>(
+    reader: &mut ColumnReaderImpl<T>,
+    n: usize,
+    mut defs: Option<&mut Vec<i16>>,
+    values: &mut Vec<T::T>,
+) -> ::parquet::errors::Result<usize> {
+    values.clear();
+    let mut read = 0;
+    while read < n {
+        let (records, _, _) = reader.read_records(n - read, defs.as_deref_mut(), None, values)?;
+        if records == 0 {
+            break;
+        }
+        read += records;
+    }
+    Ok(read)
+}
+
+/// A local file read with positional reads, so that the row groups can be decoded on several
+/// threads at once (the readers of `File` share its offset).
+struct PosFile {
+    file: Arc<File>,
+    len: u64,
+}
+
+impl PosFile {
+    fn open(path: &str) -> io::Result<PosFile> {
+        let file = File::open(path)?;
+        let len = file.metadata()?.len();
+        Ok(PosFile {
+            file: Arc::new(file),
+            len,
+        })
+    }
+}
+
+impl Length for PosFile {
+    fn len(&self) -> u64 {
+        self.len
+    }
+}
+
+impl ChunkReader for PosFile {
+    type T = io::BufReader<PosRead>;
+
+    fn get_read(&self, start: u64) -> ::parquet::errors::Result<Self::T> {
+        Ok(io::BufReader::new(PosRead {
+            file: self.file.clone(),
+            pos: start,
+        }))
+    }
+
+    fn get_bytes(&self, start: u64, length: usize) -> ::parquet::errors::Result<Bytes> {
+        let mut buf = vec![0u8; length];
+        let mut done = 0;
+        while done < length {
+            match read_at(&self.file, &mut buf[done..], start + done as u64) {
+                Ok(0) => {
+                    return Err(ParquetError::EOF(format!(
+                        "Expected to read {} bytes, read only {}",
+                        length, done
+                    )));
+                }
+                Ok(n) => done += n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(buf.into())
+    }
+}
+
+/// A reader of a file from an offset, with positional reads.
+struct PosRead {
+    file: Arc<File>,
+    pos: u64,
+}
+
+impl Read for PosRead {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = read_at(&self.file, buf, self.pos)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+#[cfg(unix)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buf, offset)
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    // `seek_read` moves the offset of the file, but every read here gives its own offset.
+    std::os::windows::fs::FileExt::seek_read(file, buf, offset)
 }
 
 /// A file reader whose top-level columns are renamed. The record API maps each leaf column to its
@@ -659,18 +1132,54 @@ pub(super) fn push_json(out: &mut String, text: &str, kind: Kind) {
 /// A JSON string literal.
 pub(super) fn push_json_str(out: &mut String, s: &str) {
     out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
+    // Copy the runs of bytes that need no escape at once; the escaped bytes are all ASCII, so
+    // the runs are whole characters.
+    let bytes = s.as_bytes();
+    let mut start = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let escape = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            0..=0x1f => "",
+            _ => continue,
+        };
+        out.push_str(&s[start..i]);
+        start = i + 1;
+        if escape.is_empty() {
+            out.push_str(&format!("\\u{:04x}", b));
+        } else {
+            out.push_str(escape);
         }
     }
+    out.push_str(&s[start..]);
     out.push('"');
+}
+
+/// A float as JSON: the text of [`float_text`], null for infinities and NaN.
+fn push_float(out: &mut String, v: f64, single: Option<f32>) {
+    if !v.is_finite() {
+        out.push_str("null");
+        return;
+    }
+    let mut buf = ryu::Buffer::new();
+    let text = match single {
+        Some(f) => buf.format_finite(f),
+        None => buf.format_finite(v),
+    };
+    out.push_str(text.strip_suffix(".0").unwrap_or(text));
+}
+
+/// The bytes in lowercase hex, as [`hex`].
+fn push_hex(out: &mut String, bytes: &[u8]) {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    out.reserve(bytes.len() * 2);
+    for b in bytes {
+        out.push(DIGITS[(b >> 4) as usize] as char);
+        out.push(DIGITS[(b & 15) as usize] as char);
+    }
 }
 
 /// Whether the record API can read every value of this column (it panics on some types, such
@@ -977,6 +1486,83 @@ mod tests {
             ("1".to_string(), Kind::Bool)
         );
         assert_eq!(scalar_text(&Field::Null), (String::new(), Kind::Null));
+    }
+
+    /// Rows of several row groups (decoded on several threads) come out in file order, with the
+    /// nulls of optional columns in place.
+    #[test]
+    fn row_groups_in_order() {
+        use ::parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
+        use ::parquet::file::properties::WriterProperties;
+        use ::parquet::file::writer::SerializedFileWriter;
+        use ::parquet::schema::parser::parse_message_type;
+
+        let schema = parse_message_type(
+            "message m { required int64 id; optional binary name (UTF8); optional int32 x; }",
+        )
+        .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "zawk-parquet-row-groups-{}.parquet",
+            std::process::id()
+        ));
+        let mut expected = String::new();
+        {
+            let file = File::create(&path).unwrap();
+            let props = Arc::new(WriterProperties::builder().build());
+            let mut writer = SerializedFileWriter::new(file, Arc::new(schema), props).unwrap();
+            let mut id = 0i64;
+            for rows in [5000usize, 3, 0, 9000] {
+                let mut group = writer.next_row_group().unwrap();
+                let ids: Vec<i64> = (id..id + rows as i64).collect();
+                let name_defs: Vec<i16> = ids.iter().map(|i| (i % 3 != 0) as i16).collect();
+                let names: Vec<ByteArray> = ids
+                    .iter()
+                    .filter(|i| *i % 3 != 0)
+                    .map(|i| ByteArray::from(format!("n\"{i}").as_str()))
+                    .collect();
+                let x_defs: Vec<i16> = ids.iter().map(|i| (i % 2 == 0) as i16).collect();
+                let xs: Vec<i32> = ids
+                    .iter()
+                    .filter(|i| *i % 2 == 0)
+                    .map(|i| -(*i as i32))
+                    .collect();
+                let mut col = group.next_column().unwrap().unwrap();
+                col.typed::<Int64Type>().write_batch(&ids, None, None).unwrap();
+                col.close().unwrap();
+                let mut col = group.next_column().unwrap().unwrap();
+                col.typed::<ByteArrayType>()
+                    .write_batch(&names, Some(&name_defs), None)
+                    .unwrap();
+                col.close().unwrap();
+                let mut col = group.next_column().unwrap().unwrap();
+                col.typed::<Int32Type>()
+                    .write_batch(&xs, Some(&x_defs), None)
+                    .unwrap();
+                col.close().unwrap();
+                group.close().unwrap();
+                for i in ids {
+                    let name = if i % 3 != 0 {
+                        format!("\"n\\\"{i}\"")
+                    } else {
+                        "null".to_string()
+                    };
+                    let x = if i % 2 == 0 {
+                        (-i).to_string()
+                    } else {
+                        "null".to_string()
+                    };
+                    expected.push_str(&format!("{{\"id\":{i},\"name\":{name},\"x\":{x}}}\n"));
+                }
+                id += rows as i64;
+            }
+            writer.close().unwrap();
+        }
+        let mut got = String::new();
+        let result = ParquetJson::file(path.to_str().unwrap().to_string()).read_to_string(&mut got);
+        std::fs::remove_file(&path).unwrap();
+        result.unwrap();
+        assert_eq!(got.len(), expected.len());
+        assert!(got == expected);
     }
 
     #[test]

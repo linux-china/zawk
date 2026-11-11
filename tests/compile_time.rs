@@ -123,3 +123,28 @@ fn thousands_of_counters() {
     );
     check(&prog, &format!("{n}\n"));
 }
+
+/// Hundreds of called functions are compiled in parallel, and the huge loop-free `BEGIN` block
+/// calling them uses the `single_pass` register allocator (see `SINGLE_PASS_MIN_INSTS` in
+/// `codegen/clif.rs`).
+#[test]
+fn many_functions() {
+    let n = 300;
+    let funcs: Vec<_> = (0..n)
+        .map(|i| {
+            format!(
+                "function g{i}(s,  t) {{ t = substr(s, {}, 3); gsub(/a/, \"b\", t); return t \"{i}\" }}",
+                i % 5 + 1
+            )
+        })
+        .collect();
+    let calls: Vec<_> = (0..n)
+        .map(|i| format!("x = x g{i}(\"abcabc{i}\")"))
+        .collect();
+    let prog = format!(
+        "{}\nBEGIN {{\n{}\nprint length(x), substr(x, 1, 8), substr(x, length(x) - 5) }}",
+        funcs.join("\n"),
+        calls.join("\n")
+    );
+    check(&prog, "1690 bbc0bcb1 bc2299\n");
+}

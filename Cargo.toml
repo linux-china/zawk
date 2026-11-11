@@ -52,7 +52,7 @@ cranelift-codegen = "0.137.1"
 cranelift-module = "0.137.1"
 cranelift-native = "0.137.1"
 cranelift-jit = "0.137.1"
-fast-float = "0.2"
+fast-float2 = "0.2.4"
 bumpalo = { version = "3.20", features = ["collections"] }
 uuid = { version = "1.29", features = ["v4", "v7", "fast-rng"] }
 ulid = "3.0"

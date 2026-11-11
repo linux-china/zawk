@@ -18,10 +18,12 @@
 //! Strings are passed "by reference" to functions, so we explicitly allocate string variables on
 //! the stack and then pass pointers to them.
 use cranelift::prelude::*;
+use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::entity::SecondaryMap;
-use cranelift_codegen::ir::{FuncRef, StackSlot};
+use cranelift_codegen::ir::{FuncRef, Function, StackSlot};
+use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{FuncId, Linkage, Module, ModuleReloc, default_libcall_names};
 use hashbrown::HashMap;
 use smallvec::{SmallVec, smallvec};
 
@@ -36,6 +38,8 @@ use crate::runtime::{self, UniqueStr};
 
 use std::convert::TryFrom;
 use std::mem;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Information about a user-defined function needed by callers.
 #[derive(Clone)]
@@ -176,6 +180,30 @@ pub(crate) struct Generator {
     cctx: codegen::Context,
     funcs: Vec<Option<Prelude>>,
     mains: Stage<FuncId>,
+    /// Functions whose IR is complete but which have not been compiled to machine code yet. They
+    /// are compiled together (in parallel) by `compile_pending`.
+    pending: Vec<PendingFunc>,
+    /// The same ISA as the module's, but with the `single_pass` register allocator, for functions
+    /// of at least `single_pass_threshold()` instructions.
+    single_pass_isa: OwnedTargetIsa,
+}
+
+/// A function whose IR is complete, waiting for `compile_pending`.
+struct PendingFunc {
+    id: FuncId,
+    func: Function,
+    /// Whether the function may run straight-line code only once per call: its frawk CFG has no
+    /// cycles. Only such functions are candidates for `single_pass` register allocation.
+    loop_free: bool,
+}
+
+/// Compiled machine code for one function, ready for `Module::define_function_bytes`.
+struct CompiledFunc {
+    id: FuncId,
+    alignment: u64,
+    bytes: Vec<u8>,
+    relocs: Vec<ModuleReloc>,
+    vcode: Option<String>,
 }
 
 /// The state required for generating code for the function at `f`.
@@ -267,6 +295,77 @@ const LARGE_FUNCTION_BLOCKS: usize = 2000;
 /// errors have no location (see `Frame::fail_blocks`).
 const MAX_FAIL_BLOCKS: usize = 1024;
 
+/// Loop-free functions with at least this many CLIF instructions are compiled with Cranelift's
+/// `single_pass` register allocator instead of the default backtracking one.
+///
+/// Register allocation dominates the compile time of large programs, and `single_pass` is ~1.5x
+/// faster at it, but it spills much more: a tight loop runs ~2.6x slower, and the main loop of a
+/// 400-rule program ~1.3x slower per record. So it is only used where compile time is what
+/// matters: huge functions without loops, whose code runs once per call (e.g. a `BEGIN` block
+/// calling thousands of functions). Functions with loops, including the main record loop, always
+/// use the backtracking allocator.
+const SINGLE_PASS_MIN_INSTS: usize = 20_000;
+
+/// Functions are compiled on the current thread unless there are at least this many CLIF
+/// instructions outside of the largest function: otherwise starting threads costs more than it
+/// saves (a one-liner compiles in well under 1ms, and one huge function cannot be split).
+const PARALLEL_MIN_INSTS: usize = 20_000;
+
+/// Whether `func` is compiled with the `single_pass` register allocator (see
+/// `SINGLE_PASS_MIN_INSTS`).
+///
+/// Development only: `ZAWK_CLIF_SINGLE_PASS_INSTS=N` overrides the threshold for benchmarking and
+/// testing; `0` compiles every function, loops or not, with `single_pass`, and a huge value turns
+/// it off.
+fn use_single_pass(threshold: Option<usize>, size: usize, loop_free: bool) -> bool {
+    match threshold {
+        Some(0) => true,
+        Some(n) => loop_free && size >= n,
+        None => loop_free && size >= SINGLE_PASS_MIN_INSTS,
+    }
+}
+
+/// The number of threads compiling functions in parallel; development only:
+/// `ZAWK_CLIF_THREADS=N` overrides it (1 compiles serially).
+fn compile_threads(sizes: &[usize]) -> usize {
+    let rest = sizes.iter().sum::<usize>() - sizes.iter().max().copied().unwrap_or(0);
+    let threads = match std::env::var("ZAWK_CLIF_THREADS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+    {
+        Some(n) => n,
+        None if rest < PARALLEL_MIN_INSTS => 1,
+        None => num_cpus::get(),
+    };
+    threads.clamp(1, sizes.len().max(1))
+}
+
+/// Compile one function's IR to machine code with `isa`.
+fn compile_func(
+    isa: &dyn TargetIsa,
+    id: FuncId,
+    func: Function,
+    disasm: bool,
+) -> Result<CompiledFunc> {
+    let mut ctx = codegen::Context::for_function(func);
+    ctx.set_disasm(disasm);
+    ctx.compile(isa, &mut ControlPlane::default())
+        .map_err(|e| CompileError::new(format!("cranelift compile error: {}", e.inner)))?;
+    let code = ctx.compiled_code().expect("function was just compiled");
+    Ok(CompiledFunc {
+        id,
+        alignment: code.buffer.min_alignment as u64,
+        bytes: code.code_buffer().to_vec(),
+        relocs: code
+            .buffer
+            .relocs()
+            .iter()
+            .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &ctx.func, id))
+            .collect(),
+        vcode: code.vcode.clone(),
+    })
+}
+
 /// Instructions that only compute numbers from numbers, with no side effects and no way to fail:
 /// they may run on the wrapped-around result of an integer overflow that has not been checked yet
 /// (see `View::defer_overflow_check`).
@@ -301,7 +400,9 @@ fn is_pure_numeric(inst: &compile::LL) -> bool {
     )
 }
 
-fn jit_builder() -> Result<JITBuilder> {
+/// The JIT builder, and the same target ISA with the `single_pass` register allocator (see
+/// `SINGLE_PASS_MIN_INSTS`).
+fn jit_builder() -> Result<(JITBuilder, OwnedTargetIsa)> {
     // Adapted from the cranelift source.
     let mut flag_builder = settings::builder();
     // Cranelift's optimizer (`opt_level = "speed"`: e-graph rewrites, GVN, LICM) is deliberately
@@ -351,16 +452,26 @@ fn jit_builder() -> Result<JITBuilder> {
                 .map_err(|e| err_raw!("invalid ZAWK_CLIF_FLAGS entry {:?}: {}", kv, e))?;
         }
     }
+    let mut single_pass_flags = flag_builder.clone();
+    single_pass_flags
+        .set("regalloc_algorithm", "single_pass")
+        .unwrap();
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| err_raw!("failed to initialize cranelift isa: {:?}", e))?;
-    Ok(JITBuilder::with_isa(isa, default_libcall_names()))
+    let single_pass_isa = isa_builder
+        .finish(settings::Flags::new(single_pass_flags))
+        .map_err(|e| err_raw!("failed to initialize cranelift isa: {:?}", e))?;
+    Ok((
+        JITBuilder::with_isa(isa, default_libcall_names()),
+        single_pass_isa,
+    ))
 }
 
 impl Generator {
     pub(crate) fn init(typer: &mut Typer, _config: Config) -> Result<Generator> {
         // `config.opt_level` only affects the frontend (see `jit_builder`).
-        let builder = jit_builder()?;
+        let (builder, single_pass_isa) = jit_builder()?;
         let mut regstate = RegistrationState { builder };
         intrinsics::register_all(&mut regstate)?;
         let module = JITModule::new(regstate.builder);
@@ -379,6 +490,8 @@ impl Generator {
             funcs: Default::default(),
             // placeholder
             mains: Stage::Main(FuncId::from_u32(0)),
+            pending: Vec::new(),
+            single_pass_isa,
         };
         global.define_functions(typer)?;
         let stage = match typer.stage() {
@@ -398,6 +511,7 @@ impl Generator {
             },
         };
         global.mains = stage;
+        global.compile_pending()?;
         global
             .shared
             .module
@@ -490,23 +604,101 @@ impl Generator {
         view.builder.seal_all_blocks();
         let frontend_config = view.shared.module.target_config();
         view.builder.finalize(frontend_config);
-        self.define_cur_function(res)?;
+        // The wrapper itself is tiny; `single_pass` makes no difference either way.
+        self.define_cur_function(res, false)?;
         Ok(res)
     }
 
-    fn define_cur_function(&mut self, id: FuncId) -> Result<()> {
+    /// Queue the function just built in `cctx` for compilation (see `compile_pending`).
+    fn define_cur_function(&mut self, id: FuncId, loop_free: bool) -> Result<()> {
+        let func = mem::replace(&mut self.cctx.func, Function::new());
+        self.pending.push(PendingFunc {
+            id,
+            func,
+            loop_free,
+        });
+        self.shared.module.clear_context(&mut self.cctx);
+        Ok(())
+    }
+
+    /// Compile every queued function to machine code and define it in the module.
+    ///
+    /// Code generation for one function does not depend on any other (calls between them are
+    /// relocations resolved by `finalize_definitions`), so this runs on several threads for large
+    /// programs, then defines the results in declaration order on this thread.
+    fn compile_pending(&mut self) -> Result<()> {
+        let pending = mem::take(&mut self.pending);
         // Development only: `ZAWK_CLIF_DISASM=1` prints the final machine code (vcode) of every
         // function to stderr, e.g. to see which values are spilled across calls.
         let disasm = std::env::var_os("ZAWK_CLIF_DISASM").is_some();
-        self.cctx.set_disasm(disasm);
-        self.shared
-            .module
-            .define_function(id, &mut self.cctx)
-            .map_err(|e| CompileError::new(e.to_string()))?;
-        if disasm && let Some(vcode) = self.cctx.compiled_code().and_then(|c| c.vcode.as_deref()) {
-            eprintln!("; function {:?}\n{}", id, vcode);
+        let threshold = std::env::var("ZAWK_CLIF_SINGLE_PASS_INSTS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok());
+        let sizes: Vec<usize> = pending.iter().map(|p| p.func.dfg.num_insts()).collect();
+        let threads = compile_threads(&sizes);
+        let default_isa: &dyn TargetIsa = self.shared.module.isa();
+        let single_pass_isa: &dyn TargetIsa = &*self.single_pass_isa;
+        let compile = |p: PendingFunc, size: usize| {
+            let isa = if use_single_pass(threshold, size, p.loop_free) {
+                single_pass_isa
+            } else {
+                default_isa
+            };
+            compile_func(isa, p.id, p.func, disasm)
+        };
+
+        let compiled: Vec<Result<CompiledFunc>> = if threads <= 1 {
+            pending
+                .into_iter()
+                .zip(sizes)
+                .map(|(p, size)| compile(p, size))
+                .collect()
+        } else {
+            // Hand out the largest functions first so that one huge function (e.g. `BEGIN`)
+            // starts right away instead of being picked up last and running alone.
+            let mut order: Vec<usize> = (0..pending.len()).collect();
+            order.sort_by_key(|&i| std::cmp::Reverse(sizes[i]));
+            let slots: Vec<Mutex<Option<PendingFunc>>> =
+                pending.into_iter().map(|f| Mutex::new(Some(f))).collect();
+            let results: Vec<Mutex<Option<Result<CompiledFunc>>>> =
+                slots.iter().map(|_| Mutex::new(None)).collect();
+            let next = AtomicUsize::new(0);
+            let worker = || {
+                while let Some(&i) = order.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let p = slots[i].lock().unwrap().take().unwrap();
+                    let res = compile(p, sizes[i]);
+                    *results[i].lock().unwrap() = Some(res);
+                }
+            };
+            std::thread::scope(|s| {
+                for _ in 1..threads {
+                    s.spawn(worker);
+                }
+                // The current thread is one of the workers.
+                worker();
+            });
+            results
+                .into_iter()
+                .map(|r| r.into_inner().unwrap().expect("every function is compiled"))
+                .collect()
+        };
+
+        for res in compiled {
+            let CompiledFunc {
+                id,
+                alignment,
+                bytes,
+                relocs,
+                vcode,
+            } = res?;
+            if let Some(vcode) = vcode {
+                eprintln!("; function {:?}\n{}", id, vcode);
+            }
+            self.shared
+                .module
+                .define_function_bytes(id, alignment, &bytes, &relocs)
+                .map_err(|e| CompileError::new(e.to_string()))?;
         }
-        self.shared.module.clear_context(&mut self.cctx);
         Ok(())
     }
 
@@ -521,7 +713,8 @@ impl Generator {
                 view.gen_function_body(frame)?;
                 // func_id and prelude entries should be initialized in lockstep.
                 let id = self.shared.func_ids[i].as_ref().unwrap().func_id;
-                self.define_cur_function(id)?;
+                let loop_free = !petgraph::algo::is_cyclic_directed(&frame.cfg);
+                self.define_cur_function(id, loop_free)?;
             }
         }
         Ok(())

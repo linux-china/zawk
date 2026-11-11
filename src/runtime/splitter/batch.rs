@@ -1112,6 +1112,52 @@ pub fn get_find_indexes_bytes() -> BytesIndexKernel {
     }
 }
 
+/// Appends the offsets of every `sep` in `buf[from..]` to `out` (see [generic::find_byte_seps]).
+pub type RecordSepKernel = unsafe fn(&[u8], usize, &mut Vec<u32>, u8);
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn find_byte_seps_avx2(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
+    generic::find_byte_seps::<avx2::Impl>(buf, from, out, sep)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2")]
+unsafe fn find_byte_seps_sse2(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
+    generic::find_byte_seps::<sse2::Impl>(buf, from, out, sep)
+}
+
+fn select_record_sep_kernel() -> RecordSepKernel {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "x86_64")] {
+            #[cfg(feature = "allow_avx2")]
+            const ALLOW_AVX2: bool = true;
+            #[cfg(not(feature = "allow_avx2"))]
+            const ALLOW_AVX2: bool = false;
+            if ALLOW_AVX2 && is_x86_feature_detected!("avx2") {
+                find_byte_seps_avx2
+            } else if is_x86_feature_detected!("sse2") {
+                find_byte_seps_sse2
+            } else {
+                generic::find_byte_seps::<generic::Impl>
+            }
+        } else if #[cfg(target_arch = "aarch64")] {
+            generic::find_byte_seps::<neon::Impl>
+        } else {
+            generic::find_byte_seps::<generic::Impl>
+        }
+    }
+}
+
+/// Append the offsets of every `sep` in `buf[from..]` to `out`, with the SIMD kernel for this
+/// CPU: offsets are written in bulk from 64-bit masks, rather than pushed one `memchr` hit at a
+/// time, which matters when records are short.
+pub fn find_record_seps(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
+    static KERNEL: std::sync::OnceLock<RecordSepKernel> = std::sync::OnceLock::new();
+    let kernel = *KERNEL.get_or_init(select_record_sep_kernel);
+    unsafe { kernel(buf, from, out, sep) }
+}
+
 pub type WhitespaceIndexKernel = unsafe fn(&[u8], &mut WhitespaceOffsets, u64) -> u64;
 
 #[cfg(target_arch = "x86_64")]
@@ -1939,6 +1985,64 @@ mod generic {
             let (ws, nl, next_start) = inp.whitespace_masks(start_ws);
             (next_start, ws, nl)
         })
+    }
+
+    /// Append the offsets of every `sep` in `buf[from..]` to `out`: one comparison per vector,
+    /// and the matches written in bulk with `flatten_bits`. Never reads past `buf` (the tail is
+    /// copied to the stack), so it does not rely on padding after the buffer.
+    pub unsafe fn find_byte_seps<V: Vector>(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
+        const UNROLL: usize = BUFFER_SIZE;
+        // flatten_bits writes up to max(popcount, 16) entries from its start offset.
+        const ROOM: usize = MAX_INPUT_SIZE * UNROLL + 16;
+        let len = buf.len();
+        assert!(
+            len <= MAX_CHUNK_LEN,
+            "chunk of {} bytes is too large",
+            len
+        );
+        if from >= len {
+            return;
+        }
+        let ptr = buf.as_ptr();
+        let mut ix = from;
+        let mut n = out.len();
+        let mut base: *mut u32;
+        let step = V::INPUT_SIZE * UNROLL;
+        while len - ix >= step {
+            let mut masks = [0u64; UNROLL];
+            for (b, m) in masks.iter_mut().enumerate() {
+                *m = V::fill_input(ptr.add(ix + V::INPUT_SIZE * b)).cmp_mask_against_input(sep);
+            }
+            if masks.iter().any(|&m| m != 0) {
+                base = ensure_room(out, n, ROOM);
+                for (b, &m) in masks.iter().enumerate() {
+                    flatten_bits(base, &mut n, (ix + V::INPUT_SIZE * b) as u32, m);
+                }
+            }
+            ix += step;
+        }
+        while len - ix >= V::INPUT_SIZE {
+            let m = V::fill_input(ptr.add(ix)).cmp_mask_against_input(sep);
+            if m != 0 {
+                base = ensure_room(out, n, ROOM);
+                flatten_bits(base, &mut n, ix as u32, m);
+            }
+            ix += V::INPUT_SIZE;
+        }
+        let remaining = len - ix;
+        if remaining > 0 {
+            let mut rest = [0u8; MAX_INPUT_SIZE];
+            std::ptr::copy_nonoverlapping(ptr.add(ix), rest.as_mut_ptr(), remaining);
+            // Only the bytes copied count: the zeros after them would match a `\0` separator.
+            let valid = (1u64 << remaining) - 1;
+            let m = V::fill_input(rest.as_ptr()).cmp_mask_against_input(sep) & valid;
+            if m != 0 {
+                base = ensure_room(out, n, ROOM);
+                flatten_bits(base, &mut n, ix as u32, m);
+            }
+        }
+        debug_assert!(n <= out.capacity());
+        out.set_len(n);
     }
 
     pub unsafe fn find_indexes_byte<V: Vector>(
@@ -3531,6 +3635,68 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 *off = ws.0;
                 next_ws
             });
+        }
+    }
+
+    /// The SIMD record separator scan finds the same offsets as `memchr`, whatever the length,
+    /// starting offset and existing contents of the output, including a `\0` separator (which
+    /// the zero padding of the tail must not match).
+    fn byte_seps_match_memchr(kernel: RecordSepKernel) {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        const ALPHABET: &[u8] = b"aaaaaaabbbc\n\n\0";
+        for round in 0..2000 {
+            let n = (next() % 1100) as usize;
+            let mut buf: Vec<u8> = (0..n)
+                .map(|_| ALPHABET[(next() % ALPHABET.len() as u64) as usize])
+                .collect();
+            // Dense separators: every byte, which writes past the 16-entry unrolled stores.
+            if round % 50 == 0 {
+                buf.iter_mut().for_each(|b| *b = b'\n');
+            }
+            let from = (next() as usize) % (buf.len() + 1);
+            for sep in [b'\n', 0u8, b'c', b'z'] {
+                let prefix: Vec<u32> = (0..(next() % 5) as u32).collect();
+                let mut want = prefix.clone();
+                want.extend(memchr::memchr_iter(sep, &buf[from..]).map(|i| (from + i) as u32));
+                let mut got = prefix;
+                unsafe { kernel(&buf, from, &mut got, sep) };
+                assert_eq!(got, want, "sep={sep} from={from} len={}", buf.len());
+            }
+        }
+    }
+
+    #[test]
+    fn byte_seps_match_memchr_generic() {
+        byte_seps_match_memchr(generic::find_byte_seps::<generic::Impl>);
+        let buf = b"a\nbb\n\nccc\n".repeat(100);
+        let mut got = Vec::new();
+        find_record_seps(&buf, 3, &mut got, b'\n');
+        let want: Vec<u32> = memchr::memchr_iter(b'\n', &buf[3..])
+            .map(|i| (i + 3) as u32)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn byte_seps_match_memchr_neon() {
+        byte_seps_match_memchr(generic::find_byte_seps::<neon::Impl>);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn byte_seps_match_memchr_x86() {
+        if is_x86_feature_detected!("sse2") {
+            byte_seps_match_memchr(find_byte_seps_sse2);
+        }
+        if is_x86_feature_detected!("avx2") {
+            byte_seps_match_memchr(find_byte_seps_avx2);
         }
     }
 

@@ -12,7 +12,7 @@ use crate::runtime::{Float, Int, IntMap, SharedMap, str_to_num};
 use super::awk_regex::{Groups, Search};
 use smallvec::SmallVec;
 
-use std::alloc::{Layout, alloc_zeroed, dealloc, realloc};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
 use std::borrow::Cow;
 use std::cell::{Cell, UnsafeCell};
 use std::hash::{Hash, Hasher};
@@ -107,6 +107,16 @@ struct Literal<'a> {
 struct Boxed {
     buf: Buf,
     len: u64,
+}
+
+impl Boxed {
+    /// The string's bytes: the first `len` bytes of `buf`. An append buffer (see [`Buf::fill`])
+    /// is longer, and its spare capacity may be uninitialized (see [`UniqueBuf::new_uninit`]), so
+    /// this never makes a slice of the whole buffer.
+    fn bytes(&self) -> &[u8] {
+        debug_assert!(self.len as usize <= self.buf.len());
+        unsafe { slice::from_raw_parts(self.buf.as_ptr(), self.len as usize) }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -342,7 +352,7 @@ impl<'a> UniqueStr<'a> {
             StrTag::Inline | StrTag::Literal => self.0.clone(),
             StrTag::Boxed => unsafe {
                 rep.view_as(|b: &Boxed| {
-                    let bs = &b.buf.as_bytes()[..b.len as usize];
+                    let bs = b.bytes();
                     Str::from_rep(
                         Boxed {
                             buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
@@ -373,7 +383,7 @@ impl<'a> From<Str<'a>> for UniqueStr<'a> {
                     None
                 } else {
                     // Copy a new buffer.
-                    let bs = &b.buf.as_bytes()[..b.len as usize];
+                    let bs = b.bytes();
                     Some(Boxed {
                         buf: Buf::read_from_raw(bs.as_ptr(), bs.len()),
                         len: bs.len() as u64,
@@ -1452,7 +1462,7 @@ impl<'a> Str<'a> {
             _ => return Str::from_rep(Concat::new(new_len as u64, left, right).into()),
         }
         let cap = new_len.saturating_add(new_len / 2);
-        let mut buf = UniqueBuf::new(cap.saturating_add(FILL_MARK_SIZE));
+        let mut buf = UniqueBuf::new_uninit(cap.saturating_add(FILL_MARK_SIZE));
         let dst = buf.as_mut_ptr();
         left.copy_to(dst);
         right.copy_to(dst.add(llen));
@@ -1498,14 +1508,17 @@ impl<'a> Str<'a> {
                 }
                 return Str::from_rep(Inline::from_raw(buf.as_ptr(), total).into());
             }
-            let mut buf = UniqueBuf::new(total);
+            let mut buf = UniqueBuf::new_uninit(total);
+            let dst = buf.as_mut_ptr();
             let mut at = 0;
             for p in pieces {
                 p.for_each_chunk(|bs| {
-                    buf.as_mut_bytes()[at..at + bs.len()].copy_from_slice(bs);
+                    debug_assert!(at + bs.len() <= total);
+                    ptr::copy_nonoverlapping(bs.as_ptr(), dst.add(at), bs.len());
                     at += bs.len();
                 });
             }
+            debug_assert_eq!(at, total);
             Str::from_rep(
                 Boxed {
                     len: total as u64,
@@ -1671,7 +1684,7 @@ impl<'a> Str<'a> {
         if tag.forced() {
             return;
         }
-        let mut res = UniqueBuf::new(len);
+        let mut res = UniqueBuf::new_uninit(len);
         self.copy_to(res.as_mut_ptr());
         *self.rep_mut() = Boxed {
             len: len as u64,
@@ -1722,7 +1735,7 @@ impl<'a> Str<'a> {
                     &s.buf.as_bytes()[s.start as usize..s.end as usize] as *const _
                 }),
                 StrTag::Boxed => {
-                    rep.view_as(|b: &Boxed| &b.buf.as_bytes()[..b.len as usize] as *const _)
+                    rep.view_as(|b: &Boxed| b.bytes() as *const _)
                 }
                 StrTag::Concat => {
                     self.force();
@@ -2083,13 +2096,17 @@ pub struct DynamicBufHeap {
 impl DynamicBufHeap {
     pub fn new(size: usize) -> DynamicBufHeap {
         DynamicBufHeap {
-            data: UniqueBuf::new(size),
+            // Only bytes before `write_head` are ever read, and `into_str` shrinks the buffer to
+            // them, as it already must for the tail that growing with `realloc` leaves.
+            data: unsafe { UniqueBuf::new_uninit(size) },
             write_head: 0,
         }
     }
     fn size(&self) -> usize {
         unsafe { (*self.data.0).size }
     }
+    /// The whole buffer; only call this once all of it is written (see
+    /// [`UniqueBuf::new_uninit`]).
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         self.data.as_mut_bytes()
     }
@@ -2277,11 +2294,30 @@ impl UniqueBuf {
         )
         .unwrap()
     }
+    /// A buffer of `size` zero bytes.
     pub fn new(size: usize) -> UniqueBuf {
+        unsafe { UniqueBuf::alloc_with(size, alloc_zeroed) }
+    }
+    /// A buffer of `size` bytes left uninitialized, for buffers whose contents are written in
+    /// full right away (copies, concatenations, `DynamicBufHeap`), skipping the zeroing that
+    /// [`UniqueBuf::new`] does.
+    ///
+    /// # Safety
+    ///
+    /// Every byte must be written through [`UniqueBuf::as_mut_ptr`] before it is read, and no
+    /// slice may be made over bytes that are not written yet ([`UniqueBuf::as_mut_bytes`],
+    /// [`Buf::as_bytes`]). An append buffer (see [`Buf::fill`]) only ever reads its bytes before
+    /// the fill mark and the mark itself, so its spare capacity may stay uninitialized.
+    pub unsafe fn new_uninit(size: usize) -> UniqueBuf {
+        unsafe { UniqueBuf::alloc_with(size, alloc) }
+    }
+    unsafe fn alloc_with(size: usize, alloc_fn: unsafe fn(Layout) -> *mut u8) -> UniqueBuf {
         let layout = UniqueBuf::layout(size);
         unsafe {
-            let alloced = alloc_zeroed(layout) as *mut BufHeader;
-            assert!(!alloced.is_null());
+            let alloced = alloc_fn(layout) as *mut BufHeader;
+            if alloced.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
             ptr::write(
                 alloced,
                 BufHeader {
@@ -2389,7 +2425,7 @@ impl Buf {
     }
 
     pub(crate) unsafe fn read_from_raw(ptr: *const u8, len: usize) -> Buf {
-        let mut ubuf = UniqueBuf::new(len);
+        let mut ubuf = UniqueBuf::new_uninit(len);
         ptr::copy_nonoverlapping(ptr, ubuf.as_mut_ptr(), len);
         ubuf.into_buf()
     }

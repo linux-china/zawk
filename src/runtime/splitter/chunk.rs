@@ -12,7 +12,7 @@ use crate::runtime::{
         Reader,
         batch::{
             BytesIndexKernel, InputFormat, MAX_CHUNK_LEN, Offsets, WhitespaceIndexKernel,
-            WhitespaceOffsets, get_find_indexes,
+            WhitespaceOffsets, find_record_seps, get_find_indexes,
         },
     },
     str_impl::UniqueBuf,
@@ -259,11 +259,6 @@ impl<R: Read, F> OffsetChunkProducer<R, F> {
             }
         }
     }
-}
-
-/// Append the offsets of every `sep` in `buf[from..]` to `out`.
-fn find_record_seps(buf: &[u8], from: usize, out: &mut Vec<u32>, sep: u8) {
-    out.extend(memchr::memchr_iter(sep, &buf[from..]).map(|i| (from + i) as u32));
 }
 
 /// Offsets are stored as `u32` (see `OffsetInner::fields`): a record cannot be longer than that.
