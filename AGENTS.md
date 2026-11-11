@@ -1,6 +1,6 @@
 # Project overview
 
-zawk is a modern AWK language implementation with Rust, and it's modern AWK + stdlib + Rust.
+This is your zawk project that is a modern AWK language implementation with Rust, and it's modern AWK + stdlib + Rust.
 
 ## Features:
 
