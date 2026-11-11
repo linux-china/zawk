@@ -516,18 +516,51 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         // desktop://title: the title is shown in the notification center, so mask any secret in it
         let redacted = redact_url(namespace);
         let title = redacted.split_once("://").map_or("", |(_, title)| title);
-        notify_rust::Notification::new()
-            .summary(if title.is_empty() { "zawk" } else { title })
-            .body(body)
-            .show()
-            .map(drop)
-            .map_err(|e| format!("failed to show notification: {}", e))
+        show_desktop_notification(if title.is_empty() { "zawk" } else { title }, body)
     } else {
         Err(format!(
             "unsupported scheme {:?}, expected nats://, nats+tls://, kafka://, mqtt://, mqtts:// or desktop://",
             scheme,
         ))
     }
+}
+
+/// Show a desktop notification. On macOS it runs `osascript` instead of linking AppKit (via notify-rust),
+/// which would slow down every zawk startup; title and body are passed as arguments, not spliced into the script.
+#[cfg(target_os = "macos")]
+fn show_desktop_notification(title: &str, body: &str) -> std::result::Result<(), String> {
+    let output = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "display notification (item 2 of argv) with title (item 1 of argv)",
+            "-e",
+            "end run",
+            title,
+            body,
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("failed to show notification: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to show notification: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_desktop_notification(title: &str, body: &str) -> std::result::Result<(), String> {
+    notify_rust::Notification::new()
+        .summary(title)
+        .body(body)
+        .show()
+        .map(drop)
+        .map_err(|e| format!("failed to show notification: {}", e))
 }
 
 /// Timeout to connect to the broker and flush a published message.

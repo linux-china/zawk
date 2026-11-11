@@ -111,7 +111,6 @@ futures-util = "0.3"
 tokio = { version = "1.54", features = ["rt-multi-thread", "sync", "macros", "net", "time"] }
 mime_guess = "2"
 dirs = "7"
-notify-rust = "4"
 dotenvy = "0.15.7"
 tempfile = "3.27"
 whoami = "2.1"
@@ -159,6 +158,10 @@ textwrap= { version = "0.16.4"}
 [target.'cfg(target_family = "unix")'.dependencies]
 tikv-jemallocator = { version = "0.7" }
 tikv-jemalloc-ctl = { version = "0.7", features = ["stats"] }
+
+# macOS shows desktop notifications through `osascript`: notify-rust links AppKit/Foundation, which adds ~2 ms to every startup
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust = "4"
 
 #[target.'cfg(target_os = "linux")'.dependencies]
 #openssl = { version = "0.10", features = ["vendored"] }
