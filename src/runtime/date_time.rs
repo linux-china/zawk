@@ -340,6 +340,16 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     result.insert(Str::from("weekday"), weekday);
     result.insert(Str::from("yearday"), local_now.ordinal() as Int);
     result.insert(Str::from("quarter"), ((local_now.month() - 1) / 3 + 1) as Int);
+    // last day of the month: 28-31
+    let (next_year, next_month) = if local_now.month() == 12 {
+        (local_now.year() + 1, 1)
+    } else {
+        (local_now.year(), local_now.month() + 1)
+    };
+    let month_lastday = NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .and_then(|d| d.pred_opt())
+        .map_or(local_now.day(), |d| d.day());
+    result.insert(Str::from("month_lastday"), month_lastday as Int);
     // ISO 8601 week number and week-based year, same as strftime("%V") / strftime("%G")
     let iso_week = local_now.iso_week();
     result.insert(Str::from("week"), iso_week.week() as Int);
@@ -817,6 +827,12 @@ mod tests {
         assert_eq!(datetime_info.get(&Str::from("week")), 53);
         assert_eq!(datetime_info.get(&Str::from("isoyear")), 2020);
         assert_eq!(datetime_info.get(&Str::from("year")), 2021);
+        assert_eq!(datetime_info.get(&Str::from("month_lastday")), 31);
+        // leap year February and month without 31 days
+        assert_eq!(datetime("2024-02-10").get(&Str::from("month_lastday")), 29);
+        assert_eq!(datetime("2023-02-10").get(&Str::from("month_lastday")), 28);
+        assert_eq!(datetime("2023-04-30").get(&Str::from("month_lastday")), 30);
+        assert_eq!(datetime("2023-12-05").get(&Str::from("month_lastday")), 31);
     }
 
     #[test]

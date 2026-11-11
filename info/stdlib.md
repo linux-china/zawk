@@ -1375,6 +1375,7 @@ date/time array:
 - isoyear: ISO 8601 week year number
 - month: 1, 2
 - monthday: 24
+- month_lastday: last day of the month, 28-31
 - hour: 0-23
 - althour: 1-12
 - minute
