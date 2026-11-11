@@ -151,7 +151,7 @@ impl Slots {
 
     /// Merge the arrays of `workers` into those of `self` (see [`merge_maps`]).
     fn merge_arrays(&mut self, mut workers: Vec<Slots>, base: &Slots) {
-        fn merge<K: ArrayKey + Send, V: Agg + Default + Send>(
+        fn merge<K: ArrayKey + Send, V: Agg + Default + Send + PartialEq>(
             a: &mut Vec<HashMap<K, V>>,
             others: Vec<Vec<HashMap<K, V>>>,
             base: &[HashMap<K, V>],
@@ -225,7 +225,36 @@ struct Entry<K, V> {
 /// many parts there are; large arrays are sorted on several threads, which makes this faster than
 /// merging the tables on one thread was. Inserting in the order of the slots writes the table
 /// front to back, and with the hashes already known.
-fn merge_maps<K: ArrayKey + Send, V: Agg + Default + Send>(
+fn merge_maps<K: ArrayKey + Send, V: Agg + Default + Send + PartialEq>(
+    first: HashMap<K, V>,
+    others: Vec<HashMap<K, V>>,
+    base: Option<&HashMap<K, V>>,
+) -> HashMap<K, V> {
+    let base = base.filter(|b| !b.is_empty());
+    // Every thread starts from a copy of `base`: a key of `base` missing from the array of one of
+    // them was deleted by that thread (`delete m[k]`, `delete m`). Entries only carry what is
+    // present, so without this the untouched copies of the other threads would bring the key
+    // back. A key another thread changed is kept (with what the threads added), as when it is
+    // assigned again after the `delete` in a serial run.
+    let deleted: Vec<&K> = base.map_or_else(Vec::new, |b| {
+        b.iter()
+            .filter(|(k, v)| {
+                let sources = || std::iter::once(&first).chain(others.iter());
+                sources().any(|m| !m.contains_key(*k))
+                    && sources().all(|m| m.get(*k).is_none_or(|x| x == *v))
+            })
+            .map(|(k, _)| k)
+            .collect()
+    });
+    let mut out = merge_present(first, others, base);
+    for k in deleted {
+        out.remove(k);
+    }
+    out
+}
+
+/// [`merge_maps`] for the keys present in some array; deleted keys are removed afterwards.
+fn merge_present<K: ArrayKey + Send, V: Agg + Default + Send>(
     first: HashMap<K, V>,
     others: Vec<HashMap<K, V>>,
     base: Option<&HashMap<K, V>>,
@@ -234,7 +263,6 @@ fn merge_maps<K: ArrayKey + Send, V: Agg + Default + Send>(
         return first;
     }
     let hasher = first.hasher().clone();
-    let base = base.filter(|b| !b.is_empty());
     let total = first.len() + others.iter().map(HashMap::len).sum::<usize>();
     // About 8K entries a part, in up to 4096 parts.
     let part_bits = (total >> 13).checked_ilog2().map_or(0, |b| (b + 1).min(12));
@@ -306,8 +334,7 @@ fn merge_maps<K: ArrayKey + Send, V: Agg + Default + Send>(
         }
         parts
     });
-    let mut by_slot: Vec<Vec<Vec<Entry<K, V>>>> =
-        (0..1 << part_bits).map(|_| Vec::new()).collect();
+    let mut by_slot: Vec<Vec<Vec<Entry<K, V>>>> = (0..1 << part_bits).map(|_| Vec::new()).collect();
     for chunk in scattered {
         for (p, entries) in chunk.into_iter().enumerate() {
             by_slot[p].push(entries);
@@ -4047,6 +4074,23 @@ mod merge_tests {
         assert_eq!(got[&1], 13 + 5);
         assert_eq!(got[&2], 1 + 4);
         assert_eq!(got[&3], 8);
+    }
+
+    #[test]
+    fn deleting_a_begin_key() {
+        // A worker deleted a key of BEGIN the others left alone: it is gone.
+        let base = map([(1, 10), (2, 20)]);
+        let first = map([(1, 10), (2, 20)]);
+        let others = vec![map([(2, 20)]), map([(1, 10), (2, 21)])];
+        let got = merge_maps(first, others, Some(&base));
+        assert!(!got.contains_key(&1));
+        assert_eq!(got[&2], 21);
+        // The main thread deleted the whole array.
+        let got = merge_maps(map([]), vec![map([(1, 10), (2, 20)])], Some(&base));
+        assert!(got.is_empty());
+        // Every thread deleted it.
+        let got = merge_maps(map([(2, 20)]), vec![map([(2, 20)])], Some(&base));
+        assert_eq!(got.len(), 1);
     }
 
     #[test]

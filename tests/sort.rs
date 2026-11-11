@@ -161,6 +161,12 @@ fn array_statistics() {
             r#"BEGIN { a[5] = -3; a[7] = -1; print _sum(e), _mean(e), _max(e), _min(e), _max(a), _min(a) }"#,
             "0 0 0 0 -1 -3\n",
         ),
+        // map[int]int results are exact integers, also when the call is not in a function.
+        (
+            "",
+            r#"BEGIN { a[1] = hex("4000000000000001"); print _max(a), _min(a), _sum(a), isint(_max(a)) }"#,
+            "4611686018427387905 4611686018427387905 4611686018427387905 1\n",
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (input, prog, expected) in cases {

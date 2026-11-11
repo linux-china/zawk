@@ -292,7 +292,7 @@ impl<W: Write> Write for XlsxWriter<W> {
 impl<W: Write> Drop for XlsxWriter<W> {
     fn drop(&mut self) {
         if let Err(e) = self.finish() {
-            eprintln!("zawk: {}", e);
+            crate::runtime::writers::report_stdout_render_error(&e);
         }
     }
 }

@@ -1649,13 +1649,20 @@ impl Function {
             }
             .abs()),
             PadLeft | PadRight | PadBoth => Ok(Scalar(BaseTy::Str).abs()),
-            ArrayMax | ArrayMin | ArraySum | ArrayMean => match &args[0] {
+            // Must agree with `type_sig`, which picks the integer intrinsic for map[int]int. While
+            // the key or value type of the array is not known yet, the result is `Int`: answering
+            // `Float` early would stick (Float absorbs Int in the lattice), and the exact i64
+            // result of the integer intrinsic would then be rounded to a double. Once the array
+            // turns out not to be map[int]int, the result becomes `Float`.
+            ArrayMax | ArrayMin | ArraySum => match &args[0] {
                 Some(Map {
-                    key: Some(BaseTy::Int),
-                    val: Some(BaseTy::Int),
-                }) if *self != ArrayMean => Ok(Scalar(BaseTy::Int).abs()),
+                    key: None | Some(BaseTy::Int),
+                    val: None | Some(BaseTy::Int),
+                })
+                | None => Ok(Scalar(BaseTy::Int).abs()),
                 _ => Ok(Scalar(BaseTy::Float).abs()),
             },
+            ArrayMean => Ok(Scalar(BaseTy::Float).abs()),
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             Decimal(_) => Ok(Scalar(BaseTy::Str).abs()),
             DecCmp => Ok(Scalar(BaseTy::Int).abs()),

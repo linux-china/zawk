@@ -4448,6 +4448,67 @@ fn output_write_error_exit_code() {
 
 #[cfg(unix)]
 #[test]
+fn table_and_markdown_broken_pipe_exit_code() {
+    // `-o table` and `-o markdown` write the whole output when stdout is closed at exit, and
+    // `-o xlsx`/`jsonl`/`parquet`/`avro` finish it then: a reader gone by then still makes zawk
+    // exit with 141 (not 0 with a "Broken pipe" message), as the streaming formats do.
+    use std::io::Read;
+    use std::process::{Command as StdCommand, Stdio};
+    let prog = r#"BEGIN { print "a", "b"; for (i = 0; i < 200000; i++) print i, i }"#;
+    for fmt in ["table", "markdown", "csv", "xlsx", "jsonl", "parquet", "avro"] {
+        let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("zawk"))
+            .args(["-o", fmt, prog])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut buf = [0u8; 10];
+        child.stdout.as_mut().unwrap().read_exact(&mut buf).unwrap();
+        drop(child.stdout.take());
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(141), "{}: {}", fmt, stderr);
+        assert_eq!(stderr, "", "{}", fmt);
+    }
+}
+
+#[test]
+fn parallel_delete_of_begin_key() {
+    // A worker deleting an element BEGIN created: the copies of the other threads must not bring
+    // it back when the arrays are merged.
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = Vec::new();
+    for i in 1..=20 {
+        let path = dir.path().join(format!("f{:02}", i));
+        let mut body = "x\n".repeat(20000);
+        if i == 20 {
+            body.push_str("TARGET\n");
+        }
+        std::fs::write(&path, body).unwrap();
+        files.push(path);
+    }
+    let prog = r#"BEGIN { m["k"] = 1; m["j"] = 5 } $0 == "TARGET" { delete m["k"] } { m["j"]++ } END { print ("k" in m) ? "present" : "absent", m["k"] + 0, m["j"] }"#;
+    for backend_arg in BACKEND_ARGS {
+        for extra in [
+            &[][..],
+            &["-pf", "-j8"],
+            &["-pr", "-j8", "--chunk-size", "4096"],
+        ] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(extra)
+                .arg(prog)
+                .args(&files)
+                .assert()
+                .stdout("absent 0 400006\n");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn stdout_broken_pipe_is_silent() {
     // `zawk ... | head -1`: once the reader of stdout goes away, zawk stops quietly and exits
     // with 141 (128 + SIGPIPE), as the shell reports for gawk killed by SIGPIPE.

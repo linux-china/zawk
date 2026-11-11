@@ -144,6 +144,20 @@ pub fn exit_code(code: i32) -> i32 {
     code
 }
 
+/// Record an error writing stdout from a wrapper that renders (or finishes) its output when
+/// dropped (`-o table`, `-o markdown`, `-o jsonl`, `-o xlsx`, `-o parquet`, `-o avro`). The writer is dropped by the stdout writer thread when it handles the `Close`
+/// sent at exit, before the flush that follows it is answered, so `exit_code` sees the failure:
+/// a closed pipe exits as if killed by SIGPIPE (and is not reported), any other error exits with
+/// code 2.
+pub(crate) fn report_stdout_render_error(e: &io::Error) {
+    if e.kind() == io::ErrorKind::BrokenPipe {
+        STDOUT_BROKEN_PIPE.store(true, Ordering::Release);
+    } else {
+        eprintln!("zawk: {}", e);
+        set_output_failed();
+    }
+}
+
 /// Whether `e` means that the process (or system) ran out of file descriptors.
 fn is_fd_exhausted(e: &io::Error) -> bool {
     #[cfg(unix)]
@@ -527,7 +541,10 @@ impl<W: io::Write> io::Write for MarkdownWriter<W> {
 
 impl<W: io::Write> Drop for MarkdownWriter<W> {
     fn drop(&mut self) {
-        let _ = self.render();
+        // The whole table is written here, when stdout is closed at exit.
+        if let Err(e) = self.render() {
+            report_stdout_render_error(&e);
+        }
     }
 }
 
@@ -916,7 +933,10 @@ impl<W: io::Write> io::Write for TableWriter<W> {
 
 impl<W: io::Write> Drop for TableWriter<W> {
     fn drop(&mut self) {
-        let _ = self.render();
+        // The whole table is written here, when stdout is closed at exit.
+        if let Err(e) = self.render() {
+            report_stdout_render_error(&e);
+        }
     }
 }
 
@@ -1187,18 +1207,28 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
     use std::fmt::Write;
     match ty {
         JsonType::String => out.push_str(&json_string(cell)),
-        JsonType::Number => match looks_numeric(cell.as_bytes()).filter(|n| n.is_finite()) {
-            Some(n) if n.fract() == 0.0 && n.abs() < 9007199254740992.0 => {
-                let _ = write!(out, "{}", n as i64);
+        JsonType::Number => {
+            // Integers that fit i64/u64 are written exactly: f64 would lose digits above 2^53.
+            let t = cell.trim();
+            if let Ok(i) = t.parse::<i64>() {
+                let _ = write!(out, "{i}");
+            } else if let Ok(u) = t.parse::<u64>() {
+                let _ = write!(out, "{u}");
+            } else {
+                match looks_numeric(cell.as_bytes()).filter(|n| n.is_finite()) {
+                    Some(n) if n.fract() == 0.0 && n.abs() < 9007199254740992.0 => {
+                        let _ = write!(out, "{}", n as i64);
+                    }
+                    Some(n) => {
+                        let _ = write!(out, "{}", n);
+                    }
+                    None => {
+                        out.push_str("null");
+                        return cell.trim().is_empty();
+                    }
+                }
             }
-            Some(n) => {
-                let _ = write!(out, "{}", n);
-            }
-            None => {
-                out.push_str("null");
-                return cell.trim().is_empty();
-            }
-        },
+        }
         JsonType::Boolean => {
             let truthy = crate::runtime::math_util::parse_bool(cell);
             out.push_str(if truthy { "true" } else { "false" });
@@ -1243,11 +1273,14 @@ impl<W: io::Write> io::Write for JsonlWriter<W> {
 impl<W: io::Write> Drop for JsonlWriter<W> {
     fn drop(&mut self) {
         // A final record without a trailing newline (e.g. from printf) is still a row.
+        let mut res = Ok(());
         if !self.pending.is_empty() {
             let line = std::mem::take(&mut self.pending);
-            let _ = self.write_row(&line);
+            res = self.write_row(&line);
         }
-        let _ = self.inner.flush();
+        if let Err(e) = res.and_then(|()| self.inner.flush()) {
+            report_stdout_render_error(&e);
+        }
         if let Some(columns) = &self.columns {
             for ((name, ty), &n) in columns.iter().zip(&self.invalid).filter(|(_, n)| **n > 0) {
                 eprintln!(
@@ -3427,6 +3460,23 @@ pub mod testing {
 mod tests {
     use super::testing::*;
     use super::*;
+
+    #[test]
+    fn json_number_keeps_large_integers() {
+        let render = |cell: &str| {
+            let mut out = String::new();
+            let ok = json_value(cell, JsonType::Number, &mut out);
+            (out, ok)
+        };
+        assert_eq!(render("9007199254740993"), ("9007199254740993".into(), true));
+        assert_eq!(render("-9223372036854775808"), ("-9223372036854775808".into(), true));
+        assert_eq!(render("18446744073709551615"), ("18446744073709551615".into(), true));
+        assert_eq!(render(" 42 "), ("42".into(), true));
+        assert_eq!(render("3.0"), ("3".into(), true));
+        assert_eq!(render("1.5"), ("1.5".into(), true));
+        assert_eq!(render(""), ("null".into(), true));
+        assert_eq!(render("abc"), ("null".into(), false));
+    }
 
     #[test]
     fn basic_writing() {

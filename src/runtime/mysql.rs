@@ -142,18 +142,44 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
     }
 }
 
-/// The options of `db_url`, with a connect timeout and TCP keepalive unless the URL sets them
-/// (`tcp_connect_timeout_ms`, `tcp_keepalive_time_ms`). No read timeout is set: a query may
-/// legitimately run for a long time, while keepalive still detects a server that went away.
+/// Pool bounds used unless the URL sets `pool_min`/`pool_max`: the crate default (min 10, max 100)
+/// eagerly opens 10 sessions per URL, which exhausts `max_connections` when a script talks to a few
+/// DSNs. Connections are opened on demand instead, at most a handful per URL.
+const POOL_MIN: usize = 0;
+const POOL_MAX: usize = 8;
+
+/// How long to wait for a free pooled connection before failing, instead of blocking forever.
+const POOL_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether the query string of `db_url` sets the parameter `name`.
+fn has_url_param(db_url: &str, name: &str) -> bool {
+    db_url.split_once('?').is_some_and(|(_, query)| {
+        query
+            .split('&')
+            .any(|pair| pair.split('=').next() == Some(name))
+    })
+}
+
+/// The options of `db_url`, with a connect timeout, TCP keepalive and small lazy pool bounds unless
+/// the URL sets them (`tcp_connect_timeout_ms`, `tcp_keepalive_time_ms`, `pool_min`, `pool_max`).
+/// No read timeout is set: a query may legitimately run for a long time, while keepalive still
+/// detects a server that went away.
 pub(crate) fn opts(db_url: &str) -> Result<Opts> {
     let opts = Opts::from_url(db_url)?;
     let connect_timeout = opts
         .get_tcp_connect_timeout()
         .or(Some(crate::runtime::network::CONNECT_TIMEOUT));
     let keepalive = opts.get_tcp_keepalive_time_ms().or(Some(60_000));
+    let pool_opts = if has_url_param(db_url, "pool_min") || has_url_param(db_url, "pool_max") {
+        opts.get_pool_opts().clone()
+    } else {
+        let constraints = PoolConstraints::new(POOL_MIN, POOL_MAX).expect("valid pool bounds");
+        opts.get_pool_opts().clone().with_constraints(constraints)
+    };
     Ok(OptsBuilder::from_opts(opts)
         .tcp_connect_timeout(connect_timeout)
         .tcp_keepalive_time_ms(keepalive)
+        .pool_opts(pool_opts)
         .into())
 }
 
@@ -178,7 +204,7 @@ fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> R
                 .clone()
         }
     };
-    let mut conn = pool.get_conn()?;
+    let mut conn = pool.try_get_conn(POOL_ACQUIRE_TIMEOUT)?;
     f(&mut conn)
 }
 
@@ -188,6 +214,17 @@ mod tests {
 
     #[test]
     fn test_spike() {}
+
+    #[test]
+    fn test_pool_constraints() {
+        let bounds = |url: &str| {
+            let c = opts(url).unwrap().get_pool_opts().constraints();
+            (c.min(), c.max())
+        };
+        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test"), (POOL_MIN, POOL_MAX));
+        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test?pool_min=2&pool_max=3"), (2, 3));
+        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test?pool_max=20"), (10, 20));
+    }
 
     #[test]
     fn test_format_mysql_date() {

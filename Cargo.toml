@@ -104,7 +104,7 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 async-nats = { version = "0.51", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
 confluent-kafka = { version = "1.0",default-features = false, features = ["lz4", "gzip", "snappy", "zstd"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
-opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry"] }
+opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry", "layers-timeout"] }
 # the reqwest transport of opendal without its aws-lc-rs provider: rustls uses ring, as the other dependencies do
 opendal-http-transport-reqwest = { version = "0.59", default-features = false, features = ["rustls-no-provider"] }
 futures-util = "0.3"

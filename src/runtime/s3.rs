@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use futures_util::StreamExt;
 use opendal::Operator;
-use opendal::layers::RetryLayer;
+use opendal::layers::{RetryLayer, TimeoutLayer};
 use opendal::services::S3;
 use std::collections::HashMap;
 use std::io;
@@ -80,7 +80,15 @@ fn build_s3_operator(bucket: &str) -> Result<Operator, BoxError> {
         .secret_access_key(&config.secret_access_key)
         .disable_config_load()
         .disable_ec2_metadata();
-    Ok(Operator::new(builder)?.layer(RetryLayer::new()))
+    // Without a timeout an endpoint that accepts the connection but never answers would block
+    // the input loop forever (reqwest's default client has none). The timeout layer comes before
+    // the retry layer so that each attempt is timed out and a stalled one is retried.
+    let timeout = TimeoutLayer::new()
+        .with_timeout(crate::runtime::network::CONNECT_TIMEOUT)
+        .with_io_timeout(crate::runtime::network::READ_TIMEOUT);
+    Ok(Operator::new(builder)?
+        .layer(timeout)
+        .layer(RetryLayer::new()))
 }
 
 /// Returns a cached operator for `bucket`; it is built on first successful call and reused
