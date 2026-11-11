@@ -34,12 +34,14 @@ mktime("2024-01-01 10:00:00", 0, 8)   # 1704074400: UTC offset in hours
 It returns `-1` if the text cannot be parsed, as gawk does.
 
 `datetime()` breaks a time into parts: `year`, `month`, `monthday`, `hour`, `minute`, `second`, `yearday`,
-`weekday`, `althour`.
+`weekday`, `althour`, `quarter` (1-4), `week` (ISO 8601 week, same as `strftime("%V")`) and `isoyear`
+(ISO 8601 week-based year, same as `strftime("%G")`).
 
 ```awk
 datetime()["year"]                  # now
 datetime(1621530000)["month"]
 datetime("2020-02-02")["weekday"]
+datetime("2021-01-01")["week"]      # 53: belongs to the last ISO week of 2020
 ```
 
 ## Date arithmetic

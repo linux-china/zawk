@@ -339,6 +339,11 @@ pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     }
     result.insert(Str::from("weekday"), weekday);
     result.insert(Str::from("yearday"), local_now.ordinal() as Int);
+    result.insert(Str::from("quarter"), ((local_now.month() - 1) / 3 + 1) as Int);
+    // ISO 8601 week number and week-based year, same as strftime("%V") / strftime("%G")
+    let iso_week = local_now.iso_week();
+    result.insert(Str::from("week"), iso_week.week() as Int);
+    result.insert(Str::from("isoyear"), iso_week.year() as Int);
     result
 }
 
@@ -789,6 +794,8 @@ mod tests {
             ("%M", "minute"),
             ("%S", "second"),
             ("%j", "yearday"),
+            ("%V", "week"),
+            ("%G", "isoyear"),
         ];
         for (format, key) in fields {
             assert_eq!(
@@ -803,6 +810,13 @@ mod tests {
         assert_eq!(datetime_info.get(&Str::from("hour")), 10);
         // Sunday should be 0
         assert_eq!(datetime_info.get(&Str::from("weekday")), 0);
+        assert_eq!(datetime_info.get(&Str::from("quarter")), 4);
+        // 2021-01-01 belongs to ISO week 53 of 2020
+        let datetime_info = datetime("2021-01-01 12:00:00");
+        assert_eq!(datetime_info.get(&Str::from("quarter")), 1);
+        assert_eq!(datetime_info.get(&Str::from("week")), 53);
+        assert_eq!(datetime_info.get(&Str::from("isoyear")), 2020);
+        assert_eq!(datetime_info.get(&Str::from("year")), 2021);
     }
 
     #[test]
