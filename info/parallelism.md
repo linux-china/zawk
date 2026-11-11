@@ -170,6 +170,29 @@ close to a 2x speedup in record-oriented parallel mode, despite the fact that
 writes to output files are all serialized, and all input records come from a
 single file.
 
+With `--keep-order` (which implies `-pr`, so `--keep-order -j 8` needs no `-p`)
+the output is written in the order of the input, as a serial run writes it.
+Workers that run ahead of a slow chunk (one calling `system()`, say) hold their
+output back, and wait before taking more input once 64 MiB of output is held,
+so memory stays bounded.
+
+Some programs still depend on seeing every record in one thread, and print
+something else in parallel mode, ordered or not:
+
+* Record counters in the main loop: each worker counts its own records, so
+  `NR % 1000000 == 0` or `NR == 1` match per worker (`W301`; a run with
+  `--keep-order` prints it as a warning).
+* Range patterns (`/BEGIN/, /END/`): each worker keeps its own range state
+  (`W304`). With `--keep-order` such a program runs serially, with a warning.
+* State carried from one record to the next that decides or makes output,
+  such as deduplication (`!seen[$1]++`), comparing with the previous record
+  (`$1 != prev`) or a running total (`{ n++; print n }`): each worker has its
+  own copy, so a key is printed once per worker and the records at chunk
+  boundaries see the wrong previous value (`W305`).
+
+A run with `-p` (or `--keep-order`) prints `W304` and `W305` as warnings;
+`zawk lint -p r` lists all of them. Run such programs serially (`-p0`).
+
 ### Aggregations
 
 _Implicit Aggregations_ Variables that are referenced in both the main loop and

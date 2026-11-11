@@ -135,6 +135,8 @@ count characters); `file` is null for program text, and all location fields are 
 | W301 | with `-p`: `NR` (and `FNR` with `-pr`) counts per worker, so `NR==1` hits once per worker |
 | W302 | with `-p`: scalar set with `=` in the main loop and read in END is aggregated over workers (numbers summed, strings taken from one worker), not its last value; collect it in `PREPARE { v[PID] = x }` |
 | W303 | with `-p`: array element set with `=` in the main loop (`a[k] = 1`, `last[k] = $2`) and its value read in END is merged over workers (numbers summed), so a key seen by several workers is multiplied; use `a[k]++` / `+=`, or collect per-worker values in PREPARE |
+| W304 | with `-pr`: range pattern `start, end` keeps its state per worker, so ranges starting in another worker's chunk are missed; run with `-p0` (`--keep-order` falls back to serial) |
+| W305 | with `-p`: a global carried from earlier records decides or makes output (`!seen[$1]++`, `$1 != prev`, `{ n++; print n }`): each worker has its own copy; run with `-p0` |
 
 Only the first error is reported: fix it and lint again.
 

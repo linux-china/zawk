@@ -2991,6 +2991,15 @@ pub mod ordered {
     use super::*;
     use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::sync::Condvar;
+    use std::time::Duration;
+
+    /// The output of later chunks held back while an earlier chunk is still being processed is
+    /// kept under this size: a worker about to process a later chunk waits until the output is
+    /// written (a slow chunk, e.g. one calling `system()`, would otherwise make the held output
+    /// grow to the size of the whole output). The worker processing the chunk to write next never
+    /// waits, so the run always makes progress.
+    const MAX_HELD: usize = 64 << 20;
 
     /// Set by `--keep-order`.
     pub(super) static KEEP_ORDER: AtomicBool = AtomicBool::new(false);
@@ -3008,6 +3017,8 @@ pub mod ordered {
 
     struct Reorder {
         state: Mutex<State>,
+        /// Signalled when `State::next`, `State::held` or `State::finished` changes.
+        turn: Condvar,
         /// `State::next`, read without the lock by workers that consider sending early.
         head: AtomicU64,
         /// Set once writing stdout failed: the workers stop at their next `print`.
@@ -3021,6 +3032,8 @@ pub mod ordered {
         next: u64,
         /// The sealed output of chunks after `next`.
         done: BTreeMap<u64, Vec<u8>>,
+        /// The total size of `done`.
+        held: usize,
         /// Set by `finish`: output sealed afterwards (by a worker stopped late) is written at once.
         finished: bool,
     }
@@ -3045,16 +3058,37 @@ pub mod ordered {
                 return;
             }
             if seq != st.next {
+                st.held += data.len();
                 st.done.insert(seq, data);
                 return;
             }
             self.send(data);
             st.next += 1;
             while let Some(data) = st.done.remove(&st.next) {
+                st.held -= data.len();
                 self.send(data);
                 st.next += 1;
             }
             self.head.store(st.next, Ordering::Release);
+            self.turn.notify_all();
+        }
+
+        /// Wait before processing chunk `seq` while the output held back is over `MAX_HELD`,
+        /// until the chunks before `seq` are written (or the stage ends or stdout fails).
+        fn wait_turn(&self, seq: u64) {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            while !st.finished
+                && seq > st.next
+                && st.held >= MAX_HELD
+                && !self.failed.load(Ordering::Acquire)
+            {
+                // The timeout only guards against a missed wake-up (e.g. a failed write).
+                st = self
+                    .turn
+                    .wait_timeout(st, Duration::from_millis(100))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
         }
 
         /// Send `data` now if `seq` is the chunk to write next (taking it), otherwise leave it.
@@ -3101,6 +3135,19 @@ pub mod ordered {
                 None => self.order.send(data),
             }
             self.seq = next;
+            if let Some(seq) = next {
+                self.order.wait_turn(seq);
+            }
+        }
+    }
+
+    impl Drop for Worker {
+        // A worker that stops without `leave` (a panic unwinding its thread) still hands over
+        // its chunk, so that the workers waiting in `wait_turn` for it go on.
+        fn drop(&mut self) {
+            if self.seq.is_some() {
+                self.seal(None);
+            }
         }
     }
 
@@ -3116,6 +3163,7 @@ pub mod ordered {
         }
         let order = Arc::new(Reorder {
             state: Mutex::new(State::default()),
+            turn: Condvar::new(),
             head: AtomicU64::new(0),
             failed: AtomicBool::new(false),
             out,
@@ -3171,7 +3219,9 @@ pub mod ordered {
             for (_, data) in mem::take(&mut st.done) {
                 order.send(data);
             }
+            st.held = 0;
             st.finished = true;
+            order.turn.notify_all();
         }
     }
 

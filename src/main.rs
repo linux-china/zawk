@@ -1284,6 +1284,10 @@ fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Optio
         {
             Some("r") | Some("record") => Some(lint::Parallel::Record),
             Some("f") | Some("file") => Some(lint::Parallel::File),
+            // `--keep-order` alone runs as `-pr --keep-order` (`zawk lint` has no such flag).
+            _ if matches!(matches.try_get_one::<bool>("keep-order"), Ok(Some(true))) => {
+                Some(lint::Parallel::Record)
+            }
             _ => None,
         },
         assigned: vars()
@@ -1729,9 +1733,13 @@ fn real_main() {
             .help("Buffer size when reading input (default: 128 KiB, 512 KiB with `-pr`). This is present primarily for debugging purposes; it's possible that tuning this will help performance, but it should not be necessary"))
         .arg(Arg::new("jobs")
             .short('j')
-            .requires("parallel-strategy")
+            .requires("parallel")
             .num_args(1)
-            .help("Number or worker threads to launch when executing in parallel, requires '-p' flag to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"));
+            .help("Number or worker threads to launch when executing in parallel, requires '-p' (or '--keep-order') to be set. When using record-level parallelism, this value is an upper bound on the number of worker threads that will be spawned; the number of active worker threads is chosen dynamically"))
+        // `-j` takes `-p` or `--keep-order` (which implies `-pr`).
+        .group(clap::ArgGroup::new("parallel")
+            .args(["parallel-strategy", "keep-order"])
+            .multiple(true));
     // display help/version information from awk file
     let known = KnownArgs::of(&app);
     let mut args = command_line_args();
@@ -2165,6 +2173,16 @@ fn real_main() {
             exec_strategy = ExecutionStrategy::ShardPerRecord(num_workers);
         }
     }
+    // `--keep-order` promises the output of a serial run, which a range pattern only gets when
+    // one thread sees every record (each worker keeps its own range state).
+    if matches.get_flag("keep-order")
+        && matches!(exec_strategy, ExecutionStrategy::ShardPerRecord(_))
+        && lint::has_range_pattern(&includer.pieces)
+    {
+        eprintln!("zawk: warning: --keep-order: a range pattern (`start, end`) needs every record in one thread: running serially");
+        exec_strategy = ExecutionStrategy::Serial;
+        num_workers = 1;
+    }
     // With `-pr --keep-order`, the workers write stdout in the order of the input (a serial run
     // writes it in that order anyway).
     runtime::writers::ordered::set_keep_order(
@@ -2188,7 +2206,8 @@ fn real_main() {
             ExecutionStrategy::ShardPerFile => Some(lint::Parallel::File),
         };
         if let Some(mode) = mode {
-            for w in lint::parallel_warnings(&includer.pieces, mode) {
+            let keep_order = runtime::writers::ordered::keep_order();
+            for w in lint::parallel_warnings(&includer.pieces, mode, keep_order) {
                 eprintln!("{}", w);
             }
         }

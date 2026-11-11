@@ -205,3 +205,66 @@ fn keep_order_needs_record_parallelism() {
         "b\nd\n"
     );
 }
+
+#[test]
+fn jobs_with_keep_order_alone() {
+    // `--keep-order` implies `-pr`, so `-j` needs no `-p`.
+    let tmp = tempdir().unwrap();
+    let file = write_file(tmp.path(), "data.csv", 0..2000);
+    let serial = run_ok(&["-F,", "{ print $1 }", &file], None);
+    let ordered = run_ok(
+        &["--keep-order", "-j", "4", "--chunk-size", "1000", "-F,", "{ print $1 }", &file],
+        None,
+    );
+    assert_eq!(ordered, serial);
+    // Without either, `-j` is still refused.
+    assert!(!zawk(&["-j", "4", "{ print }", &file], None).status.success());
+}
+
+#[test]
+fn range_pattern_runs_serially() {
+    // Each worker would keep its own range state; `--keep-order` runs the program serially.
+    let tmp = tempdir().unwrap();
+    let file = write_file(tmp.path(), "data.csv", 0..3000);
+    let prog = "$1 == 10, $1 == 2990 { print $1 }";
+    for backend in BACKEND_ARGS {
+        let serial = run_ok(&[backend, "-F,", prog, &file], None);
+        assert_eq!(serial.lines().count(), 2981);
+        let out = zawk(
+            &[backend, "--keep-order", "--chunk-size", "1000", "-F,", prog, &file],
+            None,
+        );
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout), serial);
+        assert!(String::from_utf8_lossy(&out.stderr).contains("running serially"));
+        // An explicit `-pr` keeps running in parallel, with a W304 warning.
+        let out = zawk(&[backend, "-pr", "--chunk-size", "1000", "-F,", prog, &file], None);
+        assert!(String::from_utf8_lossy(&out.stderr).contains("W304"));
+    }
+}
+
+#[test]
+fn cross_record_state_warns() {
+    let tmp = tempdir().unwrap();
+    let file = write_file(tmp.path(), "data.csv", 0..100);
+    // Record counters (W301) and state carried between records (W305).
+    for (prog, code) in [("NR % 10 == 0 { print NR }", "W301"), ("!seen[$2]++ { print $2 }", "W305")] {
+        let out = zawk(&["--keep-order", "-F,", prog, &file], None);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("--keep-order: line 1, column") && err.contains(code), "{}", err);
+    }
+    // A plain filter gets no warning.
+    run_ok(&["--keep-order", "-F,", "$2 == \"WARN\" { print $1 }", &file], None);
+}
+
+#[test]
+fn slow_chunk_keeps_order() {
+    // The chunks after a slow one wait once their held output is large; the output is unchanged.
+    let tmp = tempdir().unwrap();
+    let file = write_file(tmp.path(), "data.csv", 0..200000);
+    let prog = "$1 == 1 { system(\"sleep 1\") } { print $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0 }";
+    let serial = run_ok(&["-F,", prog, &file], None);
+    assert!(serial.len() > 64 << 20);
+    let ordered = run_ok(&["--keep-order", "-j", "4", "-F,", prog, &file], None);
+    assert!(ordered == serial);
+}

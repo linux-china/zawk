@@ -136,7 +136,9 @@ pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
 /// otherwise give a wrong result without a word (e.g. a maximum summed over the workers).
 /// Only the syntax tree is checked, so this costs one more parse of the program; a program that
 /// does not parse gets no warning here (the run reports its error).
-pub fn parallel_warnings(sources: &[Source], mode: Parallel) -> Vec<String> {
+/// With `keep_order` (`--keep-order`, which promises the output of a serial run) the record
+/// counters read in the main loop (`W301`) are reported too.
+pub fn parallel_warnings(sources: &[Source], mode: Parallel, keep_order: bool) -> Vec<String> {
     let mut prog = String::new();
     let mut starts = Vec::with_capacity(sources.len());
     for src in sources {
@@ -161,13 +163,14 @@ pub fn parallel_warnings(sources: &[Source], mode: Parallel) -> Vec<String> {
     };
     let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
         .into_iter()
-        .filter(|d| matches!(d.code, "W302" | "W303"))
+        .filter(|d| matches!(d.code, "W302" | "W303" | "W304" | "W305") || (keep_order && d.code == "W301"))
         .collect();
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
     let lines: Vec<&str> = prog.lines().collect();
     let flag = match mode {
-        Parallel::Record => "r",
-        Parallel::File => "f",
+        _ if keep_order => "--keep-order",
+        Parallel::Record => "-p r",
+        Parallel::File => "-p f",
     };
     diags
         .iter()
@@ -182,11 +185,33 @@ pub fn parallel_warnings(sources: &[Source], mode: Parallel) -> Vec<String> {
                 _ => String::new(),
             };
             format!(
-                "zawk: warning: -p {}: {}{} {} (`--lint` lists them, `--deny-warnings` refuses to run)",
+                "zawk: warning: {}: {}{} {} (`--lint` lists them, `--deny-warnings` refuses to run)",
                 flag, place, d.code, d.message
             )
         })
         .collect()
+}
+
+/// Whether the program has a range pattern (`start, end`), whose state a parallel run keeps per
+/// worker. A program that does not parse has none here (the run reports its error).
+pub fn has_range_pattern(sources: &[Source]) -> bool {
+    let mut prog = String::new();
+    for src in sources {
+        prog.push_str(&src.text);
+        prog.push('\n');
+    }
+    let a = Arena::default();
+    let text: &str = a.alloc_str(&prog);
+    let mut buf = Vec::new();
+    let mut program = ast::Prog::from_stage(&a, Stage::Main(()));
+    let parser = parsing::syntax::ProgParser::new();
+    parser
+        .parse(&a, &mut buf, &mut program, lexer::Tokenizer::new(text))
+        .is_ok()
+        && program
+            .pats
+            .iter()
+            .any(|(p, _)| matches!(p, ast::Pattern::Comma(..)))
 }
 
 /// The report for a program file that cannot be read.
@@ -1880,7 +1905,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     }
 
     if let Some(mode) = opts.parallel {
-        diags.extend(check_parallel(&facts, mode));
+        diags.extend(check_parallel(&facts, prog, mode));
     }
     if let Some(data) = &opts.data {
         diags.extend(check_data(&facts, opts, data));
@@ -2178,7 +2203,11 @@ fn check_data(facts: &Facts, opts: &Options, data: &Data) -> Vec<Diagnostic> {
 
 /// Code whose meaning changes when the main loop runs in several workers (see
 /// `info/parallelism.md`).
-fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
+fn check_parallel<'a>(
+    facts: &Facts<'a, '_>,
+    prog: &ast::Prog<'a, 'a, &'a str>,
+    mode: Parallel,
+) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     // Record counters count the records of one worker.
     let counters: &[&str] = match mode {
@@ -2254,7 +2283,500 @@ fn check_parallel(facts: &Facts, mode: Parallel) -> Vec<Diagnostic> {
             s.loc,
         ));
     }
+    // A range pattern is on from the record matching its start to the one matching its end, but
+    // each worker keeps its own range state and sees only its share of the records.
+    if mode == Parallel::Record {
+        for (pat, _) in prog.pats.iter() {
+            if let ast::Pattern::Comma(l, _) = pat {
+                diags.push(warning(
+                    "W304",
+                    "in parallel mode each worker keeps its own range state: a range pattern `start, end` misses the records whose range starts in another worker's chunk; run it serially (`-p0`), `--keep-order` does so".to_string(),
+                    facts.locs.get(&ast::expr_key(*l)).copied(),
+                ));
+            }
+        }
+    }
+    // State carried from one record to the next (`!seen[$1]++`, `$1 != prev`) is per worker.
+    // Names already reported by W302/W303 (the first quoted name of their message) are left out.
+    let reported_end: Vec<String> = diags
+        .iter()
+        .filter(|d| matches!(d.code, "W302" | "W303"))
+        .filter_map(|d| d.message.split('`').nth(1).map(String::from))
+        .collect();
+    for (name, loc) in CrossRecord::find(prog) {
+        if reported_end.iter().any(|n| n == name) {
+            continue;
+        }
+        diags.push(warning(
+            "W305",
+            format!(
+                "in parallel mode each worker keeps its own `{}`: its value carried over from earlier records only covers the worker's share of them, so what depends on it (e.g. `!seen[$1]++`, `$1 != prev`) is wrong at chunk boundaries or repeated once per worker; run it serially (`-p0`)",
+                name
+            ),
+            loc,
+        ));
+    }
     diags
+}
+
+/// Finds state that the main loop carries from one record to the next and lets show: a global
+/// read where it decides or makes output (a rule pattern, a `print` argument, the condition of
+/// an `if` that prints) before the record assigns it afresh, such as `!seen[$1]++`,
+/// `$1 != prev` or `print n` after `n++`. Each worker of a parallel run keeps its own copy, so
+/// such a program prints once per worker (deduplication) or misses the records at chunk
+/// boundaries. Accumulations (`n++`, `s += $1`, `m = m > $1 ? m : $1`) only feed themselves and
+/// are left to W302/W303, which look at what END sees.
+struct CrossRecord<'a, 'p> {
+    locs: &'p ast::ExprLocs,
+    /// Globals assigned somewhere in the main loop (scalars and arrays).
+    written: Vec<&'a str>,
+    /// Scalars assigned afresh earlier in the walk of a record (`x = $1`): reading them later
+    /// sees this record's value.
+    fresh: Vec<&'a str>,
+    /// Arrays cleared or filled whole earlier in the walk (`split($0, a)`, `delete a`).
+    fresh_arrays: Vec<&'a str>,
+    /// Array elements with a literal key assigned earlier in the walk (`a["k"] = $1`).
+    fresh_elements: Vec<(&'a str, String)>,
+    found: Vec<(&'a str, Option<Loc>)>,
+}
+
+/// Whether `s` prints, so that what decides whether it runs shows in the output.
+fn prints(s: &AstStmt) -> bool {
+    use ast::Stmt::*;
+    match s {
+        Print(..) | Printf(..) => true,
+        Block(ss) => ss.iter().any(|s| prints(s)),
+        If(_, t, f) => prints(t) || f.is_some_and(prints),
+        For(_, _, _, body) | DoWhile(_, body) | While(_, _, body) | ForEach(_, _, body) => {
+            prints(body)
+        }
+        ForRange(_, _, _, _, body) => prints(body),
+        Switch(_, cases) => cases.iter().any(|(_, body)| prints(body)),
+        EndBlock(s) => prints(s),
+        _ => false,
+    }
+}
+
+/// The text of a literal array key, to match `a["k"] = 1` with a later `a["k"]`.
+fn literal_key(e: &AstExpr) -> Option<String> {
+    match e {
+        ast::Expr::ILit(n) => Some(n.to_string()),
+        ast::Expr::StrLit(s) => Some(String::from_utf8_lossy(s).into_owned()),
+        _ => None,
+    }
+}
+
+/// Whether `e` reads the variable (or array) `name`.
+fn reads_var(e: &AstExpr, name: &str) -> bool {
+    use ast::Expr::*;
+    match e {
+        Var(n) => *n == name,
+        ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => false,
+        Unop(_, x) | Inc { x, .. } => reads_var(x, name),
+        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r)
+        | Assign(l, r) | AssignOp(l, _, r) => reads_var(l, name) || reads_var(r, name),
+        ITE(c, t, f) => reads_var(c, name) || reads_var(t, name) || reads_var(f, name),
+        Getline { into, from, .. } => {
+            into.is_some_and(|x| reads_var(x, name)) || from.is_some_and(|x| reads_var(x, name))
+        }
+        Call(_, args) => args.iter().any(|a| reads_var(a, name)),
+    }
+}
+
+impl<'a, 'p> CrossRecord<'a, 'p> {
+    fn find(prog: &'p ast::Prog<'a, 'a, &'a str>) -> Vec<(&'a str, Option<Loc>)> {
+        let mut w = CrossRecord {
+            locs: &prog.locs,
+            written: Vec::new(),
+            fresh: Vec::new(),
+            fresh_arrays: Vec::new(),
+            fresh_elements: Vec::new(),
+            found: Vec::new(),
+        };
+        // First pass: what the main loop assigns.
+        for (pat, body) in prog.pats.iter() {
+            match pat {
+                ast::Pattern::Null => {}
+                ast::Pattern::Bool(e) => w.collect_expr(e),
+                ast::Pattern::Comma(l, r) => {
+                    w.collect_expr(l);
+                    w.collect_expr(r);
+                }
+            }
+            if let Some(body) = body {
+                w.collect_stmt(body);
+            }
+        }
+        w.written
+            .retain(|n| !crate::builtins::VARIABLES.contains_key(n));
+        if w.written.is_empty() {
+            return Vec::new();
+        }
+        // Second pass: the reads that show, in the order a record runs the rules.
+        for (pat, body) in prog.pats.iter() {
+            let shows = body.is_none_or(|b| prints(b));
+            match pat {
+                ast::Pattern::Null => {}
+                ast::Pattern::Bool(e) => w.expr(e, shows),
+                ast::Pattern::Comma(l, r) => {
+                    w.expr(l, shows);
+                    w.expr(r, shows);
+                }
+            }
+            if let Some(body) = body {
+                w.stmt(body);
+            }
+        }
+        let mut found = w.found;
+        let mut seen = Vec::new();
+        found.retain(|(n, _)| {
+            let first = !seen.contains(n);
+            seen.push(*n);
+            first
+        });
+        found
+    }
+
+    fn written_name(&mut self, e: &'a AstExpr<'a>) {
+        let target = match e {
+            ast::Expr::Index(arr, _) => arr,
+            _ => e,
+        };
+        if let ast::Expr::Var(name) = target {
+            if !self.written.contains(name) {
+                self.written.push(name);
+            }
+        }
+    }
+
+    fn collect_stmt(&mut self, s: &'a AstStmt<'a>) {
+        use ast::Stmt::*;
+        match s {
+            StartCond(_) | EndCond(_) | LastCond(_) | Break | Continue | Next | NextFile => {}
+            Expr(e) | Abort(e) => self.collect_expr(e),
+            Block(ss) => ss.iter().for_each(|s| self.collect_stmt(s)),
+            Print(args, out) => {
+                args.iter().for_each(|e| self.collect_expr(e));
+                if let Some((e, _)) = out {
+                    self.collect_expr(e);
+                }
+            }
+            Printf(fmt, args, out) => {
+                self.collect_expr(fmt);
+                args.iter().for_each(|e| self.collect_expr(e));
+                if let Some((e, _)) = out {
+                    self.collect_expr(e);
+                }
+            }
+            If(c, t, f) => {
+                self.collect_expr(c);
+                self.collect_stmt(t);
+                if let Some(f) = f {
+                    self.collect_stmt(f);
+                }
+            }
+            For(init, cond, update, body) => {
+                if let Some(s) = init {
+                    self.collect_stmt(s);
+                }
+                if let Some(e) = cond {
+                    self.collect_expr(e);
+                }
+                if let Some(s) = update {
+                    self.collect_stmt(s);
+                }
+                self.collect_stmt(body);
+            }
+            DoWhile(c, body) | While(_, c, body) => {
+                self.collect_expr(c);
+                self.collect_stmt(body);
+            }
+            ForEach(key, arr, body) => {
+                if !self.written.contains(key) {
+                    self.written.push(key);
+                }
+                self.collect_expr(arr);
+                self.collect_stmt(body);
+            }
+            ForRange(v, start, end, _, body) => {
+                if !self.written.contains(v) {
+                    self.written.push(v);
+                }
+                self.collect_expr(start);
+                self.collect_expr(end);
+                self.collect_stmt(body);
+            }
+            Switch(e, cases) => {
+                self.collect_expr(e);
+                for (label, body) in cases.iter() {
+                    if let Some(l) = label {
+                        self.collect_expr(l);
+                    }
+                    self.collect_stmt(body);
+                }
+            }
+            Return(e) => {
+                if let Some(e) = e {
+                    self.collect_expr(e);
+                }
+            }
+            EndBlock(s) => self.collect_stmt(s),
+        }
+    }
+
+    fn collect_expr(&mut self, e: &'a AstExpr<'a>) {
+        use ast::Expr::*;
+        match e {
+            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) | Var(_) => {}
+            Unop(_, x) => self.collect_expr(x),
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r) => {
+                self.collect_expr(l);
+                self.collect_expr(r);
+            }
+            Assign(l, r) | AssignOp(l, _, r) => {
+                self.written_name(l);
+                self.collect_expr(l);
+                self.collect_expr(r);
+            }
+            Inc { x, .. } => {
+                self.written_name(x);
+                self.collect_expr(x);
+            }
+            ITE(c, t, f) => {
+                self.collect_expr(c);
+                self.collect_expr(t);
+                self.collect_expr(f);
+            }
+            Getline { into, from, .. } => {
+                if let Some(into) = into {
+                    self.written_name(into);
+                }
+                if let Some(from) = from {
+                    self.collect_expr(from);
+                }
+            }
+            Call(f, args) => {
+                let read_only = match f {
+                    Either::Left(name) => READ_ONLY_FUNCTIONS.contains(name),
+                    Either::Right(Function::Delete | Function::Clear) => false,
+                    Either::Right(_) => true,
+                };
+                for arg in args.iter() {
+                    match arg {
+                        Var(_) if !read_only => self.written_name(arg),
+                        _ => self.collect_expr(arg),
+                    }
+                }
+            }
+        }
+    }
+
+    /// A read of `name` (an element with key `key` when it is an array).
+    fn read(&mut self, name: &'a str, key: Option<&AstExpr<'a>>, e: &AstExpr<'a>, shows: bool) {
+        if !shows || !self.written.contains(&name) {
+            return;
+        }
+        let fresh = match key {
+            None => self.fresh.contains(&name) || self.fresh_arrays.contains(&name),
+            Some(k) => {
+                self.fresh_arrays.contains(&name)
+                    || literal_key(k).is_some_and(|k| {
+                        self.fresh_elements.iter().any(|(n, x)| *n == name && *x == k)
+                    })
+            }
+        };
+        if !fresh {
+            self.found
+                .push((name, self.locs.get(&ast::expr_key(e)).copied()));
+        }
+    }
+
+    /// An assignment to `lhs`; `afresh` when the new value does not depend on the old one.
+    fn assigned(&mut self, lhs: &'a AstExpr<'a>, afresh: bool) {
+        match lhs {
+            ast::Expr::Var(name) if afresh => self.fresh.push(name),
+            ast::Expr::Index(ast::Expr::Var(name), k) if afresh => {
+                if let Some(k) = literal_key(k) {
+                    self.fresh_elements.push((name, k));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn stmt(&mut self, s: &'a AstStmt<'a>) {
+        use ast::Stmt::*;
+        match s {
+            StartCond(_) | EndCond(_) | LastCond(_) | Break | Continue | Next | NextFile => {}
+            // The value of a statement-level `n++` or `s += $1` is not used.
+            Expr(e) => match e {
+                ast::Expr::Inc { x, .. } => self.lvalue(x, false),
+                ast::Expr::AssignOp(l, _, r) => {
+                    self.expr(r, false);
+                    self.lvalue(l, false);
+                }
+                _ => self.expr(e, false),
+            },
+            Abort(e) => self.expr(e, false),
+            Block(ss) => ss.iter().for_each(|s| self.stmt(s)),
+            Print(args, out) => {
+                args.iter().for_each(|e| self.expr(e, true));
+                if let Some((e, _)) = out {
+                    self.expr(e, true);
+                }
+            }
+            Printf(fmt, args, out) => {
+                self.expr(fmt, true);
+                args.iter().for_each(|e| self.expr(e, true));
+                if let Some((e, _)) = out {
+                    self.expr(e, true);
+                }
+            }
+            If(c, t, f) => {
+                let shows = prints(t) || f.is_some_and(prints);
+                self.expr(c, shows);
+                self.stmt(t);
+                if let Some(f) = f {
+                    self.stmt(f);
+                }
+            }
+            For(init, cond, update, body) => {
+                if let Some(s) = init {
+                    self.stmt(s);
+                }
+                if let Some(e) = cond {
+                    self.expr(e, false);
+                }
+                if let Some(s) = update {
+                    self.stmt(s);
+                }
+                self.stmt(body);
+            }
+            DoWhile(c, body) | While(_, c, body) => {
+                self.expr(c, false);
+                self.stmt(body);
+            }
+            ForEach(key, arr, body) => {
+                self.fresh.push(key);
+                self.expr(arr, false);
+                self.stmt(body);
+            }
+            ForRange(v, start, end, _, body) => {
+                self.fresh.push(v);
+                self.expr(start, false);
+                self.expr(end, false);
+                self.stmt(body);
+            }
+            Switch(e, cases) => {
+                let shows = cases.iter().any(|(_, body)| prints(body));
+                self.expr(e, shows);
+                for (label, body) in cases.iter() {
+                    if let Some(l) = label {
+                        self.expr(l, false);
+                    }
+                    self.stmt(body);
+                }
+            }
+            Return(e) => {
+                if let Some(e) = e {
+                    self.expr(e, false);
+                }
+            }
+            EndBlock(s) => self.stmt(s),
+        }
+    }
+
+    /// Walks the subscript of an assigned element (its old value is read only by updates).
+    fn lvalue(&mut self, lhs: &'a AstExpr<'a>, afresh: bool) {
+        if let ast::Expr::Index(_, k) = lhs {
+            self.expr(k, false);
+        }
+        self.assigned(lhs, afresh);
+    }
+
+    fn expr(&mut self, e: &'a AstExpr<'a>, shows: bool) {
+        use ast::Expr::*;
+        match e {
+            ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => {}
+            Var(name) => self.read(name, None, e, shows),
+            Unop(_, x) => self.expr(x, shows),
+            Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) => {
+                self.expr(l, shows);
+                self.expr(r, shows);
+            }
+            Index(arr, k) => {
+                match arr {
+                    Var(name) => self.read(name, Some(k), e, shows),
+                    _ => self.expr(arr, shows),
+                }
+                self.expr(k, shows);
+            }
+            Assign(lhs, rhs) => {
+                // `m = m > $1 ? m : $1` only feeds itself.
+                let target = match lhs {
+                    Index(Var(name), _) | Var(name) => Some(*name),
+                    _ => None,
+                };
+                let update = target.is_some_and(|n| reads_var(rhs, n));
+                self.expr(rhs, shows && !update);
+                if shows {
+                    // `print (x = x + 1)` shows the old value.
+                    if update {
+                        self.expr(lhs, true);
+                    }
+                }
+                self.lvalue(lhs, !update);
+            }
+            AssignOp(lhs, _, rhs) => {
+                self.expr(rhs, shows);
+                if shows {
+                    self.expr(lhs, true);
+                }
+                self.lvalue(lhs, false);
+            }
+            // `!seen[$1]++`: the old value decides.
+            Inc { x, .. } => {
+                if shows {
+                    self.expr(x, true);
+                }
+                self.lvalue(x, false);
+            }
+            ITE(c, t, f) => {
+                self.expr(c, shows);
+                self.expr(t, shows);
+                self.expr(f, shows);
+            }
+            Getline { into, from, .. } => {
+                if let Some(from) = from {
+                    self.expr(from, shows);
+                }
+                if let Some(into) = into {
+                    self.lvalue(into, true);
+                }
+            }
+            Call(f, args) => {
+                // `delete a[k]` removes one element; `delete a` and `split(s, a)` start afresh.
+                let fills = match f {
+                    Either::Left(name) => !READ_ONLY_FUNCTIONS.contains(name),
+                    Either::Right(Function::Clear) => true,
+                    Either::Right(Function::Delete) => {
+                        args.iter().skip(1).for_each(|k| self.expr(k, false));
+                        return;
+                    }
+                    Either::Right(_) => false,
+                };
+                for arg in args.iter() {
+                    match arg {
+                        Var(name) if fills => {
+                            self.fresh_arrays.push(name);
+                            self.fresh.push(name);
+                        }
+                        _ => self.expr(arg, shows),
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// gawk special variables that zawk treats as ordinary variables.
@@ -3157,7 +3679,7 @@ mod tests {
             text: prog.to_string(),
             ..Source::default()
         };
-        let w = parallel_warnings(std::slice::from_ref(&src), Parallel::Record);
+        let w = parallel_warnings(std::slice::from_ref(&src), Parallel::Record, false);
         assert_eq!(w.len(), 1);
         assert!(
             w[0].starts_with("zawk: warning: -p r: line 2, column 3: W302 "),
@@ -3170,7 +3692,8 @@ mod tests {
                     text: fixed.to_string(),
                     ..Source::default()
                 }],
-                Parallel::File
+                Parallel::File,
+                false
             )
             .is_empty()
         );
@@ -3180,7 +3703,8 @@ mod tests {
                     text: "{ x = ".to_string(),
                     ..Source::default()
                 }],
-                Parallel::File
+                Parallel::File,
+                false
             )
             .is_empty()
         );
@@ -3229,6 +3753,65 @@ mod tests {
             codes(&run_with("FNR == 1 { print FILENAME }", &pr)),
             ["W301"]
         );
+    }
+
+    #[test]
+    fn parallel_cross_record_state() {
+        let pr = Options {
+            parallel: Some(Parallel::Record),
+            ..Options::default()
+        };
+        // Range state is per worker (W304, `-pr` only: with `-pf` each file is read by one worker).
+        assert_eq!(codes(&run_with("/BEGIN/, /END/", &pr)), ["W304"]);
+        let pf = Options {
+            parallel: Some(Parallel::File),
+            ..Options::default()
+        };
+        assert!(codes(&run_with("/BEGIN/, /END/", &pf)).is_empty());
+        // State carried over from earlier records that decides or makes output (W305).
+        for prog in [
+            "!seen[$2]++ { print $2 }",
+            "$1 != prev { print } { prev = $1 }",
+            "{ n++; print n }",
+            "{ s += $1; print s }",
+            "{ if (!($1 in seen)) { seen[$1] = 1; print } }",
+            "$1 > m { m = $1; print }",
+        ] {
+            assert_eq!(codes(&run_with(prog, &pr)), ["W305"], "{}", prog);
+            assert!(codes(&run(prog)).is_empty(), "{}", prog);
+        }
+        // Values of this record, and accumulations that only feed themselves (or END: W302/W303).
+        for ok in [
+            "{ x = $1; print x }",
+            "{ split($0, a); print a[1] }",
+            "{ a[\"k\"] = $1; print a[\"k\"] }",
+            "{ delete a; a[$1] = 1; for (k in a) print k }",
+            "{ c[$1]++ } END { for (k in c) print k, c[k] }",
+            "{ if ($1 > max) max = $1 } PREPARE { m[PID] = max } END { for (p in m) print m[p] }",
+            "{ getline line < \"f\"; print line }",
+        ] {
+            assert!(codes(&run_with(ok, &pr)).is_empty(), "{}", ok);
+        }
+        // A name W302 reports is not reported again.
+        assert_eq!(
+            codes(&run_with("$1 > m { m = $1; print } END { print m }", &pr)),
+            ["W302"]
+        );
+        // A run prints W304/W305; with `--keep-order` W301 too.
+        let src = |t: &str| Source {
+            text: t.to_string(),
+            ..Source::default()
+        };
+        let w = parallel_warnings(&[src("!seen[$1]++")], Parallel::Record, false);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].starts_with("zawk: warning: -p r: line 1, column 2: W305 "), "{}", w[0]);
+        assert!(parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, false).is_empty());
+        let w = parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, true);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].starts_with("zawk: warning: --keep-order: line 1, column 1: W301 "), "{}", w[0]);
+        assert!(has_range_pattern(&[src("NR == 2, /x/ { print }")]));
+        assert!(!has_range_pattern(&[src("/x/ { print }")]));
+        assert!(!has_range_pattern(&[src("{ x = ")]));
     }
 
     #[test]
