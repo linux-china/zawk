@@ -926,7 +926,8 @@ impl<P: ChunkProducer> ChunkProducer for ChainedChunkProducer<P> {
 /// parallel.
 pub struct ParallelChunkProducer<P: ChunkProducer> {
     start: Receiver<()>,
-    incoming: Receiver<P::Chunk>,
+    /// The chunks, numbered in the order of the input (see `writers::ordered`).
+    incoming: Receiver<(u64, P::Chunk)>,
     spent: Sender<P::Chunk>,
     // The error that stopped the reading thread, set before it closes `incoming`.
     error: Arc<Mutex<Option<CompileError>>>,
@@ -957,6 +958,7 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
             let mut p = p_factory();
             // The workers scan the chunks, so that this thread only reads them.
             p.defer_scan();
+            let mut seq = 0u64;
             loop {
                 let mut chunk = spent_receiver.try_recv().ok().unwrap_or_default();
                 match p.get_chunk(&mut chunk) {
@@ -967,11 +969,13 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
                         return;
                     }
                 }
-                match in_sender.try_send(chunk) {
+                let item = (seq, chunk);
+                seq += 1;
+                let item = match in_sender.try_send(item) {
                     Ok(()) => continue,
-                    Err(TrySendError::Full(c)) => chunk = c,
+                    Err(TrySendError::Full(item)) => item,
                     Err(TrySendError::Disconnected(_)) => return,
-                }
+                };
                 // The channel is full: the running workers consume chunks slower than we produce
                 // them, so start one more. Workers start one at a time, each time the channel
                 // fills up again, so an IO-bound input (the channel never fills) keeps running on
@@ -981,7 +985,7 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
                 // channel and starts the next one that asks; `try_send` fails once the channel
                 // holds `chan_size` unused tokens, which is more than enough.
                 let _ = start_sender.try_send(());
-                if in_sender.send(chunk).is_err() {
+                if in_sender.send(item).is_err() {
                     return;
                 }
             }
@@ -1026,7 +1030,10 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
         false
     }
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
-        while let Ok(mut new_chunk) = self.incoming.recv() {
+        while let Ok((seq, mut new_chunk)) = self.incoming.recv() {
+            // The records of the previous chunk are all processed: with `--keep-order`, its
+            // output can be written once the output of the chunks before it is.
+            crate::runtime::writers::ordered::begin_chunk(seq);
             mem::swap(chunk, &mut new_chunk);
             let res = chunk.finish(&mut new_chunk);
             let _ = self.spent.try_send(new_chunk);

@@ -668,6 +668,9 @@ macro_rules! exit {
         // reach this runtime again through `fail_current_runtime`: it is being dropped.
         $crate::codegen::intrinsics::set_current_runtime(std::ptr::null_mut());
         if rt.concurrent {
+            // With `--keep-order`, hand over the output of the chunk being processed before the
+            // main thread may write what is left.
+            runtime::writers::ordered::leave();
             let pid = rt.core.vars.pid;
             rt.cancel_signal.cancel(code);
             std::ptr::drop_in_place(rt_raw);

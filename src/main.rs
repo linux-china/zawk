@@ -1719,6 +1719,10 @@ fn real_main() {
             .short('p')
             .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files. Without -p, an aggregation over local files of 64 MiB or more whose result does not depend on the order of the records (e.g. `{s+=$3} END{print s}`) runs as with -pr; -p0 (or ZAWK_PARALLEL=0) runs it serially")
             .value_parser(["r", "record", "f", "file", "0"]))
+        .arg(Arg::new("keep-order")
+            .long("keep-order")
+            .num_args(0)
+            .help("With -pr, write stdout in the order of the input records, as a serial run does (filter and transform scripts can then run in parallel). Implies -pr when -p is not given. Output to files, commands and stderr is not ordered"))
         .arg(Arg::new("chunk-size")
             .long("chunk-size")
             .num_args(1)
@@ -1877,12 +1881,20 @@ fn real_main() {
     {
         Some("r") | Some("record") => ExecutionStrategy::ShardPerRecord(num_cpus::get()),
         Some("f") | Some("file") => ExecutionStrategy::ShardPerFile,
+        // `--keep-order` alone runs as `-pr --keep-order`.
+        None if matches.get_flag("keep-order") => {
+            ExecutionStrategy::ShardPerRecord(num_cpus::get())
+        }
         Some("0") | None => ExecutionStrategy::Serial,
         Some(x) => fail!(
             "invalid execution strategy (clap arg parsing should handle this): {}",
             x
         ),
     };
+    if matches.get_flag("keep-order") && matches!(exec_strategy, ExecutionStrategy::ShardPerFile)
+    {
+        fail!("--keep-order only works with -pr, not with -pf");
+    }
 
     // NB: do we want this to be a command-line param?
     // The default depends on the execution strategy, which may still change below.
@@ -2154,6 +2166,12 @@ fn real_main() {
             exec_strategy = ExecutionStrategy::ShardPerRecord(num_workers);
         }
     }
+    // With `-pr --keep-order`, the workers write stdout in the order of the input (a serial run
+    // writes it in that order anyway).
+    runtime::writers::ordered::set_keep_order(
+        matches.get_flag("keep-order")
+            && matches!(exec_strategy, ExecutionStrategy::ShardPerRecord(_)),
+    );
     // With `-pr`, larger chunks mean fewer round trips between the reader and the workers (25-35%
     // faster on GB-sized inputs; 1 MiB is no faster and leaves workers idle at the end of a few
     // hundred MB); serial runs keep smaller chunks, which stay in L2 and add less latency on pipes.

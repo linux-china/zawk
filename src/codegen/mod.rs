@@ -244,6 +244,9 @@ unsafe fn run_stage(
     }
 
     rt.concurrent = true;
+    // With `--keep-order`, the workers (this thread included) hold back their stdout output
+    // until the output of the chunks before theirs is written.
+    rt.core.write_files.start_ordered_output();
     // The workers (this thread included) share the regexes they compile.
     rt.core.regexes.join_shared(std::sync::Arc::new(
         runtime::shared_regex::SharedRegexes::new(),
@@ -284,7 +287,9 @@ unsafe fn run_stage(
                         stack_limit: crate::common::stack_limit(),
                         calls: Vec::new(),
                     };
+                    runtime::writers::ordered::enter();
                     main_loop_fn.invoke(&mut runtime);
+                    runtime::writers::ordered::leave();
                 }
             });
             spawned.expect("failed to spawn worker thread");
@@ -294,7 +299,9 @@ unsafe fn run_stage(
             rt.core.vars.pid = 1;
             let r = receiver.clone();
             rt.cleanup = Cleanup::<Runtime>::new(move |_| while r.recv().is_ok() {});
+            runtime::writers::ordered::enter();
             main_loop_fn.invoke(&mut rt);
+            runtime::writers::ordered::leave();
             rt.cleanup.cancel();
         }
         rt.core.vars.pid = 0;
@@ -302,6 +309,7 @@ unsafe fn run_stage(
         while let Ok(res) = receiver.recv() {
             rt.core.combine(res, &base_slots);
         }
+        runtime::writers::ordered::finish();
         // Cancelled other than by `exit` (a worker failed to write its output): stop now.
         if let (Some(rc), false) = (cancel_signal.get_code(), rt.core.exiting) {
             mem::drop(rt);

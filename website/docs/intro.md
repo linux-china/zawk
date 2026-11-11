@@ -124,6 +124,7 @@ zawk [options] -f script.awk [file ...]
 | `-o csv\|tsv\|markdown\|table\|jsonl\|parquet\|avro` | Output format of `print` |
 | `--out-file FILE` | Write stdout to `FILE` (required for `-o parquet`/`-o avro` unless redirected) |
 | `-p r -j N` | Run in parallel over records with `N` workers |
+| `--keep-order` | With `-p r` (implied when `-p` is not given), print to stdout in input order, as a serial run does |
 | `--lint` | Lint the program before running it |
 | `--posix` | Disable zawk's command-line sugar |
 

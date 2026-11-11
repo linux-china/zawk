@@ -1553,14 +1553,14 @@ struct WriterSlot {
 impl WriterSlot {
     /// Send `req` to the writer thread, starting it for a write if it is not running. Fails if
     /// the thread cannot be started or has died; `req` is then answered with an error.
-    fn send(self: &Arc<Self>, req: Request) -> io::Result<()> {
+    fn send(self: &Arc<Self>, mut req: Request) -> io::Result<()> {
         let mut sender = self.sender.lock().unwrap();
         if sender.is_none() {
             if self.is_sync.load(Ordering::Acquire) {
                 self.handle_sync(req);
                 return Ok(());
             }
-            if !matches!(req, Request::Write { .. }) {
+            if !matches!(req, Request::Write { .. } | Request::Owned(_)) {
                 // The output is closed and no request is pending: flushing or closing it is a
                 // no-op, not worth starting a thread for. Closing an evicted file closes it for
                 // good: it is truncated if reopened by `>`.
@@ -1591,7 +1591,7 @@ impl WriterSlot {
                 }
             }
         }
-        if let Err(e) = sender.as_ref().unwrap().send(req) {
+        if let Err(mut e) = sender.as_ref().unwrap().send(req) {
             // The writer thread died (e.g. it panicked): fail the request like an I/O error.
             e.0.set_code(ErrorCode::set_error);
             return Err(io::Error::new(
@@ -1629,7 +1629,7 @@ impl WriterSlot {
         let (n, req) = Request::evict();
         match sender.send(req) {
             Ok(()) => Ok(Some(n)),
-            Err(e) => {
+            Err(mut e) => {
                 // The writer thread died: release the request.
                 e.0.set_code(ErrorCode::set_ok);
                 Ok(None)
@@ -1648,7 +1648,7 @@ impl WriterSlot {
 
     /// Handle `req` in the calling thread, which holds `sender`'s lock while no writer thread
     /// runs: the file is written synchronously, as `receive_loop` would write it.
-    fn handle_sync(self: &Arc<Self>, req: Request) {
+    fn handle_sync(self: &Arc<Self>, mut req: Request) {
         let mut sync = self.sync.lock().unwrap();
         let state = sync.get_or_insert_with(|| SyncWriter {
             writer: None,
@@ -1665,6 +1665,7 @@ impl WriterSlot {
             Request::Write {
                 data, spec, flush, ..
             } => self.write_sync(state, unsafe { &**data }, *spec, *flush),
+            Request::Owned(data) => self.write_sync(state, data, FileSpec::Append, false),
             Request::Flush(_) => state.writer.as_mut().map_or(Ok(()), |w| w.flush()),
             Request::Close | Request::Evict(_) => {
                 let res = state.writer.as_mut().map_or(Ok(()), |w| w.flush());
@@ -1807,7 +1808,7 @@ pub struct Registry {
 impl Registry {
     pub fn from_factory(f: impl FileFactory) -> Registry {
         let root_impl = RootImpl::from_factory(f);
-        let stdout = root_impl.get_stdout().into_handle();
+        let stdout = root_impl.get_stdout().into_stdout_handle();
         let stderr = root_impl.get_stderr().into_stderr_handle();
         Registry {
             global: Arc::new(root_impl),
@@ -1868,6 +1869,12 @@ impl Registry {
     /// Check that the output file `name` can be opened before writing to it, as files are opened
     /// lazily by the writer threads. As in gawk, failing to open an output file is an error
     /// (unlike other write errors, which end the program silently).
+    /// Start holding back the stdout output of the workers of `-pr --keep-order`, if it is set,
+    /// until the output of every chunk before theirs is written (see [`ordered`]).
+    pub fn start_ordered_output(&self) {
+        ordered::start(self.stdout.raw());
+    }
+
     pub fn check_output(&mut self, name: &Str, fspec: FileSpec) -> Result<()> {
         if let FileSpec::Cmd = fspec {
             return Ok(());
@@ -1974,6 +1981,8 @@ impl Registry {
     }
 
     pub fn destroy_and_flush_all_files(&mut self) -> Result<()> {
+        // A worker of `-pr --keep-order` stopped by `exit` hands over the output it holds.
+        ordered::leave();
         let mut last_error = Ok(());
         for (_, mut fh) in self.files.drain().chain(self.cmds.drain()) {
             let res = fh.flush();
@@ -1987,6 +1996,8 @@ impl Registry {
             if res.is_err() {
                 last_error = res;
             }
+            // Output of `-pr --keep-order` still held back (after an `exit`) comes first.
+            ordered::finish();
             // Close (rather than only flush) stdout, so that its writer is dropped before we
             // exit: wrappers such as `ParquetWriter` write their trailer when dropped.
             let res = self.stdout.close();
@@ -2006,7 +2017,7 @@ impl Clone for Registry {
             global: self.global.clone(),
             files: Default::default(),
             cmds: Default::default(),
-            stdout: self.stdout.raw().into_handle(),
+            stdout: self.stdout.raw().into_stdout_handle(),
             stderr: self.stderr.raw().into_stderr_handle(),
             is_root: false,
         }
@@ -2232,6 +2243,9 @@ pub struct FileHandle {
     /// Whether this handle of an output file counts in `FdPool::writing`: it was written since
     /// it was last closed.
     writing: bool,
+    /// Whether this is the handle of stdout, whose output a worker of `-pr --keep-order` holds
+    /// back until the output of the chunks before its own is written (see [`ordered`]).
+    stdout: bool,
 }
 
 /// Text written to a [`FileHandle`] in one go: the strings of a `print`, or the bytes of a
@@ -2380,6 +2394,11 @@ impl FileHandle {
                 .and_then(|_| err.flush())
                 .map_err(|e| CompileError::new(format!("{}", e)));
         }
+        if self.stdout && ordered::KEEP_ORDER.load(Ordering::Relaxed) {
+            if let Some(res) = ordered::write(ss) {
+                return res;
+            }
+        }
         self.dirty = true;
         self.set_writing(true);
         let limit = self.batch_limit();
@@ -2512,7 +2531,13 @@ enum Request {
         status: *const ErrorCode,
         spec: FileSpec,
         flush: bool,
+        /// Set once the status was reported. The request must not look at `status` (or `data`)
+        /// afterwards: the client is then free to reuse its guard for another request.
+        reported: bool,
     },
+    /// Bytes handed over to the writer thread, written like a `Write` that appends; no status is
+    /// reported back. Used for the output of `--keep-order` (see [`ordered`]).
+    Owned(Vec<u8>),
     Flush(Arc<(ErrorCode, Notification)>),
     Close,
     /// Close the file to free its descriptor (see `FdPool`). Unlike `Close`, the file remains
@@ -2542,17 +2567,23 @@ impl Request {
             // length here should _always_ be safe. This is tracked by the {const_}slice_ptr_len
             // feature.
             Request::Write { data, .. } => unsafe { &**data }.len(),
+            Request::Owned(data) => data.len(),
             Request::Flush(_) | Request::Close | Request::Evict(_) => 0,
         }
     }
-    fn set_code(&self, mut f: impl FnMut(&ErrorCode)) {
+    fn set_code(&mut self, mut f: impl FnMut(&ErrorCode)) {
         match self {
-            Request::Write { status, .. } => f(unsafe { &**status }),
+            Request::Write {
+                status, reported, ..
+            } => {
+                f(unsafe { &**status });
+                *reported = true;
+            }
             Request::Flush(n) | Request::Evict(n) => {
                 f(&n.0);
                 n.1.notify();
             }
-            Request::Close => {}
+            Request::Close | Request::Owned(_) => {}
         }
     }
 }
@@ -2562,15 +2593,16 @@ impl Drop for Request {
         match self {
             // Do not turn a panic into an abort.
             _ if std::thread::panicking() => {}
-            Request::Write { status, .. } => {
-                // We have to have set this as either ok, or an error.
-                let status = unsafe { &**status }.read();
-                assert!(!matches!(status, RequestStatus::Ongoing));
+            Request::Write { reported, .. } => {
+                // We have to have set this as either ok, or an error. (Not checked by reading
+                // the status: once it is set, the client may already have reset it for a new
+                // request in the same guard.)
+                assert!(*reported, "write request dropped without reporting its status");
             }
             Request::Flush(n) | Request::Evict(n) => {
                 assert!(n.1.has_been_notified());
             }
-            Request::Close => {}
+            Request::Close | Request::Owned(_) => {}
         }
     }
 }
@@ -2625,6 +2657,7 @@ impl WriteGuard {
             status: &self.status,
             spec: self.spec,
             flush,
+            reported: false,
         }
     }
 
@@ -2684,7 +2717,15 @@ impl RawHandle {
             direct: false,
             dirty: false,
             writing: false,
+            stdout: false,
         }
+    }
+
+    /// The handle of stdout (see `FileHandle::stdout`).
+    fn into_stdout_handle(self) -> FileHandle {
+        let mut fh = self.into_handle();
+        fh.stdout = true;
+        fh
     }
 
     /// A handle writing directly to the process's stderr (see FileHandle::direct).
@@ -2762,6 +2803,14 @@ impl WriteBatch {
                 self.n_writes += 1;
                 self.flush |= *flush;
             }
+            Request::Owned(data) => {
+                // The bytes live on the heap: they stay put when `req` moves into `requests`,
+                // which keeps them until the batch is cleared.
+                let io_slice = io::IoSlice::new(unsafe { &*(&data[..] as *const [u8]) });
+                self.write_bytes += io_slice.len();
+                self.io_vec.push(io_slice);
+                self.n_writes += 1;
+            }
             Request::Flush(_) => self.flush = true,
             Request::Close => self.close = true,
             Request::Evict(_) => {
@@ -2774,7 +2823,7 @@ impl WriteBatch {
     }
     fn clear_batch(&mut self, mut f: impl FnMut(&ErrorCode)) {
         self.io_vec.clear();
-        for req in self.requests.drain(..) {
+        for mut req in self.requests.drain(..) {
             req.set_code(&mut f)
         }
         self.close = false;
@@ -2824,7 +2873,7 @@ fn receive_thread<W: io::Write>(
         // Now signal an error on any pending requests.
         batch.clear_error();
         // And send an error back for any more requests that come in.
-        while let Ok(req) = receiver.recv() {
+        while let Ok(mut req) = receiver.recv() {
             req.set_code(ErrorCode::set_error)
         }
     }
@@ -2920,6 +2969,226 @@ fn receive_loop<W: io::Write>(
         }
     }
     Ok(())
+}
+
+/// `-pr --keep-order`: stdout output in the order of the input, as if the program ran serially.
+///
+/// The reader thread of `-pr` numbers the chunks it hands out (see `ParallelChunkProducer`). A
+/// worker collects what it prints to stdout while processing a chunk in a buffer of its own
+/// (thread-local, since the reader and the stdout handle of a worker do not know each other), and
+/// hands it over ("seals" it) when it takes its next chunk, or when it stops. Sealed output is
+/// sent to the stdout writer thread in chunk order: the output of the chunk that is next is sent
+/// right away, followed by any output of later chunks sealed before; the output of other chunks
+/// waits in a map. The worker holding the next chunk also sends what it prints as it goes once it
+/// has a full batch, so that a chunk with much output is not held back as a whole.
+///
+/// Only stdout is ordered: output to files, commands and stderr, and the output of `system`,
+/// are written as they come, as without `--keep-order`.
+pub mod ordered {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    /// Set by `--keep-order`.
+    pub(super) static KEEP_ORDER: AtomicBool = AtomicBool::new(false);
+
+    /// The ordering of the parallel stage being run.
+    static CURRENT: Mutex<Option<Arc<Reorder>>> = Mutex::new(None);
+
+    pub fn set_keep_order(on: bool) {
+        KEEP_ORDER.store(on, Ordering::Relaxed);
+    }
+
+    pub fn keep_order() -> bool {
+        KEEP_ORDER.load(Ordering::Relaxed)
+    }
+
+    struct Reorder {
+        state: Mutex<State>,
+        /// `State::next`, read without the lock by workers that consider sending early.
+        head: AtomicU64,
+        /// Set once writing stdout failed: the workers stop at their next `print`.
+        failed: AtomicBool,
+        out: RawHandle,
+    }
+
+    #[derive(Default)]
+    struct State {
+        /// The chunk whose output is to be written next.
+        next: u64,
+        /// The sealed output of chunks after `next`.
+        done: BTreeMap<u64, Vec<u8>>,
+        /// Set by `finish`: output sealed afterwards (by a worker stopped late) is written at once.
+        finished: bool,
+    }
+
+    impl Reorder {
+        fn send(&self, data: Vec<u8>) {
+            if data.is_empty() || self.failed.load(Ordering::Relaxed) {
+                return;
+            }
+            let failed = self.out.writer.send(Request::Owned(data)).is_err()
+                || self.out.error.lock().map_or(true, |e| e.is_some());
+            if failed {
+                self.failed.store(true, Ordering::Release);
+            }
+        }
+
+        fn seal(&self, seq: u64, data: Vec<u8>) {
+            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let st = &mut *guard;
+            if st.finished {
+                self.send(data);
+                return;
+            }
+            if seq != st.next {
+                st.done.insert(seq, data);
+                return;
+            }
+            self.send(data);
+            st.next += 1;
+            while let Some(data) = st.done.remove(&st.next) {
+                self.send(data);
+                st.next += 1;
+            }
+            self.head.store(st.next, Ordering::Release);
+        }
+
+        /// Send `data` now if `seq` is the chunk to write next (taking it), otherwise leave it.
+        fn send_if_head(&self, seq: u64, data: &mut Vec<u8>) {
+            if self.head.load(Ordering::Acquire) != seq {
+                return;
+            }
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if st.next == seq || st.finished {
+                let cap = data.capacity();
+                self.send(mem::replace(data, Vec::with_capacity(cap)));
+            }
+        }
+
+        fn error(&self) -> CompileError {
+            match self.out.error.lock() {
+                Ok(e) => e.clone().unwrap_or_else(|| {
+                    CompileError::new("output writer thread exited unexpectedly".into())
+                }),
+                Err(_) => CompileError::new("output writer thread exited unexpectedly".into()),
+            }
+        }
+    }
+
+    use std::mem;
+
+    /// The state of a worker thread.
+    struct Worker {
+        order: Arc<Reorder>,
+        /// The chunk being processed; `None` before the first one.
+        seq: Option<u64>,
+        buf: Vec<u8>,
+    }
+
+    impl Worker {
+        fn seal(&mut self, next: Option<u64>) {
+            let cap = self.buf.len().min(BUFFER_SIZE);
+            let data = mem::replace(&mut self.buf, Vec::with_capacity(cap));
+            match self.seq {
+                Some(seq) => self.order.seal(seq, data),
+                // Printed before the first chunk: it goes with that chunk.
+                None if next.is_some() => self.buf = data,
+                // A worker that got no chunk at all printed nothing.
+                None => self.order.send(data),
+            }
+            self.seq = next;
+        }
+    }
+
+    thread_local! {
+        static WORKER: RefCell<Option<Worker>> = const { RefCell::new(None) };
+    }
+
+    /// Start a parallel stage writing stdout through `out`, if `--keep-order` is set. Chunks are
+    /// numbered from 0 by each `ParallelChunkProducer`, of which a program has at most one.
+    pub(super) fn start(out: RawHandle) {
+        if !keep_order() {
+            return;
+        }
+        let order = Arc::new(Reorder {
+            state: Mutex::new(State::default()),
+            head: AtomicU64::new(0),
+            failed: AtomicBool::new(false),
+            out,
+        });
+        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(order);
+    }
+
+    /// Make the calling thread a worker of the current stage: what it prints to stdout is held
+    /// back until `leave`. A no-op without `--keep-order`.
+    pub fn enter() {
+        let order = match &*CURRENT.lock().unwrap_or_else(|e| e.into_inner()) {
+            Some(o) => o.clone(),
+            None => return,
+        };
+        WORKER.with(|w| {
+            *w.borrow_mut() = Some(Worker {
+                order,
+                seq: None,
+                buf: Vec::new(),
+            })
+        });
+    }
+
+    /// The calling worker takes chunk `seq`: the output of its previous chunk is complete.
+    pub fn begin_chunk(seq: u64) {
+        if !keep_order() {
+            return;
+        }
+        WORKER.with(|w| {
+            if let Some(w) = w.borrow_mut().as_mut() {
+                w.seal(Some(seq));
+            }
+        });
+    }
+
+    /// The calling worker is done: hand over the output of its last chunk.
+    pub fn leave() {
+        if !keep_order() {
+            return;
+        }
+        // Take the state first: sealing does not print, but keep the borrow short anyway.
+        if let Some(mut w) = WORKER.with(|w| w.borrow_mut().take()) {
+            w.seal(None);
+        }
+    }
+
+    /// Every worker of the stage has left (or the program exits): write the output still held
+    /// back, in chunk order, and the output sealed from now on as it comes.
+    pub fn finish() {
+        let order = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(order) = order {
+            let mut st = order.state.lock().unwrap_or_else(|e| e.into_inner());
+            for (_, data) in mem::take(&mut st.done) {
+                order.send(data);
+            }
+            st.finished = true;
+        }
+    }
+
+    /// Write `ss` to the buffer of the calling worker; `None` if this thread is not a worker.
+    pub(super) fn write<C: Chunks + ?Sized>(ss: &C) -> Option<Result<()>> {
+        WORKER.with(|w| {
+            let mut w = w.borrow_mut();
+            let w = w.as_mut()?;
+            if w.order.failed.load(Ordering::Acquire) {
+                return Some(Err(w.order.error()));
+            }
+            ss.for_each_chunk(|bs| w.buf.extend_from_slice(bs));
+            if w.buf.len() >= BUFFER_SIZE {
+                if let Some(seq) = w.seq {
+                    w.order.send_if_head(seq, &mut w.buf);
+                }
+            }
+            Some(Ok(()))
+        })
+    }
 }
 
 pub mod testing {

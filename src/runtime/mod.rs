@@ -1093,6 +1093,10 @@ impl FileWrite {
     pub(crate) fn flush_stdout(&mut self) -> Result<()> {
         self.0.get_file(None)?.flush()
     }
+    /// See [`writers::Registry::start_ordered_output`].
+    pub(crate) fn start_ordered_output(&self) {
+        self.0.start_ordered_output()
+    }
     /// Close an output file or command. Returns the command's exit status, 0 for a file, or
     /// `None` if `path` was never opened for output.
     pub(crate) fn close(&mut self, path: &Str) -> Result<Option<Int>> {

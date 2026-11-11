@@ -773,6 +773,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         if self.core.write_files.flush_stdout().is_err() {
             return Ok(1);
         }
+        // With `--keep-order`, the workers (this thread included) hold back their stdout output
+        // until the output of the chunks before theirs is written.
+        self.core.write_files.start_ordered_output();
         // For handling the worker portion, we want to transfer the current stdin progress to a
         // worker thread, but to withhold any progress on other files open for read. We'll swap
         // these back in when we execute the `end` block, if there is one.
@@ -831,7 +834,9 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             iters_int: default_of(iters_int_size),
                             iters_str: default_of(iters_str_size),
                         };
+                        runtime::writers::ordered::enter();
                         let res = interp.run_at(main_loop);
+                        runtime::writers::ordered::leave();
 
                         // Ignore errors, as it means another thread executed with an error and we are
                         // exiting anyway.
@@ -856,7 +861,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 cancel_signal.cancel(2);
                 e
             };
-            let mut rc = self.run_at(main_loop).map_err(cancel_on_err)?;
+            runtime::writers::ordered::enter();
+            let main_res = self.run_at(main_loop);
+            runtime::writers::ordered::leave();
+            let mut rc = main_res.map_err(cancel_on_err)?;
             self.core.vars.pid = 0;
             while let Ok(res) = receiver.recv() {
                 let res = res.map_err(cancel_on_err)?;
@@ -869,6 +877,8 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             Ok(rc)
         });
         self.core.regexes.leave_shared();
+        // Every worker has left: write the output still held back (after an `exit` or an error).
+        runtime::writers::ordered::finish();
         let rc = wrap_error(scope_res)?;
         if rc != 0 {
             return Ok(rc);
