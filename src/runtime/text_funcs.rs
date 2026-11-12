@@ -185,7 +185,8 @@ pub fn right(s: &[u8], n: Int) -> Vec<u8> {
     let us = units(s);
     let len = us.len() as Int;
     let skip = if n < 0 {
-        (-n).min(len)
+        // `n` may be `Int::MIN` (`to_int` saturates huge negatives), so `-n` would overflow.
+        n.checked_neg().unwrap_or(Int::MAX).min(len)
     } else {
         (len - n).max(0)
     };
@@ -312,6 +313,16 @@ mod tests {
         assert_eq!(text(TextOp::Right, "hello", "10", ""), "hello");
         assert_eq!(text(TextOp::Right, "hello", "0", ""), "");
         assert_eq!(text(TextOp::Right, "你好世界", "2", ""), "世界");
+    }
+
+    #[test]
+    fn left_and_right_extreme_counts() {
+        assert_eq!(right(b"abc", Int::MIN), b"");
+        assert_eq!(right(b"abc", Int::MAX), b"abc");
+        assert_eq!(left(b"abc", Int::MIN), b"");
+        assert_eq!(left(b"abc", Int::MAX), b"abc");
+        assert_eq!(text(TextOp::Right, "abc", "-1e30", ""), "");
+        assert_eq!(text(TextOp::Left, "abc", "-1e30", ""), "");
     }
 
     #[test]

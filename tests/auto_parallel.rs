@@ -73,10 +73,10 @@ fn aggregations_run_in_parallel_with_the_serial_result() {
     let small = [("ZAWK_PARALLEL_MIN_SIZE", "1")];
     for prog in [
         "{ s += int($4) } END { print s }",
-        "{ a[$2] += int($3) } END { for (k in a) print k, a[k] }",
+        "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$2] += int($3) } END { for (k in a) print k, a[k] }",
         "{ c[$5]++ } END { print length(c) }",
         "/ERROR/ { c++ } END { print c, NR }",
-        "{ n = split($6, p, \"-\"); c[p[3]] += n } END { for (k in c) print k, c[k] }",
+        "{ n = split($6, p, \"-\"); c[p[3]] += n } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in c) print k, c[k] }",
         "{ x = int($3 * 2); s += x } END { print s }",
         "BEGIN { t = 500 } $3 > t { hi++ } $3 <= t { lo++ } END { print hi, lo, NR, FNR, FILENAME }",
     ] {
@@ -104,9 +104,10 @@ fn aggregations_run_in_parallel_with_the_serial_result() {
                 "{}",
                 prog
             );
+            // The same output, in the same order.
             assert_eq!(
-                sorted_lines(&serial.stdout),
-                sorted_lines(&parallel.stdout),
+                String::from_utf8_lossy(&serial.stdout),
+                String::from_utf8_lossy(&parallel.stdout),
                 "{}",
                 prog
             );
@@ -138,6 +139,9 @@ fn order_dependent_programs_stay_serial() {
         "{ s += $4 } END { print s }",
         "{ x = $3 * 2; s += x } END { print s }",
         "{ a[$2] += $3 } END { for (k in a) print k, a[k] }",
+        // `for (k in a)` in END over an array of the workers: another order than serially.
+        "{ a[$2] += int($3) } END { for (k in a) print k, a[k] }",
+        "{ x = $1 % 7; c[x]++ } END { for (k in c) print k, c[k] }",
     ] {
         assert_eq!(
             bytecode(&small, &[], prog, &file),

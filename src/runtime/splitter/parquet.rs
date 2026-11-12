@@ -437,14 +437,22 @@ impl ParquetJson {
                     if rg >= row_groups || cancel.load(Ordering::Relaxed) {
                         return;
                     }
-                    let tx: SyncSender<io::Result<Vec<u8>>> =
+                    let tx: SyncSender<io::Result<Option<Vec<u8>>>> =
                         senders.lock().unwrap()[rg].take().unwrap();
-                    let mut emit =
-                        |buf: Vec<u8>| !cancel.load(Ordering::Relaxed) && tx.send(Ok(buf)).is_ok();
-                    if let Err(e) = decoder.decode(rg, &mut emit) {
-                        let msg = format!("cannot read parquet file `{}': {}", name, e);
-                        let _ = tx.send(Err(io::Error::other(msg)));
-                    }
+                    let mut emit = |buf: Vec<u8>| {
+                        !cancel.load(Ordering::Relaxed) && tx.send(Ok(Some(buf))).is_ok()
+                    };
+                    // The end of the row group is sent explicitly: if this thread panics (the
+                    // parquet crate may on a corrupt file), `tx` is dropped without it and the
+                    // reader reports an error instead of skipping the rest of the row group.
+                    let end = match decoder.decode(rg, &mut emit) {
+                        Ok(()) => Ok(None),
+                        Err(e) => Err(io::Error::other(format!(
+                            "cannot read parquet file `{}': {}",
+                            name, e
+                        ))),
+                    };
+                    let _ = tx.send(end);
                 }
             };
             std::thread::Builder::new()
@@ -467,13 +475,20 @@ impl ParquetJson {
         self.pos = 0;
         while let Some(rx) = stream.receivers.get(stream.current) {
             match rx.recv() {
-                Ok(Ok(buf)) => {
+                Ok(Ok(Some(buf))) => {
                     self.buf = buf;
                     return Ok(());
                 }
-                Ok(Err(e)) => return Err(e),
                 // The row group is done.
-                Err(_) => stream.current += 1,
+                Ok(Ok(None)) => stream.current += 1,
+                Ok(Err(e)) => return Err(e),
+                // The worker went away without ending the row group: it panicked.
+                Err(_) => {
+                    return Err(io::Error::other(format!(
+                        "cannot read parquet file `{}': parquet decoder thread panicked",
+                        self.name()
+                    )));
+                }
             }
         }
         self.buf.clear();
@@ -483,9 +498,9 @@ impl ParquetJson {
 }
 
 /// The batches of JSON Lines of the row groups, decoded on background threads; a receiver for
-/// each row group, read in order.
+/// each row group, read in order. `None` ends a row group.
 struct Stream {
-    receivers: Vec<Receiver<io::Result<Vec<u8>>>>,
+    receivers: Vec<Receiver<io::Result<Option<Vec<u8>>>>>,
     current: usize,
     cancel: Arc<AtomicBool>,
 }

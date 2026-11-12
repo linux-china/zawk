@@ -43,8 +43,8 @@ it prints:
   (`$0`, `$n`, `NF`).
 
 For example `zawk '/ERROR/ { c++ } END { print c }' big.log` and
-`zawk -F, '{ n[$2]++ } END { for (k in n) print k, n[k] }' big.csv` run in
-parallel on their own. Sums of fractions such as `{ s += $3 }` stay serial:
+`zawk -F, '{ n[$2]++ } END { print length(n) }' big.csv` run in parallel on
+their own. Sums of fractions such as `{ s += $3 }` stay serial:
 the workers add in another order, which changes the last bits of the sum (and
 may print `2.9997e+06` where the serial run prints `2999700`); add `-pr` to
 run them in parallel anyway. `-p0` (or `ZAWK_PARALLEL=0`) turns automatic
@@ -52,9 +52,14 @@ parallelism off.
 
 `for (k in a)` in END visits the keys of an array filled by the workers in an
 order that depends only on the keys: the same from one run to the next, and
-whatever `-j` or `--chunk-size`. It may differ from the order of a serial run
-(AWK leaves the order unspecified); set `PROCINFO["sorted_in"]` (for example
-`"@ind_str_asc"`) or pipe the output to `sort` for a given order.
+whatever `-j` or `--chunk-size`, but not the order of a serial run. So that a
+script does not print its lines in another order once its input grows past
+64 MiB, a program whose END walks such an array with `for (k in a)` stays
+serial, unless BEGIN or END sets `PROCINFO["sorted_in"]` to an order (for
+example `"@ind_str_asc"`), which both runs follow:
+`zawk -F, 'BEGIN { PROCINFO["sorted_in"] = "@ind_str_asc" } { n[$2]++ } END { for (k in n) print k, n[k] }' big.csv`
+runs in parallel on its own. `-pr` runs the program in parallel anyway (and
+`sort` the output for a given order).
 
 ## Reading Input In Parallel
 

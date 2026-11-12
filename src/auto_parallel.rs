@@ -22,6 +22,9 @@
 //! * The main loop does not read `NR`, `FNR`, `FILENAME` or `PID`, which count per worker, nor
 //!   assign a special variable.
 //! * END does not read the last record (`$0`, `$n`, `NF`) or `RSTART`/`RLENGTH`.
+//! * END does not walk an array the main loop fills with `for (k in a)` unless BEGIN or END
+//!   sets `PROCINFO["sorted_in"]`: the keys of an array merged from the workers come in another
+//!   order than in a serial run, so the output would change once the input grows large enough.
 //! * No plain `getline` anywhere (it reads the main input) and no assignment to `RS` anywhere
 //!   (a record separator assigned at run time needs the serial regex splitter).
 //! * No `PREPARE`, `BEGINFILE` or `ENDFILE` rules.
@@ -210,6 +213,21 @@ fn check<'a>(prog: &ast::Prog<'a, 'a, &'a str>, given: &[&str]) -> bool {
     }
     let is_special = |n: &str| crate::builtins::VARIABLES.contains_key(n);
     if main.written.iter().any(|n| is_special(n)) || summed.iter().any(|n| is_special(n)) {
+        return false;
+    }
+    // `for (k in a)` in END over an array filled by the workers visits its keys in another order
+    // than a serial run, unless the program asks for an order.
+    let mut walked = HashSet::new();
+    prog.end.iter().for_each(|s| for_in_arrays(s, &mut walked));
+    if walked
+        .iter()
+        .any(|n| summed.contains(n) || main.written.contains(n))
+        && !prog
+            .begin
+            .iter()
+            .chain(prog.end.iter())
+            .any(|s| sets_sorted_in(s))
+    {
         return false;
     }
     let local = |n: &str| n.contains('@');
@@ -431,6 +449,51 @@ fn int_vars<'a>(bodies: &[&'a S<'a>]) -> HashSet<&'a str> {
         drop.iter().for_each(|n| {
             ints.remove(n);
         });
+    }
+}
+
+/// The arrays that `for (k in a)` statements in `s` walk.
+fn for_in_arrays<'a>(s: &'a S<'a>, out: &mut HashSet<&'a str>) {
+    match s {
+        Stmt::ForEach(_, arr, body) => {
+            if let Expr::Var(n) = arr {
+                out.insert(n);
+            }
+            for_in_arrays(body, out);
+        }
+        Stmt::Block(v) => v.iter().for_each(|s| for_in_arrays(s, out)),
+        Stmt::If(_, t, f) => {
+            for_in_arrays(t, out);
+            if let Some(f) = f {
+                for_in_arrays(f, out);
+            }
+        }
+        Stmt::For(_, _, _, b)
+        | Stmt::DoWhile(_, b)
+        | Stmt::While(_, _, b)
+        | Stmt::ForRange(_, _, _, _, b)
+        | Stmt::EndBlock(b) => for_in_arrays(b, out),
+        Stmt::Switch(_, cases) => cases.iter().for_each(|(_, b)| for_in_arrays(b, out)),
+        _ => {}
+    }
+}
+
+/// Whether `s` contains `PROCINFO["sorted_in"] = "@..."`, which fixes the order of
+/// `for (k in a)`.
+fn sets_sorted_in(s: &S) -> bool {
+    fn expr(e: &E) -> bool {
+        match e {
+            Expr::Assign(Expr::Index(Expr::Var("PROCINFO"), Expr::StrLit(b"sorted_in")), v) => {
+                matches!(v, Expr::StrLit(order) if order.starts_with(b"@"))
+            }
+            _ => false,
+        }
+    }
+    match s {
+        Stmt::Expr(e) => expr(e),
+        Stmt::Block(v) => v.iter().any(|s| sets_sorted_in(s)),
+        Stmt::If(_, t, f) => sets_sorted_in(t) || f.is_some_and(sets_sorted_in),
+        _ => false,
     }
 }
 
@@ -835,16 +898,16 @@ mod tests {
         for prog in [
             "{ s += int($3) } END { print s }",
             "{ s += length($0); n++ } END { print s / n, NR }",
-            "{ a[$2] += $3 > 500 } END { for (k in a) print k, a[k] }",
-            "{ a[$2] -= 2 * int($3) + 1 } END { for (k in a) print k, a[k] }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$2] += $3 > 500 } END { for (k in a) print k, a[k] }",
+            "{ a[$2] -= 2 * int($3) + 1 } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in a) print k, a[k] }",
             "{ c[$5]++ } END { print length(c) }",
             "/ERROR/ { c++ } END { print c + 0 }",
             "$3 > 500 { hi++ } $3 <= 500 { lo-- } END { print hi, lo }",
             "BEGIN { FS = \",\"; t = 100 } $3 > t { n++ } END { print n }",
             // Per-record temporaries.
             "{ x = $3 * 2; t = int(x); s += int(x) } END { print s }",
-            "{ n = split($2, p, \"-\"); c[p[1]] += n } END { for (k in c) print k, c[k] }",
-            "{ split($2, p, \"-\"); c[p[1]]++ } END { for (k in c) print k, c[k] }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { n = split($2, p, \"-\"); c[p[1]] += n } END { for (k in c) print k, c[k] }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { split($2, p, \"-\"); c[p[1]]++ } END { for (k in c) print k, c[k] }",
             "{ n += split($6, p, \"x\") } END { print n }",
             "{ for (i = 1; i <= NF; i++) s += i * 2 } END { print s }",
             "{ k = length($1); k = k * 2; s += k } END { print s }",
@@ -913,6 +976,11 @@ mod tests {
             "BEGIN { RS = \";\" } { s += int($1) } END { print s }",
             "BEGIN { getline h } { s += int($1) } END { print s }",
             "{ s += int($1) } PREPARE { v[PID] = s } END { for (p in v) t += v[p]; print t }",
+            // `for (k in a)` in END over an array of the workers: another order than serially.
+            "{ a[$2] += $3 > 500 } END { for (k in a) print k, a[k] }",
+            "{ x = $1 % 7; c[x]++ } END { for (k in c) print k, c[k] }",
+            "{ n[$4]++ } END { if (1) { for (k in n) print k, n[k] } }",
+            "{ n[$4]++ } END { for (k in n) print k; PROCINFO[\"sorted_in\"] = \"\" }",
             // Does not parse.
             "{ s += ",
         ] {

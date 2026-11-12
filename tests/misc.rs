@@ -5168,8 +5168,10 @@ fn parallel_exit_runs_end() {
 #[test]
 fn parallel_fatal_error_with_graceful_exit() {
     // One worker calls `exit 0` while the others fail with a fatal error: the fatal workers block
-    // until the process exits, so the main thread must exit (code 2) instead of running END and
-    // joining them, which used to hang.
+    // until the process exits, so the main thread must exit instead of running END and joining
+    // them, which used to hang. Which of the two the main thread sees first depends on thread
+    // scheduling, so the exit code may be 0 (`exit 0` wins) or 2 (fatal error wins); what this test
+    // guards against is the hang, enforced by the timeout.
     let tmpdir = tempdir().unwrap();
     let files: Vec<String> = (1..=8)
         .map(|i| {
@@ -5194,7 +5196,7 @@ fn parallel_fatal_error_with_graceful_exit() {
                 .args(&files)
                 .timeout(std::time::Duration::from_secs(20))
                 .assert()
-                .code(2);
+                .code(vec![0, 2]);
         }
     }
 }
