@@ -1039,6 +1039,7 @@ fn response_text(response: Response) -> String {
 }
 
 #[test]
+#[ignore]
 fn test_filter() {
     dotenvy::dotenv().ok();
     let client = TypeSafeClient::from_env().unwrap();
