@@ -16,6 +16,10 @@ print r["status"], r["text"], r["content-type"]
 The response array holds `status` (`0` means a network error), `text` (the body) and the response headers in
 lower case. A JSON body (starting with `{` or `[`) gets `Content-Type: application/json` automatically.
 
+Response bodies (for `http_get`, `http_post`, `read_all`, `-f URL` and JWKS) are read into memory up to 1 GiB;
+a larger body is an error (status `0` with a warning for `http_get`/`http_post`). Set the environment variable
+`ZAWK_HTTP_MAX_BODY` to a byte count to change the limit.
+
 ```shell
 # Call an API per record and extract a value from the JSON response
 zawk '{ r = http_get("https://api.example.com/users/" $1); print $1, r["status"], json_value(r["text"], "$.name") }' ids.txt

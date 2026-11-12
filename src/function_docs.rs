@@ -1603,7 +1603,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "pg_query",
         DATABASE,
         "pg_query(url: str, sql: str[, params: map[int]str]) -> map[int]str",
-        "Query PostgreSQL.",
+        "Query PostgreSQL. A plain read is retried once if the cached connection was closed; run a `SELECT` that calls a writing function with `pg_execute`.",
         r#"pg_query("postgresql://postgres:postgres@localhost/db", "select id from people")"#,
     ),
     d(

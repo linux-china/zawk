@@ -4587,6 +4587,67 @@ fn single_byte_fs_unterminated_last_record() {
     }
 }
 
+#[test]
+fn csv_tsv_unterminated_single_field_last_record() {
+    // A last record without a trailing newline and without any field separator or quote has no
+    // offset left in the chunk, but it is not consumed yet and must not be dropped.
+    let cases: &[(&str, &[&str], &str, &str)] = &[
+        ("x\ny", &["-i", "csv"], "{print NR\": \"$0}", "1: x\n2: y\n"),
+        ("x\ny", &["-i", "tsv"], "{print NR\": \"$0}", "1: x\n2: y\n"),
+        ("1,2\n3", &["-i", "csv"], "{print $1}", "1\n3\n"),
+        ("1\t2\n3", &["-i", "tsv"], "{print $1}", "1\n3\n"),
+        ("h\nx", &["-i", "csv", "-H"], "{print $1}", "x\n"),
+        ("y", &["-i", "csv"], "{print NR, $0}", "1 y\n"),
+        ("x\ny\n", &["-i", "csv"], "{print NR, $0}", "1 x\n2 y\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for parallel in [None, Some("-pr")] {
+            for (input, args, prog, expected) in cases {
+                let mut cmd = Command::cargo_bin("zawk").unwrap();
+                cmd.arg(backend_arg);
+                if let Some(p) = parallel {
+                    cmd.args([p, "-j2"]);
+                }
+                cmd.args(*args)
+                    .arg(prog)
+                    .write_stdin(*input)
+                    .assert()
+                    .success()
+                    .stdout(*expected);
+            }
+        }
+    }
+
+    // Multiple files and getline.
+    let tmpdir = tempdir().unwrap();
+    let f1 = tmpdir.path().join("f1");
+    let f2 = tmpdir.path().join("f2");
+    std::fs::write(&f1, "a\nb").unwrap();
+    std::fs::write(&f2, "c\n").unwrap();
+    let getline_prog = format!(
+        "BEGIN{{while((getline l < \"{}\")>0) print l}}",
+        f1.display()
+    );
+    for backend_arg in BACKEND_ARGS {
+        for fmt in ["csv", "tsv"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, "-i", fmt, "{print}"])
+                .arg(&f1)
+                .arg(&f2)
+                .assert()
+                .success()
+                .stdout("a\nb\nc\n");
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, "-i", fmt, getline_prog.as_str()])
+                .assert()
+                .success()
+                .stdout("a\nb\n");
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn output_files_beyond_fd_limit() {

@@ -15,6 +15,11 @@ sidebar_label: Database & KV
 
 `*_query` returns an array indexed from 1 where each row is a CSV-encoded string: split it with `from_csv(row)`.
 
+PostgreSQL connections are cached per URL. When a cached connection turns out to be closed, `pg_query` reconnects
+and retries plain reads once; `pg_execute` is never retried. The retry assumes a `SELECT` has no side effects:
+queries that call `nextval`, `setval`, `pg_advisory_*`, `pg_notify`, `set_config` and similar built-ins are not retried,
+but a user-defined function that writes cannot be detected, so run such a statement with `pg_execute`.
+
 ```awk
 BEGIN {
     rows = sqlite_query("app.db", "select id, name from users")

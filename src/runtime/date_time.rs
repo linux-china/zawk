@@ -839,6 +839,27 @@ fn replace_zone_name(format: &str, abbreviation: &str) -> String {
     result
 }
 
+/// The local date and time `text` gives in `format`, with no offset applied. A format without a
+/// time of day means midnight; one with only an hour (`%H`, `%I%p`) means the start of that hour,
+/// and the minute or second left out is 0. chrono alone wants at least the hour and the minute.
+fn parse_naive(text: &str, format: &str) -> Option<NaiveDateTime> {
+    use chrono::format::{Parsed, StrftimeItems, parse};
+    let mut parsed = Parsed::new();
+    parse(&mut parsed, text, StrftimeItems::new(format)).ok()?;
+    let has_time = parsed.hour_div_12().is_some()
+        || parsed.hour_mod_12().is_some()
+        || parsed.minute().is_some()
+        || parsed.second().is_some()
+        || parsed.timestamp().is_some();
+    if !has_time {
+        return Some(parsed.to_naive_date().ok()?.and_time(NaiveTime::MIN));
+    }
+    if parsed.minute().is_none() {
+        parsed.set_minute(0).ok()?;
+    }
+    parsed.to_naive_datetime_with_offset(0).ok()
+}
+
 /// `strptime` for a format with `%Z`: the abbreviation in the text must be a UTC name or one the
 /// `timezone` zone uses at that local time, see [`strptime`].
 fn strptime_zone_name(text: &str, format: &str, timezone: &str) -> Option<Int> {
@@ -847,13 +868,10 @@ fn strptime_zone_name(text: &str, format: &str, timezone: &str) -> Option<Int> {
         return Some(date_time.timestamp());
     }
     // chrono reads %Z as any word and drops it: find the time first, then which name it was
-    let naive = NaiveDateTime::parse_from_str(text, format)
-        .or_else(|_| NaiveDate::parse_from_str(text, format).map(|d| d.and_time(NaiveTime::MIN)))
-        .ok()?;
+    let naive = parse_naive(text, format)?;
     let matches = |abbreviation: &str| {
         let literal = replace_zone_name(format, abbreviation);
-        NaiveDateTime::parse_from_str(text, &literal).is_ok()
-            || NaiveDate::parse_from_str(text, &literal).is_ok()
+        parse_naive(text, &literal).is_some()
     };
     if ["UTC", "GMT", "UT", "Z"].iter().any(|name| matches(name)) {
         return Some(naive.and_utc().timestamp());
@@ -904,9 +922,7 @@ fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
     if let Ok(date_time) = DateTime::parse_from_str(text, format) {
         return Some(date_time.timestamp());
     }
-    let naive = NaiveDateTime::parse_from_str(text, format)
-        .or_else(|_| NaiveDate::parse_from_str(text, format).map(|d| d.and_time(NaiveTime::MIN)))
-        .ok()?;
+    let naive = parse_naive(text, format)?;
     match timezone {
         "" | "0" => local_timestamp(&Local, &naive),
         name => match jiff::tz::TimeZone::get(name) {
@@ -955,6 +971,13 @@ mod tests {
             1704153600
         );
         assert_eq!(strptime("1704153600", "%s", ""), 1704153600);
+        // only an hour: the start of that hour, not midnight
+        assert_eq!(strptime("2024-01-02 15", "%Y-%m-%d %H", "UTC"), 1704207600);
+        assert_eq!(strptime("2024-01-02 3PM", "%Y-%m-%d %I%p", "UTC"), 1704207600);
+        assert_eq!(
+            strptime("2024-01-02 15 UTC", "%Y-%m-%d %H %Z", ""),
+            1704207600
+        );
         // local time by default, as mktime
         assert_eq!(
             strptime("2024 01 02 03 04 05", "%Y %m %d %H %M %S", ""),

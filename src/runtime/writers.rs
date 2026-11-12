@@ -476,6 +476,9 @@ impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
 /// * `\n` becomes `<br>` (the usual line break in a table cell), `\t` and `\r` become `&#9;` and
 ///   `&#13;`, and `\\` stays a Markdown escaped backslash;
 /// * `|` is escaped as `\|`;
+/// * the inline markup characters `*`, `_`, `` ` ``, `[`, `]` and `~` are backslash-escaped, so
+///   emphasis, code spans, links and strikethrough are not rendered (a literal `\` is already
+///   written as `\\`);
 /// * spaces at either end become `&#32;`, as cell content is trimmed;
 /// * `&` and `<` that could start an entity or an HTML tag become `&amp;` and `&lt;`.
 fn markdown_cell(field: &[u8], out: &mut Vec<u8>) {
@@ -507,6 +510,10 @@ fn markdown_cell(field: &[u8], out: &mut Vec<u8>) {
                 continue;
             }
             b'|' => out.extend_from_slice(b"\\|"),
+            b'*' | b'_' | b'`' | b'[' | b']' | b'~' => {
+                out.push(b'\\');
+                out.push(b);
+            }
             b'&' if next.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'#') => {
                 out.extend_from_slice(b"&amp;")
             }
@@ -659,6 +666,9 @@ mod markdown_tests {
         assert_eq!(cell(b"l1\\nl2\\tx\\ry"), "l1<br>l2&#9;x&#13;y");
         assert_eq!(cell(b"C:\\\\new|x"), "C:\\\\new\\|x");
         assert_eq!(cell(b"a & b < c &amp; <br>"), "a & b < c &amp;amp; &lt;br>");
+        assert_eq!(cell(b"2*3*4"), "2\\*3\\*4");
+        assert_eq!(cell(b"_a_ ~~s~~"), "\\_a\\_ \\~\\~s\\~\\~");
+        assert_eq!(cell(b"`code` [t](http://u)"), "\\`code\\` \\[t\\](http://u)");
     }
 
     #[test]
@@ -901,7 +911,7 @@ mod summary_tests {
             String::from_utf8(out).unwrap(),
             "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 5 |\n| B\\|ob |  |\n\n\
              3 rows\n\n\
-             | column | type | non_empty | distinct | min | max | sum | mean |\n\
+             | column | type | non\\_empty | distinct | min | max | sum | mean |\n\
              | --- | --- | --- | --- | --- | --- | --- | --- |\n\
              | name | string | 3 | 3 | Alice | B\\|ob |  |  |\n\
              | age | number | 2 | 2 | 5 | 30 | 35 | 17.5 |\n"

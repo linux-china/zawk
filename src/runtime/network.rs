@@ -134,13 +134,58 @@ fn http_client(timeout: Duration) -> reqwest::blocking::Client {
         .expect("Failed to build HTTP client")
 }
 
+/// Default largest HTTP response body read into memory: 1 GiB.
+const DEFAULT_HTTP_MAX_BODY: u64 = 1 << 30;
+
+/// Largest HTTP response body read into memory, in bytes: `ZAWK_HTTP_MAX_BODY` when set to a
+/// positive integer, else [`DEFAULT_HTTP_MAX_BODY`]. Since the client timeout bounds each read and
+/// not the transfer, a server that keeps sending would otherwise be read until memory runs out.
+fn http_max_body() -> u64 {
+    static LIMIT: LazyLock<u64> = LazyLock::new(|| {
+        match std::env::var("ZAWK_HTTP_MAX_BODY") {
+            Ok(v) => match v.trim().parse::<u64>() {
+                Ok(n) if n > 0 => n,
+                _ => {
+                    eprintln!(
+                        "zawk: warning: ignoring invalid ZAWK_HTTP_MAX_BODY {:?}, using {} bytes",
+                        v, DEFAULT_HTTP_MAX_BODY
+                    );
+                    DEFAULT_HTTP_MAX_BODY
+                }
+            },
+            Err(_) => DEFAULT_HTTP_MAX_BODY,
+        }
+    });
+    *LIMIT
+}
+
 /// The whole body of `resp`, read with `Read` so that the client timeout bounds each read, not
-/// the transfer (see `http_client`).
-pub(crate) fn read_body(mut resp: Response) -> std::io::Result<Vec<u8>> {
+/// the transfer (see `http_client`). A body over [`http_max_body`] bytes is an error.
+pub(crate) fn read_body(resp: Response) -> std::io::Result<Vec<u8>> {
+    read_body_limited(resp, http_max_body())
+}
+
+fn read_body_limited(resp: Response, limit: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
+    if let Some(len) = resp.content_length()
+        && len > limit
+    {
+        return Err(body_too_large(limit));
+    }
     let mut body = Vec::new();
-    resp.read_to_end(&mut body)?;
+    // one byte past the limit tells a body of exactly `limit` bytes from a longer one
+    resp.take(limit.saturating_add(1)).read_to_end(&mut body)?;
+    if body.len() as u64 > limit {
+        return Err(body_too_large(limit));
+    }
     Ok(body)
+}
+
+fn body_too_large(limit: u64) -> std::io::Error {
+    std::io::Error::other(format!(
+        "response body exceeds {} bytes (set ZAWK_HTTP_MAX_BODY to raise the limit)",
+        limit
+    ))
 }
 
 /// The body of `resp` as text, decoded as reqwest's `text()` does: with the `charset` of
@@ -1169,6 +1214,42 @@ mod tests {
         let url = trickle_server(8, Duration::from_millis(250));
         let body = read_text(client.get(&url).send().unwrap()).unwrap();
         assert_eq!(body.lines().count(), 8, "{body:?}");
+    }
+
+    /// Serves one response with a `body_len`-byte body; `Content-Length` is sent only when
+    /// `with_length`, else the body ends with the connection.
+    fn sized_server(body_len: usize, with_length: bool) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let length = if with_length {
+                format!("Content-Length: {}\r\n", body_len)
+            } else {
+                String::new()
+            };
+            let head = format!("HTTP/1.1 200 OK\r\n{}Connection: close\r\n\r\n", length);
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&vec![b'x'; body_len]);
+        });
+        format!("http://127.0.0.1:{}/", port)
+    }
+
+    #[test]
+    fn test_http_body_size_limit() {
+        let client = http_client(Duration::from_secs(5));
+        for with_length in [true, false] {
+            // exactly at the limit: read whole
+            let resp = client.get(sized_server(100, with_length)).send().unwrap();
+            assert_eq!(read_body_limited(resp, 100).unwrap().len(), 100);
+            // one byte over: an error naming the limit
+            let resp = client.get(sized_server(101, with_length)).send().unwrap();
+            let err = read_body_limited(resp, 100).unwrap_err();
+            assert!(body_error(&err).contains("exceeds 100 bytes"), "{}", body_error(&err));
+        }
     }
 
     #[test]

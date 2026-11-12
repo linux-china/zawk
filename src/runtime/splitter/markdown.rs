@@ -247,4 +247,15 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn escaped_inline_markup_round_trip() {
+        // `-o markdown` backslash-escapes inline markup so it reads back literally.
+        let text = "| a | b | c |\n| --- | --- | --- |\n\
+            | 2\\*3\\*4 | \\_id\\_ \\~\\~s\\~\\~ | \\`code\\` \\[t\\](http://u) \\*em\\* |\n";
+        assert_eq!(
+            first_table(text).unwrap()[1..],
+            [vec!["2*3*4", "_id_ ~~s~~", "`code` [t](http://u) *em*"]]
+        );
+    }
 }

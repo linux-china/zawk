@@ -1495,6 +1495,10 @@ Connections are cached per URL for the whole run. A PostgreSQL or Redis (`kv_*`)
 (server restart, idle timeout, network failure) is reconnected once on the next call, so long-running input
 such as `tail -f` keeps working. `pg_query` is then retried on the new connection, but a `pg_execute` that hits a
 closed connection fails (warning and `ERRNO`) without being retried, since the write may already have been applied.
+Only plain reads are retried: a `pg_query` whose SQL writes (`INSERT/UPDATE/DELETE ... RETURNING`, a data-modifying
+`WITH`, `SELECT ... INTO`) or calls a built-in function with a side effect (`nextval`, `setval`, `pg_advisory_*`,
+`pg_notify`, `set_config`, ...) is not retried. A user-defined function that writes cannot be detected, so the retry
+assumes such a `SELECT` has no side effects: run it with `pg_execute` instead.
 In parallel mode (`-p r`/`-p f`), calls to the same kind of database share one
 lock and are run one at a time, so heavy database work does not speed up with more workers.
 
