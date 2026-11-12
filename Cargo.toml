@@ -1,6 +1,6 @@
 [package]
 name = "zawk"
-version = "0.7.0"
+version = "0.7.1"
 authors = [
     "Eli Rosenthal <ezr@cs.brown.edu>",
     "linux_china <libing.chen@gmail.com>",
@@ -121,7 +121,7 @@ whoami = "2.1"
 shlex = "2.0"
 shell-escape = "0.1.5"
 pad = "0.1.6"
-rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.42", features = ["bundled", "column_decltype"] }
 mysql = { version = "28.0", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 postgres = { version = "0.19", features = [
     "with-chrono-0_4",
@@ -137,7 +137,7 @@ apache-avro = { version = "0.22", default-features = false, features = ["snappy"
 bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
-unicode-normalization = "0.1"
+unicode-normalization = "0.1.26"
 unicode-segmentation = "1.13"
 unicode-width = "0.2"
 fake = "5.1"

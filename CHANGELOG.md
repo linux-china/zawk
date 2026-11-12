@@ -1,5 +1,7 @@
 # Unreleased
 
+# Version 0.7.1 (2026-11-12)
+
 * Add `strptime(s, format[, tz])`: date text parsed with a chrono strftime format, so nothing is guessed as in `mktime`: `strptime("01/02/2024", "%d/%m/%Y")` is February 1. Text with `%z` or `%s` is an instant, other text is local time or in `tz` (an IANA time zone, or UTC for another true value); `-1` if the text does not match the format
 * Add `uuid_extract_timestamp(id[, epoch_ms])`: the Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was made, e.g. `strftime("%F %T", uuid_extract_timestamp(uuid("v7")))`; Snowflake IDs count from `epoch_ms` (0 by default as `snowflake()`, `1288834974657` for X/Twitter)
 * Add `nfc_normalize(s)`: `s` in Unicode Normalization Form C, as DuckDB's `nfc_normalize`, to compare, group and sort text that mixes composed (`é`) and decomposed (`e` + U+0301) characters
@@ -9,7 +11,6 @@
 * Add `systime_ms()`: the current Unix time in milliseconds
 * Add `_argmax(arr)` / `_argmin(arr)`: the key of the largest / smallest value of an array, the first by string order on a tie, `""` for an empty array
 * `strftime(format, timestamp, tz)` formats in an IANA time zone when its third argument names one, e.g. `strftime("%H:%M %Z", 0, "Asia/Shanghai")` is `08:00 CST`, with daylight saving time. Other true values still mean UTC, as in gawk
-* Fix `for (k in a)` in END visiting the keys of an array filled in parallel (`-pr`, `-pf`, or automatic parallelism on files of 64 MiB or more) in an order that changed from one run to the next, e.g. `zawk -F, '{ c[$3]++ } END { for (k in c) print k, c[k] }' big.csv`. The order now depends only on the keys: the same in every run and whatever `-j` or `--chunk-size` (it may still differ from the order of a serial run; use `PROCINFO["sorted_in"]` for a given order). **Behavior change**: automatic parallelism no longer picks a program whose END walks such an array with `for (k in a)` without setting `PROCINFO["sorted_in"]` in BEGIN or END, so the same script prints its lines in the same order whatever the size of its input; set `PROCINFO["sorted_in"]` (e.g. `"@ind_str_asc"`) to run it in parallel on large files, or pass `-pr`. `-p0` (or `ZAWK_PARALLEL=0`) turns automatic parallelism off altogether. Merging the arrays of the workers is also faster for arrays with many keys, as it sorts them on several threads (a run counting 12 million distinct keys takes 18% less time)
 
 # Version 0.7.0 (2026-11-10)
 
