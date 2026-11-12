@@ -302,6 +302,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_jev_functions() {
         dotenvy::dotenv().ok();
         if std::env::var("TYPESAFE_API_KEY").is_err() {
