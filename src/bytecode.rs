@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::builtins::{Bitwise, DecOp, FloatFunc, Variable};
+use crate::builtins::{Bitwise, DecOp, FloatFunc, TextOp, Variable};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::{self, Ty};
 use crate::interp::{Storage, index, index_mut};
@@ -266,8 +266,8 @@ pub(crate) enum Instr<'a> {
     Pwd(Reg<Str<'a>>),
     UserHome(Reg<Str<'a>>),
     GetEnv(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
-    // strftime(format, timestamp, flags), see `date_time::awk_strftime`.
-    Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
+    // strftime(format, timestamp, flags, timezone), see `date_time::awk_strftime`.
+    Strftime(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
     Encode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Decode(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Digest(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
@@ -298,6 +298,18 @@ pub(crate) enum Instr<'a> {
     MkBool(Reg<Int>, Reg<Str<'a>>),
     MkPassword(Reg<Str<'a>>, Reg<Int>),
     Systime(Reg<Int>),
+    SystimeMs(Reg<Int>),
+    // dst = op(a, b, c), see runtime::text_funcs.
+    Text(
+        TextOp,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
+    Ord(Reg<Int>, Reg<Str<'a>>),
+    // bar(x, min, max, width)
+    Bar(Reg<Str<'a>>, Reg<Float>, Reg<Float>, Reg<Float>, Reg<Float>),
     Fend(Reg<Str<'a>>, Reg<Str<'a>>),
     // dst = op(a, b, c, d), see runtime::decimal.
     Decimal(
@@ -674,6 +686,13 @@ pub(crate) enum Instr<'a> {
         map_ty: Ty,
         map: NumTy,
     },
+    // _argmax(map) (dir 1) and _argmin(map) (dir -1): see runtime::array_stats::arg_ext.
+    ArrayArg {
+        res: Reg<Str<'a>>,
+        map_ty: Ty,
+        map: NumTy,
+        dir: Reg<Int>,
+    },
     ArrayTop {
         res: Reg<runtime::IntMap<Str<'a>>>,
         map_ty: Ty,
@@ -885,8 +904,25 @@ impl<'a> Instr<'a> {
             LocalIp(sr) => {
                 sr.accum(&mut f);
             }
-            Systime(sr) => {
+            Systime(sr) | SystimeMs(sr) => {
                 sr.accum(&mut f);
+            }
+            Text(_, dst, a, b, c) => {
+                dst.accum(&mut f);
+                a.accum(&mut f);
+                b.accum(&mut f);
+                c.accum(&mut f);
+            }
+            Ord(dst, s) => {
+                dst.accum(&mut f);
+                s.accum(&mut f);
+            }
+            Bar(dst, x, min, max, width) => {
+                dst.accum(&mut f);
+                x.accum(&mut f);
+                min.accum(&mut f);
+                max.accum(&mut f);
+                width.accum(&mut f);
             }
             Encode(res, format, text) => {
                 res.accum(&mut f);
@@ -942,11 +978,12 @@ impl<'a> Instr<'a> {
                 encrypted_text.accum(&mut f);
                 key.accum(&mut f);
             }
-            Strftime(res, format, timestamp, flags) => {
+            Strftime(res, format, timestamp, flags, tz) => {
                 res.accum(&mut f);
                 format.accum(&mut f);
                 timestamp.accum(&mut f);
                 flags.accum(&mut f);
+                tz.accum(&mut f);
             }
             Mktime(res, date_time_text, utc, timezone) => {
                 res.accum(&mut f);
@@ -2133,6 +2170,16 @@ impl<'a> Instr<'a> {
             ArrayCountDistinct { res, map_ty, map } => {
                 res.accum(&mut f);
                 f(*map, *map_ty);
+            }
+            ArrayArg {
+                res,
+                map_ty,
+                map,
+                dir,
+            } => {
+                res.accum(&mut f);
+                f(*map, *map_ty);
+                dir.accum(&mut f);
             }
             ArrayTop {
                 res,

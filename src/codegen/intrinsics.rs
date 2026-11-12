@@ -211,6 +211,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         user_home() -> str_ty;
         local_ip() -> str_ty;
         systime() -> int_ty;
+        systime_ms() -> int_ty;
+        [ReadOnly] text_func(int_ty, str_ref_ty, str_ref_ty, str_ref_ty) -> str_ty;
+        [ReadOnly] ord(str_ref_ty) -> int_ty;
+        [ReadOnly] bar(float_ty, float_ty, float_ty, float_ty) -> str_ty;
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
@@ -222,7 +226,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] date_trunc_str(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] to_iso8601(int_ty) -> str_ty;
         [ReadOnly] to_iso8601_str(str_ref_ty) -> str_ty;
-        [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty) -> str_ty;
+        [ReadOnly] strftime(rt_ty, str_ref_ty, int_ty, int_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mkbool(str_ref_ty) -> int_ty;
         [ReadOnly] mkpass(int_ty) -> str_ty;
         [ReadOnly] fend(str_ref_ty) -> str_ty;
@@ -395,21 +399,27 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] array_stat_int_int(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_int_int(map_ty) -> int_ty;
         [ReadOnly] top_int_int(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_int_int(map_ty, int_ty) -> str_ty;
         [ReadOnly] array_stat_int_float(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_int_float(map_ty) -> int_ty;
         [ReadOnly] top_int_float(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_int_float(map_ty, int_ty) -> str_ty;
         [ReadOnly] array_stat_int_str(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_int_str(map_ty) -> int_ty;
         [ReadOnly] top_int_str(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_int_str(map_ty, int_ty) -> str_ty;
         [ReadOnly] array_stat_str_int(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_str_int(map_ty) -> int_ty;
         [ReadOnly] top_str_int(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_str_int(map_ty, int_ty) -> str_ty;
         [ReadOnly] array_stat_str_float(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_str_float(map_ty) -> int_ty;
         [ReadOnly] top_str_float(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_str_float(map_ty, int_ty) -> str_ty;
         [ReadOnly] array_stat_str_str(map_ty, int_ty, float_ty) -> float_ty;
         [ReadOnly] count_distinct_str_str(map_ty) -> int_ty;
         [ReadOnly] top_str_str(map_ty, int_ty) -> map_ty;
+        [ReadOnly] arg_ext_str_str(map_ty, int_ty) -> str_ty;
         [ReadOnly] map_int_float_mean(map_ty) -> float_ty;
         [ReadOnly] from_csv(str_ref_ty) -> map_ty;
         [ReadOnly] map_int_int_to_csv(map_ty) -> str_ty;
@@ -445,6 +455,10 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly, ArgmemOnly] _frawk_atan(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_cos(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_sin(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_tan(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_asin(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_acos(float_ty) -> float_ty;
+        [ReadOnly, ArgmemOnly] _frawk_sign(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_log(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_log2(float_ty) -> float_ty;
         [ReadOnly, ArgmemOnly] _frawk_log10(float_ty) -> float_ty;
@@ -1414,6 +1428,40 @@ pub(crate) unsafe extern "C" fn tsid() -> U128 {
     })
 }
 
+pub(crate) unsafe extern "C" fn systime_ms() -> Int {
+    guard_panic(stringify!(systime_ms), date_time::systime_ms)
+}
+
+pub(crate) unsafe extern "C" fn text_func(
+    op: Int,
+    a: *mut U128,
+    b: *mut U128,
+    c: *mut U128,
+) -> U128 {
+    guard_panic(stringify!(text_func), || {
+        let op = crate::runtime::text_funcs::TextOp::from_code(op).expect("invalid text op");
+        let a = &*(a as *mut Str);
+        let b = &*(b as *mut Str);
+        let c = &*(c as *mut Str);
+        let res = crate::runtime::text_funcs::eval_str(op, a, b, c);
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn ord(s: *mut U128) -> Int {
+    guard_panic(stringify!(ord), || {
+        let s = &*(s as *mut Str);
+        s.with_bytes(crate::runtime::text_funcs::ord)
+    })
+}
+
+pub(crate) unsafe extern "C" fn bar(x: Float, min: Float, max: Float, width: Float) -> U128 {
+    guard_panic(stringify!(bar), || {
+        let res = Str::from(crate::runtime::text_funcs::bar(x, min, max, width));
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
 pub(crate) unsafe extern "C" fn systime() -> Int {
     guard_panic(stringify!(systime), || {
         let seconds = SystemTime::now()
@@ -1552,11 +1600,14 @@ pub(crate) unsafe extern "C" fn strftime(
     format: *mut U128,
     timestamp: Int,
     flags: Int,
+    timezone: *mut U128,
 ) -> U128 {
     guard_panic(stringify!(strftime), || {
         let rt = &mut *(rt as *mut Runtime);
         let format = &*(format as *mut Str);
-        let text = date_time::awk_strftime(&rt.core.vars.procinfo, format, timestamp, flags);
+        let timezone = &*(timezone as *mut Str);
+        let text =
+            date_time::awk_strftime(&rt.core.vars.procinfo, format, timestamp, flags, timezone);
         mem::transmute::<Str, U128>(Str::from(text))
     })
 }
@@ -3212,8 +3263,17 @@ pub(crate) unsafe extern "C" fn map_int_float_sum(arr: *mut c_void) -> Float {
 
 // _median/_quantile/_var/_stddev/_mode, _count_distinct and _top: one intrinsic per map type.
 macro_rules! array_stats_intrinsics {
-    ($([$stat:ident, $distinct:ident, $top:ident, $map:ty]),*) => {
+    ($([$stat:ident, $distinct:ident, $top:ident, $arg:ident, $map:ty]),*) => {
         $(
+            pub(crate) unsafe extern "C" fn $arg(map: *mut c_void, dir: Int) -> U128 {
+                guard_panic(stringify!($arg), || {
+                    let map = mem::transmute::<*mut c_void, $map>(map);
+                    let res = runtime::array_stats::arg_ext(&map, dir);
+                    mem::forget(map);
+                    mem::transmute::<Str, U128>(res)
+                })
+            }
+
             pub(crate) unsafe extern "C" fn $stat(map: *mut c_void, kind: Int, q: Float) -> Float {
                 guard_panic(stringify!($stat), || {
                     let map = mem::transmute::<*mut c_void, $map>(map);
@@ -3245,12 +3305,12 @@ macro_rules! array_stats_intrinsics {
 }
 
 array_stats_intrinsics!(
-    [array_stat_int_int, count_distinct_int_int, top_int_int, IntMap<Int>],
-    [array_stat_int_float, count_distinct_int_float, top_int_float, IntMap<Float>],
-    [array_stat_int_str, count_distinct_int_str, top_int_str, IntMap<Str>],
-    [array_stat_str_int, count_distinct_str_int, top_str_int, StrMap<Int>],
-    [array_stat_str_float, count_distinct_str_float, top_str_float, StrMap<Float>],
-    [array_stat_str_str, count_distinct_str_str, top_str_str, StrMap<Str>]
+    [array_stat_int_int, count_distinct_int_int, top_int_int, arg_ext_int_int, IntMap<Int>],
+    [array_stat_int_float, count_distinct_int_float, top_int_float, arg_ext_int_float, IntMap<Float>],
+    [array_stat_int_str, count_distinct_int_str, top_int_str, arg_ext_int_str, IntMap<Str>],
+    [array_stat_str_int, count_distinct_str_int, top_str_int, arg_ext_str_int, StrMap<Int>],
+    [array_stat_str_float, count_distinct_str_float, top_str_float, arg_ext_str_float, StrMap<Float>],
+    [array_stat_str_str, count_distinct_str_str, top_str_str, arg_ext_str_str, StrMap<Str>]
 );
 
 pub(crate) unsafe extern "C" fn map_int_float_mean(arr: *mut c_void) -> Float {
@@ -4181,6 +4241,22 @@ pub(crate) unsafe extern "C" fn close_file(rt: *mut c_void, file: *mut U128) -> 
 
 pub(crate) unsafe extern "C" fn _frawk_cos(f: Float) -> Float {
     guard_panic(stringify!(_frawk_cos), || f.cos())
+}
+
+pub(crate) unsafe extern "C" fn _frawk_tan(f: Float) -> Float {
+    guard_panic(stringify!(_frawk_tan), || f.tan())
+}
+
+pub(crate) unsafe extern "C" fn _frawk_asin(f: Float) -> Float {
+    guard_panic(stringify!(_frawk_asin), || f.asin())
+}
+
+pub(crate) unsafe extern "C" fn _frawk_acos(f: Float) -> Float {
+    guard_panic(stringify!(_frawk_acos), || f.acos())
+}
+
+pub(crate) unsafe extern "C" fn _frawk_sign(f: Float) -> Float {
+    guard_panic(stringify!(_frawk_sign), || crate::builtins::sign(f))
 }
 
 pub(crate) unsafe extern "C" fn _frawk_sin(f: Float) -> Float {

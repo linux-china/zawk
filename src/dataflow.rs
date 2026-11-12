@@ -233,7 +233,19 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(default_value.into()));
             }
             LocalIp(dst) => f(dst.into(), None),
-            Systime(dst) => f(dst.into(), None),
+            Systime(dst) | SystimeMs(dst) => f(dst.into(), None),
+            Text(_, dst, a, b, c) => {
+                f(dst.into(), Some(a.into()));
+                f(dst.into(), Some(b.into()));
+                f(dst.into(), Some(c.into()));
+            }
+            Ord(dst, s) => f(dst.into(), Some(s.into())),
+            Bar(dst, x, min, max, width) => {
+                f(dst.into(), Some(x.into()));
+                f(dst.into(), Some(min.into()));
+                f(dst.into(), Some(max.into()));
+                f(dst.into(), Some(width.into()));
+            }
             Exiting(dst) => f(dst.into(), None),
             TryScope(dst, _) => f(dst.into(), None),
             Encode(dst, format, text) => {
@@ -280,10 +292,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(encrypted_text.into()));
                 f(dst.into(), Some(key.into()));
             }
-            Strftime(dst, format, timestamp, flags) => {
+            Strftime(dst, format, timestamp, flags, tz) => {
                 f(dst.into(), Some(format.into()));
                 f(dst.into(), Some(timestamp.into()));
                 f(dst.into(), Some(flags.into()));
+                f(dst.into(), Some(tz.into()));
             }
             Mktime(dst, date_time_text, utc, timezone) => {
                 f(dst.into(), Some(date_time_text.into()));
@@ -972,6 +985,16 @@ pub(crate) mod boilerplate {
             }
             ArrayCountDistinct { res, map_ty, map } => {
                 f(res.into(), Some(Key::MapVal(*map, *map_ty)))
+            }
+            ArrayArg {
+                res,
+                map_ty,
+                map,
+                dir,
+            } => {
+                f(res.into(), Some(Key::MapKey(*map, *map_ty)));
+                f(res.into(), Some(Key::MapVal(*map, *map_ty)));
+                f(res.into(), Some(dir.into()));
             }
             ArrayTop { res, map_ty, map, k } => {
                 f(res.into(), Some(k.into()));

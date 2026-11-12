@@ -3603,6 +3603,9 @@ where
                     // strftime(format, timestamp, utc) => strftime(format, timestamp, flags):
                     // the timestamp defaults to the current time, and the format of strftime() is
                     // PROCINFO["strftime"] (see `date_time::awk_strftime`).
+                    builtins::Function::Strftime if args_len > 3 => {
+                        return Err(builtins::arity_error(&call_name(fname), args_len, 3));
+                    }
                     builtins::Function::Strftime if args_len < 3 => {
                         use crate::runtime::date_time::{STRFTIME_NOW, STRFTIME_PROCINFO_FORMAT};
                         if args_len == 0 {
@@ -3617,16 +3620,21 @@ where
                             0
                         };
                         prim_args.push(PrimVal::ILit(flags));
+                        prim_args.push(PrimVal::StrLit(b""));
                     }
-                    // The utc flag is true when it is nonzero or a nonempty string: `!!utc`, which
-                    // is STRFTIME_UTC.
-                    builtins::Function::Strftime => {
+                    // strftime(format, timestamp, utc) => strftime(format, timestamp, !!utc, utc):
+                    // the utc flag is true when it is nonzero or a nonempty string (`!!utc`, which
+                    // is STRFTIME_UTC), and a true utc that names a time zone (`"Asia/Shanghai"`)
+                    // formats the time in that zone.
+                    builtins::Function::Strftime if args_len == 3 => {
                         use builtins::Function::Unop;
                         let utc = prim_args.pop().unwrap();
-                        let not = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc]);
+                        let not =
+                            PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc.clone()]);
                         let not = self.to_val(not, open)?;
-                        let utc = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
-                        prim_args.push(self.to_val(utc, open)?);
+                        let flag = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
+                        prim_args.push(self.to_val(flag, open)?);
+                        prim_args.push(utc);
                     }
                     // mktime(date_text [, utc [, timezone]]): the utc flag defaults to 0 and is true
                     // when it is nonzero or a nonempty string (`!!utc`), as in gawk; the timezone
@@ -3650,6 +3658,50 @@ where
                     // trim(s) => trim(s, " ");
                     builtins::Function::Trim if args_len == 1 => {
                         prim_args.push(PrimVal::StrLit(b" "));
+                    }
+                    // pi() => 3.14159...
+                    builtins::Function::Pi if args_len == 0 => {
+                        return Ok((open, PrimExpr::Val(PrimVal::FLit(std::f64::consts::PI))));
+                    }
+                    // path_join(a, b, c) => path_join(path_join(a, b, ""), c, ""); path_join(a) =>
+                    // path_join(a, "", "").
+                    builtins::Function::Text(builtins::TextOp::PathJoin) => {
+                        if args_len == 0 {
+                            return Err(builtins::min_arity_error(&call_name(fname), 0, 1));
+                        }
+                        let mut parts: Vec<_> = mem::take(&mut prim_args).into_iter().collect();
+                        let last = if parts.len() > 1 {
+                            parts.pop().unwrap()
+                        } else {
+                            PrimVal::StrLit(b"")
+                        };
+                        let mut parts = parts.into_iter();
+                        let mut joined = parts.next().unwrap();
+                        for part in parts {
+                            let args = smallvec![joined, part, PrimVal::StrLit(b"")];
+                            joined = self.to_val(PrimExpr::CallBuiltin(bi, args), open)?;
+                        }
+                        prim_args = smallvec![joined, last, PrimVal::StrLit(b"")];
+                    }
+                    // ltrim(s) => ltrim(s, " ", ""); reverse(s) => reverse(s, "", ""); the
+                    // arguments a function does not take are empty strings.
+                    builtins::Function::Text(op) => {
+                        let (min, max) = op.arg_range();
+                        if !(min..=max).contains(&args_len) {
+                            return Err(builtins::arity_error(&call_name(fname), args_len, max));
+                        }
+                        if matches!(op, builtins::TextOp::LTrim | builtins::TextOp::RTrim)
+                            && args_len == 1
+                        {
+                            prim_args.push(PrimVal::StrLit(b" "));
+                        }
+                        while prim_args.len() < 3 {
+                            prim_args.push(PrimVal::StrLit(b""));
+                        }
+                    }
+                    // bar(x, min, max) => bar(x, min, max, 80);
+                    builtins::Function::Bar if args_len == 3 => {
+                        prim_args.push(PrimVal::ILit(80));
                     }
                     // truncate($1, 10) => truncate($1, 10, "...");
                     builtins::Function::Truncate if args_len == 2 => {

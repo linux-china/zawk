@@ -51,6 +51,7 @@ m = message("login_event{method='post',code=200}('xxx@example.com')")   # name, 
 
 ```awk
 p = path("./demo.txt")       # exists, full_path, parent, file_name, file_stem, file_ext, content_type
+path_join("logs", "2024", "app.log")   # "logs/2024/app.log"; an absolute part restarts the path
 v = semver("1.2.3-alpha")    # major, minor, patch, pre, build
 args = shlex("ls -l 'my file'")    # args[1] = ls, args[2] = -l, args[3] = my file
 ```

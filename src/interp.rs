@@ -1347,6 +1347,34 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let local_ip = Str::from(runtime::network::local_ip());
                         *index_mut(&mut self.strs, dst) = local_ip;
                     }
+                    SystimeMs(dst) => {
+                        let ms = runtime::date_time::systime_ms();
+                        let dst = *dst;
+                        *self.get_mut(dst) = ms;
+                    }
+                    Text(op, dst, a, b, c) => {
+                        let res = runtime::text_funcs::eval_str(
+                            *op,
+                            index(&self.strs, a),
+                            index(&self.strs, b),
+                            index(&self.strs, c),
+                        );
+                        *index_mut(&mut self.strs, dst) = res;
+                    }
+                    Ord(dst, s) => {
+                        let res = index(&self.strs, s).with_bytes(runtime::text_funcs::ord);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    Bar(dst, x, min, max, width) => {
+                        let res = runtime::text_funcs::bar(
+                            *self.get(*x),
+                            *self.get(*min),
+                            *self.get(*max),
+                            *self.get(*width),
+                        );
+                        *index_mut(&mut self.strs, dst) = res.into();
+                    }
                     Systime(dst) => {
                         let now = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
@@ -1433,13 +1461,14 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         );
                         *index_mut(&mut self.strs, dst) = Str::from_bytes(&plain_text);
                     }
-                    Strftime(dst, format, timestamp, flags) => {
+                    Strftime(dst, format, timestamp, flags, tz) => {
                         let format = index(&self.strs, format);
                         let dt_text = runtime::date_time::awk_strftime(
                             &self.core.vars.procinfo,
                             format,
                             *self.get(*timestamp),
                             *self.get(*flags),
+                            index(&self.strs, tz),
                         );
                         *index_mut(&mut self.strs, dst) = dt_text.into();
                     }
@@ -3364,6 +3393,18 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let map = *map;
                         let v = map_regs!(*map_ty, map, {
                             runtime::array_stats::count_distinct(self.get(map))
+                        });
+                        *self.get_mut(*res) = v;
+                    }
+                    ArrayArg {
+                        res,
+                        map_ty,
+                        map,
+                        dir,
+                    } => {
+                        let (dir, map) = (*self.get(*dir), *map);
+                        let v = map_regs!(*map_ty, map, {
+                            runtime::array_stats::arg_ext(self.get(map), dir)
                         });
                         *self.get_mut(*res) = v;
                     }

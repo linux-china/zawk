@@ -623,6 +623,11 @@ impl<'a> Str<'a> {
     /// Trim whitespace (`pat == " "`) or any char of `pat` from both ends. Works on bytes, so
     /// invalid UTF-8 (GBK, Latin-1, binary) is kept as is; it never matches `pat`.
     pub fn trim<'b>(&self, pat: &Str<'b>) -> Str<'b> {
+        self.trim_sides(pat, true, true)
+    }
+
+    /// `trim` (both sides), `ltrim` (`left` only) or `rtrim` (`right` only).
+    pub fn trim_sides<'b>(&self, pat: &Str<'b>, left: bool, right: bool) -> Str<'b> {
         let pat = pat.as_str();
         let chars: Vec<char> = pat.chars().collect();
         let matches = |c: char| {
@@ -634,7 +639,7 @@ impl<'a> Str<'a> {
         };
         self.with_bytes(|bs| {
             let mut start = 0;
-            while start < bs.len() {
+            while left && start < bs.len() {
                 let w = char_width(&bs[start..]);
                 match str::from_utf8(&bs[start..start + w]) {
                     Ok(ch) if ch.chars().all(&matches) => start += w,
@@ -642,7 +647,7 @@ impl<'a> Str<'a> {
                 }
             }
             let mut end = bs.len();
-            while end > start {
+            while right && end > start {
                 let mut from = end - 1;
                 while from > start && end - from < 4 && bs[from] & 0xC0 == 0x80 {
                     from -= 1;

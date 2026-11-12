@@ -970,6 +970,12 @@ zawk -H -i csv -p r -j 8 '{sum += $3} END {print sum}' demo.csv
 | Function                                  | Description                       |
 |-------------------------------------------|-----------------------------------|
 | `trim(s)`, `trim("[a]", "[]")`            | Remove whitespace or given chars  |
+| `ltrim(s)`, `rtrim(s, "0")`               | Trim the start or the end only    |
+| `replace("a.b", ".", "-")`                | `a-b` (plain text, no regex)      |
+| `translate("hello", "el", "ip")`          | `hippo` (like `tr`)               |
+| `left(s, 3)`, `right(s, 3)`, `reverse(s)` | First/last chars, reversed        |
+| `chr(65)`, `ord("A")`                     | `A`, `65` (code points)           |
+| `bar(x, 0, 100, 20)`                      | `██████▌` text bar chart          |
 | `truncate(s, 8)`                          | `hello...`                        |
 | `pad(s, 5)`, `pad_start(s, 3, "0")`, `pad_end(s, 5)` | Pad to a length        |
 | `starts_with(s, t)`, `ends_with(s, t)`, `contains(s, t)` | Test a substring   |
@@ -992,6 +998,7 @@ See: [Text functions](./stdlib/text.md)
 |----------------------------------------|------------------|
 | `url("https://a.com:8080/x")["port"]`  | `8080`           |
 | `path("/tmp/a.txt")["file_ext"]`       | `txt`            |
+| `path_join("logs", "app.log")`         | `logs/app.log`   |
 | `semver("1.2.3-alpha")["minor"]`       | `2`              |
 | `pairs("id=1,name=x")["name"]`         | `x`              |
 | `parse("Hello World", "{a} {b}")["b"]` | `World`          |
@@ -1021,10 +1028,12 @@ See: [JSON / XML / HTML / CSV](./stdlib/json-xml-html.md)
 | `_max(a)`, `_min(a)`, `_stddev(a)`        | Aggregate values             |
 | `_quantile(a, 0.5)`                       | q-quantile                   |
 | `_count_distinct(a)`, `_top(a, 2)`        | Distinct count, top keys     |
+| `_argmax(a)`, `_argmin(a)`                | Key of the max / min value   |
 | `_join(a, "-")`                           | Join values                  |
 | `seq(1, 3)`, `uniq(a)`                    | Sequence, unique values      |
 | `asort(a)`, `asorti(a)`                   | Sort values, sort indices    |
 | `abs(x)`, `ceil(x)`, `floor(x)`, `round(x[, n])` | Rounding              |
+| `tan(x)`, `asin(x)`, `acos(x)`, `pi()`, `sign(x)` | Trigonometry, sign   |
 | `min(1, 2)`, `max("A", "B")`              | Smallest, largest            |
 | `eval("1+2*3")`, `fend("1 km to m")`      | `7`, `1000 m`                |
 | `dec_add("0.1", "0.2")`, `dec_mul("19.99", 3)` | `0.3`, `59.97` (exact decimals) |
@@ -1037,8 +1046,9 @@ See: [Array & Math](./stdlib/array-math.md)
 
 | Function                           | Description               |
 |------------------------------------|---------------------------|
-| `systime()`                        | Current timestamp         |
+| `systime()`, `systime_ms()`        | Current timestamp (s, ms) |
 | `strftime("%Y-%m-%d", ts)`         | Format a timestamp        |
+| `strftime("%H:%M", ts, "Asia/Tokyo")` | In an IANA time zone   |
 | `mktime("2026-10-31 12:00:00")`    | Parse to a timestamp      |
 | `datetime(ts)["year"]`             | Date parts                |
 | `duration("1h30m")`                | `5400` seconds            |

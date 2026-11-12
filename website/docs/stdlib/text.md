@@ -17,12 +17,16 @@ Text is UTF-8: positions and lengths count characters, not bytes.
 | `chars(s)` | `chars("abc")` | array `a, b, c` indexed from 1 |
 | `index(s, t)` / `last_index(s, t)` | `last_index("a/b/c", "/")` | `4` |
 | `last_part(s[, sep])` | `last_part("a/b/c")` | `c` (tries `/`, then `.`) |
+| `left(s, n)` / `right(s, n)` | `right("hello", 2)` | `lo` (negative `n`: all but the last/first `-n`) |
+| `reverse(s)` | `reverse("你好")` | `好你` |
+| `chr(n)` / `ord(s)` | `chr(65)`, `ord("你")` | `A`, `20320` (Unicode code points) |
 
 ## Trimming, padding and shaping
 
 ```awk
 trim("  hi  ")                 # "hi"
 trim("[hello]", "[]")          # "hello": any of the chars, from both ends
+ltrim("  hi  "); rtrim("0.500", "0")  # "hi  ", "0.5": one end only
 truncate($1, 10)               # at most 10 chars
 truncate($1, 10, "...")        # with a suffix
 pad("hello", 10, "*")          # "***hello**"
@@ -70,6 +74,26 @@ Fuzzy matching with `similar` is one line:
 
 ```shell
 zawk 'similar($1, "apple") > 0.8' fruits.txt
+```
+
+## Literal replacement
+
+`replace` and `translate` work on plain text, with no regex to escape:
+
+```awk
+replace("a.b.c", ".", "::")       # "a::b::c" (gsub would need /\./)
+translate("hello", "el", "ip")    # "hippo": character by character, like tr
+translate("12345", "143", "ax")   # "a2x5": 3 has no counterpart in "ax" and is removed
+```
+
+## Bar charts
+
+`bar(x, min, max[, width])` draws a bar of Unicode blocks, `width` characters wide (80 by default):
+
+```shell
+$ zawk '{ c[$1]++ } END { for (k in c) printf "%-6s %s %d\n", k, bar(c[k], 0, _max(c), 20), c[k] }' fruits.txt
+apple  ████████████████████ 4
+banana ██████████           2
 ```
 
 ## Splitting and extracting

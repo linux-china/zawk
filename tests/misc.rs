@@ -593,6 +593,91 @@ fn case_conversions_agree_on_acronyms() {
     }
 }
 
+/// Runs `prog` with both backends and checks its output.
+fn assert_both_backends(prog: &str, expected: &str) {
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(expected.to_string());
+    }
+}
+
+#[test]
+fn duckdb_string_functions() {
+    assert_both_backends(
+        r#"BEGIN { print reverse("hello"), reverse("你好世界"), reverse("") "|" }"#,
+        "olleh 界世好你 |\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print "[" ltrim("  ab  ") "]" "[" rtrim("  ab  ") "]", ltrim("xxabxx", "x"), rtrim("xxabxx", "x") }"#,
+        "[ab  ][  ab] abxx xxab\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print replace("a.b.c", ".", "::"), replace("$1 $2", "$", ""), replace("abc", "", "x"), replace("aaa", "aa", "b") }"#,
+        "a::b::c 1 2 abc ba\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print translate("hello", "el", "ip"), translate("12345", "143", "ax"), translate("你好", "好", "们") }"#,
+        "hippo a2x5 你们\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { n = 2; print left("hello", n), right("hello", 2), left("hello", -2), right("hello", -2), left("hi", 9), right("你好世界", "2") }"#,
+        "he lo hel llo hi 世界\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print chr(65), chr(20320), "[" chr(-1) "]", ord("A"), ord("你好"), ord("") }"#,
+        "A 你 [] 65 20320 0\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print path_join("a", "b", "c.txt"), path_join("/tmp/", "x"), path_join("a", "/abs"), path_join("only"), path_join("a", "", "b") }"#,
+        "a/b/c.txt /tmp/x /abs only a/b\n",
+    );
+}
+
+#[test]
+fn duckdb_math_functions() {
+    assert_both_backends(
+        r#"BEGIN { printf "%.4f %.4f %.4f %.6f\n", tan(1), asin(1), acos(0), pi(); print sign(-3.5), sign(0), sign(7), sign("2") }"#,
+        "1.5574 1.5708 1.5708 3.141593\n-1 0 1 1\n",
+    );
+}
+
+#[test]
+fn argmax_and_argmin() {
+    assert_both_backends(
+        r#"BEGIN { a["x"] = 3; a["y"] = 9; a["z"] = 1; a["w"] = 9; print _argmax(a), _argmin(a), "[" _argmax(e) "]"; split("5 1 8", s); print _argmax(s), _argmin(s); f[1] = 1.5; f[2] = -2.5; print _argmax(f), _argmin(f) }"#,
+        "w z []\n3 2\n1 2\n",
+    );
+}
+
+#[test]
+fn bar_draws_blocks() {
+    assert_both_backends(
+        r#"BEGIN { print "[" bar(5, 0, 10, 10) "]", "[" bar(20, 0, 10, 4) "]", "[" bar(0.5, 0, 8, 8) "]", length(bar(1, 0, 2)), "[" bar(1, 1, 1) "]" }"#,
+        "[█████     ] [████] [▌       ] 80 []\n",
+    );
+}
+
+#[test]
+fn systime_ms_is_milliseconds() {
+    assert_both_backends(
+        r#"BEGIN { ms = systime_ms(); s = systime(); print (ms >= s * 1000 - 1000 && ms <= s * 1000 + 2000) }"#,
+        "1\n",
+    );
+}
+
+#[test]
+fn strftime_time_zones() {
+    assert_both_backends(
+        r#"BEGIN { tz = "America/New_York"; print strftime("%Y-%m-%d %H:%M %Z", 0, "Asia/Shanghai"), strftime("%H:%M %Z", 1621530000, tz), strftime("%H:%M %Z", 0, 1), strftime("%H:%M", 0, "yes"), strftime("%H:%M", 0, "UTC") }"#,
+        "1970-01-01 08:00 CST 13:00 EDT 00:00 UTC 00:00 00:00\n",
+    );
+}
+
 #[test]
 fn eq_ignore_case_compares_without_case() {
     let prog = r#"BEGIN { print eq_ignore_case("", ""), eq_ignore_case("", "a"), eq_ignore_case("Hello", "hELLO"), eq_ignore_case("CAFÉ", "café"), eq_ignore_case("Hello世界", "hello世界"), eq_ignore_case("cafe", "café"), eq_ignore_case("K", "k"), eq_ignore_case(10, "10") }"#;

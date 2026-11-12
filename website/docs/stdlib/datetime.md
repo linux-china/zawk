@@ -11,9 +11,11 @@ sidebar_label: Date/Time
 
 ```awk
 systime()                           # Unix time
+systime_ms()                        # Unix time in milliseconds
 strftime("%Y-%m-%d %H:%M:%S")       # now, local time
 strftime("%Y-%m-%d", 0)             # a timestamp
 strftime("%H:%M", 0, 1)             # in UTC (3rd argument)
+strftime("%H:%M %Z", 0, "Asia/Shanghai")   # "08:00 CST": in an IANA time zone
 strftime("%+")                      # ISO 8601 / RFC 3339
 ```
 

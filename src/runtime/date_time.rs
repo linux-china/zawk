@@ -34,16 +34,55 @@ pub const STRFTIME_NOW: Int = Int::MIN;
 pub const STRFTIME_UTC: Int = 1;
 pub const STRFTIME_PROCINFO_FORMAT: Int = 2;
 
+/// `systime_ms()`: the current Unix time in milliseconds.
+pub fn systime_ms() -> Int {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as Int)
+}
+
+/// The time zone `strftime` formats a time in.
+#[derive(Clone, Debug, PartialEq)]
+enum Zone {
+    Local,
+    Utc,
+    /// A time zone of the IANA database at the formatted time: its offset east of UTC in
+    /// seconds, its abbreviation (`%Z`) and whether it is daylight saving time.
+    Named {
+        offset: i32,
+        abbr: String,
+        dst: bool,
+    },
+}
+
+impl Zone {
+    /// The time zone named `name` (`"Asia/Shanghai"`, `"UTC"`) at `timestamp`, if it is one.
+    fn named(name: &str, timestamp: i64) -> Option<Zone> {
+        // numbers are utc flags, not time zones: skip the lookup
+        if name.is_empty() || !name.bytes().any(|b| b.is_ascii_alphabetic()) {
+            return None;
+        }
+        let tz = jiff::tz::TimeZone::get(name).ok()?;
+        let ts = jiff::Timestamp::from_second(timestamp).ok()?;
+        let info = tz.to_offset_info(ts);
+        Some(Zone::Named {
+            offset: info.offset().seconds(),
+            abbr: info.abbreviation().to_string(),
+            dst: info.dst().is_dst(),
+        })
+    }
+}
+
 /// Format a unix timestamp as local date time. Unknown conversions are output as is, and a
 /// timestamp out of range gives an empty string, as in gawk.
 pub fn strftime(format: &str, timestamp: i64) -> String {
-    strftime_tz(format, timestamp, false)
+    strftime_tz(format, timestamp, &Zone::Local)
 }
 
 /// `strftime` with the C library, which knows time zone abbreviations (`%Z`), the `E`/`O`
 /// modifiers and the platform's other extensions.
 #[cfg(unix)]
-fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
+fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
     use std::sync::Once;
     unsafe extern "C" {
         fn tzset();
@@ -60,17 +99,36 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
         return String::new();
     }
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // the abbreviation of a named zone, which `tm.tm_zone` points to while formatting
+    let mut zone_abbr = None;
     let tm_ptr = unsafe {
-        if utc {
-            libc::gmtime_r(&time, &mut tm)
-        } else {
-            TZSET.call_once(|| tzset());
-            libc::localtime_r(&time, &mut tm)
+        match zone {
+            Zone::Utc => libc::gmtime_r(&time, &mut tm),
+            Zone::Local => {
+                TZSET.call_once(|| tzset());
+                libc::localtime_r(&time, &mut tm)
+            }
+            // the broken-down time of the zone is the UTC one of the shifted time
+            Zone::Named { offset, abbr, dst } => {
+                let Some(shifted) = time.checked_add(*offset as libc::time_t) else {
+                    return String::new();
+                };
+                let res = libc::gmtime_r(&shifted, &mut tm);
+                let Ok(abbr) = std::ffi::CString::new(abbr.as_str()) else {
+                    return String::new();
+                };
+                tm.tm_gmtoff = *offset as _;
+                tm.tm_isdst = *dst as _;
+                tm.tm_zone = abbr.as_ptr() as _;
+                zone_abbr = Some(abbr);
+                res
+            }
         }
     };
     if tm_ptr.is_null() {
         return String::new();
     }
+    let _zone_abbr = zone_abbr;
     // a trailing space tells an empty result (e.g. `%p` in some locales) from a too small buffer
     let Ok(c_format) = std::ffi::CString::new(format!("{format} ")) else {
         return String::new();
@@ -91,13 +149,19 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
 /// `strftime` with chrono: format item by item, so that an unknown conversion is output as is
 /// rather than failing the whole format.
 #[cfg(not(unix))]
-fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
+fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
     use chrono::format::{Item, StrftimeItems};
     use std::fmt::Write;
     let Some(utc_date_time) = DateTime::from_timestamp(timestamp, 0) else {
         return String::new();
     };
     let local_date_time = utc_date_time.with_timezone(&Local);
+    let named_date_time = match zone {
+        Zone::Named { offset, .. } => {
+            FixedOffset::east_opt(*offset).map(|offset| utc_date_time.with_timezone(&offset))
+        }
+        _ => None,
+    };
     let mut text = String::new();
     let mut rest = format;
     while !rest.is_empty() {
@@ -128,7 +192,11 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
         };
         if StrftimeItems::new(&item_format).any(|item| item == Item::Error) {
             text.push_str(item);
-        } else if utc {
+        } else if let (Zone::Named { abbr, .. }, "%Z") = (zone, item_format.as_str()) {
+            text.push_str(abbr);
+        } else if let Some(named) = &named_date_time {
+            let _ = write!(text, "{}", named.format(&item_format));
+        } else if *zone == Zone::Utc {
             let _ = write!(text, "{}", utc_date_time.format(&item_format));
         } else {
             let _ = write!(text, "{}", local_date_time.format(&item_format));
@@ -138,13 +206,17 @@ fn strftime_tz(format: &str, timestamp: i64, utc: bool) -> String {
 }
 
 /// awk's `strftime(format, timestamp, utc)`, with the arguments filled in by the compiler: the
-/// timestamp is [`STRFTIME_NOW`] when it is not given, and `flags` holds [`STRFTIME_UTC`] and
-/// [`STRFTIME_PROCINFO_FORMAT`]. An empty format gives an empty string, as in gawk.
+/// timestamp is [`STRFTIME_NOW`] when it is not given, `flags` holds [`STRFTIME_UTC`] and
+/// [`STRFTIME_PROCINFO_FORMAT`], and `timezone` is the utc argument as text. When the utc flag
+/// is set and `timezone` names a time zone of the IANA database (`"Asia/Shanghai"`), the time is
+/// formatted in that zone; any other true utc argument means UTC, as in gawk. An empty format
+/// gives an empty string, as in gawk.
 pub(crate) fn awk_strftime(
     procinfo: &StrMap<Str>,
     format: &Str,
     timestamp: Int,
     flags: Int,
+    timezone: &Str,
 ) -> String {
     let format = if flags & STRFTIME_PROCINFO_FORMAT != 0 {
         let key = Str::from("strftime");
@@ -163,7 +235,18 @@ pub(crate) fn awk_strftime(
     } else {
         timestamp
     };
-    strftime_tz(&format, timestamp, flags & STRFTIME_UTC != 0)
+    let zone = if flags & STRFTIME_UTC == 0 {
+        Zone::Local
+    } else {
+        timezone
+            .with_bytes(|bs| {
+                std::str::from_utf8(bs)
+                    .ok()
+                    .and_then(|n| Zone::named(n, timestamp))
+            })
+            .unwrap_or(Zone::Utc)
+    };
+    strftime_tz(&format, timestamp, &zone)
 }
 
 /// Sentinel timezone for `mktime(text [, utc])`: no UTC offset is given, so text without an
@@ -780,19 +863,43 @@ mod tests {
     #[test]
     fn test_strftime_invalid_format() {
         // an unknown conversion is output as is: `Q` (BSD) or `%Q` (glibc)
-        let text = strftime_tz("%Y-%Q", 0, true);
+        let text = strftime_tz("%Y-%Q", 0, &Zone::Utc);
         assert!(text == "1970-Q" || text == "1970-%Q", "{text}");
         // out of range timestamp
         assert_eq!(strftime("%Y", 1 << 62), "");
     }
 
     #[test]
+    fn test_strftime_named_zone() {
+        let at = |name: &str, ts: i64| Zone::named(name, ts).unwrap();
+        let ts = 1621530000; // 2021-05-20 17:00:00 UTC
+        assert_eq!(
+            strftime_tz("%Y-%m-%d %H:%M:%S %z", ts, &at("Asia/Shanghai", ts)),
+            "2021-05-21 01:00:00 +0800"
+        );
+        // daylight saving time in summer, not in winter
+        assert_eq!(
+            strftime_tz("%H:%M %Z", ts, &at("America/New_York", ts)),
+            "13:00 EDT"
+        );
+        let winter = 1610000000; // 2021-01-07 06:13:20 UTC
+        assert_eq!(
+            strftime_tz("%H:%M %Z", winter, &at("America/New_York", winter)),
+            "01:13 EST"
+        );
+        assert_eq!(strftime_tz("%H:%M", ts, &at("UTC", ts)), "17:00");
+        assert!(Zone::named("Not/AZone", ts).is_none());
+        assert!(Zone::named("1", ts).is_none());
+        assert!(Zone::named("", ts).is_none());
+    }
+
+    #[test]
     fn test_strftime_utc() {
         assert_eq!(
-            strftime_tz("%Y-%m-%d %H:%M:%S", 1621530000, true),
+            strftime_tz("%Y-%m-%d %H:%M:%S", 1621530000, &Zone::Utc),
             "2021-05-20 17:00:00"
         );
-        assert_eq!(strftime_tz("%Ey/%Od", 1621530000, true), "21/20");
+        assert_eq!(strftime_tz("%Ey/%Od", 1621530000, &Zone::Utc), "21/20");
     }
 
     #[test]

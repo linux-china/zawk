@@ -5,6 +5,7 @@ use crate::common::Either;
 use crate::common::{CompileError, NodeIx, Result};
 use crate::compile;
 pub use crate::runtime::decimal::DecOp;
+pub use crate::runtime::text_funcs::TextOp;
 use crate::runtime::{Int, IntMap, Str, StrMap};
 use crate::types::{self, SmallVec};
 use smallvec::smallvec;
@@ -65,6 +66,14 @@ pub enum Function {
     LogWarn,
     LogError,
     Systime,
+    SystimeMs,
+    // pi(): replaced by the constant when lowering to the CFG.
+    Pi,
+    // reverse, ltrim, rtrim, replace, translate, left, right, chr, path_join: op(a, b, c) on
+    // strings, see runtime::text_funcs.
+    Text(TextOp),
+    Ord,
+    Bar,
     Strftime,
     Mktime,
     Duration,
@@ -197,6 +206,9 @@ pub enum Function {
     ArrayStat,
     ArrayCountDistinct,
     ArrayTop,
+    // _argmax(a), _argmin(a): the key of the largest (smallest) value.
+    ArrayArgMax,
+    ArrayArgMin,
     Asort,
     Asorti,
     BloomFilterInsert,
@@ -396,12 +408,30 @@ pub fn round_digits(x: f64, digits: f64) -> f64 {
 
 // TODO: move the llvm-level code back into the LLVM module.
 
+/// `sign(x)`: -1 for a negative number, 1 for a positive one, and 0 for zero (and NaN for NaN).
+pub(crate) fn sign(x: f64) -> f64 {
+    if x > 0.0 {
+        1.0
+    } else if x < 0.0 {
+        -1.0
+    } else if x.is_nan() {
+        x
+    } else {
+        0.0
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FloatFunc {
     Cos,
     Sin,
+    Tan,
+    Asin,
+    Acos,
     Atan,
     Atan2,
+    // -1, 0 or 1
+    Sign,
     // Integer division truncated toward zero; 0 when the divisor is 0.
     IntDiv0,
     // Natural log
@@ -428,6 +458,10 @@ impl FloatFunc {
         match self {
             Cos => op.cos(),
             Sin => op.sin(),
+            Tan => op.tan(),
+            Asin => op.asin(),
+            Acos => op.acos(),
+            Sign => sign(op),
             Atan => op.atan(),
             Log => op.ln(),
             Log2 => op.log2(),
@@ -447,7 +481,8 @@ impl FloatFunc {
             Atan2 => x.atan2(y),
             IntDiv0 => intdiv0(x, y),
             Round => round_digits(x, y),
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Trunc => {
+            Sqrt | Cos | Sin | Tan | Asin | Acos | Sign | Atan | Log | Log2 | Log10 | Exp | Abs
+            | Ceil | Floor | Trunc => {
                 panic!("float: mismatched arity!")
             }
         }
@@ -458,6 +493,10 @@ impl FloatFunc {
         match self {
             Cos => "cos",
             Sin => "sin",
+            Tan => "tan",
+            Asin => "asin",
+            Acos => "acos",
+            Sign => "sign",
             Atan => "atan",
             Log => "log",
             Log2 => "log2",
@@ -477,7 +516,8 @@ impl FloatFunc {
     pub fn arity(&self) -> usize {
         use FloatFunc::*;
         match self {
-            Sqrt | Cos | Sin | Atan | Log | Log2 | Log10 | Exp | Abs | Ceil | Floor | Trunc => 1,
+            Sqrt | Cos | Sin | Tan | Asin | Acos | Sign | Atan | Log | Log2 | Log10 | Exp | Abs
+            | Ceil | Floor | Trunc => 1,
             Atan2 | IntDiv0 | Round => 2,
         }
     }
@@ -518,6 +558,7 @@ static_map!(
     ["log_warn", Function::LogWarn],
     ["log_error", Function::LogError],
     ["systime", Function::Systime],
+    ["systime_ms", Function::SystimeMs],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
     ["duration", Function::Duration],
@@ -537,6 +578,17 @@ static_map!(
     ["dec_cmp", Function::DecCmp],
     ["eval", Function::Eval],
     ["trim", Function::Trim],
+    ["ltrim", Function::Text(TextOp::LTrim)],
+    ["rtrim", Function::Text(TextOp::RTrim)],
+    ["reverse", Function::Text(TextOp::Reverse)],
+    ["replace", Function::Text(TextOp::Replace)],
+    ["translate", Function::Text(TextOp::Translate)],
+    ["left", Function::Text(TextOp::Left)],
+    ["right", Function::Text(TextOp::Right)],
+    ["chr", Function::Text(TextOp::Chr)],
+    ["ord", Function::Ord],
+    ["bar", Function::Bar],
+    ["path_join", Function::Text(TextOp::PathJoin)],
     ["encode", Function::Encode],
     ["decode", Function::Decode],
     ["digest", Function::Digest],
@@ -605,6 +657,8 @@ static_map!(
     // array underscore functions
     ["_max", Function::ArrayMax],
     ["_min", Function::ArrayMin],
+    ["_argmax", Function::ArrayArgMax],
+    ["_argmin", Function::ArrayArgMin],
     ["_sum", Function::ArraySum],
     ["_mean", Function::ArrayMean],
     ["_median", Function::ArrayMedian],
@@ -688,6 +742,11 @@ static_map!(
     ["round", Function::FloatFunc(FloatFunc::Round)],
     ["cos", Function::FloatFunc(FloatFunc::Cos)],
     ["sin", Function::FloatFunc(FloatFunc::Sin)],
+    ["tan", Function::FloatFunc(FloatFunc::Tan)],
+    ["asin", Function::FloatFunc(FloatFunc::Asin)],
+    ["acos", Function::FloatFunc(FloatFunc::Acos)],
+    ["sign", Function::FloatFunc(FloatFunc::Sign)],
+    ["pi", Function::Pi],
     ["atan", Function::FloatFunc(FloatFunc::Atan)],
     ["log", Function::FloatFunc(FloatFunc::Log)],
     ["log2", Function::FloatFunc(FloatFunc::Log2)],
@@ -910,6 +969,8 @@ impl Function {
             Function::ArrayStat
             | Function::ArrayCountDistinct
             | Function::ArrayTop
+            | Function::ArrayArgMax
+            | Function::ArrayArgMin
             | Function::ArrayMax
             | Function::ArrayMin
             | Function::ArraySum
@@ -1116,8 +1177,12 @@ impl Function {
             Ulid | Tsid => (smallvec![], Str),
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
-            Systime => (smallvec![], Int),
-            Strftime => (smallvec![Str, Int, Int], Str),
+            Systime | SystimeMs => (smallvec![], Int),
+            Pi => (smallvec![], Float),
+            Text(_) => (smallvec![Str; 3], Str),
+            Ord => (smallvec![Str], Int),
+            Bar => (smallvec![Float; 4], Str),
+            Strftime => (smallvec![Str, Int, Int, Str], Str),
             Mktime => (smallvec![Str, Int, Int], Int),
             Duration => (smallvec![Str], Int),
             // date text is parsed as mktime does; other values are timestamps
@@ -1230,6 +1295,10 @@ impl Function {
                 return err!("{} should have been lowered to ArrayStat", self);
             }
             ArrayStat => (smallvec![incoming[0], Int, Float], Float),
+            ArrayArgMax | ArrayArgMin if incoming[0].is_array() => (smallvec![incoming[0]], Str),
+            ArrayArgMax | ArrayArgMin => {
+                return err!("{} expects an array, got {:?}", self, incoming[0]);
+            }
             ArrayCountDistinct => (smallvec![incoming[0]], Int),
             ArrayTop => (smallvec![incoming[0], Int], MapIntStr),
             Asorti => {
@@ -1356,7 +1425,7 @@ impl Function {
             MatchArr | HttpPost | Jwt => &[2],
             SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => &[2],
             ArrayStat | ArrayCountDistinct | ArrayTop | ArrayMax | ArrayMin | ArraySum
-            | ArrayMean | IntMapJoin | ToCsv | Uniq => &[0],
+            | ArrayMean | IntMapJoin | ToCsv | Uniq | ArrayArgMax | ArrayArgMin => &[0],
             _ => &[],
         }
     }
@@ -1371,8 +1440,8 @@ impl Function {
             FloatFunc(ff) => ff.arity(),
             IntFunc(bw) => bw.arity(),
             UpdateUsedFields | Rand | Ulid | Tsid | LocalIp | RecordCSV | RecordTSV | Systime
-            | ReseedRng | ReadErrStdin | NextlineStdin | NextFile | ReadLineStdinFused
-            | Exiting => 0,
+            | SystimeMs | Pi | ReseedRng | ReadErrStdin | NextlineStdin | NextFile
+            | ReadLineStdinFused | Exiting => 0,
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => 0,
             Exit | ToUpper | ToLower | Clear | Srand | TryScope | System | System2 | HexToInt
             | ToInt | EscapeCSV | EscapeTSV | Close | Fflush | Length | Strlen | ReadErr
@@ -1408,8 +1477,12 @@ impl Function {
             JevProb => 2,
             Jev | JevChoice | JevScore => 3,
             Encrypt | Decrypt => 3,
-            Strftime => 3,
+            Strftime => 4,
             Mktime => 3,
+            Text(_) => 3,
+            Ord => 1,
+            Bar => 4,
+            ArrayArgMax | ArrayArgMin => 1,
             Duration => 1,
             DateAdd | DateDiff => 3,
             DateTrunc => 2,
@@ -1500,10 +1573,9 @@ impl Function {
             | Binop(IsMatch) | Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ)
             | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr | ReadErrCmd
             | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime
-            | Mktime | Duration | DateAdd | DateDiff | DateTrunc | System | HexToInt | Asort
-            | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting | TryScope => {
-                Ok(Scalar(BaseTy::Int).abs())
-            }
+            | SystimeMs | Ord | Mktime | Duration | DateAdd | DateDiff | DateTrunc | System
+            | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting
+            | TryScope => Ok(Scalar(BaseTy::Int).abs()),
             // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
             TryElse => match (&args[0], &args[1]) {
                 (Some(Map { .. }), Some(Map { .. })) => Ok(args[1]),
@@ -1528,7 +1600,9 @@ impl Function {
             | Escape | Color | Unop(Column) | Binop(Concat) | Nextline | NextlineCmd
             | NextlineStdin | GenSub | Substr | CharAt | Encode | Decode | Digest | Hmac | Jwt
             | ToJson | JsonValue | JsonGet | JsonSet | JsonDel | HtmlValue | XmlValue | ToCsv
-            | TypeOfVariable | TypeOfUntyped | IntMapJoin => Ok(Scalar(BaseTy::Str).abs()),
+            | TypeOfVariable | TypeOfUntyped | IntMapJoin | Text(_) | Bar | ArrayArgMax
+            | ArrayArgMin => Ok(Scalar(BaseTy::Str).abs()),
+            Pi => Ok(Scalar(BaseTy::Float).abs()),
             Chars => Ok(Map {
                 key: BaseTy::Int,
                 val: BaseTy::Str,

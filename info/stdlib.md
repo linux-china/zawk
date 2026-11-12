@@ -186,6 +186,88 @@ digits and every later group exactly three, so `strtonum("1,2")` is `1`. Plain c
 Trim text with space by default. `trim($1)`.
 Trim text with chars with `trim($1, "[]()")`
 
+### ltrim/rtrim
+
+Like `trim`, but only at the start (`ltrim`) or at the end (`rtrim`) of the text, as DuckDB's `ltrim`/`rtrim`:
+
+```awk
+ltrim("  hi  ")          # "hi  "
+rtrim("  hi  ")          # "  hi"
+ltrim("xxhixx", "x")     # "hixx"
+rtrim("0.500", "0")      # "0.5"
+```
+
+### reverse
+
+`reverse(s)`: the characters of `s` in reverse order. A character with combining marks or an emoji sequence
+(a grapheme cluster) stays whole, and bytes that are not valid UTF-8 are kept.
+
+```awk
+reverse("hello")         # "olleh"
+reverse("你好世界")       # "界世好你"
+```
+
+### replace
+
+`replace(s, from, to)`: every occurrence of the text `from` replaced by `to`. Unlike `gsub`, `from` is plain text and
+not a regex, so `.`, `$`, `(` and `\` need no escaping, and `to` has no special `&`. An empty `from` changes nothing.
+
+```awk
+replace("a.b.c", ".", "::")           # "a::b::c"
+replace("price: $10", "$", "USD ")    # "price: USD 10"
+```
+
+### translate
+
+`translate(s, from, to)`: each character of `s` that is in `from` is replaced by the character at the same position
+in `to`, or removed when `to` is shorter, like the `tr` command and DuckDB's `translate`:
+
+```awk
+translate("hello", "el", "ip")    # "hippo"
+translate("12345", "143", "ax")   # "a2x5": 1 -> a, 4 -> x, 3 is removed
+translate("2024/01/15", "/", "-") # "2024-01-15"
+```
+
+### left/right
+
+`left(s, n)`: the first `n` characters of `s`, and `right(s, n)` the last `n`. A negative `n` gives all but the last
+(`left`) or first (`right`) `-n` characters. Characters, not bytes, are counted.
+
+```awk
+left("hello", 2)      # "he"
+right("hello", 2)     # "lo"
+left("hello", -2)     # "hel"
+right("hello", -2)    # "llo"
+right("你好世界", 2)   # "世界"
+```
+
+### chr/ord
+
+`chr(n)`: the character with the Unicode code point `n`, `""` when `n` is not a code point.
+`ord(s)`: the code point of the first character of `s`, `0` for an empty string (and the value of the byte when it is
+not valid UTF-8). Same as gawk's `ordchr` extension.
+
+```awk
+chr(65)        # "A"
+chr(0x4F60)    # "你"
+ord("A")       # 65
+ord("你好")    # 20320
+```
+
+### bar
+
+`bar(x, min, max[, width])`: a horizontal bar of `width` characters (80 by default), empty for `min` and full for
+`max` (`x` is clamped to the range), drawn with Unicode blocks in steps of 1/8 of a character and padded with spaces
+to `width`, as DuckDB's `bar`. Handy for reports in the terminal:
+
+```awk
+# requests per host as a bar chart
+{ count[$1]++ }
+END { for (h in count) printf "%-15s %s %d\n", h, bar(count[h], 0, _max(count), 30), count[h] }
+```
+
+`bar(5, 0, 10, 10)` is `"█████     "`.
+
 ### truncate
 
 `truncate($1, 10)` or `truncate($1, 10, "...")`
@@ -464,6 +546,17 @@ examples: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306
 - file_ext
 - content_type
 
+### path_join
+
+`path_join(part, ...)`: the parts joined with a single `/`. Empty parts are skipped, and a part starting with `/` is
+absolute and restarts the path, as Python's `os.path.join`.
+
+```awk
+path_join("logs", "2024", "app.log")   # "logs/2024/app.log"
+path_join("/data/", $1)                # "/data/" and $1, with one "/"
+path_join("a", "/etc/hosts")           # "/etc/hosts"
+```
+
 ### Semantic Versioning(MapStrStr):
 
 `semver("1.2.3-alpha")`, `semver("1.2.3-alpha.1+zstd.1.5.0")`
@@ -645,6 +738,17 @@ END { print _median(latency), _quantile(latency, 0.99), _stddev(latency) }
 END { t = _top(count, 10); for (i = 1; i <= length(t); i++) print t[i], count[t[i]] }
 ```
 
+### _argmax/_argmin
+
+`_argmax(arr)`: the key of the largest (numeric) value of an array, and `_argmin(arr)` the key of the smallest one, as
+DuckDB's `arg_max`/`arg_min`. On a tie, the first key by string order is returned; `""` for an empty array.
+
+```awk
+# the slowest endpoint and the busiest host
+{ latency[$2] = $3; hits[$1]++ }
+END { print _argmax(latency), _argmax(hits), _argmin(latency) }
+```
+
 ### _join
 
 `_join(arr, ",")` IntMap -> Str
@@ -677,8 +781,17 @@ Find unique phone numbers: `!bf_icontains(phone) { }`
 
 # Math
 
-Floating-point operations: `sin(x)`, `cos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`, `log2(x)`, `log10(x)`, `sqrt(x)`,
-`exp(x)` are delegated to the Rust standard library.
+Floating-point operations: `sin(x)`, `cos(x)`, `tan(x)`, `asin(x)`, `acos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`,
+`log2(x)`, `log10(x)`, `sqrt(x)`, `exp(x)` are delegated to the Rust standard library. Angles are in radians, and
+`asin`/`acos` give NaN outside `[-1, 1]`.
+
+### pi()
+
+The constant π: `pi() # 3.14159...`, instead of `atan2(0, -1)`.
+
+### sign(x)
+
+`-1`, `0` or `1` by the sign of `x`: `sign(-3.5) # -1`, `sign(0) # 0`.
 
 ### intdiv0(x, y)
 
@@ -810,6 +923,15 @@ zone) unless a function is asked for UTC.
 
 `systime()`: current Unix time
 
+### systime_ms
+
+`systime_ms()`: current Unix time in milliseconds, for timing and log timestamps.
+
+```awk
+BEGIN { start = systime_ms() }
+END { printf "took %d ms\n", systime_ms() - start }
+```
+
 ### strftime
 
 https://docs.rs/chrono/latest/chrono/format/strftime/index.html
@@ -819,6 +941,9 @@ https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 * `strftime("%Y-%m-%d %H:%M:%S")`: the current time.
 * `strftime("%Y-%m-%d", 0)`: a unix timestamp; negative timestamps are dates before 1970.
 * `strftime("%H:%M", 0, 1)`: in UTC when the third argument is nonzero or a nonempty string, local time otherwise.
+* `strftime("%Y-%m-%d %H:%M %Z", 0, "Asia/Shanghai")`: in the time zone named by the third argument, an IANA time zone
+  name such as `Asia/Shanghai`, `America/New_York` or `UTC` (daylight saving time included):
+  `1970-01-01 08:00 CST`. A string that is not a time zone name (`"yes"`) means UTC, as in gawk.
 * `strftime()`: the current time in the format of `PROCINFO["strftime"]` (`%a %b %e %H:%M:%S %Z %Y` by default).
 * `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
 

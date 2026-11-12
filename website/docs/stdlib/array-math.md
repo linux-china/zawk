@@ -31,6 +31,7 @@ Exact statistics over the values of any array (strings are converted to numbers;
 | `_mode(arr)` | most frequent value |
 | `_count_distinct(arr)` | number of distinct values |
 | `_top(arr, k)` | the `k` keys with the largest values |
+| `_argmax(arr)`, `_argmin(arr)` | the key of the largest / smallest value |
 
 ```shell
 # p50/p99 latency from an access log
@@ -38,6 +39,9 @@ zawk '{ lat[NR] = $NF } END { print _median(lat), _quantile(lat, 0.99), _stddev(
 
 # Top 10 client IPs
 zawk '{ c[$1]++ } END { t = _top(c, 10); for (i = 1; i <= length(t); i++) print t[i], c[t[i]] }' access.log
+
+# The slowest URL
+zawk '{ lat[$7] = $NF } END { print _argmax(lat), lat[_argmax(lat)] }' access.log
 ```
 
 ## Bloom filter
@@ -60,6 +64,9 @@ POSIX functions (`sin`, `cos`, `atan2`, `exp`, `log`, `sqrt`, `int`, `rand`, `sr
 
 ```awk
 abs(-1); floor(4.5); ceil(4.5); round(4.4); round(3.14159, 2)
+tan(x); asin(x); acos(x)   # radians
+pi()                       # 3.14159...
+sign(-3.5)                 # -1, 0 or 1
 log2(8); log10(100)
 min(1, 2, 3); max("A", "B")
 intdiv0(7, 0)              # 0 instead of a fatal division by zero

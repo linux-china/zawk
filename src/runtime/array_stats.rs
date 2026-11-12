@@ -193,6 +193,27 @@ where
     res
 }
 
+/// `_argmax(a)` (`dir` 1) and `_argmin(a)` (`dir` -1): the key of the largest (smallest) numeric
+/// value of `map`; among keys with that value, the first by string order. `""` for an empty array.
+pub(crate) fn arg_ext<'a, K, V>(map: &SharedMap<K, V>, dir: Int) -> Str<'a>
+where
+    K: Hash + Eq + Clone + SortItem + Into<Str<'a>>,
+    V: SortItem,
+{
+    let best = map.iter(|it| {
+        it.map(|(key, v)| (key.clone(), v.sort_num(), key.sort_str().into_owned()))
+            .min_by(|a, b| {
+                let by_value = if dir < 0 {
+                    cmp_num(a.1, b.1)
+                } else {
+                    cmp_num(b.1, a.1)
+                };
+                by_value.then_with(|| a.2.cmp(&b.2))
+            })
+    });
+    best.map_or_else(|| Str::default(), |(key, _, _)| key.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

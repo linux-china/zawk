@@ -2367,6 +2367,7 @@ impl<'a, 'b> View<'a, 'b> {
                         conv_regs[0].into(),
                         conv_regs[1].into(),
                         conv_regs[2].into(),
+                        conv_regs[3].into(),
                     ))
                 }
             }
@@ -2745,6 +2746,39 @@ impl<'a, 'b> View<'a, 'b> {
                     res_reg = self.regs.stats.reg_of_ty(res_ty);
                 }
                 self.pushl(LL::Systime(res_reg.into()))
+            }
+            SystimeMs => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::SystimeMs(res_reg.into()))
+                }
+            }
+            Pi => return err!("{} should have been replaced by its value", bf),
+            Text(op) => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Text(
+                        *op,
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+            Ord => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Ord(res_reg.into(), conv_regs[0].into()))
+                }
+            }
+            Bar => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Bar(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                        conv_regs[3].into(),
+                    ))
+                }
             }
             Fend => {
                 if res_reg != UNUSED {
@@ -3287,6 +3321,20 @@ impl<'a, 'b> View<'a, 'b> {
                         res: res_reg.into(),
                         map_ty: conv_tys[0],
                         map: conv_regs[0],
+                    })
+                }
+            }
+            // dir is 1 for the largest value, -1 for the smallest.
+            ArrayArgMax | ArrayArgMin => {
+                if res_reg != UNUSED {
+                    let dir = self.regs.stats.reg_of_ty(Ty::Int);
+                    let d = if *bf == ArrayArgMax { 1 } else { -1 };
+                    self.pushl(LL::StoreConstInt(dir.into(), d));
+                    self.pushl(LL::ArrayArg {
+                        res: res_reg.into(),
+                        map_ty: conv_tys[0],
+                        map: conv_regs[0],
+                        dir: dir.into(),
                     })
                 }
             }

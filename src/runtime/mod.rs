@@ -62,6 +62,7 @@ pub mod postgres;
 pub mod s3;
 pub mod sqlite;
 pub mod string_util;
+pub mod text_funcs;
 pub(crate) mod tls;
 
 use crate::pushdown::FieldSet;

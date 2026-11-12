@@ -1854,6 +1854,10 @@ impl<'a> View<'a> {
         match op {
             Cos => self.call_external(external!(_frawk_cos), args),
             Sin => self.call_external(external!(_frawk_sin), args),
+            Tan => self.call_external(external!(_frawk_tan), args),
+            Asin => self.call_external(external!(_frawk_asin), args),
+            Acos => self.call_external(external!(_frawk_acos), args),
+            Sign => self.call_external(external!(_frawk_sign), args),
             Atan => self.call_external(external!(_frawk_atan), args),
             Atan2 => self.call_external(external!(_frawk_atan2), args),
             IntDiv0 => self.call_external(external!(_frawk_intdiv0), args),

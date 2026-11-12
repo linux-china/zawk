@@ -6549,6 +6549,7 @@ dependencies = [
  "itertools 0.15.0",
  "itoa",
  "java-properties",
+ "jiff",
  "jsonwebtoken",
  "lalrpop",
  "lalrpop-util",

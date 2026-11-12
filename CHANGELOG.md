@@ -1,5 +1,11 @@
 # Unreleased
 
+* Add string functions from DuckDB: `reverse(s)` (by character, grapheme clusters kept whole), `ltrim(s[, chars])` / `rtrim(s[, chars])` (as `trim`, one end only), `replace(s, from, to)` (plain text, no regex to escape: `replace("a.b.c", ".", "::")` is `a::b::c`), `translate(s, from, to)` (character by character like `tr`: `translate("hello", "el", "ip")` is `hippo`), `left(s, n)` / `right(s, n)` (a negative `n` drops characters from the other end), `chr(n)` / `ord(s)` (Unicode code points, as gawk's `ordchr` extension) and `bar(x, min, max[, width])` (a text bar chart of Unicode blocks, 80 characters wide by default)
+* Add `path_join(part, ...)`: the parts joined with a single `/`, empty parts skipped and an absolute part restarting the path, e.g. `path_join("logs", "2024", "app.log")` is `logs/2024/app.log`
+* Add `tan(x)`, `asin(x)`, `acos(x)`, `pi()` and `sign(x)`
+* Add `systime_ms()`: the current Unix time in milliseconds
+* Add `_argmax(arr)` / `_argmin(arr)`: the key of the largest / smallest value of an array, the first by string order on a tie, `""` for an empty array
+* `strftime(format, timestamp, tz)` formats in an IANA time zone when its third argument names one, e.g. `strftime("%H:%M %Z", 0, "Asia/Shanghai")` is `08:00 CST`, with daylight saving time. Other true values still mean UTC, as in gawk
 * Fix `for (k in a)` in END visiting the keys of an array filled in parallel (`-pr`, `-pf`, or automatic parallelism on files of 64 MiB or more) in an order that changed from one run to the next, e.g. `zawk -F, '{ c[$3]++ } END { for (k in c) print k, c[k] }' big.csv`. The order now depends only on the keys: the same in every run and whatever `-j` or `--chunk-size` (it may still differ from the order of a serial run; use `PROCINFO["sorted_in"]` for a given order). Merging the arrays of the workers is also faster for arrays with many keys, as it sorts them on several threads (a run counting 12 million distinct keys takes 18% less time)
 
 # Version 0.7.0 (2026-11-10)

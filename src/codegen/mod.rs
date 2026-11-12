@@ -714,6 +714,24 @@ pub(crate) trait CodeGenerator: Backend {
         self.bind_val(res, resv)
     }
 
+    /// `_argmax(map)` and `_argmin(map)`.
+    fn array_arg(&mut self, map: Ref, dir: Ref, res: Ref) -> Result<()> {
+        use compile::Ty::*;
+        let func = match map.1 {
+            MapIntInt => intrinsic!(arg_ext_int_int),
+            MapIntFloat => intrinsic!(arg_ext_int_float),
+            MapIntStr => intrinsic!(arg_ext_int_str),
+            MapStrInt => intrinsic!(arg_ext_str_int),
+            MapStrFloat => intrinsic!(arg_ext_str_float),
+            MapStrStr => intrinsic!(arg_ext_str_str),
+            ty => return err!("invalid map type for _argmax/_argmin: {:?}", ty),
+        };
+        let mapv = self.get_val(map)?;
+        let dirv = self.get_val(dir)?;
+        let resv = self.call_intrinsic(func, &mut [mapv, dirv])?;
+        self.bind_val(res, resv)
+    }
+
     /// `_top(map, k)`.
     fn array_top(&mut self, map: Ref, k: Ref, res: Ref) -> Result<()> {
         use compile::Ty::*;
@@ -1184,6 +1202,27 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(systime), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            SystimeMs(dst) => {
+                let resv = self.call_intrinsic(intrinsic!(systime_ms), &mut [])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            Text(op, dst, a, b, c) => {
+                let op = self.const_int(op.code() as i64);
+                let a = self.get_val(a.reflect())?;
+                let b = self.get_val(b.reflect())?;
+                let c = self.get_val(c.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(text_func), &mut [op, a, b, c])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            Ord(dst, s) => self.unop(intrinsic!(ord), dst, s),
+            Bar(dst, x, min, max, width) => {
+                let x = self.get_val(x.reflect())?;
+                let min = self.get_val(min.reflect())?;
+                let max = self.get_val(max.reflect())?;
+                let width = self.get_val(width.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(bar), &mut [x, min, max, width])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Encode(dst, format, text) => {
                 let format = self.get_val(format.reflect())?;
                 let text = self.get_val(text.reflect())?;
@@ -1250,13 +1289,16 @@ pub(crate) trait CodeGenerator: Backend {
                     self.call_intrinsic(intrinsic!(decrypt), &mut [mode, encrypted_text, key])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            Strftime(dst, format, timestamp, flags) => {
+            Strftime(dst, format, timestamp, flags, tz) => {
                 let format = self.get_val(format.reflect())?;
                 let timestamp = self.get_val(timestamp.reflect())?;
                 let flags = self.get_val(flags.reflect())?;
+                let tz = self.get_val(tz.reflect())?;
                 let rt = self.runtime_val();
-                let resv =
-                    self.call_intrinsic(intrinsic!(strftime), &mut [rt, format, timestamp, flags])?;
+                let resv = self.call_intrinsic(
+                    intrinsic!(strftime),
+                    &mut [rt, format, timestamp, flags, tz],
+                )?;
                 self.bind_val(dst.reflect(), resv)
             }
             Mktime(dst, date_time_text, utc, timezone) => {
@@ -2273,6 +2315,12 @@ pub(crate) trait CodeGenerator: Backend {
             ArrayCountDistinct { res, map_ty, map } => {
                 self.array_count_distinct((*map, *map_ty), res.reflect())
             }
+            ArrayArg {
+                res,
+                map_ty,
+                map,
+                dir,
+            } => self.array_arg((*map, *map_ty), dir.reflect(), res.reflect()),
             ArrayTop {
                 res,
                 map_ty,
