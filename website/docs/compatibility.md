@@ -30,10 +30,17 @@ programs produce the same output. This page lists what is intentionally differen
 zawk infers types before running the program. This is the main source of its speed, and it leaks into
 behavior in a few places:
 
-- **Uninitialized values at join points** may print as `0`: `if (0) { x = 5 }; printf "[%s]", x` prints `[]` in
-  AWK and `[0]` in zawk.
-- **Missing elements of numeric arrays** print `0`, and referencing them creates them. Test with `(k in a)`,
-  which never creates the element.
+- **Uninitialized values** are both `0` and `""` as in AWK, including missing array elements and variables
+  assigned on only some paths (`if (0) { x = 5 }; printf "[%s]", x` prints `[]`). A numeric variable that
+  was never assigned still reads as `0` in a few places where gawk reads `""`:
+  - passed to a user-defined function: `function g(s) { return s "|" }` with `if (0) u = 1; print g(u)`
+    prints `0|`;
+  - used as an array subscript: `if (0) u = 1; b[u] = 1` creates the key `0`;
+  - as a `printf` / `sprintf` argument when the format is not a string literal, or uses positional
+    arguments (`%1$s`).
+- **A name is an array or a scalar for the whole program**, decided from every use of it, reachable or not:
+  `if (0) { a = 2 } else { a[1] = 1 }` is rejected at compile time ("attempt to use array `a` in a scalar
+  context"), while gawk only fails if a conflicting use actually runs. Use different names.
 - **A string that looks like zero is false**: `if ("0")`, `if ("0.0")` and `if ("0x0")` are false (gawk treats
   every non-empty string constant as true). Use `if (s != "")`.
 - **Hexadecimal numbers** are recognized in source and in input data: `0x10` is 16. A leading zero is decimal.

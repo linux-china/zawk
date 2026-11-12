@@ -66,6 +66,27 @@ pub trait ChunkProducer {
     // it (see `Chunk::finish`), when the producer supports it. Called by `ParallelChunkProducer`
     // on the producer run by its reading thread, so that the workers do that work in parallel.
     fn defer_scan(&mut self) {}
+    // Called once the input is cancelled (see `CancellableChunkProducer`): a producer fed by a
+    // background thread tells it to stop, so that it releases its input although the consumers
+    // still hold the producer (the main thread keeps it until the process exits).
+    fn stop(&self) {}
+}
+
+// Send `item` on `sender` unless `stop` is set first. Returns false when the item was not sent,
+// because of `stop` or because all receivers are gone, and the sending thread should end.
+fn send_unless_stopped<T>(sender: &Sender<T>, mut item: T, stop: &AtomicBool) -> bool {
+    use crossbeam_channel::SendTimeoutError;
+    use std::time::Duration;
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return false;
+        }
+        match sender.send_timeout(item, Duration::from_millis(20)) {
+            Ok(()) => return true,
+            Err(SendTimeoutError::Timeout(it)) => item = it,
+            Err(SendTimeoutError::Disconnected(_)) => return false,
+        }
+    }
 }
 
 pub trait Chunk: Send + Default {
@@ -541,6 +562,9 @@ impl<C: Chunk> ChunkProducer for Box<dyn ChunkProducer<Chunk = C>> {
     fn defer_scan(&mut self) {
         (**self).defer_scan()
     }
+    fn stop(&self) {
+        (**self).stop()
+    }
 }
 
 pub struct OffsetChunk<Off = Offsets> {
@@ -944,6 +968,8 @@ pub struct ParallelChunkProducer<P: ChunkProducer> {
     spent: Sender<P::Chunk>,
     // The error that stopped the reading thread, set before it closes `incoming`.
     error: Arc<Mutex<Option<CompileError>>>,
+    // Set by `stop`: the reading thread ends, dropping its producer (and so its input).
+    stop: Arc<AtomicBool>,
 }
 
 impl<P: ChunkProducer> Clone for ParallelChunkProducer<P> {
@@ -953,6 +979,7 @@ impl<P: ChunkProducer> Clone for ParallelChunkProducer<P> {
             incoming: self.incoming.clone(),
             spent: self.spent.clone(),
             error: self.error.clone(),
+            stop: self.stop.clone(),
         }
     }
 }
@@ -967,12 +994,17 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
         let (spent_sender, spent_receiver) = bounded(chan_size);
         let error = Arc::new(Mutex::new(None));
         let reader_error = error.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader_stop = stop.clone();
         std::thread::spawn(move || {
             let mut p = p_factory();
             // The workers scan the chunks, so that this thread only reads them.
             p.defer_scan();
             let mut seq = 0u64;
             loop {
+                if reader_stop.load(Ordering::Acquire) {
+                    return;
+                }
                 let mut chunk = spent_receiver.try_recv().ok().unwrap_or_default();
                 match p.get_chunk(&mut chunk) {
                     Ok(false) => {}
@@ -998,7 +1030,9 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
                 // channel and starts the next one that asks; `try_send` fails once the channel
                 // holds `chan_size` unused tokens, which is more than enough.
                 let _ = start_sender.try_send(());
-                if in_sender.send(item).is_err() {
+                // Once stopped, nobody may receive any more: do not block forever on a full
+                // channel, which the consumers still hold open.
+                if !send_unless_stopped(&in_sender, item, &reader_stop) {
                     return;
                 }
             }
@@ -1008,6 +1042,7 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
             incoming: in_receiver,
             spent: spent_sender,
             error,
+            stop,
         }
     }
 }
@@ -1041,6 +1076,11 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             }
         }
         false
+    }
+    fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+        // Free the chunks already read; the reading thread sees `stop` before sending another.
+        while self.incoming.try_recv().is_ok() {}
     }
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
         while let Ok((seq, mut new_chunk)) = self.incoming.recv() {
@@ -1083,6 +1123,8 @@ enum ProducerState<T> {
 pub struct ShardedChunkProducer<P> {
     incoming: Receiver<Box<dyn FnOnce() -> P + Send>>,
     state: ProducerState<P>,
+    // Set by `stop`: the feeding thread ends, dropping the inputs not read yet.
+    stop: Arc<AtomicBool>,
 }
 
 impl<P: ChunkProducer + 'static> ShardedChunkProducer<P> {
@@ -1094,10 +1136,12 @@ impl<P: ChunkProducer + 'static> ShardedChunkProducer<P> {
         // These are usually individual files, which should be fairly large, so we hard-code a
         // small buffer.
         let (sender, receiver) = bounded(1);
+        let stop = Arc::new(AtomicBool::new(false));
+        let feeder_stop = stop.clone();
         std::thread::spawn(move || {
             for p_factory in ps {
                 let to_send: Box<dyn FnOnce() -> P + Send> = Box::new(p_factory);
-                if sender.send(to_send).is_err() {
+                if !send_unless_stopped(&sender, to_send, &feeder_stop) {
                     return;
                 }
             }
@@ -1105,6 +1149,7 @@ impl<P: ChunkProducer + 'static> ShardedChunkProducer<P> {
         ShardedChunkProducer {
             incoming: receiver,
             state: ProducerState::Init,
+            stop,
         }
     }
 
@@ -1126,14 +1171,23 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ShardedChunkProducer<P> {
         let mut res = Vec::with_capacity(requested_size);
         for _ in 0..requested_size {
             let incoming = self.incoming.clone();
+            let stop = self.stop.clone();
             res.push(Box::new(move || {
                 Box::new(ShardedChunkProducer {
                     incoming,
                     state: ProducerState::Init,
+                    stop,
                 }) as Box<dyn ChunkProducer<Chunk = P::Chunk>>
             }) as _)
         }
         res
+    }
+    fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+        while self.incoming.try_recv().is_ok() {}
+        if let ProducerState::Main(p) = &self.state {
+            p.stop();
+        }
     }
     fn next_file(&mut self) -> Result<bool> {
         match &mut self.state {
@@ -1194,14 +1248,20 @@ impl<P: ChunkProducer + 'static> ChunkProducer for CancellableChunkProducer<P> {
         self.prod.wait_cancellable(&self.signal)
     }
 
+    fn stop(&self) {
+        self.prod.stop()
+    }
     fn next_file(&mut self) -> Result<bool> {
         if self.signal.cancelled() {
+            self.prod.stop();
             return Ok(false);
         }
         self.prod.next_file()
     }
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
         if self.signal.cancelled() {
+            // The input ends here for every consumer: let a background reader release it.
+            self.prod.stop();
             return Ok(true);
         }
         self.prod.get_chunk(chunk)
@@ -1738,6 +1798,84 @@ mod tests {
         assert_eq!(results.iter().map(|(got, _)| got).sum::<usize>(), 100);
         let errors: Vec<_> = results.iter().filter_map(|(_, e)| e.as_deref()).collect();
         assert_eq!(errors, vec!["read failed"]);
+    }
+
+    // An endless input that records when it is dropped (the input handle being closed).
+    struct EndlessChunkProducer(Arc<AtomicBool>);
+
+    impl Drop for EndlessChunkProducer {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl ChunkProducer for EndlessChunkProducer {
+        type Chunk = ItemChunk<usize>;
+        fn next_file(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+        fn get_chunk(&mut self, chunk: &mut ItemChunk<usize>) -> Result<bool> {
+            chunk.item = 1;
+            Ok(false)
+        }
+    }
+
+    fn wait_for(flag: &AtomicBool) -> bool {
+        for _ in 0..200 {
+            if flag.load(Ordering::SeqCst) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        false
+    }
+
+    // Once cancelled (e.g. by `exit`), the reading thread stops and releases its input, although
+    // a consumer still holds the producer (the main thread keeps it until the process exits).
+    #[test]
+    fn parallel_cancel_stops_reader() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let signal = CancelSignal::default();
+        let d = dropped.clone();
+        let mut prod = CancellableChunkProducer::new(
+            signal.clone(),
+            ParallelChunkProducer::new(move || EndlessChunkProducer(d), /*chan_size=*/ 2),
+        );
+        let mut chunk = ItemChunk::default();
+        assert!(!prod.get_chunk(&mut chunk).unwrap());
+        signal.cancel(0);
+        assert!(prod.get_chunk(&mut chunk).unwrap());
+        assert!(wait_for(&dropped), "the reading thread kept its input");
+        drop(prod);
+    }
+
+    #[test]
+    fn sharded_cancel_stops_feeder() {
+        // The list of inputs (which may hold the inputs not read yet) records when it is dropped.
+        struct Files(Arc<AtomicBool>);
+        impl Drop for Files {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        impl Iterator for Files {
+            type Item = Box<dyn FnOnce() -> IterChunkProducer<std::ops::Range<usize>> + Send>;
+            fn next(&mut self) -> Option<Self::Item> {
+                Some(Box::new(new_iter(0, 1, "file")))
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let signal = CancelSignal::default();
+        let mut prod = CancellableChunkProducer::new(
+            signal.clone(),
+            ShardedChunkProducer::new(Files(dropped.clone())),
+        );
+        let mut chunk = ItemChunk::default();
+        assert!(!prod.get_chunk(&mut chunk).unwrap());
+        signal.cancel(0);
+        assert!(prod.get_chunk(&mut chunk).unwrap());
+        assert!(wait_for(&dropped), "the feeding thread kept the inputs");
+        drop(prod);
     }
 
     #[test]

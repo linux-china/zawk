@@ -105,7 +105,7 @@ pub fn parse_prometheus(url_or_file: &str) -> String {
 }
 
 pub fn parse_prometheus_text(text: &str) -> String {
-    let mut items = vec!["name, labels, type, value1, value2".to_owned()];
+    let mut items = vec!["name,labels,type,value1,value2".to_owned()];
     let lines: Vec<_> = text.lines().map(|s| Ok(s.to_string())).collect();
     let metrics = match prometheus_parse::Scrape::parse(lines.into_iter()) {
         Ok(metrics) => metrics,
@@ -123,31 +123,33 @@ pub fn parse_prometheus_text(text: &str) -> String {
         match metric.value {
             Value::Counter(counter) => {
                 items.push(format!(
-                    "{}, {}, counter, {},",
+                    "{},{},counter,{},",
                     metric.metric, labels, counter
                 ));
             }
             Value::Gauge(gauge) => {
-                items.push(format!("{}, {}, gauge, {},", metric.metric, labels, gauge));
+                items.push(format!("{},{},gauge,{},", metric.metric, labels, gauge));
             }
+            // One row per bucket / quantile: `value1` is the bucket bound or the quantile,
+            // `value2` the count or the value at that quantile.
             Value::Histogram(histogram) => {
-                if let Some(histogram_count) = histogram.first() {
+                for bucket in histogram {
                     items.push(format!(
-                        "{}, {}, histogram, {}, {}",
-                        metric.metric, labels, histogram_count.less_than, histogram_count.count
+                        "{},{},histogram,{},{}",
+                        metric.metric, labels, bucket.less_than, bucket.count
                     ));
                 }
             }
             Value::Summary(summary) => {
-                if let Some(summary_count) = summary.first() {
+                for quantile in summary {
                     items.push(format!(
-                        "{}, {}, summary, {}, {}",
-                        metric.metric, labels, summary_count.count, summary_count.quantile
+                        "{},{},summary,{},{}",
+                        metric.metric, labels, quantile.quantile, quantile.count
                     ));
                 }
             }
             Value::Untyped(num) => {
-                items.push(format!("{}, {}, untyped, {},", metric.metric, labels, num));
+                items.push(format!("{},{},untyped,{},", metric.metric, labels, num));
             }
         }
     }
@@ -227,5 +229,54 @@ mod tests {
     fn test_parse_prometheus() {
         let csv = parse_prometheus("http://localhost:8081/actuator/prometheus");
         println!("{}", csv);
+    }
+
+    #[test]
+    fn test_parse_prometheus_text_csv_columns() {
+        let text = "http_requests_total{method=\"get\",code=\"200\"} 1027\nup 1\n";
+        let csv = parse_prometheus_text(text);
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .from_reader(csv.as_bytes());
+        let headers: Vec<String> = rdr.headers().unwrap().iter().map(String::from).collect();
+        assert_eq!(headers, ["name", "labels", "type", "value1", "value2"]);
+        let rows: Vec<Vec<String>> = rdr
+            .records()
+            .map(|r| r.unwrap().iter().map(String::from).collect())
+            .collect();
+        assert_eq!(rows[0].len(), 5);
+        assert_eq!(rows[0][0], "http_requests_total");
+        assert!(rows[0][1].contains("method=\"get\"") && rows[0][1].contains("code=\"200\""));
+        assert_eq!(rows[0][2..], ["untyped", "1027", ""]);
+        assert_eq!(rows[1], ["up", "", "untyped", "1", ""]);
+    }
+
+    #[test]
+    fn test_parse_prometheus_histogram_summary_all_points() {
+        let text = "# TYPE lat histogram\n\
+            lat_bucket{le=\"0.1\"} 1\nlat_bucket{le=\"0.5\"} 3\n\
+            lat_bucket{le=\"1\"} 4\nlat_bucket{le=\"+Inf\"} 5\n\
+            # TYPE rpc summary\n\
+            rpc{quantile=\"0.5\"} 10\nrpc{quantile=\"0.9\"} 20\nrpc{quantile=\"0.99\"} 30\n";
+        let csv = parse_prometheus_text(text);
+        // Metrics come out in hash order; buckets and quantiles keep theirs within a metric.
+        let mut rows: Vec<&str> = csv
+            .lines()
+            .filter(|l| l.contains(",histogram,") || l.contains(",summary,"))
+            .collect();
+        rows.sort_by_key(|l| l.starts_with("rpc,"));
+        assert_eq!(
+            rows,
+            [
+                "lat,,histogram,0.1,1",
+                "lat,,histogram,0.5,3",
+                "lat,,histogram,1,4",
+                "lat,,histogram,inf,5",
+                "rpc,,summary,0.5,10",
+                "rpc,,summary,0.9,20",
+                "rpc,,summary,0.99,30",
+            ],
+            "{csv}"
+        );
     }
 }

@@ -318,12 +318,13 @@ unsafe fn run_stage(
         rt.core.finish_input();
         rt.core.finish_combine(&base_slots);
         rt.restore_last_record();
-        runtime::writers::ordered::finish();
         // A worker stopped through `exit!` (a fatal error or a failed write) and blocks until the
         // process exits: stop now, even if another worker called `exit` (which would otherwise
         // run END and return, joining the blocked worker forever). A fatal code wins over the
-        // code of a graceful `exit`.
+        // code of a graceful `exit`. Such a worker called `leave` before blocking, so the output
+        // held back is complete: write it before exiting.
         if let Some(rc) = cancel_signal.abort_code() {
+            runtime::writers::ordered::finish();
             let rc = if rc != 0 { rc } else { rt.core.exit_code as i32 };
             mem::drop(rt);
             std::process::exit(runtime::writers::exit_code(rc));
@@ -333,14 +334,22 @@ unsafe fn run_stage(
         if end.is_some() {
             *rt.input_data.inputs_mut() = old_read_files;
         }
-        run_end(rt, end);
+        rt
     });
+    // Every worker has been joined, so none can seal a chunk any more (a worker unwinding from a
+    // panic seals its chunk in a thread-local destructor, after its result was received): write
+    // the output still held back, in chunk order, before END prints anything.
+    runtime::writers::ordered::finish();
+    let failed = scope_res.is_err();
+    if let Ok(rt) = scope_res {
+        run_end(rt, end);
+    }
     #[cfg(not(debug_assertions))]
     {
         let _ = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |pi| prev_hook(pi)));
     }
-    if scope_res.is_err() {
+    if failed {
         return err!("failed to execute parallel script");
     }
     Ok(())

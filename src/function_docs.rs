@@ -576,7 +576,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "escape",
         ESCAPE,
         "escape(format: str, s: str) -> str",
-        "Escape s for a format: json, csv, tsv, xml, html, sql, shell.",
+        "Escape s for a format: json, csv, tsv, xml, html, sql (PostgreSQL/SQLite), mysql (MySQL/MariaDB), shell. For SQL prefer query parameters.",
         r#"escape("json", s)"#,
     ),
     d(
@@ -1213,7 +1213,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "strptime",
         DATETIME,
         "strptime(s: str, format: str[, tz: str]) -> int",
-        "Parse s with a chrono strftime format to a Unix time, -1 if it does not match; text without %z or %s is local time, or in tz: an IANA time zone name, or UTC for another true value.",
+        "Parse s with a chrono strftime format to a Unix time, -1 if it does not match; text without %z or %s is local time, or in tz: an IANA time zone name, or UTC for another true value; a %Z name must be UTC/GMT or one tz uses then, else -1.",
         r#"strptime("02/01/2024", "%d/%m/%Y", "UTC")"#,
     ),
     d(

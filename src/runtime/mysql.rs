@@ -50,7 +50,7 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
             let col_value: Value = row.get(i).unwrap_or(Value::NULL);
             let text_value = match col_value {
                 Value::NULL => null_input().to_owned(),
-                Value::Bytes(bytes) => String::from_utf8(bytes).unwrap_or("".to_owned()),
+                Value::Bytes(bytes) => bytes_text(&row.columns_ref()[i], &bytes),
                 Value::Int(num) => num.to_string(),
                 Value::UInt(num) => num.to_string(),
                 Value::Float(num) => f32_to_text(num),
@@ -80,6 +80,50 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
         index += 1;
     }
     map
+}
+
+/// The character set number of binary strings (`BINARY`, `VARBINARY`, `BLOB`). Numeric and
+/// temporal columns also carry it, so it marks a binary string only on a string type.
+const BINARY_CHARSET: u16 = 63;
+
+pub(crate) fn is_binary(c: &Column) -> bool {
+    c.character_set() == BINARY_CHARSET
+}
+
+/// The column types that hold strings (text or binary, by the character set).
+pub(crate) fn is_string(t: ColumnType) -> bool {
+    use ColumnType::*;
+    matches!(
+        t,
+        MYSQL_TYPE_TINY_BLOB
+            | MYSQL_TYPE_MEDIUM_BLOB
+            | MYSQL_TYPE_LONG_BLOB
+            | MYSQL_TYPE_BLOB
+            | MYSQL_TYPE_VAR_STRING
+            | MYSQL_TYPE_VARCHAR
+            | MYSQL_TYPE_STRING
+    )
+}
+
+/// The bits of a `BIT(n)` value (big-endian bytes) as a number.
+pub(crate) fn bit_number(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .fold(0u64, |n, b| (n << 8) | *b as u64)
+        .to_string()
+}
+
+/// The text of a column value that came as bytes: binary strings (`BINARY`, `VARBINARY`, `BLOB`)
+/// and `GEOMETRY` are not supported and become empty, `BIT(n)` is its number, and everything else
+/// is text (numbers and dates in the text protocol, `JSON` despite its binary character set).
+fn bytes_text(c: &Column, bytes: &[u8]) -> String {
+    let t = c.column_type();
+    match t {
+        ColumnType::MYSQL_TYPE_BIT => bit_number(bytes),
+        ColumnType::MYSQL_TYPE_GEOMETRY => String::new(),
+        _ if is_binary(c) && is_string(t) => String::new(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 fn format_mysql_date(
@@ -214,6 +258,39 @@ mod tests {
 
     #[test]
     fn test_spike() {}
+
+    #[test]
+    fn bytes_text_by_column_type() {
+        let col = |t: ColumnType, charset: u16| Column::new(t).with_character_set(charset);
+        // binary strings are not supported: empty, whatever the bytes (no bare newline)
+        for t in [
+            ColumnType::MYSQL_TYPE_VAR_STRING,
+            ColumnType::MYSQL_TYPE_STRING,
+            ColumnType::MYSQL_TYPE_BLOB,
+        ] {
+            assert_eq!(bytes_text(&col(t, BINARY_CHARSET), b"\x0a"), "");
+            assert_eq!(bytes_text(&col(t, BINARY_CHARSET), b"\xff"), "");
+        }
+        // text strings keep their text
+        assert_eq!(
+            bytes_text(&col(ColumnType::MYSQL_TYPE_VAR_STRING, 255), b"a\nb"),
+            "a\nb"
+        );
+        // numbers, dates and JSON carry the binary character set in the text protocol
+        assert_eq!(
+            bytes_text(&col(ColumnType::MYSQL_TYPE_LONGLONG, BINARY_CHARSET), b"42"),
+            "42"
+        );
+        assert_eq!(
+            bytes_text(&col(ColumnType::MYSQL_TYPE_JSON, BINARY_CHARSET), b"[1]"),
+            "[1]"
+        );
+        // BIT(n) is its number
+        assert_eq!(
+            bytes_text(&col(ColumnType::MYSQL_TYPE_BIT, BINARY_CHARSET), &[0x02, 0x01]),
+            "513"
+        );
+    }
 
     #[test]
     fn test_pool_constraints() {

@@ -40,6 +40,18 @@ Placeholders: `?` (or `?1`) for SQLite, `?` for MySQL, `$1`, `$2`... for Postgre
 text values to the inferred parameter types (bool, integers, numeric, json, uuid, date/time...), with an empty
 value as NULL for non-text types.
 
+If a value really has to be spliced into the SQL text (an identifier list, a generated `in (...)`), escape it
+for the target dialect, and only as a fallback to parameters:
+
+| Database | Escape |
+|----------|--------|
+| PostgreSQL, SQLite, DuckDB | `escape("sql", v)`: doubles `'` (standard SQL strings) |
+| MySQL, MariaDB | `escape("mysql", v)`: also escapes `\`, NUL, `\n`, `\r`, `\x1a` |
+
+`escape("sql", v)` is **not safe for MySQL/MariaDB**: there `\` escapes the next character, so a value like
+`\' OR 1=1 -- ` breaks out of the string literal. Do not use `escape("mysql", v)` for PostgreSQL or SQLite either:
+backslashes would be doubled in the stored value.
+
 ### Connections
 
 Connections are cached per URL for the whole run. A PostgreSQL or Redis connection that was closed is

@@ -461,11 +461,7 @@ fn get_vars<'a, 'b>(
         split_buf.clear();
         split_buf.extend(var.splitn(2, '='));
         if split_buf.len() != 2 {
-            fail!(
-                "received -v flag without an '=' sign: {} (split_buf={:?})",
-                var,
-                split_buf
-            );
+            fail!("received -v flag without an '=' sign: {}", var);
         }
         let ident = a.alloc_str(split_buf[0].trim());
         if !lexer::is_ident(ident) {
@@ -1119,10 +1115,12 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
     let sources = includer.pieces;
     let format = input_format(matches, &input_files);
     let format = format.as_deref();
-    let mut opts = lint_options(matches, format);
+    let mut opts = lint_options(matches, &input_files, format);
     // The data-aware checks read the first records of the first input file.
+    // Operand assignments (`OFS=,`) are not files, so skip them.
     if let Some(file) = input_files
-        .first()
+        .iter()
+        .find(|f| !is_operand_assignment(f))
         .filter(|_| !matches!(format, Some("markdown" | "md")))
     {
         let rows = *matches.get_one::<usize>("sample-rows").unwrap();
@@ -1159,8 +1157,14 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
 
 /// `zawk --lint`: prints the JSON report to stderr when the program has diagnostics, and exits
 /// with 1 without running the program when it has errors (or warnings, with `--deny-warnings`).
-fn lint_before_run(sources: &[lint::Source], matches: &clap::ArgMatches, format: Option<&str>) {
-    let (errors, warnings, report) = lint::lint(sources, &lint_options(matches, format));
+fn lint_before_run(
+    sources: &[lint::Source],
+    matches: &clap::ArgMatches,
+    input_files: &[String],
+    format: Option<&str>,
+) {
+    let opts = lint_options(matches, input_files, format);
+    let (errors, warnings, report) = lint::lint(sources, &opts);
     if errors + warnings > 0 {
         eprintln!("{}", report);
     }
@@ -1253,8 +1257,12 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
 }
 
 /// The lint options given by the `-p`, `-v` and `-H` arguments of `zawk lint` or
-/// of a run, and its input `format`.
-fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Options {
+/// of a run, its `var=value` operands, and its input `format`.
+fn lint_options(
+    matches: &clap::ArgMatches,
+    input_files: &[String],
+    format: Option<&str>,
+) -> lint::Options {
     // As for a run, JSON, JSON Lines, Parquet, Avro, Markdown and database input imply -H.
     let header = matches.get_flag("parse-header")
         || matches!(
@@ -1290,7 +1298,9 @@ fn lint_options(matches: &clap::ArgMatches, format: Option<&str>) -> lint::Optio
             }
             _ => None,
         },
+        // `-v var=value` and `var=value` operands both set `var` before it is read.
         assigned: vars()
+            .chain(split_operands(input_files).1.iter().flatten())
             .map(|v| {
                 v.split_once('=')
                     .map_or(v.as_str(), |(n, _)| n)
@@ -1365,7 +1375,7 @@ fn real_main() {
     runtime::logging::init();
     runtime::tls::install_default_provider();
     let dump_cmd = Command::new("dump")
-        .about("Dump text to CSV")
+        .about("Dump text to CSV (requires --prometheus)")
         .arg(
             Arg::new("prometheus")
                 .long("prometheus")
@@ -1787,8 +1797,9 @@ fn real_main() {
         if matches.get_flag("prometheus") {
             let text = runtime::csv::parse_prometheus(input_file);
             println!("{}", text);
+            return;
         }
-        return;
+        fail!("dump: no format given; only --prometheus is supported");
     }
     // functions sub command
     if let Some(matches) = matches.subcommand_matches("functions") {
@@ -2028,6 +2039,7 @@ fn real_main() {
         lint_before_run(
             &includer.pieces,
             &matches,
+            &input_files,
             input_format(&matches, &input_files).as_deref(),
         );
     }

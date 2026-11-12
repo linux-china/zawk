@@ -567,7 +567,7 @@ mod tests {
                 assert!(rdr.read_state() != -1);
                 lines.push(line);
             }
-            let expected: Vec<_> = LINE.split(s.as_bytes()).map(ref_str).collect();
+            let expected = expected_lines(&s);
             if lines != expected {
                 eprintln!(
                     "Failed after {} runs. lines.len={}, expected.len={}",
@@ -583,6 +583,41 @@ mod tests {
                 panic!("number of lines does not match");
             }
         }
+    }
+
+    /// Records the reader should produce for `s` under AWK semantics.
+    ///
+    /// `Regex::split` yields a trailing empty piece when the input ends with a
+    /// separator, but AWK does not emit an empty final record in that case
+    /// (`printf 'a\n' | awk 'END{print NR}'` prints 1), so drop it.
+    fn expected_lines(s: &str) -> Vec<Str<'_>> {
+        let mut expected: Vec<_> = LINE.split(s.as_bytes()).map(ref_str).collect();
+        let ends_with_sep = LINE
+            .find_iter(s.as_bytes())
+            .last()
+            .is_some_and(|m| m.end() == s.len());
+        if ends_with_sep && expected.last().is_some_and(|l| l.is_empty()) {
+            expected.pop();
+        }
+        expected
+    }
+
+    #[test]
+    fn test_clipped_chunk_split_trailing_separator() {
+        // Regression test for the flaky failure of `test_clipped_chunk_split_random`
+        // when the random corpus happened to end with '\n'.
+        let chunk_size = 1 << 9;
+        let mut bs = bytes(1 << 14, 0.001, 0.05);
+        *bs.last_mut().unwrap() = b'\n';
+        let s = String::from_utf8(bs).unwrap();
+        let mut rdr = RegexSplitter::new(Cursor::new(s.clone()), chunk_size, "", true);
+        let mut lines = Vec::new();
+        while !rdr.reader.is_eof() {
+            let line = rdr.read_line_regex(&LINE).upcast();
+            assert!(rdr.read_state() != -1);
+            lines.push(line);
+        }
+        assert_eq!(lines, expected_lines(&s));
     }
 
     fn bytes(n: usize, line_pct: f64, space_pct: f64) -> Vec<u8> {

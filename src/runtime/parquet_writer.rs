@@ -230,9 +230,11 @@ impl Column {
             (Values::F32(v), _) => push_some(v, parse_f32(&text)),
             (Values::F64(v), _) => push_some(v, parse_float(&text)),
             (Values::Bytes(v), _) => {
-                // JSON. TSV escaping turns tabs and newlines into `\t` and `\n`, which are also
-                // JSON escapes, so the value is first validated as printed.
-                let json = [raw, text.as_bytes()]
+                // JSON. The unescaped text is the value as printed, so it wins when valid; the
+                // TSV-escaped `raw` doubles backslashes (`\\`), which usually stays valid JSON
+                // but changes the value. `raw` is only the fallback for raw control characters
+                // (a tab or newline inside a JSON string), whose `\t`/`\n` are also JSON escapes.
+                let json = [text.as_bytes(), raw]
                     .into_iter()
                     .find(|s| serde_json::from_slice::<serde_json::Value>(s).is_ok());
                 push_some(v, json.map(|s| ByteArray::from(s.to_vec())))

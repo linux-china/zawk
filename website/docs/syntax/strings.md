@@ -21,8 +21,8 @@ zawk '{ print f"{NR+1}: {toupper($2)} {$3 * 1.1:.2f} {$1:>10}" }' data.txt
   `{x > 0 ? \"pos\" : \"neg\"}`. Write `\"` for a quote inside a placeholder (the f-string ends at a bare `"`).
 - An invalid expression is a syntax error; `{}` stays as literal text.
 - Escapes (`\t`, `\n`, `\"`) work as in normal strings.
-- Values are not escaped: use `escape("sql", v)` or `escape("json", v)` first when the value comes from input
-  (better: use [query parameters](../stdlib/database-kv.md) for SQL).
+- Values are not escaped: for SQL use [query parameters](../stdlib/database-kv.md); if a value must be spliced in,
+  use `escape("sql", v)` (PostgreSQL/SQLite) or `escape("mysql", v)` (MySQL/MariaDB). Use `escape("json", v)` for JSON.
 
 ### Format specs
 

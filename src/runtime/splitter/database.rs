@@ -368,10 +368,8 @@ mod mysql {
     use super::{DbColumn, DbValue, Sink, Source};
     use mysql::consts::ColumnType::{self, *};
     use mysql::prelude::Queryable;
+    use crate::runtime::mysql::{bit_number, is_binary, is_string};
     use mysql::{Column, Conn, Value};
-
-    /// The character set number of binary strings (`BINARY`, `VARBINARY`, `BLOB`).
-    const BINARY_CHARSET: u16 = 63;
 
     /// The text of `e`, without the `MySqlError { ... }` around a server error.
     fn error_text(e: mysql::Error) -> String {
@@ -430,10 +428,6 @@ mod mysql {
         std::mem::forget(result);
     }
 
-    fn is_binary(c: &Column) -> bool {
-        c.character_set() == BINARY_CHARSET
-    }
-
     fn is_number(t: ColumnType) -> bool {
         matches!(
             t,
@@ -460,12 +454,7 @@ mod mysql {
         };
         match t {
             // BIT(n): the bits as a number
-            MYSQL_TYPE_BIT => DbValue::Num(
-                bytes
-                    .iter()
-                    .fold(0u64, |n, b| (n << 8) | *b as u64)
-                    .to_string(),
-            ),
+            MYSQL_TYPE_BIT => DbValue::Num(bit_number(bytes)),
             MYSQL_TYPE_GEOMETRY => DbValue::Text(String::new()),
             _ if is_number(t) => DbValue::Num(String::from_utf8_lossy(bytes).into_owned()),
             // a JSON column has the binary character set, but is text
@@ -473,19 +462,6 @@ mod mysql {
             _ if is_binary(c) && is_string(t) => DbValue::Text(String::new()),
             _ => DbValue::Text(String::from_utf8_lossy(bytes).into_owned()),
         }
-    }
-
-    fn is_string(t: ColumnType) -> bool {
-        matches!(
-            t,
-            MYSQL_TYPE_TINY_BLOB
-                | MYSQL_TYPE_MEDIUM_BLOB
-                | MYSQL_TYPE_LONG_BLOB
-                | MYSQL_TYPE_BLOB
-                | MYSQL_TYPE_VAR_STRING
-                | MYSQL_TYPE_VARCHAR
-                | MYSQL_TYPE_STRING
-        )
     }
 
     fn type_name(c: &Column) -> &'static str {

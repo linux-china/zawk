@@ -392,6 +392,7 @@ impl<'a> Line<'a> for DefaultLine {
             self.split_if_needed(pat, rc)?;
             col
         };
+        crate::runtime::check_field_count("assignment to $", col)?;
         let col = col as usize - 1;
         if col >= self.fields.len() {
             self.fields.resize_with(col + 1, Str::default);
@@ -413,6 +414,7 @@ impl<'a> Line<'a> for DefaultLine {
             self.assigned = false;
             return Ok(());
         }
+        crate::runtime::check_field_count("NF = ", nf)?;
         self.split_all_fields(pat, rc)?;
         self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;

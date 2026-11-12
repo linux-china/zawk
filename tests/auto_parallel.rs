@@ -72,12 +72,13 @@ fn aggregations_run_in_parallel_with_the_serial_result() {
     let file = data_file(tmp.path());
     let small = [("ZAWK_PARALLEL_MIN_SIZE", "1")];
     for prog in [
-        "{ s += int($4) } END { print s }",
-        "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$2] += int($3) } END { for (k in a) print k, a[k] }",
+        "{ s += length($4) } END { print s }",
+        "{ s += int($3) % 100 } END { print s }",
+        "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$2] += index($3, \"5\") } END { for (k in a) print k, a[k] }",
         "{ c[$5]++ } END { print length(c) }",
         "/ERROR/ { c++ } END { print c, NR }",
         "{ n = split($6, p, \"-\"); c[p[3]] += n } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in c) print k, c[k] }",
-        "{ x = int($3 * 2); s += x } END { print s }",
+        "{ x = length($3) * 2; s += x } END { print s }",
         "BEGIN { t = 500 } $3 > t { hi++ } $3 <= t { lo++ } END { print hi, lo, NR, FNR, FILENAME }",
     ] {
         // It is picked: the program compiles as with `-pr`, not as without.
@@ -129,18 +130,21 @@ fn order_dependent_programs_stay_serial() {
     let small = [("ZAWK_PARALLEL_MIN_SIZE", "1")];
     for prog in [
         "{ print $1 }",
-        "NR == 1 { h = $2 } { s += int($4) } END { print h, s }",
+        "NR == 1 { h = $2 } { s += length($4) } END { print h, s }",
         "{ m = $4 > m ? $4 : m } END { print m }",
         "{ last = $1 } END { print last }",
         "!seen[$2]++ { n++ } END { print n }",
-        "BEGIN { s = 10 } { s += int($4) } END { print s }",
-        "{ s += int($4) } END { print s, $0 }",
+        "BEGIN { s = 10 } { s += length($4) } END { print s }",
+        "{ s += length($4) } END { print s, $0 }",
+        // Whole numbers of any magnitude: past 2^53, sums depend on the order too.
+        "{ s += int($4) } END { print s }",
+        "{ x = int($3 * 2); s += x } END { print s }",
         // Sums of fractions depend on the order of the additions.
         "{ s += $4 } END { print s }",
         "{ x = $3 * 2; s += x } END { print s }",
         "{ a[$2] += $3 } END { for (k in a) print k, a[k] }",
         // `for (k in a)` in END over an array of the workers: another order than serially.
-        "{ a[$2] += int($3) } END { for (k in a) print k, a[k] }",
+        "{ a[$2] += length($3) } END { for (k in a) print k, a[k] }",
         "{ x = $1 % 7; c[x]++ } END { for (k in c) print k, c[k] }",
     ] {
         assert_eq!(
@@ -151,7 +155,7 @@ fn order_dependent_programs_stay_serial() {
         );
     }
     // `-v` gives an initial value, which each worker would add.
-    let prog = "{ s += int($4) } END { print s }";
+    let prog = "{ s += length($4) } END { print s }";
     assert_eq!(
         bytecode(&small, &["-v", "s=10"], prog, &file),
         bytecode(&[], &["-v", "s=10"], prog, &file)
@@ -164,7 +168,38 @@ fn order_dependent_programs_stay_serial() {
         .write_stdin("1,a,2,3\n4,b,5,6\n")
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "9\n");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n");
+}
+
+/// Whole numbers past 2^53 (epoch milliseconds) do not add up the same in another order: their
+/// sum stays serial and prints the same from one run to the next.
+#[test]
+fn sums_of_large_whole_numbers_stay_serial() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("ts.txt");
+    let mut f = std::fs::File::create(&path).unwrap();
+    for i in 0..200_000u64 {
+        writeln!(f, "{}", 1_700_000_000_000u64 + i * 7919).unwrap();
+    }
+    drop(f);
+    let file = path.to_str().unwrap();
+    let small = [("ZAWK_PARALLEL_MIN_SIZE", "1")];
+    for prog in [
+        "{ s += int($1) } END { print s }",
+        "{ s += int($1) * 1000 } END { print s }",
+    ] {
+        assert_eq!(
+            bytecode(&small, &[], prog, file),
+            bytecode(&[], &[], prog, file),
+            "{}",
+            prog
+        );
+        let serial = zawk(&[], &["-p0", prog, file]);
+        for _ in 0..3 {
+            let auto = zawk(&small, &["--chunk-size", "4096", prog, file]);
+            assert_eq!(serial.stdout, auto.stdout, "{}", prog);
+        }
+    }
 }
 
 /// The arrays combined from the workers are visited by `for (k in a)` in an order that depends

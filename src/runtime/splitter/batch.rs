@@ -515,6 +515,7 @@ impl<'a> super::Line<'a> for Line {
             self.assigned = false;
             return Ok(());
         }
+        crate::runtime::check_field_count("assignment to $", col)?;
         let col = col as usize - 1;
         if col >= self.fields.len() {
             self.fields.resize_with(col + 1, Str::default);
@@ -528,6 +529,7 @@ impl<'a> super::Line<'a> for Line {
         if nf < 0 {
             return err!("NF set to negative value {}", nf);
         }
+        crate::runtime::check_field_count("NF = ", nf)?;
         self.fields.resize_with(nf as usize, Str::default);
         self.diverged = true;
         self.assigned = true;

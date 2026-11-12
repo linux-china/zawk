@@ -168,7 +168,13 @@ impl PgParam {
                 serde_json::from_str::<serde_json::Value>(text)?.to_sql(ty, out)
             }
             Type::UUID => Uuid::parse_str(value)?.to_sql(ty, out),
-            Type::INET => value.parse::<std::net::IpAddr>()?.to_sql(ty, out),
+            Type::INET => match encode_inet(value) {
+                Some(raw) => {
+                    out.extend_from_slice(&raw);
+                    Ok(IsNull::No)
+                }
+                None => Err(format!("invalid inet: {}", text).into()),
+            },
             // `\\x...` is hex, as in the text format of bytea
             Type::BYTEA => match value.strip_prefix("\\x") {
                 Some(hex_text) => hex::decode(hex_text)?.to_sql(ty, out),
@@ -232,12 +238,46 @@ fn positional_params(params: &IntMap<Str>) -> Vec<PgParam> {
         .collect()
 }
 
+/// Whether `sql` is a plain read, so `pg_query` may replay it on a new connection after the
+/// pooled one turned out to be closed. Conservative: only `SELECT`/`VALUES`/`TABLE`/`SHOW`, and
+/// `WITH` without a data-modifying CTE (`WITH x AS (DELETE ... RETURNING *) SELECT ...`) or a
+/// write as its main statement. Leading whitespace, comments and `(` are skipped.
+fn is_read_only_sql(sql: &str) -> bool {
+    let mut rest = sql;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
+        if let Some(r) = rest.strip_prefix("--") {
+            rest = r.find('\n').map_or("", |i| &r[i + 1..]);
+        } else if let Some(r) = rest.strip_prefix("/*") {
+            rest = r.find("*/").map_or("", |i| &r[i + 2..]);
+        } else {
+            break;
+        }
+    }
+    let has_word = |keywords: &[&str]| {
+        rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|w| keywords.iter().any(|k| w.eq_ignore_ascii_case(k)))
+    };
+    let first = rest
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    match first.as_str() {
+        // `SELECT ... INTO new_table` creates a table
+        "SELECT" | "VALUES" | "TABLE" | "SHOW" => !has_word(&["INTO"]),
+        "WITH" => !has_word(&["INSERT", "UPDATE", "DELETE", "MERGE", "INTO"]),
+        _ => false,
+    }
+}
+
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> =
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    let rows = match with_client(db_url, true, |client| client.query(sql, &params)) {
+    let retry = is_read_only_sql(sql);
+    let rows = match with_client(db_url, retry, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("pg_query", e);
@@ -293,6 +333,61 @@ pub(crate) fn is_null_column(row: &postgres::Row, index: usize) -> bool {
         .ok()
         .flatten()
         .is_none()
+}
+
+/// Text representation of an `inet`/`cidr` value decoded from the binary wire format,
+/// formatted like PostgreSQL's text output: `inet` omits a full-length mask, `cidr` always has it.
+struct PgInet(String);
+
+impl<'a> FromSql<'a> for PgInet {
+    fn from_sql(_: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        decode_inet(raw)
+            .map(PgInet)
+            .ok_or_else(|| "invalid inet value".into())
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::INET || *ty == Type::CIDR
+    }
+}
+
+/// Wire format: family (2 = IPv4, 3 = IPv6), mask bits, is_cidr, address length, address bytes.
+fn decode_inet(raw: &[u8]) -> Option<String> {
+    let [family, bits, is_cidr, len, addr @ ..] = raw else {
+        return None;
+    };
+    let (ip, max_bits): (std::net::IpAddr, u8) = match (*family, *len, addr.len()) {
+        (2, 4, 4) => (<[u8; 4]>::try_from(addr).ok()?.into(), 32),
+        (3, 16, 16) => (<[u8; 16]>::try_from(addr).ok()?.into(), 128),
+        _ => return None,
+    };
+    if *bits > max_bits {
+        return None;
+    }
+    if *is_cidr == 0 && *bits == max_bits {
+        Some(ip.to_string())
+    } else {
+        Some(format!("{}/{}", ip, bits))
+    }
+}
+
+/// Encode `addr` or `addr/mask` as an `inet` value in the binary wire format.
+fn encode_inet(text: &str) -> Option<Vec<u8>> {
+    let (addr, mask) = match text.split_once('/') {
+        Some((addr, mask)) => (addr, Some(mask)),
+        None => (text, None),
+    };
+    let (family, max_bits, octets): (u8, u8, Vec<u8>) = match addr.parse::<std::net::IpAddr>().ok()? {
+        std::net::IpAddr::V4(v4) => (2, 32, v4.octets().to_vec()),
+        std::net::IpAddr::V6(v6) => (3, 128, v6.octets().to_vec()),
+    };
+    let bits = match mask {
+        Some(mask) => mask.parse::<u8>().ok().filter(|b| *b <= max_bits)?,
+        None => max_bits,
+    };
+    let mut raw = vec![family, bits, 0, octets.len() as u8];
+    raw.extend_from_slice(&octets);
+    Some(raw)
 }
 
 /// Text representation of a `numeric` value decoded from the binary wire format.
@@ -513,9 +608,9 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             let v: Option<u32> = row.get(index);
             v.map(|v| v.to_string())
         }
-        "inet" => {
-            let v: Option<std::net::IpAddr> = row.get(index);
-            v.map(|v| v.to_string())
+        "inet" | "cidr" => {
+            let v: Option<PgInet> = row.get(index);
+            v.map(|v| v.0)
         }
         "uuid" => {
             let v: Option<Uuid> = row.get(index);
@@ -536,10 +631,48 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn read_only_sql_classification() {
+        use super::is_read_only_sql as ro;
+        assert!(ro("select * from people"));
+        assert!(ro("  -- note\n /* c */ (SELECT 1) UNION (SELECT 2)"));
+        assert!(ro("with t as (select 1) select * from t"));
+        assert!(ro("values (1), (2)"));
+        assert!(ro("SHOW server_version"));
+        assert!(!ro("insert into people(id) values (1) returning id"));
+        assert!(!ro("UPDATE people SET age = 1 RETURNING *"));
+        assert!(!ro("delete from people returning *"));
+        assert!(!ro("with d as (delete from people returning *) select * from d"));
+        assert!(!ro("with t as (select 1) insert into people select * from t"));
+        assert!(!ro("select *\ninto backup from people"));
+        assert!(!ro("call do_something()"));
+        assert!(!ro(""));
+    }
+
     use super::*;
 
     #[test]
     fn test_spike() {}
+
+    #[test]
+    fn inet_wire_format() {
+        // inet keeps a partial mask, omits a full one; cidr always shows it
+        assert_eq!(decode_inet(&[2, 24, 0, 4, 192, 168, 0, 0]).unwrap(), "192.168.0.0/24");
+        assert_eq!(decode_inet(&[2, 32, 0, 4, 10, 0, 0, 1]).unwrap(), "10.0.0.1");
+        assert_eq!(decode_inet(&[2, 32, 1, 4, 10, 0, 0, 1]).unwrap(), "10.0.0.1/32");
+        let mut v6 = vec![3, 64, 0, 16, 0x20, 0x01, 0x0d, 0xb8];
+        v6.extend([0; 12]);
+        assert_eq!(decode_inet(&v6).unwrap(), "2001:db8::/64");
+        assert!(decode_inet(&[2, 33, 0, 4, 1, 2, 3, 4]).is_none());
+        assert!(decode_inet(&[2, 24, 0, 4, 1, 2]).is_none());
+        // round trip through the encoder
+        for text in ["192.168.0.0/24", "10.0.0.1", "2001:db8::/64", "::1"] {
+            assert_eq!(decode_inet(&encode_inet(text).unwrap()).unwrap(), text);
+        }
+        assert_eq!(decode_inet(&encode_inet("10.0.0.1/32").unwrap()).unwrap(), "10.0.0.1");
+        assert!(encode_inet("10.0.0.1/33").is_none());
+        assert!(encode_inet("not-an-ip").is_none());
+    }
 
     fn numeric_raw(weight: i16, sign: u16, dscale: u16, digits: &[u16]) -> Vec<u8> {
         let mut raw = vec![];

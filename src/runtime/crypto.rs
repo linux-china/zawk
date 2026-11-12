@@ -360,9 +360,11 @@ pub fn extract_jwk(full_http_url: &str) -> Result<Jwk, String> {
 }
 
 fn fetch_jwk(http_url: &str, kid: &str) -> Result<Jwk, String> {
-    let jwkset: JwkSet = crate::runtime::network::fetch(http_url)
-        .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e.without_url()))?
-        .json::<JwkSet>()
+    let resp = crate::runtime::network::fetch(http_url)
+        .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e.without_url()))?;
+    let body = crate::runtime::network::read_body(resp)
+        .map_err(|e| format!("failed to fetch JWKS {}: {}", http_url, e))?;
+    let jwkset: JwkSet = serde_json::from_slice(&body)
         .map_err(|e| format!("invalid JWKS {}: {}", http_url, e))?;
     jwkset
         .find(kid)

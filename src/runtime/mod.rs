@@ -2197,6 +2197,22 @@ pub(crate) fn check_result_len(func: &str, what: &str, len: Float) -> Result<()>
     Ok(())
 }
 
+/// Fail unless a record may hold `count` fields: `NF = count` or `$count = ...` would otherwise
+/// resize the field list without bound, so a data-driven `NF = $1` with `1e20` panicked on
+/// capacity overflow and `NF = 1e12` got the process OOM-killed. Uses the same limit as
+/// [`check_result_len`].
+pub(crate) fn check_field_count(what: &str, count: Int) -> Result<()> {
+    if count > MAX_RESULT_LEN as Int {
+        return err!(
+            "{}{} is too large (maximum {} fields)",
+            what,
+            count,
+            MAX_RESULT_LEN
+        );
+    }
+    Ok(())
+}
+
 /// Error reported when integer addition or subtraction leaves the 64-bit range.
 pub(crate) const INT_OVERFLOW_MSG: &str =
     "integer overflow: result exceeds the 64-bit integer range";

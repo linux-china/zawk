@@ -274,8 +274,9 @@ zawk '{ print f"{NR+1}: {toupper($2)} {$3 * 1.1:.2f} {$1:>10}" }' data.txt
   `{n:x}` → `2a`, `{r:.1%}` → `25.6%`, `{s:.2}` → `he` (truncate). Without a type the value is formatted as a string;
   values are right-aligned by default. Thousands separators (`,`) and `=` alignment are not supported.
 - A misspelled name (`{nmae}`) silently becomes an empty string.
-- Escapes (`\t`, `\n`, `\"`) work as in normal strings. Values are not escaped: use `escape("sql", v)`,
-  `escape("json", v)` first when the value comes from input.
+- Escapes (`\t`, `\n`, `\"`) work as in normal strings. Values are not escaped: for SQL use query parameters
+  (`params`); if a value must be spliced in, use `escape("sql", v)` (PostgreSQL/SQLite) or `escape("mysql", v)`
+  (MySQL/MariaDB, `"sql"` is bypassable there via `\`), and `escape("json", v)` for JSON.
 
 ## Default values: `??`
 
@@ -389,7 +390,7 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 | Category | Functions |
 |----------|-----------|
 | Text | `length`, `strlen`, `char_at`, `chars`, `match`, `substr`, `sub`, `gsub`, `gensub`, `index`, `last_index`, `split`, `last_part`, `sprintf`, `hex`, `join_fields`, `join_csv`, `join_tsv`, `tolower`, `toupper`, `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `nfc_normalize`, `bar`, `truncate`, `capitalize`, `uncapitalize`, `camel_case`, `kebab_case`, `snake_case`, `title_case`, `pascal_case`, `isint`, `isnum`, `is`, `starts_with`, `ends_with`, `contains`, `eq_ignore_case`, `mask`, `pad`, `pad_start`, `pad_end`, `strcmp`, `similar`, `lines`, `words`, `repeat`, `wrap`, `default_if_empty`, `append_if_missing`, `prepend_if_missing`, `remove_if_end`, `remove_if_begin`, `quote`, `double_quote`, `parse`, `rparse`, `format_bytes`, `to_bytes`, `mkpass`, `figlet` |
-| Escape | `escape` (json, csv, tsv, xml, html, sql, shell), `escape_csv`, `escape_tsv` |
+| Escape | `escape` (json, csv, tsv, xml, html, sql, mysql, shell), `escape_csv`, `escape_tsv` |
 | Parser | `url`, `data_url`, `shlex`, `path`, `path_join`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags` |
 | ID | `uuid` (v4/v7), `ulid`, `tsid`, `snowflake`, `uuid_extract_timestamp` |
 | Array | `seq`, `uniq`, `asort`, `asorti`, `_max`, `_min`, `_sum`, `_mean`, `_median`, `_quantile`, `_var`, `_stddev`, `_mode`, `_count_distinct`, `_top`, `_argmax`, `_argmin`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |

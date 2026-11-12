@@ -26,13 +26,14 @@ fn local_date_time(timestamp: i64) -> DateTime<Local> {
 /// Default `strftime` format, same as `PROCINFO["strftime"]`.
 pub const DEFAULT_STRFTIME_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
 
-/// The timestamp of `strftime(format)`: the current time. (Negative timestamps are dates before
-/// 1970, so they cannot mark it.)
-pub const STRFTIME_NOW: Int = Int::MIN;
 /// Flags of [`awk_strftime`]: format in UTC rather than local time (the third argument of
-/// `strftime`), and use `PROCINFO["strftime"]` as the format (`strftime()` without arguments).
+/// `strftime`), use `PROCINFO["strftime"]` as the format (`strftime()` without arguments), and
+/// format the current time because no timestamp is given (`strftime(format)`). The omitted
+/// timestamp is a flag rather than a reserved timestamp value, because every `Int` is a valid
+/// timestamp argument (`i64::MIN` must give the out-of-range empty string, as in gawk).
 pub const STRFTIME_UTC: Int = 1;
 pub const STRFTIME_PROCINFO_FORMAT: Int = 2;
+pub const STRFTIME_NOW: Int = 4;
 
 /// `systime_ms()`: the current Unix time in milliseconds.
 pub fn systime_ms() -> Int {
@@ -206,8 +207,8 @@ fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
 }
 
 /// awk's `strftime(format, timestamp, utc)`, with the arguments filled in by the compiler: the
-/// timestamp is [`STRFTIME_NOW`] when it is not given, `flags` holds [`STRFTIME_UTC`] and
-/// [`STRFTIME_PROCINFO_FORMAT`], and `timezone` is the utc argument as text. When the utc flag
+/// timestamp is ignored when it is not given, `flags` holds [`STRFTIME_UTC`],
+/// [`STRFTIME_PROCINFO_FORMAT`] and [`STRFTIME_NOW`], and `timezone` is the utc argument as text. When the utc flag
 /// is set and `timezone` names a time zone of the IANA database (`"Asia/Shanghai"`), the time is
 /// formatted in that zone; any other true utc argument means UTC, as in gawk. An empty format
 /// gives an empty string, as in gawk.
@@ -228,7 +229,7 @@ pub(crate) fn awk_strftime(
     } else {
         format.to_string()
     };
-    let timestamp = if timestamp == STRFTIME_NOW {
+    let timestamp = if flags & STRFTIME_NOW != 0 {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64)
@@ -790,8 +791,112 @@ pub fn to_iso8601_str(date_time_text: &str) -> String {
 /// (`%z`) or a Unix time (`%s`) is an instant; any other text is a local time in `timezone`: the
 /// local time zone when it is empty or `"0"`, the zone of the IANA database it names
 /// (`"Asia/Shanghai"`), or UTC for any other value (a true utc flag, as in `strftime`).
+///
+/// A zone abbreviation (`%Z`) is not a zone: `CST` is China, US Central or Cuba. It is only taken
+/// when it is `UTC`, `GMT`, `UT` or `Z`, or the abbreviation `timezone` uses at that time (`CST`
+/// with `"Asia/Shanghai"`, `EST`/`EDT` with `"America/New_York"`); any other is `-1` with a
+/// warning rather than a wrong instant.
 pub fn strptime(text: &str, format: &str, timezone: &str) -> Int {
+    if has_zone_name(format) {
+        return strptime_zone_name(text, format, timezone).unwrap_or(-1);
+    }
     try_strptime(text, format, timezone).unwrap_or(-1)
+}
+
+/// Whether the strftime `format` has a `%Z` (a zone abbreviation), not counting `%%Z`.
+fn has_zone_name(format: &str) -> bool {
+    let mut chars = format.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            match chars.next() {
+                Some('Z') => return true,
+                Some(_) => {}
+                None => break,
+            }
+        }
+    }
+    false
+}
+
+/// `format` with each `%Z` replaced by the literal `abbreviation` (which has no `%`).
+fn replace_zone_name(format: &str, abbreviation: &str) -> String {
+    let mut result = String::with_capacity(format.len() + abbreviation.len());
+    let mut chars = format.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            result.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('Z') => result.push_str(abbreviation),
+            Some(next) => {
+                result.push('%');
+                result.push(next);
+            }
+            None => result.push('%'),
+        }
+    }
+    result
+}
+
+/// `strptime` for a format with `%Z`: the abbreviation in the text must be a UTC name or one the
+/// `timezone` zone uses at that local time, see [`strptime`].
+fn strptime_zone_name(text: &str, format: &str, timezone: &str) -> Option<Int> {
+    // a %z in the same text gives the instant already
+    if let Ok(date_time) = DateTime::parse_from_str(text, format) {
+        return Some(date_time.timestamp());
+    }
+    // chrono reads %Z as any word and drops it: find the time first, then which name it was
+    let naive = NaiveDateTime::parse_from_str(text, format)
+        .or_else(|_| NaiveDate::parse_from_str(text, format).map(|d| d.and_time(NaiveTime::MIN)))
+        .ok()?;
+    let matches = |abbreviation: &str| {
+        let literal = replace_zone_name(format, abbreviation);
+        NaiveDateTime::parse_from_str(text, &literal).is_ok()
+            || NaiveDate::parse_from_str(text, &literal).is_ok()
+    };
+    if ["UTC", "GMT", "UT", "Z"].iter().any(|name| matches(name)) {
+        return Some(naive.and_utc().timestamp());
+    }
+    let tz = match timezone {
+        "" | "0" => jiff::tz::TimeZone::system(),
+        name => jiff::tz::TimeZone::get(name).unwrap_or(jiff::tz::TimeZone::UTC),
+    };
+    let civil = jiff::civil::DateTime::new(
+        i16::try_from(naive.year()).ok()?,
+        naive.month() as i8,
+        naive.day() as i8,
+        naive.hour() as i8,
+        naive.minute() as i8,
+        naive.second() as i8,
+        0,
+    )
+    .ok()?;
+    // the offsets the local time can have (two in a fold or gap), each kept only when the zone
+    // really has that offset then and calls it by the name in the text: EST or EDT in a fold
+    let offsets = match tz.to_ambiguous_timestamp(civil).offset() {
+        jiff::tz::AmbiguousOffset::Unambiguous { offset } => vec![offset],
+        jiff::tz::AmbiguousOffset::Gap { before, after }
+        | jiff::tz::AmbiguousOffset::Fold { before, after } => vec![before, after],
+    };
+    for offset in offsets {
+        let Ok(timestamp) = offset.to_timestamp(civil) else {
+            continue;
+        };
+        let info = tz.to_offset_info(timestamp);
+        if info.offset() == offset && matches(info.abbreviation()) {
+            return Some(timestamp.as_second());
+        }
+    }
+    runtime::stdlib_warning(
+        "strptime",
+        format!(
+            "zone name in {:?} is neither UTC nor used by time zone {:?} then; use %z or the right timezone",
+            text,
+            tz.iana_name().unwrap_or("local")
+        ),
+    );
+    None
 }
 
 fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
@@ -859,6 +964,29 @@ mod tests {
         assert_eq!(strptime("2024-13-01", "%Y-%m-%d", "UTC"), -1);
         assert_eq!(strptime("2024-01-02 x", "%Y-%m-%d", "UTC"), -1);
         assert_eq!(strptime("", "%Y-%m-%d", "UTC"), -1);
+    }
+
+    #[test]
+    fn test_strptime_zone_name() {
+        let format = "%Y-%m-%d %H:%M:%S %Z";
+        // UTC names are UTC whatever the timezone
+        assert_eq!(strptime("2024-01-02 08:00:00 UTC", format, "Asia/Shanghai"), 1704182400);
+        assert_eq!(strptime("2024-01-02 08:00:00 GMT", format, ""), 1704182400);
+        // the abbreviation of the given zone at that time
+        assert_eq!(strptime("2024-01-02 08:00:00 CST", format, "Asia/Shanghai"), 1704153600);
+        assert_eq!(strptime("2024-01-02 08:00:00 EST", format, "America/New_York"), 1704200400);
+        assert_eq!(strptime("2024-07-02 08:00:00 EDT", format, "America/New_York"), 1719921600);
+        // a fold: 01:30 happens twice, EDT then EST
+        assert_eq!(strptime("2024-11-03 01:30:00 EDT", format, "America/New_York"), 1730611800);
+        assert_eq!(strptime("2024-11-03 01:30:00 EST", format, "America/New_York"), 1730615400);
+        // a name the zone does not use then, or no zone at all: not a guessed instant
+        assert_eq!(strptime("2024-01-02 08:00:00 CST", format, "UTC"), -1);
+        assert_eq!(strptime("2024-01-02 08:00:00 EST", format, "UTC"), -1);
+        assert_eq!(strptime("2024-01-02 08:00:00 XYZ", format, "UTC"), -1);
+        assert_eq!(strptime("2024-01-02 08:00:00 EDT", format, "America/New_York"), -1);
+        // %%Z is a literal "%Z", not a zone name
+        assert_eq!(strptime("2024-01-02 %Z", "%Y-%m-%d %%Z", "UTC"), 1704153600);
+        assert!(!has_zone_name("%Y %%Z"));
     }
 
     #[test]

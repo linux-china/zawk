@@ -261,8 +261,13 @@ const MAX_BAR_WIDTH: Float = 1000.0;
 /// positive, `max` is not above `min`, or a number is NaN.
 pub fn bar(x: Float, min: Float, max: Float, width: Float) -> String {
     const PARTIAL: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+    // check NaN before clamping: `f64::min` returns the non-NaN operand, so a NaN width
+    // would otherwise become `MAX_BAR_WIDTH`
+    if width.is_nan() || x.is_nan() || !(max > min) {
+        return String::new();
+    }
     let width = width.min(MAX_BAR_WIDTH).trunc();
-    if width.is_nan() || width < 1.0 || x.is_nan() || !(max > min) {
+    if width < 1.0 {
         return String::new();
     }
     let width = width as usize;
@@ -391,5 +396,8 @@ mod tests {
         assert_eq!(bar(1.0, 1.0, 1.0, 4.0), "");
         assert_eq!(bar(1.0, 0.0, 2.0, 0.0), "");
         assert_eq!(bar(Float::NAN, 0.0, 2.0, 4.0), "");
+        assert_eq!(bar(1.0, 0.0, 2.0, Float::NAN), "");
+        assert_eq!(bar(1.0, Float::NAN, 2.0, 4.0), "");
+        assert_eq!(bar(1.0, 0.0, Float::NAN, 4.0), "");
     }
 }

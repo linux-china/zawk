@@ -1735,6 +1735,9 @@ where
                 } else {
                     self.convert_val(e2, next)?
                 };
+                if let Some(res) = self.uninit_cmp(expr, *op, &v1, &v2, next)? {
+                    return Ok(res);
+                }
                 let v1 = self.widen_sum_operand(*op, v1, &v2, next)?;
                 return Ok((
                     next,
@@ -1904,6 +1907,13 @@ where
             Index(arr, ix) => {
                 let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
                 let (next, ix_v) = self.convert_index(ix, next, in_cond)?;
+                // A read of a tracked array as a number still creates an unassigned element,
+                // that later reads as a string see as "".
+                let (next, _) = if self.uninit_map_elem(expr) {
+                    self.map_elem_assigned(expr, &arr_v, &ix_v, next)?
+                } else {
+                    (next, PrimVal::ILit(0))
+                };
                 return Ok((next, PrimExpr::Index(arr_v, ix_v)));
             }
             Call(fname, args) => return self.call(current_open, fname, args),
@@ -1951,20 +1961,34 @@ where
                     current_open,
                 );
             }
+            // A tracked variable assigned a conditional: `x = c ? t : f` is converted as
+            // `c ? (x = t) : (x = f)`, so that each branch records its own flag (`t` or `f` may
+            // be an uninitialized variable or a call returning no value).
+            Assign(x @ Var(_), ITE(c, t, f)) if self.uninit_flag(x).is_some() => {
+                return self.convert_expr_inner(
+                    &ITE(c, &Assign(x, t), &Assign(x, f)),
+                    current_open,
+                    in_cond,
+                );
+            }
             // A tracked variable assigned an element: it is uninitialized if the element did not
             // exist (see the `uninit` module).
             Assign(x, Index(arr @ Var(a), ix))
                 if self.uninit_flag(x).is_some() && !self.f.args_map.contains_key(a) =>
             {
-                use builtins::Function;
                 let (next, arr_v) = self.convert_val(arr, current_open)?;
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 // Check membership first: the lookup creates the element, as in awk.
-                let present = PrimExpr::CallBuiltin(
-                    Function::Contains,
-                    smallvec![arr_v.clone(), ix_v.clone()],
-                );
-                let present = self.to_val(present, next)?;
+                let elem = Index(arr, ix);
+                let (next, present) = if self.uninit_map_elem(&elem) {
+                    self.map_elem_assigned(&elem, &arr_v, &ix_v, next)?
+                } else {
+                    let present = PrimExpr::CallBuiltin(
+                        builtins::Function::Contains,
+                        smallvec![arr_v.clone(), ix_v.clone()],
+                    );
+                    (next, self.to_val(present, next)?)
+                };
                 let to_e = PrimExpr::Index(arr_v, ix_v);
                 let (next, res) = self.do_assign_hint(x, |_| to_e, None, next)?;
                 let flag = self.uninit_flag(x).unwrap();
@@ -2437,10 +2461,104 @@ where
     fn uninit_map_elem<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
         match e {
             Expr::Index(Expr::Var(a), _) => {
-                !self.f.args_map.contains_key(a) && self.ctx.uninit.maps.contains(a)
+                !self.f.args_map.contains_key(a) && self.ctx.uninit.maps.contains_key(a)
             }
             _ => false,
         }
+    }
+
+    /// Whether the element `e` (`arr[ix]`) of a tracked array has been assigned, as 0 or 1,
+    /// before a lookup that creates it. A missing element is recorded in the hidden array of
+    /// `undef_map`, so that it still reads as uninitialized once the lookup has created it.
+    fn map_elem_assigned<'c>(
+        &mut self,
+        e: &'c Expr<'c, 'b, I>,
+        arr_v: &PrimVal<'b>,
+        ix_v: &PrimVal<'b>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        use builtins::Function::{Binop as Bin, Contains};
+        let arr = match e {
+            Expr::Index(Expr::Var(a), _) => a,
+            _ => return err!("map_elem_assigned: not an element of a global array"),
+        };
+        let undef = self.ctx.uninit.maps[arr].clone();
+        let undef = PrimVal::Var(self.get_identifier(&undef));
+        let present = PrimExpr::CallBuiltin(Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+        let present = self.to_val(present, current_open)?;
+        let marked = PrimExpr::CallBuiltin(Contains, smallvec![undef.clone(), ix_v.clone()]);
+        let marked = self.to_val(marked, current_open)?;
+        // An element is never both missing and marked: assigning or deleting it unmarks it.
+        let assigned = PrimExpr::CallBuiltin(
+            Bin(ast::Binop::Minus),
+            smallvec![present.clone(), marked],
+        );
+        let assigned = self.to_val(assigned, current_open)?;
+        let mark = self.f.cfg.add_node(Default::default());
+        let next = self.f.cfg.add_node(Default::default());
+        let undef_id = match undef {
+            PrimVal::Var(id) => id,
+            _ => unreachable!(),
+        };
+        self.add_stmt(
+            mark,
+            PrimStmt::AsgnIndex(undef_id, ix_v.clone(), PrimExpr::Val(PrimVal::ILit(1))),
+        )?;
+        self.f
+            .cfg
+            .add_edge(current_open, next, Transition::new(present));
+        self.f.cfg.add_edge(current_open, mark, Transition::null());
+        self.f.cfg.add_edge(mark, next, Transition::null());
+        Ok((next, assigned))
+    }
+
+    /// The hidden "unassigned elements" array of the tracked array `id`, if it is one.
+    fn undef_map_of(&mut self, id: Ident) -> Option<Ident> {
+        let undef = self
+            .ctx
+            .uninit
+            .maps
+            .iter()
+            .find(|(m, _)| !self.f.args_map.contains_key(*m) && self.ctx.hm.get(*m) == Some(&id))?
+            .1
+            .clone();
+        Some(self.get_identifier(&undef))
+    }
+
+    /// For a statement that assigns or deletes elements of a tracked array: the statement that
+    /// unmarks them in its hidden array of unassigned elements (see `map_elem_assigned`).
+    fn unmark_stmt(&mut self, stmt: &PrimStmt<'b>) -> Option<PrimStmt<'b>> {
+        use builtins::Function::{Clear, Delete, IncMap};
+        if self.ctx.uninit.maps.is_empty() {
+            return None;
+        }
+        let (f, arr, ix) = match stmt {
+            PrimStmt::AsgnIndex(arr, ix, _) => (Delete, *arr, Some(ix.clone())),
+            PrimStmt::AsgnVar(_, PrimExpr::CallBuiltin(IncMap | Delete, args))
+                if args.len() >= 2 =>
+            {
+                match &args[0] {
+                    PrimVal::Var(arr) => (Delete, *arr, Some(args[1].clone())),
+                    _ => return None,
+                }
+            }
+            PrimStmt::AsgnVar(_, PrimExpr::CallBuiltin(Clear, args)) if args.len() == 1 => {
+                match &args[0] {
+                    PrimVal::Var(arr) => (Clear, *arr, None),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        let undef = PrimVal::Var(self.undef_map_of(arr)?);
+        let args = match ix {
+            Some(ix) => smallvec![undef, ix],
+            None => smallvec![undef],
+        };
+        Some(PrimStmt::AsgnVar(
+            Ident::unused(),
+            PrimExpr::CallBuiltin(f, args),
+        ))
     }
 
     /// After an assignment to `x`: record that a tracked variable has been assigned. A copy of
@@ -2483,17 +2601,12 @@ where
         }
         if let Expr::Index(arr, ix) = e {
             if self.uninit_map_elem(e) {
-                use builtins::Function;
                 let (next, arr_v) = self.convert_val(arr, current_open)?;
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 // Check membership first: the lookup creates the element, as in awk.
-                let present = PrimExpr::CallBuiltin(
-                    Function::Contains,
-                    smallvec![arr_v.clone(), ix_v.clone()],
-                );
-                let present = self.to_val(present, next)?;
+                let (next, assigned) = self.map_elem_assigned(e, &arr_v, &ix_v, next)?;
                 let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
-                return self.str_or_empty(present, v, conv, next);
+                return self.str_or_empty(assigned, v, conv, next);
             }
         }
         self.convert_val(e, current_open)
@@ -2534,6 +2647,20 @@ where
                 let present =
                     PrimExpr::CallBuiltin(Contains, smallvec![arr_v.clone(), ix_v.clone()]);
                 let present = self.to_val(present, next)?;
+                if self.uninit_map_elem(e) {
+                    // An element of a tracked array created by an earlier read exists but is
+                    // still unassigned: "unassigned", as in gawk; a missing one is "untyped".
+                    let (next, assigned) = self.map_elem_assigned(e, &arr_v, &ix_v, next)?;
+                    let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                    let (next, unset) = self.select(
+                        present,
+                        PrimExpr::Val(PrimVal::StrLit(b"unassigned")),
+                        PrimExpr::Val(PrimVal::StrLit(b"untyped")),
+                        next,
+                    )?;
+                    let res = self.select(assigned, type_of(v), PrimExpr::Val(unset), next)?;
+                    return Ok(Some((res.0, PrimExpr::Val(res.1))));
+                }
                 // The lookup creates the element, as in gawk.
                 let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
                 (next, present, type_of(v), b"untyped")
@@ -2681,6 +2808,63 @@ where
         Ok((next, PrimVal::Var(res)))
     }
 
+    /// A comparison `e` (with operands `v1` and `v2`) of a tracked variable with a value that may
+    /// be a string (see `uninit::uninit_cmp_operands`). A numeric variable reads as 0 before its
+    /// first assignment; awk compares the uninitialized value as "" with a string (`s == x` with
+    /// `s = ""` is true), so while its flag is unset each tracked operand is replaced by a value
+    /// that is never assigned, which compares as uninitialized.
+    fn uninit_cmp<'c>(
+        &mut self,
+        e: &'c Expr<'c, 'b, I>,
+        op: ast::Binop,
+        v1: &PrimVal<'b>,
+        v2: &PrimVal<'b>,
+        current_open: NodeIx,
+    ) -> Result<Option<(NodeIx, PrimExpr<'b>)>> {
+        let (l, r) = uninit::uninit_cmp_operands(e);
+        let flags = [
+            l.and_then(|l| self.uninit_flag(l)),
+            r.and_then(|r| self.uninit_flag(r)),
+        ];
+        if flags.iter().all(Option::is_none) {
+            return Ok(None);
+        }
+        let uninit = PrimVal::Var(self.get_identifier(&I::from_static(ast::UNINIT_VAR)));
+        let res = self.fresh_local();
+        self.ctx.may_rename.push(res);
+        let next = self.f.cfg.add_node(Default::default());
+        // Branch on the flag of each tracked operand in turn, replacing it with the
+        // uninitialized value where its flag is unset; each leaf does the comparison.
+        let mut leaves = vec![(current_open, v1.clone(), v2.clone())];
+        for (i, flag) in flags.into_iter().enumerate() {
+            let flag = match flag {
+                Some(flag) => PrimVal::Var(self.get_identifier(&flag)),
+                None => continue,
+            };
+            let mut split = Vec::with_capacity(leaves.len() * 2);
+            for (node, a, b) in leaves {
+                let set = self.f.cfg.add_node(Default::default());
+                let unset = self.f.cfg.add_node(Default::default());
+                self.f.cfg.add_edge(node, set, Transition::new(flag.clone()));
+                self.f.cfg.add_edge(node, unset, Transition::null());
+                let (ua, ub) = if i == 0 {
+                    (uninit.clone(), b.clone())
+                } else {
+                    (a.clone(), uninit.clone())
+                };
+                split.push((set, a, b));
+                split.push((unset, ua, ub));
+            }
+            leaves = split;
+        }
+        let cmp = |a, b| PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![a, b]);
+        for (node, a, b) in leaves {
+            self.add_stmt(node, PrimStmt::AsgnVar(res, cmp(a, b)))?;
+            self.f.cfg.add_edge(node, next, Transition::null());
+        }
+        Ok(Some((next, PrimExpr::Val(PrimVal::Var(res)))))
+    }
+
     /// `a[k] == ""`: true when the element did not exist before the lookup, or its value is
     /// the empty string.
     ///
@@ -2696,9 +2880,14 @@ where
         use builtins::Function;
         let (next, arr_v) = self.convert_val(arr, current_open)?;
         let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
-        let present =
-            PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
-        let present = self.to_val(present, next)?;
+        let elem = Expr::Index(arr, ix);
+        let (next, present) = if self.uninit_map_elem(&elem) {
+            self.map_elem_assigned(&elem, &arr_v, &ix_v, next)?
+        } else {
+            let present =
+                PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
+            (next, self.to_val(present, next)?)
+        };
         let val = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
         let val_str = PrimExpr::CallBuiltin(
             Function::Binop(ast::Binop::Concat),
@@ -3621,13 +3810,15 @@ where
                             prim_args.push(PrimVal::StrLit(b""));
                         }
                         if args_len < 2 {
-                            prim_args.push(PrimVal::ILit(STRFTIME_NOW));
+                            prim_args.push(PrimVal::ILit(0));
                         }
-                        let flags = if args_len == 0 {
-                            STRFTIME_PROCINFO_FORMAT
-                        } else {
-                            0
-                        };
+                        let mut flags = 0;
+                        if args_len == 0 {
+                            flags |= STRFTIME_PROCINFO_FORMAT;
+                        }
+                        if args_len < 2 {
+                            flags |= STRFTIME_NOW;
+                        }
                         prim_args.push(PrimVal::ILit(flags));
                         prim_args.push(PrimVal::StrLit(b""));
                     }
@@ -3998,7 +4189,12 @@ where
             bb.loc = self.cur_loc;
             bb.q.push_back(PrimStmt::Loc(self.cur_loc));
         }
+        let unmark = self.unmark_stmt(&stmt);
+        let bb = self.f.cfg.node_weight_mut(at).unwrap();
         bb.q.push_back(stmt);
+        if let Some(unmark) = unmark {
+            bb.q.push_back(unmark);
+        }
         Ok(())
     }
 

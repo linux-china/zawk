@@ -121,7 +121,14 @@ fn first_table(text: &str) -> Option<Vec<Vec<String>>> {
             Event::Start(Tag::TableCell) => cell = Some(String::new()),
             Event::End(TagEnd::TableCell) => {
                 if let (Some(row), Some(c)) = (rows.last_mut(), cell.take()) {
-                    row.push(c.trim().to_string());
+                    // pulldown-cmark already trims the cell, so spaces written as `&#32;` stay.
+                    row.push(c);
+                }
+            }
+            // `<br>` is the line break of a table cell (`-o markdown` writes newlines so).
+            Event::InlineHtml(s) if is_br(&s) => {
+                if let Some(c) = cell.as_mut() {
+                    c.push('\n');
                 }
             }
             Event::Text(s) | Event::Code(s) | Event::InlineHtml(s) | Event::Html(s) => {
@@ -138,6 +145,13 @@ fn first_table(text: &str) -> Option<Vec<Vec<String>>> {
         }
     }
     if in_table { Some(rows) } else { None }
+}
+
+/// Whether an inline HTML tag is a line break: `<br>`, `<br/>` or `<br />`, in any case.
+fn is_br(tag: &str) -> bool {
+    let inner = tag.strip_prefix('<').and_then(|t| t.strip_suffix('>'));
+    let inner = inner.map(|t| t.trim_end_matches('/').trim_end());
+    inner.is_some_and(|t| t.eq_ignore_ascii_case("br"))
 }
 
 /// Whether a table row's source has a `|` cell delimiter (not escaped as `\|`).
@@ -216,5 +230,21 @@ mod tests {
     #[test]
     fn no_table() {
         assert_eq!(first_table_csv("# Title\n\njust text\n"), None);
+    }
+
+    #[test]
+    fn cell_encodings_round_trip() {
+        // `-o markdown` writes edge spaces as `&#32;`, newlines as `<br>`, tabs and CRs as
+        // character references; a hand-aligned table is still trimmed.
+        let text = "| a | b | c |\n| --- | --- | --- |\n\
+            | &#32;&#32;pad&#32; | l1<br>l2<BR/>l3 | x&#9;y&#13;z \\\\n |\n\
+            | 1.0          | &amp;lt;br&gt; | &lt;br> |\n";
+        assert_eq!(
+            first_table(text).unwrap()[1..],
+            [
+                vec!["  pad ", "l1\nl2\nl3", "x\ty\rz \\n"],
+                vec!["1.0", "&lt;br>", "<br>"],
+            ]
+        );
     }
 }

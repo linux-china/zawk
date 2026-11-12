@@ -39,11 +39,14 @@ When the format is known, `strptime(s, format[, tz])` parses with a [chrono form
 and guesses nothing: `"01/02/2024"` is January 2 with `"%m/%d/%Y"`, February 1 with `"%d/%m/%Y"`. Text with `%z` or `%s`
 is an instant; other text is local time, or in `tz`: an IANA time zone name, or UTC for another true value.
 It returns `-1` if the text does not match the format.
+A zone abbreviation (`%Z`) is ambiguous (`CST` is China, US Central or Cuba), so it is only taken when it is
+`UTC`/`GMT`/`UT`/`Z` or the abbreviation `tz` uses at that time; any other name gives `-1` with a warning.
 
 ```awk
 strptime("01/02/2024", "%d/%m/%Y")                          # local midnight of February 1
 strptime("2024-01-02 08:00", "%Y-%m-%d %H:%M", "Asia/Shanghai")  # 1704153600
 strptime("02/Jan/2024:08:00:00 +0800", "%d/%b/%Y:%H:%M:%S %z")   # 1704153600
+strptime("2024-01-02 08:00 CST", "%Y-%m-%d %H:%M %Z", "Asia/Shanghai")  # 1704153600
 ```
 
 `datetime()` breaks a time into parts: `year`, `month`, `monthday`, `hour`, `minute`, `second`, `yearday`,

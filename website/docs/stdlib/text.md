@@ -120,7 +120,7 @@ mask("abc@example.com")      # abc*********com
 mask("13800138000")          # 13*******00
 quote("it's")                # 'it'\''s'  -- safe in a shell command
 double_quote("say \"hi\"")   # "say \"hi\""
-escape("json", s)            # also: csv, tsv, xml, html, sql, shell
+escape("json", s)            # also: csv, tsv, xml, html, sql, mysql, shell
 escape_csv(s); escape_tsv(s)
 ```
 

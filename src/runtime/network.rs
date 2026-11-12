@@ -113,16 +113,69 @@ pub fn local_ip() -> String {
     "127.0.0.1".to_owned()
 }
 
+/// How long one wait of an HTTP request may last: for the response headers, then for each read
+/// of the body.
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Shared HTTP client: reuses the connection pool across calls, with explicit timeouts.
-static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> =
+    LazyLock::new(|| http_client(HTTP_READ_TIMEOUT));
+
+/// The blocking client applies `timeout` to each wait: to `send`, and to each `Read::read` of the
+/// body. Its `text()`/`bytes()`/`json()` wait once for the whole body, which turns the timeout
+/// into a deadline for the transfer, so bodies are read with `read_body`/`read_text` instead:
+/// a slow response that keeps sending is read to its end, a stalled one fails after `timeout`.
+fn http_client(timeout: Duration) -> reqwest::blocking::Client {
     crate::runtime::tls::install_default_provider();
     reqwest::blocking::Client::builder()
         .user_agent(concat!("zawk/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
+        .timeout(timeout)
         .build()
         .expect("Failed to build HTTP client")
-});
+}
+
+/// The whole body of `resp`, read with `Read` so that the client timeout bounds each read, not
+/// the transfer (see `http_client`).
+pub(crate) fn read_body(mut resp: Response) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut body = Vec::new();
+    resp.read_to_end(&mut body)?;
+    Ok(body)
+}
+
+/// The body of `resp` as text, decoded as reqwest's `text()` does: with the `charset` of
+/// `Content-Type`, UTF-8 when absent or unknown, invalid sequences as U+FFFD.
+pub(crate) fn read_text(resp: Response) -> std::io::Result<String> {
+    let encoding = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<mime::Mime>().ok())
+        .and_then(|mime| {
+            mime.get_param("charset")
+                .and_then(|charset| encoding_rs::Encoding::for_label(charset.as_str().as_bytes()))
+        })
+        .unwrap_or(encoding_rs::UTF_8);
+    let body = read_body(resp)?;
+    Ok(encoding.decode(&body).0.into_owned())
+}
+
+/// The message of a body read error with its causes, e.g. `error decoding response body: operation
+/// timed out`, so that a timeout is told from a reset connection.
+fn body_error(e: &std::io::Error) -> String {
+    let mut message = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
 
 /// GET `url` with the shared client for functions that use the body as data (`read_all`,
 /// `parse_prometheus`, JWKS, `-f URL`): error statuses (404, proxy errors, ...) are errors, so an
@@ -136,9 +189,8 @@ pub(crate) fn fetch(url: &str) -> reqwest::Result<Response> {
 
 /// The body at `url` as text, see `fetch`; the error leaves out the URL, which callers report.
 pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
-    fetch(url)
-        .and_then(|resp| resp.text())
-        .map_err(|e| e.without_url().to_string())
+    let resp = fetch(url).map_err(|e| e.without_url().to_string())?;
+    read_text(resp).map_err(|e| format!("failed to read response body: {}", body_error(&e)))
 }
 
 pub(crate) fn http_get<'a>(url: &str, headers: &StrMap<'a, Str<'a>>) -> StrMap<'a, Str<'a>> {
@@ -233,7 +285,7 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
     // set after the headers, and even for an empty body, so a header named `status`/`text` cannot take their place
     // decoded with the `charset` of `Content-Type` (UTF-8 when absent or unknown), so GBK or Latin-1 pages
     // come out as UTF-8 text; invalid sequences become U+FFFD
-    match resp.text() {
+    match read_text(resp) {
         Ok(text) => {
             resp_obj.insert(Str::from("status"), Str::from(status.as_u16().to_string()));
             resp_obj.insert(Str::from("text"), Str::from(text));
@@ -246,7 +298,7 @@ fn fill_response(func: &str, url: &str, resp: Response, resp_obj: &StrMap<Str>) 
                 format!(
                     "{}: failed to read response body: {}",
                     redact_url(url),
-                    e.without_url()
+                    body_error(&e)
                 ),
             );
             resp_obj.insert(Str::from("status"), Str::from("0"));
@@ -793,9 +845,8 @@ fn try_send_mail(
         .map_err(|e| format!("failed to send mail via {}: {}", redact_url(&api_url), e))?;
     let status = resp.status();
     if !status.is_success() {
-        let body = resp
-            .text()
-            .unwrap_or_else(|e| format!("(failed to read response body: {})", e));
+        let body = read_text(resp)
+            .unwrap_or_else(|e| format!("(failed to read response body: {})", body_error(&e)));
         return Err(format!(
             "failed to send mail via {}: HTTP {} {}",
             redact_url(&api_url),
@@ -1085,6 +1136,50 @@ mod tests {
                 .unwrap_err()
                 .contains("timed out")
         );
+    }
+
+    /// Serves one response whose body is `lines` lines sent `gap` apart.
+    fn trickle_server(lines: usize, gap: Duration) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                lines * 5
+            );
+            let _ = stream.write_all(head.as_bytes());
+            for i in 0..lines {
+                std::thread::sleep(gap);
+                let _ = stream.write_all(format!("{:04}\n", i).as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        format!("http://127.0.0.1:{}/", port)
+    }
+
+    #[test]
+    fn test_http_slow_body_outlives_read_timeout() {
+        // 8 lines 250ms apart: the transfer takes ~2s, twice the read timeout, but no single wait
+        // reaches it, so the whole body arrives
+        let client = http_client(Duration::from_secs(1));
+        let url = trickle_server(8, Duration::from_millis(250));
+        let body = read_text(client.get(&url).send().unwrap()).unwrap();
+        assert_eq!(body.lines().count(), 8, "{body:?}");
+    }
+
+    #[test]
+    fn test_http_stalled_body_times_out() {
+        let client = http_client(Duration::from_millis(500));
+        let url = trickle_server(2, Duration::from_secs(3));
+        let start = std::time::Instant::now();
+        let resp = client.get(&url).send().unwrap();
+        let err = read_text(resp).unwrap_err();
+        assert!(body_error(&err).contains("timed out"), "{}", body_error(&err));
+        assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
     }
 
     /// A server that accepts connections and never answers, so that a client waits for its timeout.

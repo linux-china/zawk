@@ -324,7 +324,6 @@ A few cases still read as `0`:
 ```
 function g(s) { return s "|" } BEGIN { if (0) u = 1; print g(u) }  # 0|  (gawk: |)
 BEGIN { if (0) u = 1; b[u] = 1; for (k in b) print "[" k "]" }     # [0] (gawk: [])
-BEGIN { a[1] = 5; x = a[2] ""; print "[" a[2] "]" }                 # [0] (gawk: [])
 BEGIN { if (0) u = 1; fmt = "%s\n"; printf fmt, u }                 # 0   (gawk: empty)
 ```
 
@@ -332,7 +331,23 @@ BEGIN { if (0) u = 1; fmt = "%s\n"; printf fmt, u }                 # 0   (gawk:
   tracked), or assigned from a function that returns one of its parameters;
 - a numeric variable used as a subscript: subscripts such as `a[i]` stay
   integers, so that integer-keyed arrays stay fast;
-- an array element read a second time: reading a missing element creates it,
-  as in awk, but with the value `0`, as numeric arrays cannot hold `""`;
 - a `printf` / `sprintf` format that is not a string literal, or that uses
   positional arguments (`%1$s`).
+
+A name is either an array or a scalar for the whole program. zawk decides this
+at compile time from every use of the name, without regard to which uses can
+run, so a program that uses a name both ways is rejected even when those uses
+lie on mutually exclusive branches or in code that never executes:
+
+```
+BEGIN { if (0) { a = 2 } else { a[1] = 1 } print a[1] }
+# gawk: 1
+# zawk: fatal: attempt to use array `a` in a scalar context
+
+BEGIN { if (0) a = 2; print "ok" } END { a[1] = 1 }
+# gawk: ok
+# zawk: fatal: attempt to use scalar `a` as an array
+```
+
+gawk only fails when a conflicting use actually executes. Use a different name
+for the scalar and the array.

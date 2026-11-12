@@ -2855,7 +2855,8 @@ fn jsonl_keys_first_seen_later() {
 #[test]
 fn markdown_output() {
     // -o markdown renders print records as a Markdown table: the first record is the header,
-    // followed by the delimiter row; `|` in fields is escaped and tabs/newlines are kept on one line.
+    // followed by the delimiter row; `|` in fields is escaped and tabs/newlines are kept on one line
+    // (as `&#9;` and `<br>`, which `-i markdown` reads back).
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
             .unwrap()
@@ -2866,7 +2867,7 @@ fn markdown_output() {
             .assert()
             .success()
             .stdout(
-                "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n| a\\|b\\tc | x\\ny |\n",
+                "| name | age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n| a\\|b&#9;c | x<br>y |\n",
             );
     }
 }
@@ -2979,6 +2980,45 @@ fn parquet_output() {
         .arg(r#"BEGIN { print "a:nope" }"#)
         .assert()
         .code(2);
+}
+
+#[test]
+fn parquet_output_json_column_unescaped() {
+    // A `:JSON` column stores the printed value, not its TSV-escaped form: backslashes are not
+    // doubled, and a JSON `\t` escape stays one escape. A raw tab inside a JSON string (invalid
+    // JSON) is stored via its `\t` escaped form.
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("out.parquet");
+    let out = out.to_str().unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-oparquet")
+            .arg("--out-file")
+            .arg(out)
+            .arg(r#"BEGIN { FS = "|"; print "j:JSON" } { print $1 }"#)
+            .write_stdin("{\"a\":\"C:\\\\dir\"}\n{\"a\":\"x\\ty\"}\n{\"a\":\"x\ty\"}\n{\"a\":\"plain\"}\n")
+            .assert()
+            .success();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg("-iparquet")
+            .arg("{ print $0 }")
+            .arg(out)
+            .assert()
+            .success()
+            .stdout(concat!(
+                r#"{"j":{"a":"C:\\dir"}}"#,
+                "\n",
+                r#"{"j":{"a":"x\ty"}}"#,
+                "\n",
+                r#"{"j":{"a":"x\ty"}}"#,
+                "\n",
+                r#"{"j":{"a":"plain"}}"#,
+                "\n",
+            ));
+    }
 }
 
 #[test]
@@ -3223,6 +3263,22 @@ fn strftime_arguments() {
             .assert()
             .success()
             .stdout("1970-01-01 08 1970-01-01 00 08\n1969-12-31 []\n1 1\n|1\n");
+    }
+}
+
+#[test]
+fn strftime_min_timestamp_is_not_now() {
+    // An explicit i64::MIN timestamp is out of range (an empty string, as in gawk), not the
+    // current time: an omitted timestamp is a flag, not a reserved timestamp value.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(r#"{ print "[" strftime("%Y-%m-%d", $1) "]", "[" strftime("%Y-%m-%d", $1, 1) "]" }"#)
+            .write_stdin("-9223372036854775808\n")
+            .assert()
+            .success()
+            .stdout("[] []\n");
     }
 }
 
@@ -5331,6 +5387,57 @@ fn lint_before_run() {
         .success()
         .stdout("1\n")
         .stderr("");
+}
+
+#[test]
+fn deny_warnings_counts_operand_assignment_as_set() {
+    // `x=1` operands set `x` like `-v x=1`, so `x` is not W201 "used but never set".
+    let tmpdir = tempdir().unwrap();
+    let data = tmpdir.path().join("d.txt");
+    std::fs::write(&data, "a\n").unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--deny-warnings", "{print x}", "x=1"])
+        .arg(&data)
+        .assert()
+        .success()
+        .stdout("1\n")
+        .stderr("");
+    // Other variables are still reported.
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["--deny-warnings", "{print y}", "x=1"])
+        .arg(&data)
+        .assert()
+        .code(1);
+    // `zawk lint` too.
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["lint", "{print x}", "x=1"])
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8(out.stdout).unwrap().contains("W201"),
+        "W201 for operand-assigned variable"
+    );
+}
+
+#[test]
+fn lint_skips_leading_operand_assignment() {
+    // `OFS=,` before the input file is an assignment, not a file to sample.
+    let tmpdir = tempdir().unwrap();
+    let csv = tmpdir.path().join("f.csv");
+    std::fs::write(&csv, "a,b\n1,2\n").unwrap();
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .args(["lint", "{print $1,$2}", "OFS=,"])
+        .arg(&csv)
+        .output()
+        .unwrap();
+    let report = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(0), "{report}");
+    assert!(!report.contains("E002"), "{report}");
 }
 
 #[test]
@@ -8382,6 +8489,180 @@ fn last_index_respects_ignorecase() {
                     .success()
                     .stdout(expected);
             }
+        }
+    }
+}
+
+#[test]
+fn field_count_limits() {
+    // `NF = n` and `$n = ...` must fail cleanly instead of panicking on capacity overflow or
+    // getting the process OOM-killed, both for literals and for sizes read from the input.
+    assert_fatal(
+        r#"BEGIN { NF = 1e15 }"#,
+        "NF = 1000000000000000 is too large",
+    );
+    assert_fatal(r#"BEGIN { NF = 1e12 }"#, "NF = 1000000000000 is too large");
+    assert_fatal(
+        r#"BEGIN { $(1e12) = "x" }"#,
+        "assignment to $1000000000000 is too large",
+    );
+    for backend_arg in BACKEND_ARGS {
+        for (fmt, input) in [
+            (None, "1e20\n"),
+            (Some("csv"), "1e20\n"),
+            (Some("tsv"), "1e20\n"),
+            (Some("jsonl"), "[1e20]\n"),
+        ] {
+            for prog in [r#"{ NF = $1 }"#, r#"{ $($1) = "x" }"#] {
+                let mut cmd = Command::cargo_bin("zawk").unwrap();
+                cmd.arg(String::from(*backend_arg));
+                if let Some(fmt) = fmt {
+                    cmd.arg("-i").arg(fmt);
+                }
+                let output = cmd.arg(prog).write_stdin(input).output().unwrap();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert_eq!(
+                    output.status.code(),
+                    Some(2),
+                    "{} {:?} {}: {}",
+                    backend_arg,
+                    fmt,
+                    prog,
+                    stderr
+                );
+                assert!(
+                    stderr.contains("is too large (maximum 67108864 fields)"),
+                    "{} {:?} {}: {}",
+                    backend_arg,
+                    fmt,
+                    prog,
+                    stderr
+                );
+            }
+        }
+        // Sizes within the limit still work.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(r#"{ NF = 5; $8 = "x"; print NF }"#)
+            .write_stdin("a b\n")
+            .assert()
+            .success()
+            .stdout("8\n");
+    }
+}
+
+#[test]
+fn uninit_numeric_var_compared_with_string() {
+    // A numeric variable read before its first assignment is the uninitialized value: "" when
+    // compared with a string and 0 when compared with a number or a numeric strnum.
+    let cases = [
+        (r#"BEGIN { if (0) a = 1; s = ""; print (s == a), (a == s) }"#, "", "1 1\n"),
+        (r#"BEGIN { if (0) a = 1; s = "0"; print (s == a), (a < s) }"#, "", "0 1\n"),
+        (r#"BEGIN { if (0) a = 1; print "[" a "]", (a < 1) }"#, "", "[] 1\n"),
+        (r#"BEGIN { s = ""; a = 0; print (s == a); a = 1; s = "1"; print (s == a) }"#, "", "0\n1\n"),
+        (
+            r#"{ print ($4 == a), ($4 < a), (a < $4); if (0) a = 1 }"#,
+            "a b c\na b c 0\na b c x\n",
+            "1 0 0\n1 0 0\n0 0 1\n",
+        ),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, input, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin(input)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
+        }
+    }
+}
+
+#[test]
+fn uninit_var_assigned_conditional() {
+    // `x = c ? t : f` assigns `t` or `f`: the branch taken decides whether `x` is still the
+    // uninitialized value (an unset variable or a call returning no value).
+    let cases = [
+        (r#"BEGIN { a = 0 ? 3 : b; print "[" a "]" }"#, "", "[]\n"),
+        (r#"function g() { return } BEGIN { a = 0 ? 3 : g(); print "[" a "]" }"#, "", "[]\n"),
+        (r#"BEGIN { if (0) b = 1; a = 0 ? 3 : b; print "[" a "]" }"#, "", "[]\n"),
+        (r#"BEGIN { a = 1 ? 3 : b; print "[" a "]" }"#, "", "[3]\n"),
+        (r#"BEGIN { b = 5; a = 0 ? 3 : b; print "[" a "]" }"#, "", "[5]\n"),
+        (r#"BEGIN { a = 0 ? 3 : 1 ? c : 4; print "[" a "]", typeof(a) }"#, "", "[] unassigned\n"),
+        (r#"BEGIN { a = 0 ? 3 : q[1]; print "[" a "]" }"#, "", "[]\n"),
+        (r#"{ a = NR % 2 ? $1 : b; print "[" a "]" }"#, "x\ny\n", "[x]\n[]\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, input, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin(input)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
+        }
+    }
+}
+
+#[test]
+fn uninit_var_later_assigned_string() {
+    // A variable also assigned a string elsewhere is still tracked: before its first assignment
+    // it reads as "" where a string is expected, whatever later assignments store.
+    let cases = [
+        (r#"BEGIN { if (0) b = 1; print "[" b "]"; b = "x" }"#, "", "[]\n"),
+        (r#"BEGIN { if (0) b = 1; print "[" b "]"; b = "x"; print "[" b "]" }"#, "", "[]\n[x]\n"),
+        (r#"BEGIN { if (0) b = 1.5; printf "[%s]\n", b; b = "x" }"#, "", "[]\n"),
+        (r#"BEGIN { if (0) b = 1; print length(b), (b == ""), (b == 0); b = "x" }"#, "", "0 1 1\n"),
+        (r#"BEGIN { if (0) b = 1; c = b; print "[" c "]"; b = "x" }"#, "", "[]\n"),
+        (r#"BEGIN { b = 1; print "[" b "]"; b = "x"; print b }"#, "", "[1]\nx\n"),
+        (r#"{ if (0) b = 1; print "[" b "]"; b = $1 }"#, "p\nq\n", "[]\n[p]\n"),
+        // Both operands tracked: each one's flag decides.
+        (r#"BEGIN { if (0) a = 1; s = ""; print (s == a), (a == s), (a < s) }"#, "", "1 1 0\n"),
+        (r#"BEGIN { if (0) a = 1; s = "x"; print (s == a), (a < s), (s > a) }"#, "", "0 1 1\n"),
+        // A variable that may hold an array (a call result) is not tracked.
+        (r#"BEGIN { r = json_flatten("{bad"); print length(r) }"#, "", "0\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, input, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .write_stdin(input)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
+        }
+    }
+}
+
+#[test]
+fn uninit_numeric_map_elem_stays_uninit_after_read() {
+    // Reading a missing element of a numeric array creates it, as in awk, but it stays the
+    // uninitialized value ("" as a string) until it is assigned.
+    let cases = [
+        (r#"BEGIN { A[1] = 5; print "[" A[2] "]"; print "[" A[2] "]"; print length(A), (2 in A) }"#, "[]\n[]\n2 1\n"),
+        (r#"BEGIN { A[1] = 5; x = A[2]; print "[" A[2] "]"; A[2] = 0; print "[" A[2] "]" }"#, "[]\n[0]\n"),
+        (r#"BEGIN { A[1] = 5; print (A[3] == ""), (A[3] == ""); A[3] = 0; print (A[3] == "") }"#, "1 1\n0\n"),
+        (r#"BEGIN { A[1] = 5; x = A[2]; delete A[2]; print "[" A[2] "]"; A[2]++; print "[" A[2] "]" }"#, "[]\n[1]\n"),
+        (r#"BEGIN { A[1] = 5; x = A[2]; delete A; print "[" A[2] "]"; A[2] += 0; print "[" A[2] "]" }"#, "[]\n[0]\n"),
+        (r#"BEGIN { A[1] = 5; b = A[2]; c = A[2]; print "[" b "][" c "]" }"#, "[][]\n"),
+        (r#"BEGIN { A[1] = 5; y = A[8] + 1; print typeof(A[8]), "[" A[8] "]"; A[8] = 7; print typeof(A[8]) }"#, "unassigned []\nnumber\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .assert()
+                .success()
+                .stdout(String::from(expected));
         }
     }
 }

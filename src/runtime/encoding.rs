@@ -117,7 +117,7 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         let parts: Vec<&str> = text.splitn(2, ",").collect();
         if parts.len() == 2 {
             let data = parts[1];
-            map.insert(Str::from("data"), Str::from(data.trim().to_string()));
+            map.insert(Str::from("data"), Str::from(data.to_string()));
             let metadata: Vec<&str> = parts[0][5..].splitn(2, ";").collect();
             if metadata.len() == 2 {
                 let mime_type = metadata[0];

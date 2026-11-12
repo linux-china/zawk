@@ -46,7 +46,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin};
 use std::sync::{
-    Arc, Mutex, Once, OnceLock, Weak,
+    Arc, Mutex, MutexGuard, Once, OnceLock, Weak,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 
@@ -466,6 +466,56 @@ impl<F: FileFactory> FileFactory for MarkdownFactory<F> {
     }
 }
 
+/// Appends a tab-separated field (with `\\`, `\t`, `\n` and `\r` escaped, as for `-o tsv`) to
+/// `out` as the content of a Markdown table cell, so that `-i markdown` reads the original value
+/// back:
+///
+/// * `\n` becomes `<br>` (the usual line break in a table cell), `\t` and `\r` become `&#9;` and
+///   `&#13;`, and `\\` stays a Markdown escaped backslash;
+/// * `|` is escaped as `\|`;
+/// * spaces at either end become `&#32;`, as cell content is trimmed;
+/// * `&` and `<` that could start an entity or an HTML tag become `&amp;` and `&lt;`.
+fn markdown_cell(field: &[u8], out: &mut Vec<u8>) {
+    let lead = field.iter().take_while(|&&b| b == b' ').count();
+    let trail = if lead == field.len() {
+        0
+    } else {
+        field.iter().rev().take_while(|&&b| b == b' ').count()
+    };
+    let mut i = 0;
+    while i < field.len() {
+        let b = field[i];
+        let next = field.get(i + 1).copied();
+        match b {
+            b' ' if i < lead || i >= field.len() - trail => out.extend_from_slice(b"&#32;"),
+            b'\\' => {
+                match next {
+                    Some(b'n') => out.extend_from_slice(b"<br>"),
+                    Some(b't') => out.extend_from_slice(b"&#9;"),
+                    Some(b'r') => out.extend_from_slice(b"&#13;"),
+                    Some(b'\\') => out.extend_from_slice(b"\\\\"),
+                    _ => {
+                        out.extend_from_slice(b"\\\\");
+                        i += 1;
+                        continue;
+                    }
+                }
+                i += 2;
+                continue;
+            }
+            b'|' => out.extend_from_slice(b"\\|"),
+            b'&' if next.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'#') => {
+                out.extend_from_slice(b"&amp;")
+            }
+            b'<' if next.is_some_and(|c| c.is_ascii_alphabetic() || b"/!?".contains(&c)) => {
+                out.extend_from_slice(b"&lt;")
+            }
+            _ => out.push(b),
+        }
+        i += 1;
+    }
+}
+
 pub struct MarkdownWriter<W: io::Write> {
     inner: W,
     buf: Vec<u8>,
@@ -501,12 +551,7 @@ impl<W: io::Write> MarkdownWriter<W> {
         for (i, record) in records.iter().enumerate() {
             for cell in record {
                 out.extend_from_slice(b"| ");
-                for &b in cell {
-                    if b == b'|' {
-                        out.push(b'\\');
-                    }
-                    out.push(b);
-                }
+                markdown_cell(cell, &mut out);
                 out.push(b' ');
             }
             out.extend_from_slice(b"|\n");
@@ -598,6 +643,22 @@ mod markdown_tests {
     }
 
     #[test]
+    fn markdown_cell_encoding() {
+        // Fields arrive TSV-escaped; the cell keeps every value readable by `-i markdown`.
+        let cell = |s: &[u8]| {
+            let mut out = Vec::new();
+            markdown_cell(s, &mut out);
+            String::from_utf8(out).unwrap()
+        };
+        assert_eq!(cell(b"  pad  "), "&#32;&#32;pad&#32;&#32;");
+        assert_eq!(cell(b"   "), "&#32;&#32;&#32;");
+        assert_eq!(cell(b"a b"), "a b");
+        assert_eq!(cell(b"l1\\nl2\\tx\\ry"), "l1<br>l2&#9;x&#13;y");
+        assert_eq!(cell(b"C:\\\\new|x"), "C:\\\\new\\|x");
+        assert_eq!(cell(b"a & b < c &amp; <br>"), "a & b < c &amp;amp; &lt;br>");
+    }
+
+    #[test]
     fn markdown_empty() {
         let mut out = Vec::new();
         drop(MarkdownWriter::new(&mut out, false));
@@ -613,9 +674,9 @@ mod markdown_tests {
             w.write_all(b"a\nx\\ny\n").unwrap();
         }
         let out = String::from_utf8(out).unwrap();
-        assert!(out.starts_with("| a |\n| --- |\n| x\\ny |\n"), "{out}");
+        assert!(out.starts_with("| a |\n| --- |\n| x<br>y |\n"), "{out}");
         assert!(
-            out.contains("| a | string | 1 | 1 | x\\ny | x\\ny |  |  |\n"),
+            out.contains("| a | string | 1 | 1 | x<br>y | x<br>y |  |  |\n"),
             "{out}"
         );
     }
@@ -802,8 +863,13 @@ impl Summary {
         for (i, record) in self.records().iter().enumerate() {
             for cell in record {
                 out.push_str("| ");
-                // Escaped as the data rows are (`\n`, `\t`, `\\`), so a value reads the same in both.
-                out.push_str(&crate::runtime::str_escape::escape_tsv(cell).replace('|', "\\|"));
+                // Encoded as the data rows are, so a value reads the same in both.
+                let mut bytes = Vec::new();
+                markdown_cell(
+                    crate::runtime::str_escape::escape_tsv(cell).as_bytes(),
+                    &mut bytes,
+                );
+                out.push_str(&String::from_utf8_lossy(&bytes));
                 out.push(' ');
             }
             out.push_str("|\n");
@@ -3129,6 +3195,10 @@ pub mod ordered {
         held: usize,
         /// Set by `finish`: output sealed afterwards (by a worker stopped late) is written at once.
         finished: bool,
+        /// Set while a thread writes output outside the lock (the head worker in `seal`, or
+        /// `skip_to`). `next` is advanced only once that is done, so no other worker becomes the
+        /// head and streams its output in between; `skip_to` and `finish` wait for it.
+        sending: bool,
     }
 
     impl Reorder {
@@ -3151,8 +3221,7 @@ pub mod ordered {
         }
 
         fn seal(&self, seq: u64, data: Blocks) {
-            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            let st = &mut *guard;
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if st.finished {
                 self.send_all(data);
                 return;
@@ -3162,30 +3231,60 @@ pub mod ordered {
                 st.done.insert(seq, data);
                 return;
             }
-            self.send_all(data);
-            st.next += 1;
-            while let Some(data) = st.done.remove(&st.next) {
-                st.held -= size(&data);
-                self.send_all(data);
-                st.next += 1;
+            // Chunk `seq` is the head: write it, and the chunks sealed after it, without holding
+            // the lock, so that the other workers' `is_head`/`wait_turn`/`seal` do not wait for
+            // stdout. `next` stays at `seq` meanwhile: no other worker is the head, and the
+            // chunks sealed while writing are picked up by the next round.
+            st.sending = true;
+            let mut batch = vec![data];
+            let mut next = seq + 1;
+            while !batch.is_empty() {
+                drop(st);
+                for data in batch.drain(..) {
+                    self.send_all(data);
+                }
+                st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                while let Some(data) = st.done.remove(&next) {
+                    st.held -= size(&data);
+                    batch.push(data);
+                    next += 1;
+                }
             }
-            self.head.store(st.next, Ordering::Release);
+            st.next = next;
+            st.sending = false;
+            self.head.store(next, Ordering::Release);
             self.turn.notify_all();
+        }
+
+        /// Wait until no thread writes output outside the lock.
+        fn wait_sent<'a>(&self, mut st: MutexGuard<'a, State>) -> MutexGuard<'a, State> {
+            while st.sending {
+                st = self.turn.wait(st).unwrap_or_else(|e| e.into_inner());
+            }
+            st
         }
 
         /// The chunks before `seq` have no output to wait for.
         fn skip_to(&self, seq: u64) {
-            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut st = self.wait_sent(st);
             if st.next >= seq {
                 return;
             }
-            st.next = seq;
             let later = st.done.split_off(&seq);
-            for (_, data) in mem::replace(&mut st.done, later) {
-                st.held -= size(&data);
+            let earlier = mem::replace(&mut st.done, later);
+            for data in earlier.values() {
+                st.held -= size(data);
+            }
+            st.sending = true;
+            drop(st);
+            for (_, data) in earlier {
                 self.send_all(data);
             }
-            self.head.store(st.next, Ordering::Release);
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.next = seq;
+            st.sending = false;
+            self.head.store(seq, Ordering::Release);
             self.turn.notify_all();
         }
 
@@ -3369,7 +3468,9 @@ pub mod ordered {
         PENDING_SEQ.with(|p| p.set(None));
         let order = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(order) = order {
-            let mut st = order.state.lock().unwrap_or_else(|e| e.into_inner());
+            let st = order.state.lock().unwrap_or_else(|e| e.into_inner());
+            // A worker still writing its chunk (a stage ended by `exit`) goes first.
+            let mut st = order.wait_sent(st);
             for (_, data) in mem::take(&mut st.done) {
                 order.send_all(data);
             }

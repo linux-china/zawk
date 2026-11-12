@@ -9,12 +9,14 @@
 //!   action (whose action is `print`); it calls only pure builtins (`PURE_BUILTINS`).
 //! * Every global the main loop writes is either
 //!   - **summed**: only updated by statements `x += e`, `x -= e`, `x++`, `x--` (or the same on
-//!     elements `a[k]`) where `e` is a whole number (`int_valued`), never read in the main loop
-//!     and not mentioned in BEGIN, in a function or by `-v`. END sees it summed over the
-//!     workers, which is exactly what the serial run computed. A sum of fractions such as
-//!     `s += $3` is not: the workers add in another order, which changes the last bits of the
-//!     result (enough to print `2.9997e+06` instead of `2999700`) and from one run to the next;
-//!     it takes an explicit `-pr`; or
+//!     elements `a[k]`) where `e` is a small whole number (`int_valued`: a count, a truth value,
+//!     a small literal), never read in the main loop and not mentioned in BEGIN, in a function
+//!     or by `-v`. END sees it summed over the workers, which is exactly what the serial run
+//!     computed. A sum of fractions such as `s += $3` is not: the workers add in another order,
+//!     which changes the last bits of the result (enough to print `2.9997e+06` instead of
+//!     `2999700`) and from one run to the next; nor is a sum of `int($3)`, whose partial sums
+//!     may pass 2^53 (epoch milliseconds, byte counts), where f64 additions of whole numbers
+//!     round too; both take an explicit `-pr`; or
 //!   - **per record**: mentioned in a single action only, whose first top-level statement that
 //!     mentions it assigns it without reading it (`x = e`, `n = split(s, parts)`,
 //!     `for (i = 1; ...)`, `for (k in a)`); it is not mentioned in BEGIN, END, functions or `-v`.
@@ -265,57 +267,63 @@ fn check<'a>(prog: &ast::Prog<'a, 'a, &'a str>, given: &[&str]) -> bool {
     true
 }
 
-/// Whether `e` is always a whole number, so that sums of it do not depend on the order of the
-/// additions: integer literals, counts (`length`, `split`, `index`, `match`, ...), `int()`,
-/// truth values (comparisons, `!`, `&&`, `||`, `in`), the variables `ints` and `+`, `-`, `*`,
-/// `%` of these. Fields and other variables may hold fractions.
+/// The bound on the magnitude of a count (`length`, `split`, `index`, ...), of a variable of
+/// `ints` and of an integer literal that may be summed.
+const COUNT_BOUND: f64 = (1u64 << 31) as f64;
+/// The largest magnitude of a whole number that `int_valued` accepts per record. Adding whole
+/// numbers in f64 does not depend on the order of the additions only while the partial sums
+/// stay below 2^53: this keeps them there for billions of records.
+const SUMMAND_BOUND: f64 = (1u64 << 32) as f64;
+
+/// Whether `e` is always a whole number of a small magnitude (at most `SUMMAND_BOUND`), so that
+/// sums of it do not depend on the order of the additions: small integer literals, counts
+/// (`length`, `split`, `index`, `match`, ...), truth values (comparisons, `!`, `&&`, `||`,
+/// `in`), the variables `ints` and `+`, `-`, `*`, `%` of these. Fields and other variables may
+/// hold fractions; `int()` and bitwise functions may hold whole numbers beyond 2^53, whose sums
+/// do depend on the order (`s += int($1)` over epoch milliseconds).
 fn int_valued(e: &E, ints: &HashSet<&str>) -> bool {
-    let int_valued = |e: &E| int_valued(e, ints);
+    int_bound(e, ints).is_some_and(|b| b <= SUMMAND_BOUND)
+}
+
+/// A bound on the magnitude of `e` if it is always a whole number (infinite when the magnitude
+/// is unknown), `None` if it may hold a fraction or a string.
+fn int_bound(e: &E, ints: &HashSet<&str>) -> Option<f64> {
+    let bound = |e: &E| int_bound(e, ints);
     match e {
-        Expr::Var(n) => ints.contains(n),
-        Expr::ILit(_) => true,
-        Expr::FLit(f) => f.fract() == 0.0 && f.abs() < (1u64 << 53) as f64,
-        Expr::Unop(Unop::Not, _) => true,
-        Expr::Unop(Unop::Neg | Unop::Pos, x) => int_valued(x),
-        Expr::Binop(Binop::Plus | Binop::Minus | Binop::Mult | Binop::Mod, l, r) => {
-            int_valued(l) && int_valued(r)
-        }
+        Expr::Var(n) => ints.contains(n).then_some(COUNT_BOUND),
+        Expr::ILit(i) => Some((*i as f64).abs()),
+        Expr::FLit(f) => (f.fract() == 0.0).then_some(f.abs()),
+        Expr::Unop(Unop::Not, _) => Some(1.0),
+        Expr::Unop(Unop::Neg | Unop::Pos, x) => bound(x),
+        Expr::Binop(Binop::Plus | Binop::Minus, l, r) => Some(bound(l)? + bound(r)?),
+        Expr::Binop(Binop::Mult, l, r) => Some(bound(l)? * bound(r)?),
+        // |l % r| < |r| and <= |l|.
+        Expr::Binop(Binop::Mod, l, r) => Some(bound(l)?.min(bound(r)?)),
         Expr::Binop(
             Binop::LT | Binop::GT | Binop::LTE | Binop::GTE | Binop::EQ | Binop::IsMatch,
             _,
             _,
-        ) => true,
-        Expr::And(..) | Expr::Or(..) => true,
-        Expr::ITE(_, t, f) => int_valued(t) && int_valued(f),
-        Expr::Call(Either::Right(f), _) => matches!(f, Function::Contains | Function::Length),
-        Expr::Call(Either::Left(name), _) => matches!(
-            *name,
-            "length"
-                | "split"
-                | "index"
-                | "match"
-                | "sub"
-                | "gsub"
-                | "int"
-                | "and"
-                | "or"
-                | "xor"
-                | "compl"
-                | "lshift"
-                | "rshift"
-                | "rshiftl"
-                | "isint"
-                | "isnum"
-                | "isnull"
-                | "isarray"
-                | "strcmp"
-                | "last_index"
-                | "starts_with"
-                | "ends_with"
-                | "contains"
-                | "eq_ignore_case"
-        ),
-        _ => false,
+        ) => Some(1.0),
+        Expr::And(..) | Expr::Or(..) => Some(1.0),
+        Expr::ITE(_, t, f) => Some(bound(t)?.max(bound(f)?)),
+        Expr::Call(Either::Right(f), _) => match f {
+            Function::Contains => Some(1.0),
+            Function::Length => Some(COUNT_BOUND),
+            _ => None,
+        },
+        Expr::Call(Either::Left(name), _) => match *name {
+            "isint" | "isnum" | "isnull" | "isarray" | "strcmp" | "starts_with" | "ends_with"
+            | "contains" | "eq_ignore_case" => Some(1.0),
+            "length" | "split" | "index" | "match" | "sub" | "gsub" | "last_index" => {
+                Some(COUNT_BOUND)
+            }
+            // Whole numbers of any magnitude.
+            "int" | "and" | "or" | "xor" | "compl" | "lshift" | "rshift" | "rshiftl" => {
+                Some(f64::INFINITY)
+            }
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -896,22 +904,23 @@ mod tests {
     #[test]
     fn aggregations_are_parallel() {
         for prog in [
-            "{ s += int($3) } END { print s }",
+            "{ s += length($3) } END { print s }",
+            "{ s += int($3) % 1000 } END { print s }",
             "{ s += length($0); n++ } END { print s / n, NR }",
             "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$2] += $3 > 500 } END { for (k in a) print k, a[k] }",
-            "{ a[$2] -= 2 * int($3) + 1 } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in a) print k, a[k] }",
+            "{ a[$2] -= index($3, \"5\") + 1 } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in a) print k, a[k] }",
             "{ c[$5]++ } END { print length(c) }",
             "/ERROR/ { c++ } END { print c + 0 }",
             "$3 > 500 { hi++ } $3 <= 500 { lo-- } END { print hi, lo }",
             "BEGIN { FS = \",\"; t = 100 } $3 > t { n++ } END { print n }",
             // Per-record temporaries.
-            "{ x = $3 * 2; t = int(x); s += int(x) } END { print s }",
+            "{ x = $3 * 2; t = length(x); s += length(x) } END { print s }",
             "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { n = split($2, p, \"-\"); c[p[1]] += n } END { for (k in c) print k, c[k] }",
             "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { split($2, p, \"-\"); c[p[1]]++ } END { for (k in c) print k, c[k] }",
             "{ n += split($6, p, \"x\") } END { print n }",
             "{ for (i = 1; i <= NF; i++) s += i * 2 } END { print s }",
             "{ k = length($1); k = k * 2; s += k } END { print s }",
-            "{ for (i = 1; i <= NF; i++) s += int($i) } END { print s }",
+            "{ for (i = 1; i <= NF; i++) s += length($i) } END { print s }",
             "{ if (match($0, /id=[0-9]+/)) ids[substr($0, RSTART, RLENGTH)]++ } END { print length(ids) }",
             "{ local v = $3; if (v > 1) s++ } END { print s }",
             "{ t = 0; t += $3; if (t > 1) s++ } END { print s }",
@@ -933,18 +942,26 @@ mod tests {
             "/ERROR/",
             "{ printf \"%s\\n\", $1 }",
             "{ s++ } NR % 1000 == 0 { print s }",
-            "{ getline; s += int($1) } END { print s }",
-            "{ \"date\" | getline d; s += int($1) } END { print s }",
-            "{ system(\"true\"); s += int($1) } END { print s }",
-            "{ s += int($1); if (s > 100) exit } END { print s }",
-            "{ s += int(rand()) } END { print s }",
-            "function g(x) { return x * 2 } { s += int(g($1)) } END { print s }",
+            "{ getline; s += length($1) } END { print s }",
+            "{ \"date\" | getline d; s += length($1) } END { print s }",
+            "{ system(\"true\"); s += length($1) } END { print s }",
+            "{ s += length($1); if (s > 100) exit } END { print s }",
+            "{ s += length(rand()) } END { print s }",
+            "function g(x) { return x * 2 } { s += length(g($1)) } END { print s }",
             "/a/,/b/ { n++ } END { print n }",
             // Sums of fractions depend on the order of the additions.
             "{ s += $3 } END { print s }",
             "{ a[$2] += $3 } END { for (k in a) print k, a[k] }",
             "{ x = $3 * 2; s += x } END { print s }",
             "{ s += 0.5 } END { print s }",
+            // Whole numbers of any magnitude: past 2^53, sums depend on the order too.
+            "{ s += int($3) } END { print s }",
+            "{ a[$2] += int($3) } END { for (k in a) print k, a[k] }",
+            "{ for (i = 1; i <= NF; i++) s += int($i) } END { print s }",
+            "{ x = int($3); s += x } END { print s }",
+            "{ s += 2 * length($1) * length($2) * length($3) } END { print s }",
+            "{ s += 10000000000 } END { print s }",
+            "{ s += lshift(1, 40) } END { print s }",
             "{ s += $3 / 2 } END { print s }",
             "{ for (i = 1; i <= NF; i++) s += $i } END { print s }",
             "{ k = length($1); k = k / 2; s += k } END { print s }",
@@ -952,30 +969,30 @@ mod tests {
             // Values that depend on the records before.
             "{ m = $1 > m ? $1 : m } END { print m }",
             "{ last = $1 } END { print last }",
-            "{ if (s < 100) s += int($1) } END { print s }",
+            "{ if (s < 100) s += length($1) } END { print s }",
             "!seen[$1]++ { n++ } END { print n }",
             "{ if (!($1 in seen)) { seen[$1] = 1; n++ } } END { print n }",
             "{ a[$1] = $2 } END { for (k in a) print k, a[k] }",
-            "{ if (prev != \"\") d += int($1 - prev); prev = $1 } END { print d }",
-            "{ s += int(x); x = $1 } END { print s }",
-            "{ x = $1 } { s += int(x) } END { print s }",
+            "{ if (prev != \"\") d += length($1 - prev); prev = $1 } END { print d }",
+            "{ s += length(x); x = $1 } END { print s }",
+            "{ x = $1 } { s += length(x) } END { print s }",
             "{ s *= $1 } END { print s }",
             "{ s = s + $1 } END { print s }",
             // Per-worker variables.
-            "NR == 1 { h = $1 } { s += int($2) } END { print s }",
+            "NR == 1 { h = $1 } { s += length($2) } END { print s }",
             "{ s += FNR } END { print s }",
             "{ c[FILENAME]++ } END { for (f in c) print f, c[f] }",
             // An initial value from BEGIN, `-v` or a function is added once per worker.
-            "BEGIN { s = 10 } { s += int($1) } END { print s }",
-            "function init() { s = 10 } BEGIN { init() } { s += int($1) } END { print s }",
+            "BEGIN { s = 10 } { s += length($1) } END { print s }",
+            "function init() { s = 10 } BEGIN { init() } { s += length($1) } END { print s }",
             // The last record in END.
-            "{ s += int($1) } END { print s, $0 }",
-            "{ s += int($1) } END { print s, NF }",
+            "{ s += length($1) } END { print s, $0 }",
+            "{ s += length($1) } END { print s, NF }",
             // Special variables and RS.
-            "{ NF = 2; s += int($1) } END { print s }",
-            "BEGIN { RS = \";\" } { s += int($1) } END { print s }",
-            "BEGIN { getline h } { s += int($1) } END { print s }",
-            "{ s += int($1) } PREPARE { v[PID] = s } END { for (p in v) t += v[p]; print t }",
+            "{ NF = 2; s += length($1) } END { print s }",
+            "BEGIN { RS = \";\" } { s += length($1) } END { print s }",
+            "BEGIN { getline h } { s += length($1) } END { print s }",
+            "{ s += length($1) } PREPARE { v[PID] = s } END { for (p in v) t += v[p]; print t }",
             // `for (k in a)` in END over an array of the workers: another order than serially.
             "{ a[$2] += $3 > 500 } END { for (k in a) print k, a[k] }",
             "{ x = $1 % 7; c[x]++ } END { for (k in c) print k, c[k] }",
@@ -986,7 +1003,7 @@ mod tests {
         ] {
             assert!(!safe(prog, &[]), "{}", prog);
         }
-        assert!(!safe("{ s += int($1) } END { print s }", &["s"]));
+        assert!(!safe("{ s += length($1) } END { print s }", &["s"]));
         assert!(safe("{ s += ($1 > k) } END { print s }", &["k"]));
     }
 }

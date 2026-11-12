@@ -29,7 +29,9 @@ pub(crate) struct Uninit<I> {
     /// whose uninitialized value may be read as a string, and variables passed to `typeof`.
     pub vars: HashMap<I, I>,
     /// Tracked global arrays: their missing elements read as "" where a string is expected.
-    pub maps: HashSet<I>,
+    /// Each is mapped to the name of a hidden array of the elements created by a read and not
+    /// assigned since, which keep reading as "".
+    pub maps: HashMap<I, I>,
     /// Tracked user-defined functions, mapped to the name of their "returned a value" flag.
     pub funcs: HashMap<I, I>,
     /// Variables read as a value somewhere (other than by `typeof`, `isarray` or as an argument
@@ -68,6 +70,36 @@ pub(crate) fn string_operands<'a, 'b, I>(
         Expr::Binop(LT | GT | LTE | GTE | EQ, l, r) => (
             if is_str(r) { Some(l) } else { None },
             if is_str(l) { Some(r) } else { None },
+        ),
+        _ => (None, None),
+    }
+}
+
+/// Whether `e` may have a string value, judging by its form alone: literal numbers, arithmetic
+/// and comparisons cannot.
+pub(crate) fn may_be_str<I: std::fmt::Display>(e: &Expr<I>) -> bool {
+    use Expr::*;
+    match e {
+        ILit(_) | FLit(_) | PatLit(_) | Cond(_) | Inc { .. } | AssignOp(..) => false,
+        And(..) | Or(..) | Getline { .. } | ReadStdin => false,
+        Unop(op, _) => matches!(op, crate::ast::Unop::Column),
+        Binop(op, _, _) => matches!(op, crate::ast::Binop::Concat),
+        Var(i) => !crate::ast::is_uninit_var(&i.to_string()),
+        _ => true,
+    }
+}
+
+/// For a comparison that is not already a string comparison (see [`string_operands`]), the
+/// operands that are compared with a value that may be a string: an uninitialized one compares as
+/// "" with a string and as 0 with a number, so its "assigned" flag decides at runtime.
+pub(crate) fn uninit_cmp_operands<'a, 'b, I: std::fmt::Display>(
+    e: &'a Expr<'a, 'b, I>,
+) -> (Option<&'a Expr<'a, 'b, I>>, Option<&'a Expr<'a, 'b, I>>) {
+    use Binop::*;
+    match e {
+        Expr::Binop(LT | GT | LTE | GTE | EQ, l, r) if matches!(string_operands(e), (None, None)) => (
+            if may_be_str(r) { Some(l) } else { None },
+            if may_be_str(l) { Some(r) } else { None },
         ),
         _ => (None, None),
     }
@@ -152,6 +184,7 @@ fn numeric_builtin(f: Function) -> bool {
     )
 }
 
+#[derive(Clone)]
 enum Target<I> {
     Var(I),
     Map(I),
@@ -161,6 +194,12 @@ struct Analysis<'a, 'b, I> {
     udfs: HashSet<I>,
     assigned_vars: HashSet<I>,
     bad_vars: HashSet<I>,
+    // Global variables assigned in ways that do not set their "assigned" flag (getline, sub/gsub,
+    // for-in): they cannot be tracked. A variable that is only assigned non-numeric values by
+    // ordinary assignments can: each assignment sets the flag (see `cfg::mark_assigned`).
+    untracked_vars: HashSet<I>,
+    // Global variables assigned values that may be arrays (the result of a call): not tracked.
+    nonscalar_vars: HashSet<I>,
     str_vars: HashSet<I>,
     assigned_maps: HashSet<I>,
     bad_maps: HashSet<I>,
@@ -262,7 +301,8 @@ where
     fn untracked_assign(&mut self, e: &'a Expr<'a, 'b, I>, params: &'a [I]) {
         if let Some(v) = self.global_var(e, params) {
             self.assigned_vars.insert(v.clone());
-            self.bad_vars.insert(v);
+            self.bad_vars.insert(v.clone());
+            self.untracked_vars.insert(v);
         } else if let Some(m) = self.global_map(e, params) {
             self.bad_maps.insert(m);
         }
@@ -283,8 +323,23 @@ where
         } else {
             return;
         };
+        // `x = c ? t : f` assigns `t` or `f` (see `cfg`, which converts it as
+        // `c ? (x = t) : (x = f)`): record each branch as an assignment of its own.
+        fn leaves<'a, 'b, I>(e: &'a Expr<'a, 'b, I>, out: &mut Vec<&'a Expr<'a, 'b, I>>) {
+            match e {
+                Expr::ITE(_, t, f) => {
+                    leaves(t, out);
+                    leaves(f, out);
+                }
+                _ => out.push(e),
+            }
+        }
         if let Some(rhs) = rhs {
-            self.assigns.push((target, rhs, params));
+            let mut rhss = Vec::new();
+            leaves(rhs, &mut rhss);
+            for rhs in rhss {
+                self.assigns.push((target.clone(), rhs, params));
+            }
         }
     }
 
@@ -308,6 +363,14 @@ where
         let (l, r) = string_operands(e);
         for operand in [l, r].into_iter().flatten() {
             self.string_read(operand, params);
+        }
+        // Array elements compared with a possible string are left alone: their reads are not
+        // guarded (see `cfg::uninit_cmp`).
+        let (l, r) = uninit_cmp_operands(e);
+        for operand in [l, r].into_iter().flatten() {
+            if !matches!(operand, Index(..)) {
+                self.string_read(operand, params);
+            }
         }
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Cond(_) | ReadStdin => {}
@@ -510,6 +573,7 @@ where
                 if self.global(v, params) {
                     self.assigned_vars.insert(v.clone());
                     self.bad_vars.insert(v.clone());
+                    self.untracked_vars.insert(v.clone());
                 }
                 self.array_use(arr, params);
                 self.expr(arr, params);
@@ -558,6 +622,23 @@ where
         }
     }
 
+    /// Whether `e` is a scalar (not an array): a number, a string literal, a concatenation, a
+    /// field, an array element or a global variable that is not an array. A function may return
+    /// an array (`r = json_flatten(s)`), and a variable that may hold one is not tracked.
+    fn is_scalar(&self, e: &Expr<'a, 'b, I>, params: &[I]) -> bool {
+        use Expr::*;
+        match e {
+            StrLit(_) | Index(..) => true,
+            Unop(crate::ast::Unop::Column, _) | Binop(crate::ast::Binop::Concat, _, _) => true,
+            Assign(_, e) => self.is_scalar(e, params),
+            ITE(_, t, f) => self.is_scalar(t, params) && self.is_scalar(f, params),
+            Var(i) if self.global(i, params) => {
+                !self.array_vars.contains(i) && !self.nonscalar_vars.contains(i)
+            }
+            _ => self.is_num(e, params),
+        }
+    }
+
     /// Disqualify the variables and arrays assigned values that may not be numbers, until no
     /// more change (a variable assigned another variable depends on it).
     fn solve(&mut self) {
@@ -568,7 +649,11 @@ where
                     continue;
                 }
                 changed |= match target {
-                    Target::Var(v) => self.bad_vars.insert(v.clone()),
+                    Target::Var(v) => {
+                        let nonscalar = !self.is_scalar(rhs, params)
+                            && self.nonscalar_vars.insert(v.clone());
+                        self.bad_vars.insert(v.clone()) | nonscalar
+                    }
                     Target::Map(m) => self.bad_maps.insert(m.clone()),
                 };
             }
@@ -598,6 +683,8 @@ where
         udfs: decs.iter().map(|d| d.name.clone()).collect(),
         assigned_vars: Default::default(),
         bad_vars: Default::default(),
+        untracked_vars: Default::default(),
+        nonscalar_vars: Default::default(),
         str_vars: Default::default(),
         assigned_maps: Default::default(),
         bad_maps: Default::default(),
@@ -621,13 +708,17 @@ where
         a.stmt(s, &[]);
     }
     a.solve();
-    // A variable copied into one read as a string (`c = b`) is read as a string too.
+    // A variable copied into one read as a string (`c = b`) is read as a string too. A copied
+    // variable that is never assigned is tracked as well (its flag stays unset), so that a copy
+    // whose static type is a number (`c = 0 ? 3 : b`) is uninitialized too.
+    let mut copied: HashSet<I> = HashSet::new();
     loop {
         let mut changed = false;
         for (target, rhs, params) in a.assigns.iter() {
             if let (Target::Var(v), Some(y)) = (target, a.global_var(rhs, params)) {
                 if a.str_vars.contains(v) {
-                    changed |= a.str_vars.insert(y);
+                    changed |= a.str_vars.insert(y.clone());
+                    copied.insert(y);
                 }
             }
         }
@@ -638,8 +729,14 @@ where
     let vars: HashMap<I, I> = a
         .assigned_vars
         .iter()
+        .chain(copied.iter().filter(|y| !a.assigned_vars.contains(*y)))
         .filter(|v| {
-            ((a.str_vars.contains(*v) && !a.bad_vars.contains(*v)) || a.typeof_vars.contains(*v))
+            // A variable also assigned (scalar) strings is tracked too: the flag is set by every
+            // assignment, so its reads before the first one are "" whatever later values are.
+            ((a.str_vars.contains(*v)
+                && !a.untracked_vars.contains(*v)
+                && !a.nonscalar_vars.contains(*v))
+                || a.typeof_vars.contains(*v))
                 && !a.array_vars.contains(*v)
         })
         .map(|v| {
@@ -666,7 +763,10 @@ where
         .assigned_maps
         .iter()
         .filter(|m| a.str_maps.contains(*m) && !a.bad_maps.contains(*m))
-        .cloned()
+        .map(|m| {
+            let undef: &'a str = arena.alloc_str(&format!("%undef:{}", m));
+            (m.clone(), I::from(undef))
+        })
         .collect();
     // Functions that always end with `return <value>` need no flag.
     fn ends_with_return<'a, 'b, I>(s: &Stmt<'a, 'b, I>) -> bool {

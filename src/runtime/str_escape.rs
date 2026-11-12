@@ -43,6 +43,7 @@ pub fn escape(format: &str, text: &str) -> String {
         "tsv" => escape_tsv(text),
         "json" => escape_json(text),
         "sql" => escape_sql(text),
+        "mysql" | "mariadb" => escape_mysql(text),
         "shell" => escape_shell(text),
         "xml" | "html" => escape_xml(text),
         _ => {
@@ -126,8 +127,28 @@ pub fn escape_shell(text: &str) -> String {
     shell_escape::escape(Cow::from(text)).to_string()
 }
 
+/// Standard SQL string literal (PostgreSQL, SQLite, DuckDB): double the single quotes.
+/// Not safe for MySQL/MariaDB, where `\` is an escape character: use [`escape_mysql`].
 pub fn escape_sql(text: &str) -> String {
     return text.replace("'", "''");
+}
+
+/// MySQL/MariaDB string literal: escape `\` and control characters as well as quotes.
+/// Quotes are doubled (not `\'`) so the result stays safe with `NO_BACKSLASH_ESCAPES`.
+pub fn escape_mysql(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\'' => result.push_str("''"),
+            '\\' => result.push_str("\\\\"),
+            '\0' => result.push_str("\\0"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\x1a' => result.push_str("\\Z"),
+            _ => result.push(c),
+        }
+    }
+    result
 }
 
 pub fn escape_xml(text: &str) -> String {
@@ -155,6 +176,15 @@ mod tests {
         println!("{}", escape_json(json_text));
         assert_eq!(escape_json("a\x01b\x1f\x00"), "a\\u0001b\\u001f\\u0000");
         assert_eq!(escape_json("\"\\\n\t"), "\\\"\\\\\\n\\t");
+    }
+
+    #[test]
+    fn test_escape_sql_dialects() {
+        let payload = "\\' OR 1=1 -- ";
+        assert_eq!(escape_sql(payload), "\\'' OR 1=1 -- ");
+        assert_eq!(escape_mysql(payload), "\\\\'' OR 1=1 -- ");
+        assert_eq!(escape_mysql("a\0b\nc\rd\x1a"), "a\\0b\\nc\\rd\\Z");
+        assert_eq!(escape("mariadb", "it's"), "it''s");
     }
 
     #[test]
