@@ -77,14 +77,11 @@ pub(crate) fn path<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
     SharedMap::from(map)
 }
 
+/// Exact key match first; falls back to the upper-cased key (e.g. `getenv("home")` → `$HOME`).
 pub fn getenv(key: &str, default_value: &str) -> String {
-    match std::env::var(key.to_uppercase()) {
-        Ok(value) => value,
-        Err(_) => match std::env::var(key) {
-            Ok(value2) => value2.clone(),
-            Err(_) => default_value.to_string(),
-        },
-    }
+    std::env::var(key)
+        .or_else(|_| std::env::var(key.to_uppercase()))
+        .unwrap_or_else(|_| default_value.to_string())
 }
 
 #[cfg(test)]

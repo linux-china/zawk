@@ -4485,7 +4485,9 @@ fn table_and_markdown_broken_pipe_exit_code() {
     use std::io::Read;
     use std::process::{Command as StdCommand, Stdio};
     let prog = r#"BEGIN { print "a", "b"; for (i = 0; i < 200000; i++) print i, i }"#;
-    for fmt in ["table", "markdown", "csv", "xlsx", "jsonl", "parquet", "avro"] {
+    for fmt in [
+        "table", "markdown", "csv", "xlsx", "jsonl", "parquet", "avro",
+    ] {
         let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("zawk"))
             .args(["-o", fmt, prog])
             .stdin(Stdio::null())
@@ -4500,6 +4502,48 @@ fn table_and_markdown_broken_pipe_exit_code() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(141), "{}: {}", fmt, stderr);
         assert_eq!(stderr, "", "{}", fmt);
+    }
+}
+
+#[test]
+fn parquet_avro_invalid_header_flushes_other_outputs() {
+    // An invalid `-o parquet`/`-o avro` header is found by the stdout writer thread: it is
+    // reported once and the program exits with 2, but the other outputs (files and `| cmd`) are
+    // still flushed, rather than the writer thread exiting the process on its own.
+    for (fmt, header, msg) in [
+        ("parquet", "a:badtype", "unknown parquet column type"),
+        ("avro", "a:decimal(x)", "invalid avro column type"),
+    ] {
+        for backend_arg in BACKEND_ARGS {
+            let dir = tempdir().unwrap();
+            let side = dir.path().join("side.txt");
+            let cmd_out = dir.path().join("cmd.txt");
+            let prog = format!(
+                r#"BEGIN {{ for (i = 0; i < 50000; i++) {{ print i > "{}"; print i | "cat > {}" }}
+                   print "{}"; for (i = 0; i < 300000; i++) print i }}"#,
+                side.display(),
+                cmd_out.display(),
+                header
+            );
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, "-o", fmt, &prog])
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "{fmt} {backend_arg}: {stderr}"
+            );
+            assert_eq!(
+                stderr.matches(msg).count(),
+                1,
+                "{fmt} {backend_arg}: {stderr}"
+            );
+            assert_eq!(read_to_string(&side).unwrap().lines().count(), 50000);
+            assert_eq!(read_to_string(&cmd_out).unwrap().lines().count(), 50000);
+        }
     }
 }
 
@@ -4895,7 +4939,12 @@ fn end_sees_filename_of_empty_last_file() {
         (&[], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
         (&[], end, &["empty.txt"], "0 0 empty.txt\n"),
         (&[], end, &["empty.txt", "one.txt"], "1 1 one.txt\n"),
-        (&[], end, &["one.txt", "empty.txt", "empty.txt"], "1 0 empty.txt\n"),
+        (
+            &[],
+            end,
+            &["one.txt", "empty.txt", "empty.txt"],
+            "1 0 empty.txt\n",
+        ),
         (&[], end, &["one.txt", "two.txt"], "3 2 two.txt\n"),
         (
             &[],
@@ -4904,13 +4953,33 @@ fn end_sees_filename_of_empty_last_file() {
             "one.txt 1\ntwo.txt 1\ntwo.txt 2\n3 2 two.txt\n",
         ),
         (&["-F,"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
-        (&["-icsv"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
-        (&["-vRS=a+"], end, &["one.txt", "empty.txt"], "2 0 empty.txt\n"),
+        (
+            &["-icsv"],
+            end,
+            &["one.txt", "empty.txt"],
+            "1 0 empty.txt\n",
+        ),
+        (
+            &["-vRS=a+"],
+            end,
+            &["one.txt", "empty.txt"],
+            "2 0 empty.txt\n",
+        ),
         // The regex reader used to clear FILENAME (and FNR) at the end of the input.
         (&["-vRS=a+"], end, &["one.txt"], "2 2 one.txt\n"),
         (&["-vRS=a+"], end, &["empty.txt"], "0 0 empty.txt\n"),
-        (&["-pr", "-j4"], end, &["one.txt", "empty.txt"], "1 0 empty.txt\n"),
-        (&["-pf", "-j4"], end, &["two.txt", "empty.txt"], "2 0 empty.txt\n"),
+        (
+            &["-pr", "-j4"],
+            end,
+            &["one.txt", "empty.txt"],
+            "1 0 empty.txt\n",
+        ),
+        (
+            &["-pf", "-j4"],
+            end,
+            &["two.txt", "empty.txt"],
+            "2 0 empty.txt\n",
+        ),
         (&["-pr", "-j4"], end, &["empty.txt"], "0 0 empty.txt\n"),
         (
             &[],
@@ -5007,6 +5076,40 @@ fn parallel_exit_runs_end() {
                     .stdout(expected.to_string())
                     .code(rc);
             }
+        }
+    }
+}
+
+#[test]
+fn parallel_fatal_error_with_graceful_exit() {
+    // One worker calls `exit 0` while the others fail with a fatal error: the fatal workers block
+    // until the process exits, so the main thread must exit (code 2) instead of running END and
+    // joining them, which used to hang.
+    let tmpdir = tempdir().unwrap();
+    let files: Vec<String> = (1..=8)
+        .map(|i| {
+            let p = tmpdir.path().join(format!("f{i}"));
+            let mut file = File::create(&p).unwrap();
+            for n in 1..=1000 {
+                writeln!(file, "{n}").unwrap();
+            }
+            p.to_str().unwrap().to_string()
+        })
+        .collect();
+    let prog = format!(
+        r#"FILENAME == "{}" {{ exit 0 }} FILENAME != "{}" {{ print 1/0 }}"#,
+        files[0], files[0]
+    );
+    for backend_arg in BACKEND_ARGS {
+        for _ in 0..5 {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(["-pf", "-j8", &prog])
+                .args(&files)
+                .timeout(std::time::Duration::from_secs(20))
+                .assert()
+                .code(2);
         }
     }
 }
@@ -8104,13 +8207,33 @@ fn multibyte_single_char_separator_ignorecase() {
     // As in gawk, only single-byte FS/RS/split separators skip IGNORECASE; a single multibyte
     // character goes through the regex engine, so IGNORECASE applies to it.
     let cases = [
-        (r#"BEGIN { IGNORECASE = 1; print split("AÉBÉC", a, "é") }"#, "", "3\n"),
+        (
+            r#"BEGIN { IGNORECASE = 1; print split("AÉBÉC", a, "é") }"#,
+            "",
+            "3\n",
+        ),
         (r#"BEGIN { print split("AÉBéC", a, "é") }"#, "", "2\n"),
-        (r#"BEGIN { IGNORECASE = 1; n = split("AÉBéC", a, "é", s); print n, s[1], s[2] }"#, "", "3 É é\n"),
-        (r#"BEGIN { IGNORECASE = 1; FS = "é" } { print NF }"#, "AÉBéC\n", "3\n"),
+        (
+            r#"BEGIN { IGNORECASE = 1; n = split("AÉBéC", a, "é", s); print n, s[1], s[2] }"#,
+            "",
+            "3 É é\n",
+        ),
+        (
+            r#"BEGIN { IGNORECASE = 1; FS = "é" } { print NF }"#,
+            "AÉBéC\n",
+            "3\n",
+        ),
         (r#"BEGIN { FS = "é" } { print NF }"#, "AÉBéC\n", "2\n"),
-        (r#"BEGIN { IGNORECASE = 1; FS = "x" } { print NF }"#, "aXbxc\n", "2\n"),
-        (r#"BEGIN { IGNORECASE = 1; RS = "é" } { print }"#, "aÉbéc", "a\nb\nc\n"),
+        (
+            r#"BEGIN { IGNORECASE = 1; FS = "x" } { print NF }"#,
+            "aXbxc\n",
+            "2\n",
+        ),
+        (
+            r#"BEGIN { IGNORECASE = 1; RS = "é" } { print }"#,
+            "aÉbéc",
+            "a\nb\nc\n",
+        ),
         (r#"BEGIN { RS = "é" } { print }"#, "aÉbéc", "aÉb\nc\n"),
     ];
     for backend_arg in BACKEND_ARGS {
@@ -8120,6 +8243,38 @@ fn multibyte_single_char_separator_ignorecase() {
                     .unwrap()
                     .args([*backend_arg, opt, prog])
                     .write_stdin(input)
+                    .assert()
+                    .success()
+                    .stdout(expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn last_index_respects_ignorecase() {
+    // last_index() folds case under IGNORECASE, like index().
+    let cases = [
+        (
+            r#"BEGIN { IGNORECASE = 1; print index("ABCABC", "b"), last_index("ABCABC", "b") }"#,
+            "2 5\n",
+        ),
+        (
+            r#"BEGIN { print index("ABCABC", "b"), last_index("ABCABC", "b") }"#,
+            "0 0\n",
+        ),
+        (
+            r#"BEGIN { IGNORECASE = 1; print last_index("éxÉyé!", "É"), last_index("aXbx", "zz") }"#,
+            "5 0\n",
+        ),
+        (r#"BEGIN { print last_index("éxÉyé!", "É") }"#, "3\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for opt in ["-O0", "-O3"] {
+            for (prog, expected) in cases {
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .args([*backend_arg, opt, prog])
                     .assert()
                     .success()
                     .stdout(expected);

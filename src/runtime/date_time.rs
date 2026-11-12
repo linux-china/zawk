@@ -292,8 +292,8 @@ fn parse_iso_local_date_time(text: &str) -> Option<NaiveDateTime> {
         "%Y-%m-%d %H:%M:%S%.f",
         "%Y-%m-%d %H:%M",
     ]
-        .iter()
-        .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
+    .iter()
+    .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
 }
 
 fn is_fend_date(text: &str) -> bool {

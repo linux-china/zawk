@@ -72,7 +72,7 @@ These also cover [Nushell](https://www.nushell.sh/) values: `duration("2min + 32
 ## Configuration files
 
 ```awk
-conf = read_config("app.properties")    # also *.ini
+conf = read_config("app.properties")    # also *.ini and *.json
 print conf["db.url"]
 ```
 

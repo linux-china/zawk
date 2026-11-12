@@ -312,8 +312,12 @@ unsafe fn run_stage(
         rt.core.finish_input();
         rt.core.finish_combine(&base_slots);
         runtime::writers::ordered::finish();
-        // Cancelled other than by `exit` (a worker failed to write its output): stop now.
-        if let (Some(rc), false) = (cancel_signal.get_code(), rt.core.exiting) {
+        // A worker stopped through `exit!` (a fatal error or a failed write) and blocks until the
+        // process exits: stop now, even if another worker called `exit` (which would otherwise
+        // run END and return, joining the blocked worker forever). A fatal code wins over the
+        // code of a graceful `exit`.
+        if let Some(rc) = cancel_signal.abort_code() {
+            let rc = if rc != 0 { rc } else { rt.core.exit_code as i32 };
             mem::drop(rt);
             std::process::exit(runtime::writers::exit_code(rc));
         }
@@ -1131,48 +1135,39 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Ulid(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(ulid), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(ulid), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Tsid(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(tsid), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(tsid), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Whoami(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(whoami), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(whoami), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Version(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(version), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(version), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Os(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(os), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(os), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             OsFamily(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(os_family), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(os_family), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Arch(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(arch), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(arch), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Pwd(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(pwd), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(pwd), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             UserHome(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(user_home), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(user_home), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             GetEnv(dst, name, default_value) => {
@@ -1182,13 +1177,11 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             LocalIp(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(local_ip), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(local_ip), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Systime(dst) => {
-                let rt = self.runtime_val();
-                let resv = self.call_intrinsic(intrinsic!(systime), &mut [rt])?;
+                let resv = self.call_intrinsic(intrinsic!(systime), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
             }
             Encode(dst, format, text) => {

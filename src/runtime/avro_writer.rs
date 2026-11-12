@@ -626,12 +626,15 @@ impl<W: Write> AvroWriter<W> {
                 }
                 Ok(specs) => self.start(specs)?,
                 // An invalid header is a usage error rather than an output error (which ends the
-                // program silently), and nothing has been written yet.
-                Err(e) if e.kind() == io::ErrorKind::InvalidInput && !cfg!(test) => {
-                    eprintln!("{}", crate::common::fatal_message(&e.to_string()));
-                    std::process::exit(2);
+                // program silently), so it is reported here. The writer thread must not exit the
+                // process itself: the error stops this writer, and the main thread then ends the
+                // program, flushing the other outputs, with exit code 2 (see `exit_code`).
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::InvalidInput {
+                        crate::runtime::writers::report_fatal_output_error(&e);
+                    }
+                    return Err(e);
                 }
-                Err(e) => return Err(e),
             },
             Some(enc) => enc.push_row(line, &mut self.inner)?,
         }

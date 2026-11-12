@@ -2179,7 +2179,9 @@ fn real_main() {
         && matches!(exec_strategy, ExecutionStrategy::ShardPerRecord(_))
         && lint::has_range_pattern(&includer.pieces)
     {
-        eprintln!("zawk: warning: --keep-order: a range pattern (`start, end`) needs every record in one thread: running serially");
+        eprintln!(
+            "zawk: warning: --keep-order: a range pattern (`start, end`) needs every record in one thread: running serially"
+        );
         exec_strategy = ExecutionStrategy::Serial;
         num_workers = 1;
     }

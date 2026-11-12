@@ -623,13 +623,21 @@ pub fn format_bytes(size: f64) -> String {
     format!("{}{} {}", sign, trim_float(rounded), SUFFIX[idx])
 }
 
-/// text: 111 B, 11.2 KB, 110KB, 1.5GB, 2 MiB, 3k
+/// text: 111 B, 11.2 KB, 110KB, 1.5GB, 2 MiB, 3k, 1e3KB
+///
+/// The number may have a sign, a fraction and an exponent (`1e3`, `2.5E-1`); the unit is
+/// optional and case-insensitive (`k`, `KB`, `KiB` are all 1024). An unparsable number or an
+/// unknown unit returns 0 with a stdlib warning (and `ERRNO` set) instead of a silent guess.
 pub fn to_bytes(text: &str) -> i64 {
     let text = text.trim();
-    let offset = text
-        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
-        .unwrap_or(text.len());
-    let size = text[..offset].parse::<f64>().unwrap_or(0.0);
+    if text.is_empty() {
+        return 0;
+    }
+    let offset = number_prefix_len(text.as_bytes());
+    let Ok(size) = text[..offset].parse::<f64>() else {
+        stdlib_warning("to_bytes", format!("invalid size {:?}", text));
+        return 0;
+    };
     let mut unit = text[offset..].trim().to_uppercase().replace('I', "");
     if unit.is_empty() {
         return size as i64;
@@ -637,8 +645,48 @@ pub fn to_bytes(text: &str) -> i64 {
     if !unit.ends_with('B') {
         unit.push('B');
     }
-    let index = SUFFIX.iter().position(|&r| r == unit).unwrap_or(0);
+    let Some(index) = SUFFIX.iter().position(|&r| r == unit) else {
+        stdlib_warning(
+            "to_bytes",
+            format!(
+                "unknown unit {:?} in {:?}, expected B, KB, MB, GB, TB, PB, EB, ZB or YB",
+                text[offset..].trim(),
+                text
+            ),
+        );
+        return 0;
+    };
     (size * UNIT.powi(index as i32)) as i64
+}
+
+/// Length of the leading decimal number in `bs`: `[+-]digits[.digits][(e|E)[+-]digits]`. The
+/// exponent is taken only when digits follow it, so `1EB` is 1 exabyte, not a bad exponent.
+fn number_prefix_len(bs: &[u8]) -> usize {
+    let digits = |mut i: usize| {
+        while i < bs.len() && bs[i].is_ascii_digit() {
+            i += 1;
+        }
+        i
+    };
+    let mut i = 0;
+    if i < bs.len() && (bs[i] == b'+' || bs[i] == b'-') {
+        i += 1;
+    }
+    i = digits(i);
+    if i < bs.len() && bs[i] == b'.' {
+        i = digits(i + 1);
+    }
+    if i < bs.len() && (bs[i] == b'e' || bs[i] == b'E') {
+        let mut j = i + 1;
+        if j < bs.len() && (bs[j] == b'+' || bs[j] == b'-') {
+            j += 1;
+        }
+        let end = digits(j);
+        if end > j {
+            i = end;
+        }
+    }
+    i
 }
 
 pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
@@ -1014,6 +1062,16 @@ mod tests {
         assert_eq!(to_bytes("3k"), 3 * 1024);
         assert_eq!(to_bytes("0.5KB"), 512);
         assert_eq!(to_bytes("abc"), 0);
+        assert_eq!(to_bytes(""), 0);
+        assert_eq!(to_bytes("1e3KB"), 1000 * 1024);
+        assert_eq!(to_bytes("1e3"), 1000);
+        assert_eq!(to_bytes("2.5E-1KB"), 256);
+        assert_eq!(to_bytes("1EB"), 1 << 60);
+        assert_eq!(to_bytes("-2 KB"), -2048);
+        assert_eq!(to_bytes("5 apples"), 0);
+        assert_eq!(to_bytes("1XB"), 0);
+        assert_eq!(to_bytes("1e"), 1 << 60); // `e` alone is the exabyte unit, like `k`
+        assert_eq!(to_bytes("."), 0);
     }
 
     #[test]

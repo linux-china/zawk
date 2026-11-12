@@ -158,7 +158,7 @@ pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     map
 }
 
-fn flatten_json_value(value: &serde_json::Value, path: &mut String, map: &StrMap<Str>) {
+pub(crate) fn flatten_json_value(value: &serde_json::Value, path: &mut String, map: &StrMap<Str>) {
     let len = path.len();
     match value {
         serde_json::Value::Object(obj) if !obj.is_empty() => {

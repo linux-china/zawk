@@ -114,7 +114,8 @@ pub(crate) fn str_is_false(bs: &[u8], strnum: bool) -> bool {
 /// number (or, as in gawk, a signed "inf" or "nan"). The value is that of
 /// [`str_to_num`](crate::runtime::float_parse::str_to_num).
 pub(crate) fn looks_numeric(bs: &[u8]) -> Option<Float> {
-    let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r');
+    // Same set as C `isspace` (gawk uses it): includes `\v` and `\f`.
+    let is_blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
     let start = bs.iter().position(|b| !is_blank(b))?;
     let end = bs.iter().rposition(|b| !is_blank(b))? + 1;
     let s = &bs[start..end];
@@ -256,30 +257,43 @@ pub(crate) fn cmp_bytes(op: CmpOp, l: &[u8], r: &[u8]) -> bool {
     }
 }
 
-/// The byte offset of the first occurrence of a nonempty `needle` in `haystack` when IGNORECASE
-/// is set, or `None` if IGNORECASE is not set.
-fn find_folded(needle: &[u8], haystack: &[u8]) -> Option<Option<usize>> {
+/// The byte offset of the first (or, with `last`, the last) occurrence of a nonempty `needle` in
+/// `haystack` when IGNORECASE is set, or `None` if IGNORECASE is not set.
+fn find_folded(needle: &[u8], haystack: &[u8], last: bool) -> Option<Option<usize>> {
     if !awk_regex::ignore_case() || needle.is_empty() {
         return None;
     }
     if ascii_fold(needle, haystack) {
         let n = needle.to_ascii_lowercase();
         let h = haystack.to_ascii_lowercase();
-        return Some(memchr::memmem::find(&h, &n));
+        return Some(if last {
+            memchr::memmem::rfind(&h, &n)
+        } else {
+            memchr::memmem::find(&h, &n)
+        });
     }
     let n: Vec<u32> = folded_units(needle).into_iter().map(|(u, _)| u).collect();
     let h = folded_units(haystack);
-    Some(
-        h.windows(n.len())
-            .find(|w| w.iter().map(|(u, _)| *u).eq(n.iter().copied()))
-            .map(|w| w[0].1),
-    )
+    let matches = |w: &&[(u32, usize)]| w.iter().map(|(u, _)| *u).eq(n.iter().copied());
+    let mut windows = h.windows(n.len());
+    let hit = if last {
+        windows.rfind(matches)
+    } else {
+        windows.find(matches)
+    };
+    Some(hit.map(|w| w[0].1))
 }
 
 /// The 1-based character position of `needle` in `haystack` as `index()` returns it, ignoring
 /// case when IGNORECASE is set; `None` when IGNORECASE does not apply.
 pub(crate) fn index_folded(needle: &[u8], haystack: &[u8]) -> Option<Int> {
-    find_folded(needle, haystack)
+    find_folded(needle, haystack, false)
+        .map(|off| off.map_or(0, |x| char_count(&haystack[..x]) as Int + 1))
+}
+
+/// Like [`index_folded`], but the position of the last occurrence (`last_index()`).
+pub(crate) fn last_index_folded(needle: &[u8], haystack: &[u8]) -> Option<Int> {
+    find_folded(needle, haystack, true)
         .map(|off| off.map_or(0, |x| char_count(&haystack[..x]) as Int + 1))
 }
 
@@ -381,6 +395,8 @@ mod tests {
             ("1E-2\n", 0.01),
             ("0x1A", 26.0),
             (" -0X10 ", -16.0),
+            ("\x0c10", 10.0),
+            ("\x0b10\x0b", 10.0),
         ] {
             assert_eq!(looks_numeric(s.as_bytes()), Some(v), "{:?}", s);
         }

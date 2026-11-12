@@ -477,7 +477,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "to_bytes",
         TEXT,
         "to_bytes(s: str) -> int",
-        "Parse a human readable size (KB, MiB, ...) into bytes.",
+        "Parse a human readable size (KB, MiB, 1e3KB, ...) into bytes; 0 with ERRNO set for an unknown unit.",
         r#"to_bytes("2 KB")"#,
     ),
     d(
@@ -1556,7 +1556,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "read_config",
         IO,
         "read_config(path: str) -> map[str]str",
-        "Read an .ini or .properties file.",
+        "Read an .ini, .properties or .json file; JSON must be an object, flattened like json_flatten.",
         r#"read_config("demo.ini")"#,
     ),
     d(

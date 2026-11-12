@@ -163,7 +163,9 @@ pub fn parallel_warnings(sources: &[Source], mode: Parallel, keep_order: bool) -
     };
     let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
         .into_iter()
-        .filter(|d| matches!(d.code, "W302" | "W303" | "W304" | "W305") || (keep_order && d.code == "W301"))
+        .filter(|d| {
+            matches!(d.code, "W302" | "W303" | "W304" | "W305") || (keep_order && d.code == "W301")
+        })
         .collect();
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
     let lines: Vec<&str> = prog.lines().collect();
@@ -2373,8 +2375,14 @@ fn reads_var(e: &AstExpr, name: &str) -> bool {
         Var(n) => *n == name,
         ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | ReadStdin | Cond(_) => false,
         Unop(_, x) | Inc { x, .. } => reads_var(x, name),
-        Binop(_, l, r) | And(l, r) | Or(l, r) | Nullish(l, r) | Try(l, r) | Index(l, r)
-        | Assign(l, r) | AssignOp(l, _, r) => reads_var(l, name) || reads_var(r, name),
+        Binop(_, l, r)
+        | And(l, r)
+        | Or(l, r)
+        | Nullish(l, r)
+        | Try(l, r)
+        | Index(l, r)
+        | Assign(l, r)
+        | AssignOp(l, _, r) => reads_var(l, name) || reads_var(r, name),
         ITE(c, t, f) => reads_var(c, name) || reads_var(t, name) || reads_var(f, name),
         Getline { into, from, .. } => {
             into.is_some_and(|x| reads_var(x, name)) || from.is_some_and(|x| reads_var(x, name))
@@ -2581,7 +2589,9 @@ impl<'a, 'p> CrossRecord<'a, 'p> {
             Some(k) => {
                 self.fresh_arrays.contains(&name)
                     || literal_key(k).is_some_and(|k| {
-                        self.fresh_elements.iter().any(|(n, x)| *n == name && *x == k)
+                        self.fresh_elements
+                            .iter()
+                            .any(|(n, x)| *n == name && *x == k)
                     })
             }
         };
@@ -3804,11 +3814,19 @@ mod tests {
         };
         let w = parallel_warnings(&[src("!seen[$1]++")], Parallel::Record, false);
         assert_eq!(w.len(), 1);
-        assert!(w[0].starts_with("zawk: warning: -p r: line 1, column 2: W305 "), "{}", w[0]);
+        assert!(
+            w[0].starts_with("zawk: warning: -p r: line 1, column 2: W305 "),
+            "{}",
+            w[0]
+        );
         assert!(parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, false).is_empty());
         let w = parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, true);
         assert_eq!(w.len(), 1);
-        assert!(w[0].starts_with("zawk: warning: --keep-order: line 1, column 1: W301 "), "{}", w[0]);
+        assert!(
+            w[0].starts_with("zawk: warning: --keep-order: line 1, column 1: W301 "),
+            "{}",
+            w[0]
+        );
         assert!(has_range_pattern(&[src("NR == 2, /x/ { print }")]));
         assert!(!has_range_pattern(&[src("/x/ { print }")]));
         assert!(!has_range_pattern(&[src("{ x = ")]));

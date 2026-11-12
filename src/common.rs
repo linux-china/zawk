@@ -444,6 +444,10 @@ impl Notification {
 #[derive(Clone)]
 pub struct CancelSignal {
     state: Arc<AtomicI64>,
+    /// The code of the first thread that stopped through `exit!` (a fatal error or a write
+    /// error) rather than by a graceful `exit`. Such a worker never returns (it blocks until the
+    /// main thread exits the process), so the main thread must not join it.
+    aborted: Arc<AtomicI64>,
     /// Set by the first worker that reports a fatal error, so that only it prints the message.
     reported: Arc<AtomicBool>,
 }
@@ -454,6 +458,7 @@ impl Default for CancelSignal {
     fn default() -> Self {
         Self {
             state: Arc::new(AtomicI64::new(SENTINEL)),
+            aborted: Arc::new(AtomicI64::new(SENTINEL)),
             reported: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -472,6 +477,21 @@ impl CancelSignal {
         } else {
             Some(raw as i32)
         }
+    }
+    /// Cancel because this thread stops through `exit!` and will not return; see `aborted`.
+    pub fn abort(&self, code: i32) {
+        let _ = self.aborted.compare_exchange(
+            SENTINEL,
+            code as i64,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
+        self.cancel(code);
+    }
+    /// The code passed to the first [`CancelSignal::abort`], if any.
+    pub fn abort_code(&self) -> Option<i32> {
+        let raw = self.aborted.load(Ordering::Acquire);
+        (raw != SENTINEL).then_some(raw as i32)
     }
     pub fn cancelled(&self) -> bool {
         self.get_code().is_some()

@@ -73,6 +73,10 @@ pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
 }
 
 pub fn vec_to_csv(csv: &[&str]) -> String {
+    // A zero-field record has no CSV representation; csv-core would emit `""`.
+    if csv.is_empty() {
+        return String::new();
+    }
     let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
     let mut record = csv::StringRecord::new();
     for value in csv {
@@ -191,7 +195,10 @@ mod tests {
     #[test]
     fn test_vec_to_csv() {
         let items = vec!["first", "second"];
-        println!("{}", vec_to_csv(&items));
+        assert_eq!(vec_to_csv(&items), "first,second");
+        assert_eq!(vec_to_csv(&[]), "");
+        let map: IntMap<Str> = IntMap::default();
+        assert_eq!(map_int_str_to_csv(&map), "");
     }
 
     #[test]

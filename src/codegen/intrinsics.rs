@@ -200,17 +200,17 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         set_fi_entry(rt_ty, int_ty, int_ty);
         uuid(str_ref_ty) -> str_ty;
         snowflake(int_ty) -> int_ty;
-        ulid(rt_ty) -> str_ty;
-        tsid(rt_ty) -> str_ty;
-        whoami(rt_ty) -> str_ty;
-        version(rt_ty) -> str_ty;
-        os(rt_ty) -> str_ty;
-        os_family(rt_ty) -> str_ty;
-        arch(rt_ty) -> str_ty;
-        pwd(rt_ty) -> str_ty;
-        user_home(rt_ty) -> str_ty;
-        local_ip(rt_ty) -> str_ty;
-        systime(rt_ty) -> int_ty;
+        ulid() -> str_ty;
+        tsid() -> str_ty;
+        whoami() -> str_ty;
+        version() -> str_ty;
+        os() -> str_ty;
+        os_family() -> str_ty;
+        arch() -> str_ty;
+        pwd() -> str_ty;
+        user_home() -> str_ty;
+        local_ip() -> str_ty;
+        systime() -> int_ty;
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
@@ -464,8 +464,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         store_var_intmap(rt_ty, int_ty, map_ty);
         [ReadOnly] load_var_strmap(rt_ty, int_ty) -> map_ty;
         store_var_strmap(rt_ty, int_ty, map_ty);
-        [ReadOnly] load_var_strstrmap(rt_ty, str_ref_ty) -> map_ty;
-        store_var_strstrmap(rt_ty, str_ref_ty, map_ty);
+        [ReadOnly] load_var_strstrmap(rt_ty, int_ty) -> map_ty;
+        store_var_strstrmap(rt_ty, int_ty, map_ty);
 
         [ReadOnly] str_lt(str_ref_ty, str_ref_ty) -> int_ty;
         [ReadOnly] cmp_str_str(str_ref_ty, str_ref_ty, int_ty) -> int_ty;
@@ -672,7 +672,9 @@ macro_rules! exit {
             // main thread may write what is left.
             runtime::writers::ordered::leave();
             let pid = rt.core.vars.pid;
-            rt.cancel_signal.cancel(code);
+            // Recorded before `drop_in_place` sends this worker's result, so the main thread sees
+            // it once it has received every result.
+            rt.cancel_signal.abort(code);
             std::ptr::drop_in_place(rt_raw);
             if pid == 1 {
                 // We are the main thread. Drop on `rt` should have waited for other threads to exit.
@@ -3889,8 +3891,8 @@ pub(crate) unsafe extern "C" fn store_var_strmap(rt: *mut c_void, var: usize, ma
     guard_panic(stringify!(store_var_strmap), || {
         let runtime = &mut *(rt as *mut Runtime);
         if let Ok(var) = Variable::try_from(var) {
-            let map = mem::transmute::<*mut c_void, StrMap<Str>>(map);
-            try_abort!(runtime, runtime.core.vars.store_strstrmap(var, map.clone()));
+            let map = mem::transmute::<*mut c_void, StrMap<Int>>(map);
+            try_abort!(runtime, runtime.core.vars.store_strmap(var, map.clone()));
             mem::forget(map);
         } else {
             fail!(runtime, "invalid variable code={}", var)
@@ -3902,8 +3904,8 @@ pub(crate) unsafe extern "C" fn store_var_strstrmap(rt: *mut c_void, var: usize,
     guard_panic(stringify!(store_var_strstrmap), || {
         let runtime = &mut *(rt as *mut Runtime);
         if let Ok(var) = Variable::try_from(var) {
-            let map = mem::transmute::<*mut c_void, StrMap<Int>>(map);
-            try_abort!(runtime, runtime.core.vars.store_strmap(var, map.clone()));
+            let map = mem::transmute::<*mut c_void, StrMap<Str>>(map);
+            try_abort!(runtime, runtime.core.vars.store_strstrmap(var, map.clone()));
             mem::forget(map);
         } else {
             fail!(runtime, "invalid variable code={}", var)

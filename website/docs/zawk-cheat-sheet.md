@@ -1118,7 +1118,7 @@ kv_put("nats://127.0.0.1:4222/bucket1", "offset", NR)
 | `whoami()`, `os()`, `arch()`, `pwd()`  | System information             |
 | `system2("ls")`                        | `code` and `stdout` of a command |
 | `read_all(path)`, `write_all(path, s)` | Read and write a whole file    |
-| `read_config("demo.ini")`              | Read an INI or properties file |
+| `read_config("demo.ini")`              | Read an INI, properties or JSON file |
 | `typeof(x)`, `isarray(x)`              | Type of a value                |
 | `var_dump(x)`, `pprint(x)`             | Print a value to stderr        |
 | `log_info(msg)`                        | Also `log_debug`, `log_warn`, `log_error` |

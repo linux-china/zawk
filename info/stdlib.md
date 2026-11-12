@@ -1447,7 +1447,13 @@ The HTTP status is not checked: the body of an error response (404, ...) is retu
 ### read_config
 
 Read config file to StrStrMap: `read_config("tests/demo.ini")`.
-Now only `*.ini` and `*.properties` are supported.
+Supported formats: `*.ini`, `*.properties` and `*.json`; any other extension gives a warning, sets `ERRNO`
+and returns an empty array.
+
+A JSON config must be an object at the top level (an array, string, number, boolean or `null` gives a warning,
+sets `ERRNO` and returns an empty array). It is flattened like `json_flatten()`: nested object keys are joined
+with `.` and array items use 1-based `[n]`, e.g. `{"db":{"host":"localhost","ports":[80,443]}}` gives
+`db.host`, `db.ports[1]` and `db.ports[2]`.
 
 **Tips**: zawk will load `.env` as environment variables automatically if it exists in the current directory.
 

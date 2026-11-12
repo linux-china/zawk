@@ -35,10 +35,13 @@ pub fn index_substr<'a>(needle: &Str<'a>, haystack: &Str<'a>) -> Int {
     })
 }
 
+// Like `index_substr`, but the position of the last occurrence.
 pub fn last_index_substr<'a>(needle: &Str<'a>, haystack: &Str<'a>) -> Int {
     needle.with_bytes(|n| {
         haystack.with_bytes(|h| {
-            memmem::rfind(h, n).map_or(0, |x| haystack.chars_before(h, x) as Int + 1)
+            super::compare::last_index_folded(n, h).unwrap_or_else(|| {
+                memmem::rfind(h, n).map_or(0, |x| haystack.chars_before(h, x) as Int + 1)
+            })
         })
     })
 }

@@ -221,9 +221,18 @@ mod tests {
             let c = opts(url).unwrap().get_pool_opts().constraints();
             (c.min(), c.max())
         };
-        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test"), (POOL_MIN, POOL_MAX));
-        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test?pool_min=2&pool_max=3"), (2, 3));
-        assert_eq!(bounds("mysql://root@127.0.0.1:3306/test?pool_max=20"), (10, 20));
+        assert_eq!(
+            bounds("mysql://root@127.0.0.1:3306/test"),
+            (POOL_MIN, POOL_MAX)
+        );
+        assert_eq!(
+            bounds("mysql://root@127.0.0.1:3306/test?pool_min=2&pool_max=3"),
+            (2, 3)
+        );
+        assert_eq!(
+            bounds("mysql://root@127.0.0.1:3306/test?pool_max=20"),
+            (10, 20)
+        );
     }
 
     #[test]

@@ -94,7 +94,9 @@ fn build_s3_operator(bucket: &str) -> Result<Operator, BoxError> {
 /// Returns a cached operator for `bucket`; it is built on first successful call and reused
 /// afterwards.
 fn s3_operator(bucket: &str) -> Result<Operator, BoxError> {
-    let mut operators = S3_OPERATORS.lock().unwrap();
+    let mut operators = S3_OPERATORS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(op) = operators.get(bucket) {
         return Ok(op.clone());
     }

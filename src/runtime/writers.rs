@@ -144,6 +144,22 @@ pub fn exit_code(code: i32) -> i32 {
     code
 }
 
+/// Report a usage error found while writing an output (e.g. an invalid `-o parquet`/`-o avro`
+/// header) as fatal. It is raised on a writer thread, which must not exit the process itself
+/// (that would skip flushing the other outputs): the caller returns the error, which stops its
+/// writer and ends the program like any other write error, and the exit code is 2.
+pub(crate) fn report_fatal_output_error(e: &io::Error) {
+    if !cfg!(test) {
+        eprintln!("{}", crate::common::fatal_message(&e.to_string()));
+    }
+    FATAL_OUTPUT_REPORTED.store(true, Ordering::Release);
+    set_output_failed();
+}
+
+/// Set by `report_fatal_output_error`, so that the same error is not reported again when stdout
+/// is closed at exit.
+static FATAL_OUTPUT_REPORTED: AtomicBool = AtomicBool::new(false);
+
 /// Record an error writing stdout from a wrapper that renders (or finishes) its output when
 /// dropped (`-o table`, `-o markdown`, `-o jsonl`, `-o xlsx`, `-o parquet`, `-o avro`). The writer is dropped by the stdout writer thread when it handles the `Close`
 /// sent at exit, before the flush that follows it is answered, so `exit_code` sees the failure:
@@ -2036,7 +2052,10 @@ impl Registry {
             let res = self.stdout.close();
             // A closed pipe on stdout (e.g. `zawk ... | head`) is not an error worth reporting;
             // it is reflected in the exit code instead (see `exit_code`).
-            if res.is_err() && !stdout_broken_pipe() {
+            if res.is_err()
+                && !stdout_broken_pipe()
+                && !FATAL_OUTPUT_REPORTED.load(Ordering::Acquire)
+            {
                 last_error = res;
             }
         }
@@ -3468,9 +3487,18 @@ mod tests {
             let ok = json_value(cell, JsonType::Number, &mut out);
             (out, ok)
         };
-        assert_eq!(render("9007199254740993"), ("9007199254740993".into(), true));
-        assert_eq!(render("-9223372036854775808"), ("-9223372036854775808".into(), true));
-        assert_eq!(render("18446744073709551615"), ("18446744073709551615".into(), true));
+        assert_eq!(
+            render("9007199254740993"),
+            ("9007199254740993".into(), true)
+        );
+        assert_eq!(
+            render("-9223372036854775808"),
+            ("-9223372036854775808".into(), true)
+        );
+        assert_eq!(
+            render("18446744073709551615"),
+            ("18446744073709551615".into(), true)
+        );
         assert_eq!(render(" 42 "), ("42".into(), true));
         assert_eq!(render("3.0"), ("3".into(), true));
         assert_eq!(render("1.5"), ("1.5".into(), true));

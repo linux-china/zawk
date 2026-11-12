@@ -267,20 +267,22 @@ impl JsonlReader {
     }
 
     fn build_schema(&mut self, line: &Str<'static>) {
-        let mut schema = Schema::default();
+        let mut names = Vec::new();
         line.with_bytes(|bs| {
-            parse_object(bs, |key, _| {
-                schema.push(key.into_owned());
-            });
+            parse_object(bs, |key, _| names.push(key.into_owned()));
         });
-        for name in self.extra_names.drain(..) {
-            schema.push(name);
+        names.append(&mut self.extra_names);
+        // Merge into the shared schema rather than replacing it: in a parallel run a worker may
+        // already have assigned columns, and those indexes must not change. `len` is updated
+        // under the same lock so readers never see it ahead of or behind the schema.
+        let mut shared = self.shared.schema.write().unwrap();
+        for name in names {
+            shared.push(name);
         }
-        schema.header_len = schema.names.len();
-        self.reported = schema.names.len();
-        self.shared.len.store(schema.names.len(), Ordering::Release);
-        *self.shared.schema.write().unwrap() = schema.clone();
-        self.schema = schema;
+        shared.header_len = shared.names.len();
+        self.shared.len.store(shared.names.len(), Ordering::Release);
+        self.reported = shared.names.len();
+        self.schema = shared.clone();
     }
 
     fn header_line(&self, out: &mut JsonlLine) {
@@ -815,6 +817,45 @@ mod tests {
             r.schema.names.clone(),
             line.fields.iter().map(|s| s.to_string()).collect(),
         )
+    }
+
+    #[test]
+    fn build_schema_merges_shared() {
+        let mut r = JsonlReader {
+            inner: ByteReader::new(
+                std::iter::once((std::io::Cursor::new(Vec::<u8>::new()), String::from("-"))),
+                NO_FIELD_SEP,
+                b'\n',
+                1024,
+                false,
+                ExecutionStrategy::Serial,
+                CancelSignal::default(),
+            ),
+            scratch: DefaultLine::default(),
+            shared: Default::default(),
+            schema: Schema::default(),
+            reported: 0,
+            extra_names: vec!["extra".to_string()],
+            header: Header::Start,
+            used_fields: FieldSet::all(),
+            line_no: Some(0),
+            scalar_text: false,
+        };
+        // A worker assigned a column before the main reader saw the first record.
+        let mut worker = Schema::default();
+        r.shared.sync(&mut worker, Some("w".to_string()));
+        assert_eq!(worker.index[b"w".as_slice()], 0);
+        r.build_schema(&Str::from(r#"{"a":1,"w":2,"b":3}"#).unmoor());
+        assert_eq!(r.schema.names, vec!["w", "a", "b", "extra"]);
+        assert_eq!(r.schema.header_len, 4);
+        let shared = r.shared.schema.read().unwrap();
+        assert_eq!(shared.names, r.schema.names);
+        assert_eq!(r.shared.len.load(Ordering::Acquire), 4);
+        // The worker's existing index is unchanged, and it can still add a new key.
+        drop(shared);
+        r.shared.sync(&mut worker, Some("c".to_string()));
+        assert_eq!(worker.index[b"w".as_slice()], 0);
+        assert_eq!(worker.index[b"c".as_slice()], 4);
     }
 
     #[test]

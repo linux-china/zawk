@@ -214,7 +214,17 @@ fn is_trusted_jwks_url(url: &str) -> bool {
     }
     if let Some(rest) = url.strip_prefix("http://") {
         let host = rest.split(['/', '#', '?']).next().unwrap_or("");
-        let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+        let host = if host.starts_with('[') {
+            // IPv6 literal: keep `[...]`, the optional port follows `]`
+            match host.find(']') {
+                Some(end) if host[end + 1..].is_empty() || host[end + 1..].starts_with(':') => {
+                    &host[..=end]
+                }
+                _ => return false,
+            }
+        } else {
+            host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
+        };
         return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
     }
     false
@@ -1019,6 +1029,17 @@ mod tests {
         assert!(!is_trusted_jwks_url(
             "http://localhost.evil.com/jwks.json#kid"
         ));
+    }
+
+    #[test]
+    fn test_trusted_jwks_url_ipv6_loopback() {
+        assert!(is_trusted_jwks_url("http://[::1]/jwks.json"));
+        assert!(is_trusted_jwks_url("http://[::1]:18080/jwks.json"));
+        assert!(is_trusted_jwks_url("http://[::1]#kid"));
+        assert!(is_trusted_jwks_url("http://127.0.0.1/jwks.json"));
+        assert!(!is_trusted_jwks_url("http://[::2]/jwks.json"));
+        assert!(!is_trusted_jwks_url("http://[::1]evil.com/jwks.json"));
+        assert!(!is_trusted_jwks_url("http://[::1/jwks.json"));
     }
 
     #[test]

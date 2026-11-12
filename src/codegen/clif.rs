@@ -948,8 +948,10 @@ impl<'a> View<'a> {
                 }
                 self.flush_overflow_check();
                 // branch-related metadata
-                let mut tcase = None;
-                let mut ecase = None;
+                let mut tcase: Option<(Ref, Block)> = None;
+                let mut ecase: Option<Block> = None;
+                // (is the `tcase` edge, successor node index)
+                let mut succs: SmallVec<[(bool, usize); 2]> = SmallVec::new();
 
                 let mut walker = insts.cfg.neighbors(NodeIx::new(i)).detach();
                 while let Some(e) = walker.next_edge(&insts.cfg) {
@@ -957,40 +959,66 @@ impl<'a> View<'a> {
                     let bb = bbs[next.index()];
                     if let Some(e) = *insts.cfg.edge_weight(e).unwrap() {
                         tcase = Some(((e, compile::Ty::Int), bb));
+                        succs.push((true, next.index()));
                     } else {
                         ecase = Some(bb);
-                    }
-
-                    // Now scan any phi nodes in the successor block for references back to the current
-                    // one. If we find one, we issue a full `mov` (with `skip_drop=false`): the phi
-                    // target is an ordinary local, so the reference taken here is released either by
-                    // the next assignment to it or by `drop_all` at the end of the function.
-                    //
-                    // The movs are emitted sequentially, not as a parallel copy. That is only correct
-                    // because no phi argument is the target of another phi in the same successor
-                    // block (no "swap problem"): the frontend keeps the `Mov`s that feed phis. If copy
-                    // propagation is ever added upstream of this, these must become a parallel copy.
-                    //
-                    // NB We could avoid scanning duplicate Phis here by tracking dependencies a bit
-                    // more carefully, but in practice the extra work done seems fairly low given the
-                    // CFGs that we generate at time of writing.
-                    for inst in &nodes[next.index()].weight.insts {
-                        if let Either::Right(compile::HighLevel::Phi(dst_reg, ty, preds)) = inst {
-                            for src_reg in preds.iter().filter_map(|(bb, reg)| {
-                                if bb.index() == i { Some(*reg) } else { None }
-                            }) {
-                                self.mov_inner(*ty, *dst_reg, src_reg, /*skip_drop=*/ false)?;
-                            }
-                        } else {
-                            // We can bail out once we see the first non-phi instruction. Those all go
-                            // at the top
-                            break;
-                        }
+                        succs.push((false, next.index()));
                     }
                 }
 
-                if let Some(ecase) = ecase {
+                // Phi nodes in a successor that refer back to the current block are lowered to
+                // full `mov`s (with `skip_drop=false`): the phi target is an ordinary local, so
+                // the reference taken here is released either by the next assignment to it or by
+                // `drop_all` at the end of the function.
+                //
+                // The moves must only run on the edge into the successor that owns the phi. For
+                // an unconditional jump that is just the end of the current block. For a
+                // conditional branch we split the edge: the moves go into a fresh block that
+                // runs only when that edge is taken, and that then jumps to the successor.
+                // (Emitting them before the `brif` would perform the moves for *both* successors
+                // on every path, which is only harmless as long as no phi target is live on the
+                // other edge and refcounts happen to balance.) The branch condition is also
+                // evaluated before any move, so a move can never clobber it.
+                //
+                // The movs within one edge are emitted sequentially, not as a parallel copy.
+                // That is only correct because no phi argument is the target of another phi in
+                // the same successor block (no "swap problem"): the frontend keeps the `Mov`s
+                // that feed phis. If copy propagation is ever added upstream of this, these must
+                // become a parallel copy.
+                if tcase.is_none() {
+                    for &(_, next) in succs.iter() {
+                        self.gen_phi_moves(nodes, i, next)?;
+                    }
+                    if let Some(ecase) = ecase {
+                        self.branch(None, ecase)?;
+                    }
+                } else {
+                    let mut edge_blocks: SmallVec<[(Block, usize); 2]> = SmallVec::new();
+                    for &(is_t, next) in succs.iter() {
+                        if !Self::has_phi_moves(nodes, i, next) {
+                            continue;
+                        }
+                        let edge = self.builder.create_block();
+                        edge_blocks.push((edge, next));
+                        if is_t {
+                            if let Some((_, b)) = tcase.as_mut() {
+                                *b = edge;
+                            }
+                        } else {
+                            ecase = Some(edge);
+                        }
+                    }
+                    let Some(ecase) = ecase else {
+                        return err!("conditional branch without a fallthrough successor");
+                    };
                     self.branch(tcase, ecase)?;
+                    for (edge, next) in edge_blocks {
+                        self.builder.switch_to_block(edge);
+                        // Its only predecessor (the current block) is already terminated.
+                        self.builder.seal_block(edge);
+                        self.gen_phi_moves(nodes, i, next)?;
+                        self.builder.ins().jump(bbs[next], &[]);
+                    }
                 }
 
                 let mut walker = insts.cfg.neighbors(NodeIx::new(i)).detach();
@@ -1020,6 +1048,50 @@ impl<'a> View<'a> {
         }
         let frontend_config = self.shared.module.target_config();
         self.builder.finalize(frontend_config);
+        Ok(())
+    }
+
+    /// Does successor node `next` have a phi node with an argument flowing in from node `cur`?
+    fn has_phi_moves(
+        nodes: &[petgraph::graph::Node<compile::Node<'_>>],
+        cur: usize,
+        next: usize,
+    ) -> bool {
+        nodes[next]
+            .weight
+            .insts
+            .iter()
+            .map_while(|inst| match inst {
+                Either::Right(compile::HighLevel::Phi(_, _, preds)) => Some(preds),
+                _ => None,
+            })
+            .any(|preds| preds.iter().any(|(bb, _)| bb.index() == cur))
+    }
+
+    /// Emit the moves implementing the phi nodes of successor node `next` for the edge coming
+    /// from node `cur`, at the current insertion point.
+    fn gen_phi_moves(
+        &mut self,
+        nodes: &[petgraph::graph::Node<compile::Node<'_>>],
+        cur: usize,
+        next: usize,
+    ) -> Result<()> {
+        for inst in &nodes[next].weight.insts {
+            if let Either::Right(compile::HighLevel::Phi(dst_reg, ty, preds)) = inst {
+                for src_reg in
+                    preds.iter().filter_map(
+                        |(bb, reg)| {
+                            if bb.index() == cur { Some(*reg) } else { None }
+                        },
+                    )
+                {
+                    self.mov_inner(*ty, *dst_reg, src_reg, /*skip_drop=*/ false)?;
+                }
+            } else {
+                // Phis all go at the top of a block: stop at the first non-phi instruction.
+                break;
+            }
+        }
         Ok(())
     }
 

@@ -137,7 +137,9 @@ static BLOOM_FILTERS: LazyLock<Arc<Mutex<HashMap<String, GrowableBloom>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::default())));
 
 pub fn bf_insert(item: &[u8], group: &str) {
-    let mut filters = BLOOM_FILTERS.lock().unwrap();
+    let mut filters = BLOOM_FILTERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let filter = filters
         .entry(group.to_string())
         .or_insert_with(|| GrowableBloomBuilder::new().build());
@@ -145,7 +147,9 @@ pub fn bf_insert(item: &[u8], group: &str) {
 }
 
 pub fn bf_contains(item: &[u8], group: &str) -> i64 {
-    let filters = BLOOM_FILTERS.lock().unwrap();
+    let filters = BLOOM_FILTERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(filter) = filters.get(group) {
         return filter.contains(item) as i64;
     }
@@ -153,7 +157,9 @@ pub fn bf_contains(item: &[u8], group: &str) -> i64 {
 }
 
 pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
-    let mut filters = BLOOM_FILTERS.lock().unwrap();
+    let mut filters = BLOOM_FILTERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let filter = filters
         .entry(group.to_string())
         .or_insert_with(|| GrowableBloomBuilder::new().build());
