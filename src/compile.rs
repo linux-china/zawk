@@ -2675,6 +2675,25 @@ impl<'a, 'b> View<'a, 'b> {
                     self.pushl(LL::Duration(res_reg.into(), conv_regs[0].into()))
                 }
             }
+            Strptime => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Strptime(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
+            UuidExtractTimestamp => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::UuidExtractTimestamp(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                    ))
+                }
+            }
             DateAdd => {
                 if res_reg != UNUSED {
                     self.pushl(if conv_tys[0] == Ty::Str {

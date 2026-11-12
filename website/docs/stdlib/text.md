@@ -19,6 +19,7 @@ Text is UTF-8: positions and lengths count characters, not bytes.
 | `last_part(s[, sep])` | `last_part("a/b/c")` | `c` (tries `/`, then `.`) |
 | `left(s, n)` / `right(s, n)` | `right("hello", 2)` | `lo` (negative `n`: all but the last/first `-n`) |
 | `reverse(s)` | `reverse("你好")` | `好你` |
+| `nfc_normalize(s)` | `nfc_normalize("cafe\xcc\x81")` | `café` (Unicode NFC: compare and sort text from different sources alike) |
 | `chr(n)` / `ord(s)` | `chr(65)`, `ord("你")` | `A`, `20320` (Unicode code points) |
 
 ## Trimming, padding and shaping

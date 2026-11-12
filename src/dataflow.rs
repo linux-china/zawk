@@ -306,6 +306,15 @@ pub(crate) mod boilerplate {
             Duration(dst, expr) => {
                 f(dst.into(), Some(expr.into()));
             }
+            Strptime(dst, text, format, timezone) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(format.into()));
+                f(dst.into(), Some(timezone.into()));
+            }
+            UuidExtractTimestamp(dst, id, epoch_ms) => {
+                f(dst.into(), Some(id.into()));
+                f(dst.into(), Some(epoch_ms.into()));
+            }
             DateAdd(dst, timestamp, n, unit) => {
                 f(dst.into(), Some(timestamp.into()));
                 f(dst.into(), Some(n.into()));

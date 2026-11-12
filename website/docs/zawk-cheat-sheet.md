@@ -1050,6 +1050,7 @@ See: [Array & Math](./stdlib/array-math.md)
 | `strftime("%Y-%m-%d", ts)`         | Format a timestamp        |
 | `strftime("%H:%M", ts, "Asia/Tokyo")` | In an IANA time zone   |
 | `mktime("2026-10-31 12:00:00")`    | Parse to a timestamp      |
+| `strptime("31/10/2026", "%d/%m/%Y")` | Parse with a format     |
 | `datetime(ts)["year"]`             | Date parts                |
 | `duration("1h30m")`                | `5400` seconds            |
 | `date_add("2026-10-31", 1, "day")` | Add to a date             |
@@ -1069,6 +1070,7 @@ See: [Date/Time](./stdlib/datetime.md)
 | `encrypt("aes-256-gcm", s, key)`, `decrypt(...)` | Encrypt, decrypt |
 | `jwt("HS256", key, payload)`, `dejwt(key, token)` | JSON Web Token |
 | `uuid()`, `uuid("v7")`, `ulid()`, `tsid()`, `snowflake()` | IDs |
+| `uuid_extract_timestamp(id)`            | Time of a UUID v7, ULID, TSID, Snowflake ID |
 
 See: [Crypto & Encoding](./stdlib/crypto-encoding.md)
 

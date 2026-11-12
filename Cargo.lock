@@ -6620,6 +6620,7 @@ dependencies = [
  "tokio-postgres-rustls",
  "tsid",
  "ulid",
+ "unicode-normalization",
  "unicode-segmentation",
  "unicode-width 0.2.3",
  "unicode-xid",

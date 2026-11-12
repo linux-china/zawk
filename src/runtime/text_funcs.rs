@@ -1,9 +1,10 @@
 //! `reverse`, `ltrim`, `rtrim`, `replace`, `translate`, `left`, `right`, `chr`, `ord`,
-//! `path_join` and `bar`: string functions that mirror DuckDB's functions of the same name.
+//! `path_join`, `nfc_normalize` and `bar`: string functions that mirror DuckDB's functions of the same name.
 //!
 //! They work on characters: bytes that are not valid UTF-8 are kept, each one counting as one
 //! character, as in `length` and `substr`.
 
+use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::runtime::float_parse::str_to_num;
@@ -22,10 +23,11 @@ pub enum TextOp {
     Right,
     Chr,
     PathJoin,
+    NfcNormalize,
 }
 
 impl TextOp {
-    const ALL: [TextOp; 9] = [
+    const ALL: [TextOp; 10] = [
         TextOp::Reverse,
         TextOp::LTrim,
         TextOp::RTrim,
@@ -35,6 +37,7 @@ impl TextOp {
         TextOp::Right,
         TextOp::Chr,
         TextOp::PathJoin,
+        TextOp::NfcNormalize,
     ];
 
     pub fn func_name(self) -> &'static str {
@@ -48,13 +51,14 @@ impl TextOp {
             TextOp::Right => "right",
             TextOp::Chr => "chr",
             TextOp::PathJoin => "path_join",
+            TextOp::NfcNormalize => "nfc_normalize",
         }
     }
 
     /// The number of arguments the function takes when called by name, as `(required, max)`.
     pub fn arg_range(self) -> (usize, usize) {
         match self {
-            TextOp::Reverse | TextOp::Chr => (1, 1),
+            TextOp::Reverse | TextOp::Chr | TextOp::NfcNormalize => (1, 1),
             TextOp::LTrim | TextOp::RTrim => (1, 2),
             TextOp::Left | TextOp::Right | TextOp::PathJoin => (2, 2),
             TextOp::Replace | TextOp::Translate => (3, 3),
@@ -94,6 +98,7 @@ pub fn eval(op: TextOp, a: &[u8], b: &[u8], c: &[u8]) -> Vec<u8> {
         TextOp::Right => right(a, to_int(b)),
         TextOp::Chr => chr(to_int(a)),
         TextOp::PathJoin => path_join(a, b),
+        TextOp::NfcNormalize => nfc_normalize(a),
         TextOp::LTrim | TextOp::RTrim => unreachable!("ltrim/rtrim are Str::trim_sides"),
     }
 }
@@ -128,6 +133,22 @@ pub fn reverse(bs: &[u8]) -> Vec<u8> {
         parts.extend(chunk.invalid().chunks(1));
     }
     parts.into_iter().rev().flatten().copied().collect()
+}
+
+/// `nfc_normalize(s)`: `s` in Unicode Normalization Form C, where a letter and its combining
+/// marks are composed into one character when Unicode has it: `"e\u{301}"` (e and a combining
+/// acute accent) becomes `"\u{e9}"` (é), so text from different sources compares and sorts alike.
+/// Bytes that are not valid UTF-8 are kept as they are.
+pub fn nfc_normalize(bs: &[u8]) -> Vec<u8> {
+    if bs.is_ascii() {
+        return bs.to_vec();
+    }
+    let mut res = Vec::with_capacity(bs.len());
+    for chunk in bs.utf8_chunks() {
+        res.extend(chunk.valid().nfc().collect::<String>().as_bytes());
+        res.extend_from_slice(chunk.invalid());
+    }
+    res
 }
 
 /// `replace(s, from, to)`: every occurrence of the text `from` replaced by `to`, from left to
@@ -274,6 +295,17 @@ mod tests {
         }
         assert_eq!(TextOp::from_code(-1), None);
         assert_eq!(TextOp::from_code(99), None);
+    }
+
+    #[test]
+    fn nfc() {
+        use TextOp::NfcNormalize;
+        assert_eq!(text(NfcNormalize, "cafe\u{301}", "", ""), "caf\u{e9}");
+        assert_eq!(text(NfcNormalize, "caf\u{e9}", "", ""), "caf\u{e9}");
+        assert_eq!(text(NfcNormalize, "\u{1100}\u{1161}", "", ""), "\u{ac00}");
+        assert_eq!(text(NfcNormalize, "abc", "", ""), "abc");
+        // invalid UTF-8 is kept
+        assert_eq!(nfc_normalize(b"e\xcc\x81\xff"), b"\xc3\xa9\xff");
     }
 
     #[test]

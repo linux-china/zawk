@@ -1592,6 +1592,26 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let ir = *dst;
                         *self.get_mut(ir) = result as Int;
                     }
+                    Strptime(dst, text, format, timezone) => {
+                        let text = index(&self.strs, text);
+                        let format = index(&self.strs, format);
+                        let timezone = index(&self.strs, timezone);
+                        let result = runtime::date_time::strptime(
+                            &*text.as_str(),
+                            &*format.as_str(),
+                            &*timezone.as_str(),
+                        );
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
+                    UuidExtractTimestamp(dst, id, epoch_ms) => {
+                        let id = index(&self.strs, id);
+                        let epoch_ms = *self.get(*epoch_ms);
+                        let result =
+                            runtime::math_util::uuid_extract_timestamp(&*id.as_str(), epoch_ms);
+                        let ir = *dst;
+                        *self.get_mut(ir) = result;
+                    }
                     DateAdd(dst, timestamp, n, unit) => {
                         let timestamp = *self.get(*timestamp);
                         let n = *self.get(*n);

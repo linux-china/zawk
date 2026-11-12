@@ -388,15 +388,15 @@ Run `zawk functions <name>` for the signature and an example of any function bel
 
 | Category | Functions |
 |----------|-----------|
-| Text | `length`, `strlen`, `char_at`, `chars`, `match`, `substr`, `sub`, `gsub`, `gensub`, `index`, `last_index`, `split`, `last_part`, `sprintf`, `hex`, `join_fields`, `join_csv`, `join_tsv`, `tolower`, `toupper`, `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `bar`, `truncate`, `capitalize`, `uncapitalize`, `camel_case`, `kebab_case`, `snake_case`, `title_case`, `pascal_case`, `isint`, `isnum`, `is`, `starts_with`, `ends_with`, `contains`, `eq_ignore_case`, `mask`, `pad`, `pad_start`, `pad_end`, `strcmp`, `similar`, `lines`, `words`, `repeat`, `wrap`, `default_if_empty`, `append_if_missing`, `prepend_if_missing`, `remove_if_end`, `remove_if_begin`, `quote`, `double_quote`, `parse`, `rparse`, `format_bytes`, `to_bytes`, `mkpass`, `figlet` |
+| Text | `length`, `strlen`, `char_at`, `chars`, `match`, `substr`, `sub`, `gsub`, `gensub`, `index`, `last_index`, `split`, `last_part`, `sprintf`, `hex`, `join_fields`, `join_csv`, `join_tsv`, `tolower`, `toupper`, `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `nfc_normalize`, `bar`, `truncate`, `capitalize`, `uncapitalize`, `camel_case`, `kebab_case`, `snake_case`, `title_case`, `pascal_case`, `isint`, `isnum`, `is`, `starts_with`, `ends_with`, `contains`, `eq_ignore_case`, `mask`, `pad`, `pad_start`, `pad_end`, `strcmp`, `similar`, `lines`, `words`, `repeat`, `wrap`, `default_if_empty`, `append_if_missing`, `prepend_if_missing`, `remove_if_end`, `remove_if_begin`, `quote`, `double_quote`, `parse`, `rparse`, `format_bytes`, `to_bytes`, `mkpass`, `figlet` |
 | Escape | `escape` (json, csv, tsv, xml, html, sql, shell), `escape_csv`, `escape_tsv` |
 | Parser | `url`, `data_url`, `shlex`, `path`, `path_join`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags` |
-| ID | `uuid` (v4/v7), `ulid`, `tsid`, `snowflake` |
+| ID | `uuid` (v4/v7), `ulid`, `tsid`, `snowflake`, `uuid_extract_timestamp` |
 | Array | `seq`, `uniq`, `asort`, `asorti`, `_max`, `_min`, `_sum`, `_mean`, `_median`, `_quantile`, `_var`, `_stddev`, `_mode`, `_count_distinct`, `_top`, `_argmax`, `_argmin`, `_join`, `bf_insert`, `bf_contains`, `bf_icontains` |
 | Math | `rand`, `srand`, `int`, `float`, `strtonum`, `abs`, `ceil`, `floor`, `round`, `exp`, `log`, `log2`, `log10`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pi`, `sign`, `intdiv0`, `min`, `max`, `eval`, `fend`, `mkbool` |
 | Decimal | `dec_add`, `dec_sub`, `dec_mul`, `dec_div`, `dec_round`, `dec_format`, `dec_cmp`: exact decimal arithmetic on text, for money (`dec_add("0.1", "0.2")` is `0.3`); pass fields or strings, not floats |
 | Bitwise | `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl` (negative values are a fatal error as in gawk, except the first argument of `rshiftl`; `compl(0)` is `2^53 - 1`; numbers and results keep their low 63 bits; shift counts of 64 and above shift everything out) |
-| Date/Time | `systime`, `systime_ms`, `strftime`, `mktime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc`, `to_iso8601` |
+| Date/Time | `systime`, `systime_ms`, `strftime`, `mktime`, `strptime`, `datetime`, `duration`, `date_add`, `date_diff`, `date_trunc`, `to_iso8601` |
 | Color | `hex2rgb`, `rgb2hex`, `color` (terminal color/style, e.g. `color("red+bold", s)`; plain text when stdout is not a terminal; decided per process, so `> "file"` / `| "cmd"` still get codes when stdout is a terminal) |
 | Fake | `fake` |
 | Decision | `jev`, `jev_prob`, `jev_choice`, `jev_score` |

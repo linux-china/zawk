@@ -15,12 +15,12 @@ of data processing does not need a pipeline of other tools.
 
 | Category | Functions |
 |----------|-----------|
-| [Text](./text.md) | `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `bar`, `truncate`, `pad`, `mask`, `starts_with`, `contains`, `camel_case`, `snake_case`, `title_case`, `similar`, `wrap`, `words`, `parse`, `rparse`, `format_bytes`, `figlet`, ... |
+| [Text](./text.md) | `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `nfc_normalize`, `bar`, `truncate`, `pad`, `mask`, `starts_with`, `contains`, `camel_case`, `snake_case`, `title_case`, `similar`, `wrap`, `words`, `parse`, `rparse`, `format_bytes`, `figlet`, ... |
 | [Parsers](./parsers.md) | `url`, `data_url`, `shlex`, `path`, `path_join`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags` |
 | [JSON / XML / HTML / CSV](./json-xml-html.md) | `from_json`, `to_json`, `json_flatten`, `json_value`, `json_query`, `json_set`, `xml_value`, `html_query`, `from_csv`, `to_csv` |
 | [Array & Math](./array-math.md) | `seq`, `uniq`, `asort`, `asorti`, `_sum`, `_mean`, `_median`, `_quantile`, `_stddev`, `_top`, `_argmax`, `_argmin`, bloom filter, `abs`, `round`, `eval`, `fend`, `min`, `max`, exact decimals `dec_add`, `dec_sub`, `dec_mul`, `dec_div`, `dec_round`, `dec_format`, `dec_cmp` |
-| [Date/Time](./datetime.md) | `systime`, `systime_ms`, `strftime` (IANA time zones), `mktime`, `datetime`, `duration` |
-| [Crypto & Encoding](./crypto-encoding.md) | `digest`, `hmac`, `encrypt`, `decrypt`, `jwt`, `dejwt`, `encode`, `decode`, `uuid`, `ulid`, `tsid`, `snowflake` |
+| [Date/Time](./datetime.md) | `systime`, `systime_ms`, `strftime` (IANA time zones), `mktime`, `strptime`, `datetime`, `duration` |
+| [Crypto & Encoding](./crypto-encoding.md) | `digest`, `hmac`, `encrypt`, `decrypt`, `jwt`, `dejwt`, `encode`, `decode`, `uuid`, `ulid`, `tsid`, `snowflake`, `uuid_extract_timestamp` |
 | [Network](./network.md) | `http_get`, `http_post`, `send_mail`, `s3_get`, `s3_put`, `publish`, `local_ip`, `jev*` |
 | [Database & KV](./database-kv.md) | `sqlite_*`, `mysql_*`, `pg_*`, `kv_get`, `kv_put`, `kv_delete`, `kv_clear` |
 | [OS, I/O & Misc](./os-io.md) | `getenv`, `system2`, `read_all`, `write_all`, `read_config`, `var_dump`, `log_info`, `typeof`, `version`, `fake`, `hex2rgb`, `color` |

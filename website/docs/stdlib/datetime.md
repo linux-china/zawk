@@ -35,6 +35,17 @@ mktime("2024-01-01 10:00:00", 0, 8)   # 1704074400: UTC offset in hours
 
 It returns `-1` if the text cannot be parsed, as gawk does.
 
+When the format is known, `strptime(s, format[, tz])` parses with a [chrono format](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
+and guesses nothing: `"01/02/2024"` is January 2 with `"%m/%d/%Y"`, February 1 with `"%d/%m/%Y"`. Text with `%z` or `%s`
+is an instant; other text is local time, or in `tz`: an IANA time zone name, or UTC for another true value.
+It returns `-1` if the text does not match the format.
+
+```awk
+strptime("01/02/2024", "%d/%m/%Y")                          # local midnight of February 1
+strptime("2024-01-02 08:00", "%Y-%m-%d %H:%M", "Asia/Shanghai")  # 1704153600
+strptime("02/Jan/2024:08:00:00 +0800", "%d/%b/%Y:%H:%M:%S %z")   # 1704153600
+```
+
 `datetime()` breaks a time into parts: `year`, `month`, `monthday`, `hour`, `minute`, `second`, `yearday`,
 `weekday`, `althour`, `quarter` (1-4), `month_lastday` (last day of the month, 28-31), `week` (ISO 8601 week, same as `strftime("%V")`) and `isoyear`
 (ISO 8601 week-based year, same as `strftime("%G")`).

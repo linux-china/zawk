@@ -1317,6 +1317,21 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Duration(dst, expr) => self.unop(intrinsic!(duration), dst, expr),
+            Strptime(dst, text, format, timezone) => {
+                let text = self.get_val(text.reflect())?;
+                let format = self.get_val(format.reflect())?;
+                let timezone = self.get_val(timezone.reflect())?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(strptime), &mut [text, format, timezone])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            UuidExtractTimestamp(dst, id, epoch_ms) => {
+                let id = self.get_val(id.reflect())?;
+                let epoch_ms = self.get_val(epoch_ms.reflect())?;
+                let resv =
+                    self.call_intrinsic(intrinsic!(uuid_extract_timestamp), &mut [id, epoch_ms])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             DateAdd(dst, timestamp, n, unit) => {
                 let timestamp = self.get_val(timestamp.reflect())?;
                 let n = self.get_val(n.reflect())?;

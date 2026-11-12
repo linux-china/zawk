@@ -287,6 +287,8 @@ pub(crate) enum Instr<'a> {
     Decrypt(Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
     Mktime(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
     Duration(Reg<Int>, Reg<Str<'a>>),
+    Strptime(Reg<Int>, Reg<Str<'a>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    UuidExtractTimestamp(Reg<Int>, Reg<Str<'a>>, Reg<Int>),
     DateAdd(Reg<Int>, Reg<Int>, Reg<Int>, Reg<Str<'a>>),
     DateAddStr(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Str<'a>>),
     DateDiff(Reg<Int>, Reg<Str<'a>>, Reg<Int>, Reg<Int>),
@@ -994,6 +996,17 @@ impl<'a> Instr<'a> {
             Duration(res, expr) => {
                 res.accum(&mut f);
                 expr.accum(&mut f);
+            }
+            Strptime(res, text, format, timezone) => {
+                res.accum(&mut f);
+                text.accum(&mut f);
+                format.accum(&mut f);
+                timezone.accum(&mut f);
+            }
+            UuidExtractTimestamp(res, id, epoch_ms) => {
+                res.accum(&mut f);
+                id.accum(&mut f);
+                epoch_ms.accum(&mut f);
             }
             DateAdd(res, timestamp, n, unit) => {
                 res.accum(&mut f);

@@ -3536,6 +3536,15 @@ where
                     builtins::Function::PadBoth if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b" "));
                     }
+                    // strptime(s, fmt) => strptime(s, fmt, ""): local time.
+                    builtins::Function::Strptime if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
+                    // uuid_extract_timestamp(id) => uuid_extract_timestamp(id, 0): Snowflake IDs
+                    // count from the Unix epoch, as snowflake().
+                    builtins::Function::UuidExtractTimestamp if args_len == 1 => {
+                        prim_args.push(PrimVal::ILit(0));
+                    }
                     // snowflake() => snowflake(1);
                     builtins::Function::SnowFlake if args_len == 0 => {
                         prim_args.push(PrimVal::ILit(1));

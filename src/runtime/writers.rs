@@ -3043,7 +3043,7 @@ fn receive_loop<W: io::Write>(
 /// are written as they come, as without `--keep-order`.
 pub mod ordered {
     use super::*;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
     use std::sync::Condvar;
     use std::time::Duration;
@@ -3173,6 +3173,22 @@ pub mod ordered {
             self.turn.notify_all();
         }
 
+        /// The chunks before `seq` have no output to wait for.
+        fn skip_to(&self, seq: u64) {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if st.next >= seq {
+                return;
+            }
+            st.next = seq;
+            let later = st.done.split_off(&seq);
+            for (_, data) in mem::replace(&mut st.done, later) {
+                st.held -= size(&data);
+                self.send_all(data);
+            }
+            self.head.store(st.next, Ordering::Release);
+            self.turn.notify_all();
+        }
+
         /// Wait before processing chunk `seq` while the output held back is over `MAX_HELD`,
         /// until the chunks before `seq` are written (or the stage ends or stdout fails).
         fn wait_turn(&self, seq: u64) {
@@ -3280,6 +3296,10 @@ pub mod ordered {
 
     thread_local! {
         static WORKER: RefCell<Option<Worker>> = const { RefCell::new(None) };
+        /// The chunk taken by this thread before it became a worker: the main thread reads the
+        /// first chunk(s) before the parallel stage starts (the `-H` header, the jsonl schema,
+        /// a `getline` in BEGIN). `enter` makes it the worker's chunk.
+        static PENDING_SEQ: Cell<Option<u64>> = const { Cell::new(None) };
     }
 
     /// Start a parallel stage writing stdout through `out`, if `--keep-order` is set. Chunks are
@@ -3305,10 +3325,16 @@ pub mod ordered {
             Some(o) => o.clone(),
             None => return,
         };
+        let seq = PENDING_SEQ.with(Cell::take);
+        if let Some(seq) = seq {
+            // The chunks before `seq` were consumed entirely before the stage started: what
+            // they printed is written already, and no worker will seal them.
+            order.skip_to(seq);
+        }
         WORKER.with(|w| {
             *w.borrow_mut() = Some(Worker {
                 order,
-                seq: None,
+                seq,
                 full: Vec::new(),
                 buf: Vec::new(),
             })
@@ -3320,10 +3346,9 @@ pub mod ordered {
         if !keep_order() {
             return;
         }
-        WORKER.with(|w| {
-            if let Some(w) = w.borrow_mut().as_mut() {
-                w.seal(Some(seq));
-            }
+        WORKER.with(|w| match w.borrow_mut().as_mut() {
+            Some(w) => w.seal(Some(seq)),
+            None => PENDING_SEQ.with(|p| p.set(Some(seq))),
         });
     }
 
@@ -3341,6 +3366,7 @@ pub mod ordered {
     /// Every worker of the stage has left (or the program exits): write the output still held
     /// back, in chunk order, and the output sealed from now on as it comes.
     pub fn finish() {
+        PENDING_SEQ.with(|p| p.set(None));
         let order = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(order) = order {
             let mut st = order.state.lock().unwrap_or_else(|e| e.into_inner());

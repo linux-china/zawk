@@ -79,6 +79,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("right", "right($0, 2)", Some(b"\xe9x")),
     ("ord", "ord(substr($0, 4))", Some(b"233")),
     ("path_join", "path_join($0, $0)", Some(b"caf\xe9x/caf\xe9x")),
+    ("nfc_normalize", "nfc_normalize($0)", Some(b"caf\xe9x")),
     (
         "eq_ignore_case",
         "eq_ignore_case($0, toupper($0)) eq_ignore_case($0, \"caf\\303\\251x\")",
@@ -219,6 +220,8 @@ const EXEMPT: &[&str] = &[
     "dec_cmp",
     "strftime",
     "mktime",
+    "strptime",
+    "uuid_extract_timestamp",
     "duration",
     "date_add",
     "date_diff",

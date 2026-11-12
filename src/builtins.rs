@@ -53,6 +53,9 @@ pub enum Function {
     Ulid,
     Tsid,
     SnowFlake,
+    // uuid_extract_timestamp(id[, epoch_ms]): the time of a UUID v1/v6/v7, ULID, TSID or
+    // Snowflake ID.
+    UuidExtractTimestamp,
     Whoami,
     Version,
     Os,
@@ -76,6 +79,8 @@ pub enum Function {
     Bar,
     Strftime,
     Mktime,
+    // strptime(s, fmt[, tz]): s parsed with the format fmt.
+    Strptime,
     Duration,
     DateAdd,
     DateDiff,
@@ -545,6 +550,7 @@ static_map!(
     ["ulid", Function::Ulid],
     ["tsid", Function::Tsid],
     ["snowflake", Function::SnowFlake],
+    ["uuid_extract_timestamp", Function::UuidExtractTimestamp],
     ["whoami", Function::Whoami],
     ["version", Function::Version],
     ["os", Function::Os],
@@ -561,6 +567,7 @@ static_map!(
     ["systime_ms", Function::SystimeMs],
     ["strftime", Function::Strftime],
     ["mktime", Function::Mktime],
+    ["strptime", Function::Strptime],
     ["duration", Function::Duration],
     ["date_add", Function::DateAdd],
     ["date_diff", Function::DateDiff],
@@ -589,6 +596,7 @@ static_map!(
     ["ord", Function::Ord],
     ["bar", Function::Bar],
     ["path_join", Function::Text(TextOp::PathJoin)],
+    ["nfc_normalize", Function::Text(TextOp::NfcNormalize)],
     ["encode", Function::Encode],
     ["decode", Function::Decode],
     ["digest", Function::Digest],
@@ -1174,6 +1182,7 @@ impl Function {
             },
             Uuid => (smallvec![Str], Str),
             SnowFlake => (smallvec![Int], Int),
+            UuidExtractTimestamp => (smallvec![Str, Int], Int),
             Ulid | Tsid => (smallvec![], Str),
             Whoami | Version | Os | OsFamily | Arch | Pwd | UserHome => (smallvec![], Str),
             LocalIp => (smallvec![], Str),
@@ -1184,6 +1193,7 @@ impl Function {
             Bar => (smallvec![Float; 4], Str),
             Strftime => (smallvec![Str, Int, Int, Str], Str),
             Mktime => (smallvec![Str, Int, Int], Int),
+            Strptime => (smallvec![Str, Str, Str], Int),
             Duration => (smallvec![Str], Int),
             // date text is parsed as mktime does; other values are timestamps
             DateAdd => (
@@ -1479,6 +1489,8 @@ impl Function {
             Encrypt | Decrypt => 3,
             Strftime => 4,
             Mktime => 3,
+            Strptime => 3,
+            UuidExtractTimestamp => 2,
             Text(_) => 3,
             Ord => 1,
             Bar => 4,
@@ -1573,9 +1585,9 @@ impl Function {
             | Binop(IsMatch) | Binop(LT) | Binop(GT) | Binop(LTE) | Binop(GTE) | Binop(EQ)
             | Length | Strlen | Split | SplitSeps | PatSplit | ReadErr | ReadErrCmd
             | ReadErrStdin | Contains | Delete | Match | MatchArr | Sub | GSub | Systime
-            | SystimeMs | Ord | Mktime | Duration | DateAdd | DateDiff | DateTrunc | System
-            | HexToInt | Asort | Asorti | MkBool | SnowFlake | ArrayCountDistinct | Exiting
-            | TryScope => Ok(Scalar(BaseTy::Int).abs()),
+            | SystimeMs | Ord | Mktime | Strptime | UuidExtractTimestamp | Duration | DateAdd
+            | DateDiff | DateTrunc | System | HexToInt | Asort | Asorti | MkBool | SnowFlake
+            | ArrayCountDistinct | Exiting | TryScope => Ok(Scalar(BaseTy::Int).abs()),
             // An array `F` is the result; a scalar `F` gives an empty array of the type of `E`.
             TryElse => match (&args[0], &args[1]) {
                 (Some(Map { .. }), Some(Map { .. })) => Ok(args[1]),

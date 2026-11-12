@@ -188,6 +188,8 @@ impl Display for Function {
             Bar => write!(f, "bar"),
             Strftime => write!(f, "strftime"),
             Mktime => write!(f, "mktime"),
+            Strptime => write!(f, "strptime"),
+            UuidExtractTimestamp => write!(f, "uuid_extract_timestamp"),
             Duration => write!(f, "duration"),
             DateAdd => write!(f, "date_add"),
             DateDiff => write!(f, "date_diff"),

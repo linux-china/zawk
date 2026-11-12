@@ -1,5 +1,8 @@
 # Unreleased
 
+* Add `strptime(s, format[, tz])`: date text parsed with a chrono strftime format, so nothing is guessed as in `mktime`: `strptime("01/02/2024", "%d/%m/%Y")` is February 1. Text with `%z` or `%s` is an instant, other text is local time or in `tz` (an IANA time zone, or UTC for another true value); `-1` if the text does not match the format
+* Add `uuid_extract_timestamp(id[, epoch_ms])`: the Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was made, e.g. `strftime("%F %T", uuid_extract_timestamp(uuid("v7")))`; Snowflake IDs count from `epoch_ms` (0 by default as `snowflake()`, `1288834974657` for X/Twitter)
+* Add `nfc_normalize(s)`: `s` in Unicode Normalization Form C, as DuckDB's `nfc_normalize`, to compare, group and sort text that mixes composed (`é`) and decomposed (`e` + U+0301) characters
 * Add string functions from DuckDB: `reverse(s)` (by character, grapheme clusters kept whole), `ltrim(s[, chars])` / `rtrim(s[, chars])` (as `trim`, one end only), `replace(s, from, to)` (plain text, no regex to escape: `replace("a.b.c", ".", "::")` is `a::b::c`), `translate(s, from, to)` (character by character like `tr`: `translate("hello", "el", "ip")` is `hippo`), `left(s, n)` / `right(s, n)` (a negative `n` drops characters from the other end), `chr(n)` / `ord(s)` (Unicode code points, as gawk's `ordchr` extension) and `bar(x, min, max[, width])` (a text bar chart of Unicode blocks, 80 characters wide by default)
 * Add `path_join(part, ...)`: the parts joined with a single `/`, empty parts skipped and an absolute part restarting the path, e.g. `path_join("logs", "2024", "app.log")` is `logs/2024/app.log`
 * Add `tan(x)`, `asin(x)`, `acos(x)`, `pi()` and `sign(x)`

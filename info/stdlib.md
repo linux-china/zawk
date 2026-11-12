@@ -241,6 +241,18 @@ right("hello", -2)    # "llo"
 right("你好世界", 2)   # "世界"
 ```
 
+### nfc_normalize
+
+`nfc_normalize(s)`: `s` in Unicode Normalization Form C (NFC), as DuckDB's `nfc_normalize`: a letter followed by combining
+marks is composed into one character when Unicode has one. The same text may come either way from different sources
+(macOS file names are decomposed, for example), so normalize it before comparing, grouping or sorting.
+Bytes that are not valid UTF-8 are kept.
+
+```awk
+nfc_normalize("cafe\xcc\x81") == "café"   # 1: "e" + U+0301 COMBINING ACUTE ACCENT (bytes CC 81) is "é" (U+00E9)
+{ count[nfc_normalize($1)]++ }            # "é" counted once, however it is encoded
+```
+
 ### chr/ord
 
 `chr(n)`: the character with the Unicode code point `n`, `""` when `n` is not a code point.
@@ -652,6 +664,25 @@ ID specs:
 * length: 64 bits
 * machine_id: 10 bits, `0..=1023`, and `1` by default
 
+### uuid_extract_timestamp
+
+`uuid_extract_timestamp(id[, epoch_ms])`: the Unix time (in seconds) at which a time-based ID was made, to be formatted
+with `strftime`. The kind of ID is told by its form:
+
+* UUID v1, v6 or v7 (with or without hyphens): the timestamp in the UUID
+* ULID: 26 Crockford base32 characters, the first 48 bits are Unix milliseconds
+* TSID: 13 Crockford base32 characters, the first 42 bits are milliseconds since `2020-01-01T00:00:00Z`
+* Snowflake ID: a decimal number, the bits above the lowest 22 are milliseconds since `epoch_ms`, the Unix time in
+  milliseconds: `0` by default, as `snowflake()`; `1288834974657` for X/Twitter, `1420070400000` for Discord
+
+Other text (a UUID v4, say) gives a warning and `-1`.
+
+```awk
+strftime("%F %T", uuid_extract_timestamp(uuid("v7")))      # now
+uuid_extract_timestamp("01ARZ3NDEKTSV4RRFFQ69G5FAV")       # 1469922850
+uuid_extract_timestamp("1541815603606036480", 1288834974657)  # 1656432460: an X/Twitter post ID
+```
+
 # Array functions
 
 ### length
@@ -960,6 +991,21 @@ please refer https://docs.rs/dateparser/latest/dateparser/#accepted-date-formats
 
 `mktime()` returns `-1` if the text cannot be parsed, as gawk does.
 The gawk format `"YYYY MM DD HH MM SS [DST]"` is tried first, and out-of-range values are normalized (e.g. month `13`).
+
+### strptime
+
+`strptime(s, format[, tz])`: parse `s` with a [chrono strftime format](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
+to a Unix time, `-1` if the text does not match the format. Unlike `mktime` nothing is guessed, so `01/02/2024` is
+January 2 or February 1 as the format says. A format without a time of day means midnight.
+
+Text with a UTC offset (`%z`) or a Unix time (`%s`) is an instant. Other text is a local time in `tz`: the local time
+zone when `tz` is missing, `""` or `0`; the time zone it names in the IANA database (`Asia/Shanghai`, `UTC`, daylight
+saving time included); UTC for any other true value (`1`), as in `strftime`.
+
+- `strptime("01/02/2024", "%m/%d/%Y", "UTC")`: `1704153600`, January 2
+- `strptime("01/02/2024", "%d/%m/%Y", "UTC")`: `1706745600`, February 1
+- `strptime("2024-01-02 08:00", "%Y-%m-%d %H:%M", "Asia/Shanghai")`: `1704153600`
+- `strptime("02/Jan/2024:08:00:00 +0800", "%d/%b/%Y:%H:%M:%S %z")`: `1704153600`, an access log time
 
 ### date_add and date_diff
 

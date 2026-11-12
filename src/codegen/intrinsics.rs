@@ -218,6 +218,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] getenv(str_ref_ty, str_ref_ty) -> str_ty;
         [ReadOnly] mktime(str_ref_ty, int_ty, int_ty) -> int_ty;
         [ReadOnly] duration(str_ref_ty) -> int_ty;
+        [ReadOnly] strptime(str_ref_ty, str_ref_ty, str_ref_ty) -> int_ty;
+        [ReadOnly] uuid_extract_timestamp(str_ref_ty, int_ty) -> int_ty;
         [ReadOnly] date_add(int_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_add_str(str_ref_ty, int_ty, str_ref_ty) -> int_ty;
         [ReadOnly] date_diff(str_ref_ty, int_ty, int_ty) -> int_ty;
@@ -2174,6 +2176,26 @@ pub(crate) unsafe extern "C" fn duration(expr: *mut U128) -> Int {
     guard_panic(stringify!(duration), || {
         let expr = &*(expr as *mut Str);
         date_time::duration(&*expr.as_str()) as Int
+    })
+}
+
+pub(crate) unsafe extern "C" fn strptime(
+    text: *mut U128,
+    format: *mut U128,
+    timezone: *mut U128,
+) -> Int {
+    guard_panic(stringify!(strptime), || {
+        let text = &*(text as *mut Str);
+        let format = &*(format as *mut Str);
+        let timezone = &*(timezone as *mut Str);
+        date_time::strptime(&*text.as_str(), &*format.as_str(), &*timezone.as_str())
+    })
+}
+
+pub(crate) unsafe extern "C" fn uuid_extract_timestamp(id: *mut U128, epoch_ms: Int) -> Int {
+    guard_panic(stringify!(uuid_extract_timestamp), || {
+        let id = &*(id as *mut Str);
+        math_util::uuid_extract_timestamp(&*id.as_str(), epoch_ms)
     })
 }
 

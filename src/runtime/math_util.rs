@@ -335,6 +335,57 @@ pub(crate) fn tsid() -> String {
     tsid::create_tsid().to_string()
 }
 
+/// The epoch of TSIDs: 2020-01-01T00:00:00Z, in Unix milliseconds.
+const TSID_EPOCH_MS: i64 = 1_577_836_800_000;
+
+/// `uuid_extract_timestamp(id[, epoch_ms])`: the Unix time (in seconds) at which a time-based
+/// ID was made, `-1` with a warning when `id` is not one. The kind of ID is told by its form:
+///
+/// * a ULID: 26 Crockford base32 characters, the first 48 bits are Unix milliseconds;
+/// * a TSID: 13 Crockford base32 characters, the first 42 bits are milliseconds since 2020-01-01;
+/// * a Snowflake ID: a decimal number whose bits above the lowest 22 are milliseconds since
+///   `epoch_ms` (Unix milliseconds, 0 by default as `snowflake()`; 1288834974657 for X/Twitter,
+///   1420070400000 for Discord);
+/// * a UUID (with or without hyphens, braces or `urn:uuid:`) of version 1, 6 or 7.
+pub(crate) fn uuid_extract_timestamp(id: &str, epoch_ms: Int) -> Int {
+    match extract_timestamp_ms(id.trim(), epoch_ms) {
+        Some(ms) => ms.div_euclid(1000),
+        None => {
+            stdlib_warning(
+                "uuid_extract_timestamp",
+                format!(
+                    "not a time-based UUID, ULID, TSID or Snowflake ID: {:?}",
+                    id
+                ),
+            );
+            -1
+        }
+    }
+}
+
+/// The Unix time in milliseconds of the time-based ID `id`, see [uuid_extract_timestamp].
+fn extract_timestamp_ms(id: &str, epoch_ms: Int) -> Option<i64> {
+    match id.len() {
+        26 => ulid::Ulid::from_string(id)
+            .ok()
+            .map(|u| u.timestamp_ms() as i64),
+        // a TSID may be all digits: 13 digits are too few for a Snowflake ID of this century
+        13 => {
+            let n = tsid::TSID::try_from(id).ok()?.number();
+            Some((n >> 22) as i64 + TSID_EPOCH_MS)
+        }
+        _ if id.bytes().all(|b| b.is_ascii_digit()) => {
+            let n = id.parse::<i64>().ok()?;
+            epoch_ms.checked_add(n >> 22)
+        }
+        _ => {
+            // v1, v6 and v7 carry a timestamp; other versions give None
+            let (secs, nanos) = uuid::Uuid::try_parse(id).ok()?.get_timestamp()?.to_unix();
+            Some(secs as i64 * 1000 + (nanos / 1_000_000) as i64)
+        }
+    }
+}
+
 /// gawk's `strtonum`. `strnum` is whether the argument may be a strnum (input such as a field):
 /// one that looks like a decimal number is that number (`strtonum($1)` is 17 for the field
 /// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
@@ -904,6 +955,53 @@ mod tests {
     #[test]
     fn test_uuid() {
         println!("{}", uuid("v7"));
+    }
+
+    #[test]
+    fn test_uuid_extract_timestamp() {
+        // UUID v7 and v1, with and without hyphens
+        assert_eq!(
+            uuid_extract_timestamp("01a1cdc8-83b3-70d6-8c17-c61c18edc85f", 0),
+            1794453832
+        );
+        assert_eq!(
+            uuid_extract_timestamp("01a1cdc883b370d68c17c61c18edc85f", 0),
+            1794453832
+        );
+        assert_eq!(
+            uuid_extract_timestamp("c232ab00-9414-11ec-b3c8-9f6bdeced846", 0),
+            1645557742
+        );
+        // ULID, TSID (case-insensitive) and Snowflake IDs
+        assert_eq!(
+            uuid_extract_timestamp("01ARZ3NDEKTSV4RRFFQ69G5FAV", 0),
+            1469922850
+        );
+        let ms = 1_700_000_000_123_i64;
+        let tsid = tsid::TSID::from(((ms - TSID_EPOCH_MS) as u64) << 22 | 12345).to_string();
+        assert_eq!(uuid_extract_timestamp(&tsid, 0), 1_700_000_000);
+        assert_eq!(
+            uuid_extract_timestamp(&tsid.to_lowercase(), 0),
+            1_700_000_000
+        );
+        assert_eq!(
+            uuid_extract_timestamp(&((ms << 22) | 7).to_string(), 0),
+            1_700_000_000
+        );
+        // X/Twitter Snowflake IDs count from 2010-11-04
+        assert_eq!(
+            uuid_extract_timestamp("1541815603606036480", 1288834974657),
+            1656432460
+        );
+        let now = uuid_extract_timestamp(&snowflake(3).to_string(), 0);
+        assert!((now - crate::runtime::date_time::systime_ms() / 1000).abs() <= 1);
+        // not time-based
+        assert_eq!(
+            uuid_extract_timestamp("550e8400-e29b-41d4-a716-446655440000", 0),
+            -1
+        );
+        assert_eq!(uuid_extract_timestamp("hello", 0), -1);
+        assert_eq!(uuid_extract_timestamp("", 0), -1);
     }
 
     #[test]

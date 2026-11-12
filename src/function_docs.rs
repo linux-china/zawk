@@ -418,6 +418,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         r#"reverse("hello")"#,
     ),
     d(
+        "nfc_normalize",
+        TEXT,
+        "nfc_normalize(s: str) -> str",
+        "s in Unicode Normalization Form C (a letter and its combining marks composed into one character), so that text from different sources compares and sorts alike.",
+        r#"nfc_normalize("cafe\xcc\x81") == "café""#,
+    ),
+    d(
         "replace",
         TEXT,
         "replace(s: str, from: str, to: str) -> str",
@@ -713,6 +720,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "snowflake([machine_id: int]) -> int",
         "64-bit Snowflake ID; machine_id defaults to 1, range 0..=1023 (others are reduced modulo 1024 with a warning).",
         "snowflake(2)",
+    ),
+    d(
+        "uuid_extract_timestamp",
+        ID,
+        "uuid_extract_timestamp(id: str[, epoch_ms: int]) -> int",
+        "Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was made, -1 with a warning for other text; a Snowflake ID counts from epoch_ms (Unix milliseconds, default 0 as snowflake(); 1288834974657 for X/Twitter).",
+        r#"strftime("%F %T", uuid_extract_timestamp(uuid("v7")))"#,
     ),
     // Array
     d(
@@ -1194,6 +1208,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "mktime(s: str[, utc: bool[, tz_offset: int]]) -> int",
         "Parse date time text to a Unix time, -1 if invalid; tz_offset in hours.",
         r#"mktime("2024-01-01 10:00:00", 0, 8)"#,
+    ),
+    d(
+        "strptime",
+        DATETIME,
+        "strptime(s: str, format: str[, tz: str]) -> int",
+        "Parse s with a chrono strftime format to a Unix time, -1 if it does not match; text without %z or %s is local time, or in tz: an IANA time zone name, or UTC for another true value.",
+        r#"strptime("02/01/2024", "%d/%m/%Y", "UTC")"#,
     ),
     d(
         "datetime",

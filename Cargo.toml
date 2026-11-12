@@ -134,6 +134,7 @@ apache-avro = { version = "0.22", default-features = false, features = ["snappy"
 bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
+unicode-normalization = "0.1"
 unicode-segmentation = "1.13"
 unicode-width = "0.2"
 fake = "5.1"

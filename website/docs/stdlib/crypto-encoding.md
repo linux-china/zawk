@@ -76,6 +76,15 @@ tsid()
 snowflake(1)    # machine id 0..1023
 ```
 
+`uuid_extract_timestamp(id[, epoch_ms])` gives the Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was
+made (`-1` with a warning for other text). A Snowflake ID counts from `epoch_ms`, Unix milliseconds: `0` by default as
+`snowflake()`, `1288834974657` for X/Twitter, `1420070400000` for Discord.
+
+```awk
+strftime("%F %T", uuid_extract_timestamp(uuid("v7")))   # now
+uuid_extract_timestamp("01ARZ3NDEKTSV4RRFFQ69G5FAV")    # 1469922850
+```
+
 ## Fake data
 
 ```awk

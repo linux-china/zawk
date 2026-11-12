@@ -782,12 +782,83 @@ pub fn to_iso8601_str(date_time_text: &str) -> String {
     }
 }
 
+/// `strptime(text, format[, timezone])`: parse `text` with the chrono strftime `format` (the
+/// format `strftime` takes) to a Unix time, `-1` if the text does not match the format.
+///
+/// Unlike `mktime`, nothing is guessed: `"01/02/2024"` is January 2 with `"%m/%d/%Y"` and February
+/// 1 with `"%d/%m/%Y"`. A format without a time of day means midnight. Text with a UTC offset
+/// (`%z`) or a Unix time (`%s`) is an instant; any other text is a local time in `timezone`: the
+/// local time zone when it is empty or `"0"`, the zone of the IANA database it names
+/// (`"Asia/Shanghai"`), or UTC for any other value (a true utc flag, as in `strftime`).
+pub fn strptime(text: &str, format: &str, timezone: &str) -> Int {
+    try_strptime(text, format, timezone).unwrap_or(-1)
+}
+
+fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
+    // the text gives the instant: an offset, or a Unix time with %s
+    if let Ok(date_time) = DateTime::parse_from_str(text, format) {
+        return Some(date_time.timestamp());
+    }
+    let naive = NaiveDateTime::parse_from_str(text, format)
+        .or_else(|_| NaiveDate::parse_from_str(text, format).map(|d| d.and_time(NaiveTime::MIN)))
+        .ok()?;
+    match timezone {
+        "" | "0" => local_timestamp(&Local, &naive),
+        name => match jiff::tz::TimeZone::get(name) {
+            Ok(tz) => {
+                let civil = jiff::civil::DateTime::new(
+                    i16::try_from(naive.year()).ok()?,
+                    naive.month() as i8,
+                    naive.day() as i8,
+                    naive.hour() as i8,
+                    naive.minute() as i8,
+                    naive.second() as i8,
+                    0,
+                )
+                .ok()?;
+                Some(civil.to_zoned(tz).ok()?.timestamp().as_second())
+            }
+            Err(_) => Some(naive.and_utc().timestamp()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn utc(text: &str) -> i64 {
         mktime(text, true, MKTIME_LOCAL_TIMEZONE)
+    }
+
+    #[test]
+    fn test_strptime() {
+        // day and month are where the format says
+        assert_eq!(strptime("01/02/2024", "%m/%d/%Y", "UTC"), 1704153600);
+        assert_eq!(strptime("01/02/2024", "%d/%m/%Y", "UTC"), 1706745600);
+        assert_eq!(
+            strptime("2024-01-02 03:04:05", "%Y-%m-%d %H:%M:%S", "1"),
+            1704164645
+        );
+        // an IANA zone, or the offset in the text
+        assert_eq!(
+            strptime("2024-01-02 08:00", "%Y-%m-%d %H:%M", "Asia/Shanghai"),
+            1704153600
+        );
+        assert_eq!(
+            strptime("2024-01-02 08:00 +0800", "%Y-%m-%d %H:%M %z", ""),
+            1704153600
+        );
+        assert_eq!(strptime("1704153600", "%s", ""), 1704153600);
+        // local time by default, as mktime
+        assert_eq!(
+            strptime("2024 01 02 03 04 05", "%Y %m %d %H %M %S", ""),
+            mktime("2024 01 02 03 04 05", false, MKTIME_LOCAL_TIMEZONE)
+        );
+        // text that does not match the format
+        assert_eq!(strptime("2024-13-01", "%Y-%m-%d", "UTC"), -1);
+        assert_eq!(strptime("2024-01-02 x", "%Y-%m-%d", "UTC"), -1);
+        assert_eq!(strptime("", "%Y-%m-%d", "UTC"), -1);
     }
 
     #[test]

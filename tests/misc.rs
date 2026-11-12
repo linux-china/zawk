@@ -607,6 +607,22 @@ fn assert_both_backends(prog: &str, expected: &str) {
 }
 
 #[test]
+fn nfc_normalize_strptime_uuid_extract_timestamp() {
+    assert_both_backends(
+        r#"BEGIN { s = "cafe\xcc\x81"; print nfc_normalize(s) == "caf\xc3\xa9", length(s), length(nfc_normalize(s)), nfc_normalize("abc") }"#,
+        "1 5 4 abc\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print strptime("01/02/2024", "%m/%d/%Y", "UTC"), strptime("01/02/2024", "%d/%m/%Y", 1), strptime("2024-01-02 08:00", "%Y-%m-%d %H:%M", "Asia/Shanghai"), strptime("02/Jan/2024:08:00:00 +0800", "%d/%b/%Y:%H:%M:%S %z"), strptime("2024-01-02", "%Y-%m-%d") == mktime("2024-01-02"), strptime("2024-01-02", "%d/%m/%Y") }"#,
+        "1704153600 1706745600 1704153600 1704153600 1 -1\n",
+    );
+    assert_both_backends(
+        r#"BEGIN { print uuid_extract_timestamp("01ARZ3NDEKTSV4RRFFQ69G5FAV"), uuid_extract_timestamp("1541815603606036480", 1288834974657), uuid_extract_timestamp("c232ab00-9414-11ec-b3c8-9f6bdeced846"); n = systime(); print uuid_extract_timestamp(uuid("v7")) - n <= 1, uuid_extract_timestamp(ulid()) - n <= 1, uuid_extract_timestamp(tsid()) - n <= 1, uuid_extract_timestamp(snowflake()) - n <= 1 }"#,
+        "1469922850 1656432460 1645557742\n1 1 1 1\n",
+    );
+}
+
+#[test]
 fn duckdb_string_functions() {
     assert_both_backends(
         r#"BEGIN { print reverse("hello"), reverse("你好世界"), reverse("") "|" }"#,
