@@ -20,6 +20,19 @@ use crate::runtime::{
     str_impl::UniqueBuf,
 };
 
+thread_local! {
+    /// The number of the chunk with records this thread took last from a `ParallelChunkProducer`
+    /// (`-pr`), see [`take_last_chunk`].
+    static LAST_CHUNK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The number of the last chunk with records this thread took from a `ParallelChunkProducer`
+/// since the previous call, if any. Chunks are numbered in input order, so the worker holding the
+/// largest one read the last record of the input (see `interp::Core::keep_last_record`).
+pub(crate) fn take_last_chunk() -> Option<u64> {
+    LAST_CHUNK.with(std::cell::Cell::take)
+}
+
 /// A vector of dynamically typed factory functions producing a chunk producer
 /// for a particular chunk type in a different thread.
 type DynamicProducers<C> = Vec<Box<dyn FnOnce() -> Box<dyn ChunkProducer<Chunk = C>> + Send>>;
@@ -1038,7 +1051,10 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
             let res = chunk.finish(&mut new_chunk);
             let _ = self.spent.try_send(new_chunk);
             match res {
-                Ok(true) => return Ok(false),
+                Ok(true) => {
+                    LAST_CHUNK.with(|c| c.set(Some(seq)));
+                    return Ok(false);
+                }
                 // No record starts in the block: take the next chunk.
                 Ok(false) => continue,
                 Err(e) => return Err(e),

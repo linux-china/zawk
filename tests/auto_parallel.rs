@@ -232,3 +232,65 @@ fn combined_arrays_iterate_in_a_fixed_order() {
         }
     }
 }
+
+/// With `-pr`, `$0`, `$n` and `NF` in END are the last record of the input, as in a serial run,
+/// not the last record of whichever thread finished last; with pread (a local file), with the
+/// reading thread (`--utf8`), across files, and on stdin.
+#[test]
+fn end_reads_the_last_record_in_parallel() {
+    let dir = tempdir().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    let mut f = std::fs::File::create(&a).unwrap();
+    for i in 1..=30000u64 {
+        writeln!(f, "{} x{} y", i, i % 17).unwrap();
+    }
+    drop(f);
+    std::fs::write(&b, "last record here\n").unwrap();
+    let (a, b) = (a.to_str().unwrap(), b.to_str().unwrap());
+    let prog = "{ s += $1 } END { print $0, $1, $NF, NF, NR, s }";
+    for backend in BACKEND_ARGS {
+        for (files, want) in [
+            (vec![a], "30000 x12 y 30000 y 3 30000 450015000\n"),
+            (vec![a, b], "last record here last here 3 30001 450015000\n"),
+        ] {
+            for extra in [&[][..], &["--utf8"][..]] {
+                for (jobs, chunk) in [("2", "256"), ("8", "1000"), ("8", "65536")] {
+                    for _ in 0..3 {
+                        let mut args = vec![*backend, "-pr", "-j", jobs, "--chunk-size", chunk];
+                        args.extend(extra);
+                        args.push(prog);
+                        args.extend(files.iter().copied());
+                        let out = zawk(&[], &args);
+                        assert!(
+                            out.status.success(),
+                            "{}",
+                            String::from_utf8_lossy(&out.stderr)
+                        );
+                        assert_eq!(
+                            String::from_utf8_lossy(&out.stdout),
+                            want,
+                            "{:?}",
+                            args
+                        );
+                    }
+                }
+            }
+        }
+        // stdin
+        let input = std::fs::read(a).unwrap();
+        for _ in 0..3 {
+            let out = Command::cargo_bin("zawk")
+                .unwrap()
+                .env_remove("ZAWK_PARALLEL")
+                .args([*backend, "-pr", "-j", "8", "--chunk-size", "512", prog])
+                .write_stdin(input.clone())
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "30000 x12 y 30000 y 3 30000 450015000\n"
+            );
+        }
+    }
+}

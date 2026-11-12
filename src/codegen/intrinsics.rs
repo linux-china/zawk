@@ -920,6 +920,38 @@ impl<'a> Runtime<'a> {
         render_runtime_error(msg, self.site, &calls, self.core.worker_input())
     }
 
+    /// The record this thread of a parallel program read last, see
+    /// `interp::Core::last_record_pos`.
+    pub(crate) fn last_record(&mut self) -> Option<(crate::interp::RecordPos, String)> {
+        let pos = self.core.last_record_pos()?;
+        let text = with_input!(&mut self.input_data, |(line, _)| {
+            line.get_col(
+                0,
+                &self.core.vars.split_fs,
+                &self.core.vars.ofs,
+                &mut self.core.regexes,
+            )
+        })
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+        Some((pos, text))
+    }
+
+    /// After the results of the workers are combined: `$0` (and so the fields and `NF`) in END
+    /// is the record a serial run reads last, not the one this thread did.
+    pub(crate) fn restore_last_record(&mut self) {
+        if let Some(text) = self.core.take_last_record() {
+            let s = Str::from(text);
+            // Assigning `$0` does not fail.
+            let _ = with_input!(&mut self.input_data, |(line, _)| line.set_col(
+                0,
+                &s,
+                &self.core.vars.ofs,
+                &mut self.core.regexes,
+            ));
+        }
+    }
+
     /// See `LineReader::file_version`.
     pub(crate) fn stdin_file_version(&mut self) -> u32 {
         with_input!(&mut self.input_data, |(_, read_files)| {

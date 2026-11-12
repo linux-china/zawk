@@ -212,6 +212,9 @@ shall see you always have the option of performing the aggregation explicitly.
 * Maps are aggregated by performing a union of the underlying sets of key/value
   pairs, with overlapping values being aggregated according to the corresponding
   scalar rule.
+* In `END`, `$0` (and so `$n` and `NF`) is the last record of the input, as in
+  a serial run, whichever worker read it; after `exit` in the main loop, it is
+  the record the first worker calling `exit` read last.
 * Every worker starts from a copy of the values the `BEGIN` block set, and these
   starting values are counted once, not once per worker: a number is aggregated
   as `begin + Σ (worker − begin)`, the same for each value of a map, and a

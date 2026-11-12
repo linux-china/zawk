@@ -51,6 +51,23 @@ pub(crate) struct Core<'a> {
     /// The arrays of the workers whose results were added with [`Core::combine`], merged by
     /// [`Core::finish_combine`] once every worker is done.
     combined: Vec<Slots>,
+    /// The last record of the input among those the threads of a parallel program read (see
+    /// [`Core::keep_last_record`]): `$0` in END.
+    last_record: Option<LastRecord>,
+}
+
+/// Where a record of a parallel program is in the input: the number of its chunk (`-pr`, see
+/// `chunk::take_last_chunk`), then its file (see [`Core::file_version`], for `-pf`).
+pub(crate) type RecordPos = (Option<u64>, u32);
+
+/// A record read last by a thread of a parallel program, see [`Core::keep_last_record`].
+struct LastRecord {
+    pos: RecordPos,
+    text: String,
+    /// The thread called `exit` (reading this record, as `exit` stops reading the input).
+    exit: bool,
+    /// Read by this thread: `$0` already holds it.
+    own: bool,
 }
 
 impl<'a> Drop for Core<'a> {
@@ -131,6 +148,8 @@ pub(crate) struct StageResult {
     rc: i32,
     // The code of the worker's `exit`, if it called it.
     exit: Option<Int>,
+    // The record the worker read last and where it is in the input, see `Core::last_record_pos`.
+    record: Option<(RecordPos, String)>,
 }
 
 impl Slots {
@@ -552,6 +571,7 @@ impl<'a> Core<'a> {
                 cancel_signal,
                 file_version: 0,
                 combined: Vec::new(),
+                last_record: None,
             }
         }
     }
@@ -571,6 +591,7 @@ impl<'a> Core<'a> {
             cancel_signal: Default::default(),
             file_version: 0,
             combined: Vec::new(),
+            last_record: None,
         }
     }
 
@@ -580,8 +601,48 @@ impl<'a> Core<'a> {
         self.slots.clone()
     }
 
-    /// The result of a worker.
-    pub fn extract_result(&mut self, rc: i32) -> StageResult {
+    /// Where the record this thread of a parallel program read last is in the input, if it read
+    /// one. Call it once, after the thread's main loop: it takes the chunk number. Before the main
+    /// loop, call [`Core::reset_last_record`] on a thread that may have run one before.
+    pub fn last_record_pos(&self) -> Option<RecordPos> {
+        let seq = runtime::splitter::chunk::take_last_chunk();
+        (seq.is_some() || self.file_version != 0).then_some((seq, self.file_version))
+    }
+
+    /// Forget the chunk a previous parallel stage left on this thread (see
+    /// [`Core::last_record_pos`]).
+    pub fn reset_last_record() {
+        let _ = runtime::splitter::chunk::take_last_chunk();
+    }
+
+    /// Add a record a thread read last (`own`: this thread), keeping the one a serial run reads
+    /// last: that of the first thread calling `exit`, otherwise the last one of the input.
+    pub fn keep_last_record(&mut self, pos: RecordPos, text: String, exit: bool, own: bool) {
+        let better = match &self.last_record {
+            None => true,
+            Some(cur) => !cur.exit && (exit || pos > cur.pos),
+        };
+        if better {
+            self.last_record = Some(LastRecord {
+                pos,
+                text,
+                exit,
+                own,
+            });
+        }
+    }
+
+    /// The record `$0` should hold in END after the results of the workers are combined, when it
+    /// is not the one this thread read last.
+    pub fn take_last_record(&mut self) -> Option<String> {
+        self.last_record
+            .take()
+            .filter(|r| !r.own)
+            .map(|r| r.text)
+    }
+
+    /// The result of a worker; `record` is the one it read last (see [`Core::last_record_pos`]).
+    pub fn extract_result(&mut self, rc: i32, record: Option<(RecordPos, String)>) -> StageResult {
         StageResult {
             slots: mem::take(&mut self.slots),
             nr: self.vars.nr,
@@ -592,6 +653,7 @@ impl<'a> Core<'a> {
             ),
             rc,
             exit: self.exiting.then_some(self.exit_code),
+            record,
         }
     }
 
@@ -628,6 +690,7 @@ impl<'a> Core<'a> {
             file: (version, filename, fnr),
             rc: _,
             exit,
+            record,
         }: StageResult,
         base: &Slots,
     ) {
@@ -646,6 +709,9 @@ impl<'a> Core<'a> {
                 self.vars.filename = filename.into();
             }
             self.vars.fnr = self.vars.fnr.agg(fnr, None);
+        }
+        if let Some((pos, text)) = record {
+            self.keep_last_record(pos, text, exit.is_some(), false);
         }
         if let (Some(code), false) = (exit, self.exiting) {
             self.exiting = true;
@@ -1005,6 +1071,36 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         })
     }
 
+    /// The record this thread of a parallel program read last, see [`Core::last_record_pos`].
+    fn last_record(&mut self) -> Option<(RecordPos, String)> {
+        let pos = self.core.last_record_pos()?;
+        let text = self
+            .line
+            .get_col(
+                0,
+                &self.core.vars.split_fs,
+                &self.core.vars.ofs,
+                &mut self.core.regexes,
+            )
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        Some((pos, text))
+    }
+
+    /// After the results of the workers are combined: `$0` (and so the fields and `NF`) in END
+    /// is the record a serial run reads last, not the one this thread did.
+    fn restore_last_record(&mut self) -> Result<()> {
+        if let Some(text) = self.core.take_last_record() {
+            self.line.set_col(
+                0,
+                &Str::from(text),
+                &self.core.vars.ofs,
+                &mut self.core.regexes,
+            )?;
+        }
+        Ok(())
+    }
+
     fn reset_file_vars(&mut self) {
         self.core.vars.fnr = 0;
         self.core.vars.filename = self.read_files.stdin_filename().upcast();
@@ -1149,7 +1245,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                                 interp.core.cancel_signal.cancel(2);
                                 sender.send(Err(e))
                             }
-                            Ok(rc) => sender.send(Ok(interp.core.extract_result(rc))),
+                            Ok(rc) => {
+                                let record = interp.last_record();
+                                sender.send(Ok(interp.core.extract_result(rc, record)))
+                            }
                         };
                     }
                 });
@@ -1163,11 +1262,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                 cancel_signal.cancel(2);
                 e
             };
+            Core::reset_last_record();
             runtime::writers::ordered::enter();
             let main_res = self.run_at(main_loop);
             runtime::writers::ordered::leave();
             let mut rc = main_res.map_err(cancel_on_err)?;
             self.core.vars.pid = 0;
+            if let Some((pos, text)) = self.last_record() {
+                let exit = self.core.exiting;
+                self.core.keep_last_record(pos, text, exit, true);
+            }
             while let Ok(res) = receiver.recv() {
                 let res = res.map_err(cancel_on_err)?;
                 let sub_rc = res.rc;
@@ -1178,6 +1282,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             }
             self.core.finish_input();
             self.core.finish_combine(&base_slots);
+            self.restore_last_record()?;
             Ok(rc)
         });
         self.core.regexes.leave_shared();

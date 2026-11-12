@@ -280,7 +280,8 @@ unsafe fn run_stage(
                         core: shuttle(),
                         input_data,
                         cleanup: Cleanup::<Runtime>::new(move |rt| {
-                            sender.send(rt.core.extract_result(0)).unwrap();
+                            let record = rt.last_record();
+                            sender.send(rt.core.extract_result(0, record)).unwrap();
                         }),
                         cancel_signal,
                         site: 0,
@@ -299,18 +300,24 @@ unsafe fn run_stage(
             rt.core.vars.pid = 1;
             let r = receiver.clone();
             rt.cleanup = Cleanup::<Runtime>::new(move |_| while r.recv().is_ok() {});
+            crate::interp::Core::reset_last_record();
             runtime::writers::ordered::enter();
             main_loop_fn.invoke(&mut rt);
             runtime::writers::ordered::leave();
             rt.cleanup.cancel();
         }
         rt.core.vars.pid = 0;
+        if let Some((pos, text)) = rt.last_record() {
+            let exit = rt.core.exiting;
+            rt.core.keep_last_record(pos, text, exit, true);
+        }
 
         while let Ok(res) = receiver.recv() {
             rt.core.combine(res, &base_slots);
         }
         rt.core.finish_input();
         rt.core.finish_combine(&base_slots);
+        rt.restore_last_record();
         runtime::writers::ordered::finish();
         // A worker stopped through `exit!` (a fatal error or a failed write) and blocks until the
         // process exits: stop now, even if another worker called `exit` (which would otherwise
