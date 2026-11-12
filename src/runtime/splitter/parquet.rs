@@ -1307,8 +1307,8 @@ fn scalar_text(field: &Field) -> (String, Kind) {
         Field::Str(s) => (s.clone(), Kind::Str),
         Field::Bytes(b) => (hex(b.data()), Kind::Str),
         Field::Date(days) => (date(*days), Kind::Str),
-        Field::TimeMillis(ms) => (time_nanos(*ms as i64 * 1_000_000), Kind::Str),
-        Field::TimeMicros(us) => (time_nanos(us * 1_000), Kind::Str),
+        Field::TimeMillis(ms) => (time_nanos((*ms as i64).saturating_mul(1_000_000)), Kind::Str),
+        Field::TimeMicros(us) => (time_nanos(us.saturating_mul(1_000)), Kind::Str),
         Field::TimestampMillis(ms) => (timestamp_nanos(ms.saturating_mul(1_000_000)), Kind::Str),
         Field::TimestampMicros(us) => (timestamp_nanos(us.saturating_mul(1_000)), Kind::Str),
         Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_) => {
