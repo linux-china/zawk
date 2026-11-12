@@ -1223,7 +1223,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             Text(op, dst, a, b, c) => {
-                let op = self.const_int(op.code() as i64);
+                let op = self.const_int(op.code());
                 let a = self.get_val(a.reflect())?;
                 let b = self.get_val(b.reflect())?;
                 let c = self.get_val(c.reflect())?;
@@ -1392,7 +1392,7 @@ pub(crate) trait CodeGenerator: Backend {
             MkPassword(dst, len) => self.unop(intrinsic!(mkpass), dst, len),
             Fend(dst, src) => self.unop(intrinsic!(fend), dst, src),
             Decimal(op, dst, a, b, c, d) => {
-                let op = self.const_int(op.code() as i64);
+                let op = self.const_int(op.code());
                 let a = self.get_val(a.reflect())?;
                 let b = self.get_val(b.reflect())?;
                 let c = self.get_val(c.reflect())?;

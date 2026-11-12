@@ -80,7 +80,7 @@ pub fn vec_to_csv(csv: &[&str]) -> String {
     let mut wtr = WriterBuilder::new().has_headers(false).from_writer(vec![]);
     let mut record = csv::StringRecord::new();
     for value in csv {
-        record.push_field(*value);
+        record.push_field(value);
     }
     wtr.write_record(&record).unwrap();
     let bytes = wtr.into_inner().unwrap();

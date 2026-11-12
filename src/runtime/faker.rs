@@ -11,7 +11,7 @@ use rand::seq::IndexedRandom;
 
 pub fn fake(name: &str, locale: &str) -> String {
     let locale = &locale.to_uppercase();
-    return match name {
+    match name {
         "name" => {
             if is_chinese(locale) {
                 Name(ZH_CN).fake()
@@ -73,7 +73,7 @@ pub fn fake(name: &str, locale: &str) -> String {
             name.replace(" ", "-").to_string()
         }
         _ => "".to_string(),
-    };
+    }
 }
 
 fn is_chinese(locale: &str) -> bool {

@@ -1546,11 +1546,10 @@ impl io::Read for InputFile {
             InputFile::Failed(_, Some(code)) => Err(io::Error::from_raw_os_error(*code)),
             InputFile::Failed(kind, None) => Err((*kind).into()),
         };
-        if let Err(e) = &res {
-            if e.kind() != io::ErrorKind::Interrupted {
+        if let Err(e) = &res
+            && e.kind() != io::ErrorKind::Interrupted {
                 set_errno_io(e);
             }
-        }
         res
     }
 }
@@ -2168,11 +2167,10 @@ pub(crate) fn set_errno(msg: String) {
 /// " (os error N)" suffix), e.g. "No such file or directory".
 pub(crate) fn set_errno_io(e: &io::Error) {
     let mut msg = e.to_string();
-    if let Some(code) = e.raw_os_error() {
-        if let Some(stripped) = msg.strip_suffix(&format!(" (os error {})", code)) {
+    if let Some(code) = e.raw_os_error()
+        && let Some(stripped) = msg.strip_suffix(&format!(" (os error {})", code)) {
             msg = stripped.to_string();
         }
-    }
     set_errno(msg);
 }
 
@@ -2322,7 +2320,7 @@ impl<K: Hash + Eq + Clone + Detach, V: Inc + Default + Clone> SharedMap<K, V> {
         if let Some(k) = slf.get_mut(k) {
             f(k)
         } else {
-            f(slf.entry(k.clone().detach()).or_insert(Default::default()))
+            f(slf.entry(k.clone().detach()).or_default())
         }
     }
 }

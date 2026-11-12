@@ -246,11 +246,10 @@ fn field_names(names: &[String]) -> Vec<String> {
         .iter()
         .zip(&valid)
         .map(|(name, valid)| {
-            if let Some(v) = valid {
-                if seen.insert(v.clone()) {
+            if let Some(v) = valid
+                && seen.insert(v.clone()) {
                     return v.clone();
                 }
-            }
             let base = avro_name(name);
             let mut candidate = base.clone();
             let mut n = 2;
@@ -433,7 +432,7 @@ fn parse_hex(text: &str) -> Option<Vec<u8>> {
         .strip_prefix("0x")
         .or_else(|| t.strip_prefix("0X"))
         .unwrap_or(t);
-    if t.len() % 2 != 0 || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !t.len().is_multiple_of(2) || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     (0..t.len())

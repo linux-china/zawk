@@ -542,13 +542,13 @@ impl<'a> Str<'a> {
     pub fn fend<'b>(&self) -> Str<'b> {
         let mut context = fend_core::Context::new();
         let expr = self.to_string();
-        return match fend_core::evaluate(&expr, &mut context) {
+        match fend_core::evaluate(&expr, &mut context) {
             Ok(result) => Str::from(result.get_main_result().to_string()),
             Err(error) => {
                 crate::runtime::stdlib_warning("fend", format!("{:?}: {}", expr, error));
                 Str::default()
             }
-        };
+        }
     }
 
     pub(crate) fn chars<'b>(&self) -> runtime::IntMap<Str<'b>> {
@@ -575,14 +575,13 @@ impl<'a> Str<'a> {
             url_text = url_text.replace("jdbc:", "jdbc+");
         }
         let parsed = Url::parse(&url_text);
-        if let Err(e) = &parsed {
-            if !url_text.is_empty() {
+        if let Err(e) = &parsed
+            && !url_text.is_empty() {
                 runtime::stdlib_warning(
                     "url",
                     format!("invalid URL {:?}: {}", self.to_string(), e),
                 );
             }
-        }
         if let Ok(url) = &parsed {
             // userinfo is percent-encoded in the URL, decode it as MQTT/NATS connections do
             let decode = |s: &str| {
@@ -605,11 +604,10 @@ impl<'a> Str<'a> {
             if let Some(port) = url.port() {
                 map.insert(Str::from("port"), Str::from(port.to_string()));
             }
-            if url.path() != "" {
-                if let Ok(path) = urlencoding::decode(url.path()) {
+            if url.path() != ""
+                && let Ok(path) = urlencoding::decode(url.path()) {
                     map.insert(Str::from("path"), Str::from(path.to_string()));
                 }
-            }
             if let Some(query) = url.query() {
                 map.insert(Str::from("query"), Str::from(query.to_string()));
             }
@@ -617,7 +615,7 @@ impl<'a> Str<'a> {
                 map.insert(Str::from("fragment"), Str::from(fragment.to_string()));
             }
         }
-        return SharedMap::from(map);
+        SharedMap::from(map)
     }
 
     /// Trim whitespace (`pat == " "`) or any char of `pat` from both ends. Works on bytes, so
@@ -678,7 +676,7 @@ impl<'a> Str<'a> {
         for line in src.lines() {
             if !line.trim().is_empty() {
                 map.insert(i, Str::from_text(line));
-                i = i + 1;
+                i += 1;
             }
         }
         map
@@ -895,7 +893,7 @@ impl<'a> Str<'a> {
         let mut index: i64 = 1;
         for word in self.as_text().unicode_words() {
             result.insert(index, Str::from_text(word));
-            index = index + 1;
+            index += 1;
         }
         result
     }
@@ -1078,8 +1076,8 @@ impl<'a> Str<'a> {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
                 // Matches of a single byte, replaced by text without `&`: no search needed.
-                if memchr::memchr(b'&', subst).is_none() {
-                    if let Some(set) = pat.single_byte() {
+                if memchr::memchr(b'&', subst).is_none()
+                    && let Some(set) = pat.single_byte() {
                         if let (super::awk_regex::SingleByte::Set(set), [c]) = (set, subst) {
                             // One byte for one byte: map the text.
                             if !s.iter().any(|b| set[*b as usize]) {
@@ -1098,7 +1096,6 @@ impl<'a> Str<'a> {
                             None => (self.clone(), 0),
                         };
                     }
-                }
                 let mut buf = DynamicBuf::default();
                 let mut prev = 0;
                 let mut count = 0;
@@ -1968,7 +1965,7 @@ fn escape_byte(b: u8) -> char {
 
 fn unescape_byte(c: char) -> Option<u8> {
     let c = c as u32;
-    (c >= ESCAPE_BASE + 0x80 && c <= ESCAPE_BASE + 0xFF).then(|| (c - ESCAPE_BASE) as u8)
+    (ESCAPE_BASE + 0x80..=ESCAPE_BASE + 0xFF).contains(&c).then(|| (c - ESCAPE_BASE) as u8)
 }
 
 fn escape_invalid_utf8(bs: &[u8]) -> String {
@@ -2630,7 +2627,7 @@ fn process_match(matched: &[u8], subst: &[u8], w: &mut impl Write) -> io::Result
             b'&' => {
                 if escaped {
                     w.write_all(&subst[start..i - 1])?;
-                    w.write_all(&[b'&'])?;
+                    w.write_all(b"&")?;
                 } else {
                     w.write_all(&subst[start..i])?;
                     w.write_all(matched)?;
@@ -2691,7 +2688,7 @@ fn process_match_gen(
             b'&' => {
                 if escaped {
                     w.write_all(&subst[start..i - 1])?;
-                    w.write_all(&[b'&'])?;
+                    w.write_all(b"&")?;
                 } else {
                     w.write_all(&subst[start..i])?;
                     let (from, to) = matched.get(0).unwrap();

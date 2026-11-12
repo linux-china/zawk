@@ -433,11 +433,10 @@ impl LightEngine {
                         (dfa, cache)
                     })
             });
-            if let Some((dfa, cache)) = dfa {
-                if let Ok(m) = dfa.try_search_fwd(&mut cache.borrow_mut(), &input) {
+            if let Some((dfa, cache)) = dfa
+                && let Ok(m) = dfa.try_search_fwd(&mut cache.borrow_mut(), &input) {
                     return m.is_some();
                 }
-            }
             // The lazy DFA gave up (Unicode word boundaries next to non-ASCII text) or could
             // not be built.
         }
@@ -1296,11 +1295,10 @@ impl Search for AwkRegex {
             });
             if let Some(exact) = exact {
                 // Text before `from` stays visible to look-behind assertions such as `\b`.
-                if let Some(c) = exact.captures_at(&hay[..to], from) {
-                    if c.get(0).map(|m| m.start()) == Some(from) {
+                if let Some(c) = exact.captures_at(&hay[..to], from)
+                    && c.get(0).map(|m| m.start()) == Some(from) {
                         return Some(groups(c));
                     }
-                }
             }
         }
         self.re.captures_at(hay, from).map(groups)
@@ -1853,7 +1851,7 @@ fn high_byte_item(bytes: &mut String, chars: &[char], j: usize) -> Option<usize>
             k = m;
         }
     }
-    if lo < 0x80 && hi.map_or(true, |h| h < 0x80) {
+    if lo < 0x80 && hi.is_none_or(|h| h < 0x80) {
         return None;
     }
     bytes.push_str(&format!("\\x{:02X}", lo));

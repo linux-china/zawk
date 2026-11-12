@@ -74,11 +74,10 @@ fn eval_xpath(func: &str, xml_text: &str, xpath: &str) -> Option<Vec<String>> {
 }
 
 pub(crate) fn xml_value(xml_text: &str, xpath: &str) -> String {
-    if !xml_text.is_empty() {
-        if let Some(values) = eval_xpath("xml_value", xml_text, xpath) {
+    if !xml_text.is_empty()
+        && let Some(values) = eval_xpath("xml_value", xml_text, xpath) {
             return values.into_iter().next().unwrap_or_default();
         }
-    }
     "".to_owned()
 }
 

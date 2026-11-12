@@ -238,6 +238,7 @@ fn normalize_join_indexes(start: Int, end: Int, nf: usize) -> Result<(usize, usi
 
 // Default implementation of Line; it supports assignment into fields as well as lazy splitting.
 #[derive(Clone)]
+#[derive(Default)]
 pub struct DefaultLine {
     line: Str<'static>,
     used_fields: FieldSet,
@@ -256,17 +257,6 @@ pub struct DefaultLine {
     assigned: bool,
 }
 
-impl Default for DefaultLine {
-    fn default() -> DefaultLine {
-        DefaultLine {
-            line: Str::default(),
-            used_fields: FieldSet::all(),
-            fields: Vec::new(),
-            diverged: false,
-            assigned: false,
-        }
-    }
-}
 
 impl DefaultLine {
     fn split_if_needed(&mut self, pat: &Str, rc: &mut RegexCache) -> Result<()> {
@@ -293,7 +283,7 @@ impl DefaultLine {
         // This is strictly more work than just reading all of the fields in the first place; so
         // once we hit this condition we overwrite the used fields with all() so this doesn't
         // happen again for a while.
-        let old_set = std::mem::replace(&mut self.used_fields, FieldSet::all());
+        let old_set = std::mem::take(&mut self.used_fields);
         let mut new_vec = Vec::with_capacity(self.fields.len());
         rc.split_regex(pat, &self.line, &self.used_fields, &mut new_vec)?;
 
@@ -453,7 +443,7 @@ where
         self.0
             .last()
             .map(LineReader::filename)
-            .unwrap_or_else(Str::default)
+            .unwrap_or_default()
     }
     fn file_version(&self) -> u32 {
         self.0.last().map_or(0, LineReader::file_version)

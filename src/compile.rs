@@ -878,8 +878,8 @@ impl<'a> Typer<'a> {
                         Either::Right(hl) => sna.visit_hl(frame.cur_ident, hl),
                     }
                     if let Some(sca) = &mut self.string_constants {
-                        if sca.cfg().query_regex && !sets_ignorecase {
-                            if let Either::Left(
+                        if sca.cfg().query_regex && !sets_ignorecase
+                            && let Either::Left(
                                 LL::IsMatch(_, _, pat)
                                 | LL::Match(_, _, pat)
                                 | LL::Sub(_, pat, _, _)
@@ -892,7 +892,6 @@ impl<'a> Typer<'a> {
                             {
                                 refs.push((fix, bbix, stmtix, *pat));
                             }
-                        }
                         visit_string_constant_analysis(stmt, frame.cur_ident, sca)
                     }
                 }
@@ -3974,9 +3973,9 @@ fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
     if let Ast::Concat(concat) = &re_ast {
         let asts = &concat.asts;
         if asts.len() >= 2 {
-            let first_item = asts.get(0).unwrap();
-            if let Ast::Assertion(assertion) = first_item {
-                if assertion.kind == AssertionKind::StartLine {
+            let first_item = asts.first().unwrap();
+            if let Ast::Assertion(assertion) = first_item
+                && assertion.kind == AssertionKind::StartLine {
                     // The pattern is "starts with a literal" only if everything after the `^`
                     // is a literal character (anything else, e.g. `$`, a class or a
                     // repetition, needs the regex).
@@ -3994,7 +3993,6 @@ fn extract_anchored_literal(text: &str) -> Option<Arc<[u8]>> {
                     }
                     return Some(bs.into());
                 }
-            }
         }
     }
     None

@@ -80,13 +80,13 @@ impl<'a> IntoIterator for &ByteSeq<'a> {
 }
 
 pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
-    return if text1 == text2 {
+    if text1 == text2 {
         0
     } else if text1 < text2 {
         -1
     } else {
         1
-    };
+    }
 }
 
 pub fn read_all(path: &str) -> String {
@@ -195,7 +195,7 @@ impl PairState {
     }
 
     pub fn is_legal(&self) -> bool {
-        self.key != "" && self.value != ""
+        !self.key.is_empty() && !self.value.is_empty()
     }
 }
 
@@ -209,7 +209,7 @@ pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
     if text.starts_with('{') && text.ends_with('}') {
         // simple map
-        let lexer = RecordToken::lexer(&text);
+        let lexer = RecordToken::lexer(text);
         let mut key_parsed = false;
         let mut key = "";
         let mut value = "";
@@ -557,7 +557,7 @@ pub(crate) fn func<'a>(text: &str) -> IntMap<Str<'a>> {
 pub fn last_part(text: &str, sep: &str) -> String {
     if !sep.is_empty() {
         let parts: Vec<&str> = text.split(sep).collect();
-        if parts.len() > 0 {
+        if !parts.is_empty() {
             return parts[parts.len() - 1].to_string();
         }
     } else {

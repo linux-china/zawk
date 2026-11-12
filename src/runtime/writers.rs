@@ -2512,11 +2512,10 @@ impl FileHandle {
                 .and_then(|_| err.flush())
                 .map_err(|e| CompileError::new(format!("{}", e)));
         }
-        if self.stdout && ordered::KEEP_ORDER.load(Ordering::Relaxed) {
-            if let Some(res) = ordered::write(ss) {
+        if self.stdout && ordered::KEEP_ORDER.load(Ordering::Relaxed)
+            && let Some(res) = ordered::write(ss) {
                 return res;
             }
-        }
         self.dirty = true;
         self.set_writing(true);
         let limit = self.batch_limit();
@@ -2535,12 +2534,11 @@ impl FileHandle {
         self.cur_batch.extend(&[], spec, max_capacity);
         ss.for_each_chunk(|bs| {
             self.cur_batch.extend(bs, spec, max_capacity);
-            if self.raw.line_buffer {
-                if let Some(ix) = memchr::memchr(b'\n', bs) {
+            if self.raw.line_buffer
+                && let Some(ix) = memchr::memchr(b'\n', bs) {
                     // +1 to include the newline
                     last_line = Some(cur_len + added_bytes + ix + 1);
                 }
-            }
             added_bytes += bs.len();
         });
         if self.raw.line_buffer && last_line.is_some() {
@@ -3490,14 +3488,12 @@ pub mod ordered {
             }
             ss.for_each_chunk(|bs| w.push(bs));
             // The chunk to write next streams its full blocks instead of holding them.
-            if !w.full.is_empty() {
-                if let Some(seq) = w.seq {
-                    if w.order.is_head(seq) {
+            if !w.full.is_empty()
+                && let Some(seq) = w.seq
+                    && w.order.is_head(seq) {
                         let full = mem::take(&mut w.full);
                         w.order.send_all(full);
                     }
-                }
-            }
             Some(Ok(()))
         })
     }
@@ -3547,7 +3543,7 @@ pub mod testing {
     impl FakeFileInner {
         fn result(&self) -> io::Result<()> {
             if self.poison.load(Ordering::Acquire) {
-                Err(io::Error::new(io::ErrorKind::Other, "poisoned fake file!"))
+                Err(io::Error::other("poisoned fake file!"))
             } else {
                 Ok(())
             }

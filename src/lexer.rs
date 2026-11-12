@@ -871,7 +871,7 @@ impl<'a> Tokenizer<'a> {
         let text = &self.text[self.cur..];
         if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {
             let is = i.as_str();
-            return Some((Tok::HexLit(is), is.len()));
+            Some((Tok::HexLit(is), is.len()))
         } else if let Some(f) = FLOAT_PATTERN
             .captures(text)
             .and_then(|c| c.get(0))

@@ -1195,11 +1195,10 @@ impl<'a> View<'a> {
     fn drop_all(&mut self) {
         let mut drops = Vec::new();
         for ((_, ty), VarRef { var, kind }) in self.f.vars.iter() {
-            if let VarKind::Local { skip_drop: false } = kind {
-                if ty.is_array() || matches!(ty, compile::Ty::Str) {
+            if let VarKind::Local { skip_drop: false } = kind
+                && (ty.is_array() || matches!(ty, compile::Ty::Str)) {
                     drops.push((*ty, *var));
                 }
-            }
         }
         for (ty, var) in drops {
             let val = self.var_val(var);

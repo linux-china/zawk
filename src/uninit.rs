@@ -290,11 +290,10 @@ where
             self.str_vars.insert(v);
         } else if let Some(m) = self.global_map(e, params) {
             self.str_maps.insert(m);
-        } else if let Expr::Call(Either::Left(f), _) = e {
-            if self.udfs.contains(f) {
+        } else if let Expr::Call(Either::Left(f), _) = e
+            && self.udfs.contains(f) {
                 self.str_funcs.insert(f.clone());
             }
-        }
     }
 
     /// `e` is assigned in a way that is not tracked.
@@ -461,17 +460,15 @@ where
                         Either::Left(name) => self.udfs.contains(name),
                         Either::Right(_) => false,
                     } || matches!(bi, Some(Function::TypeOfVariable | Function::IsArray));
-                if let (Some(Function::TypeOfVariable), [a]) = (bi, args) {
-                    if let Some(v) = self.global_var(a, params) {
+                if let (Some(Function::TypeOfVariable), [a]) = (bi, args)
+                    && let Some(v) = self.global_var(a, params) {
                         self.typeof_vars.insert(v);
                     }
-                }
                 for a in args.iter() {
-                    if !keeps_arrays {
-                        if let Some(m) = self.global_var(a, params) {
+                    if !keeps_arrays
+                        && let Some(m) = self.global_var(a, params) {
                             self.bad_maps.insert(m);
                         }
-                    }
                     match a {
                         Var(_) if inspects => {}
                         Index(Var(_), ix) if inspects => self.expr(ix, params),
@@ -715,12 +712,11 @@ where
     loop {
         let mut changed = false;
         for (target, rhs, params) in a.assigns.iter() {
-            if let (Target::Var(v), Some(y)) = (target, a.global_var(rhs, params)) {
-                if a.str_vars.contains(v) {
+            if let (Target::Var(v), Some(y)) = (target, a.global_var(rhs, params))
+                && a.str_vars.contains(v) {
                     changed |= a.str_vars.insert(y.clone());
                     copied.insert(y);
                 }
-            }
         }
         if !changed {
             break;

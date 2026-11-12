@@ -12,7 +12,7 @@ use smallvec::smallvec;
 
 use std::convert::TryFrom;
 
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Function {
@@ -862,7 +862,7 @@ pub(crate) trait IsSprintf {
     fn is_sprintf(&self) -> bool;
 }
 
-impl<'a> IsSprintf for &'a str {
+impl IsSprintf for &str {
     fn is_sprintf(&self) -> bool {
         *self == "sprintf"
     }
@@ -1037,14 +1037,13 @@ impl Function {
             ast::{Binop::*, Unop::*},
             compile::Ty::*,
         };
-        if let Some(a) = self.arity() {
-            if incoming.len() != a {
+        if let Some(a) = self.arity()
+            && incoming.len() != a {
                 let name = self
                     .awk_name()
                     .map_or_else(|| self.to_string(), String::from);
                 return Err(arity_error(&name, incoming.len(), a));
             }
-        }
         fn arith_sig(x: compile::Ty, y: compile::Ty) -> (SmallVec<compile::Ty>, compile::Ty) {
             use compile::Ty::*;
             match (x, y) {
@@ -2076,11 +2075,11 @@ impl<'a> Variables<'a> {
             }
             FILENAME => self.filename = s,
             CONVFMT => {
-                crate::runtime::numfmt::set_convfmt(&*s.as_str().as_bytes());
+                crate::runtime::numfmt::set_convfmt(s.as_str().as_bytes());
                 self.convfmt = s;
             }
             OFMT => {
-                crate::runtime::numfmt::set_ofmt(&*s.as_str().as_bytes());
+                crate::runtime::numfmt::set_ofmt(s.as_str().as_bytes());
                 self.ofmt = s;
             }
             ERRNO => crate::runtime::set_errno(s.as_str().to_string()),

@@ -125,7 +125,7 @@ pub(crate) fn epoch_micros(s: &str) -> Option<i64> {
     }
     let f = s.parse::<f64>().ok().filter(|f| f.is_finite())?;
     let micros = (f * MICROS_PER_SEC as f64).round();
-    (micros.abs() < i64::MAX as f64).then(|| micros as i64)
+    (micros.abs() < i64::MAX as f64).then_some(micros as i64)
 }
 
 const DATE_TIME_FORMATS: &[&str] = &[
@@ -195,7 +195,7 @@ pub(crate) fn parse_time(s: &str) -> Option<i64> {
         let micros = (f * MICROS_PER_SEC as f64).round();
         return (0.0..(SECS_PER_DAY * MICROS_PER_SEC) as f64)
             .contains(&micros)
-            .then(|| micros as i64);
+            .then_some(micros as i64);
     }
     for fmt in ["%H:%M:%S%.f", "%H:%M"] {
         if let Ok(time) = NaiveTime::parse_from_str(t, fmt) {

@@ -482,13 +482,11 @@ fn compile_diagnostic(prog: &str, msg: &str, loc: Option<Loc>) -> Diagnostic {
 /// The first name quoted with `"..."` or `` `...` `` in a message.
 fn quoted_name(msg: &str) -> Option<&str> {
     for q in ['"', '`'] {
-        if let Some((_, rest)) = msg.split_once(q) {
-            if let Some((name, _)) = rest.split_once(if q == '`' { '`' } else { '"' }) {
-                if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        if let Some((_, rest)) = msg.split_once(q)
+            && let Some((name, _)) = rest.split_once(if q == '`' { '`' } else { '"' })
+                && !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
                     return Some(name);
                 }
-            }
-        }
     }
     None
 }
@@ -841,11 +839,10 @@ impl<'a, 'p> Facts<'a, 'p> {
     }
 
     fn array(&mut self, e: &AstExpr<'a>) {
-        if let ast::Expr::Var(name) = e {
-            if !self.is_local(name) && !self.arrays.contains(name) {
+        if let ast::Expr::Var(name) = e
+            && !self.is_local(name) && !self.arrays.contains(name) {
                 self.arrays.push(name);
             }
-        }
     }
 
     fn stmt(&mut self, s: &'a AstStmt<'a>) {
@@ -1044,11 +1041,10 @@ impl<'a, 'p> Facts<'a, 'p> {
             (v @ ast::Expr::Var(_), x) | (x, v @ ast::Expr::Var(_)) => (v, x),
             _ => return,
         };
-        if let (ast::Expr::Var(k), Some(n)) = (var, number(x)) {
-            if self.keys.contains(k) {
+        if let (ast::Expr::Var(k), Some(n)) = (var, number(x))
+            && self.keys.contains(k) {
                 self.key_comparisons.push((k, n, self.loc(var)));
             }
-        }
     }
 
     /// Records `$3 > 100` (either way round), checked against the input with a data sample.
@@ -1145,18 +1141,15 @@ impl<'a, 'p> Facts<'a, 'p> {
                     self.begin_record_reads.push((what, self.loc(e)));
                 }
                 // `$"age"` is `$0`: the string converts to a number, it does not name a column.
-                if matches!(op, ast::Unop::Column) {
-                    if let Some(s) = literal(x) {
-                        if !std::str::from_utf8(&s).is_ok_and(looks_numeric) {
+                if matches!(op, ast::Unop::Column)
+                    && let Some(s) = literal(x)
+                        && !std::str::from_utf8(&s).is_ok_and(looks_numeric) {
                             self.string_fields.push((s, self.loc(e)));
                         }
-                    }
-                }
-                if self.region != Region::Begin {
-                    if let (ast::Unop::Column, ILit(n)) = (op, x) {
+                if self.region != Region::Begin
+                    && let (ast::Unop::Column, ILit(n)) = (op, x) {
                         self.fields.push((*n, self.loc(e)));
                     }
-                }
                 self.expr(x)
             }
             Binop(ast::Binop::LT | ast::Binop::GT | ast::Binop::LTE | ast::Binop::GTE, l, r) => {
@@ -1262,11 +1255,10 @@ impl<'a, 'p> Facts<'a, 'p> {
                 let read_only = match f {
                     Either::Left(name) => {
                         self.calls.push((name, args.len(), self.loc(e)));
-                        if *name == "sprintf" {
-                            if let Some(fmt) = args.first().and_then(|f| literal(f)) {
+                        if *name == "sprintf"
+                            && let Some(fmt) = args.first().and_then(|f| literal(f)) {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
                             }
-                        }
                         // A regex literal as the second argument is a compile error (E300).
                         if *name == "index" && matches!(args.first(), Some(PatLit(_))) {
                             self.index_regexes.push(self.loc(e));
@@ -1288,11 +1280,10 @@ impl<'a, 'p> Facts<'a, 'p> {
                     Either::Right(_) => true,
                 };
                 for arg in args.iter() {
-                    if let (Either::Left(f), Var(name)) = (f, arg) {
-                        if self.user_funcs.contains(f) {
+                    if let (Either::Left(f), Var(name)) = (f, arg)
+                        && self.user_funcs.contains(f) {
                             self.element_reads.push((name, self.region));
                         }
-                    }
                     match arg {
                         Var(name) if !read_only => self.set(name, SetKind::Indirect, self.loc(arg)),
                         _ => self.expr(arg),
@@ -1871,8 +1862,8 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
 
     // Calls of user functions with more arguments than parameters.
     for (name, given, loc) in &facts.calls {
-        if let Some(dec) = prog.decs.iter().find(|d| d.name == *name) {
-            if *given > dec.params {
+        if let Some(dec) = prog.decs.iter().find(|d| d.name == *name)
+            && *given > dec.params {
                 diags.push(warning(
                     "W204",
                     format!(
@@ -1884,7 +1875,6 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
                     *loc,
                 ));
             }
-        }
     }
 
     // `index(/re/, s)`: a regex literal as a value is `$0 ~ /re/`, so this searches in "0" or "1".
@@ -2450,11 +2440,10 @@ impl<'a, 'p> CrossRecord<'a, 'p> {
             ast::Expr::Index(arr, _) => arr,
             _ => e,
         };
-        if let ast::Expr::Var(name) = target {
-            if !self.written.contains(name) {
+        if let ast::Expr::Var(name) = target
+            && !self.written.contains(name) {
                 self.written.push(name);
             }
-        }
     }
 
     fn collect_stmt(&mut self, s: &'a AstStmt<'a>) {
@@ -2874,8 +2863,8 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
     }
     for (loc, tok, _) in &toks {
         let Tok::Ident(name) = tok else { continue };
-        if let Some((_, why)) = IGNORED_GAWK_VARIABLES.iter().find(|(n, _)| n == name) {
-            if !reported.contains(name) {
+        if let Some((_, why)) = IGNORED_GAWK_VARIABLES.iter().find(|(n, _)| n == name)
+            && !reported.contains(name) {
                 reported.push(name);
                 diags.push(Diagnostic {
                     code: "W101",
@@ -2887,7 +2876,6 @@ fn scan_tokens(prog: &str) -> Vec<Diagnostic> {
                     loc: Some(*loc),
                 });
             }
-        }
     }
     diags
 }

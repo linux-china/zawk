@@ -293,12 +293,11 @@ fn format_with<'b>(fmt: &NumFormat, f: Float, buf: &'b mut [u8; 64]) -> std::bor
         Some((fmt, kind)) => (fmt, *kind),
         None => return format_with(&NumFormat::default_format(), f, buf),
     };
-    if let Some(p) = fmt.fast_g {
-        if f.is_finite() && f != 0.0 {
+    if let Some(p) = fmt.fast_g
+        && f.is_finite() && f != 0.0 {
             let n = format_g(f, p, buf);
             return std::borrow::Cow::Borrowed(&buf[..n]);
         }
-    }
     // Safety: `fmt` is NUL-terminated and contains exactly one conversion, whose argument type
     // is given by `kind`; `dst` has room for `len` bytes.
     let print = |dst: *mut u8, len: usize| unsafe {

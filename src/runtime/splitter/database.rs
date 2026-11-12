@@ -398,7 +398,7 @@ mod mysql {
         // Only the first result set is read.
         let mut stopped = false;
         if let Some(mut set) = result.iter() {
-            while let Some(row) = set.next() {
+            for row in set.by_ref() {
                 let row = row.map_err(error_text)?;
                 let values = columns
                     .iter()

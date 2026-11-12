@@ -145,11 +145,10 @@ fn claim_value(value: String) -> Value {
         }
     } else if let Ok(f) = value.parse::<f64>() {
         // also rejects NaN and infinity, which are not JSON numbers
-        if f.is_finite() && f.to_string() == value {
-            if let Some(number) = Number::from_f64(f) {
+        if f.is_finite() && f.to_string() == value
+            && let Some(number) = Number::from_f64(f) {
                 return Value::Number(number);
             }
-        }
     }
     Value::String(value)
 }
@@ -607,7 +606,7 @@ fn decrypt_bytes(key: &[u8], gcm: bool, data: &[u8]) -> Option<Vec<u8>> {
         }
     } else {
         // 16 bytes IV + at least one block
-        if data.len() < 32 || data.len() % 16 != 0 {
+        if data.len() < 32 || !data.len().is_multiple_of(16) {
             return None;
         }
         let (iv, ciphertext) = data.split_at(16);
@@ -770,7 +769,7 @@ fn check_ciphertext_shape(gcm: bool, data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 32 {
             return Err(DECRYPT_TOO_SHORT);
         }
-        if data.len() % 16 != 0 {
+        if !data.len().is_multiple_of(16) {
             return Err(DECRYPT_BAD_LENGTH);
         }
     }

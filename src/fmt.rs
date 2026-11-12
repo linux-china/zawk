@@ -193,7 +193,7 @@ fn tokens(text: &str) -> Result<(Vec<Token<'_>>, usize), String> {
         if l.offset() == r.offset() {
             continue;
         }
-        let after_newline = res.last().map_or(true, |t| t.tok == Tok::Newline);
+        let after_newline = res.last().is_none_or(|t| t.tok == Tok::Newline);
         res.push(Token {
             tok,
             text: &text[l.offset()..r.offset()],
@@ -421,7 +421,7 @@ impl<'a, 'u> Formatter<'a, 'u> {
 
     /// The comments after the last token.
     fn trailing_gap(&mut self, toks: &[Token<'a>], gap: &str) {
-        let after_newline = toks.last().map_or(true, |t| t.tok == Tok::Newline);
+        let after_newline = toks.last().is_none_or(|t| t.tok == Tok::Newline);
         for item in gap_items(gap) {
             if let GapItem::Comment(c) = item {
                 self.comment(c, after_newline);

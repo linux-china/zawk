@@ -88,14 +88,13 @@ pub(crate) fn redact_url(url: &str) -> std::borrow::Cow<'_, str> {
         let query_start = end + q + 1;
         let mut pos = query_start;
         for param in url[query_start..fragment].split('&') {
-            if let Some((name, value)) = param.split_once('=') {
-                if !value.is_empty() && SECRET_PARAMS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
+            if let Some((name, value)) = param.split_once('=')
+                && !value.is_empty() && SECRET_PARAMS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
                     let value_start = pos + name.len() + 1;
                     out.push_str(&url[copied..value_start]);
                     out.push_str("***");
                     copied = value_start + value.len();
                 }
-            }
             pos += param.len() + 1;
         }
     }

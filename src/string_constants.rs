@@ -186,16 +186,13 @@ impl StringConstantAnalysis {
 
     pub fn fi_info(&mut self, cols: &mut Vec<Rc<[u8]>>) -> bool /* known */ {
         match &self.dfa.query(Key::VarVal(Variable::FI)).0 {
-            Some(ids) => {
-                if ids.is_empty() || (ids.len() == 1 && ids.contains(&0 /*sentinel*/)) {
+            Some(ids)
+                if (ids.is_empty() || (ids.len() == 1 && ids.contains(&0 /*sentinel*/))) => {
                     self.possible_strings_inner(Key::VarKey(Variable::FI), cols)
-                } else {
-                    false
                 }
-            }
             // The analysis detected nontrivial writes into FI during execution. That's legal, but
             // we don't try and model it for the purposes of this analysis.
-            None => false,
+            _ => false,
         }
     }
 }

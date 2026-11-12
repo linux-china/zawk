@@ -549,11 +549,10 @@ fn read_xlsx(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool
     let sheet = xlsx::Sheet::open(path)?;
     ins.sheet = Some((sheet.name, sheet.sheets));
     let mut rows = sheet.rows.into_iter();
-    if opts.header {
-        if let Some(header) = rows.next() {
+    if opts.header
+        && let Some(header) = rows.next() {
             ins.add_header(header.iter().map(xlsx::cell_text).collect());
         }
-    }
     for row in rows {
         if ins.full(opts.max_rows) {
             return Ok(true);
@@ -1190,8 +1189,8 @@ impl Inspector {
         if self.columns.iter().any(|c| c.field.is_none()) {
             notes.push("Columns without a field number are missing from the first record: read them with a constant key, e.g. `$FI[\"key\"]`.".to_string());
         }
-        if let Some((name, sheets)) = &self.sheet {
-            if sheets.len() > 1 {
+        if let Some((name, sheets)) = &self.sheet
+            && sheets.len() > 1 {
                 notes.push(format!(
                     "The workbook has {} sheets ({}); this is `{}`: read another one with `#NAME` after the file name, e.g. `book.xlsx#{}`.",
                     sheets.len(),
@@ -1200,7 +1199,6 @@ impl Inspector {
                     sheets.iter().find(|s| *s != name).unwrap_or(name)
                 ));
             }
-        }
         if format == Format::Database {
             notes.push("Database rows are read as CSV with a header line of the column names: `$FI[\"name\"]` or the field number; BLOB values are the empty string.".to_string());
         }
@@ -1315,13 +1313,12 @@ fn text_shape(s: &str) -> u8 {
             return TIMESTAMP;
         }
     }
-    if (5..=18).contains(&b.len()) && b[2] == b':' {
-        if NaiveTime::parse_from_str(t, "%H:%M:%S%.f").is_ok()
-            || NaiveTime::parse_from_str(t, "%H:%M").is_ok()
+    if (5..=18).contains(&b.len()) && b[2] == b':'
+        && (NaiveTime::parse_from_str(t, "%H:%M:%S%.f").is_ok()
+            || NaiveTime::parse_from_str(t, "%H:%M").is_ok())
         {
             return TIME;
         }
-    }
     OTHER
 }
 
@@ -1371,13 +1368,11 @@ impl Stats {
         };
         self.count += 1;
         self.shapes |= shape;
-        if shape & (INT | FLOAT) != 0 {
-            if let Ok(v) = text.trim().parse::<f64>() {
-                if v.is_finite() {
+        if shape & (INT | FLOAT) != 0
+            && let Ok(v) = text.trim().parse::<f64>()
+                && v.is_finite() {
                     self.add_number(v, text, rng);
                 }
-            }
-        }
         if self.text_min.as_deref().is_none_or(|m| text < m) {
             self.text_min = Some(text.to_string());
         }

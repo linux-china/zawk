@@ -277,7 +277,7 @@ fn open_file_read(f: &str) -> impl io::BufRead + use<> {
                 name.to_string(),
             )))),
             name => {
-                if std::fs::metadata(raw_path(name)).map_or(false, |m| m.is_dir()) {
+                if std::fs::metadata(raw_path(name)).is_ok_and(|m| m.is_dir()) {
                     eprintln_ignore!(
                         "zawk: warning: command line argument `{}' is a directory: skipped",
                         name
@@ -485,10 +485,10 @@ fn get_vars<'a, 'b>(
         } else {
             a.alloc(ast::Expr::Call(
                 common::Either::Right(builtins::Function::Strnum),
-                a.alloc_slice(&[&*val]),
+                a.alloc_slice(&[val]),
             ))
         };
-        res.push((ident, &*val))
+        res.push((ident, val))
     }
     res
 }
@@ -919,8 +919,8 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
                 println!("{}", label);
             }
         } else if let (true, Some(file)) = (write, name) {
-            if out != *text {
-                if let Err(e) = std::fs::write(file, &out) {
+            if out != *text
+                && let Err(e) = std::fs::write(file, &out) {
                     eprintln!(
                         "zawk: can't write {}: {}",
                         file,
@@ -928,7 +928,6 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
                     );
                     failed = true;
                 }
-            }
         } else {
             print!("{}", out);
         }
@@ -1948,7 +1947,7 @@ fn real_main() {
     let mut input_files: Vec<String> = matches
         .get_many::<String>("input-files")
         .map(|x| x.map(String::from).collect())
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
     // get awk program code
     // `-f`, `-E`, `-e` and `--include` sources, in command-line order.
     let mut sources: Vec<(usize, SourceKind, &String)> = Vec::new();
@@ -2246,7 +2245,7 @@ fn real_main() {
         var_decs: matches
             .get_many::<String>("var")
             .map(|x| x.map(String::from).collect())
-            .unwrap_or_else(Vec::new),
+            .unwrap_or_default(),
         output_sep,
         scalars: PreludeScalars {
             escaper,

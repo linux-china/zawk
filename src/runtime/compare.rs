@@ -304,11 +304,10 @@ pub(crate) fn cmp_str_str(l: &Str, r: &Str, code: Int) -> Int {
     l.with_bytes(|lb| {
         r.with_bytes(|rb| {
             // Only parse when both sides may compare numerically.
-            if lk != StrKind::Str && rk != StrKind::Str {
-                if let (Some(lf), Some(rf)) = (lk.numeric_value(lb), rk.numeric_value(rb)) {
+            if lk != StrKind::Str && rk != StrKind::Str
+                && let (Some(lf), Some(rf)) = (lk.numeric_value(lb), rk.numeric_value(rb)) {
                     return op.apply(&lf, &rf);
                 }
-            }
             cmp_bytes(op, lb, rb)
         })
     }) as Int

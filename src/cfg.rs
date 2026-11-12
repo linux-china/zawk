@@ -919,9 +919,9 @@ fn record_ident(
     id: Ident,
     blk: NodeIx,
 ) {
-    defsites.entry(id).or_insert(HashSet::default()).insert(blk);
+    defsites.entry(id).or_default().insert(blk);
 
-    orig.entry(blk).or_insert(HashSet::default()).insert(id);
+    orig.entry(blk).or_default().insert(id);
 }
 
 impl<'a, 'b, I: Hash + Eq + Clone + Default + std::fmt::Display + std::fmt::Debug> View<'a, 'b, I>
@@ -1513,11 +1513,10 @@ where
             Either::Left(name) => builtins::Function::try_from(name.clone()).ok(),
             Either::Right(f) => Some(*f),
         };
-        if let Some((lit, _, _)) = ast::invalid_string_regex(expr, func) {
-            if let Some(loc) = self.loc_of(lit) {
+        if let Some((lit, _, _)) = ast::invalid_string_regex(expr, func)
+            && let Some(loc) = self.loc_of(lit) {
                 return Some(loc);
             }
-        }
         let located = matches!(expr, Expr::Call(..) | Expr::Unop(ast::Unop::Column, _));
         self.run_locs
             .get(&key)
@@ -1556,11 +1555,10 @@ where
                     if let Some(name) = bi.and_then(|bi| bi.awk_name()) {
                         self.ctx.uses.builtin_calls.entry(name).or_insert(loc);
                     }
-                    if let Either::Left(name) = f {
-                        if let Some(id) = self.func_table.get(&FunctionName::Named(name.clone())) {
+                    if let Either::Left(name) = f
+                        && let Some(id) = self.func_table.get(&FunctionName::Named(name.clone())) {
                             self.ctx.uses.udf_calls.entry(*id).or_insert(loc);
                         }
-                    }
                 }
                 for a in args.iter() {
                     if let Var(_) = a {
@@ -2599,8 +2597,8 @@ where
             let flag = PrimVal::Var(self.get_identifier(&flag));
             return self.str_or_empty(flag, v, conv, next);
         }
-        if let Expr::Index(arr, ix) = e {
-            if self.uninit_map_elem(e) {
+        if let Expr::Index(arr, ix) = e
+            && self.uninit_map_elem(e) {
                 let (next, arr_v) = self.convert_val(arr, current_open)?;
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 // Check membership first: the lookup creates the element, as in awk.
@@ -2608,7 +2606,6 @@ where
                 let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
                 return self.str_or_empty(assigned, v, conv, next);
             }
-        }
         self.convert_val(e, current_open)
     }
 
@@ -3532,11 +3529,10 @@ where
                 &[&Expr::Unop(Unop::Column, &Expr::ILit(0))],
             );
         }
-        if let (Either::Right(builtins::Function::TypeOfVariable), [arg]) = (&bi, args) {
-            if let Some(res) = self.type_of_dynamic(arg, current_open)? {
+        if let (Either::Right(builtins::Function::TypeOfVariable), [arg]) = (&bi, args)
+            && let Some(res) = self.type_of_dynamic(arg, current_open)? {
                 return Ok(res);
             }
-        }
         // typeof(x) of a variable that is never read anywhere: "untyped", as in gawk.
         let bi = match (bi, args) {
             (
@@ -3577,7 +3573,7 @@ where
         }
         match bi {
             Either::Left(fname) => {
-                return if let Some(i) = self.func_table.get(&FunctionName::Named(fname.clone())) {
+                if let Some(i) = self.func_table.get(&FunctionName::Named(fname.clone())) {
                     // For field separator optimizations, any UDF calls in the BEGIN block of main
                     // causes fallback to the generic regex-based splitter.
                     //
@@ -3606,7 +3602,7 @@ where
                     )
                 } else {
                     err!("Call to unknown function \"{}\"", fname)
-                };
+                }
             }
             // Now to "fill in the extras."
             Either::Right(mut bi) => {
@@ -4112,8 +4108,8 @@ where
                 // Defaults are filled in above: a call with the wrong number of arguments still
                 // has it here. Checking it here (rather than when typing the call) locates the
                 // error at the call.
-                if let Some(arity) = bi.arity() {
-                    if prim_args.len() != arity {
+                if let Some(arity) = bi.arity()
+                    && prim_args.len() != arity {
                         // Not counting the SUBSEP the parser adds to match(s, re, arr, ...).
                         let implicit =
                             matches!(bi, builtins::Function::Match | builtins::Function::MatchArr)
@@ -4121,8 +4117,7 @@ where
                         let got = args.len() - implicit as usize;
                         return Err(builtins::arity_error(&call_name(fname), got, arity));
                     }
-                }
-                return Ok((open, PrimExpr::CallBuiltin(bi, prim_args)));
+                Ok((open, PrimExpr::CallBuiltin(bi, prim_args)))
             }
         }
     }

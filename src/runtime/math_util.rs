@@ -222,7 +222,7 @@ pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {
         let items = obj.to_vec();
         for index in items {
             let item = obj.get(&index);
-            total = total + item;
+            total += item;
         }
         total
     };
@@ -237,7 +237,7 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
         let items = obj.to_vec();
         for index in items {
             let item = obj.get(&index);
-            total = total + item;
+            total += item;
         }
         total / (len as f64)
     };
@@ -399,11 +399,10 @@ fn extract_timestamp_ms(id: &str, epoch_ms: Int) -> Option<i64> {
 /// to three digits and every later group exactly three, so `"1,2"` is still 1.
 pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
     use crate::runtime::float_parse::strtod;
-    if strnum {
-        if let Some(n) = crate::runtime::compare::looks_numeric(bs) {
+    if strnum
+        && let Some(n) = crate::runtime::compare::looks_numeric(bs) {
             return n;
         }
-    }
     let decimal = |bs: &[u8]| {
         let start = bs
             .iter()
@@ -570,7 +569,7 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
     let mut index: i64 = 1;
     for item in args {
         result.insert(index, Str::from(item));
-        index = index + 1;
+        index += 1;
     }
     result
 }

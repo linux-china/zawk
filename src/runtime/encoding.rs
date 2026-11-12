@@ -130,7 +130,7 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
             }
         }
     }
-    return SharedMap::from(map);
+    SharedMap::from(map)
 }
 
 static BLOOM_FILTERS: LazyLock<Arc<Mutex<HashMap<String, GrowableBloom>>>> =
@@ -153,7 +153,7 @@ pub fn bf_contains(item: &[u8], group: &str) -> i64 {
     if let Some(filter) = filters.get(group) {
         return filter.contains(item) as i64;
     }
-    return 0;
+    0
 }
 
 pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
@@ -163,12 +163,12 @@ pub fn bf_icontains(item: &[u8], group: &str) -> i64 {
     let filter = filters
         .entry(group.to_string())
         .or_insert_with(|| GrowableBloomBuilder::new().build());
-    return if filter.contains(item) {
+    if filter.contains(item) {
         1
     } else {
         filter.insert(item);
         0
-    };
+    }
 }
 
 const BASE62_ALPHABET: &[u8; 62] =

@@ -392,7 +392,7 @@ impl<'a> FormatArg<'a> {
             FormatArg::Null => return Ok(0),
             _ => self.to_float().trunc(),
         };
-        if f.is_finite() && f >= -9.223372036854776e18 && f < 9.223372036854776e18 {
+        if f.is_finite() && (-9.223372036854776e18..9.223372036854776e18).contains(&f) {
             Ok(f as Int)
         } else {
             Err(f)
@@ -439,8 +439,8 @@ fn group_digits(s: &[u8], sep: u8, zero: bool, width: usize) -> Option<Vec<u8>> 
 }
 
 fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
-    if let Some(sep) = spec.group {
-        if matches!(
+    if let Some(sep) = spec.group
+        && matches!(
             spec.conv,
             b'd' | b'i' | b'u' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b's'
         ) {
@@ -462,7 +462,6 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
             let buf = grouped.unwrap_or(buf);
             return spec.pad(&mut w, &buf, char_count);
         }
-    }
     match spec.conv {
         b'd' | b'i' => match arg.to_integer() {
             Ok(i) => spec.write_int(w, i),
@@ -764,15 +763,14 @@ impl Spec {
             );
         }
         // A string precision only truncates, so any value is harmless.
-        if self.conv != b's' {
-            if let Some(p) = self.precision.filter(|p| *p > MAX_WIDTH) {
+        if self.conv != b's'
+            && let Some(p) = self.precision.filter(|p| *p > MAX_WIDTH) {
                 return err!(
                     "printf: precision {} is too large (maximum {})",
                     p,
                     MAX_WIDTH
                 );
             }
-        }
         Ok(())
     }
 }

@@ -226,8 +226,8 @@ fn file_section(
         return Ok(out);
     }
     let structured = format.and_then(Format::parse);
-    if format.is_none() {
-        if let Some(f) = inspect::extension_format(file) {
+    if format.is_none()
+        && let Some(f) = inspect::extension_format(file) {
             out.push_str(&format!(
                 "Note: the file name suggests {} data, but it is read as plain text lines; \
                  `-i {}` may read it better (say so in the answer if the question needs it).\n\n",
@@ -235,7 +235,6 @@ fn file_section(
                 f.name()
             ));
         }
-    }
     // With a header, the header line and `sample_rows` data lines.
     let raw_lines = opts.sample_rows + usize::from(header && format != Some("markdown"));
     // A structured input is read once: its sections keep the first raw lines too (a remote input
@@ -294,8 +293,8 @@ fn file_section(
                     .join("\n"),
             ));
         }
-        if format.is_none() {
-            if let Some(nf) =
+        if format.is_none()
+            && let Some(nf) =
                 fields_per_line(&lines, opts.field_sep.as_ref().map(|(_, fs)| fs.as_str()))
             {
                 out.push_str(&format!(
@@ -303,7 +302,6 @@ fn file_section(
                     nf
                 ));
             }
-        }
     }
     let (Some(structured), Some(sections)) = (structured, sections) else {
         return Ok(out);

@@ -921,12 +921,12 @@ impl<P: ChunkProducer> ChunkProducer for ChainedChunkProducer<P> {
     type Chunk = P::Chunk;
 
     fn wait(&self) -> bool {
-        let res = if let Some(cur) = self.0.last() {
+        
+        if let Some(cur) = self.0.last() {
             cur.wait()
         } else {
             true
-        };
-        res
+        }
     }
 
     fn next_file(&mut self) -> Result<bool> {

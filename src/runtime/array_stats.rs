@@ -211,7 +211,7 @@ where
                 by_value.then_with(|| a.2.cmp(&b.2))
             })
     });
-    best.map_or_else(|| Str::default(), |(key, _, _)| key.into())
+    best.map_or_else(Str::default, |(key, _, _)| key.into())
 }
 
 #[cfg(test)]

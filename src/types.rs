@@ -1125,7 +1125,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     "parameter `{}` of function `{}` receives arrays of different types ({} and {}); \
                      zawk requires the arrays passed to a parameter to have the same key and value types, \
                      e.g. use separate functions, or copy the array into one with string keys",
-                    ast::source_name(&param.name.to_string()),
+                    ast::source_name(param.name),
                     func.name,
                     array_ty_name(arg_ty),
                     array_ty_name(param_ty),
@@ -1283,11 +1283,10 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 return Some(loc);
             }
             for e in self.nw.graph.edges_directed(n, Incoming) {
-                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint {
-                    if let Some(loc) = f.awk_name().and_then(|name| uses.builtin_calls.get(name)) {
+                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint
+                    && let Some(loc) = f.awk_name().and_then(|name| uses.builtin_calls.get(name)) {
                         return Some(*loc);
                     }
-                }
             }
         }
         None
@@ -1307,11 +1306,10 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 return Some(d);
             }
             for e in self.nw.graph.edges_directed(n, Incoming) {
-                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint {
-                    if let Some(name) = f.awk_name() {
+                if let Constraint::CallBuiltin(_, f) = &e.weight().constraint
+                    && let Some(name) = f.awk_name() {
                         return Some(format!("returned by `{}()`", name));
                     }
-                }
             }
         }
         None
@@ -1326,7 +1324,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             if let Some(arg) = func.args.iter().find(|a| a.id.low == low) {
                 let name = arg.name.to_string();
                 let name = ast::source_name(&name);
-                return Some(if ast::is_local_name(&arg.name.to_string()) {
+                return Some(if ast::is_local_name(arg.name) {
                     format!("`{}` (local variable of function `{}`)", name, func.name)
                 } else {
                     format!("`{}` (parameter of function `{}`)", name, func.name)

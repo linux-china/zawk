@@ -120,7 +120,7 @@ pub fn escape_json(text: &str) -> String {
             _ => result.push(c),
         }
     }
-    return result;
+    result
 }
 
 pub fn escape_shell(text: &str) -> String {
@@ -130,7 +130,7 @@ pub fn escape_shell(text: &str) -> String {
 /// Standard SQL string literal (PostgreSQL, SQLite, DuckDB): double the single quotes.
 /// Not safe for MySQL/MariaDB, where `\` is an escape character: use [`escape_mysql`].
 pub fn escape_sql(text: &str) -> String {
-    return text.replace("'", "''");
+    text.replace("'", "''")
 }
 
 /// MySQL/MariaDB string literal: escape `\` and control characters as well as quotes.
@@ -163,7 +163,7 @@ pub fn escape_xml(text: &str) -> String {
             _ => result.push(c),
         }
     }
-    return result;
+    result
 }
 
 #[cfg(test)]

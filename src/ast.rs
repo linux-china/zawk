@@ -307,11 +307,11 @@ fn parse_header<'a, 'b, I: From<&'b str> + Clone>(
 fn header_per_file<'a, 'b, I: From<&'b str> + Clone>(arena: &'a Arena) -> &'a Stmt<'a, 'b, I> {
     use {self::Binop::*, self::Expr::*, Stmt::*};
     let fnr = arena.alloc(Var("FNR".into()));
-    let set_fnr = |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
+    let set_fnr = |v| arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
     let mut header = arena.vec_with_capacity(5);
     header.push(&*arena.alloc(Expr(arena.alloc(Call(
         Either::Right(Function::Clear),
-        arena.alloc_slice(&[&*arena.alloc(Var("FI".into()))]),
+        arena.alloc_slice(&[arena.alloc(Var("FI".into()))]),
     )))));
     header.extend(set_fi_from_record(arena).iter().cloned());
     header.push(set_fnr(-1));
@@ -323,7 +323,7 @@ fn header_per_file<'a, 'b, I: From<&'b str> + Clone>(arena: &'a Arena) -> &'a St
     ));
     arena.alloc(If(
         arena.alloc(Binop(LTE, fnr, arena.alloc(ILit(0)))),
-        arena.alloc(Block(arena.new_vec_from_slice(&[&*new_file, set_fnr(0)]))),
+        arena.alloc(Block(arena.new_vec_from_slice(&[new_file, set_fnr(0)]))),
         None,
     ))
 }
@@ -343,7 +343,7 @@ fn operand_group<'a, 'b, I: From<&'b str> + Clone>(
     use {self::Expr::*, Stmt::*};
     let mut block = arena.vec_with_capacity(group.len() + 2);
     for (ident, exp) in group.iter() {
-        block.push(&*arena.alloc(Expr(
+        block.push(arena.alloc(Expr(
             arena.alloc(Assign(arena.alloc(Var(ident.clone())), exp)),
         )));
     }
@@ -377,7 +377,7 @@ fn operand_assigns_new_file<'a, 'b, I: From<&'b str> + Clone + PartialEq>(
     let filename = arena.alloc(Var("FILENAME".into()));
     let fnr = arena.alloc(Var("FNR".into()));
     let mut body = arena.vec_with_capacity(files.len() + 2);
-    body.push(&*arena.alloc(Expr(arena.alloc(Assign(file, filename)))));
+    body.push(arena.alloc(Expr(arena.alloc(Assign(file, filename)))));
     body.push(arena.alloc(Expr(arena.alloc(Assign(done, arena.alloc(ILit(0)))))));
     // Without file operands, standard input is read after all the assignments.
     for k in 0..files.len().max(1) {
@@ -427,7 +427,7 @@ fn operand_assigns_end<'a, 'b, I: From<&'b str> + Clone>(
     let idx = arena.alloc(Var(OPERAND_IDX.into()));
     let mut res = arena.vec_with_capacity(groups.len());
     for (k, group) in groups.iter().enumerate() {
-        res.push(&*arena.alloc(If(
+        res.push(arena.alloc(If(
             arena.alloc(Binop(EQ, idx, arena.alloc(ILit(k as i64)))),
             arena.alloc(Block(operand_group(arena, k, group))),
             None,
@@ -641,7 +641,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
                 // trailing header (a file without records) must not leave FNR at -1 for END.
                 let fnr = arena.alloc(Var("FNR".into()));
                 let set_fnr =
-                    |v| &*arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
+                    |v| arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
                 arena.alloc(Block(arena.new_vec_from_slice(&[
                     set_fnr(-1),
                     main_portion,
@@ -683,7 +683,7 @@ impl<'a, 'b, I: From<&'b str> + Clone> Prog<'a, 'b, I> {
         }
         match self.stage {
             Stage::Main(_) => {
-                let end = end.map(|end| &*arena.alloc(EndBlock(end)));
+                let end = end.map(|end| arena.alloc(EndBlock(end)));
                 begin.extend(main_loop.into_iter().chain(end));
                 Stage::Main(arena.alloc(Block(begin)))
             }

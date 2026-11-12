@@ -41,11 +41,10 @@ fn sqlite_param(text: &str) -> Value {
         if n.to_string() == text {
             return Value::Integer(n);
         }
-    } else if let Ok(f) = text.parse::<f64>() {
-        if f.is_finite() && float_to_text(f) == text {
+    } else if let Ok(f) = text.parse::<f64>()
+        && f.is_finite() && float_to_text(f) == text {
             return Value::Real(f);
         }
-    }
     Value::Text(text.to_owned())
 }
 

@@ -7,7 +7,7 @@ use chrono::{
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
-const WEEKS: [&'static str; 7] = [
+const WEEKS: [&str; 7] = [
     "Monday",
     "Tuesday",
     "Wednesday",
@@ -393,7 +393,7 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        return datetime2(seconds);
+        datetime2(seconds)
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
         // all-digit text is a Unix timestamp, so "20240115" is not 2024-01-15
         datetime2(timestamp)
@@ -481,7 +481,7 @@ fn normalize_duration(text: &str) -> String {
             && text[..m.start()]
                 .chars()
                 .next_back()
-                .map_or(false, |c| c.is_alphanumeric() || c == '.' || c == '_');
+                .is_some_and(|c| c.is_alphanumeric() || c == '.' || c == '_');
         let unit = match duration_unit(&caps[2]) {
             Some(unit) if !glued => unit,
             _ => {

@@ -568,11 +568,11 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
         }
         "float4" | "real" => {
             let v: Option<f32> = row.get(index);
-            v.map(|v| f32_to_text(v))
+            v.map(f32_to_text)
         }
         "float8" | "double precision" => {
             let v: Option<f64> = row.get(index);
-            v.map(|v| float_to_text(v))
+            v.map(float_to_text)
         }
         "date" => {
             let v: Option<time::Date> = row.get(index);
