@@ -309,7 +309,7 @@ fn header_per_file<'a, 'b, I: From<&'b str> + Clone>(arena: &'a Arena) -> &'a St
     let fnr = arena.alloc(Var("FNR".into()));
     let set_fnr = |v| arena.alloc(Expr(arena.alloc(Assign(fnr, arena.alloc(ILit(v))))));
     let mut header = arena.vec_with_capacity(5);
-    header.push(&*arena.alloc(Expr(arena.alloc(Call(
+    header.push(arena.alloc(Expr(arena.alloc(Call(
         Either::Right(Function::Clear),
         arena.alloc_slice(&[arena.alloc(Var("FI".into()))]),
     )))));
@@ -380,10 +380,10 @@ fn operand_assigns_new_file<'a, 'b, I: From<&'b str> + Clone + PartialEq>(
     body.push(arena.alloc(Expr(arena.alloc(Assign(file, filename)))));
     body.push(arena.alloc(Expr(arena.alloc(Assign(done, arena.alloc(ILit(0)))))));
     // Without file operands, standard input is read after all the assignments.
-    for k in 0..files.len().max(1) {
-        let mut block = operand_group(arena, k, &groups[k]);
+    for (k, group) in groups.iter().enumerate().take(files.len().max(1)) {
+        let mut block = operand_group(arena, k, group);
         // The record was read before the assignments: split it again with a new FS.
-        if groups[k].iter().any(|(ident, _)| *ident == I::from("FS")) {
+        if group.iter().any(|(ident, _)| *ident == I::from("FS")) {
             let record = arena.alloc(Unop(self::Unop::Column, arena.alloc(ILit(0))));
             block.push(arena.alloc(Expr(arena.alloc(Assign(record, record)))));
         }

@@ -6,10 +6,10 @@
 //! * Floats are F64s
 //! * Strings are I128s
 //! * Maps are I64s (pointers, in actuality, but we have no need for cranelift's special handling
-//! of reference types)
+//!   of reference types)
 //! * Iterators are separate variables for the base pointer, the current offset, and the length of
-//! the array of keys. We can get away without packaging these together into their own stack slots
-//! because iterators are always local to the current function scope.
+//!   the array of keys. We can get away without packaging these together into their own stack slots
+//!   because iterators are always local to the current function scope.
 //!
 //! Global variables are allocated on the entry function's stack and passed as extra function
 //! parameters to the main function and UDFs. We include metadata in [`VarRef`] to ensure we can

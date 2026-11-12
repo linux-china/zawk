@@ -833,7 +833,7 @@ impl RegexCache {
         &mut self,
         pat: &Str,
         s: &Str<'a>,
-    ) -> Result<(Vec<Str<'a>>, Vec<(Int, Str<'a>)>)> {
+    ) -> Result<FieldsAndSeps<'a>> {
         let mut flds = Vec::new();
         let mut seps = Vec::new();
         if s.is_empty() {
@@ -876,7 +876,7 @@ impl RegexCache {
         &mut self,
         pat: &Str,
         s: &Str<'a>,
-    ) -> Result<(Vec<Str<'a>>, Vec<(Int, Str<'a>)>)> {
+    ) -> Result<FieldsAndSeps<'a>> {
         if s.is_empty() {
             return Ok(Default::default());
         }
@@ -1445,14 +1445,14 @@ impl<LR: LineReader> FileRead<LR> {
                 Ok(match ifmt {
                     // A file that failed to open stays a plain reader: its read error is -1.
                     Some(ifmt) if !matches!(file, InputFile::Failed(..)) => GetlineFile::Csv(
-                        CSVReader::new(
+                        Box::new(CSVReader::new(
                             std::iter::once((file, s.to_string())),
                             ifmt,
                             CHUNK_SIZE,
                             check_utf8,
                             ExecutionStrategy::Serial,
                             CancelSignal::default(),
-                        ),
+                        )),
                         None,
                     ),
                     _ => GetlineFile::Lines(RegexSplitter::new(
@@ -1475,7 +1475,7 @@ pub(crate) enum GetlineFile {
     // The read state once a read failed: as for plain lines, getline then returns -1 rather than
     // failing the program.
     Csv(
-        CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>,
+        Box<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>,
         Option<Int>,
     ),
 }
@@ -2514,7 +2514,7 @@ pub(crate) type IntMap<V> = SharedMap<Int, V>;
 
 impl<'a> IntMap<Str<'a>> {
     /// Undo [`Str::as_text`] on the values of a map built from `as_text` input.
-    pub(crate) fn from_text(self) -> Self {
+    pub(crate) fn unescape_text(self) -> Self {
         for v in self.borrow_mut().values_mut() {
             *v = v.unescape_text();
         }
@@ -2525,7 +2525,7 @@ impl<'a> IntMap<Str<'a>> {
 impl<'a, V> StrMap<'a, V> {
     /// Undo [`Str::as_text`] on the keys of a map built from `as_text` input, and on the values
     /// with `value`.
-    pub(crate) fn from_text(self, value: impl Fn(V) -> V) -> Self {
+    pub(crate) fn unescape_keys(self, value: impl Fn(V) -> V) -> Self {
         let entries: Vec<_> = self.borrow_mut().drain().collect();
         let mut map = self.borrow_mut();
         for (k, v) in entries {
@@ -2537,8 +2537,9 @@ impl<'a, V> StrMap<'a, V> {
 }
 
 impl<'a> StrMap<'a, Str<'a>> {
-    pub(crate) fn from_text_all(self) -> Self {
-        self.from_text(|v| v.unescape_text())
+    /// Undo [`Str::as_text`] on both the keys and the values of a map built from `as_text` input.
+    pub(crate) fn unescape_text(self) -> Self {
+        self.unescape_keys(|v| v.unescape_text())
     }
 }
 pub(crate) type StrMap<'a, V> = SharedMap<Str<'a>, V>;

@@ -253,7 +253,7 @@ fn fixed_small(f: f64, precision: usize, buf: &mut [u8; 64]) -> Option<usize> {
     let scaled = f * scale;
     // Below 2^40 the product is within 2^-13 of the exact value (the power of ten is exact),
     // so if the fraction is not within 2^-10 of one half, rounding it gives the exact result.
-    if !(scaled < (1u64 << 40) as f64) {
+    if scaled.is_nan() || scaled >= (1u64 << 40) as f64 {
         return None;
     }
     let floor = scaled.floor();

@@ -1215,8 +1215,9 @@ impl<'b, 'c> TypeContext<'b, 'c> {
     /// introduces a new SSA version of it with its own type node, so `x[1] = 1; x = 2` does not
     /// produce a conflict during solving: the two versions of `x` must be compared here.
     fn check_ssa_kinds(&self) -> Result<()> {
-        let mut kinds: HashMap<(Ident, Option<NumTy>, &[State]), (Option<NodeIx>, bool)> =
-            HashMap::new();
+        // (variable, function, argument types) -> (type node of a version, whether it is an array)
+        type Kinds<'s> = HashMap<(Ident, Option<NumTy>, &'s [State]), (Option<NodeIx>, bool)>;
+        let mut kinds: Kinds<'_> = HashMap::new();
         for (Args { id, func_id, args }, ix) in self.env.iter() {
             // The placeholder variable receives discarded values of every kind.
             if is_unused(*id) {

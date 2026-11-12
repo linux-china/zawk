@@ -263,7 +263,7 @@ pub fn bar(x: Float, min: Float, max: Float, width: Float) -> String {
     const PARTIAL: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
     // check NaN before clamping: `f64::min` returns the non-NaN operand, so a NaN width
     // would otherwise become `MAX_BAR_WIDTH`
-    if width.is_nan() || x.is_nan() || !(max > min) {
+    if width.is_nan() || x.is_nan() || max.is_nan() || min.is_nan() || max <= min {
         return String::new();
     }
     let width = width.min(MAX_BAR_WIDTH).trunc();

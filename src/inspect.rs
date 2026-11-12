@@ -930,9 +930,11 @@ impl Inspector {
     ) -> usize {
         let i = self.columns.len();
         self.index.entry(key.clone()).or_insert(i);
-        let mut stats = Stats::default();
         // the column is null in the rows read before it appeared
-        stats.nulls = self.rows;
+        let stats = Stats {
+            nulls: self.rows,
+            ..Default::default()
+        };
         self.columns.push(Column {
             name,
             key,

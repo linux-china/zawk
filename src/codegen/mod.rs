@@ -156,6 +156,7 @@ pub(crate) trait Jit: Sized {
 
 /// Run the main function (or functions, for parallel scripts) given a [`Jit`] and the various
 /// other parameters required to construct a runtime.
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn run_main<R, FF, J>(
     mut jit: J,
     stdin: R,

@@ -11,10 +11,13 @@ use crate::runtime::{Int, Str, StrMap};
 /// The environment passed to child processes: the contents of ENVIRON.
 pub(crate) type CommandEnv = Vec<(OsString, OsString)>;
 
+/// The contents of an ENVIRON map, with its lifetime erased (see `register_environ`).
+type EnvironMap = RefCell<HashMap<Str<'static>, Str<'static>>>;
+
 thread_local! {
     // The ENVIRON map of the program running on this thread. It is held weakly so that it is
     // freed along with the program's variables.
-    static ENVIRON: RefCell<Option<Weak<RefCell<HashMap<Str<'static>, Str<'static>>>>>> =
+    static ENVIRON: RefCell<Option<Weak<EnvironMap>>> =
         const { RefCell::new(None) };
 }
 
@@ -27,7 +30,7 @@ pub(crate) fn register_environ(environ: &StrMap<'_, Str<'_>>) {
     let weak = unsafe {
         std::mem::transmute::<
             Weak<RefCell<HashMap<Str<'_>, Str<'_>>>>,
-            Weak<RefCell<HashMap<Str<'static>, Str<'static>>>>,
+            Weak<EnvironMap>,
         >(weak)
     };
     ENVIRON.with(|e| *e.borrow_mut() = Some(weak));

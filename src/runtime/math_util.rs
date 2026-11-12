@@ -215,7 +215,7 @@ pub(crate) fn map_int_int_sum(obj: &IntMap<Int>) -> Option<Int> {
 
 pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {
     let len = obj.len();
-    return if len == 0 {
+    if len == 0 {
         0f64
     } else {
         let mut total = 0f64;
@@ -225,12 +225,12 @@ pub(crate) fn map_int_float_sum(obj: &IntMap<Float>) -> Float {
             total += item;
         }
         total
-    };
+    }
 }
 
 pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
     let len = obj.len();
-    return if len == 0 {
+    if len == 0 {
         0f64
     } else {
         let mut total = 0.0f64;
@@ -240,7 +240,7 @@ pub(crate) fn map_int_float_mean(obj: &IntMap<Float>) -> Float {
             total += item;
         }
         total / (len as f64)
-    };
+    }
 }
 
 /// The truth value of a string, shared by `mkbool` and the `boolean` columns of `-o jsonl` and
@@ -566,10 +566,8 @@ pub(crate) fn shlex<'a>(text: &str) -> IntMap<Str<'a>> {
         vec![]
     });
     let result: IntMap<Str> = IntMap::default();
-    let mut index: i64 = 1;
-    for item in args {
+    for (index, item) in (1_i64..).zip(args) {
         result.insert(index, Str::from(item));
-        index += 1;
     }
     result
 }
@@ -617,9 +615,8 @@ pub(crate) fn variant<'a>(text: &str) -> StrMap<'a, Str<'a>> {
         let name = text[0..offset].trim();
         let inner = &text[offset + 1..];
         let mut value = inner.strip_suffix(')').unwrap_or(inner).trim().to_string();
-        if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-            value = value[1..value.len() - 1].to_string();
-        } else if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
+        let quoted = |q: char| value.len() >= 2 && value.starts_with(q) && value.ends_with(q);
+        if quoted('"') || quoted('\'') {
             value = value[1..value.len() - 1].to_string();
         }
         version_obj.insert(Str::from("name".to_owned()), Str::from(name.to_string()));
@@ -770,27 +767,9 @@ pub(crate) fn hex2rgb(text: &str) -> IntMap<Int> {
 }
 
 pub fn rgb2hex(red: i64, green: i64, blue: i64) -> String {
-    let red = if red < 0 {
-        0
-    } else if red > 255 {
-        255
-    } else {
-        red
-    };
-    let green = if green < 0 {
-        0
-    } else if green > 255 {
-        255
-    } else {
-        green
-    };
-    let blue = if blue < 0 {
-        0
-    } else if blue > 255 {
-        255
-    } else {
-        blue
-    };
+    let red = red.clamp(0, 255);
+    let green = green.clamp(0, 255);
+    let blue = blue.clamp(0, 255);
     format!("#{:02X}{:02X}{:02X}", red, green, blue)
 }
 

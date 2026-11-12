@@ -43,8 +43,7 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
             return map;
         }
     };
-    let mut index = 1;
-    for row in rows {
+    for (index, row) in (1..).zip(rows) {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
             let col_value: Value = row.get(i).unwrap_or(Value::NULL);
@@ -59,13 +58,8 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
                     let date_only =
                         row.columns_ref()[i].column_type() == ColumnType::MYSQL_TYPE_DATE;
                     format_mysql_date(
-                        year,
-                        month,
-                        day,
-                        hour,
-                        minutes,
-                        seconds,
-                        micro_seconds,
+                        (year, month, day),
+                        (hour, minutes, seconds, micro_seconds),
                         date_only,
                     )
                 }
@@ -77,7 +71,6 @@ pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> 
         }
         let v2: Vec<&str> = items.iter().map(|s| s as &str).collect();
         map.insert(index, Str::from(vec_to_csv(&v2)));
-        index += 1;
     }
     map
 }
@@ -126,14 +119,11 @@ fn bytes_text(c: &Column, bytes: &[u8]) -> String {
     }
 }
 
+/// Formats a MySQL `DATE`/`DATETIME` value from `(year, month, day)` and
+/// `(hour, minutes, seconds, micro_seconds)`.
 fn format_mysql_date(
-    year: u16,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minutes: u8,
-    seconds: u8,
-    micro_seconds: u32,
+    (year, month, day): (u16, u8, u8),
+    (hour, minutes, seconds, micro_seconds): (u8, u8, u8, u32),
     date_only: bool,
 ) -> String {
     if date_only {
@@ -315,15 +305,15 @@ mod tests {
     #[test]
     fn test_format_mysql_date() {
         assert_eq!(
-            format_mysql_date(2024, 1, 5, 3, 4, 5, 0, false),
+            format_mysql_date((2024, 1, 5), (3, 4, 5, 0), false),
             "2024-01-05 03:04:05"
         );
         assert_eq!(
-            format_mysql_date(2024, 1, 5, 3, 4, 5, 123, false),
+            format_mysql_date((2024, 1, 5), (3, 4, 5, 123), false),
             "2024-01-05 03:04:05.000123"
         );
         assert_eq!(
-            format_mysql_date(2024, 1, 5, 0, 0, 0, 0, true),
+            format_mysql_date((2024, 1, 5), (0, 0, 0, 0), true),
             "2024-01-05"
         );
     }

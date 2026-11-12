@@ -1008,6 +1008,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         self.core.cancel_signal = cancel_signal;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         instrs: Vec<Vec<Instr<'a>>>,
         main_func: Stage<usize>,
@@ -1757,7 +1758,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             &pair_sep.as_text(),
                             &kv_sep.as_text(),
                         )
-                        .from_text_all();
+                        .unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1766,7 +1767,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let template = index(&self.strs, template);
                         let res =
                             runtime::string_util::parse(&text.as_text(), &template.as_text())
-                                .from_text_all();
+                                .unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1775,19 +1776,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let template = index(&self.strs, template);
                         let res =
                             runtime::string_util::rparse(&text.as_text(), &template.as_text())
-                                .from_text();
+                                .unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Record(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::record(&src.as_text()).from_text_all();
+                        let res = runtime::string_util::record(&src.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Message(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::string_util::message(&src.as_text()).from_text_all();
+                        let res = runtime::string_util::message(&src.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1817,25 +1818,25 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Shlex(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::shlex(&text.as_text()).from_text();
+                        let res = runtime::math_util::shlex(&text.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Tuple(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::tuple(&text.as_text()).from_text();
+                        let res = runtime::math_util::tuple(&text.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Flags(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::flags(&text.as_text()).from_text(|v| v);
+                        let res = runtime::math_util::flags(&text.as_text()).unescape_keys(|v| v);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     ParseArray(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::math_util::parse_array(&text.as_text()).from_text();
+                        let res = runtime::math_util::parse_array(&text.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -1855,13 +1856,13 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     }
                     Variant(dst, src) => {
                         let src = index(&self.strs, src);
-                        let res = runtime::math_util::variant(&src.as_text()).from_text_all();
+                        let res = runtime::math_util::variant(&src.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
                     Func(dst, text) => {
                         let text = index(&self.strs, text);
-                        let res = runtime::string_util::func(&text.as_text()).from_text();
+                        let res = runtime::string_util::func(&text.as_text()).unescape_text();
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
@@ -3882,6 +3883,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn split_seps(
         &mut self,
         to_split: Reg<Str<'a>>,

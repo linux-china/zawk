@@ -1215,7 +1215,7 @@ where
                                     builtins::Function::Binop(ast::Binop::Concat),
                                     smallvec![v, PrimVal::StrLit(b"")],
                                 );
-                                (next, self.to_val(s, next)?)
+                                (next, self.lower_to_val(s, next)?)
                             }
                         } else {
                             self.convert_str_operand(
@@ -1306,13 +1306,13 @@ where
                 let (next, array_val) = self.convert_val(array, current_open)?;
                 current_open = next;
                 let array_iter =
-                    self.to_val(PrimExpr::IterBegin(array_val.clone()), current_open)?;
+                    self.lower_to_val(PrimExpr::IterBegin(array_val.clone()), current_open)?;
 
                 // First, create the loop header, which checks if there are any more elements
                 // in the array.
                 let cond = PrimExpr::HasNext(array_iter.clone());
                 let cond_block = self.f.cfg.add_node(Default::default());
-                let cond_v = self.to_val(cond, cond_block)?;
+                let cond_v = self.lower_to_val(cond, cond_block)?;
                 self.f
                     .cfg
                     .add_edge(current_open, cond_block, Transition::null());
@@ -1382,7 +1382,7 @@ where
                     smallvec![PrimVal::Var(counter), PrimVal::Var(limit)],
                 );
                 let cond_block = self.f.cfg.add_node(Default::default());
-                let cond_v = self.to_val(cond, cond_block)?;
+                let cond_v = self.lower_to_val(cond, cond_block)?;
                 self.f
                     .cfg
                     .add_edge(current_open, cond_block, Transition::null());
@@ -1397,7 +1397,7 @@ where
                         builtins::Function::Binop(ast::Binop::EQ),
                         smallvec![PrimVal::Var(counter), PrimVal::Var(limit)],
                     );
-                    let done_v = self.to_val(done, update)?;
+                    let done_v = self.lower_to_val(done, update)?;
                     let incr_block = self.f.cfg.add_node(Default::default());
                     self.f.cfg.add_edge(update, footer, Transition::new(done_v));
                     self.f.cfg.add_edge(update, incr_block, Transition::null());
@@ -1813,7 +1813,7 @@ where
                         };
                         let (start, end, to_e) =
                             self.standalone_expr(to, /*in_cond=*/ false)?;
-                        let to_v = self.to_val(to_e, end)?;
+                        let to_v = self.lower_to_val(to_e, end)?;
                         self.add_stmt(
                             end,
                             PrimStmt::AsgnIndex(arr_id, ix_v.clone(), PrimExpr::Val(to_v.clone())),
@@ -1824,9 +1824,9 @@ where
                         builtins::Function::Contains,
                         smallvec![arr_v.clone(), ix_v.clone()],
                     );
-                    let present = self.to_val(present, next)?;
+                    let present = self.lower_to_val(present, next)?;
                     let lookup = self.f.cfg.add_node(Default::default());
-                    let lv = self.to_val(PrimExpr::Index(arr_v, ix_v), lookup)?;
+                    let lv = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), lookup)?;
                     self.f.cfg.add_edge(next, lookup, Transition::new(present));
                     self.f.cfg.add_edge(next, fstart, Transition::null());
                     (lookup, lv)
@@ -1946,7 +1946,8 @@ where
                     ix,
                     |slf, arr_v, ix_v, open| {
                         let (next, to_v) = slf.convert_val(to, open)?;
-                        let arr_cell_v = slf.to_val(PrimExpr::Index(arr_v, ix_v.clone()), next)?;
+                        let arr_cell_v =
+                            slf.lower_to_val(PrimExpr::Index(arr_v, ix_v.clone()), next)?;
                         let arr_cell_v = slf.widen_sum_operand(*op, arr_cell_v, &to_v, next)?;
                         Ok((
                             next,
@@ -1985,7 +1986,7 @@ where
                         builtins::Function::Contains,
                         smallvec![arr_v.clone(), ix_v.clone()],
                     );
-                    (next, self.to_val(present, next)?)
+                    (next, self.lower_to_val(present, next)?)
                 };
                 let to_e = PrimExpr::Index(arr_v, ix_v);
                 let (next, res) = self.do_assign_hint(x, |_| to_e, None, next)?;
@@ -2033,10 +2034,11 @@ where
                     // Evaluate the array and the subscript once: the subscript may have side
                     // effects (`a[i++]++`) or be expensive to compute (`a[$1 % 100]++`).
                     let (next, arr_e) = self.convert_expr(arr, current_open)?;
-                    let arr_v = self.to_val(arr_e, next)?;
+                    let arr_v = self.lower_to_val(arr_e, next)?;
                     let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                     // The value of `a[k]++` is the old value as a number: 0 if it was "v".
-                    let cell = self.to_val(PrimExpr::Index(arr_v.clone(), ix_v.clone()), next)?;
+                    let cell =
+                        self.lower_to_val(PrimExpr::Index(arr_v.clone(), ix_v.clone()), next)?;
                     let old = self.fresh_local();
                     self.add_stmt(
                         next,
@@ -2304,7 +2306,7 @@ where
                         .or_insert_with(Vec::new)
                         .push((current_open.index(), str_lit));
                     let res = PrimExpr::LoadBuiltin(b);
-                    let res_v = self.to_val(res.clone(), current_open)?;
+                    let res_v = self.lower_to_val(res.clone(), current_open)?;
                     self.add_stmt(current_open, PrimStmt::SetBuiltin(b, to(&res_v)))?;
                     res
                 } else {
@@ -2318,8 +2320,8 @@ where
                 use {ast::Unop::*, builtins::Function};
                 let (next, v) = self.convert_column_index(n, current_open)?;
                 let res = PrimExpr::CallBuiltin(Function::Unop(Column), smallvec![v.clone()]);
-                let res_v = self.to_val(res.clone(), next)?;
-                let to_v = self.to_val(to(&res_v), next)?;
+                let res_v = self.lower_to_val(res.clone(), next)?;
+                let to_v = self.lower_to_val(to(&res_v), next)?;
                 self.add_stmt(
                     next,
                     PrimStmt::AsgnVar(
@@ -2483,15 +2485,15 @@ where
         let undef = self.ctx.uninit.maps[arr].clone();
         let undef = PrimVal::Var(self.get_identifier(&undef));
         let present = PrimExpr::CallBuiltin(Contains, smallvec![arr_v.clone(), ix_v.clone()]);
-        let present = self.to_val(present, current_open)?;
+        let present = self.lower_to_val(present, current_open)?;
         let marked = PrimExpr::CallBuiltin(Contains, smallvec![undef.clone(), ix_v.clone()]);
-        let marked = self.to_val(marked, current_open)?;
+        let marked = self.lower_to_val(marked, current_open)?;
         // An element is never both missing and marked: assigning or deleting it unmarks it.
         let assigned = PrimExpr::CallBuiltin(
             Bin(ast::Binop::Minus),
             smallvec![present.clone(), marked],
         );
-        let assigned = self.to_val(assigned, current_open)?;
+        let assigned = self.lower_to_val(assigned, current_open)?;
         let mark = self.f.cfg.add_node(Default::default());
         let next = self.f.cfg.add_node(Default::default());
         let undef_id = match undef {
@@ -2603,7 +2605,7 @@ where
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 // Check membership first: the lookup creates the element, as in awk.
                 let (next, assigned) = self.map_elem_assigned(e, &arr_v, &ix_v, next)?;
-                let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                let v = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), next)?;
                 return self.str_or_empty(assigned, v, conv, next);
             }
         self.convert_val(e, current_open)
@@ -2643,12 +2645,12 @@ where
                 let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
                 let present =
                     PrimExpr::CallBuiltin(Contains, smallvec![arr_v.clone(), ix_v.clone()]);
-                let present = self.to_val(present, next)?;
+                let present = self.lower_to_val(present, next)?;
                 if self.uninit_map_elem(e) {
                     // An element of a tracked array created by an earlier read exists but is
                     // still unassigned: "unassigned", as in gawk; a missing one is "untyped".
                     let (next, assigned) = self.map_elem_assigned(e, &arr_v, &ix_v, next)?;
-                    let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                    let v = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), next)?;
                     let (next, unset) = self.select(
                         present,
                         PrimExpr::Val(PrimVal::StrLit(b"unassigned")),
@@ -2659,43 +2661,43 @@ where
                     return Ok(Some((res.0, PrimExpr::Val(res.1))));
                 }
                 // The lookup creates the element, as in gawk.
-                let v = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+                let v = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), next)?;
                 (next, present, type_of(v), b"untyped")
             }
             Expr::Unop(Unop::Column, n) => {
                 let (next, n_v) = self.convert_column_index(n, current_open)?;
-                let n_v = self.to_val(PrimExpr::CallBuiltin(ToInt, smallvec![n_v]), next)?;
-                let nf = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NF), next)?;
+                let n_v = self.lower_to_val(PrimExpr::CallBuiltin(ToInt, smallvec![n_v]), next)?;
+                let nf = self.lower_to_val(PrimExpr::LoadBuiltin(builtins::Variable::NF), next)?;
                 let in_range =
                     PrimExpr::CallBuiltin(Bin(ast::Binop::LTE), smallvec![n_v.clone(), nf]);
-                let in_range = self.to_val(in_range, next)?;
+                let in_range = self.lower_to_val(in_range, next)?;
                 // $0 is "unassigned" until a record is read or it is set; approximate that with
                 // `NR == 0 && $0 == ""`, i.e. require `n + NR + length($0) > 0` as well.
-                let nr = self.to_val(PrimExpr::LoadBuiltin(builtins::Variable::NR), next)?;
-                let n_nr = self.to_val(
+                let nr = self.lower_to_val(PrimExpr::LoadBuiltin(builtins::Variable::NR), next)?;
+                let n_nr = self.lower_to_val(
                     PrimExpr::CallBuiltin(Bin(ast::Binop::Plus), smallvec![n_v.clone(), nr]),
                     next,
                 )?;
-                let line = self.to_val(
+                let line = self.lower_to_val(
                     PrimExpr::CallBuiltin(
                         Function::Unop(Unop::Column),
                         smallvec![PrimVal::ILit(0)],
                     ),
                     next,
                 )?;
-                let len = self.to_val(
+                let len = self.lower_to_val(
                     PrimExpr::CallBuiltin(Function::Length, smallvec![line]),
                     next,
                 )?;
-                let assigned = self.to_val(
+                let assigned = self.lower_to_val(
                     PrimExpr::CallBuiltin(Bin(ast::Binop::Plus), smallvec![n_nr, len]),
                     next,
                 )?;
-                let in_range = self.to_val(
+                let in_range = self.lower_to_val(
                     PrimExpr::CallBuiltin(Bin(ast::Binop::Mult), smallvec![in_range, assigned]),
                     next,
                 )?;
-                let v = self.to_val(
+                let v = self.lower_to_val(
                     PrimExpr::CallBuiltin(Function::Unop(Unop::Column), smallvec![n_v]),
                     next,
                 )?;
@@ -2748,13 +2750,13 @@ where
         let (next, ix_v) = self.convert_index(ix, next, /*in_cond=*/ false)?;
         let present =
             PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
-        let present = self.to_val(present, next)?;
+        let present = self.lower_to_val(present, next)?;
         let res = self.fresh_local();
         self.ctx.may_rename.push(res);
         let found = self.f.cfg.add_node(Default::default());
         let missing = self.f.cfg.add_node(Default::default());
         let join = self.f.cfg.add_node(Default::default());
-        let col = self.to_val(PrimExpr::Index(arr_v, ix_v), found)?;
+        let col = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), found)?;
         self.add_stmt(
             found,
             PrimStmt::AsgnVar(
@@ -2883,24 +2885,24 @@ where
         } else {
             let present =
                 PrimExpr::CallBuiltin(Function::Contains, smallvec![arr_v.clone(), ix_v.clone()]);
-            (next, self.to_val(present, next)?)
+            (next, self.lower_to_val(present, next)?)
         };
-        let val = self.to_val(PrimExpr::Index(arr_v, ix_v), next)?;
+        let val = self.lower_to_val(PrimExpr::Index(arr_v, ix_v), next)?;
         let val_str = PrimExpr::CallBuiltin(
             Function::Binop(ast::Binop::Concat),
             smallvec![val, PrimVal::StrLit(b"")],
         );
-        let val_str = self.to_val(val_str, next)?;
+        let val_str = self.lower_to_val(val_str, next)?;
         let empty = PrimExpr::CallBuiltin(
             Function::Binop(ast::Binop::EQ),
             smallvec![val_str, PrimVal::StrLit(b"")],
         );
-        let empty = self.to_val(empty, next)?;
+        let empty = self.lower_to_val(empty, next)?;
         let missing = PrimExpr::CallBuiltin(Function::Unop(ast::Unop::Not), smallvec![present]);
-        let missing = self.to_val(missing, next)?;
+        let missing = self.lower_to_val(missing, next)?;
         let either =
             PrimExpr::CallBuiltin(Function::Binop(ast::Binop::Plus), smallvec![missing, empty]);
-        let either = self.to_val(either, next)?;
+        let either = self.lower_to_val(either, next)?;
         Ok((
             next,
             PrimExpr::CallBuiltin(
@@ -2949,7 +2951,7 @@ where
         in_cond: bool,
     ) -> Result<(NodeIx, PrimVal<'b>)> {
         let (next_open, e) = self.convert_expr_inner(expr, current_open, in_cond)?;
-        Ok((next_open, self.to_val(e, next_open)?))
+        Ok((next_open, self.lower_to_val(e, next_open)?))
     }
 
     // Handles "break", "continue" statements.
@@ -3125,7 +3127,7 @@ where
         if !matches!(op, ast::Binop::Plus | ast::Binop::Minus) || is_const(&v) || is_const(other) {
             return Ok(v);
         }
-        self.to_val(
+        self.lower_to_val(
             PrimExpr::CallBuiltin(builtins::Function::ToFloat, smallvec![v]),
             current_open,
         )
@@ -3144,7 +3146,7 @@ where
             let (next, v1) = self.convert_val_inner(e1, current_open, in_cond)?;
             let (next, v2) = self.convert_val_inner(e2, next, in_cond)?;
             let sum = PrimExpr::CallBuiltin(builtins::Function::Binop(*op), smallvec![v1, v2]);
-            return Ok((next, self.to_val(sum, next)?));
+            return Ok((next, self.lower_to_val(sum, next)?));
         }
         // A missing element of a tracked array is "" as a subscript (`b[a[k]]`), as elsewhere
         // where a string is expected.
@@ -3277,7 +3279,7 @@ where
             };
             let cond =
                 PrimExpr::CallBuiltin(builtins::Function::Binop(op), smallvec![v.clone(), lit]);
-            let cond = self.to_val(cond, current_open)?;
+            let cond = self.lower_to_val(cond, current_open)?;
             let next = self.f.cfg.add_node(Default::default());
             self.f
                 .cfg
@@ -3362,9 +3364,9 @@ where
         // Create update node if necessary.
         let u = match update {
             Some(update) => {
-                let u = Some(self.f.cfg.add_node(Default::default()));
-                self.convert_stmt(update, u.unwrap())?;
-                u
+                let u = self.f.cfg.add_node(Default::default());
+                self.convert_stmt(update, u)?;
+                Some(u)
             }
             None => None,
         };
@@ -3456,7 +3458,7 @@ where
         }
     }
 
-    fn to_val(&mut self, exp: PrimExpr<'b>, current_open: NodeIx) -> Result<PrimVal<'b>> {
+    fn lower_to_val(&mut self, exp: PrimExpr<'b>, current_open: NodeIx) -> Result<PrimVal<'b>> {
         Ok(if let PrimExpr::Val(v) = exp {
             v
         } else {
@@ -3827,9 +3829,9 @@ where
                         let utc = prim_args.pop().unwrap();
                         let not =
                             PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc.clone()]);
-                        let not = self.to_val(not, open)?;
+                        let not = self.lower_to_val(not, open)?;
                         let flag = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
-                        prim_args.push(self.to_val(flag, open)?);
+                        prim_args.push(self.lower_to_val(flag, open)?);
                         prim_args.push(utc);
                     }
                     // mktime(date_text [, utc [, timezone]]): the utc flag defaults to 0 and is true
@@ -3843,9 +3845,9 @@ where
                         } else {
                             let utc = prim_args.pop().unwrap();
                             let not = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![utc]);
-                            let not = self.to_val(not, open)?;
+                            let not = self.lower_to_val(not, open)?;
                             let utc = PrimExpr::CallBuiltin(Unop(ast::Unop::Not), smallvec![not]);
-                            prim_args.push(self.to_val(utc, open)?);
+                            prim_args.push(self.lower_to_val(utc, open)?);
                         }
                         prim_args.push(timezone.unwrap_or(PrimVal::ILit(
                             crate::runtime::date_time::MKTIME_LOCAL_TIMEZONE as Int,
@@ -3875,7 +3877,7 @@ where
                         let mut joined = parts.next().unwrap();
                         for part in parts {
                             let args = smallvec![joined, part, PrimVal::StrLit(b"")];
-                            joined = self.to_val(PrimExpr::CallBuiltin(bi, args), open)?;
+                            joined = self.lower_to_val(PrimExpr::CallBuiltin(bi, args), open)?;
                         }
                         prim_args = smallvec![joined, last, PrimVal::StrLit(b"")];
                     }
@@ -3932,7 +3934,7 @@ where
                             let arg = prim_args[i].clone();
                             let json =
                                 PrimExpr::CallBuiltin(builtins::Function::ToJson, smallvec![arg]);
-                            prim_args[i] = self.to_val(json, open)?;
+                            prim_args[i] = self.lower_to_val(json, open)?;
                         }
                         if bi == builtins::Function::Jev && args_len == 2 {
                             let threshold = Expr::Var(I::from_static("jev_threshold"));
@@ -4130,7 +4132,7 @@ where
             Escaper::Identity => return Ok(v),
         };
         let e = PrimExpr::CallBuiltin(builtin, smallvec![v]);
-        self.to_val(e, current_open)
+        self.lower_to_val(e, current_open)
     }
 
     fn fresh(&mut self) -> Ident {

@@ -630,8 +630,9 @@ const MQTT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// MQTT client with its (synchronously driven) event loop. MQTT 3.1/3.1.1 use the v4 protocol, otherwise v5.
 enum MqttClient {
-    V4(rumqttc::Client, rumqttc::Connection),
-    V5(rumqttc::v5::Client, rumqttc::v5::Connection),
+    // The connections are boxed: they are large (about 1KB), and differ in size between versions.
+    V4(rumqttc::Client, Box<rumqttc::Connection>),
+    V5(rumqttc::v5::Client, Box<rumqttc::v5::Connection>),
 }
 
 impl MqttClient {
@@ -724,7 +725,7 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
             options.set_credentials(user_name, password);
         }
         let (client, conn) = rumqttc::v5::Client::new(options, 10);
-        Ok(MqttClient::V5(client, conn))
+        Ok(MqttClient::V5(client, Box::new(conn)))
     } else {
         let mut options = rumqttc::MqttOptions::new(client_id, host, port);
         options
@@ -735,7 +736,7 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
             options.set_credentials(user_name, password);
         }
         let (client, conn) = rumqttc::Client::new(options, 10);
-        Ok(MqttClient::V4(client, conn))
+        Ok(MqttClient::V4(client, Box::new(conn)))
     }
 }
 

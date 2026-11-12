@@ -965,12 +965,14 @@ impl<'a, 'p> Facts<'a, 'p> {
     fn check_numeric_redirect(&mut self, e: &'a AstExpr<'a>, spec: FileSpec) {
         fn numeric(e: &AstExpr) -> bool {
             use ast::Binop::*;
-            match e {
-                ast::Expr::ILit(_) | ast::Expr::FLit(_) | ast::Expr::Inc { .. } => true,
-                ast::Expr::Unop(ast::Unop::Neg | ast::Unop::Pos, _) => true,
-                ast::Expr::Binop(Plus | Minus | Mult | Div | Mod | Pow, _, _) => true,
-                _ => false,
-            }
+            matches!(
+                e,
+                ast::Expr::ILit(_)
+                    | ast::Expr::FLit(_)
+                    | ast::Expr::Inc { .. }
+                    | ast::Expr::Unop(ast::Unop::Neg | ast::Unop::Pos, _)
+                    | ast::Expr::Binop(Plus | Minus | Mult | Div | Mod | Pow, _, _)
+            )
         }
         let redirect = match spec {
             FileSpec::Trunc => ">",

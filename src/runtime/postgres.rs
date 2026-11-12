@@ -284,8 +284,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
             return map;
         }
     };
-    let mut index = 1;
-    for row in rows {
+    for (index, row) in (1..).zip(rows) {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
             let text_value = if is_null_column(&row, i) {
@@ -297,7 +296,6 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
         }
         let v2: Vec<&str> = items.iter().map(|s| s as &str).collect();
         map.insert(index, Str::from(vec_to_csv(&v2)));
-        index += 1;
     }
     map
 }

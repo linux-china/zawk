@@ -249,8 +249,11 @@ struct FdPool {
     /// `FILE_BUFFER_BUDGET` (see `FileHandle::batch_limit`).
     writing: AtomicUsize,
     /// Open files by id: their last use (a tick of `clock`) and their writer.
-    open: Mutex<HashMap<usize, (Arc<AtomicU64>, Weak<WriterSlot>)>>,
+    open: Mutex<OpenFiles>,
 }
+
+/// Open files by id: their last use (a tick of `FdPool::clock`) and their writer.
+type OpenFiles = HashMap<usize, (Arc<AtomicU64>, Weak<WriterSlot>)>;
 
 impl FdPool {
     /// Call `f` to open a file or command, closing other open files while it fails for lack of

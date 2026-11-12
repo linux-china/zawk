@@ -1962,7 +1962,7 @@ pub(crate) unsafe extern "C" fn parse(text: *mut U128, template: *mut U128) -> *
     guard_panic(stringify!(parse), || {
         let text = &*(text as *mut Str);
         let template = &*(template as *mut Str);
-        let res = string_util::parse(&text.as_text(), &template.as_text()).from_text_all();
+        let res = string_util::parse(&text.as_text(), &template.as_text()).unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(res)
     })
 }
@@ -1971,7 +1971,7 @@ pub(crate) unsafe extern "C" fn rparse(text: *mut U128, template: *mut U128) -> 
     guard_panic(stringify!(rparse), || {
         let text = &*(text as *mut Str);
         let template = &*(template as *mut Str);
-        let res = string_util::rparse(&text.as_text(), &template.as_text()).from_text();
+        let res = string_util::rparse(&text.as_text(), &template.as_text()).unescape_text();
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
@@ -2441,8 +2441,7 @@ pub(crate) unsafe extern "C" fn eval_context(formula: *mut U128, context: *mut c
 pub(crate) unsafe extern "C" fn eval(formula: *mut U128) -> Float {
     guard_panic(stringify!(eval), || {
         let formula = &*(formula as *mut Str);
-        let result = math_util::eval(&formula.as_str());
-        result
+        math_util::eval(&formula.as_str())
     })
 }
 
@@ -2470,7 +2469,7 @@ pub(crate) unsafe extern "C" fn url(s: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn record(src: *mut U128) -> *mut c_void {
     guard_panic(stringify!(record), || {
         let src = &*(src as *mut Str);
-        let arr_obj = string_util::record(&src.as_text()).from_text_all();
+        let arr_obj = string_util::record(&src.as_text()).unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
     })
 }
@@ -2478,7 +2477,7 @@ pub(crate) unsafe extern "C" fn record(src: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn message(src: *mut U128) -> *mut c_void {
     guard_panic(stringify!(message), || {
         let src = &*(src as *mut Str);
-        let arr_obj = string_util::message(&src.as_text()).from_text_all();
+        let arr_obj = string_util::message(&src.as_text()).unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
     })
 }
@@ -2493,7 +2492,7 @@ pub(crate) unsafe extern "C" fn pairs(
         let pair_sep = &*(pair_sep as *mut Str);
         let kv_sep = &*(kv_sep as *mut Str);
         let arr_obj = string_util::pairs(&src.as_text(), &pair_sep.as_text(), &kv_sep.as_text())
-            .from_text_all();
+            .unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
     })
 }
@@ -2632,7 +2631,7 @@ pub(crate) unsafe extern "C" fn is_null(text: *mut U128) -> Int {
 pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
     guard_panic(stringify!(shlex), || {
         let text = &*(text as *mut Str);
-        let res = math_util::shlex(&text.as_text()).from_text();
+        let res = math_util::shlex(&text.as_text()).unescape_text();
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
@@ -2640,7 +2639,7 @@ pub(crate) unsafe extern "C" fn shlex(text: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn tuple(text: *mut U128) -> *mut c_void {
     guard_panic(stringify!(tuple), || {
         let text = &*(text as *mut Str);
-        let res = math_util::tuple(&text.as_text()).from_text();
+        let res = math_util::tuple(&text.as_text()).unescape_text();
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
@@ -2648,7 +2647,7 @@ pub(crate) unsafe extern "C" fn tuple(text: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn flags(text: *mut U128) -> *mut c_void {
     guard_panic(stringify!(flags), || {
         let text = &*(text as *mut Str);
-        let res = math_util::flags(&text.as_text()).from_text(|v| v);
+        let res = math_util::flags(&text.as_text()).unescape_keys(|v| v);
         mem::transmute::<StrMap<Int>, *mut c_void>(res)
     })
 }
@@ -2656,7 +2655,7 @@ pub(crate) unsafe extern "C" fn flags(text: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn parse_array(text: *mut U128) -> *mut c_void {
     guard_panic(stringify!(parse_array), || {
         let text = &*(text as *mut Str);
-        let res = math_util::parse_array(&text.as_text()).from_text();
+        let res = math_util::parse_array(&text.as_text()).unescape_text();
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }
@@ -2679,7 +2678,7 @@ pub(crate) unsafe extern "C" fn rgb2hex(red: Int, green: Int, blue: Int) -> U128
 pub(crate) unsafe extern "C" fn variant(s: *mut U128) -> *mut c_void {
     guard_panic(stringify!(variant), || {
         let src = &*(s as *mut Str);
-        let version_obj = math_util::variant(&src.as_text()).from_text_all();
+        let version_obj = math_util::variant(&src.as_text()).unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(version_obj)
     })
 }
@@ -2687,7 +2686,7 @@ pub(crate) unsafe extern "C" fn variant(s: *mut U128) -> *mut c_void {
 pub(crate) unsafe extern "C" fn func(text: *mut U128) -> *mut c_void {
     guard_panic(stringify!(func), || {
         let text = &*(text as *mut Str);
-        let res = string_util::func(&text.as_text()).from_text();
+        let res = string_util::func(&text.as_text()).unescape_text();
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
     })
 }

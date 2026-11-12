@@ -890,10 +890,8 @@ impl<'a> Str<'a> {
 
     pub(crate) fn words<'b>(&self) -> IntMap<Str<'b>> {
         let result: IntMap<Str> = IntMap::default();
-        let mut index: i64 = 1;
-        for word in self.as_text().unicode_words() {
+        for (index, word) in (1_i64..).zip(self.as_text().unicode_words()) {
             result.insert(index, Str::from_text(word));
-            index += 1;
         }
         result
     }
@@ -1135,7 +1133,7 @@ impl<'a> Str<'a> {
                 // As in gawk, `how` is converted like any string to a number and truncated; a value
                 // below 1 (including text that is not a number) is treated as 1, with a warning.
                 let which = str_to_num(how);
-                if !(which >= 1.0) {
+                if which.is_nan() || which < 1.0 {
                     super::stdlib_notice(
                         "gensub",
                         format!(

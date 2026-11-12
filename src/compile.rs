@@ -720,8 +720,10 @@ impl<'a> Typer<'a> {
         // Type-check the code, then initialize a Typer, assigning registers to local
         // and global variables.
 
-        let mut generator = Typer::default();
-        generator.fi_holds_lookups = pc.fi_holds_lookups;
+        let mut generator = Typer {
+            fi_holds_lookups: pc.fi_holds_lookups,
+            ..Default::default()
+        };
         if pc.fold_regex_constants || pc.parse_header {
             generator.string_constants = Some(StringConstantAnalysis::from_config(
                 string_constants::Config {

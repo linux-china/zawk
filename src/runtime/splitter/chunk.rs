@@ -394,6 +394,7 @@ pub fn new_offset_chunk_producer_csv<R: Read>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn new_offset_chunk_producer_bytes<R: Read>(
     r: R,
     chunk_size: usize,
@@ -454,6 +455,8 @@ pub fn new_offset_chunk_producer_ascii_whitespace<R: Read>(
     )
 }
 
+// The return types name `impl Trait` closures, which cannot be put in a type alias.
+#[allow(clippy::type_complexity)]
 pub fn new_chained_offset_chunk_producer_csv<
     R: Read,
     N: Borrow<str>,
@@ -480,6 +483,8 @@ pub fn new_chained_offset_chunk_producer_csv<
     )
 }
 
+// The return types name `impl Trait` closures, which cannot be put in a type alias.
+#[allow(clippy::type_complexity)]
 pub fn new_chained_offset_chunk_producer_bytes<
     R: Read,
     N: Borrow<str>,
@@ -512,6 +517,8 @@ pub fn new_chained_offset_chunk_producer_bytes<
     )
 }
 
+// The return types name `impl Trait` closures, which cannot be put in a type alias.
+#[allow(clippy::type_complexity)]
 pub fn new_chained_offset_chunk_producer_ascii_whitespace<
     R: Read,
     N: Borrow<str>,

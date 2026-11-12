@@ -396,9 +396,15 @@ type PasswordTag = [u8; 32];
 static PASSWORD_TAG_KEY: LazyLock<[u8; 32]> =
     LazyLock::new(|| random_bytes::<32>().unwrap_or_default());
 
+/// A bounded cache shared across threads.
+type SharedLru<K, V> = Mutex<lru::LruCache<K, V>>;
+
+/// (password tag, salt, key length)
+type DerivedKeyId = (PasswordTag, Vec<u8>, usize);
+
 /// derived keys by (password tag, salt, key length), because derivation is slow by design;
 /// least recently used keys are evicted beyond `DERIVED_KEYS_CAPACITY`
-static DERIVED_KEYS: LazyLock<Mutex<lru::LruCache<(PasswordTag, Vec<u8>, usize), Vec<u8>>>> =
+static DERIVED_KEYS: LazyLock<SharedLru<DerivedKeyId, Vec<u8>>> =
     LazyLock::new(|| {
         Mutex::new(lru::LruCache::new(
             std::num::NonZeroUsize::new(DERIVED_KEYS_CAPACITY).unwrap(),
@@ -409,7 +415,7 @@ static DERIVED_KEYS: LazyLock<Mutex<lru::LruCache<(PasswordTag, Vec<u8>, usize),
 /// defeats precomputed dictionaries shared by all users of zawk.
 /// Bounded like `DERIVED_KEYS`: a program using a different password for every record would otherwise grow
 /// it without bound; an evicted password just gets a new salt (and one more PBKDF2) on its next `encrypt`
-static ENCRYPT_SALTS: LazyLock<Mutex<lru::LruCache<(PasswordTag, usize), [u8; SALT_LEN]>>> =
+static ENCRYPT_SALTS: LazyLock<SharedLru<(PasswordTag, usize), [u8; SALT_LEN]>> =
     LazyLock::new(|| {
         Mutex::new(lru::LruCache::new(
             std::num::NonZeroUsize::new(DERIVED_KEYS_CAPACITY).unwrap(),

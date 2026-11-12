@@ -146,29 +146,29 @@ use regex::Regex;
 #[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
 enum RecordToken<'a> {
     #[token("{")]
-    LBRACE,
+    LBrace,
     #[token("}")]
-    RBRACE,
+    RBrace,
     #[token("(")]
-    LPAREN,
+    LParen,
     #[token(")")]
-    RPAREN,
+    RParen,
     #[token(",")]
-    COMMA,
+    Comma,
     #[token("=")]
-    EQ,
+    Eq,
     #[token(":")]
-    COLON,
+    Colon,
     #[token(";")]
-    SEMICOLON,
+    Semicolon,
     #[regex(r#"[a-zA-Z0-9_]+"#)]
-    LITERAL(&'a str),
+    Literal(&'a str),
     #[regex(r#""[^"]*""#)]
     Text(&'a str),
     #[regex(r#"'[^']*'"#)]
     Text2(&'a str),
     #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
-    NUM(&'a str),
+    Num(&'a str),
 }
 
 struct PairState {
@@ -213,52 +213,50 @@ pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
         let mut key_parsed = false;
         let mut key = "";
         let mut value = "";
-        for token in lexer.into_iter() {
-            if let Ok(attribute) = token {
-                match attribute {
-                    RecordToken::COLON | RecordToken::EQ => {
-                        // key parsed
-                        key_parsed = true
-                    }
-                    RecordToken::COMMA => {
-                        // add pair
-                        if !key.is_empty() && !value.is_empty() {
-                            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
-                        }
-                        key = "";
-                        value = "";
-                        key_parsed = false
-                    }
-                    RecordToken::RBRACE => {
-                        // end
-                        if !key.is_empty() && !value.is_empty() {
-                            map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
-                        }
-                        key_parsed = false
-                    }
-                    // parse key's value
-                    RecordToken::LITERAL(literal) => {
-                        // pair value
-                        if key_parsed {
-                            value = literal;
-                        } else {
-                            key = literal;
-                        }
-                    }
-                    RecordToken::Text(text) => {
-                        // pair value
-                        value = text.trim_matches('"');
-                    }
-                    RecordToken::Text2(text) => {
-                        // pair value
-                        value = text.trim_matches('\'');
-                    }
-                    RecordToken::NUM(num) => {
-                        // pair value
-                        value = num;
-                    }
-                    _ => {}
+        for attribute in lexer.flatten() {
+            match attribute {
+                RecordToken::Colon | RecordToken::Eq => {
+                    // key parsed
+                    key_parsed = true
                 }
+                RecordToken::Comma => {
+                    // add pair
+                    if !key.is_empty() && !value.is_empty() {
+                        map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+                    }
+                    key = "";
+                    value = "";
+                    key_parsed = false
+                }
+                RecordToken::RBrace => {
+                    // end
+                    if !key.is_empty() && !value.is_empty() {
+                        map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
+                    }
+                    key_parsed = false
+                }
+                // parse key's value
+                RecordToken::Literal(literal) => {
+                    // pair value
+                    if key_parsed {
+                        value = literal;
+                    } else {
+                        key = literal;
+                    }
+                }
+                RecordToken::Text(text) => {
+                    // pair value
+                    value = text.trim_matches('"');
+                }
+                RecordToken::Text2(text) => {
+                    // pair value
+                    value = text.trim_matches('\'');
+                }
+                RecordToken::Num(num) => {
+                    // pair value
+                    value = num;
+                }
+                _ => {}
             }
         }
     } else if text.contains("(") && text.ends_with(")") {
@@ -290,88 +288,86 @@ pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
         let mut body_started = false;
         let mut body = "".to_owned();
         let lexer = RecordToken::lexer(&pairs_text);
-        for token in lexer.into_iter() {
-            if let Ok(attribute) = token {
-                match attribute {
-                    RecordToken::COLON | RecordToken::EQ => {
-                        // key parsed
-                        pair_state.key_parsed = true;
-                    }
-                    RecordToken::LPAREN => {
-                        // body started
-                        body_started = true;
-                    }
-                    RecordToken::RPAREN => {
-                        // boyd end
-                        if !body.is_empty() {
-                            map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
-                        }
-                        body_started = false;
-                    }
-                    // parse key's value
-                    RecordToken::LITERAL(literal) if !body_started => {
-                        // pair value
-                        if pair_state.key_parsed {
-                            pair_state.value = literal.to_string();
-                            if pair_state.is_legal() {
-                                map.insert(
-                                    Str::from(pair_state.key.clone()),
-                                    Str::from(pair_state.value.clone()),
-                                );
-                            }
-                            pair_state.reset();
-                        } else {
-                            pair_state.key = literal.to_string();
-                        }
-                    }
-                    RecordToken::Text(text) if !body_started => {
-                        // pair value
-                        pair_state.value = text[1..text.len() - 1].to_string();
-                        if pair_state.is_legal() {
-                            map.insert(
-                                Str::from(pair_state.key.clone()),
-                                Str::from(pair_state.value.clone()),
-                            );
-                        }
-                        pair_state.reset();
-                    }
-                    RecordToken::Text2(text) if !body_started => {
-                        // pair value
-                        pair_state.value = text[1..text.len() - 1].to_string();
-                        if pair_state.is_legal() {
-                            map.insert(
-                                Str::from(pair_state.key.clone()),
-                                Str::from(pair_state.value.clone()),
-                            );
-                        }
-                        pair_state.reset();
-                    }
-                    RecordToken::NUM(num) if !body_started => {
-                        // pair value
-                        pair_state.value = num.to_string();
-                        if pair_state.is_legal() {
-                            map.insert(
-                                Str::from(pair_state.key.clone()),
-                                Str::from(pair_state.value.clone()),
-                            );
-                        }
-                        pair_state.reset();
-                    }
-                    // body value
-                    RecordToken::LITERAL(literal) if body_started => {
-                        body = literal.to_string();
-                    }
-                    RecordToken::NUM(num) if body_started => {
-                        body = num.to_string();
-                    }
-                    RecordToken::Text(text) if body_started => {
-                        body = text[1..text.len() - 1].to_string();
-                    }
-                    RecordToken::Text2(text) if body_started => {
-                        body = text[1..text.len() - 1].to_string();
-                    }
-                    _ => {}
+        for attribute in lexer.flatten() {
+            match attribute {
+                RecordToken::Colon | RecordToken::Eq => {
+                    // key parsed
+                    pair_state.key_parsed = true;
                 }
+                RecordToken::LParen => {
+                    // body started
+                    body_started = true;
+                }
+                RecordToken::RParen => {
+                    // boyd end
+                    if !body.is_empty() {
+                        map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
+                    }
+                    body_started = false;
+                }
+                // parse key's value
+                RecordToken::Literal(literal) if !body_started => {
+                    // pair value
+                    if pair_state.key_parsed {
+                        pair_state.value = literal.to_string();
+                        if pair_state.is_legal() {
+                            map.insert(
+                                Str::from(pair_state.key.clone()),
+                                Str::from(pair_state.value.clone()),
+                            );
+                        }
+                        pair_state.reset();
+                    } else {
+                        pair_state.key = literal.to_string();
+                    }
+                }
+                RecordToken::Text(text) if !body_started => {
+                    // pair value
+                    pair_state.value = text[1..text.len() - 1].to_string();
+                    if pair_state.is_legal() {
+                        map.insert(
+                            Str::from(pair_state.key.clone()),
+                            Str::from(pair_state.value.clone()),
+                        );
+                    }
+                    pair_state.reset();
+                }
+                RecordToken::Text2(text) if !body_started => {
+                    // pair value
+                    pair_state.value = text[1..text.len() - 1].to_string();
+                    if pair_state.is_legal() {
+                        map.insert(
+                            Str::from(pair_state.key.clone()),
+                            Str::from(pair_state.value.clone()),
+                        );
+                    }
+                    pair_state.reset();
+                }
+                RecordToken::Num(num) if !body_started => {
+                    // pair value
+                    pair_state.value = num.to_string();
+                    if pair_state.is_legal() {
+                        map.insert(
+                            Str::from(pair_state.key.clone()),
+                            Str::from(pair_state.value.clone()),
+                        );
+                    }
+                    pair_state.reset();
+                }
+                // body value
+                RecordToken::Literal(literal) if body_started => {
+                    body = literal.to_string();
+                }
+                RecordToken::Num(num) if body_started => {
+                    body = num.to_string();
+                }
+                RecordToken::Text(text) if body_started => {
+                    body = text[1..text.len() - 1].to_string();
+                }
+                RecordToken::Text2(text) if body_started => {
+                    body = text[1..text.len() - 1].to_string();
+                }
+                _ => {}
             }
         }
     } else {

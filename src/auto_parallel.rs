@@ -20,6 +20,7 @@
 //!   - **per record**: mentioned in a single action only, whose first top-level statement that
 //!     mentions it assigns it without reading it (`x = e`, `n = split(s, parts)`,
 //!     `for (i = 1; ...)`, `for (k in a)`); it is not mentioned in BEGIN, END, functions or `-v`.
+//!
 //!   Globals the main loop only reads (set in BEGIN or with `-v`) are copied to the workers.
 //! * The main loop does not read `NR`, `FNR`, `FILENAME` or `PID`, which count per worker, nor
 //!   assign a special variable.

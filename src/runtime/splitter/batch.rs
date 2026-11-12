@@ -294,7 +294,12 @@ impl<P: ChunkProducer<Chunk = OffsetChunk>> CSVReader<P> {
     ) -> Result</*file changed*/ bool> {
         line.clear();
         let mut changed = false;
-        if self.cur_chunk.off.rel.start == self.cur_chunk.off.rel.fields.len() {
+        // A last record without a record separator (and without a field separator or quote) has
+        // no offset left, but is not consumed yet: only refresh once the buffer is exhausted.
+        // NB: >= because `push_past` can leave prev_ix pointing past the end of the buffer.
+        if self.cur_chunk.off.rel.start == self.cur_chunk.off.rel.fields.len()
+            && self.prev_ix >= self.buf_len
+        {
             // NB: see comment on corresponding condition in ByteReader.
             let (is_eof, has_changed) = self.refresh_buf()?;
             changed = has_changed;
