@@ -302,3 +302,44 @@ fn slow_chunk_keeps_order() {
     let ordered = run_ok(&["--keep-order", "-j", "4", "-F,", prog, &file], None);
     assert!(ordered == serial);
 }
+
+#[test]
+fn chunk_read_in_begin_keeps_order() {
+    // The main thread reads the first chunk before the parallel stage starts (the `-H` header,
+    // the jsonl schema, a `getline` in BEGIN): that chunk's output still comes first.
+    let tmp = tempdir().unwrap();
+    let file = write_file(tmp.path(), "data.csv", 0..20000);
+    let jsonl = tmp.path().join("data.jsonl");
+    {
+        let mut f = std::fs::File::create(&jsonl).unwrap();
+        for i in 0..20000 {
+            writeln!(f, "{{\"id\":{},\"name\":\"n{}\"}}", i, i).unwrap();
+        }
+    }
+    let jsonl = jsonl.to_str().unwrap();
+    for backend in BACKEND_ARGS {
+        let cases: Vec<Vec<&str>> = vec![
+            vec!["-H", "-F,", "{ print $1, $2 }", &file],
+            vec!["-icsv", "-H", "{ print $1, $2 }", &file],
+            vec!["-ijsonl", "{ print $FI[\"id\"] }", jsonl],
+            vec!["-F,", "BEGIN { getline; h = $1 } { print h, $1 }", &file],
+            // BEGIN reads past the first chunks.
+            vec![
+                "-F,",
+                "BEGIN { for (i = 0; i < 500; i++) getline; print \"begin\", $1 } { print $1 }",
+                &file,
+            ],
+        ];
+        for args in cases {
+            let mut serial_args = vec![*backend];
+            serial_args.extend(&args);
+            let serial = run_ok(&serial_args, None);
+            for chunk in ["256", "4096"] {
+                let mut par_args =
+                    vec![*backend, "--keep-order", "-j", "4", "--chunk-size", chunk];
+                par_args.extend(&args);
+                assert_eq!(run_ok(&par_args, None), serial, "{:?}", par_args);
+            }
+        }
+    }
+}
