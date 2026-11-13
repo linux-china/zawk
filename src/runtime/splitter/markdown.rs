@@ -168,12 +168,36 @@ fn has_delimiter(row: &str) -> bool {
     false
 }
 
+/// Whether a header suffix after `:` is a column type annotation (`DOUBLE`, `VARCHAR`,
+/// `DECIMAL(18,3)`, `INTEGER[]`, ...). Anything else is part of the column name, so a column
+/// named `host:port` (as `-o markdown` writes it) keeps its name.
+fn is_type_name(ty: &str) -> bool {
+    let lower = ty.trim().to_ascii_lowercase();
+    let base = lower.trim_end_matches("[]");
+    let base = base.split_once('(').map_or(base, |(b, _)| b).trim_end();
+    matches!(
+        base,
+        "auto" | "string" | "str" | "utf8" | "text" | "varchar" | "char" | "bpchar"
+            | "boolean" | "bool" | "number" | "numeric" | "decimal"
+            | "int" | "integer" | "tinyint" | "smallint" | "bigint" | "hugeint" | "long"
+            | "int8" | "int16" | "int32" | "int64" | "int128"
+            | "utinyint" | "usmallint" | "uinteger" | "ubigint" | "uhugeint"
+            | "uint8" | "uint16" | "uint32" | "uint64"
+            | "float" | "float32" | "float64" | "real" | "double"
+            | "date" | "time" | "timestamp" | "datetime" | "timestamptz" | "interval"
+            | "timestamp with time zone" | "time with time zone"
+            | "json" | "uuid" | "bytes" | "binary" | "blob"
+    )
+}
+
 /// The first table in `text` as CSV, with the column names (without type annotations) first.
 fn first_table_csv(text: &str) -> Option<String> {
     let mut rows = first_table(text)?;
     if let Some(header) = rows.first_mut() {
         for name in header.iter_mut() {
-            if let Some((n, _)) = name.split_once(':') {
+            if let Some((n, ty)) = name.rsplit_once(':')
+                && is_type_name(ty)
+            {
                 *name = n.trim().to_string();
             }
         }
@@ -212,6 +236,17 @@ mod tests {
         assert_eq!(
             first_table_csv(text).unwrap(),
             "actor_id,first_name,note\n1.0,PENELOPE,\"a, \"\"b\"\"\"\n2.0,NICK,x | y\n"
+        );
+    }
+
+    #[test]
+    fn colon_in_column_name_is_kept() {
+        let text = "| host:port | v:INTEGER | d:DECIMAL(18,3) | a:b:VARCHAR | t: |\n\
+            |---|---|---|---|---|\n\
+            | a:1 | 2 | 3.5 | x | y |\n";
+        assert_eq!(
+            first_table_csv(text).unwrap(),
+            "host:port,v,d,a:b,t:\na:1,2,3.5,x,y\n"
         );
     }
 
