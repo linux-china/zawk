@@ -1,0 +1,4 @@
+dos line
+another
+
+ab c

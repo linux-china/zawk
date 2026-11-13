@@ -1,0 +1,5 @@
+2:[dos][line\r] rebuilt=[dos line\r]
+1:[another\r] rebuilt=[another\r]
+1:[\r] rebuilt=[\r]
+2:[a\rb][c\r] rebuilt=[a\rb c\r]
+split=2:[x\ry][z\r]

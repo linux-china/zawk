@@ -79,7 +79,16 @@ in gawk. Spell out what a short match may contain instead: `/<[^>]+>/`, not `/<.
 
 ## Other differences
 
-- With the default `FS`, `\r` separates fields, so CRLF line endings are not part of the last field.
+- **Carriage returns**: with the default `FS` (a single space), `\r` is a blank that separates fields, like
+  space, tab and newline, so files with Windows (CRLF) line endings split cleanly. gawk splits on blanks and
+  newlines only. For CRLF input:
+  - the last field has no `\r`: for `a b\r\n`, `$2` is `b` (gawk: `b\r`), and `a\rb c` has 3 fields (gawk: 2);
+  - a line holding only `\r` is blank: `NF` is 0, so `awk NF` drops it (gawk keeps it);
+  - rebuilding the record (`$1 = $1`, assigning a field) drops the trailing `\r`;
+  - `$0` itself keeps the `\r`, and the same rule applies to `getline`, `$0 = s` and `split(s, a)`.
+
+  Set `FS = "[ \t\n]+"` to keep `\r` in the fields as gawk does (leading blanks then give an empty `$1`),
+  or `sub(/\r$/, "")` at the start of the main rule to remove it explicitly.
 - Output is batched aggressively for performance; call `fflush()` when you need output right away.
 - zawk loads `.env` from the current directory as environment variables.
 - Numbers are converted to strings with `OFMT`/`CONVFMT` as in AWK.

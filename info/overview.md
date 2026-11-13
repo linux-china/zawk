@@ -407,8 +407,12 @@ if you find that the following are a serious hindrance:
   in zawk but 2 in gawk. `$0` keeps the `\r` in both. The rule is the same
   wherever a string is split with the default `FS`: records of the main input
   (with any `RS`), records read by `getline < file` or `cmd | getline`,
-  assigning `$0` (even `$0 = $0`) and `split(s, arr)`. To remove carriage
-  returns explicitly, use `sub(/\r$/, "")` at the start of the main rule.
+  assigning `$0` (even `$0 = $0`) and `split(s, arr)`. As a consequence, a
+  CRLF line holding only `\r` has `NF == 0` (so `awk NF` drops it, while gawk
+  keeps it), and rebuilding the record (`$1 = $1`) drops the trailing `\r`.
+  To remove carriage returns explicitly, use `sub(/\r$/, "")` at the start of
+  the main rule; to keep them in the fields as gawk does, use
+  `FS = "[ \t\n]+"`.
 * *`getline` with `-i csv`/`-i tsv`* `getline < file`, `getline var < file`
   and `cmd | getline` read CSV/TSV records, so a quoted field containing a
   newline is kept together, and a record assigned to `$0` (by `getline` or

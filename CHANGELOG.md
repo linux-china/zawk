@@ -1,5 +1,7 @@
 # Unreleased
 
+* Document that the default `FS` treats `\r` as a blank that separates fields, unlike gawk: for CRLF input the last field has no `\r`, a line holding only `\r` has `NF == 0` (`awk NF` drops it) and `$1 = $1` drops the trailing `\r`. See "Differences from gawk"; the compatibility test `01-crlf-default-fs` records the difference
+
 # Version 0.7.2 (2026-11-14)
 
 * The time zone argument of `strftime` and `strptime` takes a fixed UTC offset too: `strftime("%H:%M %z", 0, "+08:00")` is `08:00 +0800` and `"-0500"`, `"+08"`, `"+05:30"` work as well. Such an offset was silently taken as UTC before; text with no letters that is neither an offset nor a number (`"08:00"`) is now an unknown time zone, UTC with a warning and `ERRNO` set
