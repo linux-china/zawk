@@ -4,7 +4,7 @@ This is your zawk project that is a modern AWK language implementation with Rust
 
 ## Features:
 
-* Modern syntax 
+* Modern syntax
 * AWK/gawk mostly compatible
 * stdlib: 160+ functions built-in
 * High performance: parallel + SIMD
@@ -42,7 +42,7 @@ create table people
 (
     id   int,
     name varchar(255),
-    age int
+    age  int
 );
 
 insert into people(id, name, age) values (1, 'Jackie', 48);
@@ -53,26 +53,34 @@ insert into people(id, name, age) values (5, 'Laura', 8);
 insert into people(id, name, age) values (11, 'test', 18);
 ```
 
+## Rust Build Rules
+
+Verifying changes (after every edit)
+
+1. Run `cargo check --all-targets --profile agent` first (alias: `cargo av`).
+2. To run tests, use `cargo test --profile agent` (alias: `cargo at`).
+3. If you need a binary for a smoke test, run `cargo build --profile agent`. The output is in `target/agent/`.
+
 ## Misc
 
 Please ignore the following differences with gawk：
 
--  `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
+- `BEGINFILE` / `ENDFILE`， `next`/`nextfile`
 - `FIELDWIDTHS` / `FPAT`
 - `RT`
--  readonly
-- `a[i][j]` 
+- readonly
+- `a[i][j]`
 - ignore f-string difference
 - readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
--  `$$1`, `$++i` not support
--  `@/re/`
+- `$$1`, `$++i` not support
+- `@/re/`
 
 Security:
 
-- http is allowed 
+- http is allowed
 - No taint check required to execute command, and it is supported by third sandbox tool.
 
-Architecture: 
+Architecture:
 
 - BLOB in Database: not support now, and treated as empty string
 

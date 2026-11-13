@@ -5,3 +5,8 @@ rustflags = ["-A", "unused_attributes"]
 split-debuginfo = 'unpacked'
 [profile.test]
 split-debuginfo = 'unpacked'
+
+[alias]
+av = "check --all-targets --profile agent"
+at = "test --profile agent"
+ab = "build --profile agent"

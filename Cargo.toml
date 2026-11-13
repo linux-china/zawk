@@ -241,3 +241,16 @@ libsqlite3-sys = { opt-level = "s" }
 [profile.dist]
 inherits = "release"
 lto = true
+
+# profile for AI agent to compile and check
+[profile.agent]
+inherits = "dev"
+opt-level = 0
+debug = false
+incremental = true
+codegen-units = 256
+lto = false
+panic = "unwind"
+
+[profile.agent.package."*"]
+opt-level = 1
