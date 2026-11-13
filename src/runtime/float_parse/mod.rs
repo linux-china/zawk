@@ -67,11 +67,17 @@ pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
             .and_then(|i| i.checked_add(digit as u128));
         approx = approx * 16.0 + digit as f64;
     }
-    let exact = exact.map(|i| if neg { -(i as i128) } else { i as i128 });
-    match exact.map(i64::try_from) {
-        Some(Ok(i)) => Ok(i),
-        Some(Err(_)) => Err(exact.unwrap() as f64),
-        None => Err(if neg { -approx } else { approx }),
+    // Work with the magnitude in u128 and apply the sign last: casting a u128 in [2^127, 2^128)
+    // to i128 would wrap around and yield a wrong sign and value.
+    let signed = |f: f64| if neg { -f } else { f };
+    match exact {
+        Some(i) if neg && i == 1u128 << 63 => Ok(i64::MIN),
+        Some(i) => match i64::try_from(i) {
+            Ok(i) => Ok(if neg { -i } else { i }),
+            // u128 -> f64 rounds to nearest, which is exact enough for any magnitude.
+            Err(_) => Err(signed(i as f64)),
+        },
+        None => Err(signed(approx)),
     }
 }
 
@@ -470,6 +476,24 @@ mod tests {
         assert_eq!(parse_hex_literal(b"-0X10"), Ok(-16));
         assert_eq!(parse_hex_literal(b"0x7fffffffffffffff"), Ok(i64::MAX));
         assert_eq!(parse_hex_literal(b"-0x8000000000000000"), Ok(i64::MIN));
+        // Magnitudes in [2^127, 2^128) must not wrap through i128.
+        assert_eq!(
+            parse_hex_literal(b"0xffffffffffffffffffffffffffffffff"),
+            Err(u128::MAX as f64)
+        );
+        assert_eq!(
+            parse_hex_literal(b"0x80000000000000000000000000000000"),
+            Err((1u128 << 127) as f64)
+        );
+        assert_eq!(
+            parse_hex_literal(b"-0xffffffffffffffffffffffffffffffff"),
+            Err(-(u128::MAX as f64))
+        );
+        assert_eq!(
+            parse_hex_literal(b"0x7fffffffffffffffffffffffffffffff"),
+            Err(i128::MAX as f64)
+        );
+        assert_eq!(parse_hex_literal(b"-0x8000000000000001"), Err(-9223372036854775808f64));
         assert_eq!(
             parse_hex_literal(b"0xffffffffffffffff"),
             Err(18446744073709551615.0)

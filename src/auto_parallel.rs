@@ -25,8 +25,8 @@
 //! * The main loop does not read `NR`, `FNR`, `FILENAME` or `PID`, which count per worker, nor
 //!   assign a special variable.
 //! * END does not read the last record (`$0`, `$n`, `NF`) or `RSTART`/`RLENGTH`.
-//! * END does not walk an array the main loop fills with `for (k in a)` unless BEGIN or END
-//!   sets `PROCINFO["sorted_in"]`: the keys of an array merged from the workers come in another
+//! * END does not walk an array the main loop fills with `for (k in a)` unless
+//!   `PROCINFO["sorted_in"]` is set to an order on every path before the walk: the keys of an array merged from the workers come in another
 //!   order than in a serial run, so the output would change once the input grows large enough.
 //! * No plain `getline` anywhere (it reads the main input) and no assignment to `RS` anywhere
 //!   (a record separator assigned at run time needs the serial regex splitter).
@@ -219,18 +219,9 @@ fn check<'a>(prog: &ast::Prog<'a, 'a, &'a str>, given: &[&str]) -> bool {
         return false;
     }
     // `for (k in a)` in END over an array filled by the workers visits its keys in another order
-    // than a serial run, unless the program asks for an order.
-    let mut walked = HashSet::new();
-    prog.end.iter().for_each(|s| for_in_arrays(s, &mut walked));
-    if walked
-        .iter()
-        .any(|n| summed.contains(n) || main.written.contains(n))
-        && !prog
-            .begin
-            .iter()
-            .chain(prog.end.iter())
-            .any(|s| sets_sorted_in(s))
-    {
+    // than a serial run, unless `PROCINFO["sorted_in"]` is set to an order on every path to it.
+    let worker = |n: &str| summed.contains(n) || main.written.contains(n);
+    if !walks_in_order(prog, &worker) {
         return false;
     }
     let local = |n: &str| n.contains('@');
@@ -487,22 +478,187 @@ fn for_in_arrays<'a>(s: &'a S<'a>, out: &mut HashSet<&'a str>) {
     }
 }
 
-/// Whether `s` contains `PROCINFO["sorted_in"] = "@..."`, which fixes the order of
-/// `for (k in a)`.
-fn sets_sorted_in(s: &S) -> bool {
-    fn expr(e: &E) -> bool {
-        match e {
-            Expr::Assign(Expr::Index(Expr::Var("PROCINFO"), Expr::StrLit(b"sorted_in")), v) => {
-                matches!(v, Expr::StrLit(order) if order.starts_with(b"@"))
-            }
-            _ => false,
+/// Whether `s` is `PROCINFO["sorted_in"] = "@..."`, which fixes the order of `for (k in a)`.
+fn sets_sorted_in(e: &E) -> bool {
+    match e {
+        Expr::Assign(Expr::Index(Expr::Var("PROCINFO"), Expr::StrLit(b"sorted_in")), v) => {
+            matches!(v, Expr::StrLit(order) if order.starts_with(b"@"))
+        }
+        _ => false,
+    }
+}
+
+/// Whether every `for (k in a)` in END over an array of the workers (`worker`) runs after
+/// `PROCINFO["sorted_in"]` was set to an order on every path from the start of BEGIN: the
+/// assignment must dominate the walk, not merely appear somewhere.
+fn walks_in_order<'a>(prog: &ast::Prog<'a, 'a, &'a str>, worker: &dyn Fn(&str) -> bool) -> bool {
+    // Functions that walk an array of the workers or change PROCINFO, directly or through
+    // another function.
+    let fns: Vec<(&str, Names)> = prog
+        .decs
+        .iter()
+        .map(|d| {
+            let mut n = Names::default();
+            n.stmt(d.body);
+            (d.name, n)
+        })
+        .collect();
+    let mut risky: HashSet<&str> = HashSet::new();
+    for (name, body) in fns.iter() {
+        // A function may walk an array of the workers passed as an argument, so any walk counts.
+        let mut walked = HashSet::new();
+        for_in_arrays(prog.decs.iter().find(|d| d.name == *name).unwrap().body, &mut walked);
+        if body.written.contains("PROCINFO") || !walked.is_empty() {
+            risky.insert(name);
         }
     }
-    match s {
-        Stmt::Expr(e) => expr(e),
-        Stmt::Block(v) => v.iter().any(|s| sets_sorted_in(s)),
-        Stmt::If(_, t, f) => sets_sorted_in(t) || f.is_some_and(sets_sorted_in),
-        _ => false,
+    loop {
+        let more: Vec<&str> = fns
+            .iter()
+            .filter(|(n, b)| !risky.contains(n) && b.calls.iter().any(|c| risky.contains(c)))
+            .map(|(n, _)| *n)
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        risky.extend(more);
+    }
+    let mut w = OrderWalk {
+        worker,
+        risky: &risky,
+        sorted: false,
+        ok: true,
+        in_end: false,
+    };
+    prog.begin.iter().for_each(|s| w.stmt(s));
+    w.in_end = true;
+    prog.end.iter().for_each(|s| w.stmt(s));
+    w.ok
+}
+
+/// Walks BEGIN then END in execution order, tracking whether `PROCINFO["sorted_in"]` surely
+/// holds an order.
+struct OrderWalk<'r, 'a> {
+    worker: &'r dyn Fn(&str) -> bool,
+    risky: &'r HashSet<&'a str>,
+    sorted: bool,
+    ok: bool,
+    in_end: bool,
+}
+
+impl<'r, 'a> OrderWalk<'r, 'a> {
+    /// A piece of straight-line code: an expression or a simple statement.
+    fn effects(&mut self, n: &Names) {
+        if n.calls.iter().any(|c| self.risky.contains(c)) {
+            // The function may walk an array of the workers, then change the order.
+            if self.in_end && !self.sorted {
+                self.ok = false;
+            }
+            self.sorted = false;
+        } else if n.written.contains("PROCINFO") {
+            self.sorted = false;
+        }
+    }
+
+    fn expr(&mut self, e: &E) {
+        if sets_sorted_in(e) {
+            self.sorted = true;
+            return;
+        }
+        let mut n = Names::default();
+        n.expr(e);
+        self.effects(&n);
+    }
+
+    /// Whether running `n` may change PROCINFO.
+    fn changes(&self, n: &Names) -> bool {
+        n.written.contains("PROCINFO") || n.calls.iter().any(|c| self.risky.contains(c))
+    }
+
+    /// Whether running `s` may change PROCINFO.
+    fn changes_order(&self, s: &S) -> bool {
+        let mut n = Names::default();
+        n.stmt(s);
+        self.changes(&n)
+    }
+
+    /// A loop: `conds` and `stmts` run zero or more times, in any order relative to each other
+    /// across iterations, so the order holds inside only if none of them can change it.
+    fn repeat(&mut self, conds: &[&E], stmts: &[&S]) {
+        let mut n = Names::default();
+        conds.iter().for_each(|c| n.expr(c));
+        stmts.iter().for_each(|s| n.stmt(s));
+        let kept = self.sorted && !self.changes(&n);
+        self.sorted = kept;
+        conds.iter().for_each(|c| self.expr(c));
+        stmts.iter().for_each(|s| self.stmt(s));
+        self.sorted = kept;
+    }
+
+    fn stmt(&mut self, s: &S) {
+        match s {
+            Stmt::Expr(e) => self.expr(e),
+            Stmt::Block(v) => v.iter().for_each(|s| self.stmt(s)),
+            Stmt::EndBlock(b) => self.stmt(b),
+            Stmt::If(c, t, f) => {
+                self.expr(c);
+                let start = self.sorted;
+                self.stmt(t);
+                let after_t = self.sorted;
+                self.sorted = start;
+                if let Some(f) = f {
+                    self.stmt(f);
+                }
+                self.sorted = self.sorted && after_t;
+            }
+            Stmt::Switch(e, cases) => {
+                self.expr(e);
+                for (label, _) in cases.iter() {
+                    if let Some(label) = label {
+                        self.expr(label);
+                    }
+                }
+                let start = self.sorted;
+                let mut all = start;
+                for (_, b) in cases.iter() {
+                    // A case may fall into the next one or be skipped entirely.
+                    self.sorted = start && !self.changes_order(b);
+                    self.stmt(b);
+                    all = all && self.sorted;
+                }
+                self.sorted = all;
+            }
+            Stmt::ForEach(_, arr, b) => {
+                self.expr(arr);
+                let of_workers = match arr {
+                    Expr::Var(n) => (self.worker)(n),
+                    _ => true,
+                };
+                if self.in_end && !self.sorted && of_workers {
+                    self.ok = false;
+                }
+                self.repeat(&[], &[b]);
+            }
+            Stmt::For(init, cond, update, b) => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                let mut stmts = vec![*b];
+                stmts.extend(update.iter().copied());
+                self.repeat(cond.as_slice(), &stmts);
+            }
+            Stmt::While(_, c, b) | Stmt::DoWhile(c, b) => self.repeat(&[*c], &[*b]),
+            Stmt::ForRange(_, from, to, _, b) => {
+                self.expr(from);
+                self.expr(to);
+                self.repeat(&[], &[b]);
+            }
+            _ => {
+                let mut n = Names::default();
+                n.stmt(s);
+                self.effects(&n);
+            }
+        }
     }
 }
 
@@ -564,6 +720,8 @@ struct Names<'a> {
     /// Reads the current record: `$n` or `NF`.
     reads_record: bool,
     bad: bool,
+    /// The functions called by name (builtins and user functions).
+    calls: HashSet<&'a str>,
 }
 
 impl<'a> Names<'a> {
@@ -629,6 +787,9 @@ impl<'a> Names<'a> {
                 }
             }
             Expr::Call(f, args) => {
+                if let Either::Left(name) = f {
+                    self.calls.insert(name);
+                }
                 // The arguments the function assigns.
                 let written: &[usize] = match f {
                     Either::Left("split") | Either::Left("patsplit") => &[1, 3],
@@ -928,6 +1089,9 @@ mod tests {
             "{ gsub(/a/, \"b\"); n += length($0) } END { print n }",
             "NF > 3 { if ($1 == \"x\") next; s += index($2, \"a\") } END { print s }",
             "{ s += 1.0 }\nEND { printf \"%.2f\\n\", s }",
+            // The order is set on every path before the walk.
+            "{ n[$4]++ } END { if (1) PROCINFO[\"sorted_in\"] = \"@ind_str_asc\"; else PROCINFO[\"sorted_in\"] = \"@ind_num_asc\"; for (k in n) print k }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { n[$4]++ } END { for (k in n) print k; for (k in n) print k }",
             // `exit` in BEGIN skips the main loop in both modes.
             "BEGIN { exit } { s++ } END { print s }",
         ] {
@@ -999,6 +1163,14 @@ mod tests {
             "{ x = $1 % 7; c[x]++ } END { for (k in c) print k, c[k] }",
             "{ n[$4]++ } END { if (1) { for (k in n) print k, n[k] } }",
             "{ n[$4]++ } END { for (k in n) print k; PROCINFO[\"sorted_in\"] = \"\" }",
+            // The order is set only after the walk, or not on every path to it.
+            "{ a[$1]++ } END { for (k in a) print k, a[k]; PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" }",
+            "BEGIN { if (x) PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$1]++ } END { for (k in a) print k }",
+            "{ a[$1]++ } END { for (i = 0; i < 2; i++) { for (k in a) print k; PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$1]++ } END { delete PROCINFO[\"sorted_in\"]; for (k in a) print k }",
+            "BEGIN { PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" } { a[$1]++ } END { PROCINFO[\"sorted_in\"] = x; for (k in a) print k }",
+            // A function walks the array it is passed.
+            "function show(arr, k) { for (k in arr) print k } { a[$1]++ } END { show(a); PROCINFO[\"sorted_in\"] = \"@ind_str_asc\" }",
             // Does not parse.
             "{ s += ",
         ] {
