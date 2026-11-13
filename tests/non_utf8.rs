@@ -128,6 +128,11 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     ("double_quote", "double_quote($0)", Some(b"\"caf\xe9x\"")),
     ("parse", "parse($0, \"{a}\")[\"a\"]", Some(b"caf\xe9x")),
     ("rparse", "rparse($0, \"(.*)\")[1]", Some(b"caf\xe9x")),
+    (
+        "grok",
+        "grok($0, \"%{GREEDYDATA:a}\")[\"a\"]",
+        Some(b"caf\xe9x"),
+    ),
     ("to_bytes", "to_bytes($0)", None),
     ("figlet", "figlet($0)", None),
     (

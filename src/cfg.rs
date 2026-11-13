@@ -3720,6 +3720,10 @@ where
                     builtins::Function::Pairs if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b"="));
                     }
+                    // grok(s, pattern) => grok(s, pattern, ""): default patterns only
+                    builtins::Function::Grok if args_len == 2 => {
+                        prim_args.push(PrimVal::StrLit(b""));
+                    }
                     // pad (s, n) => pad(s, len, " ")
                     builtins::Function::PadLeft if args_len == 2 => {
                         prim_args.push(PrimVal::StrLit(b" "));

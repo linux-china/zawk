@@ -107,6 +107,7 @@ lines(text)                                  # array of non-empty lines
 words("hello world? 你好")                   # hello, world, 你, 好
 parse("Hello World", "{greet} {name}")["name"]       # wildcard template -> "World"
 rparse("Hello World", "(\\w+) (\\w+)")[2]            # regex groups -> "World"
+grok("GET /a 200", "%{WORD:m} %{URIPATH:p} %{INT:s}")["p"]   # grok patterns -> "/a", see Parsers
 join_fields(2, NF, "-")                      # fields 2..NF joined by "-"
 ```
 

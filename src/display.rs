@@ -205,6 +205,7 @@ impl Display for Function {
             Truncate => write!(f, "truncate"),
             Parse => write!(f, "parse"),
             RegexParse => write!(f, "rparse"),
+            Grok => write!(f, "grok"),
             Strtonum => write!(f, "float"),
             AwkStrtonum => write!(f, "strtonum"),
             FormatBytes => write!(f, "format_bytes"),

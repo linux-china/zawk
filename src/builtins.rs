@@ -97,6 +97,7 @@ pub enum Function {
     Truncate,
     Parse,
     RegexParse,
+    Grok,
     // zawk's float(): decimal, or hexadecimal with a 0x prefix (no 0o/0b prefixes).
     Strtonum,
     // gawk's strtonum(): a leading 0 or 0x makes the string octal or hexadecimal.
@@ -693,6 +694,7 @@ static_map!(
     ["truncate", Function::Truncate],
     ["parse", Function::Parse],
     ["rparse", Function::RegexParse],
+    ["grok", Function::Grok],
     ["strtonum", Function::AwkStrtonum],
     ["format_bytes", Function::FormatBytes],
     ["to_bytes", Function::ToBytes],
@@ -1244,6 +1246,7 @@ impl Function {
             Pairs => (smallvec![Str, Str, Str], MapStrStr),
             Parse => (smallvec![Str, Str], MapStrStr),
             RegexParse => (smallvec![Str, Str], MapIntStr),
+            Grok => (smallvec![Str, Str, Str], MapStrStr),
             Record => (smallvec![Str], MapStrStr),
             Message => (smallvec![Str], MapStrStr),
             DataUrl => (smallvec![Str], MapStrStr),
@@ -1494,6 +1497,7 @@ impl Function {
             Rgb2Hex => 3,
             GetEnv => 2,
             Parse | RegexParse => 2,
+            Grok => 3,
             Record | Message => 1,
             Quote | DoubleQuote => 1,
             VarDump => 1,
@@ -1672,7 +1676,7 @@ impl Function {
             }
             Quote | DoubleQuote => Ok(Scalar(BaseTy::Str).abs()),
             IsArray | IsNum | IsInt | IsFormat | IsNull => Ok(Scalar(BaseTy::Int).abs()),
-            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message => Ok(Map {
+            Url | SemVer | Path | DataUrl | Dejwt | Pairs | Record | Message | Grok => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,
             }

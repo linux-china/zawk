@@ -2872,6 +2872,16 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            Grok => {
+                if res_reg != UNUSED {
+                    self.pushl(LL::Grok(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    ))
+                }
+            }
             Record => {
                 if res_reg != UNUSED {
                     self.pushl(LL::Record(res_reg.into(), conv_regs[0].into()))

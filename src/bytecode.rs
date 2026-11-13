@@ -520,6 +520,12 @@ pub(crate) enum Instr<'a> {
         Reg<Str<'a>>,
     ),
     RegexParse(Reg<runtime::IntMap<Str<'a>>>, Reg<Str<'a>>, Reg<Str<'a>>),
+    Grok(
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+    ),
     Strtonum(Reg<Float>, Reg<Str<'a>>),
     // gawk's strtonum(); the flag is whether the argument may be a strnum (see
     // `math_util::awk_strtonum`).
@@ -1546,6 +1552,12 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 text.accum(&mut f);
                 template.accum(&mut f);
+            }
+            Grok(dst, text, pattern, defs) => {
+                dst.accum(&mut f);
+                text.accum(&mut f);
+                pattern.accum(&mut f);
+                defs.accum(&mut f);
             }
             Strtonum(dst, text) => {
                 dst.accum(&mut f);

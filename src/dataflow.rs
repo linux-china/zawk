@@ -379,6 +379,11 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(pair_sep.into()));
                 f(dst.into(), Some(kv_sep.into()));
             }
+            Grok(dst, text, pattern, defs) => {
+                f(dst.into(), Some(text.into()));
+                f(dst.into(), Some(pattern.into()));
+                f(dst.into(), Some(defs.into()));
+            }
             Record(dst, src) => {
                 f(dst.into(), Some(src.into()));
             }

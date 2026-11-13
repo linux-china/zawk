@@ -1003,6 +1003,7 @@ See: [Text functions](./stdlib/text.md)
 | `pairs("id=1,name=x")["name"]`         | `x`              |
 | `parse("Hello World", "{a} {b}")["b"]` | `World`          |
 | `rparse("Hello World", "(\\w+) (\\w+)")[2]` | `World`     |
+| `grok("GET /a 200", "%{WORD:m} %{URIPATH:p} %{INT:s}")["p"]` | `/a` |
 
 See: [Parsers](./stdlib/parsers.md)
 

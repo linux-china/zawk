@@ -658,6 +658,13 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         r#"message("login_event{method='post'}('a@example.com')")"#,
     ),
     d(
+        "grok",
+        PARSER,
+        "grok(s: str, pattern: str[, defs: str]) -> map[str]str",
+        "Match a grok expression (`%{IP:client}`) and return its named captures; defs adds `NAME regex` lines.",
+        r#"grok("GET /index.html 200", "%{WORD:method} %{URIPATHPARAM:path} %{NUMBER:status:int}")["path"]"#,
+    ),
+    d(
         "func",
         PARSER,
         "func(s: str) -> map[int]str",

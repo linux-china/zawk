@@ -1443,6 +1443,13 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(pairs), &mut [src, pair_sep, kv_sep])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            Grok(dst, text, pattern, defs) => {
+                let text = self.get_val(text.reflect())?;
+                let pattern = self.get_val(pattern.reflect())?;
+                let defs = self.get_val(defs.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(grok), &mut [text, pattern, defs])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             SemVer(dst, src) => self.unop(intrinsic!(semver), dst, src),
             Path(dst, src) => self.unop(intrinsic!(path), dst, src),
             DataUrl(dst, src) => self.unop(intrinsic!(data_url), dst, src),

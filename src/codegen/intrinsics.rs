@@ -287,6 +287,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] url(str_ref_ty) -> map_ty;
         [ReadOnly] parse(str_ref_ty,str_ref_ty) -> map_ty;
         [ReadOnly] rparse(str_ref_ty,str_ref_ty) -> map_ty;
+        [ReadOnly] grok(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
         [ReadOnly] record(str_ref_ty) -> map_ty;
         [ReadOnly] message(str_ref_ty) -> map_ty;
         [ReadOnly] pairs(str_ref_ty, str_ref_ty, str_ref_ty) -> map_ty;
@@ -2500,6 +2501,21 @@ pub(crate) unsafe extern "C" fn message(src: *mut U128) -> *mut c_void {
     guard_panic(stringify!(message), || {
         let src = &*(src as *mut Str);
         let arr_obj = string_util::message(&src.as_text()).unescape_text();
+        mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
+    })
+}
+
+pub(crate) unsafe extern "C" fn grok(
+    text: *mut U128,
+    pattern: *mut U128,
+    defs: *mut U128,
+) -> *mut c_void {
+    guard_panic(stringify!(grok), || {
+        let text = &*(text as *mut Str);
+        let pattern = &*(pattern as *mut Str);
+        let defs = &*(defs as *mut Str);
+        let arr_obj = string_util::grok(&text.as_text(), &pattern.as_text(), &defs.as_text())
+            .unescape_text();
         mem::transmute::<StrMap<Str>, *mut c_void>(arr_obj)
     })
 }

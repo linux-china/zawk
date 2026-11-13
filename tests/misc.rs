@@ -9004,3 +9004,58 @@ fn array_stats_skip_empty_values() {
         assert!(err.contains("_quantile: q 2 is not between 0 and 1"), "{err}");
     }
 }
+
+// grok: named captures of the default pattern library, a `:type` suffix only names the key,
+// captures that did not participate are left out, custom definitions in the Logstash patterns
+// file format, and a warning (ERRNO) for an unknown pattern or a bad definition.
+#[test]
+fn grok_named_captures() {
+    let prog = r##"BEGIN {
+  m = grok("GET /index.html 200", "%{WORD:method} %{URIPATHPARAM:path} %{NUMBER:status:int}")
+  print m["method"], m["path"], m["status"] + 1, length(m)
+  m = grok("ab", "%{WORD:w}(?:-%{INT:i})?"); print m["w"], ("i" in m)
+  print length(grok("abc", "%{NUMBER:n}"))
+  s = "call 138-0013-8000 or a.b@example.com"
+  e = grok(s, "%{EMAILADDRESS:email}")
+  p = grok(s, "%{PHONE:phone}", "# phone numbers\nPHONE \\+?[0-9][0-9-]{6,15}")
+  print e["email"], p["phone"]
+  m = grok("127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] \"GET /a.gif HTTP/1.0\" 200 2326", "%{COMMONAPACHELOG}")
+  print m["clientip"], m["auth"], m["verb"], m["response"], m["bytes"]
+  for (i = 0; i < 3; i++) n += length(grok("x", "%{NOPE:n}"))
+  print n, (ERRNO ~ /unknown pattern %\{NOPE\}/)
+  print length(grok("x", "%{WORD:a}", "BAD")), (ERRNO ~ /invalid definition/)
+  grok("x", "(%{NOPE"); print ERRNO
+  grok("x", "%{WORD:a}(["); print ERRNO
+  grok("x", "%{WORD:a}\\p{Nope}"); print ERRNO
+}"##;
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(
+                "GET /index.html 201 3\nab 0\n0\na.b@example.com 138-0013-8000\n\
+                 127.0.0.1 frank GET 200 2326\n0 1\n0 1\n\
+                 grok: invalid pattern \"(%{NOPE\": unclosed %{...}, empty %{} or more than 3 parts \
+                 (expected %{NAME}, %{NAME:key} or %{NAME:key:type})\n\
+                 grok: invalid pattern \"%{WORD:a}([\": invalid regex: invalid character class\n\
+                 grok: invalid pattern \"%{WORD:a}\\\\p{Nope}\": invalid regex: unicode property not found\n",
+            )
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8_lossy(&out);
+        // the warning is printed once, not for every call
+        assert_eq!(err.matches("unknown pattern %{NOPE}").count(), 1, "{err}");
+    }
+    let out = Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(r#"BEGIN { m = grok("x") }"#)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("expects 2 or 3 arguments"), "{err}");
+}

@@ -16,7 +16,7 @@ of data processing does not need a pipeline of other tools.
 | Category | Functions |
 |----------|-----------|
 | [Text](./text.md) | `trim`, `ltrim`, `rtrim`, `replace`, `translate`, `reverse`, `left`, `right`, `chr`, `ord`, `nfc_normalize`, `bar`, `truncate`, `pad`, `mask`, `starts_with`, `contains`, `camel_case`, `snake_case`, `title_case`, `similar`, `wrap`, `words`, `parse`, `rparse`, `format_bytes`, `figlet`, ... |
-| [Parsers](./parsers.md) | `url`, `data_url`, `shlex`, `path`, `path_join`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags` |
+| [Parsers](./parsers.md) | `url`, `data_url`, `shlex`, `path`, `path_join`, `semver`, `pairs`, `record`, `message`, `func`, `tuple`, `variant`, `parse_array`, `flags`, `grok` |
 | [JSON / XML / HTML / CSV](./json-xml-html.md) | `from_json`, `to_json`, `json_flatten`, `json_value`, `json_query`, `json_set`, `xml_value`, `html_query`, `from_csv`, `to_csv` |
 | [Array & Math](./array-math.md) | `seq`, `uniq`, `asort`, `asorti`, `_sum`, `_mean`, `_median`, `_quantile`, `_stddev`, `_top`, `_argmax`, `_argmin`, bloom filter, `abs`, `round`, `eval`, `fend`, `min`, `max`, exact decimals `dec_add`, `dec_sub`, `dec_mul`, `dec_div`, `dec_round`, `dec_format`, `dec_cmp` |
 | [Date/Time](./datetime.md) | `systime`, `systime_ms`, `strftime` (IANA time zones), `mktime`, `strptime`, `datetime`, `duration` |

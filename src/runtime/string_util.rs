@@ -692,6 +692,150 @@ pub(crate) fn rparse<'a>(text: &str, template: &str) -> IntMap<Str<'a>> {
     map
 }
 
+/// Most compiled grok patterns kept per thread: a grok expression expands into a regex of
+/// thousands of characters, so compiling it for every record would dominate the run time.
+const GROK_CACHE_CAPACITY: usize = 64;
+
+type GrokCompiled = std::rc::Rc<std::result::Result<grok::Pattern, String>>;
+
+thread_local! {
+    /// compiled patterns (or the compile error) keyed by (pattern, definitions)
+    static GROK_CACHE: std::cell::RefCell<lru::LruCache<(String, String), GrokCompiled>> =
+        std::cell::RefCell::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(GROK_CACHE_CAPACITY).unwrap(),
+        ));
+}
+
+/// The default grok pattern library, built once and cloned when custom definitions are added.
+static GROK_DEFAULT: LazyLock<grok::Grok> = LazyLock::new(grok::Grok::with_default_patterns);
+
+/// Parse custom definitions in the Logstash patterns file format: one `NAME regex` per line,
+/// blank lines and `#` comments ignored.
+fn grok_definitions(defs: &str) -> std::result::Result<Vec<(&str, &str)>, String> {
+    let mut items = Vec::new();
+    for line in defs.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        match line.split_once(|c: char| c.is_whitespace()) {
+            Some((name, regex)) if !regex.trim().is_empty() => {
+                items.push((name, regex.trim()));
+            }
+            _ => return Err(format!("invalid definition {:?}, expected `NAME regex`", line)),
+        }
+    }
+    Ok(items)
+}
+
+fn grok_compile(pattern: &str, defs: &str) -> std::result::Result<grok::Pattern, String> {
+    let compiled = if defs.trim().is_empty() {
+        GROK_DEFAULT.compile(pattern, true)
+    } else {
+        let mut grok = GROK_DEFAULT.clone();
+        for (name, regex) in grok_definitions(defs)? {
+            grok.add_pattern(name, regex);
+        }
+        grok.compile(pattern, true)
+    };
+    compiled.map_err(|e| match e {
+        grok::Error::DefinitionNotFound(name) => format!("unknown pattern %{{{}}}", name),
+        grok::Error::RegexCompilationFailed(msg) => grok_regex_error(&msg),
+        // the parser error comes as its Debug name, such as `InvalidPattern`
+        grok::Error::GenericCompilationFailure(kind) => grok_syntax_error(&kind),
+        grok::Error::RecursionTooDeep => {
+            "patterns nested too deeply, or a pattern that refers to itself".to_string()
+        }
+        grok::Error::CompiledPatternIsEmpty(_) => "empty pattern".to_string(),
+        e => e.to_string(),
+    })
+}
+
+/// A readable reason for a malformed `%{...}`, from the Debug name of the grok parser error.
+fn grok_syntax_error(kind: &str) -> String {
+    const FORMS: &str = "expected %{NAME}, %{NAME:key} or %{NAME:key:type}";
+    if let Some(c) = kind
+        .strip_prefix("InvalidCharacter(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        return format!(
+            "invalid character {} in %{{...}}: a name may only use letters, digits and _, a key also - [ ] . ({})",
+            c, FORMS
+        );
+    }
+    match kind {
+        "InvalidPattern" => format!(
+            "unclosed %{{...}}, empty %{{}} or more than 3 parts ({})",
+            FORMS
+        ),
+        "InvalidPatternDefinition" => format!(
+            "malformed %{{...}}: empty key or type, or an inline %{{NAME=regex}} with braces or without the closing }} ({})",
+            FORMS
+        ),
+        _ => format!("malformed pattern ({})", kind),
+    }
+}
+
+/// A readable reason for a regex error. grok only gives the Debug form of the fancy-regex error,
+/// followed by the whole expanded regex: compile that regex again to get the error itself, and
+/// leave out its position, which is in the expanded regex the user never wrote.
+fn grok_regex_error(msg: &str) -> String {
+    let Some((_, regex)) = msg.split_once('\n') else {
+        return msg.to_string();
+    };
+    let reason = match fancy_regex::Regex::new(regex) {
+        Err(fancy_regex::Error::ParseError(_, e)) => e.to_string(),
+        Err(fancy_regex::Error::CompileError(fancy_regex::CompileError::InnerError(e))) => {
+            // a syntax error of the regex crate is a multi-line diagram ending with `error: <reason>`
+            match e.syntax_error() {
+                Some(e) => {
+                    let e = e.to_string();
+                    let last = e.lines().last().unwrap_or_default();
+                    last.trim_start_matches("error: ").to_string()
+                }
+                None => e.to_string(),
+            }
+        }
+        Err(fancy_regex::Error::CompileError(e)) => e.to_string(),
+        Err(e) => e.to_string(),
+        Ok(_) => return msg.lines().next().unwrap_or_default().to_string(),
+    };
+    let mut chars = reason.chars();
+    let reason = match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => reason,
+    };
+    format!("invalid regex: {}", reason)
+}
+
+/// `grok(s, pattern[, defs])`: match a grok expression such as `%{IP:client} %{WORD:method}`
+/// against `s`, and return the named (aliased) captures. Captures that did not participate in
+/// the match are left out; a `:type` suffix (`%{NUMBER:bytes:int}`) only names the key `bytes`.
+pub(crate) fn grok<'a>(text: &str, pattern: &str, defs: &str) -> StrMap<'a, Str<'a>> {
+    let map: StrMap<Str> = StrMap::default();
+    let key = (pattern.to_string(), defs.to_string());
+    let compiled = GROK_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(compiled) = cache.get(&key) {
+            return compiled.clone();
+        }
+        let compiled = std::rc::Rc::new(grok_compile(pattern, defs));
+        cache.put(key, compiled.clone());
+        compiled
+    });
+    match compiled.as_ref() {
+        Ok(pattern) => {
+            if let Some(matches) = pattern.match_against(text) {
+                for (name, value) in matches.iter() {
+                    map.insert(Str::from(name.to_string()), Str::from(value.to_string()));
+                }
+            }
+        }
+        Err(e) => stdlib_warning("grok", format!("invalid pattern {:?}: {}", pattern, e)),
+    }
+    map
+}
+
 static PHONE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9+][0-9-]{5,16}$").unwrap());
 
@@ -1274,5 +1418,10 @@ mod tests {
         // invalid UTF-8: the bytes
         assert_eq!(similar(b"caf\xe9x", b"caf\xe9x"), 1.0);
         assert!(similar(b"caf\xe9x", b"caf\xe8x") < 1.0);
+    }
+
+    #[test]
+    fn test_grok() {
+        
     }
 }

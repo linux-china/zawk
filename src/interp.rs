@@ -1782,6 +1782,19 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }
+                    Grok(dst, text, pattern, defs) => {
+                        let text = index(&self.strs, text);
+                        let pattern = index(&self.strs, pattern);
+                        let defs = index(&self.strs, defs);
+                        let res = runtime::string_util::grok(
+                            &text.as_text(),
+                            &pattern.as_text(),
+                            &defs.as_text(),
+                        )
+                        .unescape_text();
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
                     Record(dst, src) => {
                         let src = index(&self.strs, src);
                         let res = runtime::string_util::record(&src.as_text()).unescape_text();

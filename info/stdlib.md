@@ -28,7 +28,7 @@ fails, and `F` can read `ERRNO` (see the reference):
 rows = try sqlite_query("app.db", "select name from users") else fail("query failed: " ERRNO)
 ```
 
-The same holds for the parse functions. A program error, such as an invalid regex (`rparse`) or an unknown
+The same holds for the parse functions. A program error, such as an invalid regex (`rparse`, `grok`) or an unknown
 format or algorithm (`escape`, `encode`, `is`, ...), gives a warning and an empty result. So does input that cannot
 be parsed (`from_json`, `url`, `semver`, `shlex`, `datetime`, `decode`, ...); empty input is not an error and gives
 an empty array silently.
@@ -598,6 +598,21 @@ be introduced to decode the value automatically.
 A key without value (`flag` in `a=1&flag`) or with an empty value (`b=`) is kept with the value `""`: `q = pairs("a=1&flag", "&"); print ("flag" in q)` prints `1`.
 
 Keys are trimmed (values are kept as-is), so `pairs("a=1, b=2")` gives the keys `a` and `b`.
+
+### Grok
+
+`grok(s, pattern[, defs])`: match a grok expression and return its named captures as array(MapStrStr).
+
+* `grok("GET /index.html 200", "%{WORD:method} %{URIPATHPARAM:path} %{NUMBER:status:int}")["path"]`: `/index.html`
+* `grok($0, "%{COMMONAPACHELOG}")`: `clientip`, `ident`, `auth`, `timestamp`, `verb`, `request`, `httpversion`, `response`, `bytes`
+* `grok($0, "%{PHONE:phone}", "PHONE \\+?[0-9][0-9-]{6,15}")`: custom patterns, one `NAME regex` per line (Logstash patterns file format, `#` comments allowed)
+
+Only `%{NAME:key}` captures are returned; a `:type` suffix only names the key. A capture that did not participate
+in the match is left out, and text that does not match gives an empty array. The parts of one expression match in
+order: call `grok` once per value when their order is unknown. An unknown pattern, an invalid regex or a bad
+definition gives an empty array with a warning and `ERRNO` set. Compiled expressions are cached per thread.
+
+For more patterns, please refer: https://docs.rs/grok/latest/grok/patterns/index.html
 
 ### Records
 
