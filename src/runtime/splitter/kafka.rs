@@ -13,10 +13,11 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use confluent_kafka::common::TopicPartition;
 use confluent_kafka::common::header::{Header, Headers};
 use confluent_kafka::common::serialization::ByteArrayDeserializer;
 use confluent_kafka::consumer::{
-    CloseOptions, Consumer, ConsumerConfig, GroupProtocol, KafkaConsumer,
+    CloseOptions, Consumer, ConsumerConfig, GroupProtocol, KafkaConsumer, OffsetAndMetadata,
 };
 use url::Url;
 use uuid::Uuid;
@@ -34,6 +35,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const PROBE_INTERVAL: Duration = Duration::from_secs(10);
 /// How long a check waits for the broker. SIGINT is not seen meanwhile.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// How often the offsets of the processed records are committed, as `auto.commit.interval.ms`.
+const COMMIT_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Whether `path` is a Kafka topic to read messages from.
 pub fn is_kafka_url(path: &str) -> bool {
@@ -124,6 +127,11 @@ pub struct Subscription {
     bootstrap_servers: String,
     next_probe: Instant,
     health: BrokerHealth,
+    // The record returned last: processed once the next one is asked for.
+    in_flight: Option<(TopicPartition, i64)>,
+    // The offsets to commit: the records processed since the last commit.
+    processed: HashMap<TopicPartition, OffsetAndMetadata>,
+    next_commit: Instant,
 }
 
 /// The failures seen since the broker last answered.
@@ -171,8 +179,14 @@ impl Subscription {
                 GroupProtocol::Consumer.to_string(),
             ),
             (ConsumerConfig::AUTO_OFFSET_RESET_CONFIG.to_string(), offset),
-            // A record is committed once it is returned: one at a time, the records left when
-            // SIGINT ends the input are read again by the next run of the group.
+            // Auto commit would commit a record as soon as `poll` returns it, while the rules still
+            // process it: a record is committed once processed (see `mark_processed`) instead, and
+            // one is polled at a time, so the records left when SIGINT ends the input, or when the
+            // process exits, are read again by the next run of the group (at least once).
+            (
+                ConsumerConfig::ENABLE_AUTO_COMMIT_CONFIG.to_string(),
+                "false".to_string(),
+            ),
             (
                 ConsumerConfig::MAX_POLL_RECORDS_CONFIG.to_string(),
                 "1".to_string(),
@@ -203,7 +217,45 @@ impl Subscription {
             bootstrap_servers,
             next_probe: Instant::now() + PROBE_INTERVAL,
             health: BrokerHealth::default(),
+            in_flight: None,
+            processed: HashMap::new(),
+            next_commit: Instant::now() + COMMIT_INTERVAL,
         })
+    }
+
+    /// The record returned last is processed: the next asked for is after it.
+    fn mark_processed(&mut self) {
+        if let Some((partition, offset)) = self.in_flight.take() {
+            match OffsetAndMetadata::new(offset + 1) {
+                Ok(next) => {
+                    self.processed.insert(partition, next);
+                }
+                Err(e) => eprintln_ignore!("zawk: warning: invalid Kafka offset {}: {}", offset, e),
+            }
+        }
+    }
+
+    /// Commit the offsets of the records processed so far.
+    fn commit(&mut self) {
+        self.next_commit = Instant::now() + COMMIT_INTERVAL;
+        if self.processed.is_empty() {
+            return;
+        }
+        let Some(consumer) = self.consumer.as_mut() else {
+            return;
+        };
+        let offsets = std::mem::take(&mut self.processed);
+        WAITING.store(true, Ordering::SeqCst);
+        let committed = KAFKA_RUNTIME
+            .block_on(consumer.commit_sync_with_offsets_timeout(offsets.clone(), TIMEOUT));
+        WAITING.store(false, Ordering::SeqCst);
+        if let Err(e) = committed {
+            eprintln_ignore!("zawk: warning: failed to commit Kafka offsets: {}", e);
+            // retried with the next commit, unless newer offsets of the same partitions replace them
+            for (partition, offset) in offsets {
+                self.processed.entry(partition).or_insert(offset);
+            }
+        }
     }
 
     fn broker_answered(&mut self) {
@@ -242,8 +294,12 @@ impl Subscription {
         }
     }
 
-    /// Commit the offsets and leave the group, without waiting for the session to time out.
+    /// Commit the offsets of the processed records and leave the group, without waiting for the
+    /// session to time out. The record in flight, if any, is not committed: it is read again.
     fn close(&mut self) {
+        if self.consumer.is_some() {
+            self.commit();
+        }
         let Some(mut consumer) = self.consumer.take() else {
             return;
         };
@@ -261,7 +317,12 @@ impl MessageSource for Subscription {
     }
 
     fn next(&mut self) -> Option<Received> {
+        // asked for the next record: the rules are done with the previous one
+        self.mark_processed();
         loop {
+            if Instant::now() >= self.next_commit {
+                self.commit();
+            }
             if INTERRUPTED.load(Ordering::SeqCst) {
                 self.close();
                 return None;
@@ -289,6 +350,10 @@ impl MessageSource for Subscription {
                         }
                         // a tombstone has no value: an empty payload, without records
                         let payload = record.value().cloned().unwrap_or_default();
+                        self.in_flight = Some((
+                            TopicPartition::new(record.topic(), record.partition()),
+                            record.offset(),
+                        ));
                         return Some(Received {
                             subject: record.topic().to_string(),
                             headers,
@@ -527,5 +592,24 @@ mod tests {
                 ("k".to_string(), "v".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn test_commit_processed_records_only() {
+        let topic = format!("zawk-test-{}", Uuid::new_v4());
+        send(&topic, &[("one", &[]), ("two", &[]), ("three", &[])]);
+        let group = format!("zawk-test-{}", Uuid::new_v4());
+        let url = format!(
+            "kafka://localhost:9092/{}?group={}&offset=earliest",
+            topic, group
+        );
+        let mut subscription = Subscription::new(&url).unwrap();
+        assert_eq!(subscription.next().unwrap().payload, b"one");
+        // "one" is processed, "two" is still in flight when the input ends
+        assert_eq!(subscription.next().unwrap().payload, b"two");
+        drop(subscription);
+        let mut subscription = Subscription::new(&url).unwrap();
+        assert_eq!(subscription.next().unwrap().payload, b"two");
+        assert_eq!(subscription.next().unwrap().payload, b"three");
     }
 }
