@@ -6,6 +6,9 @@
 //!
 //! These accept any array: string values (e.g. `a[NR] = $3`) are converted
 //! to numbers as awk does, and the keys may be strings (e.g. `c[$1]++; _top(c, 10)`).
+//! Missing values (the empty string, or the `--null` text) are skipped by the statistics and by
+//! `_argmax`/`_argmin`, as SQL aggregates skip NULL: an empty cell of `a[NR] = $3` does not pull
+//! `_min` down to 0. Other non-numeric strings count as 0, as awk converts them.
 
 use std::cmp::Ordering;
 use std::hash::Hash;
@@ -66,23 +69,36 @@ fn cmp_num(x: Float, y: Float) -> Ordering {
     x.partial_cmp(&y).unwrap_or_else(|| x.total_cmp(&y))
 }
 
-/// The values of `map` as numbers.
+/// The values of `map` as numbers, without the missing ones (see [`SortItem::is_missing`]).
 fn numbers<K, V>(map: &SharedMap<K, V>) -> Vec<Float>
 where
     K: Hash + Eq,
     V: SortItem,
 {
-    map.iter(|it| it.map(|(_, v)| v.sort_num()).collect())
+    map.iter(|it| {
+        it.filter(|(_, v)| !v.is_missing())
+            .map(|(_, v)| v.sort_num())
+            .collect()
+    })
 }
 
-/// The `q`-quantile (`0 <= q <= 1`, clamped) of `xs`, interpolating linearly between the two
+/// The `q`-quantile (`0 <= q <= 1`; another `q` is a warning and is clamped) of `xs`, interpolating linearly between the two
 /// closest ranks (as R's default type 7 and numpy's `quantile`). 0 for an empty array.
 fn quantile(mut xs: Vec<Float>, q: Float) -> Float {
+    let q = if (0.0..=1.0).contains(&q) {
+        q
+    } else {
+        let clamped = if q.is_nan() { 0.5 } else { q.clamp(0.0, 1.0) };
+        crate::runtime::stdlib_warning(
+            "_quantile",
+            format!("q {} is not between 0 and 1, using {}", q, clamped),
+        );
+        clamped
+    };
     if xs.is_empty() {
         return 0.0;
     }
     xs.sort_unstable_by(|a, b| cmp_num(*a, *b));
-    let q = if q.is_nan() { 0.5 } else { q.clamp(0.0, 1.0) };
     let pos = q * (xs.len() - 1) as Float;
     let lo = pos.floor() as usize;
     let hi = pos.ceil() as usize;
@@ -194,14 +210,16 @@ where
 }
 
 /// `_argmax(a)` (`dir` 1) and `_argmin(a)` (`dir` -1): the key of the largest (smallest) numeric
-/// value of `map`; among keys with that value, the first by string order. `""` for an empty array.
+/// value of `map`; among keys with that value, the first by string order. Missing values are
+/// skipped; `""` for an array without other values.
 pub(crate) fn arg_ext<'a, K, V>(map: &SharedMap<K, V>, dir: Int) -> Str<'a>
 where
     K: Hash + Eq + Clone + SortItem + Into<Str<'a>>,
     V: SortItem,
 {
     let best = map.iter(|it| {
-        it.map(|(key, v)| (key.clone(), v.sort_num(), key.sort_str().into_owned()))
+        it.filter(|(_, v)| !v.is_missing())
+            .map(|(key, v)| (key.clone(), v.sort_num(), key.sort_str().into_owned()))
             .min_by(|a, b| {
                 let by_value = if dir < 0 {
                     cmp_num(a.1, b.1)
@@ -259,6 +277,26 @@ mod tests {
         for kind in [STAT_SUM, STAT_MEAN, STAT_MAX, STAT_MIN] {
             assert_eq!(array_stat(&floats(&[]), kind, 0.0), 0.0);
         }
+    }
+
+    #[test]
+    fn missing_values_are_skipped() {
+        let m: IntMap<Str> = IntMap::default();
+        for (i, v) in ["3", "1", "", "10", ""].into_iter().enumerate() {
+            m.insert(i as Int + 1, Str::from(v));
+        }
+        assert_eq!(array_stat(&m, STAT_MIN, 0.0), 1.0);
+        assert_eq!(array_stat(&m, STAT_MAX, 0.0), 10.0);
+        assert_eq!(array_stat(&m, STAT_SUM, 0.0), 14.0);
+        assert!((array_stat(&m, STAT_MEAN, 0.0) - 14.0 / 3.0).abs() < 1e-12);
+        assert_eq!(array_stat(&m, STAT_QUANTILE, 0.5), 3.0);
+        assert_eq!(array_stat(&m, STAT_MODE, 0.0), 1.0);
+        assert_eq!(arg_ext(&m, -1), Str::from("2"));
+        assert_eq!(arg_ext(&m, 1), Str::from("4"));
+        let empty: IntMap<Str> = IntMap::default();
+        empty.insert(1, Str::from(""));
+        assert_eq!(array_stat(&empty, STAT_MEAN, 0.0), 0.0);
+        assert_eq!(arg_ext(&empty, -1), Str::from(""));
     }
 
     #[test]

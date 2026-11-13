@@ -2071,6 +2071,50 @@ fn warn_once(msg: &str) {
     }
 }
 
+/// Failed calls of `sqlite_execute`, `mysql_execute` and `pg_execute` outside of `try`, by
+/// function, summed up at exit by [`report_failed_db_writes`].
+static FAILED_DB_WRITES: LazyLock<std::sync::Mutex<std::collections::BTreeMap<&'static str, u64>>> =
+    LazyLock::new(Default::default);
+
+/// Report the failure of a database write as [`stdlib_warning`] does, and count it: a failure
+/// repeated on many records (`database is locked`, a constraint) is shown once, so the count of
+/// the writes that were lost is given at exit.
+pub(crate) fn db_write_failed(func: &'static str, msg: impl std::fmt::Display) {
+    if !in_try()
+        && let Ok(mut failed) = FAILED_DB_WRITES.lock()
+    {
+        *failed.entry(func).or_default() += 1;
+    }
+    stdlib_warning(func, msg);
+}
+
+/// Report, once, how many database writes failed, when more than one did (a single failure was
+/// already shown by its warning).
+pub(crate) fn report_failed_db_writes() {
+    let failed = FAILED_DB_WRITES.lock().map(|mut f| mem::take(&mut *f)).unwrap_or_default();
+    let total: u64 = failed.values().sum();
+    if total > 1 {
+        let calls: Vec<String> = failed.iter().map(|(f, n)| format!("{} {}", f, n)).collect();
+        eprintln_ignore!(
+            "zawk: warning: {} database writes failed and were not applied ({}); test ERRNO after a call to handle each failure",
+            total,
+            calls.join(", ")
+        );
+    }
+}
+
+/// Warn that `func` left a transaction open on `url` (a path or a URL, shown without its
+/// password): it is rolled back when the program exits.
+pub(crate) fn warn_open_transaction(func: &str, url: &str) {
+    stdlib_warning(
+        func,
+        format!(
+            "{}: a transaction was never committed (BEGIN without COMMIT): its changes are rolled back",
+            crate::runtime::network::redact_url(url)
+        ),
+    );
+}
+
 /// Report, once, how many stdlib warnings [`warn_once`] did not print.
 pub(crate) fn report_suppressed_warnings() {
     let suppressed = WARNINGS
@@ -2182,8 +2226,28 @@ pub(crate) const MAX_RESULT_LEN: usize = 64 << 20;
 
 /// Fail unless `len`, the size of the result `func` is about to build, is within
 /// [`MAX_RESULT_LEN`].
+/// An integral `len` is shown as an integer (`9223372036854775808`, not `9223372036854776000`).
 pub(crate) fn check_result_len(func: &str, what: &str, len: Float) -> Result<()> {
     if len > MAX_RESULT_LEN as Float {
+        let shown = if len.is_finite() && len.fract() == 0.0 {
+            format!("{:.0}", len)
+        } else {
+            len.to_string()
+        };
+        return err!(
+            "{}: {} {} is too large (maximum {})",
+            func,
+            what,
+            shown,
+            MAX_RESULT_LEN
+        );
+    }
+    Ok(())
+}
+
+/// [`check_result_len`] for an integer `len`, shown exactly.
+pub(crate) fn check_result_len_int(func: &str, what: &str, len: Int) -> Result<()> {
+    if len > MAX_RESULT_LEN as Int {
         return err!(
             "{}: {} {} is too large (maximum {})",
             func,

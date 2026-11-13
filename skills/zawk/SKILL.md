@@ -137,6 +137,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W303 | with `-p`: array element set with `=` in the main loop (`a[k] = 1`, `last[k] = $2`) and its value read in END is merged over workers (numbers summed), so a key seen by several workers is multiplied; use `a[k]++` / `+=`, or collect per-worker values in PREPARE |
 | W304 | with `-pr`: range pattern `start, end` keeps its state per worker, so ranges starting in another worker's chunk are missed; run with `-p0` (`--keep-order` falls back to serial) |
 | W305 | with `-p`: a global carried from earlier records decides or makes output (`!seen[$1]++`, `$1 != prev`, `{ n++; print n }`): each worker has its own copy; run with `-p0` |
+| W306 | with `-p`: BEGIN/END opens or ends a transaction (`pg_execute(url, "BEGIN")`) while the main rules write with `*_execute`: workers use their own connections, so their writes autocommit outside it (SQLite: `database is locked`); BEGIN per worker in the main rules and COMMIT in `PREPARE`, or `-p0` |
 
 Only the first error is reported: fix it and lint again.
 
@@ -158,7 +159,7 @@ zawk [options] -f script.awk [file ...]
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col`; the header is not a record; with several files, each file's first line is its header |
 | `-o csv\|tsv\|jsonl\|markdown\|table\|parquet\|avro\|xlsx` | Output format of `print` to stdout (`md` = markdown, `ndjson` = jsonl); except csv/tsv, the first printed record is the header |
 | `--out-file FILE` | Write stdout to FILE (required for `-o parquet`/`-o avro`/`-o xlsx` unless stdout is redirected) |
-| `--infer-types` | With `-o jsonl/parquet/avro`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string) |
+| `--infer-types` | With `-o jsonl/parquet/avro`, columns without a type suffix are `:auto`: numbers and `true`/`false` keep their type (`007` stays a string), empty values are null |
 | `--summary` | With `-o table/markdown`: after the table, the row count and per-column type, non-empty, distinct, min, max, sum, mean |
 | `--null TEXT` | Read NULLs of database, JSON Lines, Parquet and Avro input as TEXT (e.g. `--null '\N'`) instead of `""`: `isnull($2)` tests it; `-o tsv` writes it as `\N`, `-o jsonl/parquet/avro` as null, query parameters bind it as NULL |
 | `--stats` | On exit, print `{"input_records":..,"output_records":..,"rejected_records":..,"elapsed_secs":..,"records_per_sec":..,"exit_code":..}` on stderr |

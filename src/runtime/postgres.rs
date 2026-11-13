@@ -1,11 +1,11 @@
-use crate::runtime::conn_pool::{Driver, SessionPool};
+use crate::runtime::conn_pool::{Dialect, Driver, SessionPool, is_read_only_sql};
 use crate::runtime::csv::vec_to_csv;
 use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use bytes::BytesMut;
 use chrono::Utc;
-use postgres::Client;
+use postgres::{Client, SimpleQueryMessage};
 use postgres::types::{FromSql, IsNull, Kind, ToSql, Type, to_sql_checked};
 use std::error::Error;
 use std::fmt::Write;
@@ -13,7 +13,16 @@ use std::sync::LazyLock;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
-static PG_POOLS: LazyLock<SessionPool<Client>> = LazyLock::new(SessionPool::new);
+static PG_POOLS: LazyLock<SessionPool<Client>> =
+    LazyLock::new(|| SessionPool::new(Dialect::Postgres));
+
+/// Warn about each URL left inside a transaction (a `BEGIN` without `COMMIT`): the server rolls
+/// it back when the connection is closed at exit, so its writes would otherwise be lost silently.
+pub(crate) fn warn_open_transactions() {
+    for url in PG_POOLS.open_transactions() {
+        crate::runtime::warn_open_transaction("pg_execute", &url);
+    }
+}
 
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
@@ -68,6 +77,10 @@ impl Driver<Client, postgres::Error> for PgDriver {
 
     fn error_text(&self, e: postgres::Error) -> String {
         error_text(e)
+    }
+
+    fn rollback(&self, client: &mut Client) -> bool {
+        client.batch_execute("ROLLBACK").is_ok()
     }
 }
 
@@ -231,93 +244,12 @@ fn positional_params(params: &IntMap<Str>) -> Vec<PgParam> {
         .collect()
 }
 
-/// Whether `sql` is a plain read, so `pg_query` may replay it on a new connection after the
-/// pooled one turned out to be closed. Conservative: only `SELECT`/`VALUES`/`TABLE`/`SHOW`, and
-/// `WITH` without a data-modifying CTE (`WITH x AS (DELETE ... RETURNING *) SELECT ...`) or a
-/// write as its main statement. Leading whitespace, comments and `(` are skipped.
-///
-/// A `SELECT` that calls a built-in function with a side effect (`nextval`, `setval`,
-/// `pg_advisory_lock`, `pg_notify`, `set_config`, ...) is not replayed either. A user-defined
-/// function that writes cannot be detected here: the retry assumes such a `SELECT` is free of side
-/// effects, so callers should run it with `pg_execute`, which never retries.
-fn is_read_only_sql(sql: &str) -> bool {
-    let mut rest = sql;
-    loop {
-        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
-        if let Some(r) = rest.strip_prefix("--") {
-            rest = r.find('\n').map_or("", |i| &r[i + 1..]);
-        } else if let Some(r) = rest.strip_prefix("/*") {
-            rest = r.find("*/").map_or("", |i| &r[i + 2..]);
-        } else {
-            break;
-        }
-    }
-    let has_word = |keywords: &[&str]| {
-        rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .any(|w| keywords.iter().any(|k| w.eq_ignore_ascii_case(k)))
-    };
-    let first = rest
-        .split(|c: char| !c.is_ascii_alphabetic())
-        .next()
-        .unwrap_or("")
-        .to_ascii_uppercase();
-    if calls_side_effect_function(rest) {
-        return false;
-    }
-    match first.as_str() {
-        // `SELECT ... INTO new_table` creates a table
-        "SELECT" | "VALUES" | "TABLE" | "SHOW" => !has_word(&["INTO"]),
-        "WITH" => !has_word(&["INSERT", "UPDATE", "DELETE", "MERGE", "INTO"]),
-        _ => false,
-    }
-}
-
-/// Built-in functions whose effect would be repeated if the statement were replayed.
-/// Entries ending in `_` are prefixes (`pg_advisory_lock`, `pg_try_advisory_xact_lock_shared`, ...).
-const SIDE_EFFECT_FUNCTIONS: &[&str] = &[
-    "nextval",
-    "setval",
-    "pg_advisory_",
-    "pg_try_advisory_",
-    "pg_notify",
-    "set_config",
-    "lo_",
-    "dblink_exec",
-    "pg_cancel_backend",
-    "pg_terminate_backend",
-    "pg_reload_conf",
-    "pg_rotate_logfile",
-    "pg_switch_wal",
-    "pg_create_",
-    "pg_drop_replication_slot",
-    "pg_replication_slot_advance",
-    "pg_logical_slot_get_",
-    "pg_logical_emit_message",
-    "pg_stat_reset",
-    "pg_promote",
-];
-
-/// Whether `sql` names a function from [`SIDE_EFFECT_FUNCTIONS`] (case-insensitive, any schema).
-fn calls_side_effect_function(sql: &str) -> bool {
-    sql.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .map(|w| w.to_ascii_lowercase())
-        .any(|w| {
-            SIDE_EFFECT_FUNCTIONS.iter().any(|f| {
-                if f.ends_with('_') {
-                    w.starts_with(f)
-                } else {
-                    w == *f
-                }
-            })
-        })
-}
-
 pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> =
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    let retry = is_read_only_sql(sql);
+    let retry = is_read_only_sql(sql, Dialect::Postgres);
     let rows = match with_client(db_url, sql, retry, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
@@ -341,17 +273,41 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     map
 }
 
+/// Runs `sql` and returns the number of rows it changed. With parameters `sql` is a single
+/// statement (a prepared statement). Without, it may hold several statements separated by `;`
+/// (e.g. `BEGIN; ...; COMMIT`), run with the simple query protocol as `psql` does, and the rows
+/// of all of them are added up. As for `sqlite_execute` and `mysql_execute`, the first failing
+/// statement stops the run; outside of an explicit transaction the statements of one call are
+/// applied together or not at all, and a transaction the call opened is rolled back when it fails.
 pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> =
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    match with_client(db_url, sql, false, |client| client.execute(sql, &params)) {
+    let result = if params.is_empty() {
+        with_client(db_url, sql, false, |client| {
+            client.simple_query(sql).map(|messages| changed_rows(&messages))
+        })
+    } else {
+        with_client(db_url, sql, false, |client| client.execute(sql, &params))
+    };
+    match result {
         Ok(n) => n as Int,
         Err(e) => {
-            stdlib_warning("pg_execute", e);
+            crate::runtime::db_write_failed("pg_execute", e);
             0
         }
     }
+}
+
+/// The rows changed (or returned) by the statements of a simple query, added up.
+fn changed_rows(messages: &[SimpleQueryMessage]) -> u64 {
+    messages
+        .iter()
+        .map(|m| match m {
+            SimpleQueryMessage::CommandComplete(n) => *n,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// Accepts any value: tells NULL apart from the empty string.
@@ -672,36 +628,6 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn read_only_sql_classification() {
-        use super::is_read_only_sql as ro;
-        assert!(ro("select * from people"));
-        assert!(ro("  -- note\n /* c */ (SELECT 1) UNION (SELECT 2)"));
-        assert!(ro("with t as (select 1) select * from t"));
-        assert!(ro("values (1), (2)"));
-        assert!(ro("SHOW server_version"));
-        assert!(!ro("insert into people(id) values (1) returning id"));
-        assert!(!ro("UPDATE people SET age = 1 RETURNING *"));
-        assert!(!ro("delete from people returning *"));
-        assert!(!ro("with d as (delete from people returning *) select * from d"));
-        assert!(!ro("with t as (select 1) insert into people select * from t"));
-        assert!(!ro("select *\ninto backup from people"));
-        assert!(!ro("call do_something()"));
-        assert!(!ro(""));
-        // built-in functions with side effects are not replayed
-        assert!(!ro("select nextval('s')"));
-        assert!(!ro("SELECT setval('s', 10)"));
-        assert!(!ro("select pg_advisory_lock(1)"));
-        assert!(!ro("select pg_try_advisory_xact_lock(1)"));
-        assert!(!ro("select pg_catalog.NEXTVAL('s')"));
-        assert!(!ro("select pg_notify('ch', 'hi')"));
-        assert!(!ro("select set_config('a.b', '1', false)"));
-        assert!(!ro("with t as (select nextval('s')) select * from t"));
-        // similar names are still read-only
-        assert!(ro("select nextval_count, lots from stats"));
-        assert!(ro("select currval('s')"));
-    }
-
     use super::*;
 
     #[test]

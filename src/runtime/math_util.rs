@@ -528,25 +528,60 @@ pub(crate) fn is_str_num(text: &str) -> bool {
     crate::runtime::compare::looks_numeric(text.as_bytes()).is_some()
 }
 
-/// `uniq(arr[, how])`: the distinct values of `arr`, indexed from 1. By default (`how` is `""` or
-/// `"asc"`) they are sorted as `asort()` sorts them: numeric-looking values first in numeric
-/// order, then the other strings in string order. `"desc"` reverses that order, and `"keep"`
-/// keeps the order in which values first appear (by ascending index).
-pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
+/// A value that `uniq()` can deduplicate: values with the same key are the same value.
+pub(crate) trait UniqValue: AsortValue + Clone + crate::runtime::Uninit + crate::runtime::Detach {
+    type Key: Eq + Hash;
+    fn uniq_key(&self) -> Self::Key;
+}
+
+impl UniqValue for Int {
+    type Key = Int;
+    fn uniq_key(&self) -> Int {
+        *self
+    }
+}
+
+impl UniqValue for Float {
+    type Key = u64;
+    /// Numbers that compare equal are the same value: `-0` is `0`, and all NaNs are one value.
+    fn uniq_key(&self) -> u64 {
+        if *self == 0.0 {
+            0.0f64.to_bits()
+        } else if self.is_nan() {
+            Float::NAN.to_bits()
+        } else {
+            self.to_bits()
+        }
+    }
+}
+
+impl<'a> UniqValue for Str<'a> {
+    type Key = Str<'a>;
+    fn uniq_key(&self) -> Str<'a> {
+        self.clone()
+    }
+}
+
+/// `uniq(arr[, how])`: the distinct values of `arr`, indexed from 1, with the value type of `arr`.
+/// By default (`how` is `""` or `"asc"`) they are sorted as `asort()` sorts them: numbers in
+/// numeric order and, for string values, numeric-looking values first in numeric order, then the
+/// other strings in string order. `"desc"` reverses that order, and `"keep"` keeps the order in
+/// which values first appear (by ascending index).
+pub(crate) fn uniq<V: UniqValue>(obj: &IntMap<V>, how: &str) -> IntMap<V> {
     let mut keys = obj.to_vec();
     keys.sort_unstable();
     let mut seen = hashbrown::HashSet::new();
-    let mut items: Vec<Str<'a>> = Vec::with_capacity(keys.len());
+    let mut items: Vec<V> = Vec::with_capacity(keys.len());
     for key in keys {
         let item = obj.get(&key);
-        if seen.insert(item.clone()) {
+        if seen.insert(item.uniq_key()) {
             items.push(item);
         }
     }
     match how {
         "keep" => {}
         "" | "asc" | "desc" => {
-            Str::asort_sort(&mut items, true);
+            V::asort_sort(&mut items, true);
             if how == "desc" {
                 items.reverse();
             }
@@ -559,10 +594,10 @@ pub(crate) fn uniq<'a>(obj: &IntMap<Str<'a>>, how: &str) -> IntMap<Str<'a>> {
                     how
                 ),
             );
-            Str::asort_sort(&mut items, true);
+            V::asort_sort(&mut items, true);
         }
     }
-    let result: IntMap<Str> = IntMap::default();
+    let result: IntMap<V> = IntMap::default();
     for (i, item) in items.into_iter().enumerate() {
         result.insert(i as Int + 1, item);
     }
@@ -1255,6 +1290,32 @@ mod tests {
         assert_eq!(values("asc"), ["9", "10", "a", "b"]);
         assert_eq!(values("desc"), ["b", "a", "10", "9"]);
         assert_eq!(values("keep"), ["b", "10", "a", "9"]);
+    }
+
+    #[test]
+    fn test_uniq_numbers() {
+        let ints: IntMap<Int> = IntMap::default();
+        for (i, v) in [3, 1, 3, 10, 1].iter().enumerate() {
+            ints.insert(i as Int + 1, *v);
+        }
+        let ivals = |how: &str| {
+            let u = uniq(&ints, how);
+            (1..=u.len() as Int).map(|i| u.get(&i)).collect::<Vec<_>>()
+        };
+        assert_eq!(ivals(""), [1, 3, 10]);
+        assert_eq!(ivals("desc"), [10, 3, 1]);
+        assert_eq!(ivals("keep"), [3, 1, 10]);
+
+        let floats: IntMap<Float> = IntMap::default();
+        for (i, v) in [2.5, -0.0, 0.0, 2.5, -1.0].iter().enumerate() {
+            floats.insert(i as Int + 1, *v);
+        }
+        let u = uniq(&floats, "keep");
+        let fvals: Vec<Float> = (1..=u.len() as Int).map(|i| u.get(&i)).collect();
+        assert_eq!(fvals, [2.5, -0.0, -1.0]);
+        let u = uniq(&floats, "");
+        let fvals: Vec<Float> = (1..=u.len() as Int).map(|i| u.get(&i)).collect();
+        assert_eq!(fvals, [-1.0, -0.0, 2.5]);
     }
     #[test]
     fn test_rgb2hex() {

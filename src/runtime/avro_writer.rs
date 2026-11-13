@@ -581,6 +581,8 @@ pub struct AvroWriter<W: Write> {
     infer_types: bool,
     /// Set after an error, which has already been reported; later records are dropped.
     failed: bool,
+    /// The number of records after the header.
+    rows: u64,
 }
 
 impl<W: Write> AvroWriter<W> {
@@ -593,6 +595,7 @@ impl<W: Write> AvroWriter<W> {
             sample: Vec::new(),
             infer_types,
             failed: false,
+            rows: 0,
         }
     }
 
@@ -609,6 +612,9 @@ impl<W: Write> AvroWriter<W> {
 
     fn write_record(&mut self, line: &[u8]) -> io::Result<()> {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if self.header.is_some() || self.encoder.is_some() {
+            self.rows += 1;
+        }
         if let Some(specs) = &self.header {
             self.sample.push(line.to_vec());
             if self.sample.len() >= SAMPLE_SIZE {
@@ -664,7 +670,12 @@ impl<W: Write> AvroWriter<W> {
             self.checked(r)?;
         }
         match self.encoder.take() {
-            Some(enc) => enc.finish(&mut self.inner),
+            Some(enc) => {
+                if self.rows == 0 {
+                    crate::runtime::writers::warn_header_only("avro");
+                }
+                enc.finish(&mut self.inner)
+            }
             None => self.inner.flush(),
         }
     }

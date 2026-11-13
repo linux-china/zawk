@@ -992,7 +992,24 @@ impl Function {
                 }));
                 ctx.nw.add_dep(is_map, args[0], Constraint::Flows(()));
             }
-            // An untyped argument of `_join` or `to_csv` becomes an (empty) array with integer keys.
+            // uniq(arr, how): an array with integer keys, and the result has the same value type
+            // (in both directions, as with asort: storing strings in the result makes `arr` a
+            // string array too).
+            Function::Uniq => {
+                let (src, dst) = (args[0], res);
+                let is_map = ctx.constant(Some(Map {
+                    key: Some(BaseTy::Int),
+                    val: None,
+                }));
+                ctx.nw.add_dep(is_map, src, Constraint::Flows(()));
+                let val = ctx.fresh_var();
+                for map in [src, dst] {
+                    ctx.nw.add_dep(map, val, Constraint::Val(()));
+                    ctx.nw.add_dep(val, map, Constraint::ValIn(()));
+                }
+            }
+            // An untyped argument of `_join` or `to_csv` becomes an (empty) array with integer
+            // keys.
             Function::IntMapJoin | Function::ToCsv => {
                 let is_map = ctx.constant(Some(Map {
                     key: Some(BaseTy::Int),
@@ -1101,7 +1118,11 @@ impl Function {
             }
             Quote | DoubleQuote => (smallvec![Str], Str),
             Seq => (smallvec![Float, Float, Float], MapIntFloat),
-            Uniq => (smallvec![MapIntStr, Str], MapIntStr),
+            // The result has the value type of the array.
+            Uniq => match incoming[0] {
+                MapIntInt | MapIntFloat | MapIntStr => (smallvec![incoming[0], Str], incoming[0]),
+                _ => (smallvec![MapIntStr, Str], MapIntStr),
+            },
             // Products of integers easily exceed the 64-bit range (e.g. factorials), and awk
             // numbers are doubles: multiply in floating point.
             Binop(Mult) => (smallvec![Float; 2], Float),
@@ -1706,11 +1727,22 @@ impl Function {
             Strnum => Ok(Scalar(BaseTy::Str).abs()),
             ToFloat => Ok(Scalar(BaseTy::Float).abs()),
             OfmtStr | ExactStr => Ok(Scalar(BaseTy::Str).abs()),
-            Uniq => Ok(Map {
-                key: BaseTy::Int,
-                val: BaseTy::Str,
-            }
-            .abs()),
+            // The value type of the array, as in `type_sig` (string for arrays with string keys,
+            // which are rejected).
+            Uniq => Ok(match &args[0] {
+                Some(Map {
+                    key: None | Some(BaseTy::Int),
+                    val,
+                }) => Some(Map {
+                    key: Some(BaseTy::Int),
+                    val: *val,
+                }),
+                _ => Map {
+                    key: BaseTy::Int,
+                    val: BaseTy::Str,
+                }
+                .abs(),
+            }),
             HttpGet | HttpPost => Ok(Map {
                 key: BaseTy::Str,
                 val: BaseTy::Str,

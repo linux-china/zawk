@@ -362,6 +362,16 @@ pub(crate) enum Instr<'a> {
         Reg<runtime::IntMap<Str<'a>>>,
         Reg<Str<'a>>,
     ),
+    UniqInt(
+        Reg<runtime::IntMap<Int>>,
+        Reg<runtime::IntMap<Int>>,
+        Reg<Str<'a>>,
+    ),
+    UniqFloat(
+        Reg<runtime::IntMap<Float>>,
+        Reg<runtime::IntMap<Float>>,
+        Reg<Str<'a>>,
+    ),
     TypeOfArray(Reg<Str<'a>>),
     TypeOfNumber(Reg<Str<'a>>),
     // typeof() of a string: "strnum" if it may be a strnum (see strnum_analysis) and looks
@@ -1502,6 +1512,16 @@ impl<'a> Instr<'a> {
                 end.accum(&mut f);
             }
             Uniq(dst, src, param) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+                param.accum(&mut f);
+            }
+            UniqInt(dst, src, param) => {
+                dst.accum(&mut f);
+                src.accum(&mut f);
+                param.accum(&mut f);
+            }
+            UniqFloat(dst, src, param) => {
                 dst.accum(&mut f);
                 src.accum(&mut f);
                 param.accum(&mut f);

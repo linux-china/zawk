@@ -3507,11 +3507,18 @@ impl<'a, 'b> View<'a, 'b> {
             }
             Uniq => {
                 if res_reg != UNUSED {
-                    self.pushl(LL::Uniq(
-                        res_reg.into(),
-                        conv_regs[0].into(),
-                        conv_regs[1].into(),
-                    ))
+                    let (dst, src, how) = (res_reg, conv_regs[0], conv_regs[1].into());
+                    match conv_tys[0] {
+                        Ty::MapIntInt => self.pushl(LL::UniqInt(dst.into(), src.into(), how)),
+                        Ty::MapIntFloat => self.pushl(LL::UniqFloat(dst.into(), src.into(), how)),
+                        Ty::MapIntStr => self.pushl(LL::Uniq(dst.into(), src.into(), how)),
+                        _ => {
+                            return err!(
+                                "uniq: argument 1 must be an array with integer keys, got {:?}",
+                                conv_tys[0]
+                            );
+                        }
+                    }
                 }
             }
             ArrayMax | ArrayMin | ArraySum | ArrayMean => {

@@ -133,6 +133,9 @@ pub fn stdout_broken_pipe() -> bool {
 pub fn exit_code(code: i32) -> i32 {
     // Every exit of a program run goes through here, after its output has been flushed.
     crate::runtime::sqlite::warn_open_transactions();
+    crate::runtime::mysql::warn_open_transactions();
+    crate::runtime::postgres::warn_open_transactions();
+    crate::runtime::report_failed_db_writes();
     crate::runtime::report_suppressed_warnings();
     let code = if stdout_broken_pipe() {
         SIGPIPE_EXIT_CODE
@@ -166,6 +169,15 @@ static FATAL_OUTPUT_REPORTED: AtomicBool = AtomicBool::new(false);
 /// sent at exit, before the flush that follows it is answered, so `exit_code` sees the failure:
 /// a closed pipe exits as if killed by SIGPIPE (and is not reported), any other error exits with
 /// code 2.
+/// Warns that `-o <format>` got a header but no data rows: the first record printed is the
+/// header, so `printf '1\n' | zawk -o jsonl '{ print $1, "a" }'` writes nothing.
+pub(crate) fn warn_header_only(format: &str) {
+    eprintln!(
+        "zawk: warning: -o {}: only the header was printed, no data rows (the first record printed is the header)",
+        format
+    );
+}
+
 pub(crate) fn report_stdout_render_error(e: &io::Error) {
     if e.kind() == io::ErrorKind::BrokenPipe {
         STDOUT_BROKEN_PIPE.store(true, Ordering::Release);
@@ -1125,8 +1137,9 @@ pub(crate) enum JsonType {
     String,
     Number,
     Boolean,
-    /// Per value: a number as JSON writes it is a number, `true`/`false` a boolean, anything else
-    /// (including the empty string and numbers such as `007` or `1e`) a string.
+    /// Per value: a number as JSON writes it is a number, `true`/`false` a boolean, the empty
+    /// string null (as for an inferred `-o parquet`/`-o avro` column), anything else (including
+    /// numbers such as `007` or `1e`) a string.
     Auto,
 }
 
@@ -1142,6 +1155,8 @@ pub struct JsonlWriter<W: io::Write> {
     invalid: Vec<u64>,
     /// The type of columns without a type suffix: `Auto` with `--infer-types`, else `String`.
     default_type: JsonType,
+    /// The number of data rows written, after the header.
+    rows: u64,
 }
 
 impl<W: io::Write> JsonlWriter<W> {
@@ -1152,6 +1167,7 @@ impl<W: io::Write> JsonlWriter<W> {
             columns: None,
             names: Vec::new(),
             invalid: Vec::new(),
+            rows: 0,
             default_type: if infer_types {
                 JsonType::Auto
             } else {
@@ -1208,6 +1224,7 @@ impl<W: io::Write> JsonlWriter<W> {
             }
         }
         row.push_str("}\n");
+        self.rows += 1;
         self.inner.write_all(row.as_bytes())
     }
 }
@@ -1330,6 +1347,11 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
             out.push_str(if truthy { "true" } else { "false" });
         }
         JsonType::Auto => {
+            if cell.is_empty() {
+                // Empty values of an inferred column are null, as for -o parquet and -o avro.
+                out.push_str("null");
+                return true;
+            }
             // A number that overflows f64 (`1e999`) is valid JSON grammar, but strict parsers
             // (serde_json, jq) reject or change it: it is kept as a string, as for -o parquet/xlsx.
             if json_number(cell).is_some() && cell.parse::<f64>().is_ok_and(f64::is_finite) {
@@ -1378,6 +1400,9 @@ impl<W: io::Write> Drop for JsonlWriter<W> {
             report_stdout_render_error(&e);
         }
         if let Some(columns) = &self.columns {
+            if self.rows == 0 {
+                warn_header_only("jsonl");
+            }
             for ((name, ty), &n) in columns.iter().zip(&self.invalid).filter(|(_, n)| **n > 0) {
                 eprintln!(
                     "zawk: jsonl column {} ({:?}): {} invalid value(s) written as null",
@@ -1472,7 +1497,7 @@ mod jsonl_tests {
                 r#"{"v":"1.","s":"1."}"#,
                 r#"{"v":"0x10","s":"0x10"}"#,
                 r#"{"v":"inf","s":"inf"}"#,
-                r#"{"v":"","s":""}"#,
+                r#"{"v":null,"s":""}"#,
                 r#"{"v":"Jackie","s":"Jackie"}"#,
                 r#"{"v":"-","s":"-"}"#,
             ]

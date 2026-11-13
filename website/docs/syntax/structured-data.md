@@ -80,7 +80,7 @@ and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 | `-o tsv` | TSV with escapes, so any field survives a round trip; TSV has no quoting, so a row with a single empty field is an empty line and reads back as no fields (printing such a `$0` warns once) |
 | `-o markdown` (`md`) | Markdown table: the first printed record is the header row |
 | `-o table` | aligned table with box-drawing borders, for terminals |
-| `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number` or `:boolean` |
+| `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number`, `:boolean` or `:auto` (`--infer-types` for all keys; an empty `:auto` value is `null`, as in Parquet and Avro). With no data rows after the header, a warning is printed |
 | `-o parquet` | Apache Parquet, with `--out-file` |
 | `-o avro` | Apache Avro (Object Container File, uncompressed), with `--out-file` |
 
@@ -179,6 +179,6 @@ zawk -i csv -p r -j 8 '{ sum += $3 } END { print sum }' big.csv
 ```
 
 Scalars set in the main loop and read in `END` are aggregated over workers. `zawk lint -pr` reports code whose
-meaning changes in parallel mode (W301 to W305). A run with `-p` also prints the W302 to W305 warnings
+meaning changes in parallel mode (W301 to W306). A run with `-p` also prints the W302 to W306 warnings
 (and W301 with `--keep-order`) to stderr before it starts (unless `--lint` already reports them), so that a `max`, a `last` value or a flag
 summed over the workers does not go unnoticed.

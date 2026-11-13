@@ -15,10 +15,14 @@ sidebar_label: Database & KV
 
 `*_query` returns an array indexed from 1 where each row is a CSV-encoded string: split it with `from_csv(row)`.
 
-PostgreSQL connections are cached per URL. When a cached connection turns out to be closed, `pg_query` reconnects
-and retries plain reads once; `pg_execute` is never retried. The retry assumes a `SELECT` has no side effects:
-queries that call `nextval`, `setval`, `pg_advisory_*`, `pg_notify`, `set_config` and similar built-ins are not retried,
-but a user-defined function that writes cannot be detected, so run such a statement with `pg_execute`.
+MySQL and PostgreSQL connections are cached per URL. When a cached connection turns out to be closed,
+`mysql_query` and `pg_query` reconnect and retry plain reads once (`SELECT`, `VALUES`, `TABLE`, `SHOW`, a `WITH`
+that does not write; every statement of the call must be one); `*_execute` is never retried, and neither is a
+`*_query` that writes (`INSERT ... RETURNING`, `CALL`, `INSERT ...; SELECT LAST_INSERT_ID()`), since the server may
+have applied it before the connection was lost. The retry assumes a `SELECT` has no side effects: queries that call
+`nextval`, `setval`, `pg_advisory_*`, `pg_notify`, `set_config` (PostgreSQL), `GET_LOCK`, `RELEASE_LOCK`, `SLEEP`,
+`LAST_INSERT_ID`, `FOUND_ROWS` (MySQL) and similar built-ins are not retried, but a user-defined function that
+writes cannot be detected, so run such a statement with `*_execute`.
 
 ```awk
 BEGIN {
@@ -78,18 +82,55 @@ parallel run (`-pr`/`-pf`) where every worker has its own session:
 }
 ```
 
-Without parameters, `sqlite_execute` runs several statements separated by `;` in order and returns the rows
-changed by all of them, e.g. `sqlite_execute(db, "BEGIN; insert ...; insert ...; COMMIT")`. The first failing
-statement stops the run, and the statements before it stay applied, except when the call opened a transaction:
-then it is rolled back, so `BEGIN; ...; COMMIT` applies all of its statements or none. A transaction opened by an
-earlier call is left open for the program to `COMMIT` or `ROLLBACK`.
+Without parameters, `sqlite_execute`, `mysql_execute` and `pg_execute` run several statements separated by `;`
+in order and return the rows changed by all of them, e.g. `pg_execute(url, "BEGIN; insert ...; insert ...; COMMIT")`.
+The first failing statement stops the run, and the statements before it stay applied (PostgreSQL applies the
+statements of one call outside of an explicit transaction together or not at all), except when the call opened a
+transaction: then it is rolled back, so `BEGIN; ...; COMMIT` applies all of its statements or none. A transaction
+opened by an earlier call is left open for the program to `COMMIT` or `ROLLBACK`. With parameters the SQL is one
+statement.
+
+A transaction still open at exit (a `BEGIN` without `COMMIT`) is reported with a warning for all three databases,
+since it is rolled back when the connection is closed. When more than one call of `*_execute` failed, a last
+warning gives how many (the message of each distinct error is shown once): test `ERRNO` after a call to handle
+each failure.
 
 As for MySQL and PostgreSQL, each thread has its own connection to a SQLite database file, so a transaction
 spanning several calls stays with the worker that opened it in a parallel run. Writers wait for each other's
 transactions for up to 5 seconds before failing with `database is locked`: keep transactions short, and prefer
 `BEGIN IMMEDIATE` when a transaction reads before it writes. An in-memory database (`:memory:`) is one connection
-shared by all threads. A transaction still open at exit (a `BEGIN` without `COMMIT`) is reported with a warning,
-since SQLite rolls it back.
+shared by all threads.
+
+### Parallel runs and transactions
+
+With `-pr`/`-pf`, `BEGIN` and `END` run in the main thread and the main rules in worker threads, each thread with its
+own connections. A transaction opened in `BEGIN` (or ended in `END`) therefore does **not** include the writes of
+the main rules: they autocommit one by one, a `ROLLBACK` in `END` does not undo them, and with SQLite they wait for
+the lock of that open transaction and fail with `database is locked`. `zawk lint -p r` reports such a program
+(`W306`), a run with `-p` prints the warning, and `--deny-warnings` refuses to run it.
+
+```awk
+# wrong with -p: the inserts of the workers are not in this transaction
+BEGIN { pg_execute(url, "BEGIN") }
+{ pg_execute(url, "insert into t values (" $1 ")") }
+END { pg_execute(url, "COMMIT") }
+```
+
+For MySQL and PostgreSQL, open a transaction per worker in the main rules and commit it in `PREPARE`, which runs in
+each worker at the end of its input (and once before `END` in a serial run):
+
+```awk
+{
+    if (!tx) { tx = 1; pg_execute(url, "BEGIN") }
+    p[1] = $1
+    pg_execute(url, "insert into t values ($1)", p)
+}
+PREPARE { if (tx) pg_execute(url, "COMMIT") }
+```
+
+Each worker then commits its own share: the import as a whole is not all-or-nothing. When it must be, run the
+program serially (`-p0`). SQLite has a single writer, so a transaction held by one worker blocks the others: run
+SQLite imports serially, or make each transaction a single call (`sqlite_execute(db, "BEGIN; insert ...; COMMIT")`).
 
 ## Tables and queries as input
 

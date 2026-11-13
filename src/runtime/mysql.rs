@@ -5,12 +5,21 @@ use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use mysql::consts::ColumnType;
 use mysql::prelude::*;
 use mysql::*;
-use crate::runtime::conn_pool::{Driver, SessionPool};
+use crate::runtime::conn_pool::{Dialect, Driver, SessionPool, is_read_only_sql};
 use std::sync::LazyLock;
 
 /// Connections by URL and thread. `mysql::Pool` is not used: it resets a connection when it is
 /// returned (rolling back a `BEGIN` from an earlier call) and hands it to any thread.
-static MYSQL_CONNECTIONS: LazyLock<SessionPool<Conn>> = LazyLock::new(SessionPool::new);
+static MYSQL_CONNECTIONS: LazyLock<SessionPool<Conn>> =
+    LazyLock::new(|| SessionPool::new(Dialect::MySql));
+
+/// Warn about each URL left inside a transaction (a `BEGIN` without `COMMIT`): the server rolls
+/// it back when the connection is closed at exit, so its writes would otherwise be lost silently.
+pub(crate) fn warn_open_transactions() {
+    for url in MYSQL_CONNECTIONS.open_transactions() {
+        crate::runtime::warn_open_transaction("mysql_execute", &url);
+    }
+}
 
 /// Positional parameters bound as strings (MySQL converts them to the column types), the `--null`
 /// text as NULL, or `None` when there are none: then the text protocol is used, since not every
@@ -33,9 +42,12 @@ fn positional_params(params: &IntMap<Str>) -> Option<Params> {
 
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
+    // only a plain read is replayed after the connection was lost: a write (`CALL`, `INSERT ...;
+    // SELECT LAST_INSERT_ID()`) may already have been applied
+    let retry = is_read_only_sql(sql, Dialect::MySql);
     let result = match positional_params(params) {
-        Some(params) => with_conn(db_url, sql, true, |conn| conn.exec(sql, params.clone())),
-        None => with_conn(db_url, sql, true, |conn| conn.query(sql)),
+        Some(params) => with_conn(db_url, sql, retry, |conn| conn.exec(sql, params.clone())),
+        None => with_conn(db_url, sql, retry, |conn| conn.query(sql)),
     };
     let rows: Vec<Row> = match result {
         Ok(rows) => rows,
@@ -164,17 +176,31 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
         Some(params) => with_conn(db_url, sql, false, |conn| {
             conn.exec_drop(sql, params.clone()).map(|_| conn.affected_rows())
         }),
-        None => with_conn(db_url, sql, false, |conn| {
-            conn.query_drop(sql).map(|_| conn.affected_rows())
-        }),
+        None => with_conn(db_url, sql, false, |conn| execute_text(conn, sql)),
     };
     match result {
         Ok(n) => n as Int,
         Err(e) => {
-            stdlib_warning("mysql_execute", e);
+            crate::runtime::db_write_failed("mysql_execute", e);
             0
         }
     }
+}
+
+/// Runs `sql`, which may hold several statements separated by `;` (e.g. `BEGIN; ...; COMMIT`),
+/// with the text protocol, and returns the rows changed by all of them, as `sqlite_execute` and
+/// `pg_execute` do. The first failing statement stops the run.
+fn execute_text(conn: &mut Conn, sql: &str) -> Result<u64> {
+    let mut result = conn.query_iter(sql)?;
+    let mut changed = 0;
+    while let Some(set) = result.iter() {
+        // known from the OK packet before the rows (if any) are read
+        changed += set.affected_rows();
+        for row in set {
+            row?;
+        }
+    }
+    Ok(changed)
 }
 
 /// The options of `db_url`, with a connect timeout and TCP keepalive unless the URL sets them
@@ -226,13 +252,18 @@ impl Driver<Conn, Error> for MysqlDriver {
     fn error_text(&self, e: Error) -> String {
         e.to_string()
     }
+
+    fn rollback(&self, conn: &mut Conn) -> bool {
+        conn.query_drop("ROLLBACK").is_ok()
+    }
 }
 
 /// Runs `f`, which runs `sql`, with a cached connection for `db_url` that only the current thread
 /// uses, so session state such as a transaction opened by `BEGIN` in an earlier call is still
 /// there. No lock is held while connecting or querying. A connection that broke (server restart,
 /// idle timeout) is dropped so the next call reconnects; with `retry`, `f` is also retried once on
-/// a new connection: only safe for reads, since a write may have been applied before it was lost.
+/// a new connection: only for reads ([`is_read_only_sql`]), since a write may have been applied
+/// before it was lost.
 /// Neither happens silently when a transaction was open on it: see [`SessionPool`].
 fn with_conn<T>(
     db_url: &str,

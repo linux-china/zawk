@@ -431,6 +431,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] max(pa_args_ty, int_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
         [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] uniq_int(map_ty, str_ref_ty) -> map_ty;
+        [ReadOnly] uniq_float(map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] type_of_array() -> str_ty;
         [ReadOnly] type_of_number() -> str_ty;
         [ReadOnly] type_of_string() -> str_ty;
@@ -2302,6 +2304,26 @@ pub(crate) unsafe extern "C" fn uniq(src: *mut c_void, param: *mut U128) -> *mut
         let res = math_util::uniq(&src, &param.as_str());
         mem::forget(src);
         mem::transmute::<IntMap<Str>, *mut c_void>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn uniq_int(src: *mut c_void, param: *mut U128) -> *mut c_void {
+    guard_panic(stringify!(uniq_int), || {
+        let src = mem::transmute::<*mut c_void, IntMap<Int>>(src);
+        let param = &*(param as *mut Str);
+        let res = math_util::uniq(&src, &param.as_str());
+        mem::forget(src);
+        mem::transmute::<IntMap<Int>, *mut c_void>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn uniq_float(src: *mut c_void, param: *mut U128) -> *mut c_void {
+    guard_panic(stringify!(uniq_float), || {
+        let src = mem::transmute::<*mut c_void, IntMap<Float>>(src);
+        let param = &*(param as *mut Str);
+        let res = math_util::uniq(&src, &param.as_str());
+        mem::forget(src);
+        mem::transmute::<IntMap<Float>, *mut c_void>(res)
     })
 }
 

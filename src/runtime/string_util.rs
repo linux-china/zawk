@@ -1,6 +1,6 @@
 use crate::common::Result;
 use crate::runtime::{
-    Float, Int, IntMap, SharedMap, Str, StrMap, check_result_len, stdlib_warning,
+    Int, IntMap, SharedMap, Str, StrMap, check_result_len_int, stdlib_warning,
 };
 use pad::Alignment;
 use std::sync::LazyLock;
@@ -20,7 +20,7 @@ pub(crate) fn substr<'a>(base: &Str<'a>, pos: Int, len: Int) -> Str<'a> {
 /// text already `len` characters or longer is returned unchanged (use `truncate` to shorten). Lengths are counted in chars, not bytes; a
 /// negative `len` is treated as 0, and one above [`MAX_RESULT_LEN`](crate::runtime::MAX_RESULT_LEN) is an error.
 fn pad_text(func: &str, text: &str, len: Int, pad: &str, alignment: Alignment) -> Result<String> {
-    check_result_len(func, "length", len as Float)?;
+    check_result_len_int(func, "length", len)?;
     let len = len.max(0) as usize;
     let char_count = text.chars().count();
     if char_count >= len {

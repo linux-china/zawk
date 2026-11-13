@@ -19,6 +19,9 @@ strftime("%H:%M %Z", 0, "Asia/Shanghai")   # "08:00 CST": in an IANA time zone
 strftime("%+")                      # ISO 8601 / RFC 3339
 ```
 
+A 3rd argument that is a number or `"true"` means UTC; any other text must be an IANA time zone name, and a misspelt
+one (`"Asia/Shangai"`) falls back to UTC with a warning and `ERRNO` set.
+
 Format directives are those of [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
 
 ## Parsing
@@ -37,7 +40,7 @@ It returns `-1` if the text cannot be parsed, as gawk does.
 
 When the format is known, `strptime(s, format[, tz])` parses with a [chrono format](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
 and guesses nothing: `"01/02/2024"` is January 2 with `"%m/%d/%Y"`, February 1 with `"%d/%m/%Y"`. Text with `%z` or `%s`
-is an instant; other text is local time, or in `tz`: an IANA time zone name, or UTC for another true value.
+is an instant; other text is local time, or in `tz`: an IANA time zone name, or UTC for a number or `"true"` (an unknown zone name is UTC with a warning and `ERRNO` set).
 It returns `-1` if the text does not match the format.
 A zone abbreviation (`%Z`) is ambiguous (`CST` is China, US Central or Cuba), so it is only taken when it is
 `UTC`/`GMT`/`UT`/`Z` or the abbreviation `tz` uses at that time; any other name gives `-1` with a warning.

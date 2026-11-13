@@ -749,6 +749,14 @@ pub(crate) mod boilerplate {
                 f(dst.into(), Some(src.into()));
                 f(dst.into(), Some(param.into()));
             }
+            UniqInt(dst, src, param) => {
+                f(dst.into(), Some(src.into()));
+                f(dst.into(), Some(param.into()));
+            }
+            UniqFloat(dst, src, param) => {
+                f(dst.into(), Some(src.into()));
+                f(dst.into(), Some(param.into()));
+            }
             TypeOfArray(_dst) => {
             }
             TypeOfNumber(_dst) => {

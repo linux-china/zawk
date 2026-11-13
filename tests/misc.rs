@@ -234,6 +234,11 @@ fn getline_arithmetic_operand() {
         ("{print getline+1, getline-1}", "2 0\n"),
         ("{print getline/2*4+1}", "3\n1\n"),
         ("NR==1{if (getline/2 > 0) print $0}", "20\n"),
+        // A unary `-`, `+` or `!` applies to getline, as in gawk.
+        ("NR==1{x = -getline; print x, $0}", "-1 20\n"),
+        ("NR==1{x = !getline v; print x, v}", "0 20\n"),
+        ("NR==1{print -getline * 2 + 1}", "-1\n"),
+        ("NR==1{if (-getline == -1) print $0}", "20\n"),
     ] {
         for backend_arg in BACKEND_ARGS {
             Command::cargo_bin("zawk")
@@ -3199,6 +3204,51 @@ fn binary_input_read_as_text_warns() {
 }
 
 #[test]
+fn header_only_output_warns() {
+    // The first record printed is the header: with no data rows, a warning says so.
+    for format in ["jsonl", "parquet", "avro"] {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-o", format, r#"{ print "x", "a" }"#])
+            .write_stdin("1\n")
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains(&format!("-o {}: only the header was printed, no data rows", format)),
+            "{}: {}",
+            format,
+            err
+        );
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-o", format, r#"{ print "x", "a" }"#])
+            .write_stdin("1\n2\n")
+            .output()
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&out.stderr).contains("no data rows"));
+    }
+}
+
+#[test]
+fn infer_types_empty_is_null() {
+    // An empty :auto value is null in -o jsonl, as in -o parquet and -o avro; an empty :string
+    // value stays an empty string.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-ojsonl", "--infer-types"])
+            .arg(r#"BEGIN { print "a", "b:string" } { print $1, $2 }"#)
+            .write_stdin("\t\n1\tx\n")
+            .args(["-F", "\t"])
+            .assert()
+            .success()
+            .stdout("{\"a\":null,\"b\":\"\"}\n{\"a\":1,\"b\":\"x\"}\n");
+    }
+}
+
+#[test]
 fn infer_types_output() {
     // `:auto` (and --infer-types for columns without a suffix) keeps numbers and booleans typed:
     // per value for -o jsonl, per column from the first rows for -o parquet.
@@ -4081,6 +4131,15 @@ fn stdlib_result_size_limits() {
         "pad_start: length",
     );
     assert_fatal(r#"BEGIN { x = pad("a", 1e12, "*") }"#, "pad: length");
+    // Lengths and counts are shown as integers, not as f64 (`9223372036854776000`).
+    assert_fatal(
+        r#"BEGIN { x = pad("a", 9223372036854775807) }"#,
+        "pad: length 9223372036854775807 is too large",
+    );
+    assert_fatal(
+        r#"BEGIN { a = seq(1, 1, 1e20) }"#,
+        "seq: element count 100000000000000081920 is too large",
+    );
     assert_fatal(
         r#"BEGIN { a = seq(1, 1, 1e12) }"#,
         "seq: element count 1000000000000 is too large",
@@ -8869,5 +8928,79 @@ fn csv_output_single_empty_field_is_quoted() {
             .assert()
             .success()
             .stdout("1 1 [a]\n2 1 []\n3 1 [x]\n");
+    }
+}
+
+// uniq() accepts arrays of numbers (map[int]int, map[int]float) and keeps their value type.
+#[test]
+fn uniq_numeric_arrays() {
+    let cases = [
+        (
+            "BEGIN { x[1]=3; x[2]=1; x[3]=3; x[4]=10; u=uniq(x); print length(u), u[1], u[2], u[3], u[2]+1 }",
+            "3 1 3 10 4\n",
+        ),
+        (
+            "BEGIN { x[1]=3; x[2]=1; x[3]=3; u=uniq(x, \"keep\"); v=uniq(x, \"desc\"); print u[1], u[2], v[1] }",
+            "3 1 3\n",
+        ),
+        (
+            "BEGIN { x[1]=2.5; x[2]=0.5; x[3]=2.5; x[4]=-0.0; x[5]=0; u=uniq(x); print length(u), u[1], u[2], u[3] }",
+            "3 0 0.5 2.5\n",
+        ),
+        // Storing strings in the result makes both arrays string arrays.
+        (
+            "BEGIN { x[1]=1; x[2]=1; u=uniq(x); u[2]=\"z\"; print length(u), u[1], u[2] }",
+            "2 1 z\n",
+        ),
+        ("BEGIN { print length(uniq(x)) }", "0\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .arg(prog)
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("{ a[NR] = $1 + 0 } END { u = uniq(a); print length(u), u[1], u[3] }")
+            .write_stdin("3\n1\n3\n2\n")
+            .assert()
+            .success()
+            .stdout("3 1 3\n");
+    }
+}
+
+// The array statistics skip empty values (as SQL aggregates skip NULL); _quantile warns on a
+// q outside [0, 1].
+#[test]
+fn array_stats_skip_empty_values() {
+    let prog = r#"BEGIN { a[1]=3; a[2]=1; a[3]="x"; a[4]=""; a[5]=10
+  print _min(a), _max(a), _sum(a), _mean(a), _median(a), _mode(a), _argmin(a), _argmax(a)
+  e[1]=""; print _min(e), _mean(e), "[" _argmin(e) "]" }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout("0 10 14 3.5 2 0 3 5\n0 0 []\n");
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(r#"BEGIN { a[1]=1; a[2]=3; print _quantile(a, 2), ERRNO != "" }"#)
+            .assert()
+            .success()
+            .stdout("3 1\n")
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8_lossy(&out);
+        assert!(err.contains("_quantile: q 2 is not between 0 and 1"), "{err}");
     }
 }

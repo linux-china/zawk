@@ -164,7 +164,8 @@ pub fn parallel_warnings(sources: &[Source], mode: Parallel, keep_order: bool) -
     let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
         .into_iter()
         .filter(|d| {
-            matches!(d.code, "W302" | "W303" | "W304" | "W305") || (keep_order && d.code == "W301")
+            matches!(d.code, "W302" | "W303" | "W304" | "W305" | "W306")
+                || (keep_order && d.code == "W301")
         })
         .collect();
     diags.sort_by_key(|d| d.loc.map_or((usize::MAX, 0), |l| (l.line, l.col)));
@@ -631,6 +632,20 @@ struct Facts<'a, 'p> {
     /// Reads of array element values (`a[k]`, or the array passed to a user-defined function),
     /// as opposed to only its keys (`k in a`, `for (k in a)`, `length(a)`): the array and region.
     element_reads: Vec<(&'a str, Region)>,
+    /// Calls of the SQL functions (`sqlite_execute`, `pg_query`, ...).
+    db_calls: Vec<DbCall<'a>>,
+}
+
+/// A call of a SQL function: `sqlite_execute(db, "BEGIN")`.
+struct DbCall<'a> {
+    /// `sqlite`, `mysql` or `pg`
+    family: &'a str,
+    /// whether it is `*_execute` (not `*_query`)
+    execute: bool,
+    /// the SQL, if it is a literal (or a concatenation of literals)
+    sql: Option<Vec<u8>>,
+    region: Region,
+    loc: Option<Loc>,
 }
 
 /// What evaluating an expression may read and write, for spotting evaluation-order dependencies.
@@ -1257,6 +1272,18 @@ impl<'a, 'p> Facts<'a, 'p> {
                 let read_only = match f {
                     Either::Left(name) => {
                         self.calls.push((name, args.len(), self.loc(e)));
+                        if let Some((family, kind)) = name.split_once('_')
+                            && matches!(family, "sqlite" | "mysql" | "pg")
+                            && matches!(kind, "execute" | "query")
+                        {
+                            self.db_calls.push(DbCall {
+                                family,
+                                execute: kind == "execute",
+                                sql: args.get(1).and_then(|a| literal(a)),
+                                region: self.region,
+                                loc: self.loc(e),
+                            });
+                        }
                         if *name == "sprintf"
                             && let Some(fmt) = args.first().and_then(|f| literal(f)) {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
@@ -1498,6 +1525,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         order_dependent: Vec::new(),
         element_sets: Vec::new(),
         element_reads: Vec::new(),
+        db_calls: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -2297,6 +2325,7 @@ fn check_parallel<'a>(
         .filter(|d| matches!(d.code, "W302" | "W303"))
         .filter_map(|d| d.message.split('`').nth(1).map(String::from))
         .collect();
+    diags.extend(check_parallel_transactions(&facts.db_calls));
     for (name, loc) in CrossRecord::find(prog) {
         if reported_end.iter().any(|n| n == name) {
             continue;
@@ -2308,6 +2337,62 @@ fn check_parallel<'a>(
                 name
             ),
             loc,
+        ));
+    }
+    diags
+}
+
+/// `W306`: BEGIN or END starts or ends a transaction (`sqlite_execute(db, "BEGIN")`) while the
+/// main rules write to a database of the same kind. In parallel mode BEGIN and END run on the
+/// main thread and the main rules in the workers, each thread with its own connections, so the
+/// writes of the workers are not part of that transaction: a `ROLLBACK` in END does not undo them,
+/// and with SQLite they wait for the lock of the open transaction and fail with
+/// `database is locked`.
+fn check_parallel_transactions(calls: &[DbCall]) -> Vec<Diagnostic> {
+    use crate::runtime::conn_pool::{Dialect, tx_controls};
+    let mut diags = Vec::new();
+    for family in ["sqlite", "mysql", "pg"] {
+        let dialect = match family {
+            "sqlite" => Dialect::Sqlite,
+            "mysql" => Dialect::MySql,
+            _ => Dialect::Postgres,
+        };
+        let tx = calls.iter().find(|c| {
+            c.family == family
+                && matches!(c.region, Region::Begin | Region::End)
+                && c.sql.as_ref().is_some_and(|sql| {
+                    tx_controls(&String::from_utf8_lossy(sql), dialect)
+                        .iter()
+                        .any(Option::is_some)
+                })
+        });
+        let write = calls
+            .iter()
+            .find(|c| c.family == family && c.execute && c.region == Region::Main);
+        let (Some(tx), Some(write)) = (tx, write) else {
+            continue;
+        };
+        let stmt = String::from_utf8_lossy(tx.sql.as_deref().unwrap_or_default());
+        let block = if tx.region == Region::Begin { "BEGIN" } else { "END" };
+        let advice = if family == "sqlite" {
+            "they autocommit one by one, and wait for the lock of the open transaction until they fail with `database is locked`; with SQLite run such a program serially (`-p0`), or make each transaction one call (`sqlite_execute(db, \"BEGIN; insert ...; insert ...; COMMIT\")`)".to_string()
+        } else {
+            format!(
+                "they autocommit one by one; open a transaction per worker in the main rules (`if (!tx) {{ tx = 1; {f}_execute(url, \"BEGIN\") }}`) and commit it in PREPARE (`PREPARE {{ if (tx) {f}_execute(url, \"COMMIT\") }}`), or run serially (`-p0`)",
+                f = family
+            )
+        };
+        diags.push(warning(
+            "W306",
+            format!(
+                "in parallel mode the main rules run in worker threads, each with its own database connection: the transaction of `{}_execute(..., \"{}\")` in {} does not include the writes of `{}_execute` in the main rules, so a `ROLLBACK` does not undo them and a `COMMIT` does not make them all-or-nothing; {}",
+                tx.family,
+                stmt.trim(),
+                block,
+                family,
+                advice
+            ),
+            write.loc,
         ));
     }
     diags
@@ -3820,6 +3905,50 @@ mod tests {
         assert!(has_range_pattern(&[src("NR == 2, /x/ { print }")]));
         assert!(!has_range_pattern(&[src("/x/ { print }")]));
         assert!(!has_range_pattern(&[src("{ x = ")]));
+    }
+
+    #[test]
+    fn parallel_transactions() {
+        let pr = Options {
+            parallel: Some(Parallel::Record),
+            ..Options::default()
+        };
+        let pf = Options {
+            parallel: Some(Parallel::File),
+            ..Options::default()
+        };
+        // A transaction in BEGIN/END does not cover the writes of the workers (W306).
+        for prog in [
+            r#"BEGIN { sqlite_execute(db, "BEGIN") } { sqlite_execute(db, "insert into t values (1)") } END { sqlite_execute(db, "COMMIT") }"#,
+            r#"BEGIN { pg_execute(u, "start transaction") } { pg_execute(u, "insert ...") }"#,
+            r#"{ p[1] = $1; mysql_execute(u, "insert into t values (?)", p) } END { mysql_execute(u, "ROLLBACK") }"#,
+            r#"BEGIN { pg_execute(u, "BEGIN;" " create table t(x int)") } { pg_execute(u, "insert ...") }"#,
+        ] {
+            assert_eq!(codes(&run_with(prog, &pr)), ["W306"], "{}", prog);
+            assert_eq!(codes(&run_with(prog, &pf)), ["W306"], "{}", prog);
+            assert!(codes(&run(prog)).is_empty(), "{}", prog);
+        }
+        for ok in [
+            // a transaction per worker, committed in PREPARE
+            r#"{ if (!tx) { tx = 1; pg_execute(u, "BEGIN") } pg_execute(u, "insert ...") } PREPARE { if (tx) pg_execute(u, "COMMIT") }"#,
+            // one call per transaction, or no write in the main rules
+            r#"{ sqlite_execute(db, "BEGIN; insert ...; COMMIT") }"#,
+            r#"BEGIN { sqlite_execute(db, "BEGIN") } { print } END { sqlite_execute(db, "COMMIT") }"#,
+            // another database kind, or a statement that is not transaction control
+            r#"BEGIN { sqlite_execute(db, "BEGIN") } { pg_execute(u, "insert ...") }"#,
+            r#"BEGIN { pg_execute(u, "create table t(x int)") } { pg_execute(u, "insert ...") }"#,
+            r#"BEGIN { pg_execute(u, "select 'BEGIN'") } { pg_execute(u, "insert ...") }"#,
+        ] {
+            assert!(codes(&run_with(ok, &pr)).is_empty(), "{}", ok);
+        }
+        // a run prints it, so `--deny-warnings` refuses it
+        let src = Source {
+            text: r#"BEGIN { mysql_execute(u, "BEGIN") } { mysql_execute(u, "insert ...") }"#.into(),
+            ..Source::default()
+        };
+        let w = parallel_warnings(&[src], Parallel::Record, false);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("W306 "), "{}", w[0]);
     }
 
     #[test]

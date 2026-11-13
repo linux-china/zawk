@@ -80,6 +80,11 @@ pub(crate) trait SortItem: Clone {
     /// The numeric value if this is a number for `@val_type_*`; strings that look numeric
     /// count as numbers (as with `asort`), since strings are untyped at runtime.
     fn sort_type_num(&self) -> Option<Float>;
+    /// Whether this is a missing value that the array statistics (`_min`, `_mean`, `_median`,
+    /// `_argmin`, ...) skip, as SQL aggregates skip NULL: an empty string or the `--null` text.
+    fn is_missing(&self) -> bool {
+        false
+    }
 }
 
 impl SortItem for Int {
@@ -115,6 +120,9 @@ impl<'a> SortItem for Str<'a> {
     }
     fn sort_type_num(&self) -> Option<Float> {
         self.with_bytes(looks_numeric)
+    }
+    fn is_missing(&self) -> bool {
+        self.with_bytes(|bs| bs.is_empty() || crate::runtime::str_escape::is_null(bs))
     }
 }
 

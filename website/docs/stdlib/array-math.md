@@ -20,13 +20,16 @@ delete arr[1]; delete arr
 
 ## Statistics
 
-Exact statistics over the values of any array (strings are converted to numbers; 0 for an empty array):
+Exact statistics over the values of any array (strings are converted to numbers; 0 for an empty array).
+Empty values (and the `--null` text) are skipped, as SQL aggregates skip NULL, so an empty cell of
+`a[NR] = $3` does not pull `_min`/`_mean`/`_median` down to 0; other non-numeric strings count as 0.
+`_count_distinct` and `_top` still see every value.
 
 | Function | Description |
 |----------|-------------|
 | `_sum`, `_mean`, `_min`, `_max` | sum, mean, min, max |
 | `_median(arr)` | median |
-| `_quantile(arr, q)` | q-quantile, `0 <= q <= 1`, linear interpolation (R type 7, numpy) |
+| `_quantile(arr, q)` | q-quantile, `0 <= q <= 1` (another `q` is a warning and is clamped), linear interpolation (R type 7, numpy) |
 | `_var`, `_stddev` | sample variance and standard deviation |
 | `_mode(arr)` | most frequent value |
 | `_count_distinct(arr)` | number of distinct values |

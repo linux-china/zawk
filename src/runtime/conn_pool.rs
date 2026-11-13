@@ -67,6 +67,14 @@ impl<C> ConnPool<C> {
             .or_default()
             .push(conn);
     }
+
+    /// Run `f` with every idle connection and its key.
+    pub(crate) fn for_each_idle(&self, mut f: impl FnMut(&str, &C)) {
+        let idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
+        for ((_, key), conns) in idle.iter() {
+            conns.iter().for_each(|c| f(key, c));
+        }
+    }
 }
 
 /// One connection per key, behind its own lock: calls to the same key are serialized, calls to
@@ -132,6 +140,15 @@ impl<C> ConnSlots<C> {
     }
 }
 
+/// The SQL dialect of a database: what [`tx_controls`] takes as quotes, comments and
+/// transaction control, and [`is_read_only_sql`] as a function with side effects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Dialect {
+    Sqlite,
+    MySql,
+    Postgres,
+}
+
 /// A statement that starts or ends a transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TxControl {
@@ -141,41 +158,86 @@ pub(crate) enum TxControl {
 }
 
 /// The transaction control of each statement of `sql` (statements separated by `;`, outside of
-/// quotes, comments and PostgreSQL `$tag$` strings), `None` for any other statement.
+/// quotes and comments as `dialect` reads them), `None` for any other statement.
 /// `ROLLBACK TO SAVEPOINT`, `COMMIT AND CHAIN` and `COMMIT PREPARED` do not end the transaction.
-/// Implicit commits (MySQL DDL) are not seen: a transaction is then still taken as open, which
-/// only matters if its connection is lost (the next call asks for a `ROLLBACK`).
-pub(crate) fn tx_controls(sql: &str) -> Vec<Option<TxControl>> {
-    split_statements(sql)
+/// In MySQL, the statements that commit implicitly (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`,
+/// `LOCK TABLES`, ...) are a `Commit`, and nothing after a `CREATE PROCEDURE`/`FUNCTION`/
+/// `TRIGGER`/`EVENT` (whose body has `BEGIN ... END`) is transaction control. Other implicit
+/// commits are not seen: a transaction is then still taken as open, which only matters if its
+/// connection is lost (the next call asks for a `ROLLBACK`) or at exit (a warning).
+pub(crate) fn tx_controls(sql: &str, dialect: Dialect) -> Vec<Option<TxControl>> {
+    let mut in_routine = false;
+    split_statements(sql, dialect)
         .into_iter()
-        .map(statement_control)
+        .map(|stmt| {
+            let words = leading_words(stmt, 6);
+            if dialect == Dialect::MySql && !in_routine && creates_routine(&words) {
+                in_routine = true;
+                return Some(TxControl::Commit);
+            }
+            if in_routine {
+                None
+            } else {
+                statement_control(&words, dialect)
+            }
+        })
         .collect()
 }
 
-fn statement_control(stmt: &str) -> Option<TxControl> {
-    let words: Vec<String> = stmt
-        .split(|c: char| c.is_whitespace() || c == '(')
+/// The first `n` words of `stmt`, in upper case.
+fn leading_words(stmt: &str, n: usize) -> Vec<String> {
+    stmt.split(|c: char| c.is_whitespace() || c == '(')
         .filter(|w| !w.is_empty())
-        .take(4)
+        .take(n)
         .map(|w| w.to_ascii_uppercase())
-        .collect();
+        .collect()
+}
+
+/// `CREATE [OR REPLACE] [DEFINER = ...] PROCEDURE|FUNCTION|TRIGGER|EVENT` in MySQL.
+fn creates_routine(words: &[String]) -> bool {
+    if words.first().is_none_or(|w| w != "CREATE") {
+        return false;
+    }
+    let is_definer = |w: &str| w.starts_with("DEFINER") || w == "=" || w.contains('@');
+    words[1..]
+        .iter()
+        .find(|w| !matches!(w.as_str(), "OR" | "REPLACE" | "AGGREGATE") && !is_definer(w))
+        .is_some_and(|w| matches!(w.as_str(), "PROCEDURE" | "FUNCTION" | "TRIGGER" | "EVENT"))
+}
+
+fn statement_control(words: &[String], dialect: Dialect) -> Option<TxControl> {
     let first = words.first()?.as_str();
     let rest = &words[1..];
-    let has = |w: &str| rest.iter().any(|x| x == w);
+    let has = |w: &str| rest.iter().take(3).any(|x| x == w);
+    let second_is = |w: &str| rest.first().is_some_and(|x| x == w);
     match first {
-        "BEGIN" => Some(TxControl::Begin),
-        "START" if rest.first().is_some_and(|w| w == "TRANSACTION") => Some(TxControl::Begin),
-        "COMMIT" | "END" if !has("CHAIN") && !has("PREPARED") => Some(TxControl::Commit),
-        "PREPARE" if rest.first().is_some_and(|w| w == "TRANSACTION") => Some(TxControl::Commit),
+        // MariaDB `BEGIN NOT ATOMIC` starts a compound statement
+        "BEGIN" if !second_is("NOT") => Some(TxControl::Begin),
+        "START" if second_is("TRANSACTION") => Some(TxControl::Begin),
+        "COMMIT" if !has("CHAIN") && !has("PREPARED") => Some(TxControl::Commit),
+        // `END` is a `COMMIT` in PostgreSQL and SQLite, the end of a compound statement in MySQL
+        "END" if dialect != Dialect::MySql => Some(TxControl::Commit),
+        "PREPARE" if second_is("TRANSACTION") => Some(TxControl::Commit),
         "ROLLBACK" | "ABORT" if !has("TO") && !has("CHAIN") && !has("PREPARED") => {
             Some(TxControl::Rollback)
+        }
+        // statements that commit the transaction before they run (a temporary table does not)
+        "CREATE" | "ALTER" | "DROP" | "RENAME" | "TRUNCATE" | "GRANT" | "REVOKE" | "LOCK"
+        | "ANALYZE" | "OPTIMIZE" | "REPAIR" | "FLUSH"
+            if dialect == Dialect::MySql && !has("TEMPORARY") =>
+        {
+            Some(TxControl::Commit)
         }
         _ => None,
     }
 }
 
-/// The non-empty statements of `sql`, without the comments before them.
-fn split_statements(sql: &str) -> Vec<&str> {
+/// The non-empty statements of `sql`, without the comments before them. Quotes: `'...'`,
+/// `"..."`, and `` `...` `` except in PostgreSQL; a backslash escapes the next character in a
+/// MySQL string and in a PostgreSQL `E'...'` string, a doubled quote is two strings in a row
+/// (same result). Comments: `-- ...`, `/* ... */`, and `# ...` in MySQL (in PostgreSQL `#` is
+/// the XOR operator). PostgreSQL also has `$$...$$` and `$tag$...$tag$` strings.
+fn split_statements(sql: &str, dialect: Dialect) -> Vec<&str> {
     let bytes = sql.as_bytes();
     let mut statements = vec![];
     let mut start = 0;
@@ -186,17 +248,40 @@ fn split_statements(sql: &str) -> Vec<&str> {
             .position(|w| w == end)
             .map_or(bytes.len(), |p| from + p + end.len())
     };
+    // past the closing `quote` of a string whose text starts at `from`
+    let skip_quoted = |from: usize, quote: u8, backslash: bool| -> usize {
+        let mut j = from;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'\\' if backslash => j += 2,
+                c if c == quote => return j + 1,
+                _ => j += 1,
+            }
+        }
+        bytes.len()
+    };
+    let is_word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
     while i < bytes.len() {
         match bytes[i] {
-            q @ (b'\'' | b'"' | b'`') => {
-                // a doubled quote inside is two strings in a row: same result
-                i = skip_to(i + 1, &[q]);
+            q @ (b'\'' | b'"') => {
+                let backslash = match dialect {
+                    Dialect::MySql => true,
+                    Dialect::Postgres => {
+                        q == b'\''
+                            && i > 0
+                            && matches!(bytes[i - 1], b'E' | b'e')
+                            && (i < 2 || !is_word(bytes[i - 2]))
+                    }
+                    Dialect::Sqlite => false,
+                };
+                i = skip_quoted(i + 1, q, backslash);
             }
+            b'`' if dialect != Dialect::Postgres => i = skip_quoted(i + 1, b'`', false),
             b'-' if bytes.get(i + 1) == Some(&b'-') => i = skip_to(i + 2, b"\n"),
-            b'#' => i = skip_to(i + 1, b"\n"),
+            b'#' if dialect == Dialect::MySql => i = skip_to(i + 1, b"\n"),
             b'/' if bytes.get(i + 1) == Some(&b'*') => i = skip_to(i + 2, b"*/"),
-            b'$' => {
-                // PostgreSQL dollar quoting: `$$...$$` or `$tag$...$tag$`, not a `$1` parameter
+            b'$' if dialect == Dialect::Postgres => {
+                // dollar quoting: `$$...$$` or `$tag$...$tag$`, not a `$1` parameter
                 let tag_len = bytes[i + 1..]
                     .iter()
                     .position(|&c| !(c.is_ascii_alphanumeric() || c == b'_'));
@@ -219,15 +304,19 @@ fn split_statements(sql: &str) -> Vec<&str> {
     statements.push(&sql[start..]);
     statements
         .into_iter()
-        .map(strip_leading_comments)
+        .map(|s| strip_leading_comments(s, dialect))
         .filter(|s| !s.is_empty())
         .collect()
 }
 
-fn strip_leading_comments(mut s: &str) -> &str {
+fn strip_leading_comments(mut s: &str, dialect: Dialect) -> &str {
     loop {
-        s = s.trim_start();
-        if let Some(rest) = s.strip_prefix("--").or_else(|| s.strip_prefix('#')) {
+        s = s.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
+        let line_comment = s.strip_prefix("--").or_else(|| {
+            s.strip_prefix('#')
+                .filter(|_| dialect == Dialect::MySql)
+        });
+        if let Some(rest) = line_comment {
             s = rest.split_once('\n').map_or("", |(_, r)| r);
         } else if let Some(rest) = s.strip_prefix("/*") {
             s = rest.split_once("*/").map_or("", |(_, r)| r);
@@ -237,10 +326,117 @@ fn strip_leading_comments(mut s: &str) -> &str {
     }
 }
 
+/// Whether `sql` only reads, so a `*_query` may replay it on a new connection after the pooled
+/// one turned out to be closed. Conservative: every statement must be a `SELECT`/`VALUES`/
+/// `TABLE`/`SHOW` (or `DESCRIBE` in MySQL), or a `WITH` without a data-modifying CTE
+/// (`WITH x AS (DELETE ... RETURNING *) SELECT ...`) or a write as its main statement.
+///
+/// A `SELECT` that calls a built-in function with a side effect (`nextval`, `pg_advisory_lock`,
+/// `GET_LOCK`, ...) or whose result depends on the session (`LAST_INSERT_ID()`, `FOUND_ROWS()`)
+/// is not replayed either. A user-defined function that writes cannot be detected here: the retry
+/// assumes such a `SELECT` is free of side effects, so callers should run it with `*_execute`,
+/// which never retries.
+pub(crate) fn is_read_only_sql(sql: &str, dialect: Dialect) -> bool {
+    let statements = split_statements(sql, dialect);
+    !statements.is_empty()
+        && statements
+            .iter()
+            .all(|stmt| is_read_only_statement(stmt, dialect))
+}
+
+fn is_read_only_statement(stmt: &str, dialect: Dialect) -> bool {
+    let has_word = |keywords: &[&str]| {
+        stmt.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|w| keywords.iter().any(|k| w.eq_ignore_ascii_case(k)))
+    };
+    let first = stmt
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    if calls_side_effect_function(stmt, dialect) {
+        return false;
+    }
+    match first.as_str() {
+        // `SELECT ... INTO new_table` creates a table, `INTO @var`/`OUTFILE` writes
+        "SELECT" | "VALUES" | "TABLE" | "SHOW" => !has_word(&["INTO"]),
+        "DESCRIBE" | "DESC" => dialect == Dialect::MySql,
+        "WITH" => !has_word(&["INSERT", "UPDATE", "DELETE", "MERGE", "INTO"]),
+        _ => false,
+    }
+}
+
+/// PostgreSQL built-in functions whose effect would be repeated if the statement were replayed.
+/// Entries ending in `_` are prefixes (`pg_advisory_lock`, `pg_try_advisory_xact_lock_shared`, ...).
+const PG_SIDE_EFFECT_FUNCTIONS: &[&str] = &[
+    "nextval",
+    "setval",
+    "pg_advisory_",
+    "pg_try_advisory_",
+    "pg_notify",
+    "set_config",
+    "lo_",
+    "dblink_exec",
+    "pg_cancel_backend",
+    "pg_terminate_backend",
+    "pg_reload_conf",
+    "pg_rotate_logfile",
+    "pg_switch_wal",
+    "pg_create_",
+    "pg_drop_replication_slot",
+    "pg_replication_slot_advance",
+    "pg_logical_slot_get_",
+    "pg_logical_emit_message",
+    "pg_stat_reset",
+    "pg_promote",
+];
+
+/// MySQL/MariaDB built-in functions that change state (locks, sequences), wait, or read the state
+/// of the session, which a new connection does not have.
+const MYSQL_SIDE_EFFECT_FUNCTIONS: &[&str] = &[
+    "get_lock",
+    "release_lock",
+    "release_all_locks",
+    "sleep",
+    "nextval",
+    "setval",
+    "lastval",
+    "last_insert_id",
+    "found_rows",
+    "row_count",
+    "master_pos_wait",
+    "source_pos_wait",
+    "wait_for_executed_gtid_set",
+    "wait_until_sql_thread_after_gtids",
+];
+
+/// Whether `sql` names a function with a side effect in `dialect` (case-insensitive, any
+/// schema).
+fn calls_side_effect_function(sql: &str, dialect: Dialect) -> bool {
+    let functions = match dialect {
+        Dialect::Postgres => PG_SIDE_EFFECT_FUNCTIONS,
+        Dialect::MySql => MYSQL_SIDE_EFFECT_FUNCTIONS,
+        Dialect::Sqlite => &[],
+    };
+    sql.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map(|w| w.to_ascii_lowercase())
+        .any(|w| {
+            functions.iter().any(|f| {
+                if f.ends_with('_') {
+                    w.starts_with(f)
+                } else {
+                    w == *f
+                }
+            })
+        })
+}
+
 /// Whether a transaction is open after `controls` ran on a connection where `in_tx` told it
 /// before. `ok` tells whether the statements succeeded: after a failure the statements after
 /// the failing one did not run, so a transaction taken as open stays so, unless the one
 /// statement was a `COMMIT`/`ROLLBACK` (a failed `COMMIT` ends the transaction in PostgreSQL).
+/// A failed batch that may have stopped after its `BEGIN` is taken as open: [`SessionPool`] then
+/// rolls it back.
 fn tx_open_after(in_tx: bool, controls: &[Option<TxControl>], ok: bool) -> bool {
     if ok {
         controls.iter().flatten().fold(in_tx, |_, c| *c == TxControl::Begin)
@@ -268,9 +464,15 @@ struct Session<C> {
 /// the server rolled it back: reconnecting silently would autocommit the next writes one by one,
 /// and make the final `COMMIT` a no-op that succeeds. So the call fails, as does every later call
 /// of the thread for that URL, until a `ROLLBACK` (which then succeeds) or a new `BEGIN`.
+///
+/// A call that opens a transaction and fails (`BEGIN; insert ...; COMMIT` with a failing insert,
+/// or a batch the server refused before running any of it) has the transaction it may have
+/// opened rolled back, as `sqlite_execute` does: such a batch applies all of its statements or
+/// none, and the connection is not left inside a transaction nobody knows about.
 pub(crate) struct SessionPool<C> {
     idle: ConnPool<Session<C>>,
     lost: Mutex<HashSet<(ThreadId, String)>>,
+    dialect: Dialect,
 }
 
 /// How a [`SessionPool`] runs statements on connections of type `C` with errors of type `E`.
@@ -279,14 +481,31 @@ pub(crate) trait Driver<C, E> {
     /// whether `e` means the connection itself is unusable, rather than the statement failing
     fn is_broken(&self, conn: &C, e: &E) -> bool;
     fn error_text(&self, e: E) -> String;
+    /// Run `ROLLBACK` on `conn`: whether it succeeded.
+    fn rollback(&self, conn: &mut C) -> bool;
 }
 
 impl<C> SessionPool<C> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(dialect: Dialect) -> Self {
         SessionPool {
             idle: ConnPool::per_thread(),
             lost: Mutex::new(HashSet::new()),
+            dialect,
         }
+    }
+
+    /// The keys of the idle connections inside a transaction (a `BEGIN` without `COMMIT`),
+    /// sorted, each once: at exit their transactions are rolled back by the server.
+    pub(crate) fn open_transactions(&self) -> Vec<String> {
+        let mut keys = vec![];
+        self.idle.for_each_idle(|key, session| {
+            if session.in_tx {
+                keys.push(key.to_string());
+            }
+        });
+        keys.sort();
+        keys.dedup();
+        keys
     }
 
     fn lost(&self) -> std::sync::MutexGuard<'_, HashSet<(ThreadId, String)>> {
@@ -304,7 +523,7 @@ impl<C> SessionPool<C> {
         driver: &impl Driver<C, E>,
         mut f: impl FnMut(&mut C) -> Result<T, E>,
     ) -> Result<T, String> {
-        let controls = tx_controls(sql);
+        let controls = tx_controls(sql, self.dialect);
         let owner = (thread::current().id(), key.to_string());
         if self.lost().contains(&owner) {
             match controls.first() {
@@ -360,7 +579,11 @@ impl<C> SessionPool<C> {
         result: Result<T, E>,
         driver: &impl Driver<C, E>,
     ) -> Result<T, String> {
+        let opened = !session.in_tx && controls.contains(&Some(TxControl::Begin));
         session.in_tx = tx_open_after(session.in_tx, controls, result.is_ok());
+        if result.is_err() && opened && session.in_tx && driver.rollback(&mut session.conn) {
+            session.in_tx = false;
+        }
         self.idle.put(key, session);
         result.map_err(|e| driver.error_text(e))
     }
@@ -420,26 +643,128 @@ mod tests {
 
     #[test]
     fn test_tx_controls() {
+        use Dialect::*;
         use TxControl::*;
-        assert_eq!(tx_controls("BEGIN"), [Some(Begin)]);
-        assert_eq!(tx_controls(" start  transaction read only"), [Some(Begin)]);
-        assert_eq!(tx_controls("commit work;"), [Some(Commit)]);
-        assert_eq!(tx_controls("END"), [Some(Commit)]);
-        assert_eq!(tx_controls("abort"), [Some(Rollback)]);
-        assert_eq!(tx_controls("ROLLBACK TO SAVEPOINT s1"), [None]);
-        assert_eq!(tx_controls("rollback to s1"), [None]);
-        assert_eq!(tx_controls("COMMIT AND CHAIN"), [None]);
-        assert_eq!(tx_controls("COMMIT PREPARED 'x'"), [None]);
-        assert_eq!(tx_controls("select 'BEGIN'"), [None]);
+        for d in [Sqlite, MySql, Postgres] {
+            let tx = |sql| tx_controls(sql, d);
+            assert_eq!(tx("BEGIN"), [Some(Begin)]);
+            assert_eq!(tx(" start  transaction read only"), [Some(Begin)]);
+            assert_eq!(tx("commit work;"), [Some(Commit)]);
+            assert_eq!(tx("rollback"), [Some(Rollback)]);
+            assert_eq!(tx("ROLLBACK TO SAVEPOINT s1"), [None]);
+            assert_eq!(tx("rollback to s1"), [None]);
+            assert_eq!(tx("COMMIT AND CHAIN"), [None]);
+            assert_eq!(tx("select 'BEGIN'"), [None]);
+            assert_eq!(
+                tx("BEGIN; insert into t values ('a;commit'); -- x;\n COMMIT;"),
+                [Some(Begin), None, Some(Commit)]
+            );
+            assert_eq!(tx("/* c; */ begin; insert into t values ('it''s'); commit"), [
+                Some(Begin),
+                None,
+                Some(Commit)
+            ]);
+            assert_eq!(tx(" ; ;"), []);
+        }
+        let pg = |sql| tx_controls(sql, Postgres);
+        assert_eq!(pg("END"), [Some(Commit)]);
+        assert_eq!(pg("abort"), [Some(Rollback)]);
+        assert_eq!(pg("COMMIT PREPARED 'x'"), [None]);
         assert_eq!(
-            tx_controls("BEGIN; insert into t values ('a;commit'); -- x;\n COMMIT;"),
+            pg("/* c */ begin; create function f() as $$ begin; end $$; select $1"),
+            [Some(Begin), None, None]
+        );
+        // `#` is the XOR operator, not a comment
+        assert_eq!(pg("BEGIN; select 5 # 3; COMMIT"), [Some(Begin), None, Some(Commit)]);
+        // a backslash escapes in E'...' only
+        assert_eq!(
+            pg("BEGIN; insert into t values (E'it\\'s;'); COMMIT"),
             [Some(Begin), None, Some(Commit)]
         );
         assert_eq!(
-            tx_controls("/* c */ begin; create function f() as $$ begin; end $$; select $1"),
-            [Some(Begin), None, None]
+            pg("BEGIN; insert into t values ('a\\'); COMMIT"),
+            [Some(Begin), None, Some(Commit)]
         );
-        assert_eq!(tx_controls(" ; ;"), []);
+        // DDL does not end a transaction in PostgreSQL
+        assert_eq!(pg("BEGIN; create table t(x int)"), [Some(Begin), None]);
+
+        let my = |sql| tx_controls(sql, MySql);
+        // `\'` does not end a MySQL string
+        assert_eq!(
+            my("BEGIN; INSERT INTO t VALUES ('it\\'s; ok'); COMMIT"),
+            [Some(Begin), None, Some(Commit)]
+        );
+        assert_eq!(
+            my("BEGIN; # note; ROLLBACK\n insert into t values (\"a\\\"b\"); COMMIT"),
+            [Some(Begin), None, Some(Commit)]
+        );
+        // DDL commits implicitly, a temporary table does not
+        assert_eq!(my("BEGIN; create table t(x int)"), [Some(Begin), Some(Commit)]);
+        assert_eq!(my("BEGIN; create temporary table t(x int)"), [Some(Begin), None]);
+        assert_eq!(my("lock tables t write"), [Some(Commit)]);
+        // the body of a routine is not transaction control
+        assert_eq!(
+            my("CREATE PROCEDURE p() BEGIN insert into t values (1); BEGIN select 1; END; END"),
+            [Some(Commit), None, None, None]
+        );
+        assert_eq!(my("create definer=`root`@`%` procedure p() begin select 1; end"), [
+            Some(Commit),
+            None
+        ]);
+        assert_eq!(my("create table t (trigger int); begin"), [Some(Commit), Some(Begin)]);
+        assert_eq!(my("END"), [None]);
+        assert_eq!(my("BEGIN NOT ATOMIC select 1; END"), [None, None]);
+    }
+
+    #[test]
+    fn test_read_only_sql() {
+        use Dialect::*;
+        for d in [MySql, Postgres] {
+            let ro = |sql| is_read_only_sql(sql, d);
+            assert!(ro("select * from people"));
+            assert!(ro("  -- note\n /* c */ (SELECT 1) UNION (SELECT 2)"));
+            assert!(ro("with t as (select 1) select * from t"));
+            assert!(ro("values (1), (2)"));
+            assert!(ro("SHOW tables"));
+            assert!(ro("select 1; select 2"));
+            assert!(!ro("insert into people(id) values (1) returning id"));
+            assert!(!ro("UPDATE people SET age = 1 RETURNING *"));
+            assert!(!ro("delete from people returning *"));
+            assert!(!ro("with d as (delete from people returning *) select * from d"));
+            assert!(!ro("with t as (select 1) insert into people select * from t"));
+            assert!(!ro("select *\ninto backup from people"));
+            assert!(!ro("call do_something()"));
+            assert!(!ro(""));
+            assert!(!ro(" ; "));
+            // every statement must be a read
+            assert!(!ro("select 1; delete from people"));
+            assert!(!ro("insert into t values (1); select last_insert_id()"));
+            assert!(!ro("select nextval('s')"));
+            // similar names are still read-only
+            assert!(ro("select nextval_count, lots from stats"));
+        }
+        let pg = |sql| is_read_only_sql(sql, Postgres);
+        // built-in functions with side effects are not replayed
+        assert!(!pg("SELECT setval('s', 10)"));
+        assert!(!pg("select pg_advisory_lock(1)"));
+        assert!(!pg("select pg_try_advisory_xact_lock(1)"));
+        assert!(!pg("select pg_catalog.NEXTVAL('s')"));
+        assert!(!pg("select pg_notify('ch', 'hi')"));
+        assert!(!pg("select set_config('a.b', '1', false)"));
+        assert!(!pg("with t as (select nextval('s')) select * from t"));
+        assert!(pg("select currval('s')"));
+        assert!(pg("select 5 # 3"));
+
+        let my = |sql| is_read_only_sql(sql, MySql);
+        assert!(!my("SELECT GET_LOCK('a', 10)"));
+        assert!(!my("select release_lock('a')"));
+        assert!(!my("select sleep(1)"));
+        assert!(!my("select LAST_INSERT_ID()"));
+        assert!(!my("select found_rows()"));
+        assert!(!my("select id into @x from people limit 1"));
+        assert!(my("describe people"));
+        assert!(my("select 'a\\'; delete from t'"));
+        assert!(!pg("describe people"));
     }
 
     #[test]
@@ -458,6 +783,16 @@ mod tests {
     /// Connections are numbers; a statement fails with `Err(true)` when the connection broke.
     struct Fake {
         next: std::cell::Cell<u32>,
+        rollbacks: std::cell::RefCell<Vec<u32>>,
+    }
+
+    impl Fake {
+        fn new() -> Self {
+            Fake {
+                next: std::cell::Cell::new(0),
+                rollbacks: std::cell::RefCell::new(vec![]),
+            }
+        }
     }
 
     impl Driver<u32, bool> for Fake {
@@ -471,14 +806,16 @@ mod tests {
         fn error_text(&self, e: bool) -> String {
             if e { "broken" } else { "failed" }.to_string()
         }
+        fn rollback(&self, conn: &mut u32) -> bool {
+            self.rollbacks.borrow_mut().push(*conn);
+            true
+        }
     }
 
     #[test]
     fn test_session_pool_lost_transaction() {
-        let pool: SessionPool<u32> = SessionPool::new();
-        let fake = Fake {
-            next: std::cell::Cell::new(0),
-        };
+        let pool: SessionPool<u32> = SessionPool::new(Dialect::Postgres);
+        let fake = Fake::new();
         let ok = |c: &mut u32| Ok::<u32, bool>(*c);
         let broken = |_: &mut u32| Err::<u32, bool>(true);
         // outside a transaction, a read is retried on a new connection
@@ -525,6 +862,32 @@ mod tests {
         assert_eq!(pool.run("db", "insert", false, &fake, failed), Err("failed".into()));
         let e = pool.run("db", "insert", false, &fake, broken).unwrap_err();
         assert!(e.contains(LOST_TRANSACTION), "{e}");
+        assert!(fake.rollbacks.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_session_pool_failed_batch_rolls_back() {
+        let pool: SessionPool<u32> = SessionPool::new(Dialect::Postgres);
+        let fake = Fake::new();
+        let ok = |c: &mut u32| Ok::<u32, bool>(*c);
+        let failed = |_: &mut u32| Err::<u32, bool>(false);
+        let broken = |_: &mut u32| Err::<u32, bool>(true);
+        let batch = "BEGIN; insert into t values (1); COMMIT";
+        // a failed batch has the transaction it opened rolled back: no transaction is left
+        assert_eq!(pool.run("db", batch, false, &fake, failed), Err("failed".into()));
+        assert_eq!(*fake.rollbacks.borrow(), [1]);
+        assert!(pool.open_transactions().is_empty());
+        let e = pool.run("db", "insert", false, &fake, broken).unwrap_err();
+        assert!(e.contains("not retried"), "{e}");
+        // a transaction opened by an earlier call is left to the program
+        assert_eq!(pool.run("db", "BEGIN", false, &fake, ok), Ok(2));
+        assert_eq!(pool.run("db", batch, false, &fake, failed), Err("failed".into()));
+        assert_eq!(*fake.rollbacks.borrow(), [1]);
+        assert_eq!(pool.open_transactions(), ["db"]);
+        assert_eq!(pool.run("other", "BEGIN; insert", false, &fake, ok), Ok(3));
+        assert_eq!(pool.open_transactions(), ["db", "other"]);
+        assert_eq!(pool.run("db", "rollback", false, &fake, ok), Ok(2));
+        assert_eq!(pool.open_transactions(), ["other"]);
     }
 
     #[test]

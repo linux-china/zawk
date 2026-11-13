@@ -97,6 +97,7 @@ zawk --lint -f report.awk data.csv     # lint, then run if there is no error
 | W303 | array elements assigned in a main rule (`a[k] = 1`, `last[k] = $2`) and read in END: merged by summing in parallel mode |
 | W304 | range pattern (`/BEGIN/, /END/`) with `-pr`: each worker keeps its own range state (`--keep-order` runs it serially) |
 | W305 | state carried between records that decides or makes output (`!seen[$1]++`, `$1 != prev`, `{ n++; print n }`): one copy per worker in parallel mode |
+| W306 | a transaction opened or ended in BEGIN/END (`sqlite_execute(db, "BEGIN")`) while the main rules write to the same kind of database: in parallel mode the workers' writes are not part of it |
 
 ## `zawk fmt`
 

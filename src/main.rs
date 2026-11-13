@@ -1712,7 +1712,7 @@ fn real_main() {
             .long("infer-types")
             .num_args(0)
             .requires("output-format")
-            .help("With -o jsonl, -o parquet or -o avro, give columns without a type suffix the type :auto instead of string. In JSON Lines an :auto value is a number when it is written as JSON writes numbers (48, -1.5, 2e3; not 007, +1, 0x10 or 1e999, which is out of range), a boolean for true/false (any case) and a string otherwise. In Parquet (and Avro) an :auto column is INT64, DOUBLE, BOOLEAN or DATE (YYYY-MM-DD) when every non-empty value of the first 65536 rows is one, and STRING otherwise; empty values are null"))
+            .help("With -o jsonl, -o parquet or -o avro, give columns without a type suffix the type :auto instead of string. In JSON Lines an :auto value is a number when it is written as JSON writes numbers (48, -1.5, 2e3; not 007, +1, 0x10 or 1e999, which is out of range), a boolean for true/false (any case), null when empty and a string otherwise. In Parquet (and Avro) an :auto column is INT64, DOUBLE, BOOLEAN or DATE (YYYY-MM-DD) when every non-empty value of the first 65536 rows is one, and STRING otherwise. In all three formats empty :auto values are null, while empty values of string columns stay empty strings"))
         .arg(Arg::new("null")
             .long("null")
             .value_name("text")

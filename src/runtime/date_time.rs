@@ -55,14 +55,45 @@ enum Zone {
     },
 }
 
+/// Whether the utc/timezone argument `name` is a utc flag (empty, a number such as `"1"`, or
+/// `"true"`) rather than the name of a time zone.
+fn is_utc_flag(name: &str) -> bool {
+    let name = name.trim();
+    !name.bytes().any(|b| b.is_ascii_alphabetic())
+        || name.parse::<f64>().is_ok()
+        || name.eq_ignore_ascii_case("true")
+}
+
+/// The IANA time zone `name` (`"Asia/Shanghai"`, `"UTC"`) names, `None` for a utc flag (see
+/// [`is_utc_flag`]). A name that is no time zone (`"Asia/Shangai"`) is `None` too, with a stdlib
+/// warning (and `ERRNO` set) for `func`, so that a typo does not silently mean UTC.
+fn lookup_time_zone(func: &str, name: &str) -> Option<jiff::tz::TimeZone> {
+    if is_utc_flag(name) {
+        return None;
+    }
+    match jiff::tz::TimeZone::get(name) {
+        Ok(tz) => Some(tz),
+        Err(_) => {
+            runtime::stdlib_warning(func, format!("unknown time zone {:?}, using UTC", name));
+            None
+        }
+    }
+}
+
 impl Zone {
     /// The time zone named `name` (`"Asia/Shanghai"`, `"UTC"`) at `timestamp`, if it is one.
+    #[cfg(test)]
     fn named(name: &str, timestamp: i64) -> Option<Zone> {
         // numbers are utc flags, not time zones: skip the lookup
-        if name.is_empty() || !name.bytes().any(|b| b.is_ascii_alphabetic()) {
+        if is_utc_flag(name) {
             return None;
         }
         let tz = jiff::tz::TimeZone::get(name).ok()?;
+        Self::in_zone(&tz, timestamp)
+    }
+
+    /// The zone `tz` at `timestamp`.
+    fn in_zone(tz: &jiff::tz::TimeZone, timestamp: i64) -> Option<Zone> {
         let ts = jiff::Timestamp::from_second(timestamp).ok()?;
         let info = tz.to_offset_info(ts);
         Some(Zone::Named {
@@ -209,7 +240,9 @@ fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
 /// timestamp is ignored when it is not given, `flags` holds [`STRFTIME_UTC`],
 /// [`STRFTIME_PROCINFO_FORMAT`] and [`STRFTIME_NOW`], and `timezone` is the utc argument as text. When the utc flag
 /// is set and `timezone` names a time zone of the IANA database (`"Asia/Shanghai"`), the time is
-/// formatted in that zone; any other true utc argument means UTC, as in gawk. An empty format
+/// formatted in that zone; any other true utc argument (a number, `"true"`) means UTC, as in
+/// gawk, and a name that is no time zone (`"Asia/Shangai"`) means UTC with a warning and `ERRNO`
+/// set. An empty format
 /// gives an empty string, as in gawk.
 pub(crate) fn awk_strftime(
     procinfo: &StrMap<Str>,
@@ -240,9 +273,8 @@ pub(crate) fn awk_strftime(
     } else {
         timezone
             .with_bytes(|bs| {
-                std::str::from_utf8(bs)
-                    .ok()
-                    .and_then(|n| Zone::named(n, timestamp))
+                let name = String::from_utf8_lossy(bs);
+                lookup_time_zone("strftime", &name).and_then(|tz| Zone::in_zone(&tz, timestamp))
             })
             .unwrap_or(Zone::Utc)
     };
@@ -792,7 +824,8 @@ pub fn to_iso8601_str(date_time_text: &str) -> String {
 /// 1 with `"%d/%m/%Y"`. A format without a time of day means midnight. Text with a UTC offset
 /// (`%z`) or a Unix time (`%s`) is an instant; any other text is a local time in `timezone`: the
 /// local time zone when it is empty or `"0"`, the zone of the IANA database it names
-/// (`"Asia/Shanghai"`), or UTC for any other value (a true utc flag, as in `strftime`).
+/// (`"Asia/Shanghai"`), or UTC for a utc flag (a number or `"true"`, as in `strftime`). A name
+/// that is no time zone (`"Asia/Shangai"`) is UTC too, with a warning and `ERRNO` set.
 ///
 /// A zone abbreviation (`%Z`) is not a zone: `CST` is China, US Central or Cuba. It is only taken
 /// when it is `UTC`, `GMT`, `UT` or `Z`, or the abbreviation `timezone` uses at that time (`CST`
@@ -880,7 +913,7 @@ fn strptime_zone_name(text: &str, format: &str, timezone: &str) -> Option<Int> {
     }
     let tz = match timezone {
         "" | "0" => jiff::tz::TimeZone::system(),
-        name => jiff::tz::TimeZone::get(name).unwrap_or(jiff::tz::TimeZone::UTC),
+        name => lookup_time_zone("strptime", name).unwrap_or(jiff::tz::TimeZone::UTC),
     };
     let civil = jiff::civil::DateTime::new(
         i16::try_from(naive.year()).ok()?,
@@ -927,8 +960,8 @@ fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
     let naive = parse_naive(text, format)?;
     match timezone {
         "" | "0" => local_timestamp(&Local, &naive),
-        name => match jiff::tz::TimeZone::get(name) {
-            Ok(tz) => {
+        name => match lookup_time_zone("strptime", name) {
+            Some(tz) => {
                 let civil = jiff::civil::DateTime::new(
                     i16::try_from(naive.year()).ok()?,
                     naive.month() as i8,
@@ -941,7 +974,7 @@ fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
                 .ok()?;
                 Some(civil.to_zoned(tz).ok()?.timestamp().as_second())
             }
-            Err(_) => Some(naive.and_utc().timestamp()),
+            None => Some(naive.and_utc().timestamp()),
         },
     }
 }
@@ -1115,6 +1148,29 @@ mod tests {
         assert!(Zone::named("Not/AZone", ts).is_none());
         assert!(Zone::named("1", ts).is_none());
         assert!(Zone::named("", ts).is_none());
+    }
+
+    #[test]
+    fn test_unknown_time_zone_warns() {
+        use crate::runtime::{errno, set_errno};
+        // utc flags are not time zone names: no warning
+        for flag in ["", "1", "-1", "1.5", "1e3", "true", "TRUE"] {
+            set_errno(String::new());
+            assert!(lookup_time_zone("strftime", flag).is_none(), "{flag}");
+            assert_eq!(errno(), "", "{flag}");
+        }
+        assert!(lookup_time_zone("strftime", "Asia/Shanghai").is_some());
+        // a misspelt zone is UTC, with ERRNO telling why
+        set_errno(String::new());
+        assert!(lookup_time_zone("strftime", "Asia/Shangai").is_none());
+        assert!(errno().contains("Asia/Shangai"));
+        set_errno(String::new());
+        assert_eq!(
+            strptime("2024-01-02 03:04:05", "%Y-%m-%d %H:%M:%S", "Asia/Shangai"),
+            1704164645
+        );
+        assert!(errno().contains("unknown time zone"));
+        set_errno(String::new());
     }
 
     #[test]

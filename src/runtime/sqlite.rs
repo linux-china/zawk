@@ -51,13 +51,7 @@ pub(crate) fn warn_open_transactions() {
     open.sort();
     open.dedup();
     for db_path in open {
-        stdlib_warning(
-            "sqlite_execute",
-            format!(
-                "{}: a transaction was never committed (BEGIN without COMMIT): its changes are rolled back",
-                db_path
-            ),
-        );
+        crate::runtime::warn_open_transaction("sqlite_execute", &db_path);
     }
 }
 
@@ -204,7 +198,7 @@ pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> 
     match result {
         Ok(n) => n as Int,
         Err(e) => {
-            stdlib_warning("sqlite_execute", e);
+            crate::runtime::db_write_failed("sqlite_execute", e);
             0
         }
     }

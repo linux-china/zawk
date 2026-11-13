@@ -2064,6 +2064,18 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(uniq), &mut [src, param])?;
                 self.bind_val(dst.reflect(), resv)
             }
+            UniqInt(dst, src, param) => {
+                let src = self.get_val(src.reflect())?;
+                let param = self.get_val(param.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(uniq_int), &mut [src, param])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            UniqFloat(dst, src, param) => {
+                let src = self.get_val(src.reflect())?;
+                let param = self.get_val(param.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(uniq_float), &mut [src, param])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             JoinColumns(dst, start, end, sep) => {
                 let rt = self.runtime_val();
                 let startv = self.get_val(start.reflect())?;

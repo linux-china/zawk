@@ -195,7 +195,16 @@ something else in parallel mode, ordered or not:
   own copy, so a key is printed once per worker and the records at chunk
   boundaries see the wrong previous value (`W305`).
 
-A run with `-p` (or `--keep-order`) prints `W304` and `W305` as warnings;
+* Database transactions opened or ended in BEGIN/END: the main rules run in
+  worker threads with their own connections, so their writes are not part of
+  a transaction started in BEGIN (`sqlite_execute(db, "BEGIN")`): they
+  autocommit one by one, a `ROLLBACK` in END does not undo them, and with
+  SQLite they fail with `database is locked` (`W306`). Open a transaction per
+  worker in the main rules and `COMMIT` it in `PREPARE` (MySQL/PostgreSQL), or
+  run serially. See "Parallel runs and transactions" in
+  `website/docs/stdlib/database-kv.md`.
+
+A run with `-p` (or `--keep-order`) prints `W304` to `W306` as warnings;
 `zawk lint -p r` lists all of them. Run such programs serially (`-p0`).
 
 ### Aggregations
