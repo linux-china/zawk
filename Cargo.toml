@@ -7,7 +7,6 @@ authors = [
 ]
 edition = "2024"
 description = "An efficient Awk-like language implementation by Rust with stdlib"
-homepage = "https://github.com/linux-china/zawk"
 repository = "https://github.com/linux-china/zawk"
 readme = "README.md"
 keywords = ["awk", "csv", "tsv", "etl", "stdlib"]
@@ -111,12 +110,12 @@ redis = { version = "1.8", features = ["tls-rustls"] }
 opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry", "layers-timeout"] }
 # the reqwest transport of opendal without its aws-lc-rs provider: rustls uses ring, as the other dependencies do
 opendal-http-transport-reqwest = { version = "0.59", default-features = false, features = ["rustls-no-provider"] }
-futures-util = "0.3"
+futures-util = "0.3.34"
 tokio = { version = "1.54", features = ["rt-multi-thread", "sync", "macros", "net", "time"] }
 mime_guess = "2"
 dirs = "7"
 dotenvy = "0.15.7"
-tempfile = "3.27"
+#tempfile = "3.27"
 whoami = "2.1"
 shlex = "2.0"
 shell-escape = "0.1.5"
