@@ -93,13 +93,28 @@ fn fit_text(s: &str) -> (&str, bool) {
     (s, false)
 }
 
+/// The significant digits of a number's mantissa: `9999999999999999.0` has 16, `1e16` has 1.
+fn significant_digits(s: &str) -> usize {
+    let mantissa = s.split(['e', 'E']).next().unwrap_or(s);
+    let digits = mantissa.trim_start_matches('-').replace('.', "");
+    digits.trim_start_matches('0').trim_end_matches('0').len()
+}
+
 /// An `:auto` value as a number, unless it is an integer that does not fit Excel's precision.
+///
+/// Integers written with more than `MAX_DIGITS` digits stay text (likely IDs), and so do
+/// integer values with more significant digits than Excel keeps, whatever the notation:
+/// `9999999999999999.0` and `99999999999999999e1` would be silently rounded.
 fn auto_number(s: &str) -> Option<f64> {
     let integer = json_number(s)?;
     if integer && s.trim_start_matches('-').len() > MAX_DIGITS {
         return None;
     }
-    s.parse::<f64>().ok().filter(|f| f.is_finite())
+    let f = s.parse::<f64>().ok().filter(|f| f.is_finite())?;
+    if f.fract() == 0.0 && significant_digits(s) > MAX_DIGITS {
+        return None;
+    }
+    Some(f)
 }
 
 impl<W: Write> XlsxWriter<W> {
@@ -366,7 +381,8 @@ mod tests {
     #[test]
     fn number_bounds() {
         // Non-finite and overflowing values are text, in :number and :auto columns alike; the
-        // 15-digit limit of :auto integers is exact; scientific notation and -0 are numbers.
+        // 15-digit limit of :auto integers is exact, in any notation; scientific notation and -0
+        // are numbers.
         let rows = cells(
             concat!(
                 "n:number\ta\n",
@@ -378,6 +394,11 @@ mod tests {
                 "999999999999999\t999999999999999\n",
                 "9999999999999999\t9999999999999999\n",
                 "2.5e-3\t1E5\n",
+                "9999999999999999.0\t9999999999999999.0\n",
+                "1e16\t-1e16\n",
+                "1000000000000000\t999999999999999.5\n",
+                "1\t99999999999999999e1\n",
+                "1\t10000000000000000.0\n",
                 "\t\n",
             )
             .as_bytes(),
@@ -387,11 +408,28 @@ mod tests {
         assert_eq!(rows[2], [s("inf"), s("-inf")]);
         assert_eq!(rows[3], [s("nan"), s("NaN")]);
         assert_eq!(rows[4], [f(0.0), f(0.0)]);
-        assert_eq!(rows[5], [f(f64::MAX), f(f64::MIN)]);
+        // 17 significant digits: Excel would round it (past f64::MAX), so :auto keeps the text.
+        assert_eq!(rows[5], [f(f64::MAX), s("-1.7976931348623157e308")]);
         assert_eq!(rows[6], [f(999999999999999.0), f(999999999999999.0)]);
         assert_eq!(rows[7], [f(1e16), s("9999999999999999")]);
         assert_eq!(rows[8], [f(0.0025), f(100000.0)]);
-        assert_eq!(rows.len(), 9, "an empty row only has blank cells");
+        // The :auto limit is on significant digits, whatever the notation.
+        assert_eq!(rows[9], [f(1e16), s("9999999999999999.0")]);
+        assert_eq!(rows[10], [f(1e16), f(-1e16)]);
+        assert_eq!(rows[11], [f(1e15), f(999999999999999.5)]);
+        assert_eq!(rows[12], [f(1.0), s("99999999999999999e1")]);
+        assert_eq!(rows[13], [f(1.0), f(1e16)]);
+        assert_eq!(rows.len(), 14, "an empty row only has blank cells");
+    }
+
+    #[test]
+    fn significant_digits_of_numbers() {
+        assert_eq!(significant_digits("9999999999999999"), 16);
+        assert_eq!(significant_digits("-9999999999999999.0"), 16);
+        assert_eq!(significant_digits("1e16"), 1);
+        assert_eq!(significant_digits("0.00120"), 2);
+        assert_eq!(significant_digits("1.7976931348623157e308"), 17);
+        assert_eq!(significant_digits("0"), 0);
     }
 
     #[test]

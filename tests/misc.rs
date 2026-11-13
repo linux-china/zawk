@@ -218,6 +218,34 @@ fn getline_file_csv_records() {
     }
 }
 
+// `getline [var]` may be the left operand of an arithmetic operator, as in gawk: `getline / 2` is
+// `(getline) / 2`, not the start of a regex literal.
+#[test]
+fn getline_arithmetic_operand() {
+    let tmpdir = tempdir().unwrap();
+    let a = tmpdir.path().join("a.txt");
+    std::fs::write(&a, "10\n20\n30\n").unwrap();
+    let path = a.to_str().unwrap();
+    for (prog, out) in [
+        ("{print getline/2}", "0.5\n0\n"),
+        ("{n=getline/2;print n}", "0.5\n0\n"),
+        ("{print getline x/2, x}", "0.5 20\n0 20\n"),
+        ("{print getline*3, getline%2}", "3 1\n"),
+        ("{print getline+1, getline-1}", "2 0\n"),
+        ("{print getline/2*4+1}", "3\n1\n"),
+        ("NR==1{if (getline/2 > 0) print $0}", "20\n"),
+    ] {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, prog, path])
+                .assert()
+                .success()
+                .stdout(out);
+        }
+    }
+}
+
 // `var=value` operands run when the main loop reaches the next input file (or before END), unlike
 // `-v`, which runs before BEGIN. A file named like an assignment is still read as a file.
 #[test]

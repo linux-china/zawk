@@ -3193,6 +3193,11 @@ pub mod ordered {
         head: AtomicU64,
         /// Set once writing stdout failed: the workers stop at their next `print`.
         failed: AtomicBool,
+        /// The first chunk (in input order) in which `exit` was called; `u64::MAX` if none. As in
+        /// a serial run, nothing printed by the chunks after it is written: the workers that had
+        /// already taken such a chunk when `exit` was called process it to the end, but their
+        /// output is dropped.
+        exit_seq: AtomicU64,
         out: RawHandle,
     }
 
@@ -3231,8 +3236,34 @@ pub mod ordered {
             }
         }
 
+        /// Whether chunk `seq` comes after the chunk in which `exit` was called.
+        fn after_exit(&self, seq: u64) -> bool {
+            seq > self.exit_seq.load(Ordering::Acquire)
+        }
+
+        /// `exit` was called while processing chunk `seq`: drop the output of the later chunks.
+        fn exit_at(&self, seq: u64) {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if seq >= self.exit_seq.load(Ordering::Acquire) {
+                return;
+            }
+            self.exit_seq.store(seq, Ordering::Release);
+            // Later chunks sealed before `exit` was called. `next <= seq` (chunk `seq` is not
+            // sealed yet), so none of them is being written.
+            for (_, data) in st.done.split_off(&(seq + 1)) {
+                st.held -= size(&data);
+                data.into_iter().for_each(recycle);
+            }
+            self.turn.notify_all();
+        }
+
         fn seal(&self, seq: u64, data: Blocks) {
             let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            // Checked under the lock: `exit_at` drops the chunks sealed before it.
+            if self.after_exit(seq) {
+                data.into_iter().for_each(recycle);
+                return;
+            }
             if st.finished {
                 self.send_all(data);
                 return;
@@ -3319,7 +3350,7 @@ pub mod ordered {
 
         /// Whether chunk `seq` is the one to write next, so that its output can be sent now.
         fn is_head(&self, seq: u64) -> bool {
-            if self.head.load(Ordering::Acquire) != seq {
+            if self.head.load(Ordering::Acquire) != seq || self.after_exit(seq) {
                 return false;
             }
             let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -3423,6 +3454,7 @@ pub mod ordered {
             turn: Condvar::new(),
             head: AtomicU64::new(0),
             failed: AtomicBool::new(false),
+            exit_seq: AtomicU64::new(u64::MAX),
             out,
         });
         *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(order);
@@ -3462,6 +3494,21 @@ pub mod ordered {
         });
     }
 
+    /// `exit` is called by the calling worker: as in a serial run, what the chunks after its
+    /// chunk print is not written (the chunks before it are processed to the end).
+    pub fn exit() {
+        if !keep_order() {
+            return;
+        }
+        WORKER.with(|w| {
+            if let Some(w) = w.borrow().as_ref()
+                && let Some(seq) = w.seq
+            {
+                w.order.exit_at(seq);
+            }
+        });
+    }
+
     /// The calling worker is done: hand over the output of its last chunk.
     pub fn leave() {
         if !keep_order() {
@@ -3498,6 +3545,12 @@ pub mod ordered {
             let w = w.as_mut()?;
             if w.order.failed.load(Ordering::Acquire) {
                 return Some(Err(w.order.error()));
+            }
+            // A chunk after the one that called `exit`: its output is dropped anyway.
+            if let Some(seq) = w.seq
+                && w.order.after_exit(seq)
+            {
+                return Some(Ok(()));
             }
             ss.for_each_chunk(|bs| w.push(bs));
             // The chunk to write next streams its full blocks instead of holding them.

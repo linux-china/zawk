@@ -677,6 +677,8 @@ impl<'a> Core<'a> {
             self.exit_code = code;
         }
         self.exiting = true;
+        // With `--keep-order`, drop what the chunks after this one print.
+        runtime::writers::ordered::exit();
         self.cancel_signal.cancel(self.exit_code as i32);
     }
 

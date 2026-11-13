@@ -1067,6 +1067,8 @@ impl<'a> Tokenizer<'a> {
                 // `x++ / 2`: a regex never directly follows `++`/`--`
                 | Some(Tok::Incr)
                 | Some(Tok::Decr)
+                // `getline/2`: getline yields a value, so `/` is division
+                | Some(Tok::Getline)
         )
     }
 }
@@ -1421,6 +1423,7 @@ and the third"#;
         assert_eq!(toks("break}"), vec![Break, Semi, RBrace]);
         assert_eq!(toks("continue}"), vec![Continue, Semi, RBrace]);
         assert_eq!(toks("getline<f"), vec![Getline, LT, Ident("f")]);
+        assert_eq!(toks("getline/2"), vec![Getline, Div, ILit("2")]);
         assert_eq!(toks("return}"), vec![Return, Semi, RBrace]);
         assert_eq!(toks("print\"x\""), vec![Print, StrLit("x")]);
         assert_eq!(toks("k in a"), vec![Ident("k"), In, Ident("a")]);

@@ -157,37 +157,39 @@ fn large_output_per_chunk() {
 }
 
 #[test]
-fn exit_keeps_order_of_what_is_printed() {
-    // Which records the other workers still process once one calls `exit` is not defined, but
-    // what is printed comes in the order of the input, followed by END.
+fn exit_prints_what_the_serial_run_prints() {
+    // The workers that had taken a chunk after the one calling `exit` process it to the end,
+    // but what they print is dropped: the output is that of the serial run, then END.
     let tmp = tempdir().unwrap();
     let file = write_file(tmp.path(), "data.csv", 0..3000);
+    let progs = [
+        "$1 == 1700 { exit } { print $1 } END { print \"end\" }",
+        "{ print $1 } $1 == 1700 { exit }",
+        // Several workers call `exit`: the first one in input order wins.
+        "{ print $1 } $1 % 500 == 499 { exit }",
+    ];
     for backend in BACKEND_ARGS {
-        let out = run_ok(
-            &[
-                backend,
-                "-pr",
-                "--keep-order",
-                "-j",
-                "4",
-                "--chunk-size",
-                "128",
-                "-F,",
-                "$1 == 1700 { exit } { print $1 } END { print \"end\" }",
-                &file,
-            ],
-            None,
-        );
-        let mut lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.pop(), Some("end"), "{}", backend);
-        let nums: Vec<u64> = lines.iter().map(|l| l.parse().unwrap()).collect();
-        assert!(
-            nums.windows(2).all(|w| w[0] < w[1]),
-            "{}: {:?}",
-            backend,
-            nums
-        );
-        assert!(!nums.contains(&1700));
+        for prog in progs {
+            let serial = run_ok(&[backend, "-F,", prog, &file], None);
+            for _ in 0..5 {
+                let ordered = run_ok(
+                    &[
+                        backend,
+                        "-pr",
+                        "--keep-order",
+                        "-j",
+                        "4",
+                        "--chunk-size",
+                        "128",
+                        "-F,",
+                        prog,
+                        &file,
+                    ],
+                    None,
+                );
+                assert_eq!(ordered, serial, "{}: {}", backend, prog);
+            }
+        }
     }
 }
 

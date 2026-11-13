@@ -264,6 +264,14 @@ GetlinePlain: &'a Expr<'a, 'a, &'a str> = {
       arena.alloc(Expr::Getline{into, from: None, is_file: true}),
 }
 
+// `getline [var]` as the left operand of `*`, `/` or `%`: as in gawk (where getline is a
+// `simp_exp`), `getline / 2` is `(getline) / 2` and `getline x * 2` is `(getline x) * 2`.
+GetlineMul: &'a Expr<'a, 'a, &'a str> = {
+    <l:GetlinePlain> <o:@L> "*" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Mult, l, r)), o, prog),
+    <l:GetlinePlain> <o:@L> "/" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Div, l, r)), o, prog),
+    <l:GetlinePlain> <o:@L> "%" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Mod, l, r)), o, prog),
+}
+
 // `cmd | getline [var]`.
 GetlineCmd: &'a Expr<'a, 'a, &'a str> = {
     <from:PrecCat> "|" "getline" <into:PrecFieldRef?> =>
@@ -561,6 +569,9 @@ PrecCat: &'a Expr<'a,'a,&'a str> = {
 PrecAdd<U>: &'a Expr<'a,'a,&'a str> = {
     <l: PrecAdd<U>> <o:@L> "+" <r:PrecMul<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Plus, l, r)), o, prog),
     <l: PrecAdd<U>> <o:@L> "-" <r:PrecMul<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Minus, l, r)), o, prog),
+    // `getline + 1` is `(getline) + 1`, as in gawk.
+    <l: GetlinePlain> <o:@L> "+" <r:PrecMul<"U">> if U == "U" => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Plus, l, r)), o, prog),
+    <l: GetlinePlain> <o:@L> "-" <r:PrecMul<"U">> if U == "U" => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Minus, l, r)), o, prog),
     PrecMul<U>,
 }
 
@@ -568,6 +579,7 @@ PrecMul<U>: &'a Expr<'a,'a,&'a str> = {
     <l: PrecMul<U>> <o:@L> "*" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Mult, l, r)), o, prog),
     <l: PrecMul<U>> <o:@L> "/" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Div, l, r)), o, prog),
     <l: PrecMul<U>> <o:@L> "%" <r:PrecUnop<"U">> => crate::parsing::run_loc(arena.alloc(Expr::Binop(Binop::Mod, l, r)), o, prog),
+    GetlineMul if U == "U",
     PrecUnop<U>,
 }
 
