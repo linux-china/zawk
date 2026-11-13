@@ -24,8 +24,14 @@ zawk '{ u = url($1); print u["host"], u["path"], pairs(u["query"], "&")["id"] }'
 
 ```awk
 url("jdbc:mysql://localhost:3306/test")["port"]     # 3306
-data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")["data"]   # also mime_type, encoding
+data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")["data"]   # SGVsbG8sIFdvcmxkIQ== (also mime_type, encoding, parameters)
+decode("base64", data_url("data:;base64,SGk=")["data"])          # Hi
+decode("url", data_url("data:,hello%20x")["data"])               # hello x
 ```
+
+`data_url` keeps `data` exactly as written: it does not percent-decode or base64-decode it, so binary payloads
+pass through untouched. Decode it with `decode("base64", ...)` or `decode("url", ...)` depending on `encoding`.
+An omitted media type is `text/plain` with `parameters` `charset=US-ASCII`, as RFC 2397 says.
 
 ## Pairs: query strings, cookies, tracestate
 
@@ -44,8 +50,15 @@ Prometheus/OpenMetrics-like text becomes an array:
 r = record("http_requests_total{method='post',code=200}")
 # r["method"] = "post", r["code"] = "200"
 db = record("mysql{host=localhost user=root password=123456 database=test}")
-m = message("login_event{method='post',code=200}('xxx@example.com')")   # name, headers and body
+m = message("login_event{method='post',code=200}('xxx@example.com')")
+# m["_"] = "login_event", m["method"] = "post", m["code"] = "200", m["_body"] = "xxx@example.com"
+x = record("m{t=-5,host=example.com,a=\"\",q=\"x\\\"y\"}")
+# x["t"] = "-5", x["host"] = "example.com", x["a"] = "", x["q"] = "x\"y"
 ```
+
+Bare values are kept as written up to the next `,`, `;`, `}` or whitespace; quoted values may hold any character and
+decode `\"`, `\'`, `\\`, `\n`, `\t`, `\r`. Empty values are kept. Malformed input (a key without a value, an
+unterminated quote) is reported as a warning.
 
 ## Grok: logs and semi-structured text
 

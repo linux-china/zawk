@@ -192,6 +192,19 @@ impl Spec {
 }
 
 impl Spec {
+    /// An explicit zero precision prints no digits for zero (as in C), but gawk only does so
+    /// for a value that is zero, not one that truncates to zero: `%.0d` of `0.5` is `0`.
+    fn for_truncated_zero(&self, i: Int, arg: &FormatArg) -> Spec {
+        if self.precision == Some(0) && i == 0 && arg.to_float() != 0.0 {
+            Spec {
+                precision: Some(1),
+                ..*self
+            }
+        } else {
+            *self
+        }
+    }
+
     /// C's "%f" conversion (without the `#` flag) of a finite `f`. Rust's fixed-precision
     /// formatting is exact and rounds ties to even, as C does, and is much faster than
     /// `snprintf`.
@@ -464,13 +477,16 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
         }
     match spec.conv {
         b'd' | b'i' => match arg.to_integer() {
-            Ok(i) => spec.write_int(w, i),
+            Ok(i) => spec.for_truncated_zero(i, arg).write_int(w, i),
             Err(f) => match special_float(f) {
                 Some(s) => spec.pad(w, s, <[u8]>::len),
-                // Integral values beyond the range of an i64.
+                // Integral values beyond the range of an i64, written with `%.0f`. As in gawk,
+                // `#` does not add a trailing `.`, and a precision disables the `0` flag.
                 None => {
                     let fmt = Spec {
                         precision: Some(0),
+                        alt: false,
+                        zero: spec.zero && spec.precision.is_none(),
                         ..*spec
                     };
                     snprintf_with(w, &fmt.c_format(b"", b'f'), CArg::Double(f))
@@ -486,12 +502,21 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                     return match special_float(f) {
                         Some(s) => spec.pad(w, s, <[u8]>::len),
                         // Values beyond the range of a u64 (or negative ones beyond an i64) are
-                        // written with `%g`, as in gawk.
-                        None => snprintf_with(w, &spec.c_format(b"", b'g'), CArg::Double(f)),
+                        // written with `%g`, as in gawk: without the precision, which also
+                        // disables the `0` flag.
+                        None => {
+                            let fmt = Spec {
+                                precision: None,
+                                zero: spec.zero && spec.precision.is_none(),
+                                ..*spec
+                            };
+                            snprintf_with(w, &fmt.c_format(b"", b'g'), CArg::Double(f))
+                        }
                     };
                 }
             };
-            snprintf_with(w, &spec.c_format(b"ll", spec.conv), CArg::ULongLong(u))
+            let fmt = spec.for_truncated_zero(u as Int, arg);
+            snprintf_with(w, &fmt.c_format(b"ll", spec.conv), CArg::ULongLong(u))
         }
         b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a' | b'A' => {
             let f = arg.to_float();
@@ -1030,6 +1055,41 @@ mod tests {
             sprintf!(b"%x|%x|%x", 1.5e19, -1, 2f64.powi(64)),
             "d02ab486cedc0000|ffffffffffffffff|ffffffffffffffff"
         );
+        // `%g` drops the precision, which also disables the `0` flag (gawk's output).
+        assert_eq!(
+            sprintf!(b"[%+012.10u][%012x][%012.3X]", 1e300, 1e300, 1e300),
+            "[     +1e+300][0000001e+300][      1e+300]"
+        );
+    }
+
+    #[test]
+    fn signed_out_of_range() {
+        // Expected values are gawk's output: `#` adds no trailing `.`, and a precision disables
+        // the `0` flag.
+        assert_eq!(
+            sprintf!(b"%#d|%#20d|%-#23.2d|", 1e20, 1e20, 1e20),
+            "100000000000000000000|100000000000000000000|100000000000000000000  |"
+        );
+        assert_eq!(
+            sprintf!(b"%025d|%025.3d|%#025d", 1e20, 1e20, 1e20),
+            "0000100000000000000000000|    100000000000000000000|0000100000000000000000000"
+        );
+    }
+
+    #[test]
+    fn zero_precision_zero() {
+        use FormatArg::*;
+        // Expected values are gawk's output: a zero precision prints no digits for a value that
+        // is zero, but prints `0` for one that only truncates to zero.
+        assert_eq!(
+            sprintf!(b"[%.0d][%.0x][%.0u][%.0o][%5.0d]", 0, 0, 0, I(0), Null),
+            "[][][][][     ]"
+        );
+        assert_eq!(
+            sprintf!(b"[%.0d][%.0x][%.0u][%.0d][%5.0d]", 0.5, 0.2, 0.5, -0.3, 0.5),
+            "[0][0][0][0][    0]"
+        );
+        assert_eq!(sprintf!(b"[%.0d][%.0d][%.0d]", "0", "0.5", "abc"), "[][0][]");
     }
 
     #[test]

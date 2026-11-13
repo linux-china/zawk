@@ -154,6 +154,27 @@ impl StrnumAnalysis {
                     .add_src(Key::MapVal(*seps, *seps_ty), Strnum::MAYBE);
             }
             MatchArrStr(_, _, _, map, _) => self.add_map_vals(map),
+            // Functions that read external data (JSON, CSV, databases, key-value stores, files,
+            // the environment, parsed text) are treated like input, as `split` and `getline`
+            // are: their results compare numerically when they look like numbers.
+            GetEnv(dst, _, _)
+            | ReadAll(dst, _)
+            | KvGet(dst, _, _)
+            | JsonGet(dst, _, _)
+            | JsonValue(dst, _, _) => self.dfa.add_src(dst, Strnum::MAYBE),
+            FromJson(map, _)
+            | JsonFlatten(map, _)
+            | Url(map, _)
+            | Pairs(map, _, _, _)
+            | Parse(map, _, _)
+            | Grok(map, _, _, _)
+            | ReadConfig(map, _) => self.add_map_vals(map),
+            JsonQuery(map, _, _)
+            | FromCsv(map, _)
+            | RegexParse(map, _, _)
+            | SqliteQuery(map, _, _, _)
+            | MysqlQuery(map, _, _, _)
+            | PgQuery(map, _, _, _) => self.add_map_vals(map),
             CmpStr { l, r, .. } => {
                 self.dfa.add_query(l);
                 self.dfa.add_query(r);

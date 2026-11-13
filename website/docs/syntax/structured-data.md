@@ -81,7 +81,7 @@ and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 | `-o tsv` | TSV with escapes, so any field survives a round trip; TSV has no quoting, so a row with a single empty field is an empty line and reads back as no fields (printing such a `$0` warns once) |
 | `-o markdown` (`md`) | Markdown table: the first printed record is the header row |
 | `-o table` | aligned table with box-drawing borders, for terminals |
-| `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number`, `:boolean` or `:auto` (`--infer-types` for all keys; an empty `:auto` value is `null`, as in Parquet and Avro). With no data rows after the header, a warning is printed |
+| `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number`, `:boolean`, `:string` or `:auto`, or with a Parquet/Avro type (`int`, `long`, `float`, `double`, `decimal`... are numbers, `bool` a boolean, `date`, `timestamp`, `uuid`... strings) (`--infer-types` for all keys; an empty `:auto` value is `null`, as in Parquet and Avro). With no data rows after the header, a warning is printed |
 | `-o parquet` | Apache Parquet, with `--out-file` |
 | `-o avro` | Apache Avro (Object Container File, uncompressed), with `--out-file` |
 
@@ -168,6 +168,10 @@ $ zawk -i csv -H -o jsonl 'NR==1 { print "name", "age:number" } { print $FI["nam
 :::tip
 With `-o csv`/`-o tsv`, `print a, b` quotes and escapes fields correctly. Never build CSV lines by concatenating
 `","`. To escape a single value, use `escape_csv(s)`, `join_csv(i, j)` or `to_csv(arr)`.
+
+`printf` output is written as is under `-o csv`. Under the TSV-based formats (`-o tsv`, `jsonl`, `markdown`,
+`table`, `parquet`, `avro`, `xlsx`), tabs and newlines in `printf` output separate fields and rows, and every
+backslash is escaped, so `printf "%s\n", "a\\n"` writes the value `a\n` (a backslash and an `n`), not a newline.
 :::
 
 ## Parallel execution

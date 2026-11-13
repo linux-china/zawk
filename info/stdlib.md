@@ -538,9 +538,10 @@ examples: `url("https://example.com/user/1")`, `url("jdbc:mysql://localhost:3306
 
 `data_url("data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==")`
 
-- data
-- mime_type
-- encoding
+- data: kept as written, not percent-decoded or base64-decoded; use `decode("base64", ...)` / `decode("url", ...)`
+- mime_type: `text/plain` when omitted (RFC 2397)
+- encoding: `base64` or absent
+- parameters: e.g. `charset=utf-8`; `charset=US-ASCII` when the media type is omitted
 
 ### Command line(MapIntStr)
 
@@ -628,6 +629,12 @@ Usage:
 * `record("mysql{host=localhost user=root password=123456 database=test}")`
 * `record("table1(id int, age int)")`: DB table design
 
+Pairs are `key=value` or `key: value`, separated by `,`, `;` or whitespace. A bare value is kept as written up to the
+next separator or `}` (`-5`, `example.com`, `10.0.0.1:8080`); a quoted value (`"..."` or `'...'`) may contain any
+character and decodes `\"`, `\'`, `\\`, `\n`, `\t` and `\r`. Empty values (`a=`, `a=""`) are kept. The name is
+stored under `_`, and a `(body)` after `}` under `_body`. Malformed input (a key without a value, an unterminated
+quote or `{`) is reported as a warning, and the pairs parsed so far are returned.
+
 ### Message
 
 A message(record with body) always contains name, headers and body, and text format is
@@ -637,6 +644,10 @@ Usage:
 
 * `message("http_requests_total{method='post',code=200}(100)")`
 * `message("login_event{method='post',code=200}('xxx@example.com')")`
+
+The name is stored under `_`, each header under its own key, and the body under `_body`: the first example gives
+`_=http_requests_total`, `method=post`, `code=200`, `_body=100`. The body is the text between the parentheses as
+written, with one pair of surrounding quotes removed (`'xxx@example.com'` gives `xxx@example.com`).
 
 ### Function invocation
 
@@ -1123,7 +1134,7 @@ zawk 'BEGIN{ state["city"] = "Peking";  print jev(state, "the capital of China o
 
 # JSON
 
-Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true, so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
+Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true (except strings that look like zero, such as `"0"` and `"0.0"`), so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
 
 ### from_json
 

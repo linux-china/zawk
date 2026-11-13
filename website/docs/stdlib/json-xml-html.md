@@ -33,7 +33,7 @@ zawk '{ print json_set(json_del($0, "password"), "processed_at", systime()) }' u
 zawk -F, '{ o["id"] = $1; o["name"] = $2; print to_json(o) }' users.txt
 ```
 
-Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true, so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
+Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json_get`, `json_value` and `json_query` all give the text `true`/`false`. In a condition any non-empty string is true (except strings that look like zero, such as `"0"` and `"0.0"`, see [compatibility](../compatibility.md)), so test `v == "true"` or `mkbool(v)` (`mkbool("false")` is `0`), not `if (v)`.
 
 `json_set` keeps a value that is valid JSON text (`18`, `true`, `[1,2]`) as JSON, and stores any other text as a
 JSON string.

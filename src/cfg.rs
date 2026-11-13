@@ -1101,6 +1101,37 @@ where
                 } else {
                     None
                 };
+                if matches!(self.ctx.esc, Escaper::TSV) {
+                    // TSV-based output (`-o tsv/jsonl/markdown/table/parquet/...`): `print`
+                    // escapes each field, and the readers/writers unescape `\\`, `\t`, `\n`, `\N`.
+                    // `printf` text has its tabs and newlines as the row structure, so only its
+                    // backslashes are escaped: a literal `\n` stays a backslash and an `n`.
+                    let formatted = self.fresh_local();
+                    self.add_stmt(
+                        current_open,
+                        PrimStmt::AsgnVar(formatted, PrimExpr::Sprintf(fmt_v, arg_vs)),
+                    )?;
+                    let escaped = self.fresh_local();
+                    self.add_stmt(
+                        current_open,
+                        PrimStmt::AsgnVar(
+                            escaped,
+                            PrimExpr::CallBuiltin(
+                                builtins::Function::Text(builtins::TextOp::Replace),
+                                smallvec![
+                                    PrimVal::Var(formatted),
+                                    PrimVal::StrLit(b"\\"),
+                                    PrimVal::StrLit(b"\\\\")
+                                ],
+                            ),
+                        ),
+                    )?;
+                    self.add_stmt(
+                        current_open,
+                        PrimStmt::PrintAll(smallvec![PrimVal::Var(escaped)], out_v),
+                    )?;
+                    return Ok(current_open);
+                }
                 self.add_stmt(current_open, PrimStmt::Printf(fmt_v, arg_vs, out_v))?;
                 current_open
             }

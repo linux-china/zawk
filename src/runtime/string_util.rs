@@ -137,136 +137,105 @@ pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, 
     SharedMap::from(map)
 }
 
-use logos::Logos;
 use regex::Regex;
 
-#[derive(Logos, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
-enum RecordToken<'a> {
-    #[token("{")]
-    LBrace,
-    #[token("}")]
-    RBrace,
-    #[token("(")]
-    LParen,
-    #[token(")")]
-    RParen,
-    #[token(",")]
-    Comma,
-    #[token("=")]
-    Eq,
-    #[token(":")]
-    Colon,
-    #[token(";")]
-    Semicolon,
-    #[regex(r#"[a-zA-Z0-9_]+"#)]
-    Literal(&'a str),
-    #[regex(r#""[^"]*""#)]
-    Text(&'a str),
-    #[regex(r#"'[^']*'"#)]
-    Text2(&'a str),
-    #[regex(r#"(\d+)(\.\d+)?"#, priority = 3)]
-    Num(&'a str),
-}
-
-struct PairState {
-    pub key: String,
-    pub value: String,
-    pub key_parsed: bool,
-}
-
-impl Default for PairState {
-    fn default() -> Self {
-        PairState {
-            key: "".to_owned(),
-            value: "".to_owned(),
-            key_parsed: false,
-        }
-    }
-}
-
-impl PairState {
-    pub fn reset(&mut self) {
-        self.key = "".to_owned();
-        self.value = "".to_owned();
-        self.key_parsed = false;
-    }
-
-    pub fn is_legal(&self) -> bool {
-        !self.key.is_empty() && !self.value.is_empty()
-    }
-}
-
 /// parse message - `msg_name{key1=value1,key2=value2}(body)`
+///
+/// The result holds the name under `_`, each header under its own key, and the
+/// body under `_body`. The body is the raw text between the outer parentheses,
+/// with one pair of surrounding quotes removed.
 pub(crate) fn message<'b>(text: &str) -> StrMap<'b, Str<'b>> {
-    record(text)
+    let text = text.trim();
+    let (head, body) = split_message(text);
+    let map = if head.is_empty() {
+        SharedMap::from(crate::runtime::HashMap::default())
+    } else {
+        record_with("message", head)
+    };
+    if let Some(body) = body {
+        map.insert(Str::from("_body".to_owned()), Str::from(body.to_owned()));
+    }
+    map
+}
+
+/// Split a message into its head (`name{headers}` or `name`) and its body
+/// (the text inside the trailing `(...)`), honouring quotes in the headers.
+fn split_message(text: &str) -> (&str, Option<&str>) {
+    let brace = text.find('{');
+    let paren = text.find('(');
+    let head_end = match brace {
+        // headers come first: find the matching `}` outside quotes
+        Some(b) if paren.is_none_or(|p| b < p) => {
+            let mut quote: Option<char> = None;
+            let mut depth = 0usize;
+            let mut end = None;
+            for (i, c) in text[b..].char_indices() {
+                match quote {
+                    Some(q) if c == q => quote = None,
+                    Some(_) => {}
+                    None => match c {
+                        '"' | '\'' => quote = Some(c),
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = Some(b + i + 1);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    },
+                }
+            }
+            match end {
+                Some(end) => end,
+                None => return (text, None),
+            }
+        }
+        _ => paren.unwrap_or(text.len()),
+    };
+    let (head, rest) = text.split_at(head_end);
+    let rest = rest.trim();
+    let body = rest
+        .strip_prefix('(')
+        .and_then(|r| r.strip_suffix(')'))
+        .map(strip_body_quotes);
+    (head.trim(), body)
 }
 
 /// parse record: `attr_name{key1=value1,key2=value2}`
+///
+/// * the name before `{` is stored under `_`;
+/// * pairs are `key=value` or `key: value`, separated by `,`, `;` or whitespace;
+/// * a bare value is the text up to the next `,`, `;`, `}` or whitespace, kept as
+///   written (`-5`, `10.0.0.1:8080`, `http://h/p`); a quoted value (`"..."` or
+///   `'...'`) may hold any character and decodes `\"`, `\'`, `\\`, `\n`, `\t`, `\r`;
+/// * empty values (`a=` or `a=""`) are kept;
+/// * a `(body)` after the closing `}` is stored under `_body`.
+///
+/// Malformed input (a key without a value, an unterminated string or `{`,
+/// unexpected text) is reported through `stdlib_warning`; the pairs parsed so
+/// far are kept.
 pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
+    record_with("record", text)
+}
+
+fn record_with<'b>(fn_name: &str, text: &str) -> StrMap<'b, Str<'b>> {
+    let text = text.trim();
     let mut map = crate::runtime::HashMap::default();
-    if text.starts_with('{') && text.ends_with('}') {
-        // simple map
-        let lexer = RecordToken::lexer(text);
-        let mut key_parsed = false;
-        let mut key = "";
-        let mut value = "";
-        for attribute in lexer.flatten() {
-            match attribute {
-                RecordToken::Colon | RecordToken::Eq => {
-                    // key parsed
-                    key_parsed = true
-                }
-                RecordToken::Comma => {
-                    // add pair
-                    if !key.is_empty() && !value.is_empty() {
-                        map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
-                    }
-                    key = "";
-                    value = "";
-                    key_parsed = false
-                }
-                RecordToken::RBrace => {
-                    // end
-                    if !key.is_empty() && !value.is_empty() {
-                        map.insert(Str::from(key.to_string()), Str::from(value.to_string()));
-                    }
-                    key_parsed = false
-                }
-                // parse key's value
-                RecordToken::Literal(literal) => {
-                    // pair value
-                    if key_parsed {
-                        value = literal;
-                    } else {
-                        key = literal;
-                    }
-                }
-                RecordToken::Text(text) => {
-                    // pair value
-                    value = text.trim_matches('"');
-                }
-                RecordToken::Text2(text) => {
-                    // pair value
-                    value = text.trim_matches('\'');
-                }
-                RecordToken::Num(num) => {
-                    // pair value
-                    value = num;
-                }
-                _ => {}
-            }
-        }
-    } else if text.contains("(") && text.ends_with(")") {
+    let brace = text.find('{');
+    if text.ends_with(')')
+        && let Some(paren) = text.find('(')
+        && brace.is_none_or(|brace| brace > paren)
+    {
         // table definition: table_name(id integer, value double)
-        let offset = text.find('(').unwrap();
-        let name = text[0..offset].trim().to_string();
+        let name = text[0..paren].trim().to_string();
         if !name.is_empty() {
             map.insert(Str::from("_".to_owned()), Str::from(name));
         }
-        let pairs_text = text[offset + 1..text.len() - 1].to_string();
-        for pair in pairs_text.split(",") {
-            let kv: Vec<&str> = pair.trim().split(" ").collect();
+        let pairs_text = &text[paren + 1..text.len() - 1];
+        for pair in pairs_text.split(',') {
+            let kv: Vec<&str> = pair.trim().split(' ').collect();
             if kv.len() == 2 {
                 map.insert(
                     Str::from(kv[0].trim().to_string()),
@@ -274,104 +243,167 @@ pub(crate) fn record<'b>(text: &str) -> StrMap<'b, Str<'b>> {
                 );
             }
         }
-    } else if text.contains('{') {
-        // record_name{id=1,name="hello world"}
-        let offset = text.find('{').unwrap();
-        let name = text[0..offset].trim().to_string();
+    } else if let Some(brace) = brace {
+        // record_name{id=1,name="hello world"}(body)
+        let name = text[0..brace].trim();
         if !name.is_empty() {
-            map.insert(Str::from("_".to_owned()), Str::from(name));
+            map.insert(Str::from("_".to_owned()), Str::from(name.to_owned()));
         }
-        let pairs_text = text[offset..].to_string();
-        let mut pair_state = PairState::default();
-        let mut body_started = false;
-        let mut body = "".to_owned();
-        let lexer = RecordToken::lexer(&pairs_text);
-        for attribute in lexer.flatten() {
-            match attribute {
-                RecordToken::Colon | RecordToken::Eq => {
-                    // key parsed
-                    pair_state.key_parsed = true;
+        let rest = parse_record_pairs(fn_name, &text[brace..], &mut map).trim();
+        if !rest.is_empty() {
+            match rest.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+                Some(body) => {
+                    map.insert(
+                        Str::from("_body".to_owned()),
+                        Str::from(strip_body_quotes(body).to_owned()),
+                    );
                 }
-                RecordToken::LParen => {
-                    // body started
-                    body_started = true;
-                }
-                RecordToken::RParen => {
-                    // boyd end
-                    if !body.is_empty() {
-                        map.insert(Str::from("_body".to_owned()), Str::from(body.clone()));
-                    }
-                    body_started = false;
-                }
-                // parse key's value
-                RecordToken::Literal(literal) if !body_started => {
-                    // pair value
-                    if pair_state.key_parsed {
-                        pair_state.value = literal.to_string();
-                        if pair_state.is_legal() {
-                            map.insert(
-                                Str::from(pair_state.key.clone()),
-                                Str::from(pair_state.value.clone()),
-                            );
-                        }
-                        pair_state.reset();
-                    } else {
-                        pair_state.key = literal.to_string();
-                    }
-                }
-                RecordToken::Text(text) if !body_started => {
-                    // pair value
-                    pair_state.value = text[1..text.len() - 1].to_string();
-                    if pair_state.is_legal() {
-                        map.insert(
-                            Str::from(pair_state.key.clone()),
-                            Str::from(pair_state.value.clone()),
-                        );
-                    }
-                    pair_state.reset();
-                }
-                RecordToken::Text2(text) if !body_started => {
-                    // pair value
-                    pair_state.value = text[1..text.len() - 1].to_string();
-                    if pair_state.is_legal() {
-                        map.insert(
-                            Str::from(pair_state.key.clone()),
-                            Str::from(pair_state.value.clone()),
-                        );
-                    }
-                    pair_state.reset();
-                }
-                RecordToken::Num(num) if !body_started => {
-                    // pair value
-                    pair_state.value = num.to_string();
-                    if pair_state.is_legal() {
-                        map.insert(
-                            Str::from(pair_state.key.clone()),
-                            Str::from(pair_state.value.clone()),
-                        );
-                    }
-                    pair_state.reset();
-                }
-                // body value
-                RecordToken::Literal(literal) if body_started => {
-                    body = literal.to_string();
-                }
-                RecordToken::Num(num) if body_started => {
-                    body = num.to_string();
-                }
-                RecordToken::Text(text) if body_started => {
-                    body = text[1..text.len() - 1].to_string();
-                }
-                RecordToken::Text2(text) if body_started => {
-                    body = text[1..text.len() - 1].to_string();
-                }
-                _ => {}
+                None => stdlib_warning(
+                    fn_name,
+                    format!("unexpected text {:?} after `}}` in {:?}", rest, text),
+                ),
             }
         }
     } else {
         map.insert(Str::from("_".to_owned()), Str::from(text.to_owned()));
     }
     SharedMap::from(map)
+}
+
+/// Trim a message/record body and remove one pair of surrounding quotes.
+fn strip_body_quotes(body: &str) -> &str {
+    let b = body.trim();
+    let quoted = b.len() >= 2
+        && ((b.starts_with('"') && b.ends_with('"')) || (b.starts_with('\'') && b.ends_with('\'')));
+    if quoted { &b[1..b.len() - 1] } else { b }
+}
+
+/// Parse the `{k=v,...}` part of a record (`text` starts with `{`) into `map`,
+/// and return the text after the closing `}`.
+fn parse_record_pairs<'t>(
+    fn_name: &str,
+    text: &'t str,
+    map: &mut crate::runtime::HashMap<Str<'_>, Str<'_>>,
+) -> &'t str {
+    fn is_sep(b: u8) -> bool {
+        b == b',' || b == b';' || b.is_ascii_whitespace()
+    }
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let skip_ws = |i: &mut usize| {
+        while *i < len && bytes[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    };
+    // Read a quoted string starting at `*i` (on the quote); None if unterminated.
+    let read_quoted = |i: &mut usize| -> Option<String> {
+        let quote = bytes[*i] as char;
+        let mut out = String::new();
+        let mut chars = text[*i + 1..].char_indices();
+        while let Some((off, c)) = chars.next() {
+            if c == quote {
+                *i += 1 + off + 1;
+                return Some(out);
+            }
+            if c == '\\' {
+                match chars.next() {
+                    Some((_, 'n')) => out.push('\n'),
+                    Some((_, 't')) => out.push('\t'),
+                    Some((_, 'r')) => out.push('\r'),
+                    Some((_, e @ ('\\' | '"' | '\''))) => out.push(e),
+                    Some((_, other)) => {
+                        out.push('\\');
+                        out.push(other);
+                    }
+                    None => out.push('\\'),
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        None
+    };
+    // Read bare text up to (not including) a byte for which `stop` holds.
+    let read_bare = |i: &mut usize, stop: &dyn Fn(u8) -> bool| -> &'t str {
+        let start = *i;
+        while *i < len && !stop(bytes[*i]) {
+            *i += 1;
+        }
+        &text[start..*i]
+    };
+    let unterminated = || {
+        stdlib_warning(fn_name, format!("unterminated string in {:?}", text));
+    };
+    let mut i = 1; // skip `{`
+    loop {
+        while i < len && is_sep(bytes[i]) {
+            i += 1;
+        }
+        if i >= len {
+            stdlib_warning(fn_name, format!("missing closing `}}` in {:?}", text));
+            return "";
+        }
+        if bytes[i] == b'}' {
+            return &text[i + 1..];
+        }
+        // key
+        let key = if bytes[i] == b'"' || bytes[i] == b'\'' {
+            match read_quoted(&mut i) {
+                Some(k) => k,
+                None => {
+                    unterminated();
+                    return "";
+                }
+            }
+        } else {
+            read_bare(&mut i, &|b| {
+                is_sep(b) || matches!(b, b'=' | b':' | b'}' | b'"' | b'\'')
+            })
+            .to_owned()
+        };
+        if key.is_empty() {
+            // a stray `=`, `:` or quote where a key should start
+            let c = text[i..].chars().next().unwrap();
+            stdlib_warning(
+                fn_name,
+                format!("unexpected character {:?} in {:?}", c, text),
+            );
+            i += c.len_utf8();
+            continue;
+        }
+        skip_ws(&mut i);
+        if i < len && (bytes[i] == b'=' || bytes[i] == b':') {
+            i += 1;
+        } else {
+            stdlib_warning(fn_name, format!("missing value for key {:?} in {:?}", key, text));
+            continue;
+        }
+        skip_ws(&mut i);
+        // value
+        let value = if i < len && (bytes[i] == b'"' || bytes[i] == b'\'') {
+            match read_quoted(&mut i) {
+                Some(v) => v,
+                None => {
+                    unterminated();
+                    return "";
+                }
+            }
+        } else {
+            read_bare(&mut i, &|b| is_sep(b) || b == b'}').to_owned()
+        };
+        map.insert(Str::from(key), Str::from(value));
+        // a quoted value must be followed by a separator or `}`
+        if i < len && !is_sep(bytes[i]) && bytes[i] != b'}' {
+            let start = i;
+            while i < len && !is_sep(bytes[i]) && bytes[i] != b'}' {
+                i += 1;
+            }
+            stdlib_warning(
+                fn_name,
+                format!("unexpected text {:?} in {:?}", &text[start..i], text),
+            );
+        }
+    }
 }
 
 /// Split the items of a list literal such as `[1, -2.5, "a\"b", [2,3]]`
@@ -1313,6 +1345,104 @@ mod tests {
         println!("{}", map.get(&Str::from("host")).as_str());
         println!("{}", map.get(&Str::from("user")).as_str());
         println!("body: {}", map.get(&Str::from("_body")).as_str());
+    }
+
+    #[test]
+    fn test_message() {
+        fn get(m: &StrMap<Str>, k: &str) -> String {
+            m.get(&Str::from(k.to_owned())).as_str().to_string()
+        }
+        // examples from info/stdlib.md
+        let m = message("http_requests_total{method='post',code=200}(100)");
+        assert_eq!(get(&m, "_"), "http_requests_total");
+        assert_eq!(get(&m, "method"), "post");
+        assert_eq!(get(&m, "code"), "200");
+        assert_eq!(get(&m, "_body"), "100");
+        assert_eq!(m.len(), 4);
+        let m = message("login_event{method='post',code=200}('xxx@example.com')");
+        assert_eq!(get(&m, "_"), "login_event");
+        assert_eq!(get(&m, "method"), "post");
+        assert_eq!(get(&m, "_body"), "xxx@example.com");
+        // quoted body with spaces, `)` inside a header value
+        let m = message(r#"ev{a=1,b="x)y"}("body text")"#);
+        assert_eq!(get(&m, "_"), "ev");
+        assert_eq!(get(&m, "a"), "1");
+        assert_eq!(get(&m, "b"), "x)y");
+        assert_eq!(get(&m, "_body"), "body text");
+        // raw body is kept as written
+        let m = message("ev{a=1}(hello world, 42)");
+        assert_eq!(get(&m, "_body"), "hello world, 42");
+        // no headers, no body
+        let m = message("ev(42)");
+        assert_eq!(get(&m, "_"), "ev");
+        assert_eq!(get(&m, "_body"), "42");
+        let m = message("ev{a=1}");
+        assert_eq!(get(&m, "a"), "1");
+        assert!(!m.contains(&Str::from("_body")));
+        // record() also reads headers before a body instead of a table definition
+        let r = record("ev{a=1}(2)");
+        assert_eq!(get(&r, "_"), "ev");
+        assert_eq!(get(&r, "a"), "1");
+    }
+
+    #[test]
+    fn test_record_values_kept_as_written() {
+        fn get(m: &StrMap<Str>, k: &str) -> String {
+            m.get(&Str::from(k.to_owned())).as_str().to_string()
+        }
+        let m = record("m{t=-5,host=example.com,v=1.5,neg=-2.5,ip=10.0.0.1:8080,u=http://h/p?a=1}");
+        assert_eq!(get(&m, "_"), "m");
+        assert_eq!(get(&m, "t"), "-5");
+        assert_eq!(get(&m, "host"), "example.com");
+        assert_eq!(get(&m, "v"), "1.5");
+        assert_eq!(get(&m, "neg"), "-2.5");
+        assert_eq!(get(&m, "ip"), "10.0.0.1:8080");
+        assert_eq!(get(&m, "u"), "http://h/p?a=1");
+        assert!(!m.contains(&Str::from("com")));
+        assert_eq!(m.len(), 7);
+        // empty values are kept
+        let m = record(r#"m{a="",b=x,c=,d=''}"#);
+        assert_eq!(m.len(), 5);
+        assert!(m.contains(&Str::from("a")));
+        assert_eq!(get(&m, "a"), "");
+        assert_eq!(get(&m, "b"), "x");
+        assert!(m.contains(&Str::from("c")));
+        assert!(m.contains(&Str::from("d")));
+        // escapes in quoted values
+        let m = record(r#"m{a="x\"y",b='it\'s',c="a\\b\nc",d="C:\dir"}"#);
+        assert_eq!(get(&m, "a"), "x\"y");
+        assert_eq!(get(&m, "b"), "it's");
+        assert_eq!(get(&m, "c"), "a\\b\nc");
+        assert_eq!(get(&m, "d"), "C:\\dir");
+        // quoted values may hold separators; Prometheus label names
+        let m = record(r#"http_requests_total{method="hello 你好 ' = : , world",code=200.01}"#);
+        assert_eq!(get(&m, "method"), "hello 你好 ' = : , world");
+        assert_eq!(get(&m, "code"), "200.01");
+        // whitespace / `:` / `;` forms, no name
+        let m = record("mysql{host=localhost user=root password=123456 database=test}");
+        assert_eq!(get(&m, "_"), "mysql");
+        assert_eq!(get(&m, "user"), "root");
+        assert_eq!(get(&m, "database"), "test");
+        let m = record("{host: localhost, port: 1234; desc: 'demo demo'}");
+        assert!(!m.contains(&Str::from("_")));
+        assert_eq!(get(&m, "host"), "localhost");
+        assert_eq!(get(&m, "port"), "1234");
+        assert_eq!(get(&m, "desc"), "demo demo");
+        // body after the headers
+        let m = record("mysql{host=localhost}('x y')");
+        assert_eq!(get(&m, "_body"), "x y");
+        // malformed input keeps the pairs parsed so far
+        let m = record(r#"m{a=1,flag,b=2"#);
+        assert_eq!(get(&m, "a"), "1");
+        assert_eq!(get(&m, "b"), "2");
+        assert!(!m.contains(&Str::from("flag")));
+        let m = record(r#"m{a=1,b="open}"#);
+        assert_eq!(get(&m, "a"), "1");
+        assert!(!m.contains(&Str::from("b")));
+        let m = record(r#"m{a="x"y,b=2}"#);
+        assert_eq!(get(&m, "a"), "x");
+        assert_eq!(get(&m, "b"), "2");
+        assert_eq!(m.len(), 3);
     }
 
     #[test]

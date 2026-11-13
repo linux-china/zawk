@@ -605,7 +605,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "data_url",
         PARSER,
         "data_url(s: str) -> map[str]str",
-        "Parse a data URL: data, mime_type, encoding (`base64` or absent), parameters (e.g. `charset=utf-8`).",
+        "Parse a data URL: data (kept as written, not decoded; use `decode`), mime_type (`text/plain` when omitted), encoding (`base64` or absent), parameters (e.g. `charset=utf-8`).",
         r#"data_url("data:text/plain;base64,SGVsbG8=")["data"]"#,
     ),
     d(

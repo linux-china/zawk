@@ -6278,6 +6278,43 @@ fn uninitialized_values_are_strnums() {
 }
 
 #[test]
+fn data_function_results_are_strnums() {
+    // Results of functions that read external data compare numerically when they look like
+    // numbers, as fields and `split` results do; numbers with more digits must not compare as
+    // strings ("100" < "30").
+    let cases = [
+        (r#"BEGIN { m = from_json("{\"age\":100}"); print (m["age"] > 30) }"#, "1\n"),
+        (r#"BEGIN { m = json_flatten("{\"a\":{\"b\":100}}"); print (m["a.b"] > 30) }"#, "1\n"),
+        (r#"BEGIN { print (json_value("{\"age\":100}", "$.age") > 30) }"#, "1\n"),
+        (r#"BEGIN { print (json_get("{\"age\":100}", "age") > 30) }"#, "1\n"),
+        (r#"BEGIN { m = json_query("[100, 5]", "$[*]"); print (m[1] > 30), (m[2] > 30) }"#, "1 0\n"),
+        (r#"BEGIN { m = from_csv("100,abc"); print (m[1] > 30), (m[2] > 30) }"#, "1 1\n"),
+        (r#"BEGIN { m = pairs("a=100,b=x"); print (m["a"] > 30) }"#, "1\n"),
+        (r#"BEGIN { m = url("http://h:8080/p"); print (m["port"] > 900) }"#, "1\n"),
+        (r#"BEGIN { m = parse("age 100", "age {n}"); print (m["n"] > 30) }"#, "1\n"),
+        (r#"BEGIN { m = rparse("age 100", "age (\\d+)"); print (m[1] > 30) }"#, "1\n"),
+        (r#"BEGIN { print (getenv("ZAWK_TEST_NUM") > 30) }"#, "1\n"),
+        (
+            r#"BEGIN { m = sqlite_query("tests/demo.sqlite3", "select 100 as n"); print (m[1] > 30) }"#,
+            "1\n",
+        ),
+        // Non-numeric results still compare as strings.
+        (r#"BEGIN { print (json_get("{\"n\":\"abc\"}", "n") > 30) }"#, "1\n"),
+    ];
+    for (prog, expected) in cases {
+        for backend_arg in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .env("ZAWK_TEST_NUM", "100")
+                .args([*backend_arg, prog])
+                .assert()
+                .success()
+                .stdout(expected);
+        }
+    }
+}
+
+#[test]
 fn to_json_keeps_empty_values_and_sorts_keys() {
     let prog = r#"BEGIN { a["k"] = "v"; a["e"] = ""; print to_json(a); for (i = 2; i >= 0; i--) b["k" i] = i; print to_json(b) }"#;
     for backend_arg in BACKEND_ARGS {
@@ -6988,6 +7025,64 @@ fn output_format_ignores_ofs_ors() {
                 .stdout(String::from(*out));
         }
     }
+}
+
+// Under TSV-based output (`-o tsv/jsonl/markdown/table/...`) the writers unescape `\\`, `\t`,
+// `\n` and `\N`. `printf` text keeps its tabs/newlines as the row structure, but its backslashes
+// are escaped, so a literal backslash is not unescaped a second time.
+#[test]
+fn printf_backslashes_under_tsv_output() {
+    let cases: &[(&[&str], &str, &str)] = &[
+        (
+            &["-o", "jsonl"],
+            r#"BEGIN{print "h1","h2"; printf "%s\t%s\n", "p\\n", "q"}"#,
+            "{\"h1\":\"p\\\\n\",\"h2\":\"q\"}\n",
+        ),
+        (
+            &["-o", "jsonl"],
+            r#"BEGIN{print "h"; printf "%s\n", "\\N"}"#,
+            "{\"h\":\"\\\\N\"}\n",
+        ),
+        (
+            &["-o", "jsonl"],
+            r#"BEGIN{print "h"; printf "a"; printf "b\n"}"#,
+            "{\"h\":\"ab\"}\n",
+        ),
+        (&["-o", "tsv"], r#"BEGIN{printf "%s\t%d\n", "a\\b", 3}"#, "a\\\\b\t3\n"),
+        // CSV output leaves printf text as is.
+        (&["-o", "csv"], r#"BEGIN{printf "%s,%d\n", "a\\b", 3}"#, "a\\b,3\n"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, out) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .arg(*prog)
+                .assert()
+                .success()
+                .stdout(String::from(*out));
+        }
+    }
+}
+
+// `-o jsonl` accepts the Parquet/Avro type suffixes: numeric types are numbers, `bool` a boolean,
+// and the other types strings; an unknown suffix stays part of the name.
+#[test]
+fn jsonl_accepts_parquet_avro_type_suffixes() {
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args([
+            "-o",
+            "jsonl",
+            r#"BEGIN{print "a:int","b:float","c:bool","d:date","e:decimal(10,2)","f:port";
+                    print 1, 2.5, "true", "2024-01-02", "3.14", 80}"#,
+        ])
+        .assert()
+        .success()
+        .stdout(
+            "{\"a\":1,\"b\":2.5,\"c\":true,\"d\":\"2024-01-02\",\"e\":3.14,\"f:port\":\"80\"}\n",
+        );
 }
 
 #[test]

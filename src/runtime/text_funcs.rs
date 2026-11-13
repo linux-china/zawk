@@ -271,7 +271,14 @@ pub fn bar(x: Float, min: Float, max: Float, width: Float) -> String {
         return String::new();
     }
     let width = width as usize;
-    let ratio = ((x - min) / (max - min)).clamp(0.0, 1.0);
+    // `max - min` overflows to infinity for ranges such as [-1e308, 1e308]: halve every
+    // operand first, which keeps the ratio and makes the subtraction finite
+    let ratio = if (max - min).is_finite() {
+        (x - min) / (max - min)
+    } else {
+        (x / 2.0 - min / 2.0) / (max / 2.0 - min / 2.0)
+    };
+    let ratio = ratio.clamp(0.0, 1.0);
     // in eighths of a character
     let eighths = (ratio * (width * 8) as Float).round() as usize;
     let (full, part) = (eighths / 8, eighths % 8);
@@ -399,5 +406,9 @@ mod tests {
         assert_eq!(bar(1.0, 0.0, 2.0, Float::NAN), "");
         assert_eq!(bar(1.0, Float::NAN, 2.0, 4.0), "");
         assert_eq!(bar(1.0, 0.0, Float::NAN, 4.0), "");
+        // `max - min` overflows to infinity
+        assert_eq!(bar(1e308, -1e308, 1e308, 5.0), "█████");
+        assert_eq!(bar(0.0, -1e308, 1e308, 4.0), "██  ");
+        assert_eq!(bar(-1e308, -1e308, 1e308, 3.0), "   ");
     }
 }

@@ -1243,13 +1243,28 @@ fn json_string(s: &str) -> String {
 
 /// Splits a header cell into the column name and its type, `None` without a type suffix. A suffix
 /// that is not a known type is part of the name (`host:port` is a column named "host:port").
+///
+/// The Parquet/Avro type names are accepted too, so one header works for every `-o` format: the
+/// integer, floating point and decimal types are numbers, `bool` a boolean, and the other types
+/// (dates, times, UUIDs, JSON text, bytes as hex) strings.
 pub(crate) fn json_column(header: &str) -> (&str, Option<JsonType>) {
     if let Some((name, ty)) = header.rsplit_once(':') {
-        let ty = match ty.trim().to_ascii_lowercase().as_str() {
-            "number" => Some(JsonType::Number),
-            "boolean" => Some(JsonType::Boolean),
-            "string" => Some(JsonType::String),
+        let lower = ty.trim().to_ascii_lowercase();
+        let ty = match lower.as_str() {
+            "number" | "int" | "int8" | "int16" | "int32" | "int64" | "integer" | "tinyint"
+            | "smallint" | "bigint" | "long" | "float" | "float32" | "float64" | "real"
+            | "double" | "decimal" => Some(JsonType::Number),
+            "boolean" | "bool" => Some(JsonType::Boolean),
+            "string" | "str" | "utf8" | "text" | "varchar" | "date" | "time" | "timestamp"
+            | "datetime" | "uuid" | "json" | "bytes" | "binary" => Some(JsonType::String),
             "auto" => Some(JsonType::Auto),
+            // `decimal(P,S)`, as Avro writes it.
+            s if s
+                .strip_prefix("decimal")
+                .is_some_and(|args| args.trim_start().starts_with('(') && s.ends_with(')')) =>
+            {
+                Some(JsonType::Number)
+            }
             _ => None,
         };
         if ty.is_some() {

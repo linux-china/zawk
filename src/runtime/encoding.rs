@@ -122,7 +122,11 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
             // Only a trailing `base64` token is the encoding; everything between
             // the media type and it is kept as parameters.
             let mut metadata: Vec<&str> = parts[0][5..].split(';').collect();
+            // RFC 2397: an omitted media type means `text/plain;charset=US-ASCII`, and
+            // `data:;charset=utf-8,...` is `text/plain` with that charset
             let mime_type = metadata.remove(0);
+            let default_type = mime_type.is_empty();
+            let mime_type = if default_type { "text/plain" } else { mime_type };
             map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
             if metadata
                 .last()
@@ -133,6 +137,8 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
             }
             if !metadata.is_empty() {
                 map.insert(Str::from("parameters"), Str::from(metadata.join(";")));
+            } else if default_type {
+                map.insert(Str::from("parameters"), Str::from("charset=US-ASCII"));
             }
         }
     }
@@ -376,7 +382,8 @@ mod tests {
 
         // Empty media type, base64 only.
         let map5 = data_url("data:;base64,SGk=");
-        assert_eq!(get(&map5, "mime_type"), "");
+        assert_eq!(get(&map5, "mime_type"), "text/plain");
+        assert_eq!(get(&map5, "parameters"), "charset=US-ASCII");
         assert_eq!(get(&map5, "encoding"), "base64");
     }
 
