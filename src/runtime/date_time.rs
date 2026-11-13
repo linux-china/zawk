@@ -17,10 +17,9 @@ const WEEKS: [&str; 7] = [
     "Sunday",
 ];
 
-/// Convert a unix timestamp to local date time, falling back to the epoch for out-of-range values.
-fn local_date_time(timestamp: i64) -> DateTime<Local> {
-    let utc = DateTime::from_timestamp(timestamp, 0).unwrap_or_default();
-    utc.with_timezone(&Local)
+/// Convert a unix timestamp to local date time, `None` for an out-of-range timestamp.
+fn local_date_time(timestamp: i64) -> Option<DateTime<Local>> {
+    DateTime::from_timestamp(timestamp, 0).map(|utc| utc.with_timezone(&Local))
 }
 
 /// Default `strftime` format, same as `PROCINFO["strftime"]`.
@@ -415,7 +414,10 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
 pub(crate) fn datetime2<'a>(timestamp: i64) -> runtime::StrMap<'a, Int> {
     let result: runtime::StrMap<Int> = runtime::StrMap::default();
     // use local time zone, same as strftime()
-    let local_now = local_date_time(timestamp);
+    let Some(local_now) = local_date_time(timestamp) else {
+        runtime::stdlib_warning("datetime", format!("date out of range: {}", timestamp));
+        return result;
+    };
     result.insert(Str::from("second"), local_now.second() as Int);
     result.insert(Str::from("minute"), local_now.minute() as Int);
     result.insert(Str::from("hour"), local_now.hour() as Int);
@@ -1129,6 +1131,15 @@ mod tests {
         let format = "%c";
         let timestamp = 1621530000;
         println!("{}", strftime(format, timestamp));
+    }
+
+    #[test]
+    fn test_datetime_out_of_range_is_empty() {
+        // an out-of-range timestamp must not fall back to the 1970 epoch
+        assert_eq!(datetime2(i64::MAX).len(), 0);
+        assert_eq!(datetime2(i64::MIN).len(), 0);
+        assert_eq!(datetime("9223372036854775807").len(), 0);
+        assert_eq!(datetime2(0).len(), 13);
     }
 
     #[test]

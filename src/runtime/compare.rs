@@ -162,8 +162,12 @@ pub(crate) fn looks_numeric(bs: &[u8]) -> Option<Float> {
 }
 
 /// A character with case folded for IGNORECASE: its lowercase form when that is a single
-/// character (as gawk's `towlower`), otherwise the character itself.
+/// character (as gawk's `towlower`), otherwise the character itself. U+0130 (İ), whose full
+/// lowercase is "i\u{307}", folds to plain `i` as C `towlower` maps it (and as `tolower` does).
 fn fold_char(c: char) -> char {
+    if c == '\u{130}' {
+        return 'i';
+    }
     let mut lower = c.to_lowercase();
     match (lower.next(), lower.next()) {
         (Some(l), None) => l,
@@ -360,6 +364,8 @@ mod tests {
             // Different byte lengths: the Kelvin sign is three bytes, its lowercase form one.
             ("\u{212A}".as_bytes(), b"k"),
             (b"caf\xe9X", b"CAF\xe9x"),
+            // U+0130 (İ) folds to plain 'i', as C towlower maps it.
+            ("\u{130}ST".as_bytes(), b"ist"),
         ];
         for (l, r) in same {
             assert!(eq_ignore_case(l, r), "{l:?} {r:?}");
@@ -369,7 +375,7 @@ mod tests {
             (b"", b"a"),
             (b"abc", b"abcd"),
             ("cafe".as_bytes(), "café".as_bytes()),
-            // Lowercase is several characters: unchanged, as in `tolower`.
+            // İ folds to a single 'i', not to its full lowercase "i\u{307}".
             ("\u{130}".as_bytes(), "i\u{307}".as_bytes()),
             ("STRASSE".as_bytes(), "straße".as_bytes()),
             // The invalid Latin-1 byte is not the character it would be in UTF-8.
@@ -380,6 +386,17 @@ mod tests {
             assert!(!eq_ignore_case(l, r), "{l:?} {r:?}");
             assert!(!eq_ignore_case(r, l), "{l:?} {r:?}");
         }
+    }
+
+    #[test]
+    fn index_folds_dotted_capital_i() {
+        awk_regex::set_ignore_case(true);
+        let hay = "İSTİ".as_bytes();
+        assert_eq!(index_folded(b"i", hay), Some(1));
+        assert_eq!(last_index_folded(b"i", hay), Some(4));
+        assert_eq!(index_folded(b"st", hay), Some(2));
+        assert_eq!(index_folded("İ".as_bytes(), b"xist"), Some(2));
+        awk_regex::set_ignore_case(false);
     }
 
     #[test]

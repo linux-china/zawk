@@ -1097,7 +1097,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
             self.line.set_col(
                 0,
                 &Str::from(text),
-                &self.core.vars.ofs,
+                &self.core.vars.split_fs,
                 &mut self.core.regexes,
             )?;
         }
@@ -3170,7 +3170,7 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let col = *self.get(*dst);
                         let v = index(&self.strs, src);
                         self.line
-                            .set_col(col, v, &self.core.vars.ofs, &mut self.core.regexes)
+                            .set_col(col, v, &self.core.vars.split_fs, &mut self.core.regexes)
                             .map_err(at!())?;
                     }
                     GetColumn(dst, src) => {

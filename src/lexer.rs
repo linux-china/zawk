@@ -696,9 +696,9 @@ pub(crate) fn parse_string_literal<'a>(lit: &str, arena: &'a Arena, buf: &mut Ve
                         for _ in 0..2 {
                             if let Some(x) = iter.next() {
                                 if let Some(d) = octal_digit(x) {
-                                    // saturate on overflow
-                                    n = n.saturating_mul(8);
-                                    n = n.saturating_add(d);
+                                    // keep the low 8 bits on overflow, as gawk does:
+                                    // "\400" is 0x00, "\500" is 0x40
+                                    n = n.wrapping_mul(8).wrapping_add(d);
                                 } else {
                                     buf.push(n);
                                     is_escape = false;
@@ -858,10 +858,10 @@ impl<'a> Tokenizer<'a> {
         static HEX_PATTERN: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^[+-]?0[xX][0-9A-Fa-f]+(_[0-9A-Fa-f]+)*").unwrap());
         static INT_PATTERN: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^[+-]?\d+(_\d+)*").unwrap());
+            LazyLock::new(|| Regex::new(r"^[+-]?[0-9]+(_[0-9]+)*").unwrap());
         // Adapted from https://www.regular-expressions.info/floatingpoint.html
         static FLOAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            let digits = r"\d+(_\d+)*";
+            let digits = r"[0-9]+(_[0-9]+)*";
             let exp = format!("[eE][-+]?{digits}");
             Regex::new(&format!(
                 r"^[-+]?({digits}\.({digits})?({exp})?|\.{digits}({exp})?|{digits}{exp})"
@@ -1410,6 +1410,22 @@ and the third"#;
     }
 
     #[test]
+    fn number_literals_are_ascii_only() {
+        // Arabic-Indic and fullwidth digits are Unicode `\d` but not AWK numbers.
+        for src in ["١٢٣", "١.٥", "１２３"] {
+            let tok = Tokenizer::new(src).next().map(|t| t.map(|x| x.1));
+            assert!(
+                !matches!(tok, Some(Ok(Tok::ILit(_) | Tok::FLit(_)))),
+                "{src:?} lexed as a number: {tok:?}"
+            );
+        }
+        let toks = |s| lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
+        assert_eq!(toks("1e٣")[0], Tok::ILit("1"));
+        assert_eq!(toks("12_3")[0], Tok::ILit("12_3"));
+        assert_eq!(toks("1.5e3")[0], Tok::FLit("1.5e3"));
+    }
+
+    #[test]
     fn keyword_boundary() {
         use Tok::*;
         // Without the newline that ends the input.
@@ -1565,6 +1581,11 @@ and the third"#;
             b"aqb x/y . \\."
         );
         assert_eq!(unknown_escapes(r#"a\qb \\. \t\/"#), [(1, 'q'), (11, '/')]);
+        // Octal escapes above \377 keep the low 8 bits, as in gawk.
+        assert_eq!(
+            parse_string_literal(r#"\400\500\777\377\1011"#, &a, &mut buf),
+            b"\x00\x40\xff\xffA1"
+        );
     }
 
     #[test]

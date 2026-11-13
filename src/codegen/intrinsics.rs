@@ -948,7 +948,7 @@ impl<'a> Runtime<'a> {
             let _ = with_input!(&mut self.input_data, |(line, _)| line.set_col(
                 0,
                 &s,
-                &self.core.vars.ofs,
+                &self.core.vars.split_fs,
                 &mut self.core.regexes,
             ));
         }
@@ -3490,7 +3490,7 @@ pub(crate) unsafe extern "C" fn set_col(runtime: *mut c_void, col: Int, s: *mut 
         if let Err(e) = with_input!(&mut runtime.input_data, |(line, _)| line.set_col(
             col,
             s,
-            &runtime.core.vars.ofs,
+            &runtime.core.vars.split_fs,
             &mut runtime.core.regexes,
         )) {
             fail!(runtime, "{}", e);

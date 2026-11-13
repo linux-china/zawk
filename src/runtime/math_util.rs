@@ -503,7 +503,19 @@ fn hex_digits_of(text: &str) -> Option<&str> {
 pub(crate) fn is_str_int(text: &str) -> bool {
     let text = text.trim();
     match hex_digits_of(text) {
-        Some(h) => h.bytes().all(|b| b.is_ascii_hexdigit()) && i64::from_str_radix(h, 16).is_ok(),
+        // Parse the magnitude unsigned, then apply the sign before the range check, so that
+        // `-0x8000000000000000` (i64::MIN) is an integer just like `-9223372036854775808`.
+        Some(h) if h.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            let neg = text.starts_with('-');
+            u64::from_str_radix(h, 16).is_ok_and(|m| {
+                if neg {
+                    m <= i64::MIN.unsigned_abs()
+                } else {
+                    m <= i64::MAX as u64
+                }
+            })
+        }
+        Some(_) => false,
         None => text.parse::<i64>().is_ok(),
     }
 }
@@ -674,7 +686,8 @@ pub fn format_bytes(size: f64) -> String {
 ///
 /// The number may have a sign, a fraction and an exponent (`1e3`, `2.5E-1`); the unit is
 /// optional and case-insensitive (`k`, `KB`, `KiB` are all 1024). An unparsable number or an
-/// unknown unit returns 0 with a stdlib warning (and `ERRNO` set) instead of a silent guess.
+/// unknown unit returns 0 with a stdlib warning (and `ERRNO` set) instead of a silent guess, and so
+/// does a size outside the `i64` range (e.g. `1YB`), rather than saturating to `i64::MAX`.
 pub fn to_bytes(text: &str) -> i64 {
     let text = text.trim();
     if text.is_empty() {
@@ -687,7 +700,7 @@ pub fn to_bytes(text: &str) -> i64 {
     };
     let mut unit = text[offset..].trim().to_uppercase().replace('I', "");
     if unit.is_empty() {
-        return size as i64;
+        return checked_bytes(size, text);
     }
     if !unit.ends_with('B') {
         unit.push('B');
@@ -703,7 +716,18 @@ pub fn to_bytes(text: &str) -> i64 {
         );
         return 0;
     };
-    (size * UNIT.powi(index as i32)) as i64
+    checked_bytes(size * UNIT.powi(index as i32), text)
+}
+
+/// Truncates `bytes` to `i64`, or warns and returns 0 when it is outside the `i64` range: the
+/// `as` cast would otherwise saturate silently. `2^63` is exact in f64, so `>=` is the bound.
+fn checked_bytes(bytes: f64, text: &str) -> i64 {
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0; // 2^63
+    if bytes.is_nan() || bytes >= LIMIT || bytes < -LIMIT {
+        stdlib_warning("to_bytes", format!("size {:?} is out of range", text));
+        return 0;
+    }
+    bytes as i64
 }
 
 /// Length of the leading decimal number in `bs`: `[+-]digits[.digits][(e|E)[+-]digits]`. The
@@ -1070,6 +1094,14 @@ mod tests {
         assert!(is_str_int("0x11"));
         assert!(is_str_int("-0X1f"));
         assert!(!is_str_int("0x-5"));
+        assert!(!is_str_int("0x"));
+        assert!(is_str_int("-0x8000000000000000"));
+        assert!(is_str_int("0x7fffffffffffffff"));
+        assert!(is_str_int("+0x7fffffffffffffff"));
+        assert!(!is_str_int("0x8000000000000000"));
+        assert!(!is_str_int("-0x8000000000000001"));
+        assert!(!is_str_int("0xffffffffffffffff"));
+        assert!(!is_str_int("-0x10000000000000000"));
         assert!(!is_str_int("0b11"));
         assert!(!is_str_int("11.1"));
     }
@@ -1148,6 +1180,16 @@ mod tests {
         assert_eq!(to_bytes("1XB"), 0);
         assert_eq!(to_bytes("1e"), 1 << 60); // `e` alone is the exabyte unit, like `k`
         assert_eq!(to_bytes("."), 0);
+        // out of the i64 range: 0 with a warning, not a saturated i64::MAX/MIN
+        assert_eq!(to_bytes("1YB"), 0);
+        assert_eq!(to_bytes("1ZB"), 0);
+        assert_eq!(to_bytes("8EB"), 0);
+        assert_eq!(to_bytes("-9EB"), 0);
+        assert_eq!(to_bytes("999999999999999999999999"), 0);
+        assert_eq!(to_bytes("1e400"), 0);
+        assert_eq!(to_bytes("-8EB"), i64::MIN);
+        assert_eq!(to_bytes("7.5EB"), 15 << 59);
+        assert_eq!(to_bytes("9223372036854774784"), 9223372036854774784);
     }
 
     #[test]

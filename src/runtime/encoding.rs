@@ -118,15 +118,21 @@ pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
         if parts.len() == 2 {
             let data = parts[1];
             map.insert(Str::from("data"), Str::from(data.to_string()));
-            let metadata: Vec<&str> = parts[0][5..].splitn(2, ";").collect();
-            if metadata.len() == 2 {
-                let mime_type = metadata[0];
-                let encoding = metadata[1];
-                map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
-                map.insert(Str::from("encoding"), Str::from(encoding.to_string()));
-            } else {
-                let mime_type = metadata[0];
-                map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
+            // RFC 2397: data:[<mediatype>][;<param>=<value>]*[;base64],<data>
+            // Only a trailing `base64` token is the encoding; everything between
+            // the media type and it is kept as parameters.
+            let mut metadata: Vec<&str> = parts[0][5..].split(';').collect();
+            let mime_type = metadata.remove(0);
+            map.insert(Str::from("mime_type"), Str::from(mime_type.to_string()));
+            if metadata
+                .last()
+                .is_some_and(|last| last.eq_ignore_ascii_case("base64"))
+            {
+                metadata.pop();
+                map.insert(Str::from("encoding"), Str::from("base64"));
+            }
+            if !metadata.is_empty() {
+                map.insert(Str::from("parameters"), Str::from(metadata.join(";")));
             }
         }
     }
@@ -347,8 +353,31 @@ mod tests {
         let text2 = "data:text/html,%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E";
         let map = data_url(text);
         let map2 = data_url(text2);
-        println!("{}", map.get(&Str::from("encoding")).as_str());
-        println!("{}", map2.get(&Str::from("mime_type")).as_str());
+        fn get(m: &runtime::StrMap<'_, Str<'_>>, k: &str) -> String {
+            m.get(&Str::from(k.to_string())).as_str().to_string()
+        }
+        assert_eq!(get(&map, "mime_type"), "text/plain");
+        assert_eq!(get(&map, "encoding"), "base64");
+        assert_eq!(get(&map, "parameters"), "");
+        assert_eq!(get(&map2, "mime_type"), "text/html");
+        assert_eq!(get(&map2, "encoding"), "");
+        assert_eq!(get(&map2, "data"), "%3Ch1%3EHello%2C%20World%21%3C%2Fh1%3E");
+
+        let map3 = data_url("data:text/plain;charset=utf-8;base64,SGk=");
+        assert_eq!(get(&map3, "mime_type"), "text/plain");
+        assert_eq!(get(&map3, "encoding"), "base64");
+        assert_eq!(get(&map3, "parameters"), "charset=utf-8");
+        assert_eq!(get(&map3, "data"), "SGk=");
+
+        // Parameters without base64: no encoding, nothing leaks into it.
+        let map4 = data_url("data:text/plain;charset=US-ASCII;foo=bar,Hi");
+        assert_eq!(get(&map4, "encoding"), "");
+        assert_eq!(get(&map4, "parameters"), "charset=US-ASCII;foo=bar");
+
+        // Empty media type, base64 only.
+        let map5 = data_url("data:;base64,SGk=");
+        assert_eq!(get(&map5, "mime_type"), "");
+        assert_eq!(get(&map5, "encoding"), "base64");
     }
 
     #[test]

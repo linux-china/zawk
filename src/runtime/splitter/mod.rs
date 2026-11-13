@@ -369,6 +369,7 @@ impl<'a> Line<'a> for DefaultLine {
             self.line = s.clone().unmoor();
             self.fields.clear();
             self.assigned = false;
+            self.diverged = false;
             return Ok(());
         }
         let col = if col < 0 {
@@ -758,5 +759,36 @@ impl<R: Read> Reader<R> {
         // scan it to find out whether it is all ASCII.
         data.set_ascii_checkable();
         Ok((data, ulen, bytes_read))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line_of(text: &str) -> DefaultLine {
+        DefaultLine {
+            line: Str::from(text).unmoor(),
+            used_fields: FieldSet::all(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn assigning_record_after_field_keeps_new_record() {
+        // A field assignment marks the record diverged; assigning `$0` afterwards must reset
+        // that, or reading `$0` splits the new record with FS and joins it again with OFS, which
+        // is not the identity when OFS differs from the separators it replaces.
+        let mut rc = RegexCache::default();
+        let (fs, ofs) = (Str::from("[:.]"), Str::from("."));
+        let mut line = line_of("a:b");
+        line.set_col(1, &Str::from("x"), &fs, &mut rc).unwrap();
+        line.set_col(0, &Str::from("p:q"), &fs, &mut rc).unwrap();
+        assert_eq!(line.get_col(0, &fs, &ofs, &mut rc).unwrap(), Str::from("p:q"));
+        assert_eq!(line.nf(&fs, &mut rc).unwrap(), 2);
+        assert_eq!(line.get_col(2, &fs, &ofs, &mut rc).unwrap(), Str::from("q"));
+        // A later field assignment still rebuilds `$0` with OFS.
+        line.set_col(1, &Str::from("y"), &fs, &mut rc).unwrap();
+        assert_eq!(line.get_col(0, &fs, &ofs, &mut rc).unwrap(), Str::from("y.q"));
     }
 }

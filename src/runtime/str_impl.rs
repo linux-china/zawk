@@ -536,7 +536,12 @@ impl<'a> Str<'a> {
     /// awk's `tolower`. Despite the name, non-ASCII UTF-8 text is converted too (see
     /// `map_case`).
     pub fn to_lower_ascii<'b>(&self) -> Str<'b> {
-        self.map_case(<[u8]>::make_ascii_lowercase, char::to_lowercase)
+        // U+0130 (İ) is the only character whose full lowercase mapping is not a single
+        // character ("i\u{307}"); C's towlower (used by gawk) maps it to plain 'i'.
+        self.map_case(<[u8]>::make_ascii_lowercase, |c| match c {
+            '\u{130}' => 'i'.to_lowercase(),
+            c => c.to_lowercase(),
+        })
     }
 
     pub fn fend<'b>(&self) -> Str<'b> {
@@ -2935,6 +2940,13 @@ mod tests {
         let big: Str = "Hello World! ".repeat(20).into();
         assert_eq!(big.to_lower_ascii().as_str(), "hello world! ".repeat(20));
         assert_eq!(big.to_upper_ascii().as_str(), "HELLO WORLD! ".repeat(20));
+
+        // Non-ASCII: U+0130 (İ) lowercases to plain 'i' like C towlower; multi-char
+        // mappings such as "ß" -> "SS" are left unchanged.
+        let turkish: Str = "HÉLLO İST".into();
+        assert_eq!(turkish.to_lower_ascii().as_str(), "héllo ist");
+        let sharp: Str = "ßﬀ".into();
+        assert_eq!(sharp.to_upper_ascii().as_str(), "ßﬀ");
     }
 
     #[test]

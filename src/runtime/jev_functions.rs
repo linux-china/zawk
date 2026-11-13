@@ -86,22 +86,42 @@ fn value_text(value: &Value) -> String {
     }
 }
 
+/// The index of an array key made of ASCII digits (optionally negative), as AWK integer keys
+/// are rendered by `to_json`; `None` for a named key.
+fn index_of(key: &str) -> Option<i128> {
+    let digits = key.strip_prefix('-').unwrap_or(key);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    key.parse().ok()
+}
+
 /// Options as (name, description) pairs from the JSON text of the options argument.
 fn options_of(options: &str) -> Vec<(String, Option<String>)> {
     let plain = |name: String| (name.trim().to_owned(), None);
     match serde_json::from_str::<Value>(options) {
         Ok(Value::Array(items)) => items.iter().map(|item| plain(value_text(item))).collect(),
-        Ok(Value::Object(entries)) => entries
-            .into_iter()
-            .map(|(key, value)| {
-                let description = value_text(&value);
-                if key == description || description.is_empty() {
-                    (key, None)
-                } else {
-                    (key, Some(description))
-                }
-            })
-            .collect(),
+        Ok(Value::Object(entries)) => {
+            let mut entries: Vec<(String, Value)> = entries.into_iter().collect();
+            // Index keys (sparse `split`-like arrays) keep the numeric order of the array, which
+            // matters for levels: string keyed arrays reach here sorted as text ("10" < "2").
+            if entries.iter().all(|(key, _)| index_of(key).is_some()) {
+                entries.sort_by_key(|(key, _)| index_of(key));
+            }
+            entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let description = value_text(&value);
+                    if index_of(&key).is_some() {
+                        plain(description)
+                    } else if key == description || description.is_empty() {
+                        (key, None)
+                    } else {
+                        (key, Some(description))
+                    }
+                })
+                .collect()
+        }
         Ok(Value::String(text)) => text.split(',').map(|name| plain(name.to_owned())).collect(),
         Ok(value) => vec![plain(value_text(&value))],
         Err(_) => options
@@ -288,6 +308,25 @@ mod tests {
             vec![
                 ("billing".to_owned(), None),
                 ("security".to_owned(), Some("account access".to_owned()))
+            ]
+        );
+        assert_eq!(
+            options_of("{\"2\":\"billing\",\"5\":\"tech\"}"),
+            vec![("billing".to_owned(), None), ("tech".to_owned(), None)]
+        );
+        assert_eq!(
+            options_of("{\"10\":\"high\",\"2\":\"low\",\"-1\":\"none\",\"3\":\"\"}"),
+            vec![
+                ("none".to_owned(), None),
+                ("low".to_owned(), None),
+                ("high".to_owned(), None)
+            ]
+        );
+        assert_eq!(
+            options_of("{\"2\":\"billing\",\"vip\":\"priority support\"}"),
+            vec![
+                ("billing".to_owned(), None),
+                ("vip".to_owned(), Some("priority support".to_owned()))
             ]
         );
         assert_eq!(
