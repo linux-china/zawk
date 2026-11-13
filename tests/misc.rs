@@ -7414,6 +7414,7 @@ fn json_flatten_paths() {
         print r["ok"], r["no"], ("n" in r), length(r["n"]), r["tags"], r["o"], r["m[1][2]"], r["m[2][1]"], r["f"]
         r = json_flatten("[{\"a\":1},2]"); print length(r), r["[1].a"], r["[2]"]
         print length(json_flatten("")), length(json_flatten("42")), length(json_flatten("\"abc\""))
+        r = json_flatten("{\"a.b\":1,\"a\":{\"b\":2},\"c[1]\":3,\"c\":[4]}"); print length(r), r["a\\.b"], r["a.b"], r["c\\[1\\]"], r["c[1]"]
     }"#;
     for backend_arg in BACKEND_ARGS {
         Command::cargo_bin("zawk")
@@ -7421,7 +7422,7 @@ fn json_flatten_paths() {
             .args([*backend_arg, prog])
             .assert()
             .success()
-            .stdout("6 Jackie active x z\ntrue false 1 0 [] {} 2 3 1.5\n2 1 2\n0 0 0\n");
+            .stdout("6 Jackie active x z\ntrue false 1 0 [] {} 2 3 1.5\n2 1 2\n0 0 0\n4 1 2 3 4\n");
     }
 }
 
@@ -8753,5 +8754,63 @@ fn uninit_numeric_map_elem_stays_uninit_after_read() {
                 .success()
                 .stdout(String::from(expected));
         }
+    }
+}
+
+#[test]
+fn printf_numeric_c_pads_by_bytes() {
+    // gawk pads a numeric `%c` by its UTF-8 bytes, a string `%c` by its first character.
+    let cases: &[(&str, &str)] = &[
+        (r#"BEGIN { printf "[%3c]", 233 }"#, "[ é]"),
+        (r#"BEGIN { printf "[%-3c]", 233 }"#, "[é ]"),
+        (r#"BEGIN { printf "[%5c]", 233 }"#, "[   é]"),
+        (r#"BEGIN { printf "[%3c]", 65 }"#, "[  A]"),
+        (r#"BEGIN { printf "[%3c]", "é" }"#, "[  é]"),
+        (r#"BEGIN { printf "[%3s]", "é" }"#, "[  é]"),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (prog, expected) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .arg(prog)
+                .assert()
+                .success()
+                .stdout(String::from(*expected));
+        }
+    }
+}
+
+#[test]
+fn csv_output_single_empty_field_is_quoted() {
+    // A one-field row whose field is empty is written as `""` (like `to_csv`), not as a bare
+    // empty line that reads back as zero fields; several fields need no quoting.
+    for backend_arg in BACKEND_ARGS {
+        for prog in [r#"{ print $1 }"#, r#"{ $1 = $1; print }"#] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(["-itsv", "-ocsv", prog])
+                .write_stdin("a\n\nx\n")
+                .assert()
+                .success()
+                .stdout("a\n\"\"\nx\n");
+        }
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-itsv", "-ocsv", r#"{ print $1, $1 }"#])
+            .write_stdin("a\n\n")
+            .assert()
+            .success()
+            .stdout("a,a\n,\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-icsv", r#"{ print NR, NF, "[" $1 "]" }"#])
+            .write_stdin("a\n\"\"\nx\n")
+            .assert()
+            .success()
+            .stdout("1 1 [a]\n2 1 []\n3 1 [x]\n");
     }
 }

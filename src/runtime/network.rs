@@ -592,7 +592,10 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         };
         let mut result = cli.publish(&topic, body);
         if result.is_err() && reused {
-            // the pooled connection may have been dropped by the broker while idle: reconnect once
+            // the pooled connection may have been dropped by the broker while idle: reconnect once.
+            // No duplicate: `publish` succeeds as soon as rumqttc reports `Outgoing::Publish`, which
+            // it does only once the packet is written and flushed; an error before that (read, write
+            // or flush failure, timeout) means the packet did not fully reach the socket.
             cli = mqtt_connect(&url)?;
             result = cli.publish(&topic, body);
         }

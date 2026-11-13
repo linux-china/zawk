@@ -145,7 +145,8 @@ pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
 }
 
 /// Flatten a JSON object (or array) into an array keyed by leaf paths: `a.b.c` for object keys
-/// and `a[1]` (1-based) for array items. Leaves are decoded like `from_json`: strings decoded,
+/// and `a[1]` (1-based) for array items, with `.`, `[`, `]` and `\` inside a key escaped by `\`
+/// (so distinct leaves never share a path). Leaves are decoded like `from_json`: strings decoded,
 /// `true`/`false` kept as text, `null` as `""`; empty objects/arrays stay as `{}`/`[]`.
 /// Empty, invalid (with a warning) or scalar JSON text gives an empty array.
 pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
@@ -158,29 +159,53 @@ pub(crate) fn json_flatten<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
     map
 }
 
+/// Flatten `value` into `map`, starting from the root (`path` is normally empty).
+///
+/// Object keys containing the path syntax characters `.`, `[`, `]` or `\` have each of them
+/// escaped with `\` (`{"a.b":1}` gives `a\.b`), so distinct leaves never share a path.
 pub(crate) fn flatten_json_value(value: &serde_json::Value, path: &mut String, map: &StrMap<Str>) {
+    flatten_json_path(value, path, true, map);
+}
+
+fn flatten_json_path(
+    value: &serde_json::Value,
+    path: &mut String,
+    root: bool,
+    map: &StrMap<Str>,
+) {
     let len = path.len();
     match value {
         serde_json::Value::Object(obj) if !obj.is_empty() => {
             for (key, item) in obj {
-                if len > 0 {
+                // Use `root`, not `path.is_empty()`: under an empty key `{"": {"x": 1}}` the
+                // path is still empty, and `x` would collide with a top-level `x`.
+                if !root {
                     path.push('.');
                 }
-                path.push_str(key);
-                flatten_json_value(item, path, map);
+                push_escaped_key(path, key);
+                flatten_json_path(item, path, false, map);
                 path.truncate(len);
             }
         }
         serde_json::Value::Array(arr) if !arr.is_empty() => {
             for (i, item) in arr.iter().enumerate() {
                 let _ = write!(path, "[{}]", i + 1);
-                flatten_json_value(item, path, map);
+                flatten_json_path(item, path, false, map);
                 path.truncate(len);
             }
         }
         leaf => {
             map.insert(Str::from(path.clone()), Str::from(json_node_text(leaf)));
         }
+    }
+}
+
+fn push_escaped_key(path: &mut String, key: &str) {
+    for c in key.chars() {
+        if matches!(c, '.' | '[' | ']' | '\\') {
+            path.push('\\');
+        }
+        path.push(c);
     }
 }
 
@@ -428,5 +453,50 @@ mod tests {
     fn test_json_query() {
         let json_text = r#"{ "books": [{ "name": "a" }, { "name": "b" }] }"#;
         println!("{:?}", json_query(json_text, "$.books[:].name"));
+    }
+
+    fn flat(json_text: &str) -> Vec<(String, String)> {
+        let map = json_flatten(json_text);
+        let mut pairs: Vec<_> = map
+            .to_vec()
+            .into_iter()
+            .map(|k| {
+                let v = map.get(&k).as_str().to_string();
+                (k.as_str().to_string(), v)
+            })
+            .collect();
+        pairs.sort();
+        pairs
+    }
+
+    fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
+        items.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn json_flatten_escapes_path_chars_in_keys() {
+        assert_eq!(
+            flat(r#"{"a.b":1,"a":{"b":2}}"#),
+            pairs(&[("a.b", "2"), (r"a\.b", "1")])
+        );
+        assert_eq!(
+            flat(r#"{"a[1]":"x","a":["y"]}"#),
+            pairs(&[("a[1]", "y"), (r"a\[1\]", "x")])
+        );
+        assert_eq!(
+            flat(r#"{"a\\.b":1,"a\\":{"b":2}}"#),
+            pairs(&[(r"a\\.b", "2"), (r"a\\\.b", "1")])
+        );
+        // An empty key at the root still gets a separator before nested keys.
+        assert_eq!(
+            flat(r#"{"":{"x":1},"x":2}"#),
+            pairs(&[(".x", "1"), ("x", "2")])
+        );
+        assert_eq!(flat(r#"[{"":1}]"#), pairs(&[("[1].", "1")]));
+        // Ordinary keys are unchanged.
+        assert_eq!(
+            flat(r#"{"data":{"name":"J","tags":["t"]}}"#),
+            pairs(&[("data.name", "J"), ("data.tags[1]", "t")])
+        );
     }
 }

@@ -51,7 +51,8 @@ pub(crate) fn read_config<'b>(file: &str) -> StrMap<'b, Str<'b>> {
 }
 
 /// Read a JSON config file whose top level must be an object, flattened like `json_flatten`:
-/// nested object keys joined with `.` and array items as `key[1]` (1-based).
+/// nested object keys joined with `.` and array items as `key[1]` (1-based); `.`, `[`, `]` and
+/// `\` inside a key are escaped with `\`.
 fn read_json<'b>(json_file: &str) -> Result<StrMap<'b, Str<'b>>> {
     let text = std::fs::read_to_string(json_file)?;
     let value: serde_json::Value = serde_json::from_str(&text)?;

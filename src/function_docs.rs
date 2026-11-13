@@ -1329,7 +1329,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "json_flatten",
         JSON,
         "json_flatten(s: str) -> map[str]str",
-        "Flatten nested JSON into an array keyed by leaf paths like `a.b[1].c` (array indexes from 1).",
+        "Flatten nested JSON into an array keyed by leaf paths like `a.b[1].c` (array indexes from 1); `.`, `[`, `]` and `\\` inside a key are escaped with `\\`, e.g. key `a.b` gives `a\\.b`.",
         r#"json_flatten(s)["data.account.name"]"#,
     ),
     d(

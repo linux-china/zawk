@@ -126,7 +126,12 @@ pub trait Line<'a>: Default + Clone {
         if nf == 0 {
             return Ok(Str::default());
         }
-        self.join_cols(1, nf as Int, sep, nf, trans)
+        let row = self.join_cols(1, nf as Int, sep, nf, trans)?;
+        // A one-field CSV row with an empty field is `""`: an empty line reads back as no fields.
+        if nf == 1 && sep.with_bytes(|s| s == b",") && row.with_bytes(|r| r.is_empty()) {
+            return Ok(Str::from("\"\""));
+        }
+        Ok(row)
     }
 }
 

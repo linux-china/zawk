@@ -1227,6 +1227,13 @@ where
                         to_print = self.snapshot_before(to_print, &leaves[j + 1..], next)?;
                         to_print = self.escape(to_print, next)?;
                         current_open = next;
+                        if vs.len() == 1 && matches!(self.ctx.esc, Escaper::CSV) {
+                            // A one-field row whose field is empty is `""` in CSV (as `to_csv`
+                            // writes it); a bare empty line reads back as zero fields.
+                            let (next, v) = self.csv_single_field(to_print, current_open)?;
+                            current_open = next;
+                            to_print = v;
+                        }
                         print_args.push(to_print);
                     }
                     if i == vs.len() - 1 {
@@ -4133,6 +4140,33 @@ where
         };
         let e = PrimExpr::CallBuiltin(builtin, smallvec![v]);
         self.lower_to_val(e, current_open)
+    }
+
+    /// `v` (an escaped CSV field printed as the only field of a row), or `""` when it is empty.
+    fn csv_single_field(
+        &mut self,
+        v: PrimVal<'b>,
+        current_open: NodeIx,
+    ) -> Result<(NodeIx, PrimVal<'b>)> {
+        let is_empty = self.lower_to_val(
+            PrimExpr::CallBuiltin(
+                builtins::Function::Binop(ast::Binop::EQ),
+                smallvec![v.clone(), PrimVal::StrLit(b"")],
+            ),
+            current_open,
+        )?;
+        let res_id = self.fresh_local();
+        self.ctx.may_rename.push(res_id);
+        let t = self.f.cfg.add_node(Default::default());
+        let f = self.f.cfg.add_node(Default::default());
+        let next = self.f.cfg.add_node(Default::default());
+        self.add_stmt(t, PrimStmt::AsgnVar(res_id, PrimExpr::Val(PrimVal::StrLit(b"\"\""))))?;
+        self.add_stmt(f, PrimStmt::AsgnVar(res_id, PrimExpr::Val(v)))?;
+        self.f.cfg.add_edge(current_open, t, Transition::new(is_empty));
+        self.f.cfg.add_edge(current_open, f, Transition::null());
+        self.f.cfg.add_edge(t, next, Transition::null());
+        self.f.cfg.add_edge(f, next, Transition::null());
+        Ok((next, PrimVal::Var(res_id)))
     }
 
     fn fresh(&mut self) -> Ident {

@@ -528,7 +528,13 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                     }
                 }),
             };
-            spec.pad(w, &bytes, |_| 1)
+            // gawk pads a numeric `%c` by its bytes (a multi-byte character counts as several
+            // columns) but a string's first character as one column.
+            if code.is_some() {
+                spec.pad(w, &bytes, <[u8]>::len)
+            } else {
+                spec.pad(w, &bytes, |_| 1)
+            }
         }
         b's' => arg.with_bytes(|bs| {
             let bs = match spec.precision {

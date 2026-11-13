@@ -2,6 +2,7 @@
 
 * Fix transactions across calls to the database functions: `pg_execute(url, "BEGIN")`, a write and `COMMIT` in later calls could run on different connections in a parallel run (the write then committed on its own), and `mysql_execute(url, "BEGIN")` was always rolled back when the connection went back to the pool. MySQL and PostgreSQL connections are now kept per thread, so a session and its transaction stay with the worker that opened them; a closed MySQL connection is reconnected on the next call, and `mysql_query` retries once on it as `pg_query` does
 * Fix `sqlite_execute(db, sql)` with several statements separated by `;` running none of them and returning `0`: without parameters they now run in order, e.g. `"BEGIN; insert ...; insert ...; COMMIT"`, and the rows changed by all of them are returned
+* Fix `json_flatten` (and JSON files read by the config functions) silently dropping values when a key contains path characters: `{"a.b":1,"a":{"b":2}}` gave the one path `a.b`. **Behavior change**: `.`, `[`, `]` and `\` inside a key are now escaped with `\`, so the key `a.b` is `r["a\\.b"]` in a program while the nested `a` → `b` stays `r["a.b"]`; keys without these characters are unchanged. An empty key also keeps its separator: `{"":{"x":1}}` gives `.x`, no longer the path of a top-level `x`
 
 # Version 0.7.1 (2026-11-12)
 
