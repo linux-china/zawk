@@ -112,7 +112,7 @@ pub fn write_all(path: &str, content: &str) {
 pub(crate) fn pairs<'a>(text: &str, pair_sep: &str, kv_sep: &str) -> StrMap<'a, Str<'a>> {
     let is_url_query = pair_sep == "&" && kv_sep == "=";
     let mut map = crate::runtime::HashMap::default();
-    let text = text.trim_matches(|c| c == '"' || c == '\'');
+    let text = strip_wrapping_quotes(text);
     if is_url_query {
         // form_urlencoded decodes both key and value, and treats '+' as space
         // a bare key (`flag`) or an empty value (`b=`) maps to "", following URL query conventions
@@ -167,10 +167,14 @@ fn split_message(text: &str) -> (&str, Option<&str>) {
         // headers come first: find the matching `}` outside quotes
         Some(b) if paren.is_none_or(|p| b < p) => {
             let mut quote: Option<char> = None;
+            let mut escaped = false;
             let mut depth = 0usize;
             let mut end = None;
             for (i, c) in text[b..].char_indices() {
                 match quote {
+                    // inside quotes `\` escapes the next char, as in `read_quoted`
+                    Some(_) if escaped => escaped = false,
+                    Some(_) if c == '\\' => escaped = true,
                     Some(q) if c == q => quote = None,
                     Some(_) => {}
                     None => match c {
@@ -235,13 +239,20 @@ fn record_with<'b>(fn_name: &str, text: &str) -> StrMap<'b, Str<'b>> {
         }
         let pairs_text = &text[paren + 1..text.len() - 1];
         for pair in pairs_text.split(',') {
-            let kv: Vec<&str> = pair.trim().split(' ').collect();
-            if kv.len() == 2 {
-                map.insert(
-                    Str::from(kv[0].trim().to_string()),
-                    Str::from(kv[1].trim().to_string()),
+            // column name, then the type: may span several words (`text not null`)
+            let mut words = pair.split_whitespace();
+            let Some(column) = words.next() else {
+                continue;
+            };
+            let column_type = words.collect::<Vec<_>>().join(" ");
+            if column_type.is_empty() {
+                stdlib_warning(
+                    fn_name,
+                    format!("column {:?} has no type in {:?}", column, text),
                 );
+                continue;
             }
+            map.insert(Str::from(column.to_string()), Str::from(column_type));
         }
     } else if let Some(brace) = brace {
         // record_name{id=1,name="hello world"}(body)
@@ -276,6 +287,21 @@ fn strip_body_quotes(body: &str) -> &str {
     let quoted = b.len() >= 2
         && ((b.starts_with('"') && b.ends_with('"')) || (b.starts_with('\'') && b.ends_with('\'')));
     if quoted { &b[1..b.len() - 1] } else { b }
+}
+
+/// Strip one pair of matching quotes that wrap the whole text (`"a=1;b=2"`).
+/// Text holding the same quote inside (`"a"=1;b="x"`) is kept as-is, since
+/// those quotes belong to the first key and the last value.
+fn strip_wrapping_quotes(text: &str) -> &str {
+    let b = text.trim();
+    for q in ['"', '\''] {
+        if let Some(inner) = b.strip_prefix(q).and_then(|r| r.strip_suffix(q))
+            && !inner.contains(q)
+        {
+            return inner;
+        }
+    }
+    text
 }
 
 /// Parse the `{k=v,...}` part of a record (`text` starts with `{`) into `map`,
@@ -1310,6 +1336,22 @@ mod tests {
     }
 
     #[test]
+    fn test_pairs_quotes() {
+        // quotes belonging to the last value / first key are kept
+        let m = pairs(r#"a=1,b="x""#, ",", "=");
+        assert_eq!(m.get(&Str::from("b")).as_str(), r#""x""#);
+        let m = pairs(r#""a"=1;b="x""#, ";", "=");
+        assert_eq!(m.get(&Str::from(r#""a""#)).as_str(), "1");
+        assert_eq!(m.get(&Str::from("b")).as_str(), r#""x""#);
+        // one pair of quotes wrapping the whole text is removed
+        let m = pairs(r#""a=1;b=2""#, ";", "=");
+        assert_eq!(m.get(&Str::from("a")).as_str(), "1");
+        assert_eq!(m.get(&Str::from("b")).as_str(), "2");
+        let m = pairs("'a=1&b=2'", "&", "=");
+        assert_eq!(m.get(&Str::from("b")).as_str(), "2");
+    }
+
+    #[test]
     fn test_pairs_trim_key() {
         let m = pairs("a=1, b=2", ",", "=");
         assert!(m.contains(&Str::from("b")));
@@ -1348,6 +1390,23 @@ mod tests {
     }
 
     #[test]
+    fn test_record_table_definition() {
+        fn get(m: &StrMap<Str>, k: &str) -> String {
+            m.get(&Str::from(k.to_owned())).as_str().to_string()
+        }
+        let m = record("t(id  integer, name text not null,\tage\tint , )");
+        assert_eq!(get(&m, "_"), "t");
+        assert_eq!(get(&m, "id"), "integer");
+        assert_eq!(get(&m, "name"), "text not null");
+        assert_eq!(get(&m, "age"), "int");
+        assert_eq!(m.len(), 4);
+        // a column without a type is skipped (with a warning)
+        let m = record("t(id integer, name)");
+        assert_eq!(get(&m, "id"), "integer");
+        assert!(!m.contains(&Str::from("name")));
+    }
+
+    #[test]
     fn test_message() {
         fn get(m: &StrMap<Str>, k: &str) -> String {
             m.get(&Str::from(k.to_owned())).as_str().to_string()
@@ -1369,6 +1428,16 @@ mod tests {
         assert_eq!(get(&m, "a"), "1");
         assert_eq!(get(&m, "b"), "x)y");
         assert_eq!(get(&m, "_body"), "body text");
+        // escaped quote and `}` inside a quoted header value
+        let m = message(r#"m{a="x\"}", b=2}(body)"#);
+        assert_eq!(get(&m, "_"), "m");
+        assert_eq!(get(&m, "a"), "x\"}");
+        assert_eq!(get(&m, "b"), "2");
+        assert_eq!(get(&m, "_body"), "body");
+        let m = message(r#"m{a='it\'s}', b="p\\"}(1)"#);
+        assert_eq!(get(&m, "a"), "it's}");
+        assert_eq!(get(&m, "b"), "p\\");
+        assert_eq!(get(&m, "_body"), "1");
         // raw body is kept as written
         let m = message("ev{a=1}(hello world, 42)");
         assert_eq!(get(&m, "_body"), "hello world, 42");

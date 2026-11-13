@@ -683,6 +683,11 @@ pub(crate) struct TypeContext<'a, 'b> {
     // Names of global variables, for error messages.
     global_names: HashMap<NumTy, &'b str>,
     use_locs: &'a crate::cfg::UseLocs,
+    // Where each builtin call is in the program text, keyed by the target node of its
+    // `CallBuiltin` constraint; `use_locs.builtin_calls` only has the first call of each builtin.
+    call_locs: HashMap<NodeIx, crate::lexer::Loc>,
+    // The location of the statement whose constraints are being generated.
+    cur_loc: Option<crate::lexer::Loc>,
     // Whether a user-defined function may be instantiated for a call with untyped arguments.
     // Such an instance is shared by every call whose arguments are untyped at the time, which
     // unifies their types (e.g. arrays with int and str keys), so these calls wait for their
@@ -742,6 +747,8 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             udf_nodes: Default::default(),
             global_names: pc.global_names(),
             use_locs: pc.use_locs(),
+            call_locs: Default::default(),
+            cur_loc: None,
             allow_null_args: false,
             allow_null_try: false,
         };
@@ -1022,13 +1029,23 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     what
                 );
                 let err = common::CompileError::new(msg);
-                return Err(match self.use_locs.builtin_calls.get(name) {
-                    Some(loc) => err.with_loc(*loc),
+                return Err(match self.builtin_call_loc(edge.target(), f) {
+                    Some(loc) => err.with_loc(loc),
                     None => err,
                 });
             }
         }
         Ok(())
+    }
+
+    /// Where the builtin call `f` whose `CallBuiltin` constraint targets `ix` is: the call itself
+    /// when known, otherwise the first call of `f`.
+    fn builtin_call_loc(&self, ix: NodeIx, f: &builtins::Function) -> Option<crate::lexer::Loc> {
+        self.call_locs.get(&ix).copied().or_else(|| {
+            f.awk_name()
+                .and_then(|name| self.use_locs.builtin_calls.get(name))
+                .copied()
+        })
     }
 
     /// Check that the arguments of builtin functions are arrays exactly where the functions expect
@@ -1058,8 +1075,8 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                     array_ty_name(res_ty),
                 );
                 let err = common::CompileError::new(msg);
-                return Err(match self.use_locs.builtin_calls.get(name) {
-                    Some(loc) => err.with_loc(*loc),
+                return Err(match self.builtin_call_loc(edge.target(), f) {
+                    Some(loc) => err.with_loc(loc),
                     None => err,
                 });
             }
@@ -1069,17 +1086,15 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                 if ty.is_array() != exp.is_array() && *ty != compile::Ty::Null {
                     let err = self.kind_error(*arg, !ty.is_array());
                     // E.g. a literal: report the call instead.
-                    let loc = f
-                        .awk_name()
-                        .and_then(|name| self.use_locs.builtin_calls.get(name));
+                    let loc = self.builtin_call_loc(edge.target(), f);
                     return Err(match (err.1, loc) {
-                        (None, Some(loc)) => err.with_loc(*loc),
+                        (None, Some(loc)) => err.with_loc(loc),
                         _ => err,
                     });
                 }
                 // Arrays are not converted between key and value types.
                 if ty.is_array() && ty != exp {
-                    return Err(self.array_arg_error(f, i, *arg, *ty, *exp));
+                    return Err(self.array_arg_error(edge.target(), f, i, *arg, *ty, *exp));
                 }
             }
         }
@@ -1144,6 +1159,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
     /// which expects an array of type `exp`.
     fn array_arg_error(
         &self,
+        call: NodeIx,
         f: &builtins::Function,
         i: usize,
         arg: NodeIx,
@@ -1171,8 +1187,8 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             array_ty_name(ty)
         );
         let err = common::CompileError::new(msg);
-        match self.use_locs.builtin_calls.get(name) {
-            Some(loc) => err.with_loc(*loc),
+        match self.builtin_call_loc(call, f) {
+            Some(loc) => err.with_loc(loc),
             None => err,
         }
     }
@@ -1261,7 +1277,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
 
     /// Where the value at `ix` is used the wrong way: for a variable, its first use as an array
     /// if `scalar_as_array`, otherwise its first use as a scalar (or else its first use); for the
-    /// result of a builtin, the first call of the builtin.
+    /// result of a builtin, the call of the builtin.
     fn kind_error_loc(&self, ix: NodeIx, scalar_as_array: bool) -> Option<crate::lexer::Loc> {
         use petgraph::Direction::Incoming;
         let uses = self.use_locs;
@@ -1285,8 +1301,8 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             }
             for e in self.nw.graph.edges_directed(n, Incoming) {
                 if let Constraint::CallBuiltin(_, f) = &e.weight().constraint
-                    && let Some(loc) = f.awk_name().and_then(|name| uses.builtin_calls.get(name)) {
-                        return Some(*loc);
+                    && let Some(loc) = self.builtin_call_loc(n, f) {
+                        return Some(loc);
                     }
             }
         }
@@ -1434,6 +1450,7 @@ impl<'b, 'c> TypeContext<'b, 'c> {
         }
         let nodes = cfg.raw_nodes();
         for bb in nodes {
+            view.cur_loc = None;
             for stmt in bb.weight.q.iter() {
                 view.constrain_stmt(stmt);
             }
@@ -1458,6 +1475,9 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
                 .push(tmp_res);
         }
         let from = self.nw.base_node;
+        if let Some(loc) = self.cur_loc {
+            self.call_locs.insert(tmp_res, loc);
+        }
         self.nw
             .add_dep(from, tmp_res, Constraint::CallBuiltin(args, f));
         self.nw.add_dep(tmp_res, to, Constraint::Flows(()));
@@ -1510,7 +1530,8 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
             // Builtins have fixed types; no constraint generation is necessary.
             // For IterDrop, we do not add extra constraints because IterBegin and IterNext will be
             // sufficient to determine the type of a given iterator.
-            IterDrop(_) | SetBuiltin(_, _) | Loc(_) => {}
+            Loc(loc) => self.cur_loc = *loc,
+            IterDrop(_) | SetBuiltin(_, _) => {}
         }
     }
 

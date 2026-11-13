@@ -4393,6 +4393,15 @@ fn builtin_variable_and_array_argument_errors_are_located() {
         r#"BEGIN { y = 3; x = split("a b", y) }"#,
         "line 1, column 20: split: argument 2 must be an array, but `y` is a scalar",
     );
+    // The error points at the offending call, not at the first call of the builtin.
+    assert_fatal(
+        "BEGIN {\n x = split(\"a\", arr)\n y = 1\n z = split(\"b\", \"c\")\n}",
+        "line 4, column 6: split: argument 2 must be an array, but a scalar value is given",
+    );
+    assert_fatal(
+        "BEGIN {\n k[1] = 1; x = to_csv(k)\n s[\"a\"] = 1; y = to_csv(s)\n}",
+        "line 3, column 18: to_csv: argument 1 must be an array with integer keys",
+    );
     assert_fatal(
         "BEGIN { n = asorti(3, b) }",
         "line 1, column 13: asorti: argument 1 must be an array, but a scalar value is given",
@@ -7066,6 +7075,42 @@ fn printf_backslashes_under_tsv_output() {
     }
 }
 
+// Under TSV-based output only stdout is escaped: `print`/`printf` to stderr, a file or a command
+// write plain text (no TSV escaping, OFS as set).
+#[test]
+fn tsv_output_does_not_escape_redirected_print() {
+    let cases: &[(&[&str], &str, &str, &str)] = &[
+        (
+            &["-o", "tsv"],
+            r#"{ printf "%s\n", $1 > "/dev/stderr"; print $1, $2 > "/dev/stderr"; print $1 }"#,
+            "a\\\\b\n",
+            "a\\b\na\\b\tc\n",
+        ),
+        (
+            &["-o", "jsonl"],
+            r#"BEGIN{OFS="|"} { print "h"; print $1, $2 | "cat 1>&2"; printf "%s\n", $1 }"#,
+            "{\"h\":\"a\\\\b\"}\n",
+            "a\\b|c\n",
+        ),
+        // `> "/dev/stdout"` is stdout
+        (&["-o", "tsv"], r#"{ printf "%s\n", $1 > "/dev/stdout" }"#, "a\\\\b\n", ""),
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for (args, prog, out, err) in cases {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(String::from(*backend_arg))
+                .args(*args)
+                .arg(*prog)
+                .write_stdin("a\\b c\n")
+                .assert()
+                .success()
+                .stdout(String::from(*out))
+                .stderr(String::from(*err));
+        }
+    }
+}
+
 // `-o jsonl` accepts the Parquet/Avro type suffixes: numeric types are numbers, `bool` a boolean,
 // and the other types strings; an unknown suffix stays part of the name.
 #[test]
@@ -9217,4 +9262,32 @@ fn grok_input_errors() {
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(err.contains(msg), "{err}");
     }
+}
+
+// `getline "x"` reads into the string constant (getline is not an operand of concatenation): the
+// error says so and suggests `(getline) "x"`, rather than reporting a confusing assignment.
+#[test]
+fn getline_into_constant_explains_concatenation() {
+    for prog in [r#"NR==1{print getline "x"}"#, r#"NR==1{x = getline 1}"#] {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(prog)
+            .write_stdin("a\nb\n")
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8(out).unwrap();
+        assert!(err.contains("`getline` cannot read into"), "{}", err);
+        assert!(err.contains("write `(getline) ...`"), "{}", err);
+        assert!(!err.contains("cannot assign to"), "{}", err);
+    }
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg(r#"NR==1{print (getline) "x"}"#)
+        .write_stdin("a\nb\n")
+        .assert()
+        .success()
+        .stdout("1x\n");
 }

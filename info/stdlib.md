@@ -1004,7 +1004,8 @@ https://docs.rs/chrono/latest/chrono/format/strftime/index.html
 * `strftime("%H:%M", 0, 1)`: in UTC when the third argument is nonzero or a nonempty string, local time otherwise.
 * `strftime("%Y-%m-%d %H:%M %Z", 0, "Asia/Shanghai")`: in the time zone named by the third argument, an IANA time zone
   name such as `Asia/Shanghai`, `America/New_York` or `UTC` (daylight saving time included):
-  `1970-01-01 08:00 CST`. A string that is not a time zone name (`"yes"`) means UTC, as in gawk.
+  `1970-01-01 08:00 CST`. A signed UTC offset (`"+08:00"`, `"-0500"`, `"+08"`) is that fixed offset. A string that is
+  not a time zone name (`"Asia/Shangai"`, `"08:00"`) means UTC, with a warning and `ERRNO` set.
 * `strftime()`: the current time in the format of `PROCINFO["strftime"]` (`%a %b %e %H:%M:%S %Z %Y` by default).
 * `strftime("%+")`: ISO 8601 / RFC 3339 date & time format.
 
@@ -1030,7 +1031,8 @@ January 2 or February 1 as the format says. A format without a time of day means
 
 Text with a UTC offset (`%z`) or a Unix time (`%s`) is an instant. Other text is a local time in `tz`: the local time
 zone when `tz` is missing, `""` or `0`; the time zone it names in the IANA database (`Asia/Shanghai`, `UTC`, daylight
-saving time included); UTC for any other true value (`1`), as in `strftime`.
+saving time included); the fixed offset of a signed UTC offset (`+08:00`, `-0500`); UTC for any other true value (`1`),
+as in `strftime`.
 
 - `strptime("01/02/2024", "%m/%d/%Y", "UTC")`: `1704153600`, January 2
 - `strptime("01/02/2024", "%d/%m/%Y", "UTC")`: `1706745600`, February 1

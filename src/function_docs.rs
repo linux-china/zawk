@@ -1206,7 +1206,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "strftime",
         DATETIME,
         "strftime([format: str[, timestamp: int[, utc: any]]]) -> str",
-        "Format a Unix time (default now) with chrono strftime format, local time unless utc is true; a utc naming an IANA time zone (\"Asia/Shanghai\") formats in that zone; an unknown zone name means UTC with a warning and ERRNO set.",
+        "Format a Unix time (default now) with chrono strftime format, local time unless utc is true; a utc naming an IANA time zone (\"Asia/Shanghai\") or a signed UTC offset (\"+08:00\") formats in that zone; an unknown zone name means UTC with a warning and ERRNO set.",
         r#"strftime("%Y-%m-%d %H:%M:%S", 0, 1)"#,
     ),
     d(
@@ -1220,7 +1220,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "strptime",
         DATETIME,
         "strptime(s: str, format: str[, tz: str]) -> int",
-        "Parse s with a chrono strftime format to a Unix time, -1 if it does not match; text without %z or %s is local time, or in tz: an IANA time zone name, or UTC for a number or \"true\" (an unknown zone name is UTC with a warning); a %Z name must be UTC/GMT or one tz uses then, else -1.",
+        "Parse s with a chrono strftime format to a Unix time, -1 if it does not match; text without %z or %s is local time, or in tz: an IANA time zone name, a signed UTC offset (\"+08:00\", \"-0500\"), or UTC for a number or \"true\" (an unknown zone name is UTC with a warning); a %Z name must be UTC/GMT or one tz uses then, else -1.",
         r#"strptime("02/01/2024", "%d/%m/%Y", "UTC")"#,
     ),
     d(

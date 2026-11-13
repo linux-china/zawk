@@ -901,6 +901,18 @@ pub(crate) fn is_unused(i: Ident) -> bool {
     i.low == 0
 }
 
+/// Whether `print`/`printf` with output redirection `out` writes to stdout: no redirection, or
+/// `> "/dev/stdout"`, `> "-"` (and `>>`). A redirection computed at runtime is not stdout.
+fn is_stdout_target<I>(out: &Option<(&Expr<'_, '_, I>, FileSpec)>) -> bool {
+    match out {
+        None => true,
+        Some((Expr::StrLit(s), spec)) => {
+            !matches!(spec, FileSpec::Cmd) && matches!(*s, b"/dev/stdout" | b"-")
+        }
+        Some(_) => false,
+    }
+}
+
 /// Push the operands of a chain of concatenations `e` (or `e` itself, if it is not one) onto
 /// `out`, left to right.
 fn flatten_concat<'a, 'c, 'b, I>(e: &'a Expr<'c, 'b, I>, out: &mut SmallVec<&'a Expr<'c, 'b, I>>) {
@@ -1027,6 +1039,17 @@ where
             None => {}
         }
         Ok(match stmt {
+            // Under TSV-based output (`-o tsv/jsonl/markdown/table/parquet/...`) only stdout is
+            // the formatted output. `print`/`printf` to stderr, a file or a command write plain
+            // text, as without `-o`: no TSV escaping, OFS/ORS as set.
+            Print(_, out) | Printf(_, _, out)
+                if matches!(self.ctx.esc, Escaper::TSV) && !is_stdout_target(out) =>
+            {
+                self.ctx.esc = Escaper::Identity;
+                let res = self.convert_stmt(stmt, current_open);
+                self.ctx.esc = Escaper::TSV;
+                res?
+            }
             StartCond(cond) => {
                 self.set_cond(current_open, *cond, 1)?;
                 current_open
@@ -2154,6 +2177,21 @@ where
                 into,
                 is_file,
             } => {
+                // `getline "x"` reads into the string constant: the grammar does not make getline
+                // an operand of concatenation (gawk reads `(getline) "x"`). Say so, rather than
+                // reporting a confusing assignment error.
+                if let Some(into) = into
+                    && !valid_lhs(into)
+                {
+                    let e = err_raw!(
+                        "`getline` cannot read into {}: the word after `getline` is the variable to read into, and getline is not concatenated with what follows; write `(getline) ...` to concatenate its result, or `getline var` to read into a variable",
+                        describe_non_lhs(into)
+                    );
+                    return Err(match self.loc_of(into).or_else(|| self.loc_of(expr)) {
+                        Some(loc) => e.with_loc(loc),
+                        None => e,
+                    });
+                }
                 // break up getline calls to help the FS analysis out
                 let next = self.f.cfg.add_node(Default::default());
                 self.f.cfg.add_edge(current_open, next, Transition::null());

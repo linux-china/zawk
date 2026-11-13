@@ -56,18 +56,60 @@ enum Zone {
 }
 
 /// Whether the utc/timezone argument `name` is a utc flag (empty, a number such as `"1"`, or
-/// `"true"`) rather than the name of a time zone.
+/// `"true"`) rather than the name of a time zone. A fixed offset such as `"+0800"` is checked
+/// first (see [`fixed_offset`]), since it would parse as a number too.
 fn is_utc_flag(name: &str) -> bool {
     let name = name.trim();
-    !name.bytes().any(|b| b.is_ascii_alphabetic())
-        || name.parse::<f64>().is_ok()
-        || name.eq_ignore_ascii_case("true")
+    name.is_empty() || name.parse::<f64>().is_ok() || name.eq_ignore_ascii_case("true")
 }
 
-/// The IANA time zone `name` (`"Asia/Shanghai"`, `"UTC"`) names, `None` for a utc flag (see
-/// [`is_utc_flag`]). A name that is no time zone (`"Asia/Shangai"`) is `None` too, with a stdlib
-/// warning (and `ERRNO` set) for `func`, so that a typo does not silently mean UTC.
+/// The fixed UTC offset `[+-]hh`, `[+-]hhmm`, `[+-]h[h]:mm` or `[+-]h[h]:mm:ss` (`"+08:00"`,
+/// `"-0500"`) names, `None` for anything else. The sign is required, so that `"1"` stays a utc
+/// flag; other signed numbers (`"-1"`, `"+800"`) are utc flags too. An offset beyond ±25:59:59
+/// is `None`.
+fn fixed_offset(name: &str) -> Option<jiff::tz::TimeZone> {
+    let name = name.trim();
+    let sign = match name.as_bytes().first()? {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let rest = &name[1..];
+    let two = |s: &str| -> Option<i32> {
+        (s.len() == 2 && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok())?
+    };
+    let (h, m, s) = if rest.contains(':') {
+        let mut parts = rest.split(':');
+        let h = parts.next()?;
+        let h = if h.len() == 1 { two(&format!("0{h}"))? } else { two(h)? };
+        let m = two(parts.next()?)?;
+        let s = parts.next().map_or(Some(0), two)?;
+        if parts.next().is_some() {
+            return None;
+        }
+        (h, m, s)
+    } else {
+        match rest.len() {
+            2 => (two(rest)?, 0, 0),
+            4 => (two(&rest[..2])?, two(&rest[2..])?, 0),
+            _ => return None,
+        }
+    };
+    if m > 59 || s > 59 {
+        return None;
+    }
+    let offset = jiff::tz::Offset::from_seconds(sign * (h * 3600 + m * 60 + s)).ok()?;
+    Some(jiff::tz::TimeZone::fixed(offset))
+}
+
+/// The time zone `name` names: a fixed offset (`"+08:00"`, see [`fixed_offset`]) or an IANA time
+/// zone (`"Asia/Shanghai"`, `"UTC"`); `None` for a utc flag (see [`is_utc_flag`]). Anything else
+/// (`"Asia/Shangai"`, `"08:00"`) is `None` too, with a stdlib warning (and `ERRNO` set) for
+/// `func`, so that a typo does not silently mean UTC.
 fn lookup_time_zone(func: &str, name: &str) -> Option<jiff::tz::TimeZone> {
+    if let Some(tz) = fixed_offset(name) {
+        return Some(tz);
+    }
     if is_utc_flag(name) {
         return None;
     }
@@ -85,10 +127,11 @@ impl Zone {
     #[cfg(test)]
     fn named(name: &str, timestamp: i64) -> Option<Zone> {
         // numbers are utc flags, not time zones: skip the lookup
-        if is_utc_flag(name) {
-            return None;
-        }
-        let tz = jiff::tz::TimeZone::get(name).ok()?;
+        let tz = match fixed_offset(name) {
+            Some(tz) => tz,
+            None if is_utc_flag(name) => return None,
+            None => jiff::tz::TimeZone::get(name).ok()?,
+        };
         Self::in_zone(&tz, timestamp)
     }
 
@@ -129,6 +172,20 @@ fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
     if format.is_empty() {
         return String::new();
     }
+    // libc computes `%s` with `mktime` (local time) and, on BSD, `%z` from the process time zone,
+    // ignoring `tm_gmtoff`: expand them here for zones other than the local one
+    let expanded;
+    let format = match zone {
+        Zone::Local => format,
+        Zone::Utc => {
+            expanded = expand_epoch_and_offset(format, timestamp, 0);
+            expanded.as_str()
+        }
+        Zone::Named { offset, .. } => {
+            expanded = expand_epoch_and_offset(format, timestamp, *offset);
+            expanded.as_str()
+        }
+    };
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // the abbreviation of a named zone, which `tm.tm_zone` points to while formatting
     let mut zone_abbr = None;
@@ -175,6 +232,37 @@ fn strftime_tz(format: &str, timestamp: i64, zone: &Zone) -> String {
         size *= 2;
     }
     String::new()
+}
+
+/// `format` with the `%s` (seconds since the epoch) and `%z` (`+hhmm`) conversions replaced by
+/// their values for `timestamp` in a zone `offset` seconds east of UTC. Flags, a width and the
+/// `E`/`O` modifiers of these conversions are dropped; `%%` and other conversions are kept.
+#[cfg(unix)]
+fn expand_epoch_and_offset(format: &str, timestamp: i64, offset: i32) -> String {
+    let mut text = String::with_capacity(format.len() + 16);
+    let mut rest = format;
+    while let Some(pos) = rest.find('%') {
+        text.push_str(&rest[..pos]);
+        let spec = &rest[pos + 1..];
+        let skip = spec
+            .find(|c: char| !matches!(c, '-' | '_' | '0'..='9' | '^' | '#' | 'E' | 'O'))
+            .unwrap_or(spec.len());
+        let conv = spec[skip..].chars().next();
+        let end = pos + 1 + skip + conv.map_or(0, char::len_utf8);
+        match conv {
+            Some('s') => text.push_str(&timestamp.to_string()),
+            Some('z') => {
+                let sign = if offset < 0 { '-' } else { '+' };
+                let minutes = offset.unsigned_abs() / 60;
+                text.push_str(&format!("{sign}{:02}{:02}", minutes / 60, minutes % 60));
+            }
+            // `%%` and other conversions are formatted by libc
+            _ => text.push_str(&rest[pos..end]),
+        }
+        rest = &rest[end..];
+    }
+    text.push_str(rest);
+    text
 }
 
 /// `strftime` with chrono: format item by item, so that an unknown conversion is output as is
@@ -1160,6 +1248,12 @@ mod tests {
             assert_eq!(errno(), "", "{flag}");
         }
         assert!(lookup_time_zone("strftime", "Asia/Shanghai").is_some());
+        // an offset without a sign is no time zone: UTC, with a warning
+        for name in ["08:00", "+08:60", "+08:5", "+08:00:00:00", "+:00"] {
+            set_errno(String::new());
+            assert!(lookup_time_zone("strftime", name).is_none(), "{name}");
+            assert!(errno().contains(name), "{name}");
+        }
         // a misspelt zone is UTC, with ERRNO telling why
         set_errno(String::new());
         assert!(lookup_time_zone("strftime", "Asia/Shangai").is_none());
@@ -1180,6 +1274,48 @@ mod tests {
             "2021-05-20 17:00:00"
         );
         assert_eq!(strftime_tz("%Ey/%Od", 1621530000, &Zone::Utc), "21/20");
+        // %s and %z do not depend on the local time zone
+        assert_eq!(strftime_tz("%s|%z", 0, &Zone::Utc), "0|+0000");
+    }
+
+    #[test]
+    fn test_fixed_offset_zone() {
+        let secs = |name: &str| {
+            fixed_offset(name).map(|tz| tz.to_offset(jiff::Timestamp::UNIX_EPOCH).seconds())
+        };
+        assert_eq!(secs("+08:00"), Some(8 * 3600));
+        assert_eq!(secs("+0800"), Some(8 * 3600));
+        assert_eq!(secs("+08"), Some(8 * 3600));
+        assert_eq!(secs("-0500"), Some(-5 * 3600));
+        assert_eq!(secs(" +05:30 "), Some(5 * 3600 + 30 * 60));
+        assert_eq!(secs("+8:00"), Some(8 * 3600));
+        assert_eq!(secs("-03:30:15"), Some(-(3 * 3600 + 30 * 60 + 15)));
+        for name in ["", "1", "-1", "08:00", "+8", "+800", "+08:5", "+08:60", "Asia/Tokyo"] {
+            assert_eq!(secs(name), None, "{name}");
+        }
+        let fmt = |name: &str| strftime_tz("%H:%M %z", 0, &Zone::named(name, 0).unwrap());
+        assert_eq!(fmt("+08:00"), "08:00 +0800");
+        assert_eq!(fmt("-0500"), "19:00 -0500");
+        let ymd = "%Y-%m-%d %H:%M:%S";
+        assert_eq!(strptime("2024-01-02 03:04:05", ymd, "+08:00"), 1704135845);
+        assert_eq!(strptime("2024-01-02 03:04:05", ymd, "-0500"), 1704182645);
+    }
+
+    #[test]
+    fn test_strftime_named_zone_epoch_offset() {
+        let at = |name: &str, ts: i64| Zone::named(name, ts).unwrap();
+        assert_eq!(strftime_tz("%s|%z", 0, &at("Asia/Tokyo", 0)), "0|+0900");
+        assert_eq!(strftime_tz("%s|%z", 0, &at("America/New_York", 0)), "0|-0500");
+        assert_eq!(
+            strftime_tz("%Y-%m-%dT%H:%M:%S%z", 0, &at("Asia/Kolkata", 0)),
+            "1970-01-01T05:30:00+0530"
+        );
+        assert_eq!(strftime_tz("%H:%M %z %Z", 0, &at("UTC", 0)), "00:00 +0000 UTC");
+        // %% escapes: %%s and %%z are literal
+        assert_eq!(
+            strftime_tz("%%s %%z %%%s", 1621530000, &at("Asia/Tokyo", 1621530000)),
+            "%s %z %1621530000"
+        );
     }
 
     #[test]

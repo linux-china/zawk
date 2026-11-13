@@ -165,23 +165,59 @@ pub(crate) enum TxControl {
 /// `TRIGGER`/`EVENT` (whose body has `BEGIN ... END`) is transaction control. Other implicit
 /// commits are not seen: a transaction is then still taken as open, which only matters if its
 /// connection is lost (the next call asks for a `ROLLBACK`) or at exit (a warning).
+/// In PostgreSQL, the statements of a `CREATE FUNCTION|PROCEDURE ... BEGIN ATOMIC ... END` body,
+/// and in SQLite those of a `CREATE TRIGGER ... BEGIN ... END` body, up to the `END`, are not
+/// transaction control either.
 pub(crate) fn tx_controls(sql: &str, dialect: Dialect) -> Vec<Option<TxControl>> {
     let mut in_routine = false;
+    let mut in_body = false;
     split_statements(sql, dialect)
         .into_iter()
         .map(|stmt| {
             let words = leading_words(stmt, 6);
+            if in_body {
+                // the body's statements cannot start with `END` (a `CASE ... END` is inside one)
+                in_body = words.first().is_none_or(|w| w != "END");
+                return None;
+            }
             if dialect == Dialect::MySql && !in_routine && creates_routine(&words) {
                 in_routine = true;
                 return Some(TxControl::Commit);
             }
             if in_routine {
-                None
-            } else {
-                statement_control(&words, dialect)
+                return None;
             }
+            if opens_body(stmt, &words, dialect) {
+                in_body = true;
+                return None;
+            }
+            statement_control(&words, dialect)
         })
         .collect()
+}
+
+/// Whether `stmt` (with leading `words`) is a `CREATE` whose body is a `BEGIN [ATOMIC] ... END`
+/// of statements separated by `;`, which goes on after `stmt`: PostgreSQL `BEGIN ATOMIC`
+/// function/procedure bodies, SQLite trigger bodies.
+fn opens_body(stmt: &str, words: &[String], dialect: Dialect) -> bool {
+    if words.first().is_none_or(|w| w != "CREATE") {
+        return false;
+    }
+    let all = leading_words(stmt, usize::MAX);
+    let begin = match dialect {
+        Dialect::Postgres => all.windows(2).position(|w| w[0] == "BEGIN" && w[1] == "ATOMIC"),
+        Dialect::Sqlite if all.iter().any(|w| w == "TRIGGER") => {
+            all.iter().position(|w| w == "BEGIN")
+        }
+        _ => None,
+    };
+    let body_start = match (dialect, begin) {
+        (Dialect::Postgres, Some(p)) => p + 2,
+        (_, Some(p)) => p + 1,
+        (_, None) => return false,
+    };
+    // an empty body `BEGIN ATOMIC END` ends in `stmt`
+    all.get(body_start).is_none_or(|w| w != "END")
 }
 
 /// The first `n` words of `stmt`, in upper case.
@@ -687,6 +723,23 @@ mod tests {
         );
         // DDL does not end a transaction in PostgreSQL
         assert_eq!(pg("BEGIN; create table t(x int)"), [Some(Begin), None]);
+
+        // a `BEGIN ATOMIC` body is not transaction control, up to its `END`
+        assert_eq!(
+            pg("BEGIN; create function f() returns int language sql \
+                BEGIN ATOMIC select case when true then 1 end; select 2; END; COMMIT"),
+            [Some(Begin), None, None, None, Some(Commit)]
+        );
+        assert_eq!(
+            pg("create procedure p() begin atomic end; end"),
+            [None, Some(Commit)]
+        );
+        let lite = |sql| tx_controls(sql, Sqlite);
+        assert_eq!(
+            lite("BEGIN; create trigger t after insert on x begin delete from y; END; COMMIT"),
+            [Some(Begin), None, None, Some(Commit)]
+        );
+        assert_eq!(lite("create table t(begin int); end"), [None, Some(Commit)]);
 
         let my = |sql| tx_controls(sql, MySql);
         // `\'` does not end a MySQL string
