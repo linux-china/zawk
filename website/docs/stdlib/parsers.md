@@ -81,6 +81,15 @@ m = grok($0, "%{ORDER_ID:oid} %{GREEDYDATA:msg}", read_all("patterns/app.grok"))
 An unknown pattern (`%{NOPE}`), an invalid regex or a bad definition gives an empty array with a warning and
 `ERRNO` set. Compiled expressions are cached, so calling `grok` on every record compiles each expression once.
 
+To split every input line with a grok expression, use `--grok PATTERN` (with `--grok-defs FILE` for custom patterns)
+instead: the captures become the columns, read as `$FI["key"]`, and lines that do not match are skipped:
+
+```shell
+zawk --grok '%{COMMONAPACHELOG}' '{ c[$FI["response"]]++ } END { for (s, n in c) print s, n }' access.log
+```
+
+See the [Grok tutorial](../tutorials/grok.md).
+
 Use `grok` for logs and reusable patterns; for a one-off regex, `match(s, re, arr)` with named groups
 `(?P<name>...)` or `rparse` is enough.
 

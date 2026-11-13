@@ -18,7 +18,7 @@ column names to their index, so `$FI["age"]` is the field of the `age` column.
 zawk -i csv -H '$FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.csv
 ```
 
-`-i jsonl`, `-i parquet`, `-i avro`, `-i markdown` and database inputs imply `-H`.
+`-i jsonl`, `-i parquet`, `-i avro`, `-i markdown`, `--grok` and database inputs imply `-H`.
 
 ## Input formats
 
@@ -32,6 +32,7 @@ zawk -i csv -H '$FI["age"] > 40 { print $FI["name"], $FI["age"] }' users.csv
 | `-i avro` | Apache Avro (Object Container File) | default for `.avro`; any codec; `$0` is the record as a JSON object |
 | `-i markdown` (`md`) | first Markdown table of a file | |
 | `-i xlsx` | Excel / ODS | default for `.xlsx`; `book.xlsx#Sheet2` selects a sheet |
+| `--grok PATTERN` | text lines matched by a grok expression | the `%{NAME:key}` captures are the columns; non-matching lines are skipped; see [Grok](../tutorials/grok.md) |
 
 ```shell
 # JSON Lines

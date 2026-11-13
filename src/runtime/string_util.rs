@@ -709,7 +709,7 @@ static GROK_DEFAULT: LazyLock<grok::Grok> = LazyLock::new(grok::Grok::with_defau
 
 /// Parse custom definitions in the Logstash patterns file format: one `NAME regex` per line,
 /// blank lines and `#` comments ignored.
-fn grok_definitions(defs: &str) -> std::result::Result<Vec<(&str, &str)>, String> {
+pub(crate) fn grok_definitions(defs: &str) -> std::result::Result<Vec<(&str, &str)>, String> {
     let mut items = Vec::new();
     for line in defs.lines() {
         let line = line.trim();
@@ -731,7 +731,7 @@ fn grok_definitions(defs: &str) -> std::result::Result<Vec<(&str, &str)>, String
     Ok(items)
 }
 
-fn grok_compile(pattern: &str, defs: &str) -> std::result::Result<grok::Pattern, String> {
+pub(crate) fn grok_compile(pattern: &str, defs: &str) -> std::result::Result<grok::Pattern, String> {
     let compiled = if defs.trim().is_empty() {
         GROK_DEFAULT.compile(pattern, true)
     } else {

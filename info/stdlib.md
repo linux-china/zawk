@@ -612,6 +612,10 @@ in the match is left out, and text that does not match gives an empty array. The
 order: call `grok` once per value when their order is unknown. An unknown pattern, an invalid regex or a bad
 definition gives an empty array with a warning and `ERRNO` set. Compiled expressions are cached per thread.
 
+To split every input line with a grok expression, use `--grok PATTERN` (with `--grok-defs FILE` for custom
+patterns) instead: the named captures become the columns, referenced as `$FI["name"]`, and lines that do not match
+are skipped, e.g. `zawk --grok '%{COMMONAPACHELOG}' '{ print $FI["clientip"], $FI["response"] }' access.log`.
+
 For more patterns, please refer: https://docs.rs/grok/latest/grok/patterns/index.html
 
 ### Records

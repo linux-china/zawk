@@ -54,6 +54,7 @@ use runtime::{
         batch::{ByteReader, CSVReader, InputFormat},
         database,
         json::JsonRecords,
+        grok::{GrokReader, GrokSchema},
         jsonl::JsonlReader,
         kafka,
         markdown::MarkdownCsv,
@@ -1204,6 +1205,9 @@ fn input_format(matches: &clap::ArgMatches, input_files: &[String]) -> Option<St
     if let Some(format) = matches.get_one::<String>("input-format") {
         return Some(format.clone());
     }
+    if matches.try_get_one::<String>("grok").ok().flatten().is_some() {
+        return Some(String::from("grok"));
+    }
     let field_sep = matches
         .try_get_one::<String>("field-separator")
         .ok()
@@ -1679,6 +1683,18 @@ fn real_main() {
             .conflicts_with("field-separator")
             .help("Input is split according to the rules of (csv|tsv|json|jsonl|parquet|avro|markdown). $0 contains the unescaped line. Assigning to columns does nothing. jsonl implies -H: `FI` maps JSON keys to columns in the order they are first seen (a key first seen in a later record is appended, so NF grows from that record on). json reads a JSON document as JSON Lines: each element of an array is a record, an object is one record, and a string or number is a record of plain text; `file.json#$.data` selects the records with a JSONPath. json is the default when every input file ends with .json, jsonl when every input file ends with .jsonl or .ndjson, and parquet when every input file ends with .parquet (and starts with the PAR1 magic), and avro when every input file ends with .avro (and starts with the Obj\\x01 magic). parquet implies -H: `FI` maps column names to columns, $0 is the row as a JSON object. avro reads an Avro Object Container File (any codec) and implies -H: `FI` maps the fields of the record schema to columns, $0 is the record as a JSON object; booleans are 1/0, dates YYYY-MM-DD, timestamps RFC 3339 UTC, decimals exact, bytes hex, nested values JSON and null empty (or the --null text). markdown (md) reads the first table as CSV and implies -H: `FI` maps column names (without `:TYPE` suffixes) to columns. xlsx reads a sheet of an Excel workbook as CSV (`book.xlsx#Sheet2` for a sheet, the first one by default); with -H its first row is the header. xlsx is the default when every input file ends with .xlsx (or .xls, .xlsm, .xlsb, .ods); with other input files, or with -i csv/tsv, each workbook is converted to CSV/TSV and the run is -i csv")
             .value_parser(["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "avro", "markdown", "md", "xlsx"]))
+        .arg(Arg::new("grok")
+            .long("grok")
+            .num_args(1)
+            .value_name("PATTERN")
+            .conflicts_with_all(["input-format", "field-separator"])
+            .help("Split each line with a grok expression such as '%{IP:client} %{WORD:method} %{NUMBER:bytes}' and imply -H: the named captures are the columns, in the order of the pattern (following the patterns it refers to), `FI` maps their names to columns and $0 is the whole line. A capture that did not take part in the match is empty, a `:type` suffix only names the column, and lines that do not match are skipped (counted as rejected records by --stats)"))
+        .arg(Arg::new("grok-defs")
+            .long("grok-defs")
+            .num_args(1)
+            .value_name("FILE")
+            .requires("grok")
+            .help("Custom grok patterns for --grok, in the Logstash patterns file format: one `NAME regex` per line, blank lines and `#` comments ignored; a definition replaces a default pattern of the same name"))
         .arg(Arg::new("var")
             .short('v')
             .num_args(1)
@@ -2094,6 +2110,24 @@ fn real_main() {
     let database = matches!(input_format.as_deref(), Some("database"));
     // A sheet of an Excel workbook is read as CSV; with -H, its first row is the header.
     let xlsx = matches!(input_format.as_deref(), Some("xlsx"));
+    // `--grok PATTERN`: each line is split by the named captures of a grok expression.
+    let grok_schema = match matches.get_one::<String>("grok") {
+        Some(pattern) => {
+            let defs = match matches.get_one::<String>("grok-defs") {
+                Some(file) => match std::fs::read_to_string(file) {
+                    Ok(defs) => defs,
+                    Err(e) => fail!("cannot read --grok-defs file {}: {}", file, e),
+                },
+                None => String::new(),
+            };
+            match GrokSchema::new(pattern, &defs) {
+                Ok(schema) => Some(std::sync::Arc::new(schema)),
+                Err(e) => fail!("invalid --grok pattern {:?}: {}", pattern, e),
+            }
+        }
+        None => None,
+    };
+    let grok = grok_schema.is_some();
     if input_files.iter().any(|f| database::is_db_url(f))
         && !(database || ifmt == Some(InputFormat::CSV))
     {
@@ -2117,7 +2151,8 @@ fn real_main() {
         || parquet
         || avro
         || markdown
-        || database;
+        || database
+        || grok;
     // A NATS subject or a Kafka topic: each message is an input file of its own, read until Ctrl+C.
     let message_url = input_files
         .iter()
@@ -2133,6 +2168,9 @@ fn real_main() {
                     "nats:// subject"
                 }
             );
+        }
+        if grok {
+            fail!("--grok is not supported for Kafka or NATS messages");
         }
         if parquet || avro || markdown || xlsx {
             let service = if kafka::is_kafka_url(url) {
@@ -2155,7 +2193,7 @@ fn real_main() {
     // Every message is read by a reader of its own, which starts with the header (the keys
     // of a JSON message).
     let header_per_file =
-        parse_header && ((!json && !jsonl && !parquet && !avro) || message_url.is_some());
+        parse_header && ((!json && !jsonl && !parquet && !avro && !grok) || message_url.is_some());
     let multi_file_headers = header_per_file && (input_files.len() > 1 || message_url.is_some());
     if multi_file_headers && !matches!(exec_strategy, ExecutionStrategy::Serial) {
         // The workers cannot tell which record is the header of a file.
@@ -2502,6 +2540,29 @@ fn real_main() {
                     signal.clone(),
                 )
                 .scalar_text();
+                $body
+            } else if let Some(schema) = grok_schema.clone() {
+                let sources: Vec<(Box<dyn io::Read + Send>, String)> = if input_files.is_empty() {
+                    vec![(Box::new(io::stdin()), String::from("-"))]
+                } else {
+                    input_files
+                        .iter()
+                        .cloned()
+                        .map(|file| {
+                            let r: Box<dyn io::Read + Send> =
+                                Box::new(open_file_read(file.as_str()));
+                            (r, file)
+                        })
+                        .collect()
+                };
+                let $inp = GrokReader::new(
+                    sources.into_iter(),
+                    schema,
+                    chunk_size,
+                    check_utf8,
+                    exec_strategy,
+                    signal.clone(),
+                );
                 $body
             } else if jsonl {
                 let fi_names = awk_util::fi_constant_keys(&program_code);

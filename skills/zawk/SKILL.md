@@ -357,6 +357,9 @@ zawk '{ u = url($1); print u["host"], pairs(u["query"], "&")["id"] }' urls.txt
 
 # Parse logs with grok patterns: %{NAME:key}, named captures only
 zawk '{ m = grok($0, "%{COMMONAPACHELOG}"); print m["clientip"], m["response"] }' access.log
+# ... or split every line with --grok: captures are the columns ($FI["name"]), non-matching lines skipped
+zawk --grok '%{COMMONAPACHELOG}' '{ n[$FI["response"]]++ } END { for (r in n) print r, n[r] }' access.log
+zawk --grok '%{MYLOG}' --grok-defs patterns.grok '{ print $FI["client"] }' app.log
 
 # Hash, encode, IDs
 zawk '{ print uuid(), digest("sha256", $0), encode("base64", $0) }' data.txt

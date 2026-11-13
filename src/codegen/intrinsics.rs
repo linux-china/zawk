@@ -12,6 +12,7 @@ use crate::runtime::{
     splitter::{
         batch::{ByteReader, CSVReader, WhitespaceOffsets},
         chunk::{ChunkProducer, OffsetChunk},
+        grok::GrokReader,
         jsonl::JsonlReader,
         message::MessageReader,
         regex::RegexSplitter,
@@ -723,6 +724,7 @@ macro_rules! with_input {
             $crate::codegen::intrinsics::InputData::V6($p) => $body,
             $crate::codegen::intrinsics::InputData::V7($p) => $body,
             $crate::codegen::intrinsics::InputData::V8($p) => $body,
+            $crate::codegen::intrinsics::InputData::V9($p) => $body,
         }
     };
 }
@@ -798,6 +800,7 @@ pub(crate) enum InputData {
     V6(InputTuple<MessageReader<RegexSplitter<Box<dyn io::Read + Send>>>>),
     V7(InputTuple<MessageReader<CSVReader<Box<dyn ChunkProducer<Chunk = OffsetChunk>>>>>),
     V8(InputTuple<MessageReader<JsonlReader>>),
+    V9(InputTuple<GrokReader>),
 }
 
 /// A deferred constructor for a worker thread's input, see [`InputData::worker_inputs`].
@@ -879,6 +882,7 @@ impl_into_runtime!(
     V7
 );
 impl_into_runtime!(MessageReader<JsonlReader>, V8);
+impl_into_runtime!(GrokReader, V9);
 
 pub(crate) struct Runtime<'a> {
     pub(crate) core: crate::interp::Core<'a>,

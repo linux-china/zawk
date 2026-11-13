@@ -121,6 +121,7 @@ zawk [options] -f script.awk [file ...]
 | `-f file` / `-e text` | Program from a file (or an `https://` URL, or a Markdown file) / from text |
 | `-i csv\|tsv\|json\|jsonl\|parquet\|avro\|markdown\|xlsx` | Input format (not gawk's `-i include`) |
 | `-H` | First line is a header: `$FI["col"]` is the field of column `col` |
+| `--grok PATTERN` | Split each line with a grok expression: `$FI["key"]` is the capture `%{NAME:key}`, non-matching lines are skipped ([Grok](./tutorials/grok.md)); `--grok-defs FILE` adds custom patterns |
 | `-o csv\|tsv\|markdown\|table\|jsonl\|parquet\|avro` | Output format of `print` |
 | `--out-file FILE` | Write stdout to `FILE` (required for `-o parquet`/`-o avro` unless redirected) |
 | `-p r -j N` | Run in parallel over records with `N` workers |

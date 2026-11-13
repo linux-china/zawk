@@ -93,13 +93,13 @@ enum Header {
 
 #[derive(Default, Clone)]
 pub struct JsonlLine {
-    line: Str<'static>,
-    fields: Vec<Str<'static>>,
+    pub(super) line: Str<'static>,
+    pub(super) fields: Vec<Str<'static>>,
     // A column was assigned, so $0 must be rebuilt from the fields.
-    diverged: bool,
+    pub(super) diverged: bool,
     // A column or NF was assigned since the record was read or `$0` was assigned; unlike
     // `diverged`, this stays set after `$0` is rebuilt (see `Line::record`).
-    assigned: bool,
+    pub(super) assigned: bool,
 }
 
 impl<'a> Line<'a> for JsonlLine {

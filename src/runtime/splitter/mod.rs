@@ -10,6 +10,7 @@ pub mod batch;
 pub mod chunk;
 pub mod database;
 pub mod json;
+pub mod grok;
 pub mod jsonl;
 pub mod kafka;
 pub mod markdown;

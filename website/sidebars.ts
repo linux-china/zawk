@@ -46,6 +46,7 @@ const sidebars: SidebarsConfig = {
         'tutorials/http-api',
         'tutorials/cloud-data',
         'tutorials/log-analysis',
+        'tutorials/grok',
         'tutorials/scripts-as-tools',
       ],
     },

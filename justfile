@@ -437,4 +437,4 @@ run-avro-write:
 
 # run grok with Spring Boot/Tomcat log
 run-grok:
-   echo "2026-11-13T17:44:43.486+08:00  INFO 34441 --- [plantuml-service] [-30.234.168.215] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'" | cargo run --package zawk --bin zawk -- '{ m = grok($0, "%{TIMESTAMP_ISO8601:timestamp}\\s+%{LOGLEVEL:level}\\s+%{INT:pid} --- \\[%{DATA:app}\\] \\[%{DATA:thread}\\] %{NOTSPACE:logger}\\s+: %{GREEDYDATA:message}"); print m["timestamp"], m["level"], m["pid"], m["app"], m["thread"], m["logger"], m["message"] }'
+   echo "2026-11-13T17:44:43.486+08:00  INFO 34441 --- [plantuml-service] [-30.234.168.215] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'" | cargo run --package zawk --bin zawk -- -o csv '{ m = grok($0, "%{TIMESTAMP_ISO8601:timestamp}\\s+%{LOGLEVEL:level}\\s+%{INT:pid} --- \\[%{DATA:app}\\] \\[%{DATA:thread}\\] %{NOTSPACE:logger}\\s+: %{GREEDYDATA:message}"); print m["timestamp"], m["level"], m["pid"], m["app"], m["thread"], m["logger"], m["message"] }'

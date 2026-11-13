@@ -51,6 +51,12 @@ BEGIN {
 }
 ```
 
+The same log split with a [grok](./grok.md) pattern, by name instead of by position:
+
+```shell
+zawk --grok '%{COMMONAPACHELOG}' '{ b[$FI["clientip"]] += $FI["bytes"] } END { for (ip, n in b) print ip, format_bytes(n) }' access.log
+```
+
 ## Latency percentiles
 
 If the last field is the response time in milliseconds:

@@ -9059,3 +9059,67 @@ fn grok_named_captures() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("expects 2 or 3 arguments"), "{err}");
 }
+
+#[test]
+fn grok_input() {
+    // --grok splits each line by the named captures, in pattern order, FI maps them, $0 is the
+    // line, and lines that do not match are skipped.
+    let input = "10.0.0.1 GET /index.html 200 512\ngarbage\r\n10.0.0.2 POST /login 401 64\r\n";
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["--grok", "%{IP:client} %{WORD:method} %{NOTSPACE:path} %{NUMBER:status} %{NUMBER:bytes:int}"])
+            .arg(r#"{ s += $FI["bytes"]; print NR, NF, $FI["client"], $2, "[" $0 "]" } END { print s, FI["path"] }"#)
+            .write_stdin(input)
+            .assert()
+            .success()
+            .stdout(
+                "1 5 10.0.0.1 GET [10.0.0.1 GET /index.html 200 512]\n\
+                 2 5 10.0.0.2 POST [10.0.0.2 POST /login 401 64]\n576 3\n",
+            );
+    }
+}
+
+#[test]
+fn grok_input_with_definitions() {
+    let dir = tempdir().unwrap();
+    let defs = dir.path().join("my.grok");
+    std::fs::write(
+        &defs,
+        "# custom patterns\nREQ %{WORD:method} %{NOTSPACE:path}\n\nLINE %{IP:client} %{REQ} %{NUMBER:status}\n",
+    )
+    .unwrap();
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["--grok", "%{LINE}", "--grok-defs"])
+            .arg(&defs)
+            .arg(r#"{ print $1, $2, $3, $FI["status"] }"#)
+            .write_stdin("10.0.0.1 GET /a 200\nnope\n")
+            .assert()
+            .success()
+            .stdout("10.0.0.1 GET /a 200\n");
+    }
+}
+
+#[test]
+fn grok_input_errors() {
+    for (args, msg) in [
+        (vec!["--grok", "%{NOPE:x}"], "unknown pattern %{NOPE}"),
+        (vec!["--grok", "%{IP}"], "no named captures"),
+        (vec!["--grok", "%{IP:x}", "--grok-defs", "/no/such/file"], "cannot read --grok-defs"),
+    ] {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args(args)
+            .arg("{ print }")
+            .write_stdin("1.2.3.4\n")
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(msg), "{err}");
+    }
+}
