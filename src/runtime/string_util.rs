@@ -846,18 +846,20 @@ fn grok_regex_error(msg: &str) -> String {
     };
     let reason = match fancy_regex::Regex::new(regex) {
         Err(fancy_regex::Error::ParseError(_, e)) => e.to_string(),
-        Err(fancy_regex::Error::CompileError(fancy_regex::CompileError::InnerError(e))) => {
-            // a syntax error of the regex crate is a multi-line diagram ending with `error: <reason>`
-            match e.syntax_error() {
-                Some(e) => {
-                    let e = e.to_string();
-                    let last = e.lines().last().unwrap_or_default();
-                    last.trim_start_matches("error: ").to_string()
+        Err(fancy_regex::Error::CompileError(e)) => match &*e {
+            fancy_regex::CompileError::InnerError(e) => {
+                // a syntax error of the regex crate is a multi-line diagram ending with `error: <reason>`
+                match e.syntax_error() {
+                    Some(e) => {
+                        let e = e.to_string();
+                        let last = e.lines().last().unwrap_or_default();
+                        last.trim_start_matches("error: ").to_string()
+                    }
+                    None => e.to_string(),
                 }
-                None => e.to_string(),
             }
-        }
-        Err(fancy_regex::Error::CompileError(e)) => e.to_string(),
+            e => e.to_string(),
+        },
         Err(e) => e.to_string(),
         Ok(_) => return msg.lines().next().unwrap_or_default().to_string(),
     };
