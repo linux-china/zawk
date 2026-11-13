@@ -6609,6 +6609,7 @@ dependencies = [
  "strsim",
  "sxd-document",
  "sxd-xpath",
+ "tempfile",
  "termcolor",
  "testresult",
  "textwrap",
