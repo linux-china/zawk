@@ -614,7 +614,8 @@ fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {
             ))
         }
         b'{' | b'[' => {
-            let mut depth = 0usize;
+            // Expected closing brackets, innermost last; a mismatched closer is malformed JSON.
+            let mut closers: Vec<u8> = Vec::new();
             let mut i = i;
             while i < bs.len() {
                 match bs[i] {
@@ -622,10 +623,13 @@ fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {
                         i = scan_string(bs, i)?.0;
                         continue;
                     }
-                    b'{' | b'[' => depth += 1,
-                    b'}' | b']' => {
-                        depth -= 1;
-                        if depth == 0 {
+                    b'{' => closers.push(b'}'),
+                    b'[' => closers.push(b']'),
+                    c @ (b'}' | b']') => {
+                        if closers.pop() != Some(c) {
+                            return None;
+                        }
+                        if closers.is_empty() {
                             return Some((Val::Raw { start, end: i + 1 }, i + 1));
                         }
                     }
@@ -894,6 +898,17 @@ mod tests {
         let (_, vals) = fields("{}\n[1, \"x\", null]", &[]);
         assert_eq!(vals, vec!["1", "x", ""]);
         let (_, vals) = fields("{}\nnot json", &[]);
+        assert!(vals.is_empty());
+    }
+
+    #[test]
+    fn mismatched_brackets_are_invalid() {
+        assert!(!is_valid(br#"{"a": [1,2}, "b": 3}"#));
+        assert!(!is_valid(br#"[{"a": 1]]"#));
+        assert!(!is_valid(br#"{"a": {"b": [1}]}"#));
+        assert!(is_valid(br#"{"a": [1,{"x":"]}"}], "b": 3}"#));
+        assert!(is_valid(br#"[[1,[2]],{"a":{}}]"#));
+        let (_, vals) = fields("{}\n{\"a\": [1,2}, \"b\": 3}", &[]);
         assert!(vals.is_empty());
     }
 }
