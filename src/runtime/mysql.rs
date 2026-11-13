@@ -5,11 +5,12 @@ use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use mysql::consts::ColumnType;
 use mysql::prelude::*;
 use mysql::*;
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use crate::runtime::conn_pool::ConnPool;
+use std::sync::LazyLock;
 
-static MYSQL_POOLS: LazyLock<Arc<Mutex<HashMap<String, Pool>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+/// Connections by URL and thread. `mysql::Pool` is not used: it resets a connection when it is
+/// returned (rolling back a `BEGIN` from an earlier call) and hands it to any thread.
+static MYSQL_CONNECTIONS: LazyLock<ConnPool<Conn>> = LazyLock::new(ConnPool::new);
 
 /// Positional parameters bound as strings (MySQL converts them to the column types), the `--null`
 /// text as NULL, or `None` when there are none: then the text protocol is used, since not every
@@ -33,8 +34,8 @@ fn positional_params(params: &IntMap<Str>) -> Option<Params> {
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let result = match positional_params(params) {
-        Some(params) => with_conn(db_url, |conn| conn.exec(sql, params)),
-        None => with_conn(db_url, |conn| conn.query(sql)),
+        Some(params) => with_conn(db_url, true, |conn| conn.exec(sql, params.clone())),
+        None => with_conn(db_url, true, |conn| conn.query(sql)),
     };
     let rows: Vec<Row> = match result {
         Ok(rows) => rows,
@@ -160,10 +161,10 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
     // `exec` would return the rows of a result set, which INSERT/UPDATE/DELETE do not have; the
     // affected row count is reported by the connection instead.
     let result = match positional_params(params) {
-        Some(params) => with_conn(db_url, |conn| {
-            conn.exec_drop(sql, params).map(|_| conn.affected_rows())
+        Some(params) => with_conn(db_url, false, |conn| {
+            conn.exec_drop(sql, params.clone()).map(|_| conn.affected_rows())
         }),
-        None => with_conn(db_url, |conn| {
+        None => with_conn(db_url, false, |conn| {
             conn.query_drop(sql).map(|_| conn.affected_rows())
         }),
     };
@@ -176,26 +177,8 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
     }
 }
 
-/// Pool bounds used unless the URL sets `pool_min`/`pool_max`: the crate default (min 10, max 100)
-/// eagerly opens 10 sessions per URL, which exhausts `max_connections` when a script talks to a few
-/// DSNs. Connections are opened on demand instead, at most a handful per URL.
-const POOL_MIN: usize = 0;
-const POOL_MAX: usize = 8;
-
-/// How long to wait for a free pooled connection before failing, instead of blocking forever.
-const POOL_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Whether the query string of `db_url` sets the parameter `name`.
-fn has_url_param(db_url: &str, name: &str) -> bool {
-    db_url.split_once('?').is_some_and(|(_, query)| {
-        query
-            .split('&')
-            .any(|pair| pair.split('=').next() == Some(name))
-    })
-}
-
-/// The options of `db_url`, with a connect timeout, TCP keepalive and small lazy pool bounds unless
-/// the URL sets them (`tcp_connect_timeout_ms`, `tcp_keepalive_time_ms`, `pool_min`, `pool_max`).
+/// The options of `db_url`, with a connect timeout and TCP keepalive unless the URL sets them
+/// (`tcp_connect_timeout_ms`, `tcp_keepalive_time_ms`).
 /// No read timeout is set: a query may legitimately run for a long time, while keepalive still
 /// detects a server that went away.
 pub(crate) fn opts(db_url: &str) -> Result<Opts> {
@@ -204,42 +187,49 @@ pub(crate) fn opts(db_url: &str) -> Result<Opts> {
         .get_tcp_connect_timeout()
         .or(Some(crate::runtime::network::CONNECT_TIMEOUT));
     let keepalive = opts.get_tcp_keepalive_time_ms().or(Some(60_000));
-    let pool_opts = if has_url_param(db_url, "pool_min") || has_url_param(db_url, "pool_max") {
-        opts.get_pool_opts().clone()
-    } else {
-        let constraints = PoolConstraints::new(POOL_MIN, POOL_MAX).expect("valid pool bounds");
-        opts.get_pool_opts().clone().with_constraints(constraints)
-    };
     Ok(OptsBuilder::from_opts(opts)
         .tcp_connect_timeout(connect_timeout)
         .tcp_keepalive_time_ms(keepalive)
-        .pool_opts(pool_opts)
         .into())
 }
 
-/// Runs `f` with a connection from the cached pool for `db_url`, creating the pool on first use.
-/// The global lock is only held to clone the pool: connecting and querying run outside of it.
-fn with_conn<T>(db_url: &str, f: impl FnOnce(&mut PooledConn) -> Result<T>) -> Result<T> {
-    let cached = MYSQL_POOLS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(db_url)
-        .cloned();
-    let pool = match cached {
-        Some(pool) => pool,
-        None => {
-            let pool = Pool::new(opts(db_url)?)?;
-            // another thread may have created one meanwhile: keep the first
-            MYSQL_POOLS
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .entry(db_url.to_string())
-                .or_insert(pool)
-                .clone()
-        }
+/// Whether `e` means the connection itself is unusable, rather than the statement failing.
+fn is_broken(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::IoError(_)
+            | Error::CodecError(_)
+            | Error::DriverError(DriverError::PacketOutOfSync | DriverError::UnexpectedPacket)
+    )
+}
+
+/// Runs `f` with a cached connection for `db_url` that only the current thread uses, so session
+/// state such as a transaction opened by `BEGIN` in an earlier call is still there. No lock is
+/// held while connecting or querying. A connection that broke (server restart, idle timeout) is
+/// dropped so the next call reconnects; with `retry`, `f` is also retried once on a new
+/// connection: only safe for reads, since a write may have been applied before it was lost.
+fn with_conn<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Conn) -> Result<T>) -> Result<T> {
+    let (mut conn, reused) = match MYSQL_CONNECTIONS.take(db_url) {
+        Some(conn) => (conn, true),
+        None => (Conn::new(opts(db_url)?)?, false),
     };
-    let mut conn = pool.try_get_conn(POOL_ACQUIRE_TIMEOUT)?;
-    f(&mut conn)
+    let mut result = f(&mut conn);
+    if let Err(e) = &result
+        && is_broken(e)
+    {
+        if !(retry && reused) {
+            return result;
+        }
+        conn = Conn::new(opts(db_url)?)?;
+        result = f(&mut conn);
+        if let Err(e) = &result
+            && is_broken(e)
+        {
+            return result;
+        }
+    }
+    MYSQL_CONNECTIONS.put(db_url, conn);
+    result
 }
 
 #[cfg(test)]
@@ -279,26 +269,6 @@ mod tests {
         assert_eq!(
             bytes_text(&col(ColumnType::MYSQL_TYPE_BIT, BINARY_CHARSET), &[0x02, 0x01]),
             "513"
-        );
-    }
-
-    #[test]
-    fn test_pool_constraints() {
-        let bounds = |url: &str| {
-            let c = opts(url).unwrap().get_pool_opts().constraints();
-            (c.min(), c.max())
-        };
-        assert_eq!(
-            bounds("mysql://root@127.0.0.1:3306/test"),
-            (POOL_MIN, POOL_MAX)
-        );
-        assert_eq!(
-            bounds("mysql://root@127.0.0.1:3306/test?pool_min=2&pool_max=3"),
-            (2, 3)
-        );
-        assert_eq!(
-            bounds("mysql://root@127.0.0.1:3306/test?pool_max=20"),
-            (10, 20)
         );
     }
 

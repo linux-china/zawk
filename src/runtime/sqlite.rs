@@ -4,7 +4,8 @@ use crate::runtime::numfmt::float_to_text;
 use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use rusqlite::types::Value;
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::fallible_iterator::FallibleIterator;
+use rusqlite::{Batch, Connection, params_from_iter};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -108,12 +109,35 @@ fn query_into(
     Ok(())
 }
 
+/// Runs `sql` and returns the number of rows it changed. With parameters `sql` is a single
+/// statement. Without, it may hold several statements separated by `;` (e.g. `BEGIN; ...;
+/// COMMIT`): they run in order, each prepared only after the previous one ran (so a table
+/// created by one can be used by the next), and the rows changed by all of them are added up.
+/// The first failing statement stops the run; the statements before it stay applied.
+fn execute(conn: &Connection, sql: &str, params: &[Value]) -> rusqlite::Result<usize> {
+    if !params.is_empty() {
+        return conn.execute(sql, params_from_iter(params));
+    }
+    let mut batch = Batch::new(conn, sql);
+    let mut changed = 0;
+    while let Some(mut stmt) = batch.next()? {
+        let before = conn.total_changes();
+        let n = stmt.execute([])?;
+        // `changes()` keeps the count of the last INSERT/UPDATE/DELETE: only count it when this
+        // statement changed rows, not for DDL, BEGIN/COMMIT and the like
+        if conn.total_changes() != before {
+            changed += n;
+        }
+    }
+    Ok(changed)
+}
+
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = sqlite_params(params);
     let result = SQLITE_CONNECTIONS.with_conn(
         db_path,
         || open_connection(db_path),
-        |conn| conn.execute(sql, params_from_iter(&params)),
+        |conn| execute(conn, sql, &params),
     );
     match result {
         Ok(n) => n as Int,
@@ -134,6 +158,32 @@ mod tests {
             map.insert(i as Int + 1, Str::from(v.to_string()));
         }
         map
+    }
+
+    #[test]
+    fn test_execute_multiple_statements() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("multi.db");
+        let db_path = db_path.to_str().unwrap();
+        let none = IntMap::default();
+        // DDL, a transaction and several inserts in one call: the changed rows are added up
+        let sql = "CREATE TABLE t (x INT); BEGIN; INSERT INTO t VALUES (1); \
+                   INSERT INTO t VALUES (2), (3); COMMIT;";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 3);
+        let count = |db: &str| sqlite_query(db, "SELECT count(*) FROM t", &none).get(&1);
+        assert_eq!(count(db_path).as_str(), "3");
+        // DDL alone does not report the count of an earlier INSERT
+        assert_eq!(
+            sqlite_execute(db_path, "CREATE INDEX i ON t (x); ", &none),
+            0
+        );
+        // a failing statement stops the run, the earlier ones stay applied
+        let sql = "INSERT INTO t VALUES (4); INSERT INTO missing VALUES (5); INSERT INTO t VALUES (6)";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 0);
+        assert_eq!(count(db_path).as_str(), "4");
+        // a placeholder without a value is still an error
+        assert_eq!(sqlite_execute(db_path, "INSERT INTO t VALUES (?)", &none), 0);
+        assert_eq!(count(db_path).as_str(), "4");
     }
 
     #[test]

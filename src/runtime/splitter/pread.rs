@@ -147,8 +147,11 @@ impl BlockRead {
             .map_err(|e| err_raw!("failed to read input: {}", e))?;
             filled += n;
             let bs = &buf.as_bytes()[..filled];
-            if let Some(i) = memchr::memchr(self.record_sep, &bs[search_from.min(filled)..]) {
-                let len = search_from + i + 1;
+            // `search_from` passes `filled` only when the file got shorter; the slice is then
+            // empty and nothing is found, but use the clamped start for both to keep `len <= filled`.
+            let base = search_from.min(filled);
+            if let Some(i) = memchr::memchr(self.record_sep, &bs[base..]) {
+                let len = base + i + 1;
                 break (len, start + len as u64 == file_len);
             }
             // The end of the file (or of what is left of it, if it got shorter).

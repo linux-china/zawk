@@ -59,8 +59,25 @@ backslashes would be doubled in the stored value.
 
 ### Connections
 
-Connections are cached per URL for the whole run. A PostgreSQL or Redis connection that was closed is
+Connections are cached per URL for the whole run. A PostgreSQL, MySQL or Redis connection that was closed is
 reconnected once on the next call, so long-running input such as `tail -f` keeps working.
+
+Each thread keeps its own MySQL and PostgreSQL connections, so a transaction can span several calls, also in a
+parallel run (`-pr`/`-pf`) where every worker has its own session:
+
+```awk
+{
+    pg_execute(url, "BEGIN")
+    pg_execute(url, "insert into orders values(" $1 ", " $2 ")")
+    pg_execute(url, "update stock set qty = qty - 1 where id = " $2)
+    pg_execute(url, "COMMIT")
+}
+```
+
+Without parameters, `sqlite_execute` runs several statements separated by `;` in order and returns the rows
+changed by all of them, e.g. `sqlite_execute(db, "BEGIN; insert ...; insert ...; COMMIT")`. The first failing
+statement stops the run, and the statements before it stay applied. A SQLite database is used through one
+connection per path, shared by all threads.
 
 ## Tables and queries as input
 

@@ -1,5 +1,8 @@
 # Unreleased
 
+* Fix transactions across calls to the database functions: `pg_execute(url, "BEGIN")`, a write and `COMMIT` in later calls could run on different connections in a parallel run (the write then committed on its own), and `mysql_execute(url, "BEGIN")` was always rolled back when the connection went back to the pool. MySQL and PostgreSQL connections are now kept per thread, so a session and its transaction stay with the worker that opened them; a closed MySQL connection is reconnected on the next call, and `mysql_query` retries once on it as `pg_query` does
+* Fix `sqlite_execute(db, sql)` with several statements separated by `;` running none of them and returning `0`: without parameters they now run in order, e.g. `"BEGIN; insert ...; insert ...; COMMIT"`, and the rows changed by all of them are returned
+
 # Version 0.7.1 (2026-11-12)
 
 * Add `strptime(s, format[, tz])`: date text parsed with a chrono strftime format, so nothing is guessed as in `mktime`: `strptime("01/02/2024", "%d/%m/%Y")` is February 1. Text with `%z` or `%s` is an instant, other text is local time or in `tz` (an IANA time zone, or UTC for another true value); `-1` if the text does not match the format

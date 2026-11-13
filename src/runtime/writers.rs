@@ -3211,8 +3211,8 @@ pub mod ordered {
         held: usize,
         /// Set by `finish`: output sealed afterwards (by a worker stopped late) is written at once.
         finished: bool,
-        /// Set while a thread writes output outside the lock (the head worker in `seal`, or
-        /// `skip_to`). `next` is advanced only once that is done, so no other worker becomes the
+        /// Set while a thread writes output outside the lock (the head worker in `seal`,
+        /// `skip_to`, `finish`, or a worker sealing after `finish`). `next` is advanced only once that is done, so no other worker becomes the
         /// head and streams its output in between; `skip_to` and `finish` wait for it.
         sending: bool,
     }
@@ -3265,7 +3265,18 @@ pub mod ordered {
                 return;
             }
             if st.finished {
+                // Written at once, but not under the lock (stdout may block), and not while
+                // `finish` or another late worker writes (their output would interleave).
+                let mut st = self.wait_sent(st);
+                if self.after_exit(seq) {
+                    data.into_iter().for_each(recycle);
+                    return;
+                }
+                st.sending = true;
+                drop(st);
                 self.send_all(data);
+                self.state.lock().unwrap_or_else(|e| e.into_inner()).sending = false;
+                self.turn.notify_all();
                 return;
             }
             if seq != st.next {
@@ -3354,7 +3365,8 @@ pub mod ordered {
                 return false;
             }
             let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            st.next == seq || st.finished
+            // Not while another thread writes outside the lock (`finish`, a late worker).
+            !st.sending && (st.next == seq || st.finished)
         }
 
         fn error(&self) -> CompileError {
@@ -3529,11 +3541,20 @@ pub mod ordered {
             let st = order.state.lock().unwrap_or_else(|e| e.into_inner());
             // A worker still writing its chunk (a stage ended by `exit`) goes first.
             let mut st = order.wait_sent(st);
-            for (_, data) in mem::take(&mut st.done) {
+            let done = mem::take(&mut st.done);
+            st.held = 0;
+            // `finished` at once: the workers waiting in `wait_turn` go on. `sending` makes the
+            // output sealed late wait until the held output below is written.
+            st.finished = true;
+            st.sending = true;
+            order.turn.notify_all();
+            // Write without holding the lock: stdout may block (a full pipe), and the workers'
+            // `seal`/`is_head`/`wait_turn` must not wait for it.
+            drop(st);
+            for (_, data) in done {
                 order.send_all(data);
             }
-            st.held = 0;
-            st.finished = true;
+            order.state.lock().unwrap_or_else(|e| e.into_inner()).sending = false;
             order.turn.notify_all();
         }
     }

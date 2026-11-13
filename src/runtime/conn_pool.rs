@@ -6,12 +6,17 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::{self, ThreadId};
 
-/// Idle connections by URL. A caller takes a connection out (or creates one when none is idle),
-/// uses it without any lock held, and gives it back, so parallel calls to the same URL run on
-/// separate connections.
+/// Idle connections by URL and by the thread that last used them. A caller takes a connection
+/// out (or creates one when none is idle), uses it without any lock held, and gives it back, so
+/// parallel calls to the same URL run on separate connections.
+///
+/// A thread only ever gets back its own connections: session state such as an open transaction
+/// (`BEGIN` in one call, `COMMIT` in a later one), `SET` variables or temporary tables stays with
+/// the worker that created it, and is never picked up by another worker running with `-p`.
 pub(crate) struct ConnPool<C> {
-    idle: Mutex<HashMap<String, Vec<C>>>,
+    idle: Mutex<HashMap<(ThreadId, String), Vec<C>>>,
 }
 
 impl<C> ConnPool<C> {
@@ -21,24 +26,26 @@ impl<C> ConnPool<C> {
         }
     }
 
-    /// An idle connection for `key`, removed from the pool until it is given back with `put`.
+    /// An idle connection for `key` last used by the current thread, removed from the pool until
+    /// it is given back with `put`.
     pub(crate) fn take(&self, key: &str) -> Option<C> {
+        let owner = (thread::current().id(), key.to_string());
         self.idle
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .get_mut(key)
+            .get_mut(&owner)
             .and_then(Vec::pop)
     }
 
-    /// Give back a connection that is still usable.
+    /// Give back a connection that is still usable, kept for the current thread.
     pub(crate) fn put(&self, key: &str, conn: C) {
-        let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
-        match idle.get_mut(key) {
-            Some(conns) => conns.push(conn),
-            None => {
-                idle.insert(key.to_string(), vec![conn]);
-            }
-        }
+        let owner = (thread::current().id(), key.to_string());
+        self.idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(owner)
+            .or_default()
+            .push(conn);
     }
 }
 
@@ -101,6 +108,24 @@ mod tests {
         assert_eq!(pool.take("b"), Some(3));
         assert!(matches!(pool.take("a"), Some(1 | 2)));
         assert!(matches!(pool.take("a"), Some(1 | 2)));
+        assert_eq!(pool.take("a"), None);
+    }
+
+    #[test]
+    fn test_pool_keeps_connections_per_thread() {
+        let pool: Arc<ConnPool<i32>> = Arc::new(ConnPool::new());
+        pool.put("a", 1);
+        // another thread never gets this thread's connection, e.g. one inside a transaction
+        let other = {
+            let pool = pool.clone();
+            thread::spawn(move || {
+                let none = pool.take("a");
+                pool.put("a", 2);
+                (none, pool.take("a"))
+            })
+        };
+        assert_eq!(other.join().unwrap(), (None, Some(2)));
+        assert_eq!(pool.take("a"), Some(1));
         assert_eq!(pool.take("a"), None);
     }
 
