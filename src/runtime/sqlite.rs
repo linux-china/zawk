@@ -9,7 +9,57 @@ use rusqlite::{Batch, Connection, params_from_iter};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+/// Connections by database and, for a database file, by thread (see [`slot_key`]).
 static SQLITE_CONNECTIONS: LazyLock<ConnSlots<Connection>> = LazyLock::new(ConnSlots::new);
+
+/// The separator of the database and the thread in a key of [`SQLITE_CONNECTIONS`].
+const THREAD_SEPARATOR: char = '\0';
+
+/// Whether every connection to `db_path` opens a separate database (in memory or temporary).
+fn is_private_database(db_path: &str) -> bool {
+    db_path.is_empty()
+        || db_path == ":memory:"
+        || db_path.starts_with("file::memory:")
+        || db_path.contains("mode=memory")
+}
+
+/// The connection cache key of `db_path`. A database file has a connection per thread, so a
+/// transaction opened by `BEGIN` in one call, and its writes, stay with the worker that opened it,
+/// as for MySQL and PostgreSQL: with one shared connection, a `ROLLBACK` of one worker of a `-p`
+/// run would undo the writes of the others, and its `COMMIT` commit them half done. Writers wait
+/// for each other's transactions (up to the busy timeout). A database in memory is a single
+/// connection shared by all threads, since another connection would be another database.
+fn slot_key(db_path: &str) -> String {
+    if is_private_database(db_path) {
+        db_path.to_string()
+    } else {
+        format!("{}{}{:?}", db_path, THREAD_SEPARATOR, std::thread::current().id())
+    }
+}
+
+/// Warn about each database left inside a transaction (a `BEGIN` without `COMMIT`): cached
+/// connections are not closed at exit, and SQLite rolls such a transaction back when the
+/// database is next opened, so its writes would otherwise be lost silently.
+pub(crate) fn warn_open_transactions() {
+    let mut open = vec![];
+    SQLITE_CONNECTIONS.for_each(|key, conn| {
+        if !conn.is_autocommit() {
+            let db_path = key.split(THREAD_SEPARATOR).next().unwrap_or(key);
+            open.push(db_path.to_string());
+        }
+    });
+    open.sort();
+    open.dedup();
+    for db_path in open {
+        stdlib_warning(
+            "sqlite_execute",
+            format!(
+                "{}: a transaction was never committed (BEGIN without COMMIT): its changes are rolled back",
+                db_path
+            ),
+        );
+    }
+}
 
 /// How long a statement waits for a lock held by another connection before failing with
 /// `database is locked`.
@@ -71,7 +121,7 @@ fn sqlite_query_into(
     map: &IntMap<Str>,
 ) -> rusqlite::Result<()> {
     SQLITE_CONNECTIONS.with_conn(
-        db_path,
+        &slot_key(db_path),
         || open_connection(db_path),
         |conn| query_into(conn, sql, params, map),
     )
@@ -113,11 +163,23 @@ fn query_into(
 /// statement. Without, it may hold several statements separated by `;` (e.g. `BEGIN; ...;
 /// COMMIT`): they run in order, each prepared only after the previous one ran (so a table
 /// created by one can be used by the next), and the rows changed by all of them are added up.
-/// The first failing statement stops the run; the statements before it stay applied.
+/// The first failing statement stops the run; the statements before it stay applied, except
+/// when they opened a transaction: it is rolled back, so `BEGIN; ...; COMMIT` applies all of its
+/// statements or none (left open, it would take in the writes of the later calls, all lost at
+/// exit). A transaction opened by an earlier call is left to the program.
 fn execute(conn: &Connection, sql: &str, params: &[Value]) -> rusqlite::Result<usize> {
     if !params.is_empty() {
         return conn.execute(sql, params_from_iter(params));
     }
+    let autocommit = conn.is_autocommit();
+    let result = execute_batch(conn, sql);
+    if result.is_err() && autocommit && !conn.is_autocommit() {
+        conn.execute_batch("ROLLBACK")?;
+    }
+    result
+}
+
+fn execute_batch(conn: &Connection, sql: &str) -> rusqlite::Result<usize> {
     let mut batch = Batch::new(conn, sql);
     let mut changed = 0;
     while let Some(mut stmt) = batch.next()? {
@@ -135,7 +197,7 @@ fn execute(conn: &Connection, sql: &str, params: &[Value]) -> rusqlite::Result<u
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = sqlite_params(params);
     let result = SQLITE_CONNECTIONS.with_conn(
-        db_path,
+        &slot_key(db_path),
         || open_connection(db_path),
         |conn| execute(conn, sql, &params),
     );
@@ -184,6 +246,71 @@ mod tests {
         // a placeholder without a value is still an error
         assert_eq!(sqlite_execute(db_path, "INSERT INTO t VALUES (?)", &none), 0);
         assert_eq!(count(db_path).as_str(), "4");
+    }
+
+    #[test]
+    fn test_failed_batch_rolls_back_its_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("tx.db");
+        let db_path = db_path.to_str().unwrap();
+        let none = IntMap::default();
+        let count = |db: &str| sqlite_query(db, "SELECT count(*) FROM t", &none).get(&1);
+        assert_eq!(sqlite_execute(db_path, "CREATE TABLE t (x INT)", &none), 0);
+        let sql = "BEGIN; INSERT INTO t VALUES (1); INSERT INTO missing VALUES (2); COMMIT";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 0);
+        // the whole batch is undone, and the next write is not caught in an open transaction
+        assert_eq!(count(db_path).as_str(), "0");
+        assert_eq!(sqlite_execute(db_path, "INSERT INTO t VALUES (3)", &none), 1);
+        // a new connection, as the next run of a program, sees the write
+        let other = open_connection(db_path).unwrap();
+        let n: i64 = other
+            .query_row("SELECT count(*) FROM t", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        drop(other);
+
+        // a transaction opened by an earlier call is left to the program
+        assert_eq!(sqlite_execute(db_path, "BEGIN", &none), 0);
+        assert_eq!(sqlite_execute(db_path, "INSERT INTO t VALUES (4)", &none), 1);
+        let sql = "INSERT INTO t VALUES (5); INSERT INTO missing VALUES (6)";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 0);
+        assert_eq!(count(db_path).as_str(), "3");
+        assert_eq!(sqlite_execute(db_path, "ROLLBACK", &none), 0);
+        assert_eq!(count(db_path).as_str(), "1");
+    }
+
+    #[test]
+    fn test_file_connections_per_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("threads.db");
+        let db_path = db_path.to_str().unwrap().to_string();
+        let none = IntMap::default();
+        let count = |db: &str| sqlite_query(db, "SELECT count(*) FROM t", &IntMap::default()).get(&1).to_string();
+        assert_eq!(sqlite_execute(&db_path, "CREATE TABLE t (x INT)", &none), 0);
+        assert_eq!(sqlite_execute(&db_path, "BEGIN", &none), 0);
+        assert_eq!(sqlite_execute(&db_path, "INSERT INTO t VALUES (1)", &none), 1);
+        // another thread has its own connection: it does not see the uncommitted row, and its
+        // write is not part of this thread's transaction (it waits for it, then fails here)
+        let path = db_path.clone();
+        let seen = std::thread::spawn(move || count(&path)).join().unwrap();
+        assert_eq!(seen, "0");
+        assert_eq!(sqlite_execute(&db_path, "ROLLBACK", &none), 0);
+        let path = db_path.clone();
+        let written = std::thread::spawn(move || {
+            sqlite_execute(&path, "INSERT INTO t VALUES (2)", &IntMap::default())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(written, 1);
+        assert_eq!(count(&db_path), "1");
+        // `:memory:` stays one database for all threads
+        assert_eq!(sqlite_execute(":memory:", "CREATE TABLE IF NOT EXISTS m (x INT)", &none), 0);
+        let rows = std::thread::spawn(|| {
+            sqlite_query(":memory:", "SELECT count(*) FROM m", &IntMap::default()).len()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(rows, 1);
     }
 
     #[test]

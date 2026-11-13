@@ -5,12 +5,12 @@ use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use mysql::consts::ColumnType;
 use mysql::prelude::*;
 use mysql::*;
-use crate::runtime::conn_pool::ConnPool;
+use crate::runtime::conn_pool::{Driver, SessionPool};
 use std::sync::LazyLock;
 
 /// Connections by URL and thread. `mysql::Pool` is not used: it resets a connection when it is
 /// returned (rolling back a `BEGIN` from an earlier call) and hands it to any thread.
-static MYSQL_CONNECTIONS: LazyLock<ConnPool<Conn>> = LazyLock::new(ConnPool::new);
+static MYSQL_CONNECTIONS: LazyLock<SessionPool<Conn>> = LazyLock::new(SessionPool::new);
 
 /// Positional parameters bound as strings (MySQL converts them to the column types), the `--null`
 /// text as NULL, or `None` when there are none: then the text protocol is used, since not every
@@ -34,8 +34,8 @@ fn positional_params(params: &IntMap<Str>) -> Option<Params> {
 pub(crate) fn mysql_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> IntMap<Str<'a>> {
     let map: IntMap<Str> = IntMap::default();
     let result = match positional_params(params) {
-        Some(params) => with_conn(db_url, true, |conn| conn.exec(sql, params.clone())),
-        None => with_conn(db_url, true, |conn| conn.query(sql)),
+        Some(params) => with_conn(db_url, sql, true, |conn| conn.exec(sql, params.clone())),
+        None => with_conn(db_url, sql, true, |conn| conn.query(sql)),
     };
     let rows: Vec<Row> = match result {
         Ok(rows) => rows,
@@ -161,10 +161,10 @@ pub(crate) fn mysql_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> In
     // `exec` would return the rows of a result set, which INSERT/UPDATE/DELETE do not have; the
     // affected row count is reported by the connection instead.
     let result = match positional_params(params) {
-        Some(params) => with_conn(db_url, false, |conn| {
+        Some(params) => with_conn(db_url, sql, false, |conn| {
             conn.exec_drop(sql, params.clone()).map(|_| conn.affected_rows())
         }),
-        None => with_conn(db_url, false, |conn| {
+        None => with_conn(db_url, sql, false, |conn| {
             conn.query_drop(sql).map(|_| conn.affected_rows())
         }),
     };
@@ -193,43 +193,54 @@ pub(crate) fn opts(db_url: &str) -> Result<Opts> {
         .into())
 }
 
+/// Server errors after which the connection is closed: `ER_SERVER_SHUTDOWN` (1053),
+/// `ER_CONNECTION_KILLED` (1927, `KILL CONNECTION`), `ER_CLIENT_INTERACTION_TIMEOUT` (4031, idle
+/// longer than `wait_timeout` on MySQL 8.0.24+), and the client codes "server has gone away"
+/// (2006) and "lost connection during query" (2013) when a proxy reports them.
+const CONNECTION_CLOSED_CODES: [u16; 5] = [1053, 1927, 4031, 2006, 2013];
+
 /// Whether `e` means the connection itself is unusable, rather than the statement failing.
 fn is_broken(e: &Error) -> bool {
-    matches!(
-        e,
+    match e {
         Error::IoError(_)
-            | Error::CodecError(_)
-            | Error::DriverError(DriverError::PacketOutOfSync | DriverError::UnexpectedPacket)
-    )
+        | Error::CodecError(_)
+        | Error::DriverError(DriverError::PacketOutOfSync | DriverError::UnexpectedPacket) => true,
+        Error::MySqlError(e) => CONNECTION_CLOSED_CODES.contains(&e.code),
+        _ => false,
+    }
 }
 
-/// Runs `f` with a cached connection for `db_url` that only the current thread uses, so session
-/// state such as a transaction opened by `BEGIN` in an earlier call is still there. No lock is
-/// held while connecting or querying. A connection that broke (server restart, idle timeout) is
-/// dropped so the next call reconnects; with `retry`, `f` is also retried once on a new
-/// connection: only safe for reads, since a write may have been applied before it was lost.
-fn with_conn<T>(db_url: &str, retry: bool, mut f: impl FnMut(&mut Conn) -> Result<T>) -> Result<T> {
-    let (mut conn, reused) = match MYSQL_CONNECTIONS.take(db_url) {
-        Some(conn) => (conn, true),
-        None => (Conn::new(opts(db_url)?)?, false),
-    };
-    let mut result = f(&mut conn);
-    if let Err(e) = &result
-        && is_broken(e)
-    {
-        if !(retry && reused) {
-            return result;
-        }
-        conn = Conn::new(opts(db_url)?)?;
-        result = f(&mut conn);
-        if let Err(e) = &result
-            && is_broken(e)
-        {
-            return result;
-        }
+struct MysqlDriver;
+
+impl Driver<Conn, Error> for MysqlDriver {
+    fn connect(&self, db_url: &str) -> std::result::Result<Conn, String> {
+        opts(db_url)
+            .and_then(Conn::new)
+            .map_err(|e| e.to_string())
     }
-    MYSQL_CONNECTIONS.put(db_url, conn);
-    result
+
+    fn is_broken(&self, _conn: &Conn, e: &Error) -> bool {
+        is_broken(e)
+    }
+
+    fn error_text(&self, e: Error) -> String {
+        e.to_string()
+    }
+}
+
+/// Runs `f`, which runs `sql`, with a cached connection for `db_url` that only the current thread
+/// uses, so session state such as a transaction opened by `BEGIN` in an earlier call is still
+/// there. No lock is held while connecting or querying. A connection that broke (server restart,
+/// idle timeout) is dropped so the next call reconnects; with `retry`, `f` is also retried once on
+/// a new connection: only safe for reads, since a write may have been applied before it was lost.
+/// Neither happens silently when a transaction was open on it: see [`SessionPool`].
+fn with_conn<T>(
+    db_url: &str,
+    sql: &str,
+    retry: bool,
+    f: impl FnMut(&mut Conn) -> Result<T>,
+) -> std::result::Result<T, String> {
+    MYSQL_CONNECTIONS.run(db_url, sql, retry, &MysqlDriver, f)
 }
 
 #[cfg(test)]
@@ -270,6 +281,24 @@ mod tests {
             bytes_text(&col(ColumnType::MYSQL_TYPE_BIT, BINARY_CHARSET), &[0x02, 0x01]),
             "513"
         );
+    }
+
+    #[test]
+    fn test_is_broken() {
+        let server = |code| {
+            Error::MySqlError(MySqlError {
+                state: "HY000".into(),
+                message: String::new(),
+                code,
+            })
+        };
+        for code in CONNECTION_CLOSED_CODES {
+            assert!(is_broken(&server(code)), "{code}");
+        }
+        // a failing statement (no such table, duplicate key, KILL QUERY) keeps the connection
+        for code in [1146, 1062, 1317] {
+            assert!(!is_broken(&server(code)), "{code}");
+        }
     }
 
     #[test]

@@ -595,6 +595,27 @@ fn characters_as_bytes() {
 }
 
 #[test]
+fn eq_ignore_case_agrees_with_ignorecase_compare_under_bytes() {
+    // With -b only ASCII letters fold, for eq_ignore_case as for `==` under IGNORECASE.
+    let prog = r#"BEGIN { IGNORECASE = 1; print eq_ignore_case("É", "é"), ("É" == "é"), eq_ignore_case("K", "\342\204\252"), ("K" == "\342\204\252"), eq_ignore_case("AbÉ", "aBÉ") }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1 1 1 1 1\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-b")
+            .arg(prog)
+            .assert()
+            .stdout("0 0 0 0 1\n");
+    }
+}
+
+#[test]
 fn pascal_case_has_no_spaces() {
     let prog = r#"BEGIN { print pascal_case("hello_world"), pascal_case("hello world"), title_case("hello world") }"#;
     for backend_arg in BACKEND_ARGS {
@@ -8777,6 +8798,42 @@ fn printf_numeric_c_pads_by_bytes() {
                 .assert()
                 .success()
                 .stdout(String::from(*expected));
+        }
+    }
+}
+
+#[test]
+fn tsv_output_single_empty_field_warns_once() {
+    // TSV has no quoting: a one-field row with an empty field can only be an empty line, which
+    // reads back as no fields. zawk prints it anyway and warns once per run.
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["-itsv", "-otsv", r#"{ $1 = ""; NF = 1; print }"#])
+            .write_stdin("a\tb\nc\td\n")
+            .assert()
+            .success()
+            .stdout("\n\n")
+            .get_output()
+            .stderr
+            .clone();
+        let err = String::from_utf8(out).unwrap();
+        assert_eq!(err.matches("single empty field").count(), 1, "{}", err);
+        // Non-empty single fields and CSV output do not warn.
+        for (fmt, prog, expected) in [
+            ("-otsv", r#"{ $1 = "x"; NF = 1; print }"#, "x\n"),
+            ("-ocsv", r#"{ $1 = ""; NF = 1; print }"#, "\"\"\n"),
+        ] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(backend_arg)
+                .args(["-itsv", fmt, prog])
+                .write_stdin("a\tb\n")
+                .assert()
+                .success()
+                .stdout(expected)
+                .stderr("");
         }
     }
 }

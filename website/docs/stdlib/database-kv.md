@@ -61,6 +61,10 @@ backslashes would be doubled in the stored value.
 
 Connections are cached per URL for the whole run. A PostgreSQL, MySQL or Redis connection that was closed is
 reconnected once on the next call, so long-running input such as `tail -f` keeps working.
+A MySQL or PostgreSQL connection closed **inside a transaction** (after `BEGIN`, before `COMMIT`/`ROLLBACK`) is
+not reconnected silently: the server has rolled the transaction back, so that call fails, and so does every later
+call to that URL from the same thread (including `COMMIT`), until the program runs `ROLLBACK` (which then succeeds)
+or a new `BEGIN`. Reads are not retried inside a transaction either.
 
 Each thread keeps its own MySQL and PostgreSQL connections, so a transaction can span several calls, also in a
 parallel run (`-pr`/`-pf`) where every worker has its own session:
@@ -76,8 +80,16 @@ parallel run (`-pr`/`-pf`) where every worker has its own session:
 
 Without parameters, `sqlite_execute` runs several statements separated by `;` in order and returns the rows
 changed by all of them, e.g. `sqlite_execute(db, "BEGIN; insert ...; insert ...; COMMIT")`. The first failing
-statement stops the run, and the statements before it stay applied. A SQLite database is used through one
-connection per path, shared by all threads.
+statement stops the run, and the statements before it stay applied, except when the call opened a transaction:
+then it is rolled back, so `BEGIN; ...; COMMIT` applies all of its statements or none. A transaction opened by an
+earlier call is left open for the program to `COMMIT` or `ROLLBACK`.
+
+As for MySQL and PostgreSQL, each thread has its own connection to a SQLite database file, so a transaction
+spanning several calls stays with the worker that opened it in a parallel run. Writers wait for each other's
+transactions for up to 5 seconds before failing with `database is locked`: keep transactions short, and prefer
+`BEGIN IMMEDIATE` when a transaction reads before it writes. An in-memory database (`:memory:`) is one connection
+shared by all threads. A transaction still open at exit (a `BEGIN` without `COMMIT`) is reported with a warning,
+since SQLite rolls it back.
 
 ## Tables and queries as input
 

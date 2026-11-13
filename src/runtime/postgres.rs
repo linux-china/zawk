@@ -1,4 +1,4 @@
-use crate::runtime::conn_pool::ConnPool;
+use crate::runtime::conn_pool::{Driver, SessionPool};
 use crate::runtime::csv::vec_to_csv;
 use crate::runtime::numfmt::{f32_to_text, float_to_text};
 use crate::runtime::str_escape::{is_null, null_input};
@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
-static PG_POOLS: LazyLock<ConnPool<Client>> = LazyLock::new(ConnPool::new);
+static PG_POOLS: LazyLock<SessionPool<Client>> = LazyLock::new(SessionPool::new);
 
 /// Connect with TLS support, following libpq `sslmode` semantics:
 /// `prefer`(default)/`require` encrypt without verifying the server certificate,
@@ -55,43 +55,36 @@ pub(crate) fn error_text(e: postgres::Error) -> String {
     }
 }
 
-/// Run `f` with a cached client for `db_url`, connecting when none is idle. The client is taken
-/// out of the cache while `f` runs, so no lock is held during network I/O. If a reused client
-/// fails because its connection was closed (server restart, idle timeout), it is dropped so the
-/// next call reconnects. With `retry`, `f` is also retried once with a new connection: only safe
-/// for reads, since a write may have been committed before the connection was lost.
+struct PgDriver;
+
+impl Driver<Client, postgres::Error> for PgDriver {
+    fn connect(&self, db_url: &str) -> Result<Client, String> {
+        connect(db_url)
+    }
+
+    fn is_broken(&self, client: &Client, _e: &postgres::Error) -> bool {
+        client.is_closed()
+    }
+
+    fn error_text(&self, e: postgres::Error) -> String {
+        error_text(e)
+    }
+}
+
+/// Run `f`, which runs `sql`, with a cached client for `db_url` that only the current thread
+/// uses, connecting when none is idle. The client is taken out of the cache while `f` runs, so no
+/// lock is held during network I/O. If a reused client fails because its connection was closed
+/// (server restart, idle timeout), it is dropped so the next call reconnects. With `retry`, `f` is
+/// also retried once with a new connection: only safe for reads, since a write may have been
+/// committed before the connection was lost. Neither happens silently when a transaction was
+/// open on it: see [`SessionPool`].
 fn with_client<T>(
     db_url: &str,
+    sql: &str,
     retry: bool,
-    mut f: impl FnMut(&mut Client) -> Result<T, postgres::Error>,
+    f: impl FnMut(&mut Client) -> Result<T, postgres::Error>,
 ) -> Result<T, String> {
-    let (mut client, reused) = match PG_POOLS.take(db_url) {
-        Some(client) => (client, true),
-        None => (connect(db_url)?, false),
-    };
-    match f(&mut client) {
-        Err(e) if client.is_closed() => {
-            drop(client);
-            if !(retry && reused) {
-                return Err(format!(
-                    "{} (not retried: the statement may already have been applied)",
-                    error_text(e)
-                ));
-            }
-            let mut client = connect(db_url).map_err(|reconnect| {
-                format!("{} (reconnect failed: {})", error_text(e), reconnect)
-            })?;
-            let result = f(&mut client).map_err(error_text);
-            if !client.is_closed() {
-                PG_POOLS.put(db_url, client);
-            }
-            result
-        }
-        result => {
-            PG_POOLS.put(db_url, client);
-            result.map_err(error_text)
-        }
-    }
+    PG_POOLS.run(db_url, sql, retry, &PgDriver, f)
 }
 
 /// A positional parameter given as text, converted to the type the server inferred for it.
@@ -325,7 +318,7 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
     let params: Vec<&(dyn ToSql + Sync)> =
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
     let retry = is_read_only_sql(sql);
-    let rows = match with_client(db_url, retry, |client| client.query(sql, &params)) {
+    let rows = match with_client(db_url, sql, retry, |client| client.query(sql, &params)) {
         Ok(rows) => rows,
         Err(e) => {
             stdlib_warning("pg_query", e);
@@ -352,7 +345,7 @@ pub(crate) fn pg_execute(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int {
     let params = positional_params(params);
     let params: Vec<&(dyn ToSql + Sync)> =
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-    match with_client(db_url, false, |client| client.execute(sql, &params)) {
+    match with_client(db_url, sql, false, |client| client.execute(sql, &params)) {
         Ok(n) => n as Int,
         Err(e) => {
             stdlib_warning("pg_execute", e);
@@ -634,8 +627,10 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             v.map(|v| v.to_string())
         }
         "timestamptz" => {
+            // As PostgreSQL's own text output in UTC: `2026-11-13 01:31:42.769004+00`
+            // (`DateTime::to_string` would append ` UTC`).
             let v: Option<chrono::DateTime<Utc>> = row.get(index);
-            v.map(|v| v.to_string())
+            v.map(|v| format!("{}+00", v.naive_utc()))
         }
         "numeric" => {
             let v: Option<PgNumeric> = row.get(index);

@@ -19,6 +19,7 @@ pub fn fake(name: &str, locale: &str) -> String {
                 Name(EN).fake()
             }
         }
+        // Only Chinese resident identity card numbers are generated, whatever the locale.
         "id" => {
             identitycard::random::generate_identitycard("".to_owned(), "".to_owned()).to_string()
         }
@@ -84,9 +85,10 @@ const PROVINCE_SHOT_NAMES: [char; 31] = [
     '京', '津', '晋', '冀', '蒙', '辽', '吉', '黑', '沪', '苏', '浙', '皖', '闽', '赣', '鲁', '豫',
     '鄂', '湘', '粤', '桂', '琼', '渝', '川', '贵', '云', '藏', '陕', '甘', '青', '宁', '新',
 ];
-const LICENSE_CHARS: [char; 23] = [
+// Letters on Chinese plates (GA 36): A-Z except `I` and `O`.
+const LICENSE_CHARS: [char; 24] = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U',
-    'V', 'W', 'X', 'Y',
+    'V', 'W', 'X', 'Y', 'Z',
 ];
 
 fn generate_chinese_plate_number() -> String {

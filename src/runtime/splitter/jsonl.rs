@@ -578,14 +578,42 @@ fn scan_string(bs: &[u8], mut i: usize) -> Option<(usize, bool)> {
 // A bare scalar line: only a complete JSON string, number or literal is accepted.
 fn scan_scalar(bs: &[u8], start: usize) -> Option<Val> {
     let (val, end) = scan_value(bs, start)?;
-    let valid = skip_ws(bs, end) == bs.len()
-        && match val {
-            Val::Raw { start, end } => {
-                std::str::from_utf8(&bs[start..end]).is_ok_and(|s| s.parse::<f64>().is_ok())
-            }
-            _ => true,
-        };
-    valid.then_some(val)
+    (skip_ws(bs, end) == bs.len()).then_some(val)
+}
+
+// Whether `bs` is a number in the JSON grammar (RFC 8259):
+// `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`. Unlike `f64::from_str`, this rejects
+// `nan`, `inf`, `infinity`, `+1`, `.5`, `1.` and `01`; an out-of-range number such as `1e999`
+// is still valid JSON.
+fn is_json_number(bs: &[u8]) -> bool {
+    fn digits(bs: &[u8], i: usize) -> usize {
+        bs[i..].iter().take_while(|b| b.is_ascii_digit()).count()
+    }
+    let mut i = usize::from(bs.first() == Some(&b'-'));
+    match bs.get(i) {
+        Some(b'0') => i += 1,
+        Some(b'1'..=b'9') => i += digits(bs, i),
+        _ => return false,
+    }
+    if bs.get(i) == Some(&b'.') {
+        let n = digits(bs, i + 1);
+        if n == 0 {
+            return false;
+        }
+        i += 1 + n;
+    }
+    if matches!(bs.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(bs.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        let n = digits(bs, i);
+        if n == 0 {
+            return false;
+        }
+        i += n;
+    }
+    i == bs.len()
 }
 
 // Whether a non-blank line is one record of valid JSON, as `JsonlReader::fill` accepts it.
@@ -650,8 +678,8 @@ fn scan_value(bs: &[u8], i: usize) -> Option<(Val, usize)> {
                 b"null" => Val::Null,
                 b"true" => Val::True,
                 b"false" => Val::False,
-                b"" => return None,
-                _ => Val::Raw { start, end },
+                number if is_json_number(number) => Val::Raw { start, end },
+                _ => return None,
             };
             Some((val, end))
         }
@@ -899,6 +927,22 @@ mod tests {
         assert_eq!(vals, vec!["1", "x", ""]);
         let (_, vals) = fields("{}\nnot json", &[]);
         assert!(vals.is_empty());
+    }
+
+    #[test]
+    fn only_json_numbers_are_valid() {
+        for ok in ["0", "-0", "7", "-12.5", "1e999", "1E+2", "-0.5e-3", "\"x\"", "true", "null"] {
+            assert!(is_valid(ok.as_bytes()), "{ok}");
+        }
+        for bad in [
+            "nan", "NaN", "inf", "-inf", "infinity", "+1", ".5", "1.", "01", "-", "1e", "1e+",
+            "0x10", "1_000",
+        ] {
+            assert!(!is_valid(bad.as_bytes()), "{bad}");
+        }
+        assert!(!is_valid(br#"{"a": nan}"#));
+        assert!(!is_valid(br#"[1, inf]"#));
+        assert!(is_valid(br#"{"a": -1.5e3, "b": [0, 1e999]}"#));
     }
 
     #[test]

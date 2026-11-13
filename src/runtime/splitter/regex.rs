@@ -330,10 +330,7 @@ mod tests {
     use std::io::Cursor;
     use std::sync::LazyLock;
 
-    static STR: LazyLock<String> =
-        LazyLock::new(|| String::from_utf8(bytes(1 << 20, 0.001, 0.05)).unwrap());
     static LINE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("\n").unwrap()));
-    static SPACE: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new(" ").unwrap()));
     static BS: LazyLock<AwkRegex> = LazyLock::new(|| AwkRegex::new(Regex::new("b+").unwrap()));
 
     // Helps type inference along.

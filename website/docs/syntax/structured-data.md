@@ -77,7 +77,7 @@ and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 | Option | Format |
 |--------|--------|
 | `-o csv` | CSV, correctly quoted; records end with `\n` (use `-v 'ORS=\r\n'` for CRLF) |
-| `-o tsv` | TSV with escapes, so any field survives a round trip |
+| `-o tsv` | TSV with escapes, so any field survives a round trip; TSV has no quoting, so a row with a single empty field is an empty line and reads back as no fields (printing such a `$0` warns once) |
 | `-o markdown` (`md`) | Markdown table: the first printed record is the header row |
 | `-o table` | aligned table with box-drawing borders, for terminals |
 | `-o jsonl` | JSON Lines: the first printed record names the keys; a key may end with `:number` or `:boolean` |

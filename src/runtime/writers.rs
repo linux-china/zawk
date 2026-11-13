@@ -132,6 +132,7 @@ pub fn stdout_broken_pipe() -> bool {
 /// as if killed by SIGPIPE.
 pub fn exit_code(code: i32) -> i32 {
     // Every exit of a program run goes through here, after its output has been flushed.
+    crate::runtime::sqlite::warn_open_transactions();
     crate::runtime::report_suppressed_warnings();
     let code = if stdout_broken_pipe() {
         SIGPIPE_EXIT_CODE

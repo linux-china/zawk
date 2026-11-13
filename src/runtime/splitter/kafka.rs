@@ -9,7 +9,7 @@
 //! `?offset=earliest` starts at the oldest message when the group has no committed offset,
 //! `?offset=latest` (the default) only reads the messages sent from now on.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -251,10 +251,17 @@ impl Subscription {
         WAITING.store(false, Ordering::SeqCst);
         if let Err(e) = committed {
             eprintln_ignore!("zawk: warning: failed to commit Kafka offsets: {}", e);
-            // retried with the next commit, unless newer offsets of the same partitions replace them
-            for (partition, offset) in offsets {
-                self.processed.entry(partition).or_insert(offset);
-            }
+            // A partition revoked by a rebalance, or a member fenced from the group, fails every
+            // later commit too: only the partitions still assigned to this member are retried, and
+            // only after an error that a retry can clear. The others are dropped: their records
+            // are read again by the member they are assigned to (at least once).
+            let retriable = e.is_retriable_error() || e.is_rebalance_in_progress_error();
+            let assignment = if retriable {
+                consumer.assignment()
+            } else {
+                HashSet::new()
+            };
+            retain_offsets(&mut self.processed, offsets, &assignment);
         }
     }
 
@@ -307,6 +314,21 @@ impl Subscription {
             .block_on(consumer.close_with_options(CloseOptions::new_with_timeout(TIMEOUT)));
         if let Err(e) = closed {
             eprintln_ignore!("zawk: warning: failed to close Kafka consumer: {}", e);
+        }
+    }
+}
+
+/// Put back the offsets that failed to commit, to be retried with the next commit, for the
+/// partitions in `assignment` only. Newer offsets of the same partitions, processed meanwhile,
+/// replace them.
+fn retain_offsets(
+    processed: &mut HashMap<TopicPartition, OffsetAndMetadata>,
+    failed: HashMap<TopicPartition, OffsetAndMetadata>,
+    assignment: &HashSet<TopicPartition>,
+) {
+    for (partition, offset) in failed {
+        if assignment.contains(&partition) {
+            processed.entry(partition).or_insert(offset);
         }
     }
 }
@@ -408,6 +430,23 @@ mod tests {
         assert!(health.recovered());
         assert!(!health.recovered());
         assert!(health.failed());
+    }
+
+    #[test]
+    fn test_retain_offsets() {
+        let offset = |n: i64| OffsetAndMetadata::new(n).unwrap();
+        let assigned = TopicPartition::new("t", 0);
+        let revoked = TopicPartition::new("t", 1);
+        // newer offset of the assigned partition processed while the commit failed
+        let mut processed = HashMap::from([(assigned.clone(), offset(9))]);
+        let failed = HashMap::from([(assigned.clone(), offset(5)), (revoked.clone(), offset(7))]);
+        retain_offsets(&mut processed, failed, &HashSet::from([assigned.clone()]));
+        assert_eq!(processed, HashMap::from([(assigned.clone(), offset(9))]));
+        // nothing is retried without an assignment (a fenced member, or a non-retriable error)
+        let mut processed = HashMap::new();
+        let failed = HashMap::from([(assigned, offset(5)), (revoked, offset(7))]);
+        retain_offsets(&mut processed, failed, &HashSet::new());
+        assert!(processed.is_empty());
     }
 
     #[test]
@@ -611,5 +650,33 @@ mod tests {
         let mut subscription = Subscription::new(&url).unwrap();
         assert_eq!(subscription.next().unwrap().payload, b"two");
         assert_eq!(subscription.next().unwrap().payload, b"three");
+    }
+
+    #[test]
+    fn test_commit_failure_of_unassigned_partition_is_dropped() {
+        let topic = format!("zawk-test-{}", Uuid::new_v4());
+        send(&topic, &[("one", &[]), ("two", &[]), ("three", &[])]);
+        let group = format!("zawk-test-{}", Uuid::new_v4());
+        let url = format!(
+            "kafka://localhost:9092/{}?group={}&offset=earliest",
+            topic, group
+        );
+        let mut subscription = Subscription::new(&url).unwrap();
+        assert_eq!(subscription.next().unwrap().payload, b"one");
+        // a partition this member does not own, as after a rebalance gave it to another member:
+        // committing it fails, and it must not be retried for ever
+        let revoked = TopicPartition::new(topic.as_str(), 7);
+        subscription
+            .processed
+            .insert(revoked.clone(), OffsetAndMetadata::new(1).unwrap());
+        subscription.commit();
+        assert!(!subscription.processed.contains_key(&revoked));
+        // the next commit of the partition this member owns succeeds
+        assert_eq!(subscription.next().unwrap().payload, b"two");
+        subscription.commit();
+        assert!(subscription.processed.is_empty());
+        drop(subscription);
+        let mut subscription = Subscription::new(&url).unwrap();
+        assert_eq!(subscription.next().unwrap().payload, b"two");
     }
 }

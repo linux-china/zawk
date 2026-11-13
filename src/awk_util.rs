@@ -194,35 +194,67 @@ pub fn validate_awk_code(awk_code: &str, var_decs: &[String], operand_vars: &[St
 }
 
 /// Declared variables provided only by operands, which the program refers to in a `BEGIN` block.
-/// The check is textual: the program has a `BEGIN` block and the name occurs in its code.
+/// The check is lexical: the name is an identifier in the body of a `BEGIN` block (see
+/// [`begin_block_idents`]).
 fn operand_only_vars_in_begin(
     awk_code: &str,
     tags: &[CommentTag],
     var_decs: &[String],
     operand_vars: &[String],
 ) -> Vec<String> {
-    static BEGIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bBEGIN\s*\{").unwrap());
-    if operand_vars.is_empty() || !BEGIN.is_match(awk_code) {
+    if operand_vars.is_empty() {
         return Vec::new();
     }
-    let code: String = awk_code
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('#'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let idents = begin_block_idents(awk_code);
+    if idents.is_empty() {
+        return Vec::new();
+    }
     let provided_by =
         |decs: &[String], name: &str| decs.iter().any(|s| s.split('=').next() == Some(name));
     tags.iter()
         .filter(|tag| tag.type_name == "var")
         .map(|tag| tag.value1.trim_end_matches('?'))
         .filter(|name| provided_by(operand_vars, name) && !provided_by(var_decs, name))
-        .filter(|name| {
-            Regex::new(&format!(r"\b{}\b", regex::escape(name)))
-                .map(|re| re.is_match(&code))
-                .unwrap_or(false)
-        })
+        .filter(|name| idents.contains(*name))
         .map(str::to_string)
         .collect()
+}
+
+/// The identifiers used in the bodies of the `BEGIN` blocks of `awk_code`, including the names
+/// referenced by the `{...}` placeholders of f-strings. The program is scanned with the awk
+/// [`Tokenizer`](crate::lexer::Tokenizer), so string literals, regex literals and comments are
+/// skipped naturally. On a lexical error the scan stops with what was collected so far: the
+/// check is advisory, and the parser reports the error itself.
+fn begin_block_idents(awk_code: &str) -> std::collections::HashSet<String> {
+    use crate::lexer::{Tok, Tokenizer};
+    static FSTR_IDENT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+    let mut idents = std::collections::HashSet::new();
+    // `Some(depth)` while inside a `BEGIN` body; `pending` after a `BEGIN` keyword, before its `{`.
+    let mut depth: Option<usize> = None;
+    let mut pending = false;
+    for tok in Tokenizer::new(awk_code) {
+        let Ok((_, tok, _)) = tok else { break };
+        match (depth, tok) {
+            (None, Tok::Begin) => pending = true,
+            (None, Tok::LBrace) if pending => {
+                pending = false;
+                depth = Some(1);
+            }
+            (None, Tok::Newline) => {}
+            (None, _) => pending = false,
+            (Some(d), Tok::LBrace) => depth = Some(d + 1),
+            (Some(d), Tok::RBrace) => depth = d.checked_sub(1).filter(|d| *d > 0),
+            (Some(_), Tok::Ident(name)) => {
+                idents.insert(name.to_string());
+            }
+            (Some(_), Tok::FStrLit(text)) => {
+                idents.extend(FSTR_IDENT.captures_iter(text).map(|c| c[1].to_string()));
+            }
+            (Some(_), _) => {}
+        }
+    }
+    idents
 }
 
 /// Field references accepted by the column sugar: `$1`, `$NF`, `$(NF-1)`, and comma separated
@@ -357,6 +389,46 @@ mod tests {
         let code = "# @var name the name\n{ print name }\n";
         let tags = parse_comment_tags(code);
         assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+        // a BEGIN block that does not refer to the variable: only the main rule uses it
+        let code = "# @var name the name\nBEGIN { print \"start\" }\n{ print name }\n";
+        let tags = parse_comment_tags(code);
+        assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+        // the name only in a string literal or a comment of the BEGIN block
+        let code = "# @var name the name\nBEGIN { print \"name\" # name\n}\n{ print name }\n";
+        let tags = parse_comment_tags(code);
+        assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+        // nested braces, and a second BEGIN block after a main rule
+        let code = "# @var name the name\nBEGIN { if (1) { x = 1 } }\n{ print }\nBEGIN { y = name }\n";
+        let tags = parse_comment_tags(code);
+        assert_eq!(
+            operand_only_vars_in_begin(code, &tags, &[], &operands),
+            vec!["name"]
+        );
+        // `BEGIN {` inside a string literal or a comment does not start a block
+        for code in [
+            "# @var name the name\n{ print \"BEGIN {\"; print name }\n",
+            "# @var name the name\n# BEGIN { x }\n{ print name }\n",
+        ] {
+            let tags = parse_comment_tags(code);
+            assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+        }
+        // braces in regex literals do not end or extend a block
+        let code = "# @var name the name\nBEGIN { if (\"a\" ~ /}/) x = 1; y = name }\n";
+        let tags = parse_comment_tags(code);
+        assert_eq!(
+            operand_only_vars_in_begin(code, &tags, &[], &operands),
+            vec!["name"]
+        );
+        let code = "# @var name the name\nBEGIN { if (\"a\" ~ /{/) x = 1 }\n{ print name }\n";
+        let tags = parse_comment_tags(code);
+        assert!(operand_only_vars_in_begin(code, &tags, &[], &operands).is_empty());
+        // a placeholder of an f-string
+        let code = "# @var name the name\nBEGIN { print f\"hi {name}\" }\n";
+        let tags = parse_comment_tags(code);
+        assert_eq!(
+            operand_only_vars_in_begin(code, &tags, &[], &operands),
+            vec!["name"]
+        );
     }
 
     #[test]

@@ -1285,7 +1285,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "fake",
         FAKE,
         "fake(kind: str[, locale: str]) -> str",
-        "Fake data: name, phone, cell, email, wechat, ip, creditcard, zipcode, plate, postcode, id; locale EN or CN.",
+        "Fake data: name, phone, cell, email, wechat, ip, creditcard, zipcode, plate, postcode, id (a Chinese resident ID card number for any locale); locale EN or CN.",
         r#"fake("name", "cn")"#,
     ),
     // Decision
@@ -1596,7 +1596,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "sqlite_execute",
         DATABASE,
         "sqlite_execute(db: str, sql: str[, params: map[int]str]) -> int",
-        "Execute SQL on SQLite; returns affected rows.",
+        "Execute SQL on SQLite; returns affected rows. Without params, runs `;`-separated statements in order; a transaction opened by a failing batch is rolled back.",
         r#"sqlite_execute("sqlite.db", "delete from user where nick = ?", arr)"#,
     ),
     d(

@@ -224,8 +224,9 @@ pub(crate) fn fold_key(bs: &[u8]) -> Vec<u8> {
 
 /// Whether `l` and `r` are equal ignoring case. An ASCII string can equal a longer non-ASCII one
 /// (`"K"` and the Kelvin sign `"\u{212A}"`), so byte lengths alone do not tell them apart.
+/// With `-b` (characters as bytes) only ASCII letters are folded, as `cmp_folded` does.
 pub(crate) fn eq_ignore_case(l: &[u8], r: &[u8]) -> bool {
-    if l.is_ascii() && r.is_ascii() {
+    if ascii_fold(l, r) {
         return l.eq_ignore_ascii_case(r);
     }
     fold_units(l).eq(fold_units(r))

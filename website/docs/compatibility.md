@@ -41,9 +41,19 @@ behavior in a few places:
 - **A name is an array or a scalar for the whole program**, decided from every use of it, reachable or not:
   `if (0) { a = 2 } else { a[1] = 1 }` is rejected at compile time ("attempt to use array `a` in a scalar
   context"), while gawk only fails if a conflicting use actually runs. Use different names.
-- **A string that looks like zero is false**: `if ("0")`, `if ("0.0")` and `if ("0x0")` are false (gawk treats
-  every non-empty string constant as true). Use `if (s != "")`.
-- **Hexadecimal numbers** are recognized in source and in input data: `0x10` is 16. A leading zero is decimal.
+- **A string that looks like zero is false**, whether it is a constant, a string variable or a field:
+  `if ("0")`, `if ("0.0")` and `if ("0x0")` are false, and `!"0"` / `!"0.0"` are `1` (gawk treats every
+  non-empty string constant as true, so `!"0"` is `0` there). This is the difference most likely to bite when
+  porting: a gawk script that tests for a non-empty string with `if (s)` takes the other branch when `s` is
+  `"0"`. Write `if (s != "")` or `if (length(s))` instead.
+- **Hexadecimal numbers** are recognized in source and in input data: `0x10` is 16, `"0x10" + 0` is 16 (gawk: 0),
+  and for an input line `0x10 16`, `$1 == $2` is true (gawk compares them as strings). A leading zero is
+  decimal: `010` in source is 10 (gawk: 8).
+- **`printf` with too few arguments** is not fatal: zawk prints a warning and the missing arguments print as
+  empty (or `0` for numeric conversions). `printf "%s|%s\n", "a"` prints `a|`. `zawk lint` reports it (W202).
+- **A variable never assigned can become an array later**: `print length(x); x[1] = 1` works in zawk, while gawk
+  stops with "attempt to use scalar as an array". Once a variable is assigned a scalar value, using it as an
+  array is still an error, as in gawk.
 - **Digit separators**: `1_000` is the number 1000 in source, not `1` joined with the variable `_000`. Write
   `1 _000` for the latter.
 - In `for (k in a)`, `k` compares as a number when the keys are only ever numbers, and as a string otherwise.
@@ -76,7 +86,7 @@ in gawk. Spell out what a short match may contain instead: `/<[^>]+>/`, not `/<.
 
 ## Checking a program
 
-`zawk lint` reports most of these cases with a dedicated code (W101, W103, W116, W117, W120, E202, E305...).
+`zawk lint` reports most of these cases with a dedicated code (W101, W103, W116, W117, W120, W202, E202, E305...).
 Run it when porting a gawk script:
 
 ```shell

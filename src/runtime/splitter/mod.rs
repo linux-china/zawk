@@ -27,7 +27,7 @@ use crate::common::Result;
 use crate::pushdown::FieldSet;
 
 use std::io::{ErrorKind, Read};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Most warnings of one kind about malformed input (see [input_warning]) printed in a run.
 const MAX_INPUT_WARNINGS: usize = 5;
@@ -128,8 +128,18 @@ pub trait Line<'a>: Default + Clone {
         }
         let row = self.join_cols(1, nf as Int, sep, nf, trans)?;
         // A one-field CSV row with an empty field is `""`: an empty line reads back as no fields.
-        if nf == 1 && sep.with_bytes(|s| s == b",") && row.with_bytes(|r| r.is_empty()) {
-            return Ok(Str::from("\"\""));
+        if nf == 1 && row.with_bytes(|r| r.is_empty()) {
+            if sep.with_bytes(|s| s == b",") {
+                return Ok(Str::from("\"\""));
+            }
+            // TSV has no quoting, so the row can only be an empty line, which reads back as no
+            // fields: say so once per run.
+            static EMPTY_TSV_ROW: AtomicBool = AtomicBool::new(false);
+            if !EMPTY_TSV_ROW.swap(true, Ordering::Relaxed) {
+                eprintln_ignore!(
+                    "zawk: warning: a TSV row with a single empty field is printed as an empty line, which reads back as no fields"
+                );
+            }
         }
         Ok(row)
     }
