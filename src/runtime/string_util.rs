@@ -1,7 +1,5 @@
 use crate::common::Result;
-use crate::runtime::{
-    Int, IntMap, SharedMap, Str, StrMap, check_result_len_int, stdlib_warning,
-};
+use crate::runtime::{Int, IntMap, SharedMap, Str, StrMap, check_result_len_int, stdlib_warning};
 use pad::Alignment;
 use std::sync::LazyLock;
 
@@ -722,7 +720,12 @@ fn grok_definitions(defs: &str) -> std::result::Result<Vec<(&str, &str)>, String
             Some((name, regex)) if !regex.trim().is_empty() => {
                 items.push((name, regex.trim()));
             }
-            _ => return Err(format!("invalid definition {:?}, expected `NAME regex`", line)),
+            _ => {
+                return Err(format!(
+                    "invalid definition {:?}, expected `NAME regex`",
+                    line
+                ));
+            }
         }
     }
     Ok(items)
@@ -1055,6 +1058,23 @@ pub fn color_with(spec: &str, text: &str, enabled: bool) -> String {
 mod tests {
     use super::*;
     use unicode_segmentation::UnicodeSegmentation;
+
+    /// Every pattern of the built-in library (`grok::patterns()`, the one
+    /// `Grok::with_default_patterns` loads) can be used by name with the fancy-regex engine.
+    #[test]
+    fn test_grok_default_patterns_compile() {
+        let names: Vec<&str> = grok::patterns().iter().map(|(name, _)| *name).collect();
+        assert!(names.len() > 300, "{} patterns", names.len());
+        let failed: Vec<String> = names
+            .iter()
+            .filter_map(|name| {
+                grok_compile(&format!("%{{{}:v}}", name), "")
+                    .err()
+                    .map(|e| format!("{}: {}", name, e))
+            })
+            .collect();
+        assert!(failed.is_empty(), "{:#?}", failed);
+    }
 
     #[test]
     fn test_color() {
@@ -1420,8 +1440,4 @@ mod tests {
         assert!(similar(b"caf\xe9x", b"caf\xe8x") < 1.0);
     }
 
-    #[test]
-    fn test_grok() {
-        
-    }
 }
