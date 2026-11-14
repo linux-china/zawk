@@ -34,6 +34,7 @@ use crate::parsing;
 use lalrpop_util::ParseError;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// A part of the program: a `-f` file, a `-e` string or the program operand, or a piece of one
 /// of them between `@include` lines (see `include`).
@@ -65,6 +66,8 @@ struct Diagnostic {
 pub struct Options {
     /// `-p`: the program runs in parallel.
     pub parallel: Option<Parallel>,
+    /// Inferred global slot types, when available (runtime warnings only).
+    pub(crate) global_types: HashMap<String, compile::Ty>,
     /// Variables set on the command line with `-v`.
     pub assigned: Vec<String>,
     /// `-H` (or an input format that implies it): `FI` maps the column names of the header.
@@ -132,13 +135,17 @@ pub fn lint(sources: &[Source], opts: &Options) -> (usize, usize, String) {
 }
 
 /// The warnings a run in parallel `mode` prints to stderr before it starts: the variables
-/// (`W302`) and array elements (`W303`) that END sees aggregated over the workers, which
-/// otherwise give a wrong result without a word (e.g. a maximum summed over the workers).
-/// Only the syntax tree is checked, so this costs one more parse of the program; a program that
-/// does not parse gets no warning here (the run reports its error).
+/// (`W302`) and array elements (`W303`) that END sees merged over the workers. When available,
+/// `global_types` lets the warnings state the merge for each slot type. A program that does not
+/// parse gets no warning here (the run reports its error).
 /// With `keep_order` (`--keep-order`, which promises the output of a serial run) the record
 /// counters read in the main loop (`W301`) are reported too.
-pub fn parallel_warnings(sources: &[Source], mode: Parallel, keep_order: bool) -> Vec<String> {
+pub fn parallel_warnings(
+    sources: &[Source],
+    mode: Parallel,
+    keep_order: bool,
+    global_types: &HashMap<String, compile::Ty>,
+) -> Vec<String> {
     let mut prog = String::new();
     let mut starts = Vec::with_capacity(sources.len());
     for src in sources {
@@ -159,6 +166,7 @@ pub fn parallel_warnings(sources: &[Source], mode: Parallel, keep_order: bool) -
     }
     let opts = Options {
         parallel: Some(mode),
+        global_types: global_types.clone(),
         ..Options::default()
     };
     let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
@@ -1927,7 +1935,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     }
 
     if let Some(mode) = opts.parallel {
-        diags.extend(check_parallel(&facts, prog, mode));
+        diags.extend(check_parallel(&facts, prog, mode, &opts.global_types));
     }
     if let Some(data) = &opts.data {
         diags.extend(check_data(&facts, opts, data));
@@ -2229,6 +2237,7 @@ fn check_parallel<'a>(
     facts: &Facts<'a, '_>,
     prog: &ast::Prog<'a, 'a, &'a str>,
     mode: Parallel,
+    global_types: &HashMap<String, compile::Ty>,
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     // Record counters count the records of one worker.
@@ -2252,8 +2261,7 @@ fn check_parallel<'a>(
             ));
         }
     }
-    // Scalars set in the main loop and read in END are summed (numbers) or taken from one worker
-    // (strings): only sums aggregate to the serial result.
+    // Scalars set in the main loop and read in END are merged according to their slot type.
     let mut reported: Vec<&str> = Vec::new();
     for s in &facts.sets {
         if s.region != Region::Main
@@ -2269,19 +2277,24 @@ fn check_parallel<'a>(
             continue;
         }
         reported.push(s.name);
+        let aggregation = match global_types.get(s.name) {
+            Some(compile::Ty::Int | compile::Ty::Float) => "numeric values are summed",
+            Some(compile::Ty::Str) => {
+                "a string value comes from one unspecified worker (an empty string set by a worker is ignored)"
+            }
+            _ => "numbers are summed if the slot is numeric; if it is a string slot, a value comes from one unspecified worker (an empty string set by a worker is ignored)",
+        };
         diags.push(warning(
             "W302",
             format!(
-                "in parallel mode END sees `{}` aggregated over the workers (numbers summed, strings from one worker), not its last value; collect per-worker values in PREPARE, e.g. `PREPARE {{ v[PID] = {} }}`",
-                s.name, s.name
+                "in parallel mode END sees `{}` merged over the workers: {}; this is not its last value; collect per-worker values in PREPARE, e.g. `PREPARE {{ v[PID] = {} }}`",
+                s.name, aggregation, s.name
             ),
             s.loc,
         ));
     }
-    // Arrays whose elements the main loop assigns (`a[k] = 1`, `last[k] = $2`) and END reads:
-    // the workers' arrays are merged key by key, numbers summed and strings from one worker, so
-    // a value seen by several workers is multiplied. Keys alone (`for (k in a)`, `length(a)`)
-    // are the union and stay right.
+    // Arrays whose elements the main loop assigns and END reads are merged key by key according
+    // to the element type. Keys alone (`for (k in a)`, `length(a)`) are the union and stay right.
     let mut reported: Vec<&str> = Vec::new();
     for s in &facts.element_sets {
         if s.region != Region::Main
@@ -2296,11 +2309,23 @@ fn check_parallel<'a>(
             continue;
         }
         reported.push(s.name);
+        let aggregation = match global_types.get(s.name) {
+            Some(
+                compile::Ty::MapIntInt
+                | compile::Ty::MapIntFloat
+                | compile::Ty::MapStrInt
+                | compile::Ty::MapStrFloat,
+            ) => "numeric values are summed, so a key assigned in several workers is counted several times; count with `a[k]++` / `+=`",
+            Some(compile::Ty::MapIntStr | compile::Ty::MapStrStr) => {
+                "string values come from one unspecified worker (an empty string set by a worker is ignored), not a deterministic last value"
+            }
+            _ => "numeric values are summed, while string values come from one unspecified worker (an empty string set by a worker is ignored); use `a[k]++` / `+=` only for numeric counts",
+        };
         diags.push(warning(
             "W303",
             format!(
-                "in parallel mode END sees the elements of `{}` merged over the workers (numbers summed, strings from one worker), so a key assigned in several workers is counted several times; count with `{}[k]++` / `+=`, or collect per-worker values in PREPARE",
-                s.name, s.name
+                "in parallel mode END sees the elements of `{}` merged over the workers: {}; collect per-worker values in PREPARE when this is not the desired merge",
+                s.name, aggregation
             ),
             s.loc,
         ));
@@ -3764,7 +3789,12 @@ mod tests {
             text: prog.to_string(),
             ..Source::default()
         };
-        let w = parallel_warnings(std::slice::from_ref(&src), Parallel::Record, false);
+        let w = parallel_warnings(
+            std::slice::from_ref(&src),
+            Parallel::Record,
+            false,
+            &HashMap::new(),
+        );
         assert_eq!(w.len(), 1);
         assert!(
             w[0].starts_with("zawk: warning: -p r: line 2, column 3: W302 "),
@@ -3778,7 +3808,8 @@ mod tests {
                     ..Source::default()
                 }],
                 Parallel::File,
-                false
+                false,
+                &HashMap::new(),
             )
             .is_empty()
         );
@@ -3789,7 +3820,8 @@ mod tests {
                     ..Source::default()
                 }],
                 Parallel::File,
-                false
+                false,
+                &HashMap::new(),
             )
             .is_empty()
         );
@@ -3841,6 +3873,55 @@ mod tests {
     }
 
     #[test]
+    fn parallel_string_aggregation_warning() {
+        let src = Source {
+            text: "{ m = ($1 > m) ? $1 : m } END { print m }".to_string(),
+            ..Source::default()
+        };
+        let types = HashMap::from([(String::from("m"), compile::Ty::Str)]);
+        let warnings = parallel_warnings(
+            std::slice::from_ref(&src),
+            Parallel::Record,
+            false,
+            &types,
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("one unspecified worker"),
+            "{}",
+            warnings[0]
+        );
+        let warnings = parallel_warnings(&[src.clone()], Parallel::Record, false, &HashMap::new());
+        assert!(
+            warnings[0].contains("numbers are summed if the slot is numeric"),
+            "{}",
+            warnings[0]
+        );
+
+        let src = Source {
+            text: "{ s = $1 + 0 } END { print s }".to_string(),
+            ..Source::default()
+        };
+        let types = HashMap::from([(String::from("s"), compile::Ty::Float)]);
+        let warnings = parallel_warnings(&[src], Parallel::Record, false, &types);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("numeric values are summed"), "{}", warnings[0]);
+
+        let src = Source {
+            text: "{ a[$1] = $2 } END { print a[$1] }".to_string(),
+            ..Source::default()
+        };
+        let types = HashMap::from([(String::from("a"), compile::Ty::MapStrStr)]);
+        let warnings = parallel_warnings(&[src], Parallel::Record, false, &types);
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("string values come from one unspecified worker"),
+            "{}",
+            warnings[0]
+        );
+    }
+
+    #[test]
     fn parallel_cross_record_state() {
         let pr = Options {
             parallel: Some(Parallel::Record),
@@ -3887,15 +3968,33 @@ mod tests {
             text: t.to_string(),
             ..Source::default()
         };
-        let w = parallel_warnings(&[src("!seen[$1]++")], Parallel::Record, false);
+        let w = parallel_warnings(
+            &[src("!seen[$1]++")],
+            Parallel::Record,
+            false,
+            &HashMap::new(),
+        );
         assert_eq!(w.len(), 1);
         assert!(
             w[0].starts_with("zawk: warning: -p r: line 1, column 2: W305 "),
             "{}",
             w[0]
         );
-        assert!(parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, false).is_empty());
-        let w = parallel_warnings(&[src("NR % 10 == 0")], Parallel::Record, true);
+        assert!(
+            parallel_warnings(
+                &[src("NR % 10 == 0")],
+                Parallel::Record,
+                false,
+                &HashMap::new(),
+            )
+            .is_empty()
+        );
+        let w = parallel_warnings(
+            &[src("NR % 10 == 0")],
+            Parallel::Record,
+            true,
+            &HashMap::new(),
+        );
         assert_eq!(w.len(), 1);
         assert!(
             w[0].starts_with("zawk: warning: --keep-order: line 1, column 1: W301 "),
@@ -3946,7 +4045,7 @@ mod tests {
             text: r#"BEGIN { mysql_execute(u, "BEGIN") } { mysql_execute(u, "insert ...") }"#.into(),
             ..Source::default()
         };
-        let w = parallel_warnings(&[src], Parallel::Record, false);
+        let w = parallel_warnings(&[src], Parallel::Record, false, &HashMap::new());
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("W306 "), "{}", w[0]);
     }

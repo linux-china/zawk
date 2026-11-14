@@ -702,10 +702,11 @@ with `strftime`. The kind of ID is told by its form:
 * UUID v1, v6 or v7 (with or without hyphens): the timestamp in the UUID
 * ULID: 26 Crockford base32 characters, the first 48 bits are Unix milliseconds
 * TSID: 13 Crockford base32 characters, the first 42 bits are milliseconds since `2020-01-01T00:00:00Z`
-* Snowflake ID: a decimal number, the bits above the lowest 22 are milliseconds since `epoch_ms`, the Unix time in
-  milliseconds: `0` by default, as `snowflake()`; `1288834974657` for X/Twitter, `1420070400000` for Discord
+* Snowflake ID: a decimal number of 15 to 19 digits, the bits above the lowest 22 are milliseconds since `epoch_ms`,
+  the Unix time in milliseconds: `0` by default, as `snowflake()`; `1288834974657` for X/Twitter, `1420070400000` for
+  Discord
 
-Other text (a UUID v4, say) gives a warning and `-1`.
+Other text (a UUID v4, or a plain number such as `42`, say) gives a warning and `-1`.
 
 ```awk
 strftime("%F %T", uuid_extract_timestamp(uuid("v7")))      # now
@@ -1164,7 +1165,7 @@ echo '{"data":{"account":{"name":"Jackie"}},"status":"active","metadata":[{"key"
 `to_json(array)`: arrays whose keys are exactly the integers `1..n` become JSON arrays (ordered by key), other arrays
 become JSON objects with keys sorted (integer keys in numeric order), so the output is stable across runs and
 `from_json` reads the same keys back, e.g. `b[1]=1; b[3]=3` → `{"1":1,"3":3}`. Empty values are kept. Values follow the array's inferred type:
-a string-valued array (e.g. `a["n"]=1; a["s"]="x"`) encodes every value as a JSON string (`{"n":"1","s":"x"}`).
+a string-valued array (e.g. `a["n"]=1; a["s"]="x"`) infers each value matching finite JSON number syntax as a number (`{"n":1,"s":"x"}`). Values such as `"007"`, `"+1"`, `"0x10"`, `"1e999"`, booleans, and empty strings remain JSON strings.
 
 ### json_value
 

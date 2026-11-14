@@ -19,19 +19,26 @@ pub(crate) fn float_to_json(num: Float) -> String {
 
 /// Encode int-keyed entries: a JSON array when the keys are exactly `1..n` (or empty),
 /// otherwise a JSON object with keys in numeric order, so `from_json` keeps the keys.
-fn int_entries_to_json<T: miniserde::Serialize>(mut entries: Vec<(Int, T)>) -> String {
+fn int_entries_to_json<T: miniserde::Serialize>(entries: Vec<(Int, T)>) -> String {
+    int_entries_to_json_with(entries, |value| json::to_string(value))
+}
+
+fn int_entries_to_json_with<T>(
+    mut entries: Vec<(Int, T)>,
+    value_to_json: impl Fn(&T) -> String,
+) -> String {
     entries.sort_by_key(|(key, _)| *key);
     let is_list = entries
         .iter()
         .enumerate()
         .all(|(i, (key, _))| *key == i as Int + 1);
     if is_list {
-        let items: Vec<T> = entries.into_iter().map(|(_, value)| value).collect();
-        return json::to_string(&items);
+        let items: Vec<String> = entries.iter().map(|(_, value)| value_to_json(value)).collect();
+        return format!("[{}]", items.join(","));
     }
     let fields: Vec<String> = entries
         .iter()
-        .map(|(key, value)| format!("\"{}\":{}", key, json::to_string(value)))
+        .map(|(key, value)| format!("\"{}\":{}", key, value_to_json(value)))
         .collect();
     format!("{{{}}}", fields.join(","))
 }
@@ -53,7 +60,7 @@ pub(crate) fn map_int_float_to_json(arr: &IntMap<Float>) -> String {
             entries.push((*key, *value));
         }
     });
-    int_entries_to_json(entries)
+    int_entries_to_json_with(entries, |value| float_to_json(*value))
 }
 
 pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
@@ -63,7 +70,27 @@ pub(crate) fn map_int_str_to_json(arr: &IntMap<Str>) -> String {
             entries.push((*key, value.to_string()));
         }
     });
-    int_entries_to_json(entries)
+    int_str_entries_to_json(entries)
+}
+
+fn int_str_entries_to_json(mut entries: Vec<(Int, String)>) -> String {
+    entries.sort_by_key(|(key, _)| *key);
+    let is_list = entries
+        .iter()
+        .enumerate()
+        .all(|(i, (key, _))| *key == i as Int + 1);
+    if is_list {
+        let items: Vec<String> = entries
+            .iter()
+            .map(|(_, value)| str_value_to_json(value))
+            .collect();
+        return format!("[{}]", items.join(","));
+    }
+    let fields: Vec<String> = entries
+        .iter()
+        .map(|(key, value)| format!("\"{}\":{}", key, str_value_to_json(value)))
+        .collect();
+    format!("{{{}}}", fields.join(","))
 }
 
 pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
@@ -83,21 +110,39 @@ pub(crate) fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
             json_obj.insert(key.to_string(), *value);
         }
     });
-    json::to_string(&json_obj)
+    let fields: Vec<String> = json_obj
+        .iter()
+        .map(|(key, value)| format!("\"{}\":{}", escape_json(key), float_to_json(*value)))
+        .collect();
+    format!("{{{}}}", fields.join(","))
 }
 
 pub(crate) fn map_str_str_to_json(obj: &StrMap<Str>) -> String {
     let mut json_obj: BTreeMap<String, String> = BTreeMap::new();
     obj.iter(|map| {
         for (key, value) in map {
-            json_obj.insert(key.to_string(), value.to_string());
+            json_obj.insert(key.to_string(), str_value_to_json(&value.as_str()));
         }
     });
-    json::to_string(&json_obj)
+    let fields: Vec<String> = json_obj
+        .iter()
+        .map(|(key, value)| format!("\"{}\":{}", escape_json(key), value))
+        .collect();
+    format!("{{{}}}", fields.join(","))
 }
 
 pub(crate) fn str_to_json(text: &str) -> String {
     format!("\"{}\"", escape_json(text))
+}
+
+fn str_value_to_json(value: &str) -> String {
+    if crate::runtime::writers::json_number(value).is_some()
+        && value.parse::<f64>().is_ok_and(f64::is_finite)
+    {
+        value.to_owned()
+    } else {
+        str_to_json(value)
+    }
 }
 
 pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
@@ -441,6 +486,52 @@ mod tests {
         assert_eq!(
             int_entries_to_json(vec![(0, "a".to_string()), (-1, "b".to_string())]),
             r#"{"-1":"b","0":"a"}"#
+        );
+    }
+
+    #[test]
+    fn float_arrays_match_scalar_float_json() {
+        let int_map: IntMap<Float> = IntMap::default();
+        int_map.insert(1, 1.0);
+        int_map.insert(2, 2.5);
+        int_map.insert(3, Float::INFINITY);
+        int_map.insert(4, Float::NEG_INFINITY);
+        int_map.insert(5, Float::NAN);
+        assert_eq!(map_int_float_to_json(&int_map), "[1,2.5,null,null,null]");
+        int_map.insert(7, -0.5);
+        assert_eq!(
+            map_int_float_to_json(&int_map),
+            r#"{"1":1,"2":2.5,"3":null,"4":null,"5":null,"7":-0.5}"#
+        );
+
+        let str_map: StrMap<Float> = StrMap::default();
+        str_map.insert(Str::from("x"), 1.0);
+        str_map.insert(Str::from("y"), 2.5);
+        str_map.insert(Str::from("inf"), Float::INFINITY);
+        str_map.insert(Str::from("nan"), Float::NAN);
+        str_map.insert(Str::from("a\"b"), 3.0);
+        assert_eq!(
+            map_str_float_to_json(&str_map),
+            r#"{"a\"b":3,"inf":null,"nan":null,"x":1,"y":2.5}"#
+        );
+        assert_eq!(float_to_json(1.0), "1");
+    }
+
+    #[test]
+    fn string_values_are_inferred_as_json_numbers() {
+        for value in ["0", "1", "-12", "1.25", "2e+3"] {
+            assert_eq!(str_value_to_json(value), value);
+        }
+        for value in ["", "007", "+1", "0x10", "1e999", "true", "a\"b"] {
+            assert_eq!(str_value_to_json(value), str_to_json(value));
+        }
+        assert_eq!(
+            int_str_entries_to_json(vec![(2, "007".into()), (1, "5".into())]),
+            r#"[5,"007"]"#
+        );
+        assert_eq!(
+            int_str_entries_to_json(vec![(2, "5".into()), (4, "007".into())]),
+            r#"{"2":5,"4":"007"}"#
         );
     }
 

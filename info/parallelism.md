@@ -34,7 +34,7 @@ it prints:
   `system`, `exit`, user-defined function or range pattern, and only
   side-effect-free builtins (`length`, `substr`, `split`, `match`, `int`, ...);
 * every variable the main loop writes is either a **whole-number sum**
-  (`c++`, `a[$1]++`, `n += length($0)`, `s += int($3)`, `hits += $3 > 500`),
+  (`c++`, `a[$1]++`, `n += length($0)`, `hits += $3 > 500`),
   not read in the main loop nor given a value in `BEGIN` or with `-v`, or a
   **per-record temporary** that each record assigns before reading it
   (`x = $3 * 2`, `n = split($2, parts)`, `for (i = 1; i <= NF; i++)`);
@@ -217,7 +217,8 @@ shall see you always have the option of performing the aggregation explicitly.
 * Scalars are aggregated differently based on their
   [type](https://github.com/linux-china/zawk/blob/master/info/types.md). Integer
   and floating-point values are summed. String variables are aggregated by picking
-  an arbitrary non-empty representative value from one of the worker threads.
+  an arbitrary non-empty representative value from one of the worker threads; an
+  empty string set by a worker is ignored.
 * Maps are aggregated by performing a union of the underlying sets of key/value
   pairs, with overlapping values being aggregated according to the corresponding
   scalar rule.
@@ -239,13 +240,16 @@ END { print budget }
 
   This does not help with plain assignments in the main loop: in
   `BEGIN { t = 5 } { t = $1 } END { print t }` every worker's `t` is a value it
-  assigned, and END sees their sum. `zawk lint -p r` reports such variables
-  (`W302`).
+  assigned, and END sees the type-specific merge rather than the last assignment.
+  Numeric slots are summed; string slots use a value from an unspecified worker.
+  `zawk lint -p r` reports such variables (`W302`) and describes the inferred
+  merge type when it is available.
   The same goes for array elements: with `{ a[$4] = 1 }` a key seen by three
-  workers has the value 3 in END, and `{ last[$1] = $2 }` adds up the last
-  values of each worker. The keys (`for (k in a)`, `length(a)`) are right;
-  the values are not. Count with `a[k]++` / `a[k] += v`, or collect per-worker
-  values in PREPARE. `zawk lint -p r` reports such arrays (`W303`).
+  workers has the value 3 in END, while string values such as `{ last[$1] = $2 }`
+  come from one unspecified worker. The keys (`for (k in a)`, `length(a)`) are
+  the union; the values are not necessarily those of a serial run. Count with
+  `a[k]++` / `a[k] += v`, or collect per-worker values in PREPARE.
+  `zawk lint -p r` reports such arrays (`W303`).
 
 This, among other things, means that simple aggregations like sums:
 ```awk

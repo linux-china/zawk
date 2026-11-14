@@ -597,6 +597,55 @@ fn get_context<'a>(
     }
 }
 
+fn global_types(prog: &str, raw: &RawPrelude) -> std::collections::HashMap<String, compile::Ty> {
+    use std::collections::HashMap;
+
+    let a = Arena::default();
+    let mut prelude = get_prelude(&a, raw);
+    let text: &str = a.alloc_str(prog);
+    let mut parsed = ast::Prog::from_stage(&a, prelude.scalars.stage.clone());
+    parsed.argv = mem::take(&mut prelude.argv);
+    parsed.operand_assigns = mem::take(&mut prelude.operand_assigns);
+    parsed.operand_files = mem::take(&mut prelude.operand_files);
+    let parser = parsing::syntax::ProgParser::new();
+    let mut buf = Vec::new();
+    if parser
+        .parse(&a, &mut buf, &mut parsed, lexer::Tokenizer::new(text))
+        .is_err()
+    {
+        return HashMap::new();
+    }
+    parsed.field_sep = prelude.field_sep;
+    parsed.prelude_vardecs = prelude.var_decs;
+    parsed.output_sep = prelude.output_sep;
+    parsed.output_record_sep = prelude.output_record_sep;
+    parsed.parse_header = prelude.scalars.parse_header;
+    parsed.header_per_file = prelude.scalars.header_per_file;
+    parsed.header_in_main = prelude.scalars.header_in_main;
+    if let Some(name) = &prelude.scalars.test_entry {
+        parsing::run_only_function(name, &a, &mut parsed);
+    }
+    let parsed = a.alloc(parsed);
+    let mut ctx = match cfg::ProgramContext::from_prog(&a, parsed, prelude.scalars.escaper) {
+        Ok(ctx) => ctx,
+        Err(_) => return HashMap::new(),
+    };
+    ctx.fold_regex_constants = prelude.scalars.fold_regexes;
+    let ident_map = ctx._invert_ident();
+    let Ok(types) = types::get_types(&ctx) else {
+        return HashMap::new();
+    };
+    types
+        .var_tys
+        .iter()
+        .filter_map(|((ident, _, _), ty)| {
+            ident_map
+                .get(&ident._base())
+                .map(|name| (String::from(*name), *ty))
+        })
+        .collect()
+}
+
 fn run_interp_with_context<'a>(
     mut ctx: cfg::ProgramContext<'a, &'a str>,
     stdin: impl LineReader,
@@ -1289,6 +1338,7 @@ fn lint_options(
         header,
         field_sep,
         data: None,
+        global_types: Default::default(),
         parallel: match matches
             .get_one::<String>("parallel-strategy")
             .map(|s| s.as_str())
@@ -1746,7 +1796,7 @@ fn real_main() {
             .help("Input files to be read by zawk program: local paths, `-` (stdin), http(s):// URLs, s3://bucket/key, a nats:// subject, a kafka:// topic, or a database table or query read as CSV with a header line (`sqlite://PATH#table`, `mysql://...#table`, `postgresql://...#select ...`; SQL when the text after `#` contains whitespace)"))
         .arg(Arg::new("parallel-strategy")
             .short('p')
-            .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files. Without -p, an aggregation over local files of 64 MiB or more whose result does not depend on the order of the records (e.g. `{s+=$3} END{print s}`) runs as with -pr; -p0 (or ZAWK_PARALLEL=0) runs it serially")
+            .help("Attempt to execute the script in parallel. Strategy r[ecord] parallelizes within the current input file. Strategy f[ile] parallelizes between input files. Without -p, an aggregation over local files of 64 MiB or more whose result does not depend on the order of the records (e.g. `/ERROR/{c++} END{print c}`) runs as with -pr; -p0 (or ZAWK_PARALLEL=0) runs it serially")
             .value_parser(["r", "record", "f", "file", "0"]))
         .arg(Arg::new("keep-order")
             .long("keep-order")
@@ -2202,7 +2252,7 @@ fn real_main() {
         num_workers = 1;
     }
     // Without `-p`, a program whose result does not depend on how its records are shared out
-    // (an aggregation such as `{s+=$3} END{print s}`) runs with `-pr` on large local files.
+    // (an aggregation such as `/ERROR/{c++} END{print c}`) runs with `-pr` on large local files.
     if matches.get_one::<String>("parallel-strategy").is_none()
         && matches!(exec_strategy, ExecutionStrategy::Serial)
         && message_url.is_none()
@@ -2247,23 +2297,6 @@ fn real_main() {
         ExecutionStrategy::ShardPerRecord(_) => PARALLEL_CHUNK_SIZE,
         _ => CHUNK_SIZE,
     });
-    // Variables that END sees summed over the workers (`max`, `last`, a flag) give a wrong
-    // result silently: warn about them, unless `--lint` already reported them.
-    let linted = matches.get_flag("lint") || matches.get_flag("deny-warnings");
-    if !linted {
-        let mode = match exec_strategy {
-            ExecutionStrategy::Serial => None,
-            ExecutionStrategy::ShardPerRecord(_) => Some(lint::Parallel::Record),
-            ExecutionStrategy::ShardPerFile => Some(lint::Parallel::File),
-        };
-        if let Some(mode) = mode {
-            let keep_order = runtime::writers::ordered::keep_order();
-            for w in lint::parallel_warnings(&includer.pieces, mode, keep_order) {
-                eprintln!("{}", w);
-            }
-        }
-    }
-
     let opt_level: i32 = match matches.get_one::<String>("opt-level").map(|s| s.as_str()) {
         Some("3") => 3,
         Some("2") => 2,
@@ -2303,6 +2336,23 @@ fn real_main() {
         },
         operand_assigns,
     };
+    // Implicit aggregation can give END a value other than the last one a worker saw. Infer the
+    // global slot types so the warning describes the merge the runtime will actually use.
+    let linted = matches.get_flag("lint") || matches.get_flag("deny-warnings");
+    if !linted {
+        let mode = match exec_strategy {
+            ExecutionStrategy::Serial => None,
+            ExecutionStrategy::ShardPerRecord(_) => Some(lint::Parallel::Record),
+            ExecutionStrategy::ShardPerFile => Some(lint::Parallel::File),
+        };
+        if let Some(mode) = mode {
+            let types = global_types(&program_code, &raw);
+            let keep_order = runtime::writers::ordered::keep_order();
+            for w in lint::parallel_warnings(&includer.pieces, mode, keep_order, &types) {
+                eprintln!("{}", w);
+            }
+        }
+    }
     let opt_dump_bytecode = matches.get_flag("dump-bytecode");
     let opt_dump_cfg = matches.get_flag("dump-cfg");
     let skip_output = opt_dump_bytecode || opt_dump_cfg;

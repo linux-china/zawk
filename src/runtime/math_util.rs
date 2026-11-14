@@ -343,9 +343,10 @@ const TSID_EPOCH_MS: i64 = 1_577_836_800_000;
 ///
 /// * a ULID: 26 Crockford base32 characters, the first 48 bits are Unix milliseconds;
 /// * a TSID: 13 Crockford base32 characters, the first 42 bits are milliseconds since 2020-01-01;
-/// * a Snowflake ID: a decimal number whose bits above the lowest 22 are milliseconds since
-///   `epoch_ms` (Unix milliseconds, 0 by default as `snowflake()`; 1288834974657 for X/Twitter,
-///   1420070400000 for Discord);
+/// * a Snowflake ID: a decimal number of 15 to 19 digits whose bits above the lowest 22 are
+///   milliseconds since `epoch_ms` (Unix milliseconds, 0 by default as `snowflake()`;
+///   1288834974657 for X/Twitter, 1420070400000 for Discord). Shorter numbers such as `1` or
+///   `42` are not taken for Snowflake IDs;
 /// * a UUID (with or without hyphens, braces or `urn:uuid:`) of version 1, 6 or 7.
 pub(crate) fn uuid_extract_timestamp(id: &str, epoch_ms: Int) -> Int {
     match extract_timestamp_ms(id.trim(), epoch_ms) {
@@ -374,7 +375,8 @@ fn extract_timestamp_ms(id: &str, epoch_ms: Int) -> Option<i64> {
             let n = tsid::TSID::try_from(id).ok()?.number();
             Some((n >> 22) as i64 + TSID_EPOCH_MS)
         }
-        _ if id.bytes().all(|b| b.is_ascii_digit()) => {
+        // a Snowflake ID of this era has 18 or 19 digits; 15 digits are hours after its epoch
+        15..=19 if id.bytes().all(|b| b.is_ascii_digit()) => {
             let n = id.parse::<i64>().ok()?;
             epoch_ms.checked_add(n >> 22)
         }
@@ -1039,6 +1041,14 @@ mod tests {
         );
         assert_eq!(uuid_extract_timestamp("hello", 0), -1);
         assert_eq!(uuid_extract_timestamp("", 0), -1);
+        // plain numbers are too short for Snowflake IDs, or too long for an i64
+        for n in ["0", "1", "42", "1700000000", "12345678901234", "12345678901234567890"] {
+            assert_eq!(uuid_extract_timestamp(n, 0), -1, "{n}");
+        }
+        assert_eq!(
+            uuid_extract_timestamp("100000000000000", 0),
+            (100_000_000_000_000_i64 >> 22) / 1000
+        );
     }
 
     #[test]

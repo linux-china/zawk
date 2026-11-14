@@ -3976,6 +3976,26 @@ fn static_errors_have_locations() {
             2,
             "zawk: fatal: line 1, column 15: attempt to use array returned by `seq()` in a scalar context\n".into(),
         ),
+        (
+            vec!["BEGIN { a[1] = 1; if (1 < a) print \"y\" }"],
+            2,
+            "zawk: fatal: line 1, column 27: attempt to use array `a` in a scalar context\n".into(),
+        ),
+        (
+            vec!["BEGIN { a[1] = 1; print a == 1 }"],
+            2,
+            "zawk: fatal: line 1, column 25: attempt to use array `a` in a scalar context\n".into(),
+        ),
+        (
+            vec!["BEGIN { a[1] = 1; print a != 1 }"],
+            2,
+            "zawk: fatal: line 1, column 25: attempt to use array `a` in a scalar context\n".into(),
+        ),
+        (
+            vec!["BEGIN { a[1] = 1; print !a }"],
+            2,
+            "zawk: fatal: line 1, column 26: attempt to use array `a` in a scalar context\n".into(),
+        ),
     ];
     for backend_arg in BACKEND_ARGS {
         for (args, code, expected) in &cases {
@@ -6337,6 +6357,31 @@ fn to_json_keeps_empty_values_and_sorts_keys() {
 }
 
 #[test]
+fn to_json_infers_numbers_in_string_arrays() {
+    let prog = r#"BEGIN {
+        a["x"] = 1; a["y"] = 2.5; print to_json(a)
+        b["x"] = 1; b["y"] = "s"; b["zero"] = "007"; b["plus"] = "+1"; b["hex"] = "0x10"
+        b["bool"] = "true"; b["overflow"] = "1e999"; print to_json(b)
+        c[1] = "5"; c[2] = "007"; c[3] = "+1"; c[4] = "0x10"; print to_json(c)
+    }
+    { d["a"] = $1; d["b"] = $2; print to_json(d) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .write_stdin("5 007\n")
+            .assert()
+            .success()
+            .stdout(concat!(
+                "{\"x\":1,\"y\":2.5}\n",
+                "{\"bool\":\"true\",\"hex\":\"0x10\",\"overflow\":\"1e999\",\"plus\":\"+1\",\"x\":1,\"y\":\"s\",\"zero\":\"007\"}\n",
+                "[5,\"007\",\"+1\",\"0x10\"]\n",
+                "{\"a\":5,\"b\":\"007\"}\n",
+            ));
+    }
+}
+
+#[test]
 fn to_json_non_finite_floats_are_null() {
     let prog = r#"BEGIN { x = 1e308 * 10; a["k"] = x; print to_json(x), to_json(-x), to_json(log(-1)), to_json(1.5), to_json(a) }"#;
     for backend_arg in BACKEND_ARGS {
@@ -6346,6 +6391,28 @@ fn to_json_non_finite_floats_are_null() {
             .assert()
             .success()
             .stdout("null null null 1.5 {\"k\":null}\n");
+    }
+}
+
+#[test]
+fn to_json_float_arrays_match_scalar_floats() {
+    let prog = r#"BEGIN {
+        x = 1e308 * 10; n = log(-1)
+        a["x"] = 1.0; a["y"] = 2.5; a["inf"] = x; a["nan"] = n; print to_json(a), to_json(1.0)
+        b[1] = 1.0; b[2] = -x; b[3] = n; b[4] = 0.5; print to_json(b)
+        c[1] = 3.0; c[3] = x; print to_json(c)
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, prog])
+            .assert()
+            .success()
+            .stdout(concat!(
+                "{\"inf\":null,\"nan\":null,\"x\":1,\"y\":2.5} 1\n",
+                "[1,null,null,0.5]\n",
+                "{\"1\":3,\"3\":null}\n",
+            ));
     }
 }
 

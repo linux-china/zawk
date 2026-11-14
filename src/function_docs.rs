@@ -281,7 +281,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "title_case",
         TEXT,
         "title_case(s: str) -> str",
-        "Convert to Title Case. Case boundaries also split words, e.g. `wORLD` -> `W O R L D`.",
+        "Convert to Title Case: words are split only by whitespace and punctuation (an apostrophe inside a word is kept), then the first letter of each word is uppercased and the rest kept as is, e.g. `hello wORLD` -> `Hello WORLD`, `NASA launch` -> `NASA Launch`.",
         r#"title_case("hello world")"#,
     ),
     d(
@@ -732,7 +732,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "uuid_extract_timestamp",
         ID,
         "uuid_extract_timestamp(id: str[, epoch_ms: int]) -> int",
-        "Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was made, -1 with a warning for other text; a Snowflake ID counts from epoch_ms (Unix milliseconds, default 0 as snowflake(); 1288834974657 for X/Twitter).",
+        "Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID (15 to 19 digits) was made, -1 with a warning for other text such as a plain number; a Snowflake ID counts from epoch_ms (Unix milliseconds, default 0 as snowflake(); 1288834974657 for X/Twitter).",
         r#"strftime("%F %T", uuid_extract_timestamp(uuid("v7")))"#,
     ),
     // Array

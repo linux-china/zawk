@@ -1093,6 +1093,7 @@ impl Function {
                 Int | Null => (smallvec![Int], Int),
                 Float => (smallvec![Float], Int),
                 Str => (smallvec![Str], Int),
+                _ if incoming[0].is_array() => (smallvec![Str], Int),
                 _ => return err!("unexpected input to Not: {:?}", incoming),
             },
             // String operands stay strings: whether they compare as strings or numbers depends
@@ -1104,6 +1105,9 @@ impl Function {
                     (Str, Int | Float) => smallvec![Str, Float],
                     (Int | Float, Str) => smallvec![Float, Str],
                     (Float, _) | (_, Float) => smallvec![Float; 2],
+                    _ if incoming[0].is_array() || incoming[1].is_array() => {
+                        smallvec![Str; 2]
+                    }
                     _ => return err!("invalid input spec for comparison op: {:?}", incoming),
                 },
                 Int,
