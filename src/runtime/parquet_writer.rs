@@ -298,6 +298,8 @@ fn push_some<T>(v: &mut Vec<T>, x: Option<T>) -> bool {
 type ColumnSpec = (String, Option<Kind>);
 
 /// Parses a header field: `name` or `name:TYPE`; a column without a type is `AUTO` if `infer`.
+/// A suffix that is not a type (`host:port`) is part of the name, as for `-o avro`: the header
+/// may come from the data, so it must not stop the program.
 fn parse_column(index: usize, raw: &[u8], infer: bool) -> io::Result<ColumnSpec> {
     let text = unescape_tsv(raw);
     let default = if infer { None } else { Some(Kind::String) };
@@ -305,17 +307,7 @@ fn parse_column(index: usize, raw: &[u8], infer: bool) -> io::Result<ColumnSpec>
         Some((name, ty)) if ty.trim().eq_ignore_ascii_case("auto") => (name, None),
         Some((name, ty)) => match Kind::parse(ty) {
             Some(kind) => (name, Some(kind)),
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "unknown parquet column type {:?} in {:?}; expected one of STRING, \
-                         BOOLEAN, INT8, INT16, INT32, INT64, FLOAT, DOUBLE, DATE, TIME, \
-                         TIMESTAMP, JSON, UUID or AUTO",
-                        ty, text
-                    ),
-                ));
-            }
+            None => (&*text, default),
         },
         None => (&*text, default),
     };
@@ -709,9 +701,19 @@ mod tests {
     }
 
     #[test]
-    fn unknown_type() {
+    fn unknown_type_is_part_of_name() {
+        let specs = parse_header(b"host:port\tv:INT64\tn:auto\tx:", false).unwrap();
+        assert_eq!(
+            specs,
+            [
+                ("host:port".to_string(), Some(Kind::String)),
+                ("v".to_string(), Some(Kind::Int64)),
+                ("n".to_string(), None),
+                ("x:".to_string(), Some(Kind::String)),
+            ]
+        );
         let mut w = ParquetWriter::new(Vec::new(), false);
-        assert!(w.write_all(b"a:nope\n").is_err());
+        assert!(w.write_all(b"a:nope\n").is_ok());
     }
 
     #[test]

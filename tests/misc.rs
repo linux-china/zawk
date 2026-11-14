@@ -3025,15 +3025,23 @@ fn parquet_output() {
                 "\n",
             ));
     }
-    // An unknown column type is a fatal error.
+    // A suffix that is not a column type is part of the name.
     Command::cargo_bin("zawk")
         .unwrap()
         .arg("-oparquet")
         .arg("--out-file")
         .arg(out)
-        .arg(r#"BEGIN { print "a:nope" }"#)
+        .arg(r#"BEGIN { print "a:nope"; print "x" }"#)
         .assert()
-        .code(2);
+        .success();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .arg("-iparquet")
+        .arg("{ print $0 }")
+        .arg(out)
+        .assert()
+        .success()
+        .stdout("{\"a:nope\":\"x\"}\n");
 }
 
 #[test]
@@ -4862,13 +4870,10 @@ fn table_and_markdown_broken_pipe_exit_code() {
 
 #[test]
 fn parquet_avro_invalid_header_flushes_other_outputs() {
-    // An invalid `-o parquet`/`-o avro` header is found by the stdout writer thread: it is
-    // reported once and the program exits with 2, but the other outputs (files and `| cmd`) are
-    // still flushed, rather than the writer thread exiting the process on its own.
-    for (fmt, header, msg) in [
-        ("parquet", "a:badtype", "unknown parquet column type"),
-        ("avro", "a:decimal(x)", "invalid avro column type"),
-    ] {
+    // An invalid `-o avro` header is found by the stdout writer thread: it is reported once and
+    // the program exits with 2, but the other outputs (files and `| cmd`) are still flushed,
+    // rather than the writer thread exiting the process on its own.
+    for (fmt, header, msg) in [("avro", "a:decimal(x)", "invalid avro column type")] {
         for backend_arg in BACKEND_ARGS {
             let dir = tempdir().unwrap();
             let side = dir.path().join("side.txt");
@@ -4899,6 +4904,39 @@ fn parquet_avro_invalid_header_flushes_other_outputs() {
             assert_eq!(read_to_string(&side).unwrap().lines().count(), 50000);
             assert_eq!(read_to_string(&cmd_out).unwrap().lines().count(), 50000);
         }
+    }
+}
+
+#[test]
+fn parquet_unknown_type_suffix_is_part_of_name() {
+    // `host:port`: a suffix that is not a type is part of the column name, as for `-o avro`,
+    // rather than a fatal error caused by the data.
+    let dir = tempdir().unwrap();
+    let parquet = dir.path().join("hp.parquet");
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .args([
+                *backend_arg,
+                "-o",
+                "parquet",
+                r#"BEGIN{print "host:port","v:INT64","scheme:path"; print "h:1","2","s:p"}"#,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{backend_arg}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        std::fs::write(&parquet, out.stdout).unwrap();
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args(["-i", "parquet", "{print}"])
+            .arg(&parquet)
+            .assert()
+            .success()
+            .stdout("{\"host:port\":\"h:1\",\"v\":2,\"scheme:path\":\"s:p\"}\n");
     }
 }
 

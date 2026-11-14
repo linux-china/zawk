@@ -68,11 +68,7 @@ pub fn fake(name: &str, locale: &str) -> String {
                 LicencePlate(FR_FR).fake()
             }
         }
-        "wechat" => {
-            // 以字母开头和 6-20 位数字、字母、下划线、减号的组合
-            let name: String = Name(EN).fake();
-            name.replace(" ", "-").to_string()
-        }
+        "wechat" => generate_wechat_id(),
         _ => "".to_string(),
     }
 }
@@ -106,6 +102,29 @@ fn generate_chinese_plate_number() -> String {
         rng.random_range(0..=9),
         rng.random_range(0..=9)
     )
+}
+
+const WECHAT_MIN_LEN: usize = 6;
+const WECHAT_MAX_LEN: usize = 20;
+
+// 以字母开头和 6-20 位数字、字母、下划线、减号的组合
+fn generate_wechat_id() -> String {
+    use rand::RngExt;
+    let rng = &mut rand::rng();
+    let name: String = Name(EN).fake();
+    let mut id: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    if !id.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        let letter = (b'a' + rng.random_range(0..26u8)) as char;
+        id.insert(0, letter);
+    }
+    id.truncate(WECHAT_MAX_LEN);
+    if id.len() < WECHAT_MIN_LEN {
+        let target = rng.random_range(WECHAT_MIN_LEN..=WECHAT_MIN_LEN + 4);
+        while id.len() < target {
+            id.push((b'0' + rng.random_range(0..10u8)) as char);
+        }
+    }
+    id
 }
 
 #[cfg(test)]
@@ -146,7 +165,19 @@ mod tests {
 
     #[test]
     fn test_wechat() {
-        println!("{}", fake("wechat", "ZH_CN"));
+        for _ in 0..5000 {
+            let id = fake("wechat", "ZH_CN");
+            assert!(
+                (WECHAT_MIN_LEN..=WECHAT_MAX_LEN).contains(&id.len()),
+                "bad length: {id:?}"
+            );
+            let mut chars = id.chars();
+            assert!(chars.next().unwrap().is_ascii_alphabetic(), "bad first char: {id:?}");
+            assert!(
+                chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+                "bad chars: {id:?}"
+            );
+        }
     }
 
     #[test]

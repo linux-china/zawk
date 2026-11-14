@@ -190,12 +190,23 @@ fn is_type_name(ty: &str) -> bool {
     )
 }
 
+/// Whether a column name is a simple ASCII identifier.
+fn is_column_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 /// The first table in `text` as CSV, with the column names (without type annotations) first.
 fn first_table_csv(text: &str) -> Option<String> {
     let mut rows = first_table(text)?;
     if let Some(header) = rows.first_mut() {
         for name in header.iter_mut() {
             if let Some((n, ty)) = name.rsplit_once(':')
+                && is_column_name(n.trim())
+                && ty == ty.to_ascii_uppercase()
                 && is_type_name(ty)
             {
                 *name = n.trim().to_string();
@@ -241,12 +252,12 @@ mod tests {
 
     #[test]
     fn colon_in_column_name_is_kept() {
-        let text = "| host:port | v:INTEGER | d:DECIMAL(18,3) | a:b:VARCHAR | t: |\n\
-            |---|---|---|---|---|\n\
-            | a:1 | 2 | 3.5 | x | y |\n";
+        let text = "| host:port | host:time | ts:date | v:INTEGER | d:DECIMAL(18,3) | a:b:VARCHAR | a-b:INTEGER | t: |\n\
+            |---|---|---|---|---|---|---|---|\n\
+            | a:1 | 10:30 | 2024-01-01 | 2 | 3.5 | x | 4 | y |\n";
         assert_eq!(
             first_table_csv(text).unwrap(),
-            "host:port,v,d,a:b,t:\na:1,2,3.5,x,y\n"
+            "host:port,host:time,ts:date,v,d,a:b:VARCHAR,a-b:INTEGER,t:\na:1,10:30,2024-01-01,2,3.5,x,4,y\n"
         );
     }
 
