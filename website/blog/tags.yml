@@ -13,6 +13,11 @@ release:
   permalink: /release
   description: zawk releases
 
+logs:
+  label: Logs
+  permalink: /logs
+  description: Log analysis with zawk
+
 ai:
   label: AI
   permalink: /ai
