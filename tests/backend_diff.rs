@@ -137,6 +137,106 @@ fn builtin_assignments_infer_udf_rhs() {
 }
 
 #[test]
+fn udf_arguments_snapshot_scalars_and_preserve_array_references() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cases = [
+        (
+            r#"function show(a,b){print a,b} BEGIN{i=1;show(i,i++)}"#,
+            "1 1\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} BEGIN{i=1;show(i,++i)}"#,
+            "1 2\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} BEGIN{i=1;show(i,i=9)}"#,
+            "1 9\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} BEGIN{i=1;show(i,i+=2)}"#,
+            "1 3\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} BEGIN{s="old";show(s,s="new")}"#,
+            "old new\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} function bump(){i=9;return 7}
+               BEGIN{i=1;show(i,bump());print i}"#,
+            "1 7\n9\n",
+        ),
+        (
+            r#"function show(a,b){print a,b} function caller(value){
+                   local other=3;show(value,value++);show(other,other=9);print value,other
+               } BEGIN{caller(1)}"#,
+            "1 1\n3 9\n2 9\n",
+        ),
+        (
+            r#"function change(a,b){a+=10;return a ":" b}
+               BEGIN{i=1;print change(i,i++),i}"#,
+            "11:1 2\n",
+        ),
+        (
+            r#"function show(a,b){print a,b}
+               BEGIN{a[1]="old";show(a[1],a[1]="new");print a[1]}"#,
+            "old new\nnew\n",
+        ),
+        (
+            r#"function show(a,b){print a,b}
+               BEGIN{s="aaa";show(s,gsub(/a/,"b",s));print s}"#,
+            "aaa 3\nbbb\n",
+        ),
+        (
+            r#"function keep(value){local extra;print value,extra+0}
+               BEGIN{i=1;keep(i,i=9);print i}"#,
+            "1 0\n9\n",
+        ),
+        (
+            r#"function abs(a,b){print a,b} BEGIN{i=1;abs(i,i++)}"#,
+            "1 1\n",
+        ),
+        (
+            r#"function show(a,b){print a,b}
+               BEGIN{i=1;show(i,(i==1 ? i=9 : i=7));print i}"#,
+            "1 9\n9\n",
+        ),
+        (
+            r#"function populate(arr){arr["later"]=7;return 1}
+               function inspect(arr,n){print arr["later"],n;arr["after"]=9}
+               BEGIN{a["initial"]=3;inspect(a,populate(a));print a["initial"],a["after"]}"#,
+            "7 1\n3 9\n",
+        ),
+        (
+            r#"function fill(arr,n){return split("x,y",arr,",")}
+               function forward(arr,n){return fill(arr,n++)}
+               BEGIN{i=0;print forward(a,i++),i,a[1],a[2];
+                   print forward(b,i++),i,b[1],b[2]}"#,
+            "2 1 x y\n2 2 x y\n",
+        ),
+        (
+            r#"function shared(left,right,n){
+                   left["new"]=7;print right["old"],right["new"],n;
+                   delete right;print length(left);split("x,y",left,",");print right[1],right[2]
+               } BEGIN{a["old"]=3;i=0;shared(a,a,i++);print i,a[1],a[2]}"#,
+            "3 7 0\n0\nx y\n1 x y\n",
+        ),
+    ];
+    for (program, stdout) in cases {
+        let args = [program.to_string()];
+        for config in CONFIGS {
+            assert_eq!(
+                run(dir, config, &args, b""),
+                Outcome {
+                    code: Some(0),
+                    stdout: stdout.to_string(),
+                },
+                "{config:?}\n{program}",
+            );
+        }
+    }
+}
+
+#[test]
 fn eval_context_result_conversion_agrees_between_backends() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     for value in ["1", "1.0", r#""1""#] {
@@ -158,6 +258,50 @@ fn eval_context_result_conversion_agrees_between_backends() {
                     stdout: "1 0 1 0 3 5 2.75 1 0\n".to_string(),
                 },
                 "{config:?}, context value {value}",
+            );
+        }
+    }
+}
+
+#[test]
+fn non_ascii_time_zone_offsets_fall_back_to_utc() {
+    for name in [
+        "+汉a", "-a汉", "+éé", "+𐀀", "+é", "-１２", "+汉:00", "+08:汉", "+08:60",
+    ] {
+        let program = format!(
+            r#"BEGIN {{
+                tz = "{name}"
+                ERRNO = ""
+                print strptime("2024-01-02", "%Y-%m-%d", tz)
+                print ERRNO
+                ERRNO = ""
+                print strftime("%Y-%m-%d %H:%M:%S %z", 0, tz)
+                print ERRNO
+                print "continued"
+            }}"#
+        );
+        let parse_warning = format!("strptime: unknown time zone {name:?}, using UTC");
+        let format_warning = format!("strftime: unknown time zone {name:?}, using UTC");
+        for config in CONFIGS {
+            let output = Command::new(env!("CARGO_BIN_EXE_zawk"))
+                .env("LC_ALL", "C.UTF-8")
+                .env("TZ", "Asia/Shanghai")
+                .args(*config)
+                .arg(&program)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(0), "{config:?}, {name}");
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                format!(
+                    "1704153600\n{parse_warning}\n1970-01-01 00:00:00 +0000\n{format_warning}\ncontinued\n"
+                ),
+                "{config:?}, {name}",
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr),
+                format!("zawk: warning: {parse_warning}\nzawk: warning: {format_warning}\n"),
+                "{config:?}, {name}",
             );
         }
     }

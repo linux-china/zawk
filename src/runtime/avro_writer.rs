@@ -337,17 +337,20 @@ fn unscaled_decimal(text: &str, precision: u32, scale: u32) -> Option<i128> {
             if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
-            // A longer exponent cannot give a value of at most 38 digits, unless it is zero.
-            let e: i64 = if digits.len() > 6 {
-                if e.starts_with('-') {
-                    -1_000_000
-                } else {
-                    1_000_000
-                }
+            let digits = digits.trim_start_matches('0');
+            let magnitude: i64 = if digits.len() > 6 {
+                1_000_000
+            } else if digits.is_empty() {
+                0
             } else {
-                e.parse().ok()?
+                digits.parse().ok()?
             };
-            (&body[..i], e)
+            let exp = if e.starts_with('-') {
+                -magnitude
+            } else {
+                magnitude
+            };
+            (&body[..i], exp)
         }
         None => (body, 0),
     };
@@ -893,6 +896,63 @@ mod tests {
         assert!(Kind::parse("decimal(x)").is_err());
         assert_eq!(parse_hex("0xDEAD"), Some(vec![0xde, 0xad]));
         assert_eq!(parse_hex("abc"), None);
+    }
+
+    #[test]
+    fn decimal_padded_exponents() {
+        for (text, precision, scale, expected) in [
+            ("1e0000000", 5, 0, Some(1)),
+            ("1e+0000000", 5, 0, Some(1)),
+            ("1e-0000000", 5, 0, Some(1)),
+            ("-1E-0000000", 5, 0, Some(-1)),
+            ("1e0000002", 5, 0, Some(100)),
+            ("1e+0000002", 5, 0, Some(100)),
+            ("100e-0000002", 5, 0, Some(1)),
+            ("-100E-0000002", 5, 0, Some(-1)),
+            ("1.5e0000003", 6, 1, Some(15000)),
+            ("15e-0000001", 3, 0, Some(2)),
+            ("-15e-0000001", 3, 0, Some(-2)),
+            ("1.005e-0000000", 5, 2, Some(101)),
+            ("1e0000004", 5, 0, Some(10000)),
+            ("1e0000005", 5, 0, None),
+        ] {
+            assert_eq!(unscaled_decimal(text, precision, scale), expected, "{text}");
+        }
+        let padding = "0".repeat(128);
+        for (sign, expected) in [("", 100), ("+", 100), ("-", 0)] {
+            let text = format!("1e{sign}{padding}2");
+            assert_eq!(unscaled_decimal(&text, 5, 0), Some(expected), "{text}");
+        }
+        for sign in ["", "+", "-"] {
+            let text = format!("1e{sign}{padding}");
+            assert_eq!(unscaled_decimal(&text, 5, 0), Some(1), "{text}");
+        }
+    }
+
+    #[test]
+    fn decimal_exponent_limits_and_syntax() {
+        for (text, expected) in [
+            ("1e999999", None),
+            ("1e-999999", Some(0)),
+            ("1e1000000", None),
+            ("1e-1000000", Some(0)),
+            ("1e000001000000", None),
+            ("1e-000001000000", Some(0)),
+            ("0e000001000000", Some(0)),
+            ("0e-000001000000", Some(0)),
+            ("1e000000x", None),
+            ("1e-000000x", None),
+            ("1e0000000.0", None),
+            ("1e0000000e0", None),
+            ("1e0000000+", None),
+            ("1e--0000000", None),
+            ("1e+-0000000", None),
+            ("1e+", None),
+            ("1e-", None),
+            ("1e", None),
+        ] {
+            assert_eq!(unscaled_decimal(text, 38, 0), expected, "{text}");
+        }
     }
 
     #[test]

@@ -3647,6 +3647,11 @@ where
                 self.convert_val(a, open)?
             };
             open = next;
+            let v = if matches!(bi, Either::Left(_)) {
+                self.snapshot_before(v, &args[i + 1..], open)?
+            } else {
+                v
+            };
             prim_args.push(v);
         }
         match bi {

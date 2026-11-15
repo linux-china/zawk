@@ -3237,6 +3237,96 @@ fn parquet_input_multiline_json_column() {
 }
 
 #[test]
+fn avro_decimal_padded_exponents_roundtrip() {
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("decimals.avro");
+    for (header, input, expected, stderr) in [
+        (
+            "v:decimal(5,0)",
+            concat!(
+                "1e0000000\n1e-0000000\n1e+0000000\n-1E-0000000\n",
+                "1e0000002\n1e+0000002\n100e-0000002\n-100E-0000002\n",
+                "15e-0000001\n-15e-0000001\n1e0000004\n1e-000001000000\n",
+            ),
+            "1\n1\n1\n-1\n100\n100\n1\n-1\n2\n-2\n10000\n0\n",
+            "",
+        ),
+        (
+            "v:decimal(5,2)",
+            concat!(
+                "1e0000000\n1e-0000000\n1e+0000002\n",
+                "15e-0000001\n-15e-0000001\n",
+                "1.005e-0000000\n-1.005e+0000000\n1e-000001000000\n",
+            ),
+            "1.00\n1.00\n100.00\n1.50\n-1.50\n1.01\n-1.01\n0.00\n",
+            "",
+        ),
+        (
+            "v:decimal(5,0)",
+            concat!(
+                "1e0000005\n1e000001000000\n1e000000x\n1e-000000x\n",
+                "1e-000001000000\n0e000001000000\n",
+            ),
+            "NULL\nNULL\nNULL\nNULL\n0\n0\n",
+            "zawk: avro column \"v\" (Decimal(5, 0)): 4 invalid value(s) written as null\n",
+        ),
+    ] {
+        let expected_rows: String = expected
+            .lines()
+            .map(|value| {
+                let value = if value == "NULL" { "null" } else { value };
+                format!("{{\"v\":{value}}}\n")
+            })
+            .collect();
+        for write_backend in BACKEND_ARGS {
+            for write_opt in ["-O0", "-O3"] {
+                Command::cargo_bin("zawk")
+                    .unwrap()
+                    .args([
+                        write_backend,
+                        write_opt,
+                        "-p0",
+                        "-icsv",
+                        "-oavro",
+                        "--out-file",
+                    ])
+                    .arg(&out)
+                    .arg(format!(r#"BEGIN {{ print "{header}" }} {{ print $1 }}"#))
+                    .write_stdin(input)
+                    .assert()
+                    .success()
+                    .stderr(stderr);
+                for read_backend in BACKEND_ARGS {
+                    for read_opt in ["-O0", "-O3"] {
+                        for (program, expected) in [
+                            ("{ print $1 }", expected),
+                            ("{ print $0 }", expected_rows.as_str()),
+                        ] {
+                            Command::cargo_bin("zawk")
+                                .unwrap()
+                                .args([
+                                    read_backend,
+                                    read_opt,
+                                    "-p0",
+                                    "--null",
+                                    "NULL",
+                                    "-iavro",
+                                    program,
+                                ])
+                                .arg(&out)
+                                .assert()
+                                .success()
+                                .stdout(expected.to_owned())
+                                .stderr("");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn avro_output_and_input() {
     // -o avro writes the printed records as an Avro file (the first record is the header, where
     // `name:TYPE` sets a column type); `.avro` files are read back as -i avro without -i.

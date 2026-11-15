@@ -91,7 +91,7 @@ fn fixed_offset(name: &str) -> Option<jiff::tz::TimeZone> {
     } else {
         match rest.len() {
             2 => (two(rest)?, 0, 0),
-            4 => (two(&rest[..2])?, two(&rest[2..])?, 0),
+            4 => (two(rest.get(..2)?)?, two(rest.get(2..)?)?, 0),
             _ => return None,
         }
     };
@@ -1264,6 +1264,45 @@ mod tests {
             1704164645
         );
         assert!(errno().contains("unknown time zone"));
+        set_errno(String::new());
+    }
+
+    #[test]
+    fn test_non_ascii_time_zone_offsets_fall_back_to_utc() {
+        use crate::runtime::{errno, set_errno};
+
+        let procinfo = StrMap::default();
+        for name in [
+            "+汉a", "-a汉", "+éé", "+𐀀", "+é", "-１２", "+汉:00", "+08:汉", "+08:60",
+        ] {
+            assert!(fixed_offset(name).is_none(), "{name}");
+            set_errno(String::new());
+            assert_eq!(
+                strptime("2024-01-02", "%Y-%m-%d", name),
+                1704153600,
+                "{name}"
+            );
+            assert_eq!(
+                errno(),
+                format!("strptime: unknown time zone {name:?}, using UTC")
+            );
+            set_errno(String::new());
+            assert_eq!(
+                awk_strftime(
+                    &procinfo,
+                    &Str::from("%Y-%m-%d %H:%M:%S %z"),
+                    0,
+                    STRFTIME_UTC,
+                    &Str::from(name),
+                ),
+                "1970-01-01 00:00:00 +0000",
+                "{name}",
+            );
+            assert_eq!(
+                errno(),
+                format!("strftime: unknown time zone {name:?}, using UTC")
+            );
+        }
         set_errno(String::new());
     }
 
