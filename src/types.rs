@@ -1527,11 +1527,15 @@ impl<'b, 'c, 'd> View<'b, 'c, 'd> {
             }
             Printf(fmt, args, out) => self.printf_internal(Some(fmt), &args[..], out),
             PrintAll(args, out) => self.printf_internal(None, &args[..], out),
-            // Builtins have fixed types; no constraint generation is necessary.
+            SetBuiltin(_, e) => {
+                // Infer the RHS independently of the builtin's fixed destination type.
+                let rhs_ix = self.nw.add_rule(Rule::Var);
+                self.constrain_expr(e, rhs_ix);
+            }
             // For IterDrop, we do not add extra constraints because IterBegin and IterNext will be
             // sufficient to determine the type of a given iterator.
             Loc(loc) => self.cur_loc = *loc,
-            IterDrop(_) | SetBuiltin(_, _) => {}
+            IterDrop(_) => {}
         }
     }
 

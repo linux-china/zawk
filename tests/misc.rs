@@ -3045,6 +3045,68 @@ fn parquet_output() {
 }
 
 #[test]
+fn binary_timestamp_roundtrip_outside_nanosecond_range() {
+    let tmpdir = tempdir().unwrap();
+    let dates = [
+        "1600-01-01 00:00:00",
+        "1600-01-01 00:00:00.123456",
+        "2500-01-01 00:00:00",
+        "2500-01-01 00:00:00.123456",
+        "1677-09-21 00:12:43.145224",
+        "2262-04-11 23:47:16.854776",
+        "1969-12-31 23:59:59.999999",
+        "1970-01-01 00:00:00",
+        "1970-01-01 00:00:00.000001",
+    ];
+    let input = format!("{}\n", dates.join("\n"));
+    for format in ["parquet", "avro"] {
+        let out = tmpdir.path().join(format!("timestamps.{format}"));
+        let expected_dates: Vec<String> = dates
+            .iter()
+            .map(|date| {
+                if format == "avro" {
+                    format!("{}Z", date.replace(' ', "T"))
+                } else {
+                    date.to_string()
+                }
+            })
+            .collect();
+        let fields = format!("{}\n", expected_dates.join("\n"));
+        let rows: String = expected_dates
+            .iter()
+            .map(|date| format!("{{\"ts\":\"{date}\"}}\n"))
+            .collect();
+        for write_backend in BACKEND_ARGS {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([write_backend, "-p0", "-icsv", "-o", format, "--out-file"])
+                .arg(&out)
+                .arg(r#"BEGIN { print "ts:timestamp" } { print $1 }"#)
+                .write_stdin(input.clone())
+                .assert()
+                .success()
+                .stderr("");
+            for read_backend in BACKEND_ARGS {
+                for (program, expected) in [
+                    ("{ print $1 }", &fields),
+                    (r#"{ print $(FI["ts"]) }"#, &fields),
+                    ("{ print $0 }", &rows),
+                ] {
+                    Command::cargo_bin("zawk")
+                        .unwrap()
+                        .args([read_backend, "-p0", "-i", format, program])
+                        .arg(&out)
+                        .assert()
+                        .success()
+                        .stdout(expected.clone())
+                        .stderr("");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn parquet_output_json_column_unescaped() {
     // A `:JSON` column stores the printed value, not its TSV-escaped form: backslashes are not
     // doubled, and a JSON `\t` escape stays one escape. A raw tab inside a JSON string (invalid
@@ -3080,6 +3142,97 @@ fn parquet_output_json_column_unescaped() {
                 r#"{"j":{"a":"plain"}}"#,
                 "\n",
             ));
+    }
+}
+
+#[test]
+fn parquet_input_multiline_json_column() {
+    use parquet::data_type::{ByteArray, ByteArrayType, Int32Type};
+    use parquet::file::properties::WriterProperties;
+    use parquet::file::writer::SerializedFileWriter;
+    use parquet::schema::parser::parse_message_type;
+    use std::sync::Arc;
+
+    let cases = [
+        ("{\n\"x\":2\n}", r#"{"x":2}"#),
+        (
+            "\r\n{\r\n \"nested\": {\"values\": [1,\r\n{\"ok\": true}]}\r\n}\r\n",
+            r#"{"nested":{"values":[1,{"ok":true}]}}"#,
+        ),
+        (
+            "{\n \"n\": 12345678901234567890123, \"d\": 0.30000000000000001, \"p\": 1.10, \"q\": 1e400\n}",
+            r#"{"n":12345678901234567890123,"d":0.30000000000000001,"p":1.10,"q":1e400}"#,
+        ),
+        (
+            r#"{
+ "s": "a \t b\nc\r\n\"张\u0041",
+ "path": "C:\\dir\\"
+}"#,
+            r#"{"s":"a \t b\nc\r\n\"张\u0041","path":"C:\\dir\\"}"#,
+        ),
+        (r#"{"x": 3}"#, r#"{"x": 3}"#),
+        ("{\n\"x\":\n}", "{\n\"x\":\n}"),
+        (r#"{"x":4}"#, r#"{"x":4}"#),
+    ];
+    let tmpdir = tempdir().unwrap();
+    let out = tmpdir.path().join("multiline.parquet");
+    let schema =
+        parse_message_type("message m { required int32 id; required binary j (JSON); }").unwrap();
+    let mut writer = SerializedFileWriter::new(
+        File::create(&out).unwrap(),
+        Arc::new(schema),
+        Arc::new(WriterProperties::builder().build()),
+    )
+    .unwrap();
+    let mut group = writer.next_row_group().unwrap();
+    let ids: Vec<i32> = (1..=cases.len() as i32).collect();
+    let values: Vec<ByteArray> = cases
+        .iter()
+        .map(|(input, _)| ByteArray::from(*input))
+        .collect();
+    let mut col = group.next_column().unwrap().unwrap();
+    col.typed::<Int32Type>()
+        .write_batch(&ids, None, None)
+        .unwrap();
+    col.close().unwrap();
+    let mut col = group.next_column().unwrap().unwrap();
+    col.typed::<ByteArrayType>()
+        .write_batch(&values, None, None)
+        .unwrap();
+    col.close().unwrap();
+    group.close().unwrap();
+    writer.close().unwrap();
+
+    let mut rows = String::new();
+    let mut fields = String::new();
+    for (id, (input, expected)) in ids.iter().zip(cases) {
+        let json = if serde_json::from_str::<serde::de::IgnoredAny>(input).is_ok() {
+            expected.to_string()
+        } else {
+            serde_json::to_string(input).unwrap()
+        };
+        rows.push_str(&format!("{{\"id\":{id},\"j\":{json}}}\n"));
+        fields.push_str(&format!("{id} {expected}\n"));
+    }
+    fields.push_str(&format!("{}\n", cases.len()));
+    for backend_arg in BACKEND_ARGS {
+        for (program, expected) in [
+            ("{ print $0 }", rows.as_str()),
+            ("{ print $1, $2 } END { print NR }", fields.as_str()),
+            (
+                r#"{ print $1, $(FI["j"]) } END { print NR }"#,
+                fields.as_str(),
+            ),
+        ] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([backend_arg, "-p0", "-iparquet", program])
+                .arg(&out)
+                .assert()
+                .success()
+                .stdout(expected.to_string())
+                .stderr("");
+        }
     }
 }
 
@@ -4259,6 +4412,48 @@ fn decimal_functions_are_exact() {
                  1 0 -1\n\
                  10.30 0.20\n",
             );
+    }
+}
+
+#[test]
+fn decimal_division_rounds_once_at_the_requested_scale() {
+    let prog = r#"BEGIN {
+        below = "0.4999999999999999999999999999"
+        above = "0.5000000000000000000000000001"
+        print dec_div(below, 2, 1), dec_div(below, -2, 1), dec_div("-" below, -2, 1)
+        split("half_up half_even half_down up down ceil floor", modes, " ")
+        for (i = 1; i <= 7; i++) {
+            mode = modes[i]
+            print dec_div(below, 2, 1, mode), dec_div("-" below, 2, 1, mode), dec_div(above, 2, 1, mode), dec_div("-" above, 2, 1, mode), dec_div("0.5", 2, 1, mode), dec_div("-0.5", 2, 1, mode)
+        }
+        print dec_div("249.99999999999999999999999999", 2, -1), dec_div("-249.99999999999999999999999999", 2, -1), dec_div(250, 2, -1), dec_div("250.00000000000000000000000001", 2, -1)
+        print dec_div("1e-28", "1e28", 28, "up"), dec_div("-1e-28", "1e28", 28, "floor"), dec_div("-1e-28", "1e28", 28, "ceil")
+        print dec_div(1, "1e-28", -28), dec_div("1e-28", "1e28", -28, "up"), dec_div(0, -2, 2, "floor"), dec_div(1, 8, 3, "up")
+    }"#;
+    for backend_arg in BACKEND_ARGS {
+        for optimization in ["0", "3"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .args(["-O", optimization])
+                .arg(prog)
+                .assert()
+                .success()
+                .stdout(
+                    "0.2 -0.2 0.2\n\
+                     0.2 -0.2 0.3 -0.3 0.3 -0.3\n\
+                     0.2 -0.2 0.3 -0.3 0.2 -0.2\n\
+                     0.2 -0.2 0.3 -0.3 0.2 -0.2\n\
+                     0.3 -0.3 0.3 -0.3 0.3 -0.3\n\
+                     0.2 -0.2 0.2 -0.2 0.2 -0.2\n\
+                     0.3 -0.2 0.3 -0.2 0.3 -0.2\n\
+                     0.2 -0.3 0.2 -0.3 0.2 -0.3\n\
+                     120 -120 130 130\n\
+                     0.0000000000000000000000000001 -0.0000000000000000000000000001 0.0000000000000000000000000000\n\
+                     10000000000000000000000000000 10000000000000000000000000000 0.00 0.125\n",
+                )
+                .stderr("");
+        }
     }
 }
 
@@ -7233,6 +7428,53 @@ fn jsonl_accepts_parquet_avro_type_suffixes() {
         .stdout(
             "{\"a\":1,\"b\":2.5,\"c\":true,\"d\":\"2024-01-02\",\"e\":3.14,\"f:port\":\"80\"}\n",
         );
+}
+
+#[test]
+fn jsonl_explicit_numeric_columns_preserve_input_precision() {
+    let input = concat!(
+        "9007199254740993.0\n",
+        "-9007199254740993.0\n",
+        "9007199254740991.0\n",
+        "9007199254740992.0\n",
+        "9.007199254740993e15\n",
+        "-9.007199254740993E+15\n",
+        "90071992547409930e-1\n",
+        "-90071992547409930e-1\n",
+        "9223372036854775807.0\n",
+        "-9223372036854775808.0\n",
+        "18446744073709551615.0\n",
+        "0.123456789012345678901234567890\n",
+    );
+    let expected: String = input.lines().map(|v| format!("{{\"v\":{v}}}\n")).collect();
+    for backend_arg in BACKEND_ARGS {
+        for suffix in ["int64", "float64", "decimal(20,2)", "auto"] {
+            Command::cargo_bin("zawk")
+                .unwrap()
+                .args([*backend_arg, "-p0", "-i", "csv", "-o", "jsonl"])
+                .arg(format!("BEGIN {{print \"v:{suffix}\"}} {{print $1}}"))
+                .write_stdin(input)
+                .assert()
+                .success()
+                .stdout(expected.clone())
+                .stderr("");
+        }
+    }
+}
+
+#[test]
+fn jsonl_explicit_numeric_columns_warn_on_invalid_values() {
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-p0", "-i", "csv", "-o", "jsonl"])
+            .arg("BEGIN {print \"v:int64\"} {print $1}")
+            .write_stdin("1e999\nabc\n")
+            .assert()
+            .success()
+            .stdout("{\"v\":null}\n{\"v\":null}\n")
+            .stderr("zawk: jsonl column \"v\" (Number): 2 invalid value(s) written as null\n");
+    }
 }
 
 #[test]

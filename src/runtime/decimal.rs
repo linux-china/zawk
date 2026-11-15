@@ -112,10 +112,9 @@ fn try_eval(op: DecOp, a: &str, b: &str, c: &str, d: &str) -> Result<String, Str
             if y.is_zero() {
                 return Err(format!("division by zero: {:?} / {:?}", a, b));
             }
-            let q = x.checked_div(y).ok_or_else(overflow)?;
             match parse_scale(c)? {
-                Some(scale) => round(q, scale, parse_mode(d)?)?,
-                None => q.normalize(),
+                Some(scale) => divide_round(x, y, scale, parse_mode(d)?)?,
+                None => x.checked_div(y).ok_or_else(overflow)?.normalize(),
             }
         }
         DecOp::Round => round(x, parse_scale(b)?.unwrap_or(0), parse_mode(c)?)?,
@@ -132,6 +131,71 @@ fn try_eval(op: DecOp, a: &str, b: &str, c: &str, d: &str) -> Result<String, Str
 
 fn overflow() -> String {
     "overflow: the result exceeds 28 significant digits".to_string()
+}
+
+fn divide_round(
+    x: Decimal,
+    y: Decimal,
+    scale: i32,
+    mode: RoundingStrategy,
+) -> Result<Decimal, String> {
+    let numerator = x.mantissa().unsigned_abs();
+    let denominator = y.mantissa().unsigned_abs();
+    let negative = x.is_sign_negative() != y.is_sign_negative();
+    let shift = scale + y.scale() as i32 - x.scale() as i32;
+    let mut quotient = numerator / denominator;
+    let mut remainder = numerator % denominator;
+    let (inexact, midpoint) = if shift >= 0 {
+        // A remainder is below the 96-bit divisor, so multiplying it by 10 fits in u128.
+        for _ in 0..shift {
+            remainder *= 10;
+            quotient = quotient
+                .checked_mul(10)
+                .and_then(|q| q.checked_add(remainder / denominator))
+                .ok_or_else(overflow)?;
+            remainder %= denominator;
+        }
+        (remainder != 0, (remainder * 2).cmp(&denominator))
+    } else {
+        let mut inexact = remainder != 0;
+        let mut midpoint = Ordering::Less;
+        for _ in 0..-shift {
+            let digit = quotient % 10;
+            quotient /= 10;
+            midpoint = digit.cmp(&5);
+            if midpoint == Ordering::Equal && inexact {
+                midpoint = Ordering::Greater;
+            }
+            inexact |= digit != 0;
+        }
+        (inexact, midpoint)
+    };
+    let increment = inexact
+        && match mode {
+            RoundingStrategy::MidpointAwayFromZero => midpoint != Ordering::Less,
+            RoundingStrategy::MidpointNearestEven => {
+                midpoint == Ordering::Greater || (midpoint == Ordering::Equal && quotient % 2 != 0)
+            }
+            RoundingStrategy::MidpointTowardZero => midpoint == Ordering::Greater,
+            RoundingStrategy::AwayFromZero => true,
+            RoundingStrategy::ToZero => false,
+            RoundingStrategy::ToPositiveInfinity => !negative,
+            RoundingStrategy::ToNegativeInfinity => negative,
+            _ => unreachable!(),
+        };
+    if increment {
+        quotient = quotient.checked_add(1).ok_or_else(overflow)?;
+    }
+    let mut mantissa = i128::try_from(quotient).map_err(|_| overflow())?;
+    if scale < 0 {
+        mantissa = mantissa
+            .checked_mul(10i128.pow(scale.unsigned_abs()))
+            .ok_or_else(overflow)?;
+    }
+    if negative {
+        mantissa = -mantissa;
+    }
+    Decimal::try_from_i128_with_scale(mantissa, scale.max(0) as u32).map_err(|_| overflow())
 }
 
 /// Round to `scale` fractional digits, padding with zeros: `round(3, 2)` is `3.00`. A negative
@@ -334,6 +398,96 @@ mod tests {
             "0.3333333333333333333333333333"
         );
         assert!(ev(DecOp::Div, "1", "0", "", "").starts_with("ERR division by zero"));
+    }
+
+    #[test]
+    fn division_rounds_the_exact_ratio() {
+        let cases = [
+            ("0.4999999999999999999999999999", ["0.2", "0.2", "0.2"]),
+            ("0.5", ["0.3", "0.2", "0.2"]),
+            ("0.5000000000000000000000000001", ["0.3", "0.3", "0.3"]),
+            ("0.6999999999999999999999999999", ["0.3", "0.3", "0.3"]),
+            ("0.7", ["0.4", "0.4", "0.3"]),
+            ("0.7000000000000000000000000001", ["0.4", "0.4", "0.4"]),
+        ];
+        for (a, nearest) in cases {
+            for (negative_a, negative_b) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let negative = negative_a != negative_b;
+                let sign = if negative { "-" } else { "" };
+                let numerator = format!("{}{a}", if negative_a { "-" } else { "" });
+                let denominator = if negative_b { "-2" } else { "2" };
+                let lower = if a.starts_with("0.4") || a.starts_with("0.5") {
+                    "0.2"
+                } else {
+                    "0.3"
+                };
+                let upper = if lower == "0.2" { "0.3" } else { "0.4" };
+                for (mode, expected) in [
+                    ("", nearest[0]),
+                    ("half_up", nearest[0]),
+                    ("half_even", nearest[1]),
+                    ("half_down", nearest[2]),
+                    ("up", upper),
+                    ("down", lower),
+                    ("ceil", if negative { lower } else { upper }),
+                    ("floor", if negative { upper } else { lower }),
+                ] {
+                    assert_eq!(
+                        ev(DecOp::Div, &numerator, denominator, "1", mode),
+                        format!("{sign}{expected}"),
+                        "{numerator} / {denominator}, {mode}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn division_preserves_small_remainders_and_negative_scales() {
+        let zero = "0.0000000000000000000000000000";
+        let tiny = "0.0000000000000000000000000001";
+        for mode in ["", "half_up", "half_even", "half_down", "down", "floor"] {
+            assert_eq!(ev(DecOp::Div, "1e-28", "1e28", "28", mode), zero);
+        }
+        for mode in ["up", "ceil"] {
+            assert_eq!(ev(DecOp::Div, "1e-28", "1e28", "28", mode), tiny);
+        }
+        assert_eq!(
+            ev(DecOp::Div, "-1e-28", "1e28", "28", "floor"),
+            format!("-{tiny}")
+        );
+        assert_eq!(ev(DecOp::Div, "-1e-28", "1e28", "28", "ceil"), zero);
+        assert_eq!(ev(DecOp::Div, tiny, "2", "28", "half_up"), tiny);
+        assert_eq!(ev(DecOp::Div, tiny, "2", "28", "half_even"), zero);
+        assert_eq!(
+            ev(DecOp::Div, "1", "1e-28", "-28", ""),
+            "10000000000000000000000000000"
+        );
+        assert_eq!(
+            ev(DecOp::Div, "1e-28", "1e28", "-28", "up"),
+            "10000000000000000000000000000"
+        );
+        assert_eq!(ev(DecOp::Div, "0", "-2", "2", "floor"), "0.00");
+        assert_eq!(ev(DecOp::Div, "1", "8", "3", "up"), "0.125");
+        assert_eq!(ev(DecOp::Div, "100", "2", "-1", "up"), "50");
+        for (a, expected) in [
+            ("249.99999999999999999999999999", "120"),
+            ("250", "130"),
+            ("250.00000000000000000000000001", "130"),
+        ] {
+            assert_eq!(ev(DecOp::Div, a, "2", "-1", ""), expected);
+            assert_eq!(
+                ev(DecOp::Div, &format!("-{a}"), "2", "-1", ""),
+                format!("-{expected}")
+            );
+        }
+        let big = "79228162514264337593543950335";
+        assert_eq!(ev(DecOp::Div, big, "1", "0", ""), big);
+        assert!(ev(DecOp::Div, "10", "1", "28", "").starts_with("ERR overflow"));
+        assert!(ev(DecOp::Div, big, "1e-28", "0", "").starts_with("ERR overflow"));
+        assert!(ev(DecOp::Div, big, "1", "-28", "up").starts_with("ERR overflow"));
     }
 
     #[test]

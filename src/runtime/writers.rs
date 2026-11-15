@@ -1336,24 +1336,42 @@ fn json_value(cell: &str, ty: JsonType, out: &mut String) -> bool {
     match ty {
         JsonType::String => out.push_str(&json_string(cell)),
         JsonType::Number => {
-            // Integers that fit i64/u64 are written exactly: f64 would lose digits above 2^53.
             let t = cell.trim();
-            if let Ok(i) = t.parse::<i64>() {
-                let _ = write!(out, "{i}");
-            } else if let Ok(u) = t.parse::<u64>() {
-                let _ = write!(out, "{u}");
-            } else {
-                match looks_numeric(cell.as_bytes()).filter(|n| n.is_finite()) {
-                    Some(n) if n.fract() == 0.0 && n.abs() < 9007199254740992.0 => {
+            let body = t.strip_prefix(['+', '-']).unwrap_or(t);
+            match looks_numeric(t.as_bytes()).filter(|n| n.is_finite()) {
+                Some(_) if json_number(t).is_some() => out.push_str(t),
+                Some(n) if body.starts_with("0x") || body.starts_with("0X") => {
+                    if n.fract() == 0.0 && n.abs() < 9007199254740992.0 {
                         let _ = write!(out, "{}", n as i64);
+                    } else {
+                        let _ = write!(out, "{n}");
                     }
-                    Some(n) => {
-                        let _ = write!(out, "{}", n);
+                }
+                Some(_) => {
+                    // Normalize decimal spelling without taking digits from the rounded f64.
+                    let (mantissa, exponent) = body
+                        .split_once(['e', 'E'])
+                        .map_or((body, None), |(m, e)| (m, Some(e)));
+                    let (integer, fraction) = mantissa
+                        .split_once('.')
+                        .map_or((mantissa, None), |(i, f)| (i, Some(f)));
+                    let integer = integer.trim_start_matches('0');
+                    if t.starts_with('-') {
+                        out.push('-');
                     }
-                    None => {
-                        out.push_str("null");
-                        return cell.trim().is_empty();
+                    out.push_str(if integer.is_empty() { "0" } else { integer });
+                    if let Some(fraction) = fraction.filter(|f| !f.is_empty()) {
+                        out.push('.');
+                        out.push_str(fraction);
                     }
+                    if let Some(exponent) = exponent {
+                        out.push('e');
+                        out.push_str(exponent);
+                    }
+                }
+                None => {
+                    out.push_str("null");
+                    return t.is_empty();
                 }
             }
         }
@@ -1528,6 +1546,76 @@ mod jsonl_tests {
             String::from_utf8(out).unwrap(),
             "{\"id\":1,\"name\":\"2\",\"age\":3,\"column4\":4}\n"
         );
+    }
+
+    #[test]
+    fn jsonl_explicit_numbers_preserve_precision() {
+        for suffix in [
+            "number",
+            "int64",
+            "float",
+            "float64",
+            "decimal",
+            "decimal(20,2)",
+        ] {
+            let header = format!("v:{suffix}");
+            for (input, expected) in [
+                ("9007199254740993.0", "9007199254740993.0"),
+                ("9007199254740991.0", "9007199254740991.0"),
+                ("9007199254740992.0", "9007199254740992.0"),
+                ("-9007199254740993.0", "-9007199254740993.0"),
+                ("9.007199254740993e15", "9.007199254740993e15"),
+                ("-9.007199254740993E+15", "-9.007199254740993E+15"),
+                ("90071992547409930e-1", "90071992547409930e-1"),
+                ("9223372036854775807.0", "9223372036854775807.0"),
+                ("-9223372036854775808.0", "-9223372036854775808.0"),
+                ("18446744073709551615", "18446744073709551615"),
+                ("18446744073709551616.0", "18446744073709551616.0"),
+                (
+                    "0.123456789012345678901234567890",
+                    "0.123456789012345678901234567890",
+                ),
+                ("1e-999", "1e-999"),
+                ("-0.0", "-0.0"),
+                (" 9007199254740993.0 ", "9007199254740993.0"),
+                ("+9007199254740993.0", "9007199254740993.0"),
+                ("-009007199254740993.0", "-9007199254740993.0"),
+                ("+009007199254740993.e0", "9007199254740993e0"),
+                (
+                    "+.123456789012345678901234567890",
+                    "0.123456789012345678901234567890",
+                ),
+                ("000.e2", "0e2"),
+                ("0x10", "16"),
+            ] {
+                let mut out = Vec::new();
+                {
+                    let mut w = JsonlWriter::new(&mut out, false);
+                    w.write_all(format!("{header}\n{input}\n").as_bytes())
+                        .unwrap();
+                    assert!(w.invalid.is_empty(), "{header}: {input}");
+                }
+                assert_eq!(
+                    String::from_utf8(out).unwrap(),
+                    format!("{{\"v\":{expected}}}\n"),
+                    "{header}: {input}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn jsonl_explicit_numbers_reject_invalid_values() {
+        for input in [
+            "1e999", "-1e999", "+inf", "-inf", "+nan", "NaN", "1e", "1.2.3", "1,true", "１２",
+        ] {
+            let mut out = String::new();
+            assert!(!json_value(input, JsonType::Number, &mut out), "{input}");
+            assert_eq!(out, "null", "{input}");
+        }
+        let mut out = String::new();
+        assert!(json_value("   ", JsonType::Number, &mut out));
+        assert_eq!(out, "null");
     }
 
     #[test]
@@ -3751,7 +3839,7 @@ mod tests {
             ("18446744073709551615".into(), true)
         );
         assert_eq!(render(" 42 "), ("42".into(), true));
-        assert_eq!(render("3.0"), ("3".into(), true));
+        assert_eq!(render("3.0"), ("3.0".into(), true));
         assert_eq!(render("1.5"), ("1.5".into(), true));
         assert_eq!(render(""), ("null".into(), true));
         assert_eq!(render("abc"), ("null".into(), false));

@@ -846,16 +846,7 @@ pub(crate) fn eval_int_context<'a>(formula: &str, context: &StrMap<'a, Int>) -> 
                 .unwrap();
         }
     });
-    let Some(result) = run_eval(formula, &mut eval_context) else {
-        return 0.0;
-    };
-    if let Ok(value) = result.as_float() {
-        value
-    } else if let Ok(value) = result.as_int() {
-        value as f64
-    } else {
-        0.0
-    }
+    run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
 }
 
 pub(crate) fn eval_float_context<'a>(formula: &str, context: &StrMap<'a, Float>) -> Float {
@@ -1337,10 +1328,38 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_context() {
-        let context: StrMap<Str> = StrMap::default();
-        context.insert(Str::from("x"), Str::from("7"));
-        let result = eval_context("1 + 1", &context);
-        println!("{}", result);
+    fn test_eval_context_result_conversion() {
+        let ints: StrMap<Int> = StrMap::default();
+        ints.insert(Str::from("x"), 1);
+        let floats: StrMap<Float> = StrMap::default();
+        floats.insert(Str::from("x"), 1.0);
+        let strings: StrMap<Str> = StrMap::default();
+        strings.insert(Str::from("x"), Str::from("1"));
+
+        for (formula, expected) in [
+            ("x > 0", 1.0),
+            ("x < 0", 0.0),
+            ("x == 1.0", 1.0),
+            ("x == 2.0", 0.0),
+            ("x == 1", 0.0),
+            ("x + 2", 3.0),
+            ("2 + 3", 5.0),
+            ("2.5 + 0.25", 2.75),
+            (r#""text""#, 0.0),
+        ] {
+            assert_eq!(eval_int_context(formula, &ints), expected, "int: {formula}");
+            assert_eq!(
+                eval_float_context(formula, &floats),
+                expected,
+                "float: {formula}"
+            );
+            assert_eq!(
+                eval_context(formula, &strings),
+                expected,
+                "string: {formula}"
+            );
+        }
+        assert_eq!(eval("1 > 0"), 1.0);
+        assert_eq!(eval("1 < 0"), 0.0);
     }
 }

@@ -305,7 +305,7 @@ fn build<'a>(
 }
 
 /// Appends the JSON text `json` without the whitespace between tokens.
-fn compact(json: &str, out: &mut Vec<u8>) {
+pub(super) fn compact(json: &str, out: &mut Vec<u8>) {
     let mut in_string = false;
     let mut escaped = false;
     for &b in json.as_bytes() {

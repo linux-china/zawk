@@ -71,7 +71,7 @@ Please ignore the following differences with gawk：
 - readonly
 - `a[i][j]`
 - ignore f-string difference
-- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error
+- readonly variables `$0`, `$1`, `NF`, `NR`, `ARGV`/`ARGC`, just lint not syntax error，$0 re-assign not support
 - `$$1`, `$++i` not support
 - `@/re/`
 

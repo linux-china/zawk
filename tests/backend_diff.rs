@@ -92,6 +92,77 @@ fn compat_cases_agree_between_backends() {
     assert!(errors.is_empty(), "{}", errors.join("\n"));
 }
 
+#[test]
+fn builtin_assignments_infer_udf_rhs() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cases = [
+        (
+            r#"function sep(){return ","} BEGIN{FS=sep();print FS}"#,
+            ",\n",
+        ),
+        (
+            r#"function sep(value){return value} BEGIN{FS=sep(",");OFS=sep(7);print FS,OFS}"#,
+            ",77\n",
+        ),
+        (
+            r#"function sep(){return 7} BEGIN{FS=sep();print FS}"#,
+            "7\n",
+        ),
+        (
+            r#"function amount(){return 2.75} BEGIN{RSTART=amount();print RSTART}"#,
+            "2\n",
+        ),
+        (
+            r#"function enabled(){return 0.5} BEGIN{IGNORECASE=enabled();print IGNORECASE,("A"=="a")}"#,
+            "1 1\n",
+        ),
+        (
+            r#"function sep(){return ","} function configure(){FS=sep()} BEGIN{configure();print FS}"#,
+            ",\n",
+        ),
+    ];
+    for (program, stdout) in cases {
+        let args = [program.to_string()];
+        for config in CONFIGS {
+            assert_eq!(
+                run(dir, config, &args, b""),
+                Outcome {
+                    code: Some(0),
+                    stdout: stdout.to_string(),
+                },
+                "{config:?}\n{program}",
+            );
+        }
+    }
+}
+
+#[test]
+fn eval_context_result_conversion_agrees_between_backends() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for value in ["1", "1.0", r#""1""#] {
+        let program = format!(
+            r#"BEGIN {{
+                ctx["x"] = {value}
+                print eval("x > 0", ctx), eval("x < 0", ctx), \
+                      eval("x == 1.0", ctx), eval("x == 2.0", ctx), \
+                      eval("x + 2", ctx), eval("2 + 3", ctx), \
+                      eval("2.5 + 0.25", ctx), eval("1 > 0"), eval("1 < 0")
+            }}"#
+        );
+        let args = [program];
+        for config in CONFIGS {
+            assert_eq!(
+                run(dir, config, &args, b""),
+                Outcome {
+                    code: Some(0),
+                    stdout: "1 0 1 0 3 5 2.75 1 0\n".to_string(),
+                },
+                "{config:?}, context value {value}",
+            );
+        }
+    }
+}
+
 /// Operations on the parameter `s` of a user-defined function; `s` must not change in the caller.
 const PARAM_OPS: &[&str] = &[
     r#"sub(/[0-9a]/, "X", s)"#,

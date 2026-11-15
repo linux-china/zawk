@@ -256,7 +256,181 @@ fn check<'a>(prog: &ast::Prog<'a, 'a, &'a str>, given: &[&str]) -> bool {
             _ => return false,
         }
     }
-    true
+    !main.calls.contains("match") || match_state_safe(prog)
+}
+
+fn match_state_safe(prog: &ast::Prog<'_, '_, &'_ str>) -> bool {
+    let mut walk = MatchStateWalk {
+        current: false,
+        ok: true,
+        credit_match: true,
+    };
+    for (pat, body) in &prog.pats {
+        if let Pattern::Bool(e) = pat {
+            walk.expr(e);
+        }
+        let before = walk.current;
+        if let Some(body) = body {
+            let transfers = walk.stmt(body);
+            if !matches!(pat, Pattern::Null) || transfers {
+                walk.current &= before;
+            }
+        }
+    }
+    walk.ok
+}
+
+struct MatchStateWalk {
+    current: bool,
+    ok: bool,
+    credit_match: bool,
+}
+
+impl MatchStateWalk {
+    fn expr(&mut self, e: &E) {
+        match e {
+            Expr::Var("RSTART" | "RLENGTH") if !self.current => self.ok = false,
+            Expr::Unop(_, x) | Expr::Inc { x, .. } => self.expr(x),
+            Expr::Binop(_, l, r) | Expr::Index(l, r) => {
+                self.expr(l);
+                self.expr(r);
+            }
+            Expr::Assign(lhs @ Expr::Index(..), rhs)
+            | Expr::AssignOp(lhs @ Expr::Index(..), _, rhs) => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
+            Expr::Assign(Expr::Var(_), rhs) => self.expr(rhs),
+            Expr::Assign(lhs, rhs) | Expr::AssignOp(lhs, _, rhs) => {
+                // Field selectors are lowered after the RHS, unlike array subscripts.
+                self.expr(rhs);
+                self.expr(lhs);
+            }
+            Expr::And(l, r) | Expr::Or(l, r) | Expr::Nullish(l, r) => {
+                self.expr(l);
+                let before = self.current;
+                self.expr(r);
+                self.current &= before;
+            }
+            Expr::Try(l, r) => {
+                let before = self.current;
+                let credit = self.credit_match;
+                self.credit_match = false;
+                self.expr(l);
+                self.expr(r);
+                self.credit_match = credit;
+                self.current = before;
+            }
+            Expr::ITE(c, t, f) => {
+                self.expr(c);
+                let before = self.current;
+                self.expr(t);
+                let then = self.current;
+                self.current = before;
+                self.expr(f);
+                self.current &= then;
+            }
+            Expr::Call(f, args) => {
+                args.iter().for_each(|a| self.expr(a));
+                if matches!(f, Either::Left("match")) && self.credit_match {
+                    self.current = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn stmt(&mut self, s: &S) -> bool {
+        match s {
+            Stmt::Expr(e) => self.expr(e),
+            Stmt::Block(stmts) => {
+                let before = self.current;
+                let mut transfers = false;
+                for s in stmts {
+                    transfers |= self.stmt(s);
+                    if transfers {
+                        self.current = before;
+                    }
+                }
+                return transfers;
+            }
+            Stmt::If(c, t, f) => {
+                self.expr(c);
+                let before = self.current;
+                let mut transfers = self.stmt(t);
+                let then = self.current;
+                self.current = before;
+                if let Some(f) = f {
+                    transfers |= self.stmt(f);
+                }
+                self.current &= then;
+                return transfers;
+            }
+            Stmt::For(init, cond, update, body) => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                if let Some(cond) = cond {
+                    self.expr(cond);
+                }
+                let header = self.current;
+                if self.stmt(body) {
+                    self.current = header;
+                }
+                if let Some(update) = update {
+                    self.stmt(update);
+                }
+                self.current = header;
+            }
+            Stmt::While(_, cond, body) => {
+                self.expr(cond);
+                let header = self.current;
+                self.stmt(body);
+                self.current = header;
+            }
+            Stmt::DoWhile(cond, body) => {
+                let before = self.current;
+                let transfers = self.stmt(body);
+                if transfers {
+                    self.current = before;
+                }
+                self.expr(cond);
+                if transfers {
+                    self.current = before;
+                }
+            }
+            Stmt::ForEach(_, arr, body) => {
+                self.expr(arr);
+                let before = self.current;
+                self.stmt(body);
+                self.current = before;
+            }
+            Stmt::ForRange(_, from, to, _, body) => {
+                self.expr(from);
+                self.expr(to);
+                let before = self.current;
+                self.stmt(body);
+                self.current = before;
+            }
+            Stmt::Switch(e, cases) => {
+                self.expr(e);
+                let before = self.current;
+                let mut transfers = false;
+                for (label, body) in cases.iter() {
+                    self.current = before;
+                    if let Some(label) = label {
+                        self.expr(label);
+                    }
+                    transfers |= self.stmt(body);
+                }
+                self.current = before;
+                return transfers;
+            }
+            Stmt::Break | Stmt::Continue | Stmt::Next => return true,
+            _ => {}
+        }
+        false
+    }
 }
 
 /// The bound on the magnitude of a count (`length`, `split`, `index`, ...), of a variable of
@@ -1096,6 +1270,100 @@ mod tests {
             "BEGIN { exit } { s++ } END { print s }",
         ] {
             assert!(safe(prog, &[]), "{}", prog);
+        }
+    }
+
+    #[test]
+    fn current_record_match_state_is_parallel() {
+        for name in ["RSTART", "RLENGTH"] {
+            for template in [
+                "{ match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ match($0, /never-matches/); if (STATE) n++ } END { print n }",
+                "{ if (match($0, /.+/)) { if (STATE) n++ } } END { print n }",
+                "{ if (match($0, /.+/) && STATE) n++ } END { print n }",
+                "{ if (match($0, /.+/) || STATE) n++ } END { print n }",
+                "{ if (match($0, /.+/) ?? STATE) n++ } END { print n }",
+                "{ if (match($0, /.+/) ? STATE : STATE) n++ } END { print n }",
+                "{ if ($1) match($0, /a/); else match($0, /b/); if (STATE) n++ } END { print n }",
+                "{ $1 ? match($0, /a/) : match($0, /b/); if (STATE) n++ } END { print n }",
+                "{ if ($1 && match($0, /.+/) && STATE) n++ } END { print n }",
+                "{ do { match($0, /.+/) } while (0); if (STATE) n++ } END { print n }",
+                "{ do { match($0, /.+/) } while (STATE && 0); if (STATE) n++ } END { print n }",
+                "{ do { n++ } while (match($0, /.+/) && 0); if (STATE) n++ } END { print n }",
+                "{ while (match($0, /.+/) && 0) n++; if (STATE) n++ } END { print n }",
+                "{ for (match($0, /.+/); 0;) n++; if (STATE) n++ } END { print n }",
+                "{ for (; match($0, /.+/) && 0;) n++; if (STATE) n++ } END { print n }",
+                "{ for (i = 0; i < 2; i++) { match($0, /.+/); if (STATE) n++ } } END { print n }",
+                "{ for (i in 1..=2) { match($0, /.+/); if (STATE) n++ } } END { print n }",
+                "{ match($0, /.+/); while (0) { continue }; if (STATE) n++ } END { print n }",
+                "{ match($0, /.+/); do { break } while (0); if (STATE) n++ } END { print n }",
+                "{ match($0, /.+/); switch ($1) { case 1: if (STATE) n++; break; default: n++ } } END { print n }",
+                "{ match($0, /.+/); if (try STATE else 0) n++ } END { print n }",
+                "{ if (substr($0, match($0, /.+/), STATE)) n++ } END { print n }",
+                "{ $(STATE) = match($0, /./); n++ } END { print n }",
+                "{ $(STATE) += match($0, /./); n++ } END { print n }",
+                "{ match($0, /.+/) + STATE; n++ } END { print n }",
+                "{ a[match($0, /./)] += (STATE > 0) } END { print length(a) }",
+                "match($0, /.+/) { if (STATE) n++ } END { print n }",
+                "{ match($0, /.+/) } STATE { n++ } END { print n }",
+                "match($0, /.+/) { n++ } { if (STATE) n++ } END { print n }",
+                "BEGIN { match(\"x\", /x/) } { if (STATE) n++ } END { print n }",
+            ] {
+                let prog = template.replace("STATE", name);
+                assert!(safe(&prog, &[]), "{prog}");
+            }
+        }
+    }
+
+    #[test]
+    fn previous_record_match_state_is_serial() {
+        for name in ["RSTART", "RLENGTH"] {
+            for template in [
+                "{ if (STATE) n++; match($0, /.+/) } END { print n }",
+                "{ match(substr($0, STATE), /.+/); n++ } END { print n }",
+                "{ match($0, STATE ? /a/ : /b/); n++ } END { print n }",
+                "{ if (substr($0, STATE, match($0, /.+/))) n++ } END { print n }",
+                "{ STATE + match($0, /.+/); n++ } END { print n }",
+                "{ $(match($0, /./)) = (STATE > 0); n++ } END { print n }",
+                "{ $(match($0, /./)) += (STATE > 0); n++ } END { print n }",
+                "{ a[STATE] += match($0, /./) } END { print length(a) }",
+                "{ if ($1) match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ $1 && match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ $1 || match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ $1 ?? match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ $1 ? match($0, /.+/) : 0; if (STATE) n++ } END { print n }",
+                "{ $1 ? 0 : match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ if ($1 ? match($0, /.+/) : STATE) n++ } END { print n }",
+                "{ if (try match($0, /.+/) else STATE) n++ } END { print n }",
+                "{ try match($0, /.+/) else 0; if (STATE) n++ } END { print n }",
+                "{ while ($1) { match($0, /.+/); break }; if (STATE) n++ } END { print n }",
+                "{ for (i = 0; i < 0; i++) match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ for (i = 0; i < 0; match($0, /.+/)) i++; if (STATE) n++ } END { print n }",
+                "{ for (i = 0; i < 2; i++) { if (STATE) n++; match($0, /.+/) } } END { print n }",
+                "{ for (i in 1..1) match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ for (i in a) match($0, /.+/); if (STATE) n++ } END { print n }",
+                "{ do { if (STATE) n++; match($0, /.+/) } while (0) } END { print n }",
+                "{ do { if ($1) break; match($0, /.+/) } while (0); if (STATE) n++ } END { print n }",
+                "{ do { if ($1) continue; match($0, /.+/) } while (STATE && 0) } END { print n }",
+                "{ for (i = 0; i < 2; i++) { if ($1) continue; match($0, /.+/) }; if (STATE) n++ } END { print n }",
+                "{ switch ($1) { case 1: match($0, /.+/); break; default: n++ }; if (STATE) n++ } END { print n }",
+                "{ if ($1) next; match($0, /.+/) } { if (STATE) n++ } END { print n }",
+                "$1 { match($0, /.+/) } { if (STATE) n++ } END { print n }",
+                "$1 && match($0, /.+/) { n++ } { if (STATE) n++ } END { print n }",
+                "STATE { n++ } { match($0, /.+/) } END { print n }",
+                "BEGIN { match(\"x\", /x/) } { if (STATE) n++; match($0, /.+/) } END { print n }",
+                "{ match($0, /.+/); STATE = 1; n++ } END { print n }",
+                "{ match($0, /.+/); n++ } END { print n, STATE }",
+            ] {
+                let prog = template.replace("STATE", name);
+                let arena = super::Arena::default();
+                let mut buf = Vec::new();
+                let mut parsed = super::ast::Prog::from_stage(&arena, super::Stage::Main(()));
+                super::parsing::syntax::ProgParser::new()
+                    .parse(&arena, &mut buf, &mut parsed, super::lexer::Tokenizer::new(&prog))
+                    .unwrap_or_else(|e| panic!("{prog}: {e:?}"));
+                assert!(!safe(&prog, &[]), "{prog}");
+            }
         }
     }
 

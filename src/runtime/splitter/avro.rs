@@ -26,7 +26,8 @@ use apache_avro::types::Value;
 use apache_avro::{Reader, Schema};
 
 use super::parquet::{
-    Kind, date, float_text, hex, push_json, push_json_str, time_nanos, timestamp_nanos,
+    Kind, date, float_text, hex, push_json, push_json_str, time_nanos, timestamp, timestamp_nanos,
+    timestamp_text,
 };
 use crate::inspect::Cell;
 
@@ -414,11 +415,11 @@ fn value_text(names: &Names, value: &Value, schema: Option<&Schema>) -> (String,
         Value::BigDecimal(d) => (d.to_string(), Kind::Raw),
         Value::TimeMillis(ms) => (time_nanos(millis(*ms as i64)), Kind::Str),
         Value::TimeMicros(us) => (time_nanos(micros(*us)), Kind::Str),
-        Value::TimestampMillis(ms) => (rfc3339(millis(*ms)), Kind::Str),
-        Value::TimestampMicros(us) => (rfc3339(micros(*us)), Kind::Str),
-        Value::TimestampNanos(ns) => (rfc3339(*ns), Kind::Str),
-        Value::LocalTimestampMillis(ms) => (timestamp_nanos(millis(*ms)), Kind::Str),
-        Value::LocalTimestampMicros(us) => (timestamp_nanos(micros(*us)), Kind::Str),
+        Value::TimestampMillis(ms) => (rfc3339(*ms, 1_000), Kind::Str),
+        Value::TimestampMicros(us) => (rfc3339(*us, 1_000_000), Kind::Str),
+        Value::TimestampNanos(ns) => (rfc3339(*ns, 1_000_000_000), Kind::Str),
+        Value::LocalTimestampMillis(ms) => (timestamp_text(*ms, 1_000), Kind::Str),
+        Value::LocalTimestampMicros(us) => (timestamp_text(*us, 1_000_000), Kind::Str),
         Value::LocalTimestampNanos(ns) => (timestamp_nanos(*ns), Kind::Str),
         Value::Uuid(u) => (u.to_string(), Kind::Str),
         Value::Duration(d) => (
@@ -501,9 +502,10 @@ fn write_json(names: &Names, out: &mut String, value: &Value, schema: Option<&Sc
 }
 
 /// `2024-01-15T10:30:00Z`, with the fraction of a second only when it is not zero.
-fn rfc3339(nanos: i64) -> String {
-    chrono::DateTime::from_timestamp_nanos(nanos)
-        .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+fn rfc3339(value: i64, units_per_second: i64) -> String {
+    timestamp(value, units_per_second)
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true))
+        .unwrap_or_default()
 }
 
 /// The exact text of the decimal with the big-endian two's complement unscaled value `bytes` and
@@ -583,6 +585,77 @@ mod tests {
             decimal_text(&big, 0),
             "1461501637330902918203684832716283019655932542976"
         );
+    }
+
+    #[test]
+    fn timestamp_units_preserve_dates() {
+        let schema = Schema::parse_str(
+            r#"{"type":"record","name":"Row","fields":[
+                {"name":"ms","type":{"type":"long","logicalType":"timestamp-millis"}},
+                {"name":"us","type":{"type":"long","logicalType":"timestamp-micros"}},
+                {"name":"local_ms","type":{"type":"long","logicalType":"local-timestamp-millis"}},
+                {"name":"local_us","type":{"type":"long","logicalType":"local-timestamp-micros"}}
+            ]}"#,
+        )
+        .unwrap();
+        let mut writer = Writer::new(&schema, Vec::new()).unwrap();
+        let mut expected = String::new();
+        for input in [
+            "1600-01-01 00:00:00",
+            "1600-01-01 00:00:00.123456",
+            "2500-01-01 00:00:00",
+            "2500-01-01 00:00:00.123456",
+            "1677-09-21 00:12:43.145000",
+            "1677-09-21 00:12:43.146000",
+            "1677-09-21 00:12:43.145224",
+            "1677-09-21 00:12:43.145225",
+            "2262-04-11 23:47:16.854000",
+            "2262-04-11 23:47:16.855000",
+            "2262-04-11 23:47:16.854775",
+            "2262-04-11 23:47:16.854776",
+            "1969-12-31 23:59:59.999999",
+            "1970-01-01 00:00:00",
+            "1970-01-01 00:00:00.000001",
+        ] {
+            let dt = chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S%.f")
+                .unwrap()
+                .and_utc();
+            let ms = dt.timestamp_millis();
+            let us = dt.timestamp_micros();
+            let mut record = Record::new(&schema).unwrap();
+            record.put("ms", Value::TimestampMillis(ms));
+            record.put("us", Value::TimestampMicros(us));
+            record.put("local_ms", Value::LocalTimestampMillis(ms));
+            record.put("local_us", Value::LocalTimestampMicros(us));
+            writer.append_value(record).unwrap();
+            let millis_dt = chrono::DateTime::from_timestamp_millis(ms).unwrap();
+            expected.push_str(&format!(
+                "{{\"ms\":\"{}\",\"us\":\"{}\",\"local_ms\":\"{}\",\"local_us\":\"{}\"}}\n",
+                millis_dt.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+                dt.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+                millis_dt.naive_utc(),
+                dt.naive_utc(),
+            ));
+        }
+        assert_eq!(json_lines(writer.into_inner().unwrap()), expected);
+        let names = Names::new();
+        for (ns, expected) in [
+            (i64::MIN, "1677-09-21T00:12:43.145224192Z"),
+            (i64::MAX, "2262-04-11T23:47:16.854775807Z"),
+            (-1, "1969-12-31T23:59:59.999999999Z"),
+        ] {
+            assert_eq!(
+                value_text(&names, &Value::TimestampNanos(ns), None),
+                (expected.to_string(), Kind::Str),
+            );
+            assert_eq!(
+                value_text(&names, &Value::LocalTimestampNanos(ns), None),
+                (
+                    expected.replace('T', " ").trim_end_matches('Z').to_string(),
+                    Kind::Str
+                ),
+            );
+        }
     }
 
     #[test]

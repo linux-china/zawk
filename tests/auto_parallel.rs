@@ -79,6 +79,8 @@ fn aggregations_run_in_parallel_with_the_serial_result() {
         "/ERROR/ { c++ } END { print c, NR }",
         "{ n = split($6, p, \"-\"); c[p[3]] += n } END { PROCINFO[\"sorted_in\"] = \"@val_num_desc\"; for (k in c) print k, c[k] }",
         "{ x = length($3) * 2; s += x } END { print s }",
+        "{ match($0, /.+/); if (RSTART > 0 && RLENGTH > 0) n++ } END { print n, NR }",
+        "{ if (match($2, /a/)) ids[substr($2, RSTART, RLENGTH)]++ } END { print length(ids), NR }",
         "BEGIN { t = 500 } $3 > t { hi++ } $3 <= t { lo++ } END { print hi, lo, NR, FNR, FILENAME }",
     ] {
         // It is picked: the program compiles as with `-pr`, not as without.
@@ -169,6 +171,43 @@ fn order_dependent_programs_stay_serial() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n");
+}
+
+#[test]
+fn match_state_from_previous_records_stays_serial() {
+    let dir = tempdir().unwrap();
+    let file = data_file(dir.path());
+    let small = [("ZAWK_PARALLEL_MIN_SIZE", "1")];
+    for name in ["RSTART", "RLENGTH"] {
+        for template in [
+            "{ if (STATE) n++; match($0, /.+/) } END { print n, NR }",
+            "{ if ($1 % 2) match($0, /.+/); if (STATE) n++ } END { print n, NR }",
+            "{ $1 && match($0, /.+/); if (STATE) n++ } END { print n, NR }",
+            "{ $1 ? match($0, /.+/) : 0; if (STATE) n++ } END { print n, NR }",
+            "{ while ($1 % 2) { match($0, /.+/); break }; if (STATE) n++ } END { print n, NR }",
+            "{ $(match($0, /./)) = (STATE > 0); n += ($1 == 1) } END { print n, NR }",
+            "{ $(match($0, /./)) += (STATE > 0); n += ($1 > 1) } END { print n, NR }",
+        ] {
+            let prog = template.replace("STATE", name);
+            for backend in BACKEND_ARGS {
+                let auto = bytecode(&small, &[backend], &prog, &file);
+                assert_eq!(auto, bytecode(&small, &[backend, "-p0"], &prog, &file));
+                assert_ne!(auto, bytecode(&small, &[backend, "-pr"], &prog, &file));
+                let serial = zawk(
+                    &small,
+                    &[backend, "-p0", "--chunk-size", "64", "-F,", &prog, &file],
+                );
+                let auto = zawk(
+                    &small,
+                    &[backend, "--chunk-size", "64", "-F,", &prog, &file],
+                );
+                assert!(serial.status.success() && auto.status.success(), "{prog}");
+                assert_eq!(serial.stdout, b"2999 3000\n", "{prog}");
+                assert_eq!(auto.stdout, serial.stdout, "{prog}");
+                assert!(serial.stderr.is_empty() && auto.stderr.is_empty(), "{prog}");
+            }
+        }
+    }
 }
 
 /// Whole numbers past 2^53 (epoch milliseconds) do not add up the same in another order: their

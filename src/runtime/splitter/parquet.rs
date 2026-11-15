@@ -1269,10 +1269,16 @@ fn field_text(field: &Field, format: Format) -> (String, Kind) {
         (Field::Long(nanos), Format::TimestampNanos) => (timestamp_nanos(*nanos), Kind::Str),
         (Field::Long(nanos), Format::TimeNanos) => (time_nanos(*nanos), Kind::Str),
         (Field::Bytes(b), Format::Uuid) if b.data().len() == 16 => (uuid(b.data()), Kind::Str),
-        // JSON columns keep their text; it is embedded as is in $0 when it is valid JSON.
         (Field::Str(s), Format::Json) => {
             let valid = serde_json::from_str::<serde::de::IgnoredAny>(s).is_ok();
-            (s.clone(), if valid { Kind::Raw } else { Kind::Str })
+            if valid && s.contains(['\r', '\n']) {
+                // Formatting newlines must not split the outer JSONL record.
+                let mut compact = Vec::with_capacity(s.len());
+                super::json::compact(s, &mut compact);
+                (String::from_utf8(compact).unwrap(), Kind::Raw)
+            } else {
+                (s.clone(), if valid { Kind::Raw } else { Kind::Str })
+            }
         }
         (Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_), _) => {
             let mut json = String::new();
@@ -1309,8 +1315,8 @@ fn scalar_text(field: &Field) -> (String, Kind) {
         Field::Date(days) => (date(*days), Kind::Str),
         Field::TimeMillis(ms) => (time_nanos((*ms as i64).saturating_mul(1_000_000)), Kind::Str),
         Field::TimeMicros(us) => (time_nanos(us.saturating_mul(1_000)), Kind::Str),
-        Field::TimestampMillis(ms) => (timestamp_nanos(ms.saturating_mul(1_000_000)), Kind::Str),
-        Field::TimestampMicros(us) => (timestamp_nanos(us.saturating_mul(1_000)), Kind::Str),
+        Field::TimestampMillis(ms) => (timestamp_text(*ms, 1_000), Kind::Str),
+        Field::TimestampMicros(us) => (timestamp_text(*us, 1_000_000), Kind::Str),
         Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_) => {
             let mut json = String::new();
             write_json(&mut json, field);
@@ -1443,9 +1449,22 @@ pub(super) fn date(days: i32) -> String {
 
 /// `2024-01-15 10:30:00`, with the fraction of a second only when it is not zero.
 pub(super) fn timestamp_nanos(nanos: i64) -> String {
-    chrono::DateTime::from_timestamp_nanos(nanos)
-        .naive_utc()
-        .to_string()
+    timestamp_text(nanos, 1_000_000_000)
+}
+
+pub(super) fn timestamp(
+    value: i64,
+    units_per_second: i64,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let seconds = value.div_euclid(units_per_second);
+    let nanos = value.rem_euclid(units_per_second) * (1_000_000_000 / units_per_second);
+    chrono::DateTime::from_timestamp(seconds, nanos as u32)
+}
+
+pub(super) fn timestamp_text(value: i64, units_per_second: i64) -> String {
+    timestamp(value, units_per_second)
+        .map(|dt| dt.naive_utc().to_string())
+        .unwrap_or_default()
 }
 
 pub(super) fn time_nanos(nanos: i64) -> String {
@@ -1507,6 +1526,75 @@ mod tests {
             ("1".to_string(), Kind::Bool)
         );
         assert_eq!(scalar_text(&Field::Null), (String::new(), Kind::Null));
+    }
+
+    #[test]
+    fn timestamp_units_preserve_dates() {
+        for input in [
+            "1600-01-01 00:00:00",
+            "1600-01-01 00:00:00.123456",
+            "2500-01-01 00:00:00",
+            "2500-01-01 00:00:00.123456",
+            "1677-09-21 00:12:43.145000",
+            "1677-09-21 00:12:43.146000",
+            "1677-09-21 00:12:43.145224",
+            "1677-09-21 00:12:43.145225",
+            "2262-04-11 23:47:16.854000",
+            "2262-04-11 23:47:16.855000",
+            "2262-04-11 23:47:16.854775",
+            "2262-04-11 23:47:16.854776",
+            "1969-12-31 23:59:59.999999",
+            "1970-01-01 00:00:00",
+            "1970-01-01 00:00:00.000001",
+        ] {
+            let dt = chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S%.f")
+                .unwrap()
+                .and_utc();
+            for (field, expected) in [
+                (
+                    Field::TimestampMillis(dt.timestamp_millis()),
+                    chrono::DateTime::from_timestamp_millis(dt.timestamp_millis())
+                        .unwrap()
+                        .naive_utc()
+                        .to_string(),
+                ),
+                (
+                    Field::TimestampMicros(dt.timestamp_micros()),
+                    dt.naive_utc().to_string(),
+                ),
+            ] {
+                assert_eq!(scalar_text(&field), (expected, Kind::Str), "{field:?}");
+            }
+        }
+        for (value, expected) in [
+            (i64::MIN, "1677-09-21 00:12:43.145224192"),
+            (i64::MAX, "2262-04-11 23:47:16.854775807"),
+            (-1, "1969-12-31 23:59:59.999999999"),
+        ] {
+            assert_eq!(timestamp_nanos(value), expected);
+        }
+    }
+
+    #[test]
+    fn timestamp_calendar_limits() {
+        let min = chrono::DateTime::<chrono::Utc>::MIN_UTC;
+        let max = chrono::DateTime::<chrono::Utc>::MAX_UTC;
+        for (units, lower, upper) in [
+            (1_000, min.timestamp_millis(), max.timestamp_millis()),
+            (1_000_000, min.timestamp_micros(), max.timestamp_micros()),
+        ] {
+            assert!(timestamp(lower, units).is_some());
+            assert!(timestamp(upper, units).is_some());
+            for value in [lower - 1, upper + 1, i64::MIN, i64::MAX] {
+                assert!(timestamp(value, units).is_none(), "{value}, {units}");
+                let field = if units == 1_000 {
+                    Field::TimestampMillis(value)
+                } else {
+                    Field::TimestampMicros(value)
+                };
+                assert_eq!(scalar_text(&field), (String::new(), Kind::Str));
+            }
+        }
     }
 
     /// Rows of several row groups (decoded on several threads) come out in file order, with the
@@ -1586,6 +1674,53 @@ mod tests {
         result.unwrap();
         assert_eq!(got.len(), expected.len());
         assert!(got == expected);
+    }
+
+    #[test]
+    fn json_column_multiline_normalization() {
+        for (input, expected) in [
+            ("{\n\"x\":2\n}", r#"{"x":2}"#),
+            (
+                "\r\n{\r\n \"nested\": {\"values\": [1,\r\n{\"ok\": true}]}\r\n}\r\n",
+                r#"{"nested":{"values":[1,{"ok":true}]}}"#,
+            ),
+            ("{\r\"x\": 2\r}", r#"{"x":2}"#),
+            (
+                "{\n \"n\": 12345678901234567890123, \"d\": 0.30000000000000001, \"p\": 1.10, \"q\": 1e400\n}",
+                r#"{"n":12345678901234567890123,"d":0.30000000000000001,"p":1.10,"q":1e400}"#,
+            ),
+            (
+                r#"{
+ "s": "a \t b\nc\r\n\"张\u0041",
+ "path": "C:\\dir\\"
+}"#,
+                r#"{"s":"a \t b\nc\r\n\"张\u0041","path":"C:\\dir\\"}"#,
+            ),
+            ("\n [1.00, {\"x\": 2}] \r\n", r#"[1.00,{"x":2}]"#),
+            ("\n\"a b\\n张\"\r\n", r#""a b\n张""#),
+            (r#"{"x": 3}"#, r#"{"x": 3}"#),
+        ] {
+            let (text, kind) = field_text(&Field::Str(input.to_string()), Format::Json);
+            assert_eq!(kind, Kind::Raw, "{input:?}");
+            assert_eq!(text, expected, "{input:?}");
+            let mut out = String::new();
+            push_json(&mut out, &text, kind);
+            assert_eq!(out, expected);
+            assert!(serde_json::from_str::<serde::de::IgnoredAny>(&out).is_ok());
+        }
+    }
+
+    #[test]
+    fn json_column_invalid_multiline_fallback() {
+        for input in ["{\n\"x\":\n}", "[1\n2]", "{\r\n\"x\":\"a\nb\"\r\n}"] {
+            let (text, kind) = field_text(&Field::Str(input.to_string()), Format::Json);
+            assert_eq!(kind, Kind::Str);
+            assert_eq!(text, input);
+            let mut out = String::new();
+            push_json(&mut out, &text, kind);
+            assert!(!out.contains(['\r', '\n']));
+            assert_eq!(serde_json::from_str::<String>(&out).unwrap(), input);
+        }
     }
 
     #[test]
