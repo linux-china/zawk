@@ -61,6 +61,13 @@ pub trait ChunkProducer {
         self.wait()
     }
     fn get_chunk(&mut self, chunk: &mut Self::Chunk) -> Result<bool /*done*/>;
+    fn get_chunk_cancellable(
+        &mut self,
+        chunk: &mut Self::Chunk,
+        _signal: &CancelSignal,
+    ) -> Result<bool> {
+        self.get_chunk(chunk)
+    }
     fn next_file(&mut self) -> Result<bool /*new file available*/>;
     // Leave the parts of a chunk that do not depend on the chunks before it to whoever consumes
     // it (see `Chunk::finish`), when the producer supports it. Called by `ParallelChunkProducer`
@@ -565,6 +572,9 @@ impl<C: Chunk> ChunkProducer for Box<dyn ChunkProducer<Chunk = C>> {
     }
     fn get_chunk(&mut self, chunk: &mut C) -> Result<bool> {
         (**self).get_chunk(chunk)
+    }
+    fn get_chunk_cancellable(&mut self, chunk: &mut C, signal: &CancelSignal) -> Result<bool> {
+        (**self).get_chunk_cancellable(chunk, signal)
     }
     fn defer_scan(&mut self) {
         (**self).defer_scan()
@@ -1090,7 +1100,39 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
         while self.incoming.try_recv().is_ok() {}
     }
     fn get_chunk(&mut self, chunk: &mut P::Chunk) -> Result<bool> {
-        while let Ok((seq, mut new_chunk)) = self.incoming.recv() {
+        self.get_chunk_inner(chunk, None)
+    }
+    fn get_chunk_cancellable(&mut self, chunk: &mut P::Chunk, signal: &CancelSignal) -> Result<bool> {
+        self.get_chunk_inner(chunk, Some(signal))
+    }
+}
+
+impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
+    fn get_chunk_inner(&mut self, chunk: &mut P::Chunk, signal: Option<&CancelSignal>) -> Result<bool> {
+        use crossbeam_channel::RecvTimeoutError;
+        use std::time::Duration;
+
+        loop {
+            if signal.is_some_and(CancelSignal::cancelled) {
+                self.stop();
+                return Ok(true);
+            }
+            let incoming = if signal.is_some() {
+                match self.incoming.recv_timeout(Duration::from_millis(20)) {
+                    Ok(item) => Some(item),
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => None,
+                }
+            } else {
+                self.incoming.recv().ok()
+            };
+            if signal.is_some_and(CancelSignal::cancelled) {
+                self.stop();
+                return Ok(true);
+            }
+            let Some((seq, mut new_chunk)) = incoming else {
+                break;
+            };
             // The records of the previous chunk are all processed: with `--keep-order`, its
             // output can be written once the output of the chunks before it is.
             crate::runtime::writers::ordered::begin_chunk(seq);
@@ -1271,7 +1313,7 @@ impl<P: ChunkProducer + 'static> ChunkProducer for CancellableChunkProducer<P> {
             self.prod.stop();
             return Ok(true);
         }
-        self.prod.get_chunk(chunk)
+        self.prod.get_chunk_cancellable(chunk, &self.signal)
     }
 }
 

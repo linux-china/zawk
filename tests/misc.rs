@@ -5759,6 +5759,54 @@ fn parallel_exit_runs_end() {
 }
 
 #[test]
+fn exit_runs_end_with_open_stdin() {
+    use std::process::{Command as StdCommand, Stdio};
+    use std::time::{Duration, Instant};
+
+    let prog = r#"{ if ($1=="stop") { system("sleep 0.3"); exit 7 } } END { print "done" }"#;
+    let input = format!("stop\n{}", "x\n".repeat(1000));
+    for backend_arg in BACKEND_ARGS {
+        for mode in [&["-p0"][..], &["-pr", "-j2"][..]] {
+            let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("zawk"))
+                .arg(backend_arg)
+                .args(mode)
+                .args(["--chunk-size", "64", prog])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut stdin = child.stdin.take().unwrap();
+            stdin.write_all(input.as_bytes()).unwrap();
+            stdin.flush().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let exited = loop {
+                if child.try_wait().unwrap().is_some() {
+                    break true;
+                }
+                if Instant::now() >= deadline {
+                    break false;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            drop(stdin);
+            if !exited {
+                child.kill().unwrap();
+            }
+            let output = child.wait_with_output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                exited,
+                "{backend_arg} {mode:?}: exit waited for stdin EOF; stderr: {stderr}"
+            );
+            assert_eq!(output.status.code(), Some(7), "{backend_arg} {mode:?}: {stderr}");
+            assert_eq!(output.stdout, b"done\n", "{backend_arg} {mode:?}");
+            assert!(output.stderr.is_empty(), "{backend_arg} {mode:?}: {stderr}");
+        }
+    }
+}
+
+#[test]
 fn parallel_fatal_error_with_graceful_exit() {
     // One worker calls `exit 0` while the others fail with a fatal error: the fatal workers block
     // until the process exits, so the main thread must exit instead of running END and joining
