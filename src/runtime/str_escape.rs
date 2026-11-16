@@ -151,8 +151,11 @@ pub fn escape_mysql(text: &str) -> String {
     result
 }
 
+/// XML/HTML text and attribute escaping. Characters not allowed in XML 1.0 (control characters
+/// other than tab, newline and carriage return, and U+FFFE/U+FFFF) cannot be written even as
+/// character references, so they become U+FFFD.
 pub fn escape_xml(text: &str) -> String {
-    let mut result = String::new();
+    let mut result = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
             '<' => result.push_str("&lt;"),
@@ -160,6 +163,8 @@ pub fn escape_xml(text: &str) -> String {
             '&' => result.push_str("&amp;"),
             '"' => result.push_str("&quot;"),
             '\'' => result.push_str("&apos;"),
+            '\t' | '\n' | '\r' => result.push(c),
+            c if (c as u32) < 0x20 || c == '\u{FFFE}' || c == '\u{FFFF}' => result.push('\u{FFFD}'),
             _ => result.push(c),
         }
     }
@@ -185,6 +190,17 @@ mod tests {
         assert_eq!(escape_mysql(payload), "\\\\'' OR 1=1 -- ");
         assert_eq!(escape_mysql("a\0b\nc\rd\x1a"), "a\\0b\\nc\\rd\\Z");
         assert_eq!(escape("mariadb", "it's"), "it''s");
+    }
+
+    #[test]
+    fn test_escape_xml() {
+        assert_eq!(escape_xml("<a b=\"c\">'&'</a>"), "&lt;a b=&quot;c&quot;&gt;&apos;&amp;&apos;&lt;/a&gt;");
+        assert_eq!(escape_xml("a\tb\nc\rd"), "a\tb\nc\rd");
+        assert_eq!(
+            escape_xml("\x00\x08\x0b\x0c\x0e\x1f\u{FFFE}\u{FFFF}x"),
+            "\u{FFFD}".repeat(8) + "x"
+        );
+        assert_eq!(escape("html", "a\x01b"), "a\u{FFFD}b");
     }
 
     #[test]
