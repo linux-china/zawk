@@ -75,6 +75,11 @@ Please ignore the following differences with gawk：
 - `$$1`, `$++i` not support
 - `@/re/`
 
+Attentions:
+
+- `f`: f could not be used as function or variable name
+- `r`: r could not be used as function or variable name
+
 Security:
 
 - http is allowed
