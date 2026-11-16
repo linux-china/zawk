@@ -932,7 +932,7 @@ impl RegexCache {
         re: &(impl awk_regex::Search + ?Sized),
         s: &Str,
     ) -> Result<Int> {
-        Self::store_match_loc(vars, s, |bs| awk_regex::find_at(re, bs, 0))
+        Self::store_match_loc(vars, s, |bs| str_impl::find_first_char_aligned(re, bs))
     }
     /// Sets RSTART and RLENGTH to the match `find` reports in `s` and returns RSTART.
     fn store_match_loc(
@@ -984,7 +984,7 @@ impl RegexCache {
     ) -> Result<Int> {
         self.with_search_fallible(pat, s, |re| {
             let caps = s.with_bytes(|bs| {
-                awk_regex::find_at(re, bs, 0)
+                str_impl::find_first_char_aligned(re, bs)
                     .and_then(|(from, to)| awk_regex::captures_at(re, bs, from, to))
             });
             let groups: Vec<(usize, usize, usize)> = match &caps {

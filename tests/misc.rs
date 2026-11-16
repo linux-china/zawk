@@ -618,6 +618,23 @@ fn characters_as_bytes() {
 }
 
 #[test]
+fn empty_byte_regex_matches_stay_on_utf8_boundaries() {
+    assert_both_backends(
+        r#"BEGIN { s = "a€"; sub(/(?-u:\B)/, "X", s); print s; print match("a€", /(?-u:\B)/), RSTART, RLENGTH; p = "(?-u:\\B)"; print match("a€", p), RSTART, RLENGTH; print match("a€", p, a), RSTART, RLENGTH }"#,
+        "a€X\n3 3 0\n3 3 0\n3 3 0\n",
+    );
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-b")
+            .arg(r#"BEGIN { print match("a€", /(?-u:\B)/), RSTART, RLENGTH }"#)
+            .assert()
+            .stdout("5 5 0\n");
+    }
+}
+
+#[test]
 fn eq_ignore_case_agrees_with_ignorecase_compare_under_bytes() {
     // With -b only ASCII letters fold, for eq_ignore_case as for `==` under IGNORECASE.
     let prog = r#"BEGIN { IGNORECASE = 1; print eq_ignore_case("É", "é"), ("É" == "é"), eq_ignore_case("K", "\342\204\252"), ("K" == "\342\204\252"), eq_ignore_case("AbÉ", "aBÉ") }"#;

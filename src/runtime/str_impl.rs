@@ -1058,7 +1058,7 @@ impl<'a> Str<'a> {
     ) -> (Str<'a>, bool) {
         self.with_bytes(|s| {
             subst.with_bytes(|subst| {
-                if let Some((start, end)) = super::awk_regex::find_at(pat, s, 0) {
+                if let Some((start, end)) = find_first_char_aligned(pat, s) {
                     let mut buf = DynamicBuf::new(s.len());
                     buf.write_all(&s[0..start]).unwrap();
                     process_match(&s[start..end], subst, &mut buf).unwrap();
@@ -2562,6 +2562,14 @@ impl<'s> CharBoundary<'s> {
             .valid_utf8
             .get_or_insert_with(|| std::str::from_utf8(s).is_ok())
     }
+}
+
+pub(crate) fn find_first_char_aligned(
+    pat: &(impl Search + ?Sized),
+    s: &[u8],
+) -> Option<(usize, usize)> {
+    let mut bound = CharBoundary::new(s);
+    super::awk_regex::find_iter(pat, s).find(|&(start, end)| !bound.splits_char(start, end))
 }
 
 /// The capacity to allocate, on the first match, for the result of replacing every match in `s`
