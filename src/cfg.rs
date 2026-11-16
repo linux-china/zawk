@@ -1314,7 +1314,6 @@ where
                 } else {
                     current_open
                 };
-                // todo fix this bug with continue bug
                 let loc = self.cur_loc;
                 let (h, b_start, _b_end, f) = self.make_loop(
                     body, *update, init_end, /*is_do*/ false, /*is_toplevel*/ false,
@@ -3484,14 +3483,16 @@ where
         // Create header and footer nodes.
         let h = self.f.cfg.add_node(Default::default());
         let f = self.f.cfg.add_node(Default::default());
-        // Create update node if necessary.
-        let u = match update {
+        // Create update node if necessary. `u` is where the update starts (the target of
+        // `continue`); `u_end` is where it ends, which differs from `u` when the update splits
+        // basic blocks (`&&`, `||`, `?:`, `??`, getline, calls that may exit).
+        let (u, u_end) = match update {
             Some(update) => {
                 let u = self.f.cfg.add_node(Default::default());
-                self.convert_stmt(update, u)?;
-                Some(u)
+                let u_end = self.convert_stmt(update, u)?;
+                (Some(u), Some(u_end))
             }
-            None => None,
+            None => (None, None),
         };
         self.f.loop_ctx.push((h, f, u, false));
         if is_toplevel {
@@ -3499,11 +3500,10 @@ where
         }
 
         // The body is a standalone graph.
-        let (b_start, b_end) = if let Some(u) = u {
+        let (b_start, b_end) = if let (Some(u), Some(u_end)) = (u, u_end) {
             let (start, mid) = self.standalone_block(body)?;
             self.f.cfg.add_edge(mid, u, Transition::null());
-            let end = u;
-            (start, end)
+            (start, u_end)
         } else {
             self.standalone_block(body)?
         };

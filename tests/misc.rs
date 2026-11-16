@@ -1213,6 +1213,45 @@ fn for_loops_with_continue_and_update_statement() {
 }
 
 #[test]
+fn for_loop_update_with_control_flow() {
+    // An update that splits basic blocks must still jump back to the loop header.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([
+                *backend_arg,
+                "BEGIN { for (i = 0; i < 3; i++ || j++) print i; print \"done\", j }",
+            ])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout("0\n1\n2\ndone 1\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([
+                *backend_arg,
+                "{ for (i = 1; i <= NF; i += (i < 2 ? 1 : 2)) print NR, i, $i } END { print \"end\", NR }",
+            ])
+            .timeout(std::time::Duration::from_secs(10))
+            .write_stdin("a b c d e\nf g h\n")
+            .assert()
+            .success()
+            .stdout("1 1 a\n1 2 b\n1 4 d\n2 1 f\n2 2 g\nend 2\n");
+        // `continue` still runs the update, here `&&` and `??`.
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([
+                *backend_arg,
+                "BEGIN { for (i = 0; i < 4; i++ && k++) { if (i == 1) continue; print i, k ?? 0 } print \"done\", k }",
+            ])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout("0 0\n2 1\n3 2\ndone 3\n");
+    }
+}
+
+#[test]
 fn dont_reorder_files_with_f() {
     let expected = "1 1\n2 2\n3 3\n";
     let prog = "NR == FNR { print NR, FNR}";
