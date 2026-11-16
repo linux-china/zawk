@@ -35,7 +35,12 @@ pub fn digest(algorithm: &str, text: &[u8]) -> String {
         "sha256" | "sha-256" => hex::encode(Sha256::digest(text)),
         "sha384" | "sha-384" => hex::encode(Sha384::digest(text)),
         "sha512" | "sha-512" => hex::encode(Sha512::digest(text)),
-        "bcrypt" => bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_default(),
+        // bcrypt only uses the first 72 bytes of the input; longer input is truncated
+        // (bcrypt 0.19 `hash` truncates rather than erroring).
+        "bcrypt" => bcrypt::hash(text, bcrypt::DEFAULT_COST).unwrap_or_else(|e| {
+            stdlib_warning("digest", format!("bcrypt: {}", e));
+            String::new()
+        }),
         "murmur3" => murmur3::murmur3_32(&mut Cursor::new(text), 0)
             .unwrap()
             .to_string(),

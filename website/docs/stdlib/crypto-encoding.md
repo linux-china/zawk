@@ -13,7 +13,8 @@ hmac("HmacSHA256", "your-secret-key", $0)
 ```
 
 Digest algorithms: `md5`, `sha256`, `sha384`, `sha512`, `bcrypt`, `murmur3`, `xxh32`, `xxh64`, `blake3`,
-`crc32`, `adler32`. HMAC: `HmacSHA256`, `HmacSHA384`, `HmacSHA512`. Names are case-insensitive.
+`crc32`, `adler32`. `bcrypt` is salted (different output on each call) and only uses the first 72 bytes of
+input; longer input is truncated. HMAC: `HmacSHA256`, `HmacSHA384`, `HmacSHA512`. Names are case-insensitive.
 
 ## Encryption
 

@@ -1264,7 +1264,7 @@ Algorithms:
 - `sha256`,
 - `sha384`,
 - `sha512`,
-- `bcrypt`,
+- `bcrypt`: salted, so the output differs on each call; only the first 72 bytes of input are used (longer input is truncated)
 - `murmur3`,
 - `xxh32` or `xxh64`
 - `blake3`
