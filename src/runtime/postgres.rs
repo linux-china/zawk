@@ -595,8 +595,10 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
     // see https://docs.rs/sqlx/0.8.2/sqlx/postgres/types/index.html
     let value = match column_type {
         "bool" => {
+            // awk truthiness: the text "false" is a true value, so booleans are 1/0 like sqlite,
+            // mysql and parquet
             let v: Option<bool> = row.get(index);
-            v.map(|v| v.to_string())
+            v.map(|v| if v { "1" } else { "0" }.to_string())
         }
         "varchar" | "bpchar" | "text" | "name" => {
             let v: Option<String> = row.get(index);
@@ -830,6 +832,14 @@ mod tests {
             let value = rows.get(&key);
             println!("{}: {}", key, value.to_string());
         }
+    }
+
+    #[test]
+    #[ignore = "needs the PostgreSQL server of AGENTS.md"]
+    fn test_query_bool() {
+        let db_url = "postgres://postgres:123456@127.0.0.1:15432/demo_db";
+        let rows = pg_query(db_url, "select true, false", &IntMap::default());
+        assert_eq!(rows.get(&1).to_string(), "1,0");
     }
 
     #[test]

@@ -581,6 +581,7 @@ mod postgres {
 
     fn is_number(ty: &Type) -> bool {
         [
+            Type::BOOL,
             Type::INT2,
             Type::INT4,
             Type::INT8,
@@ -786,5 +787,18 @@ mod tests {
         let row = table.next_row().unwrap().unwrap();
         assert_eq!(row[1], DbValue::Null);
         assert_eq!(row[2], DbValue::Num("1.50".into()));
+    }
+
+    #[test]
+    #[ignore = "needs the PostgreSQL server of AGENTS.md"]
+    fn test_postgres_bool() {
+        let url = "postgresql://postgres:123456@127.0.0.1:15432/demo_db";
+        let sql = "select true as t, false as f, null::bool as n";
+        assert_eq!(csv_of(&format!("{}#{}", url, sql)), "t,f,n\n1,0,\n");
+        let mut table = DbTable::open(&format!("{}#{}", url, sql)).unwrap();
+        let row = table.next_row().unwrap().unwrap();
+        assert_eq!(row[0], DbValue::Num("1".into()));
+        assert_eq!(row[1], DbValue::Num("0".into()));
+        assert_eq!(row[2], DbValue::Null);
     }
 }
