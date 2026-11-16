@@ -155,21 +155,30 @@ impl StrnumAnalysis {
             }
             MatchArrStr(_, _, _, map, _) => self.add_map_vals(map),
             // Functions that read external data (JSON, CSV, databases, key-value stores, files,
-            // the environment, parsed text) are treated like input, as `split` and `getline`
-            // are: their results compare numerically when they look like numbers.
+            // the environment, HTTP/S3, command output, parsed text) are treated like input, as
+            // `split` and `getline` are: their results compare numerically when they look like
+            // numbers.
             GetEnv(dst, _, _)
             | ReadAll(dst, _)
             | KvGet(dst, _, _)
+            | S3Get(dst, _, _)
             | JsonGet(dst, _, _)
-            | JsonValue(dst, _, _) => self.dfa.add_src(dst, Strnum::MAYBE),
+            | JsonValue(dst, _, _)
+            | HtmlValue(dst, _, _)
+            | XmlValue(dst, _, _) => self.dfa.add_src(dst, Strnum::MAYBE),
             FromJson(map, _)
             | JsonFlatten(map, _)
             | Url(map, _)
             | Pairs(map, _, _, _)
             | Parse(map, _, _)
             | Grok(map, _, _, _)
-            | ReadConfig(map, _) => self.add_map_vals(map),
+            | ReadConfig(map, _)
+            | HttpGet(map, _, _)
+            | HttpPost(map, _, _, _)
+            | RunCmd2(map, _) => self.add_map_vals(map),
             JsonQuery(map, _, _)
+            | HtmlQuery(map, _, _)
+            | XmlQuery(map, _, _)
             | FromCsv(map, _)
             | RegexParse(map, _, _)
             | SqliteQuery(map, _, _, _)

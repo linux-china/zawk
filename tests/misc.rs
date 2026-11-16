@@ -6824,6 +6824,11 @@ fn data_function_results_are_strnums() {
         (r#"BEGIN { m = parse("age 100", "age {n}"); print (m["n"] > 30) }"#, "1\n"),
         (r#"BEGIN { m = rparse("age 100", "age (\\d+)"); print (m[1] > 30) }"#, "1\n"),
         (r#"BEGIN { print (getenv("ZAWK_TEST_NUM") > 30) }"#, "1\n"),
+        (r#"BEGIN { print (xml_value("<r><a>100</a></r>", "/r/a") > 30) }"#, "1\n"),
+        (r#"BEGIN { m = xml_query("<r><a>100</a></r>", "//a"); print (m[1] > 30) }"#, "1\n"),
+        (r#"BEGIN { print (html_value("<p>100</p>", "p") > 30) }"#, "1\n"),
+        (r#"BEGIN { m = html_query("<p>100</p>", "p"); print (m[1] > 30) }"#, "1\n"),
+        (r#"BEGIN { m = system2("echo 100"); print (m["stdout"] > 30) }"#, "1\n"),
         (
             r#"BEGIN { m = sqlite_query("tests/demo.sqlite3", "select 100 as n"); print (m[1] > 30) }"#,
             "1\n",
@@ -6841,6 +6846,36 @@ fn data_function_results_are_strnums() {
                 .success()
                 .stdout(expected);
         }
+    }
+}
+
+// HTTP response bodies and status codes are external text too: they compare numerically when
+// they look like numbers ("100" > 30, "200" > 30, unlike string comparison).
+#[test]
+fn http_response_values_are_strnums() {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let _ = stream.read(&mut [0u8; 65536]);
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n100");
+        }
+    });
+    let prog = format!(
+        r#"BEGIN {{
+        r = http_get("{url}"); print (r["text"] > 30), (r["status"] > 30)
+        p = http_post("{url}", "x"); print (p["text"] > 30), (p["status"] > 30)
+    }}"#
+    );
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(*backend_arg)
+            .arg(&prog)
+            .assert()
+            .success()
+            .stdout("1 1\n1 1\n");
     }
 }
 
