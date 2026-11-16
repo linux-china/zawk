@@ -3101,6 +3101,7 @@ pub(crate) unsafe extern "C" fn dump_null() {
 macro_rules! asort_intrinsics {
     ($([$name:ident, $src_map:ty, $dst_map:ty]),*) => {
         $(
+            #[allow(unused_variables)]
             pub(crate) unsafe extern "C" fn $name(
                 runtime: *mut c_void,
                 src: *mut c_void,
@@ -3145,6 +3146,7 @@ asort_intrinsics!(
 macro_rules! asorti_intrinsics {
     ($([$name:ident, $src_map:ty, $dst_map:ty]),*) => {
         $(
+            #[allow(unused_variables)]
             pub(crate) unsafe extern "C" fn $name(
                 runtime: *mut c_void,
                 src: *mut c_void,

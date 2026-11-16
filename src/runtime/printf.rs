@@ -653,6 +653,7 @@ impl FormatCache {
 /// Format `spec` with `args` for `func` (`printf` or `sprintf`), which names it in the warning
 /// about missing arguments, without caching the parsed format.
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn format<'a>(func: &str, spec: &Str, args: &[FormatArg]) -> Result<Str<'a>> {
     let mut buf = crate::runtime::str_impl::DynamicBuf::default();
     spec.with_bytes(|bs| {
