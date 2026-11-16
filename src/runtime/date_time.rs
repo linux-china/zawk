@@ -510,8 +510,7 @@ pub(crate) fn datetime<'a>(date_time_text: &str) -> runtime::StrMap<'a, Int> {
     if date_time_text.is_empty() {
         let seconds = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+            .map_or(0, |d| d.as_secs() as i64);
         datetime2(seconds)
     } else if let Ok(timestamp) = date_time_text.parse::<i64>() {
         // all-digit text is a Unix timestamp, so "20240115" is not 2024-01-15
