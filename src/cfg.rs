@@ -1837,7 +1837,8 @@ where
                 //
                 // `a[k] ??= d` is parsed as `a[k] ?? (a[k] = d)` with the same `a[k]` node on both
                 // sides; the store reuses the array and subscript computed for the read, so `k`
-                // is evaluated once.
+                // is evaluated once. The same applies to `$(expr) ??= d`: the column index is
+                // cached before evaluating the assignment value.
                 let reassign = match (l, r) {
                     (Index(arr, ix), Assign(Index(arr2, ix2), to))
                         if std::ptr::eq(*arr, *arr2) && std::ptr::eq(*ix, *ix2) =>
@@ -1846,12 +1847,58 @@ where
                     }
                     _ => None,
                 };
+                let reassign_column = match (l, r) {
+                    (
+                        Unop(ast::Unop::Column, n),
+                        Assign(Unop(ast::Unop::Column, n2), to),
+                    ) if std::ptr::eq(*n, *n2)
+                        && !matches!(
+                            *n,
+                            Index(Var(id), _)
+                                if matches!(
+                                    builtins::Variable::try_from(id.clone()),
+                                    Ok(builtins::Variable::FI)
+                                )
+                        ) =>
+                    {
+                        Some((*n, *to))
+                    }
+                    _ => None,
+                };
                 let (mut fstart, mut fend, mut fe) =
                     (current_open, current_open, PrimExpr::Val(PrimVal::ILit(0)));
-                if reassign.is_none() {
+                if reassign.is_none() && reassign_column.is_none() {
                     (fstart, fend, fe) = self.standalone_expr(r, in_cond)?;
                 }
-                let (next, lv) = if let Index(arr, ix) = l {
+                let (next, lv) = if let Some((n, to)) = reassign_column {
+                    use builtins::Function;
+                    let (next, mut n_v) = self.convert_column_index(n, current_open)?;
+                    // The assignment value may modify the index variable, so both the read and
+                    // the write must use the value computed before it is evaluated.
+                    if let PrimVal::Var(_) = &n_v {
+                        let n_id = self.fresh_local();
+                        self.add_stmt(next, PrimStmt::AsgnVar(n_id, PrimExpr::Val(n_v)))?;
+                        n_v = PrimVal::Var(n_id);
+                    }
+                    let lv = self.lower_to_val(
+                        PrimExpr::CallBuiltin(
+                            Function::Unop(ast::Unop::Column),
+                            smallvec![n_v.clone()],
+                        ),
+                        next,
+                    )?;
+                    let (start, end, to_e) = self.standalone_expr(to, /*in_cond=*/ false)?;
+                    let to_v = self.lower_to_val(to_e, end)?;
+                    self.add_stmt(
+                        end,
+                        PrimStmt::AsgnVar(
+                            Ident::unused(),
+                            PrimExpr::CallBuiltin(Function::Setcol, smallvec![n_v, to_v.clone()]),
+                        ),
+                    )?;
+                    (fstart, fend, fe) = (start, end, PrimExpr::Val(to_v));
+                    (next, lv)
+                } else if let Index(arr, ix) = l {
                     let (next, arr_v) = self.convert_val_inner(arr, current_open, in_cond)?;
                     let (next, mut ix_v) = self.convert_index(ix, next, in_cond)?;
                     if let Some(to) = reassign {

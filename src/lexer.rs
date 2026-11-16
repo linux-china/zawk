@@ -372,26 +372,90 @@ fn is_match_expr(bs: &[u8], lparen: usize) -> bool {
 fn has_match_arm(bs: &[u8]) -> bool {
     let mut depth = 0usize;
     let mut i = 0;
+    let mut regex_allowed = true;
     while i < bs.len() {
+        if bs[i..].starts_with(b"\\\r\n") {
+            i += 3;
+            continue;
+        }
+        if bs[i..].starts_with(b"\\\n") {
+            i += 2;
+            continue;
+        }
         match bs[i] {
+            b' ' | b'\t' => i += 1,
+            b'\n' | b'\r' => {
+                regex_allowed = true;
+                i += 1;
+            }
             b'"' => {
                 i += 1;
                 while i < bs.len() && bs[i] != b'"' {
                     i += if bs[i] == b'\\' { 2 } else { 1 };
                 }
+                if i < bs.len() {
+                    i += 1;
+                }
+                regex_allowed = false;
             }
             b'#' => {
                 while i + 1 < bs.len() && bs[i + 1] != b'\n' {
                     i += 1;
                 }
+                regex_allowed = true;
             }
-            b'{' | b'(' | b'[' => depth += 1,
+            b'/' if regex_allowed => {
+                if let Some(end) = regex_lit_end(&bs[i + 1..]) {
+                    let end = i + 1 + end;
+                    if bs.get(end) == Some(&b'/') {
+                        i = end + 1;
+                    } else {
+                        i = end;
+                    }
+                    regex_allowed = false;
+                    continue;
+                }
+                regex_allowed = true;
+                i += 1;
+            }
+            b'/' => {
+                // Division is an operator, so a regex may follow it.
+                regex_allowed = true;
+                i += 1;
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' => {
+                let start = i;
+                while bs.get(i).is_some_and(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, b'_' | b'\'')
+                }) {
+                    i += 1;
+                }
+                let word = std::str::from_utf8(&bs[start..i]).unwrap();
+                regex_allowed = word != "getline" && is_keyword(word);
+            }
+            b'{' | b'(' | b'[' => {
+                depth += 1;
+                regex_allowed = true;
+                i += 1;
+            }
             b'}' if depth == 0 => return false,
-            b'}' | b')' | b']' => depth = depth.saturating_sub(1),
+            b'}' | b')' | b']' => {
+                depth = depth.saturating_sub(1);
+                regex_allowed = false;
+                i += 1;
+            }
+            b'+' | b'-' if bs.get(i + 1) == Some(&bs[i]) => i += 2,
             b'=' if depth == 0 && bs.get(i + 1) == Some(&b'>') => return true,
-            _ => {}
+            b',' | b';' | b'=' | b'~' | b'!' | b'&' | b'|' | b'<' | b'>' | b'?' | b':' | b'+'
+            | b'-' | b'*' | b'%' | b'^' | b'$' => {
+                regex_allowed = true;
+                i += 1;
+            }
+            _ => {
+                regex_allowed = false;
+                i += 1;
+            }
         }
-        i += 1;
     }
     false
 }
@@ -433,8 +497,17 @@ fn paren_grouping(rest: &str) -> bool {
         return false;
     };
     let mut j = i + 1;
-    while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
-        j += 1;
+    loop {
+        while j < bs.len() && matches!(bs[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if bs[j..].starts_with(b"\\\r\n") {
+            j += 3;
+        } else if bs[j..].starts_with(b"\\\n") {
+            j += 2;
+        } else {
+            break;
+        }
     }
     match bs.get(j) {
         None | Some(b';' | b'}' | b'\n' | b'\r' | b'#' | b'\\' | b'>') => false,
@@ -1090,9 +1163,12 @@ impl From<&'static str> for Error {
 
 impl<'a> Tokenizer<'a> {
     pub fn new(text: &'a str) -> Tokenizer<'a> {
+        let trimmed_len = text.trim_end_matches('\n').len();
+        let trailing_continuation = trimmed_len < text.len()
+            && (text[..trimmed_len].ends_with('\\') || text[..trimmed_len].ends_with("\\\r"));
         Tokenizer {
             // A hack to get around some programs failing to parse due to a trailing newline
-            text: text.trim_end_matches('\n'),
+            text: &text[..trimmed_len + usize::from(trailing_continuation)],
             cur: 0,
             prev_tok: None,
             for_in: 0,
@@ -1621,6 +1697,16 @@ and the third"#;
         assert_eq!(toks("print(1) | \"cat\"")[0], PrintLP);
         assert_eq!(toks("print(1, 2)(3)")[0], PrintLP);
         assert_eq!(toks("print()")[0], PrintLP);
+        assert!(paren_grouping("(1) \\\n+1"));
+        assert!(paren_grouping("(1) \\\r\n+1"));
+    }
+
+    #[test]
+    fn match_arm_scan_ignores_regex_literals() {
+        assert!(!has_match_arm(b" print /=>/ }"));
+        assert!(has_match_arm(b" /{/ => 1 }"));
+        assert!(has_match_arm(b" /}/ => 1 }"));
+        assert!(!is_match_expr(b"(1, 2) in arr { print /=>/ }", 0));
     }
 
     #[test]

@@ -715,6 +715,36 @@ fn assert_both_backends(prog: &str, expected: &str) {
 }
 
 #[test]
+fn nullish_field_assignment_evaluates_index_once() {
+    assert_both_backends("BEGIN { i = 1; $(i++) ??= 5; print i }", "2\n");
+}
+
+#[test]
+fn trailing_line_continuation_is_accepted() {
+    assert_both_backends("BEGIN { print 1 } \\\n", "1\n");
+}
+
+#[test]
+fn print_grouping_continues_after_line_continuation() {
+    assert_both_backends("BEGIN { print(1) \\\n+1 }", "2\n");
+}
+
+#[test]
+fn match_call_pattern_does_not_treat_regex_arrow_as_match_arm() {
+    let prog = r#"BEGIN { a[1] = 1 } match("x", /x/) in a { print /=>/ }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .write_stdin("=>\n")
+            .assert()
+            .success()
+            .stdout("1\n");
+    }
+}
+
+#[test]
 fn nfc_normalize_strptime_uuid_extract_timestamp() {
     assert_both_backends(
         r#"BEGIN { s = "cafe\xcc\x81"; print nfc_normalize(s) == "caf\xc3\xa9", length(s), length(nfc_normalize(s)), nfc_normalize("abc") }"#,
