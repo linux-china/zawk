@@ -1794,7 +1794,12 @@ impl<'a> View<'a> {
                     self.guard_divisor(false, args[1], external!(mod_by_zero));
                     self.builder.ins().srem(args[0], args[1])
                 }
-                Neg => self.builder.ins().ineg(args[0]),
+                Neg => {
+                    let zero = self.builder.ins().iconst(types::I64, 0);
+                    let (res, of) = self.builder.ins().ssub_overflow(zero, args[0]);
+                    self.defer_overflow_check(of);
+                    res
+                }
             }
         }
     }

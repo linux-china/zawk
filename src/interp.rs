@@ -2834,7 +2834,10 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                     NegInt(res, ir) => {
                         let res = *res;
                         let i = *self.get(*ir);
-                        *self.get_mut(res) = -i;
+                        *self.get_mut(res) = match i.checked_neg() {
+                            Some(x) => x,
+                            None => return err!("{}", runtime::INT_OVERFLOW_MSG).map_err(at!()),
+                        };
                     }
                     NegFloat(res, fr) => {
                         let res = *res;

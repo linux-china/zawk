@@ -947,6 +947,11 @@ pub(crate) mod boilerplate {
                 f(dst1.into(), Some(src2.into()));
                 f(dst2.into(), Some(src1.into()));
                 f(dst2.into(), Some(src2.into()));
+                let (dst2_reg, dst2_ty) = dst2.reflect();
+                debug_assert!(dst2_ty.is_array());
+                f(Key::MapKey(dst2_reg, dst2_ty), None);
+                f(Key::MapVal(dst2_reg, dst2_ty), Some(src1.into()));
+                f(Key::MapVal(dst2_reg, dst2_ty), Some(src2.into()));
             }
             SplitIntConst(dst1, src1, dst2, _) => {
                 f(dst1.into(), Some(src1.into()));
@@ -957,6 +962,10 @@ pub(crate) mod boilerplate {
             SplitStrConst(dst1, src1, dst2, _) => {
                 f(dst1.into(), Some(src1.into()));
                 f(dst2.into(), Some(src1.into()));
+                let (dst2_reg, dst2_ty) = dst2.reflect();
+                debug_assert!(dst2_ty.is_array());
+                f(Key::MapKey(dst2_reg, dst2_ty), None);
+                f(Key::MapVal(dst2_reg, dst2_ty), Some(src1.into()));
             }
             SplitSeps { res, to_split, arr_ty, arr, pat, seps_ty, seps, .. } => {
                 f(res.into(), Some(to_split.into()));
@@ -973,6 +982,12 @@ pub(crate) mod boilerplate {
                 f(arr.into(), Some(s.into()));
                 f(arr.into(), Some(pat.into()));
                 f(arr.into(), Some(subsep.into()));
+                let (arr_reg, arr_ty) = arr.reflect();
+                debug_assert!(arr_ty.is_array());
+                f(Key::MapKey(arr_reg, arr_ty), None);
+                f(Key::MapVal(arr_reg, arr_ty), Some(s.into()));
+                f(Key::MapVal(arr_reg, arr_ty), Some(pat.into()));
+                f(Key::MapVal(arr_reg, arr_ty), Some(subsep.into()));
             }
             Sprintf { dst, fmt, args, .. } => {
                 f(dst.into(), Some(fmt.into()));

@@ -499,7 +499,7 @@ impl LineReader for JsonlReader {
 
 // Tolerate CRLF line endings.
 fn trim_cr(line: Str<'static>) -> Str<'static> {
-    let len = line.len();
+    let len = line.with_bytes(|bs| bs.len());
     if len > 0 && line.with_bytes(|bs| bs[len - 1] == b'\r') {
         line.slice(0, len - 1)
     } else {

@@ -635,6 +635,25 @@ fn empty_byte_regex_matches_stay_on_utf8_boundaries() {
 }
 
 #[test]
+fn split_and_match_array_values_remain_dynamic_regexes() {
+    assert_both_backends(
+        r#"BEGIN {
+            a["k"];
+            split("x,y", a, ",");
+            sep = sprintf("%s", ",");
+            b["k"];
+            split("x,y", b, sep);
+            print match("abc", a[1]), ("abc" ~ a[1]), match("abc", b[1]);
+            s = "abc";
+            sub(a[1], "X", s);
+            print s;
+            print match("abc", "(b)", m), match("abc", m[1]);
+        }"#,
+        "0 0 0\nabc\n2 2\n",
+    );
+}
+
+#[test]
 fn eq_ignore_case_agrees_with_ignorecase_compare_under_bytes() {
     // With -b only ASCII letters fold, for eq_ignore_case as for `==` under IGNORECASE.
     let prog = r#"BEGIN { IGNORECASE = 1; print eq_ignore_case("É", "é"), ("É" == "é"), eq_ignore_case("K", "\342\204\252"), ("K" == "\342\204\252"), eq_ignore_case("AbÉ", "aBÉ") }"#;
@@ -1721,6 +1740,27 @@ fn sum_of_int_array_overflow_is_fatal() {
             ))
             .assert()
             .stdout(String::from("9223372036854775802\n"));
+    }
+}
+
+#[test]
+fn neg_int_min_overflow_is_fatal() {
+    for backend_arg in BACKEND_ARGS {
+        let out = Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(String::from(
+                r#"BEGIN { x = hex("8000000000000000"); print -x }"#,
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{backend_arg}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{backend_arg}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("integer overflow"),
+            "{backend_arg}: {stderr}"
+        );
     }
 }
 
@@ -9763,6 +9803,31 @@ fn grok_input() {
                 "1 5 10.0.0.1 GET [10.0.0.1 GET /index.html 200 512]\n\
                  2 5 10.0.0.2 POST [10.0.0.2 POST /login 401 64]\n576 3\n",
             );
+    }
+}
+
+#[test]
+fn grok_jsonl_crlf_non_ascii_drops_cr() {
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .args(["--grok", "%{GREEDYDATA:x}"])
+            .arg(r#"{ print "[" $0 "]", "[" $1 "]" }"#)
+            .write_stdin("café\r\n")
+            .assert()
+            .success()
+            .stdout("[café] [café]\n");
+
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijsonl")
+            .arg(r#"{ print "[" $0 "]", "[" $1 "]" }"#)
+            .write_stdin("\"café\"\r\n")
+            .assert()
+            .success()
+            .stdout("[\"café\"] [café]\n");
     }
 }
 
