@@ -322,6 +322,63 @@ impl<'a> FromSql<'a> for Present {
     }
 }
 
+struct PgDate(String);
+
+impl<'a> FromSql<'a> for PgDate {
+    fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        if raw == i32::MAX.to_be_bytes().as_slice() {
+            return Ok(PgDate("infinity".to_string()));
+        }
+        if raw == i32::MIN.to_be_bytes().as_slice() {
+            return Ok(PgDate("-infinity".to_string()));
+        }
+        let value = <time::Date as FromSql>::from_sql(ty, raw)?;
+        Ok(PgDate(value.to_string()))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::DATE
+    }
+}
+
+struct PgTimestamp(String);
+
+impl<'a> FromSql<'a> for PgTimestamp {
+    fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        if raw == i64::MAX.to_be_bytes().as_slice() {
+            return Ok(PgTimestamp("infinity".to_string()));
+        }
+        if raw == i64::MIN.to_be_bytes().as_slice() {
+            return Ok(PgTimestamp("-infinity".to_string()));
+        }
+        let value = <chrono::NaiveDateTime as FromSql>::from_sql(ty, raw)?;
+        Ok(PgTimestamp(value.to_string()))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::TIMESTAMP
+    }
+}
+
+struct PgTimestamptz(String);
+
+impl<'a> FromSql<'a> for PgTimestamptz {
+    fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        if raw == i64::MAX.to_be_bytes().as_slice() {
+            return Ok(PgTimestamptz("infinity".to_string()));
+        }
+        if raw == i64::MIN.to_be_bytes().as_slice() {
+            return Ok(PgTimestamptz("-infinity".to_string()));
+        }
+        let value = <chrono::DateTime<Utc> as FromSql>::from_sql(ty, raw)?;
+        Ok(PgTimestamptz(format!("{}+00", value.naive_utc())))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::TIMESTAMPTZ
+    }
+}
+
 /// Whether column `index` of `row` is NULL.
 pub(crate) fn is_null_column(row: &postgres::Row, index: usize) -> bool {
     row.try_get::<_, Option<Present>>(index)
@@ -570,23 +627,20 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             v.map(float_to_text)
         }
         "date" => {
-            let v: Option<time::Date> = row.get(index);
-            v.map(|v| v.to_string())
+            let v: Option<PgDate> = row.try_get(index).ok().flatten();
+            v.map(|v| v.0)
         }
         "time" => {
             let v: Option<time::Time> = row.get(index);
             v.map(|v| v.to_string())
         }
         "timestamp" => {
-            // with-chrono feature is needed for this
-            let v: Option<chrono::NaiveDateTime> = row.get(index);
-            v.map(|v| v.to_string())
+            let v: Option<PgTimestamp> = row.try_get(index).ok().flatten();
+            v.map(|v| v.0)
         }
         "timestamptz" => {
-            // As PostgreSQL's own text output in UTC: `2026-11-13 01:31:42.769004+00`
-            // (`DateTime::to_string` would append ` UTC`).
-            let v: Option<chrono::DateTime<Utc>> = row.get(index);
-            v.map(|v| format!("{}+00", v.naive_utc()))
+            let v: Option<PgTimestamptz> = row.try_get(index).ok().flatten();
+            v.map(|v| v.0)
         }
         "numeric" => {
             let v: Option<PgNumeric> = row.get(index);
@@ -651,6 +705,46 @@ mod tests {
         assert_eq!(decode_inet(&encode_inet("10.0.0.1/32").unwrap()).unwrap(), "10.0.0.1");
         assert!(encode_inet("10.0.0.1/33").is_none());
         assert!(encode_inet("not-an-ip").is_none());
+    }
+
+    #[test]
+    fn postgres_infinity_date_and_timestamp_wire_values() {
+        assert_eq!(
+            PgDate::from_sql(&Type::DATE, &i32::MAX.to_be_bytes())
+                .unwrap()
+                .0,
+            "infinity"
+        );
+        assert_eq!(
+            PgDate::from_sql(&Type::DATE, &i32::MIN.to_be_bytes())
+                .unwrap()
+                .0,
+            "-infinity"
+        );
+        assert_eq!(
+            PgTimestamp::from_sql(&Type::TIMESTAMP, &i64::MAX.to_be_bytes())
+                .unwrap()
+                .0,
+            "infinity"
+        );
+        assert_eq!(
+            PgTimestamp::from_sql(&Type::TIMESTAMP, &i64::MIN.to_be_bytes())
+                .unwrap()
+                .0,
+            "-infinity"
+        );
+        assert_eq!(
+            PgTimestamptz::from_sql(&Type::TIMESTAMPTZ, &i64::MAX.to_be_bytes())
+                .unwrap()
+                .0,
+            "infinity"
+        );
+        assert_eq!(
+            PgTimestamptz::from_sql(&Type::TIMESTAMPTZ, &i64::MIN.to_be_bytes())
+                .unwrap()
+                .0,
+            "-infinity"
+        );
     }
 
     fn numeric_raw(weight: i16, sign: u16, dscale: u16, digits: &[u16]) -> Vec<u8> {

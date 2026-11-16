@@ -147,6 +147,7 @@ enum Msg {
     Columns(Vec<DbColumn>),
     Rows(Vec<Vec<DbValue>>),
     Error(String),
+    Done,
 }
 
 /// Rows are sent in batches of this many.
@@ -195,21 +196,32 @@ impl DbTable {
         std::thread::Builder::new()
             .name("zawk-db-input".to_string())
             .spawn(move || {
-                let mut sink = Sink {
-                    tx: tx.clone(),
-                    batch: Vec::new(),
-                };
-                let result = match source.kind {
-                    Kind::Sqlite => sqlite::query(&source, &mut sink),
-                    Kind::Mysql => mysql::query(&source, &mut sink),
-                    Kind::Postgres => postgres::query(&source, &mut sink),
-                };
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut sink = Sink {
+                        tx: tx.clone(),
+                        batch: Vec::new(),
+                    };
+                    let result = match source.kind {
+                        Kind::Sqlite => sqlite::query(&source, &mut sink),
+                        Kind::Mysql => mysql::query(&source, &mut sink),
+                        Kind::Postgres => postgres::query(&source, &mut sink),
+                    };
+                    result.map(|()| sink.flush())
+                }));
                 match result {
-                    Ok(()) => {
-                        sink.flush();
+                    Ok(Ok(_)) => {
+                        let _ = tx.send(Msg::Done);
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         let _ = tx.send(Msg::Error(e));
+                    }
+                    Err(payload) => {
+                        let message = payload
+                            .downcast_ref::<String>()
+                            .map(String::as_str)
+                            .or_else(|| payload.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        let _ = tx.send(Msg::Error(format!("query thread panicked: {message}")));
                     }
                 }
             })?;
@@ -223,6 +235,8 @@ impl DbTable {
         match table.rx.recv() {
             Ok(Msg::Columns(columns)) => table.columns = columns,
             Ok(Msg::Error(e)) => return Err(error(e)),
+            Ok(Msg::Done) => return Err(error("the query returned no result".to_string())),
+            Err(_) => return Err(error("the query thread stopped unexpectedly".to_string())),
             _ => return Err(error("the query returned no result".to_string())),
         }
         Ok(table)
@@ -246,8 +260,21 @@ impl DbTable {
                     self.done = true;
                     return Some(Err(read_error(&self.url, e)));
                 }
-                // the query is done
-                Ok(Msg::Columns(_)) | Err(_) => self.done = true,
+                Ok(Msg::Done) => self.done = true,
+                Ok(Msg::Columns(_)) => {
+                    self.done = true;
+                    return Some(Err(read_error(
+                        &self.url,
+                        "unexpected columns message from query thread",
+                    )));
+                }
+                Err(_) => {
+                    self.done = true;
+                    return Some(Err(read_error(
+                        &self.url,
+                        "the query thread stopped unexpectedly",
+                    )));
+                }
             }
         }
     }
@@ -569,6 +596,22 @@ mod postgres {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn query_thread_disconnect_is_an_error() {
+        let (tx, rx) = sync_channel(1);
+        drop(tx);
+        let mut table = DbTable {
+            columns: Vec::new(),
+            rx,
+            pending: VecDeque::new(),
+            url: "sqlite://test.db#items".to_string(),
+            done: false,
+        };
+
+        let error = table.next_row().unwrap().unwrap_err();
+        assert!(error.to_string().contains("query thread stopped unexpectedly"));
+    }
 
     #[test]
     fn test_parse_source() {
