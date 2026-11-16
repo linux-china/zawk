@@ -823,6 +823,31 @@ fn seq_like_seq_command() {
 }
 
 #[test]
+fn split_for_in_dynamic_column() {
+    let input = "alpha beta gamma\n";
+    let expected = "alpha\nbeta\ngamma\n";
+    let programs = [
+        r#"{ split($0, a); for (k in a) print $k }"#,
+        r#"BEGIN { a = words("alpha beta gamma") } { for (k in a) print $k }"#,
+        r#"BEGIN { a = lines("alpha\nbeta\ngamma") } { for (k in a) print $k }"#,
+        r#"BEGIN { a = seq(3) } { for (k in a) print $k }"#,
+    ];
+    for backend_arg in BACKEND_ARGS {
+        for prog in programs {
+            let output = Command::cargo_bin("zawk")
+                .unwrap()
+                .arg(*backend_arg)
+                .arg(prog)
+                .write_stdin(input)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            unordered_output_equals(expected.as_bytes(), &output.stdout);
+        }
+    }
+}
+
+#[test]
 fn isnum_matches_strnum_conversion() {
     // `isnum(x)` holds exactly when `x + 0` takes the value `x` spells: a bare "inf"/"nan" is 0.
     let prog = r#"BEGIN { print isnum("inf"), isnum("nan"), isnum("-inf"), isnum("+nan"), isnum(" 0x11 "), isnum("1e5"), isnum("1e"), "inf" + 0 }"#;

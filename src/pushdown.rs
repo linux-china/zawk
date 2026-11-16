@@ -410,7 +410,13 @@ impl UsedFieldAnalysis {
                 self.joins.push((start.into(), end.into()));
             }
             _ => dataflow::boilerplate::visit_ll(inst, |dst, _| {
-                self.dfa.add_src(dst, FieldSet::all())
+                self.dfa.add_src(dst, FieldSet::all());
+                if let Key::Reg(reg, ty) | Key::MapKey(reg, ty) | Key::MapVal(reg, ty) = dst {
+                    if ty.is_array() {
+                        self.dfa.add_src(Key::MapKey(reg, ty), FieldSet::all());
+                        self.dfa.add_src(Key::MapVal(reg, ty), FieldSet::all());
+                    }
+                }
             }),
         }
     }

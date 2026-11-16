@@ -2677,7 +2677,7 @@ impl FileHandle {
         ss.for_each_chunk(|bs| {
             self.cur_batch.extend(bs, spec, max_capacity);
             if self.raw.line_buffer
-                && let Some(ix) = memchr::memchr(b'\n', bs) {
+                && let Some(ix) = memchr::memrchr(b'\n', bs) {
                     // +1 to include the newline
                     last_line = Some(cur_len + added_bytes + ix + 1);
                 }
@@ -3322,6 +3322,8 @@ pub mod ordered {
         head: AtomicU64,
         /// Set once writing stdout failed: the workers stop at their next `print`.
         failed: AtomicBool,
+        /// Set when the parallel chunk producer is stopped.
+        cancelled: AtomicBool,
         /// The first chunk (in input order) in which `exit` was called; `u64::MAX` if none. As in
         /// a serial run, nothing printed by the chunks after it is written: the workers that had
         /// already taken such a chunk when `exit` was called process it to the end, but their
@@ -3471,13 +3473,16 @@ pub mod ordered {
         }
 
         /// Wait before processing chunk `seq` while the output held back is over `MAX_HELD`,
-        /// until the chunks before `seq` are written (or the stage ends or stdout fails).
+        /// until the chunks before `seq` are written (or the stage ends, input is cancelled, an
+        /// exit is requested, or stdout fails).
         fn wait_turn(&self, seq: u64) {
             let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
             while !st.finished
                 && seq > st.next
                 && st.held >= MAX_HELD
                 && !self.failed.load(Ordering::Acquire)
+                && !self.cancelled.load(Ordering::Acquire)
+                && self.exit_seq.load(Ordering::Acquire) == u64::MAX
             {
                 // The timeout only guards against a missed wake-up (e.g. a failed write).
                 st = self
@@ -3496,6 +3501,12 @@ pub mod ordered {
             let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
             // Not while another thread writes outside the lock (`finish`, a late worker).
             !st.sending && (st.next == seq || st.finished)
+        }
+
+        fn cancel(&self) {
+            self.cancelled.store(true, Ordering::Release);
+            let _state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            self.turn.notify_all();
         }
 
         fn error(&self) -> CompileError {
@@ -3595,6 +3606,7 @@ pub mod ordered {
             turn: Condvar::new(),
             head: AtomicU64::new(0),
             failed: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
             exit_seq: AtomicU64::new(u64::MAX),
             out,
         });
@@ -3648,6 +3660,14 @@ pub mod ordered {
                 w.order.exit_at(seq);
             }
         });
+    }
+
+    /// Wake workers waiting for ordered output when the parallel input is stopped.
+    pub fn cancel() {
+        let order = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(order) = order {
+            order.cancel();
+        }
     }
 
     /// The calling worker is done: hand over the output of its last chunk.
@@ -3712,6 +3732,74 @@ pub mod ordered {
                     }
             Some(Ok(()))
         })
+    }
+
+    #[cfg(test)]
+    mod cancel_tests {
+        use super::*;
+        use std::thread;
+
+        fn order_with_held_output() -> Arc<Reorder> {
+            let fs = testing::FakeFs::default();
+            let mut registry = Registry::from_factory(fs);
+            let out = registry
+                .get_handle(None, FileSpec::default())
+                .unwrap()
+                .raw
+                .clone();
+            Arc::new(Reorder {
+                state: Mutex::new(State {
+                    held: MAX_HELD,
+                    ..State::default()
+                }),
+                turn: Condvar::new(),
+                head: AtomicU64::new(0),
+                failed: AtomicBool::new(false),
+                cancelled: AtomicBool::new(false),
+                exit_seq: AtomicU64::new(u64::MAX),
+                out,
+            })
+        }
+
+        fn waiting_worker_wakes(order: Arc<Reorder>, wake: impl FnOnce()) -> bool {
+            let waiting_order = order.clone();
+            let (send, receive) = std::sync::mpsc::channel();
+            let worker = thread::spawn(move || {
+                waiting_order.wait_turn(1);
+                send.send(()).unwrap();
+            });
+
+            thread::sleep(Duration::from_millis(50));
+            wake();
+            let woke = receive.recv_timeout(Duration::from_millis(200)).is_ok();
+            if !woke {
+                let mut state = order.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.held = 0;
+                order.turn.notify_all();
+            }
+            worker.join().unwrap();
+            woke
+        }
+
+        #[test]
+        fn exit_wakes_worker_waiting_for_held_output() {
+            let order = order_with_held_output();
+            let exit_order = order.clone();
+            assert!(
+                waiting_worker_wakes(order, move || exit_order.exit_at(0)),
+                "exit left a worker blocked by held output"
+            );
+        }
+
+        #[test]
+        fn cancel_wakes_worker_waiting_for_held_output() {
+            let order = order_with_held_output();
+            let cancel_order = order.clone();
+            assert!(
+                waiting_worker_wakes(order, move || cancel_order.cancel()),
+                "cancel left a worker blocked by held output"
+            );
+        }
     }
 }
 
@@ -3864,6 +3952,30 @@ mod tests {
         }
         let data = fs.stdout.read_data();
         assert_eq!(&data[..], "hello therehello there".as_bytes());
+    }
+
+    #[test]
+    fn line_buffer_sends_through_last_newline() {
+        let fs = FakeFs::default();
+        let mut reg = Registry::from_factory(fs.clone());
+        {
+            let handle = reg
+                .get_handle(/*stdout*/ None, FileSpec::default())
+                .unwrap();
+            handle.raw.line_buffer = true;
+            // Every complete line of a write is sent at once, not just the first one.
+            handle.write_bytes(b"a\nb\n", FileSpec::Append).unwrap();
+            assert!(handle.cur_batch.data.is_empty());
+            // Only the partial last line stays, also across the strings of one write.
+            let (s1, s2) = (Str::from("c\nd"), Str::from("e\nf"));
+            handle.write_all(&[&s1, &s2], FileSpec::Append).unwrap();
+            assert_eq!(&handle.cur_batch.data[..], b"f");
+            handle.write_bytes(b"g", FileSpec::Append).unwrap();
+            assert_eq!(&handle.cur_batch.data[..], b"fg");
+            handle.flush().unwrap();
+        }
+        let data = fs.stdout.read_data();
+        assert_eq!(&data[..], b"a\nb\nc\nde\nfg");
     }
 
     #[test]

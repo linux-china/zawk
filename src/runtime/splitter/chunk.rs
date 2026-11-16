@@ -1096,6 +1096,7 @@ impl<P: ChunkProducer + 'static> ChunkProducer for ParallelChunkProducer<P> {
     }
     fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        crate::runtime::writers::ordered::cancel();
         // Free the chunks already read; the reading thread sees `stop` before sending another.
         while self.incoming.try_recv().is_ok() {}
     }
@@ -1126,10 +1127,6 @@ impl<P: ChunkProducer + 'static> ParallelChunkProducer<P> {
             } else {
                 self.incoming.recv().ok()
             };
-            if signal.is_some_and(CancelSignal::cancelled) {
-                self.stop();
-                return Ok(true);
-            }
             let Some((seq, mut new_chunk)) = incoming else {
                 break;
             };
