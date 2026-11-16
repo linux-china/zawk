@@ -565,6 +565,25 @@ fn concrete(state: State) -> TVar<BaseTy> {
     }
 }
 
+/// Merge the return types of two function instances that share the same flattened arguments.
+/// Returns `None` to keep `prev`. The result does not depend on the order of the two inputs, so
+/// it does not depend on hash map iteration order either.
+fn merge_ret_ty(prev: compile::Ty, v: compile::Ty) -> Option<compile::Ty> {
+    use compile::Ty;
+    if prev == v {
+        return None;
+    }
+    let merged = match (prev, v) {
+        (Ty::Null, x) | (x, Ty::Null) => x,
+        (Ty::Int, Ty::Float) | (Ty::Float, Ty::Int) => Ty::Float,
+        // Mixed scalars: a string can represent either value.
+        (Ty::Int | Ty::Float | Ty::Str, Ty::Int | Ty::Float | Ty::Str) => Ty::Str,
+        // Anything else (e.g. two different map types) cannot be merged; keep the old behavior.
+        _ => return None,
+    };
+    if merged == prev { None } else { Some(merged) }
+}
+
 fn flatten(tv: TVar<BaseTy>) -> Result<compile::Ty> {
     use compile::Ty;
     use {BaseTy::*, TVar::*};
@@ -797,8 +816,19 @@ impl<'b, 'c> TypeContext<'b, 'c> {
             for a in args.iter().cloned() {
                 flat_args.push(flatten(concrete(a))?);
             }
-            if let Entry::Vacant(v) = func_tys.entry((*id, flat_args)) {
-                v.insert(flatten(concrete(*tc.nw.read(*ix)))?);
+            let v = flatten(concrete(*tc.nw.read(*ix)))?;
+            // Several instances (keyed on unflattened args) can share the same flattened args,
+            // e.g. `Map{key: Str}` and `Map{key: None}` both flatten to `MapStrStr`. Merge their
+            // return types instead of keeping whichever comes first in (unordered) iteration.
+            match func_tys.entry((*id, flat_args)) {
+                Entry::Vacant(vac) => {
+                    vac.insert(v);
+                }
+                Entry::Occupied(mut occ) => {
+                    if let Some(merged) = merge_ret_ty(*occ.get(), v) {
+                        occ.insert(merged);
+                    }
+                }
             }
         }
         for (Args { id, func_id, args }, ix) in tc.env.iter() {
@@ -835,6 +865,14 @@ impl<'b, 'c> TypeContext<'b, 'c> {
                             // null information into this map.
                             (Ty::Float, _) => {}
                             (_, Ty::Float) => {
+                                occ.insert(v);
+                            }
+                            // An instance whose arguments were never inferred (e.g. a map that is
+                            // only ever passed to this function, `Map{key: None}`) leaves locals
+                            // Null, while an instance sharing the same flattened args may give
+                            // them a concrete type. Null carries no information: take the other.
+                            (_, Ty::Null) => {}
+                            (Ty::Null, _) => {
                                 occ.insert(v);
                             }
                             _ => {
