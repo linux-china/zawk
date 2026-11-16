@@ -130,6 +130,24 @@ fn fi_header_per_file() {
     }
 }
 
+#[test]
+fn fi_header_missing_column_per_file() {
+    let tmpdir = tempdir().unwrap();
+    let h1 = tmpdir.path().join("h1.csv");
+    let h2 = tmpdir.path().join("h2.csv");
+    std::fs::write(&h1, "a,b,c,d\n1,2,3,4\n").unwrap();
+    std::fs::write(&h2, "a,b,d\n5,6,7\n").unwrap();
+    let prog = r#"FILENAME ~ /h2/ {print "[" $FI["c"] "]", $FI["d"], ("c" in FI)}"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .args([*backend_arg, "-icsv", "-H", prog])
+            .args([&h1, &h2])
+            .assert()
+            .stdout("[] 7 0\n");
+    }
+}
+
 // The header is read after `-v` and BEGIN, so the FS set there applies to it, and a BEGIN-only
 // program reads no input at all.
 #[test]
