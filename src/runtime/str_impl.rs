@@ -576,8 +576,8 @@ impl<'a> Str<'a> {
     pub(crate) fn url<'b>(&self) -> runtime::StrMap<'b, Str<'b>> {
         let mut map = crate::runtime::HashMap::default();
         let mut url_text = self.to_string();
-        if url_text.starts_with("jdbc:") {
-            url_text = url_text.replace("jdbc:", "jdbc+");
+        if let Some(rest) = url_text.strip_prefix("jdbc:") {
+            url_text = format!("jdbc+{}", rest);
         }
         let parsed = Url::parse(&url_text);
         if let Err(e) = &parsed
@@ -2735,6 +2735,14 @@ mod tests {
         assert_eq!(map.get(&Str::from("user")), Str::from("us er"));
         assert_eq!(map.get(&Str::from("password")), Str::from("p@ss"));
         assert_eq!(map.get(&Str::from("host")), Str::from("localhost"));
+    }
+
+    #[test]
+    fn test_url_jdbc_prefix_only() {
+        let map = Str::from("jdbc:mysql://h/db?x=jdbc:y").url();
+        assert_eq!(map.get(&Str::from("schema")), Str::from("jdbc+mysql"));
+        assert_eq!(map.get(&Str::from("host")), Str::from("h"));
+        assert_eq!(map.get(&Str::from("query")), Str::from("x=jdbc:y"));
     }
 
     #[test]
