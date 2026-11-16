@@ -670,8 +670,20 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
         return SharedMap::from(map);
     }
     tokens.push(sep.to_string());
+    // tokens[i] is the literal text before names[i]; an empty separator between two placeholders
+    // (`{a}{b}`) is ambiguous, so the earlier placeholder gets an empty string.
+    let last = tokens.len() - 1;
+    if (1..last).any(|i| tokens[i].is_empty()) {
+        stdlib_warning(
+            "parse",
+            format!(
+                "adjacent placeholders in template {:?}, the earlier one gets an empty string",
+                template
+            ),
+        );
+    }
     let mut sub_text = text;
-    for i in 0..tokens.len() - 1 {
+    for i in 0..last {
         let token = &tokens[i];
         let next_token = &tokens[i + 1];
         let name = &names[i];
@@ -685,13 +697,19 @@ pub(crate) fn parse<'b>(text: &str, template: &str) -> StrMap<'b, Str<'b>> {
         let offset = start + token.len();
         let remain = &sub_text[offset..];
         let end = if next_token.is_empty() {
-            remain.len()
+            if i + 1 < last {
+                // adjacent placeholder follows: leave the rest of the text to it
+                0
+            } else {
+                remain.len()
+            }
         } else {
             remain.find(next_token).unwrap_or(remain.len())
         };
-        let value = &sub_text[offset..offset + end];
+        let value = &remain[..end];
         map.insert(Str::from(name.to_string()), Str::from(value.to_string()));
-        sub_text = &sub_text[offset..];
+        // continue after the consumed value, i.e. at the next separator
+        sub_text = &remain[end..];
     }
     SharedMap::from(map)
 }
@@ -1217,6 +1235,26 @@ mod tests {
         let text = "hello world, welcome to Beijing";
         let map = parse(text, template);
         println!("{:?}", map);
+    }
+
+    #[test]
+    fn test_parse_adjacent_placeholders() {
+        let map = parse("hello", "{a}{b}");
+        assert_eq!(map.get(&Str::from("a")).as_str(), "");
+        assert_eq!(map.get(&Str::from("b")).as_str(), "hello");
+
+        let map = parse("x-hello", "{p}-{a}{b}");
+        assert_eq!(map.get(&Str::from("p")).as_str(), "x");
+        assert_eq!(map.get(&Str::from("a")).as_str(), "");
+        assert_eq!(map.get(&Str::from("b")).as_str(), "hello");
+
+        let map = parse(
+            "hello world, welcome to Beijing",
+            "{greet} {name}, welcome to {city}!",
+        );
+        assert_eq!(map.get(&Str::from("greet")).as_str(), "hello");
+        assert_eq!(map.get(&Str::from("name")).as_str(), "world");
+        assert_eq!(map.get(&Str::from("city")).as_str(), "Beijing");
     }
 
     #[test]
