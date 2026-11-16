@@ -311,6 +311,7 @@ fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String>
         ));
     };
     let mut validation = Validation::new(header.alg);
+    validation.validate_aud = false;
     validation.required_spec_claims.clear();
     validation.validate_nbf = true;
     jsonwebtoken::decode::<BTreeMap<String, Value>>(token, &decoding_key, &validation)
