@@ -3573,7 +3573,7 @@ fn char_back(bs: &[u8], ci: usize, bo: usize, l: usize) -> Option<usize> {
 
 /// Byte width of the char (or invalid UTF-8 sequence, grouped as `String::from_utf8_lossy` does)
 /// at the start of non-empty `bs`. Unlike `utf8_chunks`, this doesn't validate past it.
-fn char_width(bs: &[u8]) -> usize {
+pub(crate) fn char_width(bs: &[u8]) -> usize {
     if bs[0] < 0x80 {
         return 1;
     }

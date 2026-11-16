@@ -727,14 +727,18 @@ impl RegexCache {
                         push(Str::default());
                     }
                 };
-                match std::str::from_utf8(bs) {
-                    Ok(text) => {
-                        for (i, (start, c)) in text.char_indices().enumerate() {
-                            push_field(i, start, start + c.len_utf8());
-                        }
+                // Same units as `chars()`/`length()`: bytes under `-b`, otherwise chars, with
+                // each invalid UTF-8 sequence as one char (valid chars around it stay whole).
+                if bs.is_ascii() || str_impl::characters_as_bytes() {
+                    (0..bs.len()).for_each(|i| push_field(i, i, i + 1));
+                } else {
+                    let (mut i, mut start) = (0, 0);
+                    while start < bs.len() {
+                        let end = start + str_impl::char_width(&bs[start..]);
+                        push_field(i, start, end);
+                        i += 1;
+                        start = end;
                     }
-                    // Not valid UTF-8: split into bytes.
-                    Err(_) => (0..bs.len()).for_each(|i| push_field(i, i, i + 1)),
                 }
             });
             return Ok(());

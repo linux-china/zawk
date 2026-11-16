@@ -618,6 +618,28 @@ fn characters_as_bytes() {
 }
 
 #[test]
+fn split_empty_separator_follows_char_units() {
+    // `split(s, a, "")` uses the units of `length()`: an invalid byte is one char and valid
+    // chars around it stay whole; under -b every byte is a char.
+    let prog = r#"BEGIN { s = "é\377a"; n = split(s, a, ""); m = split(s, b, "", seps); print n, m, length(seps), length(s), (a[1] == "é"), a[n] }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("3 3 2 3 1 a\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-b")
+            .arg(prog)
+            .assert()
+            .stdout("4 4 3 4 0 a\n");
+    }
+}
+
+#[test]
 fn empty_byte_regex_matches_stay_on_utf8_boundaries() {
     assert_both_backends(
         r#"BEGIN { s = "a€"; sub(/(?-u:\B)/, "X", s); print s; print match("a€", /(?-u:\B)/), RSTART, RLENGTH; p = "(?-u:\\B)"; print match("a€", p), RSTART, RLENGTH; print match("a€", p, a), RSTART, RLENGTH }"#,
