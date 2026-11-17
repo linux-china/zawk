@@ -1070,7 +1070,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "eval",
         MATH,
         "eval(formula: str[, context: map[str]str]) -> float",
-        "Evaluate an arithmetic/boolean expression, with variables from context.",
+        "Evaluate an arithmetic/boolean expression, with variables from context: numeric values are floats (`x == 1` and `x == 1.0` both match 1), other text is a string (`name == \"Leo\"`); a malformed formula warns and gives 0.",
         r#"eval("a + 2", ctx)"#,
     ),
     d(

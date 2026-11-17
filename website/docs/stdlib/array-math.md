@@ -78,6 +78,12 @@ eval("a + 2", ctx)         # evaluate an expression with variables from the arra
 fend("1 GiB to MB")        # unit-aware calculator, see https://github.com/printfn/fend
 ```
 
+`eval(formula, ctx)` uses [evalexpr](https://github.com/ISibboI/evalexpr) syntax. Context values that look numeric
+(awk rules: `" 24 "`, `1e3`, `0x10`) are floats, and an integer literal compared with `==`/`!=` against one is
+taken as a float, so `x == 1` and `x == 1.0` are the same test. Any other value is a string: `name == "Leo"` works,
+and `name + 1` is an error. A malformed or failing formula prints a warning and returns 0. Note that `/` between two
+integer literals is integer division in evalexpr: `eval("7 / 2")` is `3`, write `7.0 / 2` for `3.5`.
+
 Bitwise: `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, `rshiftl`.
 
 ## Exact decimals (money)

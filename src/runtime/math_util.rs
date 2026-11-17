@@ -868,10 +868,13 @@ pub(crate) fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> 
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
-            let value: f64 = value.as_str().parse().unwrap_or(0.0);
-            eval_context
-                .set_value(key.to_string(), Value::Float(value))
-                .unwrap();
+            // Numeric text (awk rules) is a number; anything else stays a string, so
+            // `name == "Leo"` works and `name + 1` is an error instead of a silent 0.
+            let value = match looks_numeric(value.as_bytes()) {
+                Some(n) => Value::Float(n),
+                None => Value::String(value.to_string()),
+            };
+            eval_context.set_value(key.to_string(), value).unwrap();
         }
     });
     run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
@@ -888,12 +891,86 @@ fn run_eval(
     formula: &str,
     context: &mut evalexpr::HashMapContext<evalexpr::DefaultNumericTypes>,
 ) -> Option<evalexpr::Value<evalexpr::DefaultNumericTypes>> {
-    match evalexpr::eval_with_context_mut(formula, context) {
+    let result = evalexpr::build_operator_tree::<evalexpr::DefaultNumericTypes>(formula)
+        .and_then(|mut tree| {
+            float_int_literals_in_equality(&mut tree, context);
+            tree.eval_with_context_mut(context)
+        });
+    match result {
         Ok(value) => Some(value),
         Err(e) => {
             crate::runtime::stdlib_warning("eval", format!("{:?}: {}", formula, e));
             None
         }
+    }
+}
+
+/// Context variables are floats, and evalexpr's `==`/`!=` never treat `Int(1)` and `Float(1.0)`
+/// as equal, so `x == 1` would always be false. For each `==`/`!=` whose one side is a float
+/// expression (a float variable or literal, or arithmetic over one), integer literals on the
+/// other side are turned into floats. Integer-only expressions (`str::len(s) == 3`) are kept.
+fn float_int_literals_in_equality(
+    node: &mut evalexpr::Node<DefaultNumericTypes>,
+    context: &evalexpr::HashMapContext<DefaultNumericTypes>,
+) {
+    use evalexpr::Operator;
+    for child in node.children_mut() {
+        float_int_literals_in_equality(child, context);
+    }
+    if matches!(node.operator(), Operator::Eq | Operator::Neq) {
+        if let [lhs, rhs] = node.children_mut().as_mut_slice() {
+            if is_float_expr(lhs, context) {
+                float_int_literals(rhs);
+            } else if is_float_expr(rhs, context) {
+                float_int_literals(lhs);
+            }
+        }
+    }
+}
+
+/// Whether `node` is known to evaluate to a float: evalexpr arithmetic yields a float as soon
+/// as one operand is a float (and `^` always does).
+fn is_float_expr(
+    node: &evalexpr::Node<DefaultNumericTypes>,
+    context: &evalexpr::HashMapContext<DefaultNumericTypes>,
+) -> bool {
+    use evalexpr::{Context, Operator};
+    match node.operator() {
+        Operator::Const { value } => matches!(value, Value::Float(_)),
+        Operator::VariableIdentifierRead { identifier } => {
+            matches!(context.get_value(identifier), Some(Value::Float(_)))
+        }
+        Operator::Exp => true,
+        Operator::RootNode
+        | Operator::Neg
+        | Operator::Add
+        | Operator::Sub
+        | Operator::Mul
+        | Operator::Div
+        | Operator::Mod => node.children().iter().any(|c| is_float_expr(c, context)),
+        _ => false,
+    }
+}
+
+/// Turns the integer literals of an arithmetic expression (`1`, `-1`, `(2 * 3)`) into floats,
+/// leaving function arguments and non-arithmetic operands alone.
+fn float_int_literals(node: &mut evalexpr::Node<DefaultNumericTypes>) {
+    use evalexpr::Operator;
+    match node.operator_mut() {
+        Operator::Const { value } => {
+            if let Value::Int(n) = *value {
+                *value = Value::Float(n as Float);
+            }
+        }
+        Operator::RootNode
+        | Operator::Neg
+        | Operator::Add
+        | Operator::Sub
+        | Operator::Mul
+        | Operator::Div
+        | Operator::Mod
+        | Operator::Exp => node.children_mut().iter_mut().for_each(float_int_literals),
+        _ => {}
     }
 }
 
@@ -1351,7 +1428,14 @@ mod tests {
             ("x < 0", 0.0),
             ("x == 1.0", 1.0),
             ("x == 2.0", 0.0),
-            ("x == 1", 0.0),
+            ("x == 1", 1.0),
+            ("1 == x", 1.0),
+            ("x != 1", 0.0),
+            ("x == 2", 0.0),
+            ("x * 3 == 3", 1.0),
+            ("-x == -1", 1.0),
+            ("x == (2 - 1)", 1.0),
+            ("x / 2 == 0.5", 1.0),
             ("x + 2", 3.0),
             ("2 + 3", 5.0),
             ("2.5 + 0.25", 2.75),
@@ -1371,5 +1455,25 @@ mod tests {
         }
         assert_eq!(eval("1 > 0"), 1.0);
         assert_eq!(eval("1 < 0"), 0.0);
+        assert_eq!(eval("1 == 1"), 1.0);
+        assert_eq!(eval("7 / 2"), 3.0);
+    }
+
+    #[test]
+    fn test_eval_context_strings_and_int_only_equality() {
+        let strings: StrMap<Str> = StrMap::default();
+        strings.insert(Str::from("name"), Str::from("Leo"));
+        strings.insert(Str::from("age"), Str::from(" 24 "));
+        strings.insert(Str::from("hex"), Str::from("0x10"));
+        assert_eq!(eval_context(r#"name == "Leo""#, &strings), 1.0);
+        assert_eq!(eval_context(r#"name != "Leo""#, &strings), 0.0);
+        assert_eq!(eval_context("age == 24", &strings), 1.0);
+        assert_eq!(eval_context("hex == 16", &strings), 1.0);
+        // integer-only sides keep evalexpr's int semantics
+        assert_eq!(eval_context("str::len(name) == 3", &strings), 1.0);
+        assert_eq!(eval_context(r#"str::len(name) == 3 && name == "Leo""#, &strings), 1.0);
+        // a non-numeric string in arithmetic is an error (warning, result 0), not a silent 0
+        assert_eq!(eval_context("name + 1", &strings), 0.0);
+        assert_eq!(eval_context("age + 1", &strings), 25.0);
     }
 }
