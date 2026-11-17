@@ -1603,7 +1603,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "sqlite_execute",
         DATABASE,
         "sqlite_execute(db: str, sql: str[, params: map[int]str]) -> int",
-        "Execute SQL on SQLite; returns affected rows. Without params, runs `;`-separated statements in order; a transaction opened by a failing batch is rolled back.",
+        "Execute SQL on SQLite; returns affected rows. Without params, runs `;`-separated statements in order; a transaction opened by a failing batch is rolled back. Rows returned by a statement (`RETURNING`, `PRAGMA`) are dropped.",
         r#"sqlite_execute("sqlite.db", "delete from user where nick = ?", arr)"#,
     ),
     d(

@@ -5,7 +5,7 @@ use crate::runtime::str_escape::{is_null, null_input};
 use crate::runtime::{Int, IntMap, Str, stdlib_warning};
 use rusqlite::types::Value;
 use rusqlite::fallible_iterator::FallibleIterator;
-use rusqlite::{Batch, Connection, params_from_iter};
+use rusqlite::{Batch, Connection, Params, Statement, params_from_iter};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -163,7 +163,8 @@ fn query_into(
 /// exit). A transaction opened by an earlier call is left to the program.
 fn execute(conn: &Connection, sql: &str, params: &[Value]) -> rusqlite::Result<usize> {
     if !params.is_empty() {
-        return conn.execute(sql, params_from_iter(params));
+        let mut stmt = conn.prepare(sql)?;
+        return run_statement(conn, &mut stmt, params_from_iter(params));
     }
     let autocommit = conn.is_autocommit();
     let result = execute_batch(conn, sql);
@@ -177,15 +178,32 @@ fn execute_batch(conn: &Connection, sql: &str) -> rusqlite::Result<usize> {
     let mut batch = Batch::new(conn, sql);
     let mut changed = 0;
     while let Some(mut stmt) = batch.next()? {
-        let before = conn.total_changes();
-        let n = stmt.execute([])?;
-        // `changes()` keeps the count of the last INSERT/UPDATE/DELETE: only count it when this
-        // statement changed rows, not for DDL, BEGIN/COMMIT and the like
-        if conn.total_changes() != before {
-            changed += n;
-        }
+        changed += run_statement(conn, &mut stmt, [])?;
     }
     Ok(changed)
+}
+
+/// Runs one statement and returns the number of rows it changed. A statement that returns rows
+/// (`INSERT ... RETURNING`, `PRAGMA journal_mode=WAL`, a `SELECT`) is run to its end and its
+/// rows are dropped: `Statement::execute` would stop at the first row with
+/// `ExecuteReturnedResults`, an error for a statement that has already been applied.
+fn run_statement<P: Params>(
+    conn: &Connection,
+    stmt: &mut Statement,
+    params: P,
+) -> rusqlite::Result<usize> {
+    let before = conn.total_changes();
+    let n = if stmt.column_count() == 0 {
+        stmt.execute(params)?
+    } else {
+        let mut rows = stmt.query(params)?;
+        while rows.next()?.is_some() {}
+        drop(rows);
+        conn.changes() as usize
+    };
+    // `changes()` keeps the count of the last INSERT/UPDATE/DELETE: only count it when this
+    // statement changed rows, not for DDL, BEGIN/COMMIT, PRAGMA, SELECT and the like
+    Ok(if conn.total_changes() != before { n } else { 0 })
 }
 
 pub(crate) fn sqlite_execute(db_path: &str, sql: &str, params: &IntMap<Str>) -> Int {
@@ -239,6 +257,41 @@ mod tests {
         assert_eq!(count(db_path).as_str(), "4");
         // a placeholder without a value is still an error
         assert_eq!(sqlite_execute(db_path, "INSERT INTO t VALUES (?)", &none), 0);
+        assert_eq!(count(db_path).as_str(), "4");
+    }
+
+    #[test]
+    fn test_execute_statements_returning_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("returning.db");
+        let db_path = db_path.to_str().unwrap();
+        let none = IntMap::default();
+        let count = |db: &str| sqlite_query(db, "SELECT count(*) FROM t", &none).get(&1);
+        let sql = "CREATE TABLE t (id INTEGER PRIMARY KEY, v)";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 0);
+        // RETURNING: the rows are inserted and counted, the returned rows are dropped
+        let sql = "INSERT INTO t (v) VALUES (1) RETURNING id";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 1);
+        let sql = "INSERT INTO t (v) VALUES (2), (3) RETURNING id";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 2);
+        assert_eq!(count(db_path).as_str(), "3");
+        // with parameters
+        let sql = "INSERT INTO t (v) VALUES (?) RETURNING id, v";
+        assert_eq!(sqlite_execute(db_path, sql, &params(&["4"])), 1);
+        let sql = "UPDATE t SET v = ? WHERE id <= ? RETURNING v";
+        assert_eq!(sqlite_execute(db_path, sql, &params(&["9", "2"])), 2);
+        assert_eq!(count(db_path).as_str(), "4");
+        // a PRAGMA that returns a row does not stop the batch, and is not counted
+        let sql = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=1000; INSERT INTO t (v) VALUES (5)";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 1);
+        assert_eq!(count(db_path).as_str(), "5");
+        let mode = sqlite_query(db_path, "PRAGMA journal_mode", &none).get(&1);
+        assert_eq!(mode.as_str(), "wal");
+        // a SELECT changes nothing, also right after an INSERT
+        assert_eq!(sqlite_execute(db_path, "SELECT * FROM t", &none), 0);
+        // RETURNING inside a transaction of one call
+        let sql = "BEGIN; INSERT INTO t (v) VALUES (6) RETURNING id; DELETE FROM t WHERE v = 9 RETURNING id; COMMIT";
+        assert_eq!(sqlite_execute(db_path, sql, &none), 3);
         assert_eq!(count(db_path).as_str(), "4");
     }
 
