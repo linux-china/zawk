@@ -3106,7 +3106,9 @@ fn jsonl_invalid_line_adds_no_columns() {
             .unwrap()
             .arg(backend_arg)
             .arg("-ijsonl")
-            .arg(r#"{ print NR, NF, $1, "[" $2 "]" } END { print FI["a"], FI["zz"] }"#)
+            // `FI[k]` rather than `FI["zz"]`: a constant FI key would be added to the schema up
+            // front, giving `zz` a column from the first record on.
+            .arg(r#"{ print NR, NF, $1, "[" $2 "]" } END { k = "zz"; print FI["a"], FI[k] }"#)
             .write_stdin("{\"a\":1}\n{\"zz\":1,bad\n{\"a\":2}\n{\"a\":3,\"zz\":5}\n")
             .assert()
             .success()
