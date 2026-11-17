@@ -341,6 +341,38 @@ impl<'a> FromSql<'a> for PgDate {
     }
 }
 
+/// `time` value formatted like PostgreSQL's text output: `HH:MM:SS`, with the fractional
+/// seconds (trailing zeros trimmed) only when non-zero. Decoded from the raw wire value
+/// (microseconds since midnight) so that `24:00:00` is supported too.
+struct PgTime(String);
+
+impl<'a> FromSql<'a> for PgTime {
+    fn from_sql(_: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        let bytes: [u8; 8] = raw.try_into().map_err(|_| "invalid time value")?;
+        let micros = i64::from_be_bytes(bytes);
+        if !(0..=86_400_000_000).contains(&micros) {
+            return Err("invalid time value".into());
+        }
+        Ok(PgTime(format_pg_time(micros)))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        *ty == Type::TIME
+    }
+}
+
+fn format_pg_time(micros: i64) -> String {
+    let secs = micros / 1_000_000;
+    let frac = micros % 1_000_000;
+    let mut text = format!("{:02}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60);
+    if frac != 0 {
+        let digits = format!("{frac:06}");
+        text.push('.');
+        text.push_str(digits.trim_end_matches('0'));
+    }
+    text
+}
+
 struct PgTimestamp(String);
 
 impl<'a> FromSql<'a> for PgTimestamp {
@@ -633,8 +665,8 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             v.map(|v| v.0)
         }
         "time" => {
-            let v: Option<time::Time> = row.get(index);
-            v.map(|v| v.to_string())
+            let v: Option<PgTime> = row.try_get(index).ok().flatten();
+            v.map(|v| v.0)
         }
         "timestamp" => {
             let v: Option<PgTimestamp> = row.try_get(index).ok().flatten();
@@ -707,6 +739,19 @@ mod tests {
         assert_eq!(decode_inet(&encode_inet("10.0.0.1/32").unwrap()).unwrap(), "10.0.0.1");
         assert!(encode_inet("10.0.0.1/33").is_none());
         assert!(encode_inet("not-an-ip").is_none());
+    }
+
+    #[test]
+    fn postgres_time_text_format() {
+        let time = |micros: i64| PgTime::from_sql(&Type::TIME, &micros.to_be_bytes()).unwrap().0;
+        assert_eq!(time(0), "00:00:00");
+        assert_eq!(time(3_723_000_000), "01:02:03");
+        assert_eq!(time(3_723_500_000), "01:02:03.5");
+        assert_eq!(time(3_723_000_123), "01:02:03.000123");
+        assert_eq!(time(86_399_999_999), "23:59:59.999999");
+        assert_eq!(time(86_400_000_000), "24:00:00");
+        assert!(PgTime::from_sql(&Type::TIME, &(-1i64).to_be_bytes()).is_err());
+        assert!(PgTime::from_sql(&Type::TIME, &[0, 1]).is_err());
     }
 
     #[test]
