@@ -313,21 +313,41 @@ impl JsonlReader {
                 Some(b'{') => {
                     out.fields.resize_with(schema.names.len(), Str::default);
                     let fields = &mut out.fields;
-                    parse_object(bs, |key, val| {
-                        let ix = match schema.index.get(key.as_bytes()) {
-                            Some(&ix) => ix,
-                            None => {
-                                // A key not seen before: it gets the next column.
-                                let key = key.into_owned();
-                                shared.sync(schema, Some(key.clone()));
-                                fields.resize_with(schema.names.len(), Str::default);
-                                schema.index[key.as_bytes()]
+                    // Keys not seen before are held back until the whole line has parsed, so an
+                    // invalid line (which is skipped) never adds columns to the schema.
+                    let mut pending: Vec<(String, Str<'static>)> = Vec::new();
+                    let ok = parse_object(bs, |key, val| {
+                        match schema.index.get(key.as_bytes()) {
+                            Some(&ix) => {
+                                if ix >= schema.header_len || used.get(ix + 1) {
+                                    fields[ix] = val.to_str(&line, bs);
+                                }
                             }
-                        };
-                        if ix >= schema.header_len || used.get(ix + 1) {
-                            fields[ix] = val.to_str(&line, bs);
+                            None => {
+                                let val = val.to_str(&line, bs);
+                                let seen = pending
+                                    .iter_mut()
+                                    .find(|(k, _)| k.as_bytes() == key.as_bytes());
+                                match seen {
+                                    // A repeated key: the last value wins, as for known keys.
+                                    Some(slot) => slot.1 = val,
+                                    None => pending.push((key.into_owned(), val)),
+                                }
+                            }
                         }
-                    })
+                    });
+                    if ok {
+                        // Each new key gets the next column, in order of first appearance.
+                        for (key, val) in pending {
+                            shared.sync(schema, Some(key.clone()));
+                            fields.resize_with(schema.names.len(), Str::default);
+                            let ix = schema.index[key.as_bytes()];
+                            if ix >= schema.header_len || used.get(ix + 1) {
+                                fields[ix] = val;
+                            }
+                        }
+                    }
+                    ok
                 }
                 Some(b'[') => {
                     let fields = &mut out.fields;
@@ -919,6 +939,21 @@ mod tests {
         // `z` is first seen in the last record: it is appended.
         assert_eq!(names, vec!["a", "b", "c", "z"]);
         assert_eq!(vals, vec!["", "4", "3", "5"]);
+    }
+
+    #[test]
+    fn invalid_line_adds_no_columns() {
+        // `zz` is a new key, but the line fails to parse later: it must not reach the schema.
+        let (names, vals) = fields("{\"a\":1}\n{\"zz\":1,bad", &[]);
+        assert_eq!(names, vec!["a"]);
+        assert!(vals.is_empty() || vals == vec![""]);
+    }
+
+    #[test]
+    fn repeated_new_key_last_value_wins() {
+        let (names, vals) = fields("{\"a\":1}\n{\"z\":1,\"a\":2,\"z\":3,\"y\":4}", &[]);
+        assert_eq!(names, vec!["a", "z", "y"]);
+        assert_eq!(vals, vec!["2", "3", "4"]);
     }
 
     #[test]
