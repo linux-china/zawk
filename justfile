@@ -1,6 +1,12 @@
 build:
   cargo build
 
+# run agent check
+agent-check:
+  cargo av
+  cargo test --profile agent
+  cargo build --profile agent
+
 # build on Windows platform
 build-windows:
   cross build --no-default-features --target x86_64-pc-windows-gnu
