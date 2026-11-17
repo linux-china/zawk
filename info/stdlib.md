@@ -1142,7 +1142,8 @@ Booleans are the same in every JSON function: `from_json`, `json_flatten`, `json
 ### from_json
 
 `from_json(json_text)`: parse a JSON object (keys) or array (keys `1..n`) into an array.
-Strings are decoded, `true`/`false` stay as the text `true`/`false`, `null` becomes `""`, nested arrays/objects stay as JSON text.
+Strings are decoded, `true`/`false` stay as the text `true`/`false`, `null` becomes `""`, nested arrays/objects stay as JSON text (keys in their original order).
+Numbers keep their text as written, like `json_value` and `json_flatten`: big integers and long decimals are not rounded, and `1.0` stays `1.0`.
 
 ### json_flatten
 

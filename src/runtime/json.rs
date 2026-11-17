@@ -1,10 +1,8 @@
 use crate::runtime::str_escape::escape_json;
 use crate::runtime::{CostModel, Float, Int, IntMap, Str, StrLru, StrMap, stdlib_warning};
-use miniserde::json;
-use miniserde::json::Value;
 use serde_json_path::JsonPath;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 /// JSON text of a scalar float: non-finite values (`inf`, `-inf`, `NaN`) become `null`,
@@ -19,8 +17,14 @@ pub(crate) fn float_to_json(num: Float) -> String {
 
 /// Encode int-keyed entries: a JSON array when the keys are exactly `1..n` (or empty),
 /// otherwise a JSON object with keys in numeric order, so `from_json` keeps the keys.
-fn int_entries_to_json<T: miniserde::Serialize>(entries: Vec<(Int, T)>) -> String {
-    int_entries_to_json_with(entries, |value| json::to_string(value))
+fn int_entries_to_json<T: serde::Serialize>(entries: Vec<(Int, T)>) -> String {
+    int_entries_to_json_with(entries, to_json_text)
+}
+
+/// Compact JSON text of a value whose serialization cannot fail (integers, strings and maps
+/// keyed by strings).
+fn to_json_text<T: serde::Serialize + ?Sized>(value: &T) -> String {
+    serde_json::to_string(value).expect("JSON encoding of plain values cannot fail")
 }
 
 fn int_entries_to_json_with<T>(
@@ -100,7 +104,7 @@ pub(crate) fn map_str_int_to_json(obj: &StrMap<Int>) -> String {
             json_obj.insert(key.to_string(), *value);
         }
     });
-    json::to_string(&json_obj)
+    to_json_text(&json_obj)
 }
 
 pub(crate) fn map_str_float_to_json(obj: &StrMap<Float>) -> String {
@@ -145,48 +149,39 @@ fn str_value_to_json(value: &str) -> String {
     }
 }
 
+/// Parse a JSON object (keyed by its keys) or array (keyed `1..n`) into an array. Values are
+/// decoded like the other JSON functions (`json_node_text`): strings decoded, `null` as `""`,
+/// numbers kept as written (no `f64` round trip), nested objects/arrays as compact JSON text.
 pub(crate) fn from_json<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
-    let new_json_text = json_text.trim();
-    if new_json_text.starts_with('[') {
-        return from_json_array(new_json_text);
+    let text = json_text.trim();
+    let map = StrMap::default();
+    if text.is_empty() {
+        return map;
     }
-    let mut map = crate::runtime::HashMap::default();
-    if new_json_text.is_empty() {
-        return StrMap::from(map);
-    }
-    let Ok(json_obj) = json::from_str::<HashMap<String, Value>>(new_json_text) else {
-        stdlib_warning(
-            "from_json",
-            format!(
-                "not a JSON object or array: {:?}",
-                json_snippet(new_json_text)
-            ),
-        );
-        return StrMap::from(map);
-    };
-    for (key, value) in json_obj {
-        match value {
-            Value::Bool(b) => {
-                map.insert(Str::from(key), Str::from(if b { "true" } else { "false" }));
-            }
-            Value::Number(num) => {
-                map.insert(Str::from(key), Str::from(num.to_string()));
-            }
-            Value::String(s) => {
-                map.insert(Str::from(key), Str::from(s));
-            }
-            Value::Array(arr) => {
-                map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-            }
-            Value::Object(obj) => {
-                map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-            }
-            Value::Null => {
-                map.insert(Str::from(key), Str::default());
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Object(obj)) => {
+            for (key, value) in &obj {
+                map.insert(Str::from(key.clone()), Str::from(json_node_text(value)));
             }
         }
+        Ok(serde_json::Value::Array(arr)) => {
+            for (index, value) in arr.iter().enumerate() {
+                map.insert(
+                    Str::from((index + 1).to_string()),
+                    Str::from(json_node_text(value)),
+                );
+            }
+        }
+        _ if text.starts_with('[') => stdlib_warning(
+            "from_json",
+            format!("invalid JSON array: {:?}", json_snippet(text)),
+        ),
+        _ => stdlib_warning(
+            "from_json",
+            format!("not a JSON object or array: {:?}", json_snippet(text)),
+        ),
     }
-    StrMap::from(map)
+    map
 }
 
 /// Flatten a JSON object (or array) into an array keyed by leaf paths: `a.b.c` for object keys
@@ -261,44 +256,6 @@ fn json_snippet(text: &str) -> String {
         Some((end, _)) => format!("{}...", &text[..end]),
         None => text.to_string(),
     }
-}
-
-fn from_json_array<'b>(json_text: &str) -> StrMap<'b, Str<'b>> {
-    let mut map = crate::runtime::HashMap::default();
-    if json_text.is_empty() {
-        return StrMap::from(map);
-    }
-    let Ok(json_array) = json::from_str::<Vec<Value>>(json_text) else {
-        stdlib_warning(
-            "from_json",
-            format!("invalid JSON array: {:?}", json_snippet(json_text)),
-        );
-        return StrMap::from(map);
-    };
-    for (index, json_value) in json_array.iter().enumerate() {
-        let key = (index + 1).to_string();
-        match json_value {
-            Value::Bool(b) => {
-                map.insert(Str::from(key), Str::from(if *b { "true" } else { "false" }));
-            }
-            Value::Number(num) => {
-                map.insert(Str::from(key), Str::from(num.to_string()));
-            }
-            Value::String(s) => {
-                map.insert(Str::from(key), Str::from(s.to_string()));
-            }
-            Value::Array(arr) => {
-                map.insert(Str::from(key), Str::from(json::to_string(&arr)));
-            }
-            Value::Object(obj) => {
-                map.insert(Str::from(key), Str::from(json::to_string(&obj)));
-            }
-            Value::Null => {
-                map.insert(Str::from(key), Str::default());
-            }
-        }
-    }
-    StrMap::from(map)
 }
 
 /// Memory budget, in bytes, for the compiled JSON paths. Paths can come from input data, so once
@@ -452,23 +409,89 @@ pub(crate) fn json_del(json_text: &str, key: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_array_json() {
-        //language=json
-        let json_text = r#"  {"id": 1, "names" : ["first", "second"] } "#;
-        let json_object = json::from_str::<HashMap<String, Value>>(json_text).unwrap();
-        let text = json::to_string(&json_object);
-        println!("{}", text);
+    fn parsed(json_text: &str) -> Vec<(String, String)> {
+        let map = from_json(json_text);
+        let mut pairs: Vec<_> = map
+            .to_vec()
+            .into_iter()
+            .map(|k| {
+                let v = map.get(&k).as_str().to_string();
+                (k.as_str().to_string(), v)
+            })
+            .collect();
+        pairs.sort();
+        pairs
     }
 
     #[test]
-    fn test_array() {
-        //language=json
-        let json_text = r#"  [1, 2, "third"] "#;
-        let json_array = json::from_str::<Vec<Value>>(json_text).unwrap();
-        println!("size: {}", json_array.len());
-        let text = json::to_string(&json_array);
-        println!("{}", text);
+    fn from_json_object_and_array() {
+        assert_eq!(
+            parsed(r#"  {"id": 1, "ok": true, "none": null, "s": "a\"b", "names": ["first", 2], "o": {"z": 1, "a": 2.50}} "#),
+            pairs(&[
+                ("id", "1"),
+                ("names", r#"["first",2]"#),
+                ("none", ""),
+                ("o", r#"{"z":1,"a":2.50}"#),
+                ("ok", "true"),
+                ("s", "a\"b"),
+            ])
+        );
+        assert_eq!(
+            parsed(r#"  [1, false, "third", null, [1], {"k": "v"}] "#),
+            pairs(&[
+                ("1", "1"),
+                ("2", "false"),
+                ("3", "third"),
+                ("4", ""),
+                ("5", "[1]"),
+                ("6", r#"{"k":"v"}"#),
+            ])
+        );
+        assert_eq!(parsed(""), pairs(&[]));
+        assert_eq!(parsed("   "), pairs(&[]));
+    }
+
+    #[test]
+    fn from_json_invalid_text_is_empty() {
+        for text in ["{bad", "[", "[1,", "42", r#""text""#, "{} x", "[1] x"] {
+            assert_eq!(parsed(text), pairs(&[]), "{text}");
+        }
+    }
+
+    /// Numbers keep their text like `json_value`/`json_flatten`: no round trip through `f64`.
+    #[test]
+    fn from_json_keeps_number_text() {
+        let json_text = r#"{"big":18446744073709551616,"neg":-9223372036854775809,"dec":0.1234567890123456789012345,"u64":18446744073709551615}"#;
+        assert_eq!(
+            parsed(json_text),
+            pairs(&[
+                ("big", "18446744073709551616"),
+                ("dec", "0.1234567890123456789012345"),
+                ("neg", "-9223372036854775809"),
+                ("u64", "18446744073709551615"),
+            ])
+        );
+        assert_eq!(parsed(json_text), flat(json_text));
+        assert_eq!(
+            json_value(json_text, "$.big"),
+            parsed(json_text)[0].1.as_str()
+        );
+        assert_eq!(
+            parsed("[123456789012345678901234567890, 1.10]"),
+            pairs(&[("1", "123456789012345678901234567890"), ("2", "1.10")])
+        );
+    }
+
+    #[test]
+    fn int_and_str_maps_to_json() {
+        let str_map: StrMap<Int> = StrMap::default();
+        str_map.insert(Str::from("b"), 2);
+        str_map.insert(Str::from("a\"\n"), -1);
+        assert_eq!(map_str_int_to_json(&str_map), r#"{"a\"\n":-1,"b":2}"#);
+        let int_map: IntMap<Int> = IntMap::default();
+        int_map.insert(1, 10);
+        int_map.insert(2, 20);
+        assert_eq!(map_int_int_to_json(&int_map), "[10,20]");
     }
 
     #[test]

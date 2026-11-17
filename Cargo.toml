@@ -91,7 +91,6 @@ murmur3 = "0.5"
 xxhash-rust = { version = "0.8", features = ["xxh32", "xxh64"] }
 blake3 = "1.8"
 hex = "0.4"
-miniserde = "0.1"
 serde = "1"
 serde_json = { version = "1", features = ["preserve_order", "raw_value", "arbitrary_precision"] }
 serde_json_path = "0.7"
