@@ -870,9 +870,9 @@ pub(crate) fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> 
         for (key, value) in map {
             // Numeric text (awk rules) is a number; anything else stays a string, so
             // `name == "Leo"` works and `name + 1` is an error instead of a silent 0.
-            let value = match looks_numeric(value.as_bytes()) {
+            let value = match value.with_bytes(looks_numeric) {
                 Some(n) => Value::Float(n),
-                None => Value::String(value.to_string()),
+                None => Value::String(value.as_str().into_owned()),
             };
             eval_context.set_value(key.to_string(), value).unwrap();
         }
