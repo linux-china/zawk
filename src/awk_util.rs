@@ -76,36 +76,36 @@ pub fn print_awk_file_help(awk_file: &str, awk_code: &str) {
     }
     let var_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "var").collect();
     let env_tags: Vec<&CommentTag> = tags.iter().filter(|tag| tag.type_name == "env").collect();
-    println!("{awk_file} {}", version.unwrap_or("".to_string()));
+    println_ignore!("{awk_file} {}", version.unwrap_or("".to_string()));
     if let Some(author_name) = &author {
-        println!("{author_name}");
+        println_ignore!("{author_name}");
     }
     if let Some(desc) = &awk_file_desc {
-        println!("{desc}");
+        println_ignore!("{desc}");
     }
     if !var_tags.is_empty() {
         let params = var_tags
             .iter()
             .map(|tag| format!("-v {}=[value]", tag.value1))
             .join(" ");
-        println!();
-        println!("USAGE: {awk_file} {} <input-file>", params);
-        println!();
-        println!("ARGS:");
+        println_ignore!();
+        println_ignore!("USAGE: {awk_file} {} <input-file>", params);
+        println_ignore!();
+        println_ignore!("ARGS:");
         for var_tag in var_tags {
-            println!(
+            println_ignore!(
                 "  [{}]  {}",
                 var_tag.value1,
                 var_tag.description.clone().unwrap_or("".to_string())
             )
         }
-        println!();
+        println_ignore!();
     }
 
     if !env_tags.is_empty() {
-        println!("Environment Variables:");
+        println_ignore!("Environment Variables:");
         for env_tag in env_tags {
-            println!(
+            println_ignore!(
                 "  [{}]  {}",
                 env_tag.value1,
                 env_tag.description.clone().unwrap_or("".to_string())
@@ -121,7 +121,7 @@ pub fn print_awk_file_version(awk_code: &str) {
         .find(|tag| tag.type_name == "meta" && tag.value1 == "version")
         .and_then(|tag| tag.value2)
         .unwrap_or("No version found".to_owned());
-    println!("{version}");
+    println_ignore!("{version}");
 }
 
 /// Column names referenced as string constants through `FI`, e.g. `$FI["name"]`. With `-i jsonl`

@@ -895,9 +895,9 @@ fn try_send_mail(
         );
     };
     if env::var("DRY_RUN").is_ok() {
-        println!("====DRY_RUN MODE====");
+        println_ignore!("====DRY_RUN MODE====");
         // Do not print SMTP credentials: smtps://user:password@host:465
-        println!("API URL: {}", redact_url(&api_url));
+        println_ignore!("API URL: {}", redact_url(&api_url));
         return Ok(());
     }
     if api_url.starts_with("smtp://") || api_url.starts_with("smtps://") {
