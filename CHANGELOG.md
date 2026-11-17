@@ -1,5 +1,6 @@
 # Unreleased
 
+* **Behavior change**: `_join` and `to_csv` of an array of floats convert the values as string concatenation does (`CONVFMT`), like the same values in an array of strings: `a[1]=0.1+0.2; _join(a, ",")` is `0.3`, not `0.30000000000000004`, and infinities and NaNs are `+inf`/`+nan` as in `print`. `to_json` keeps the shortest round-trip form
 * Document that the default `FS` treats `\r` as a blank that separates fields, unlike gawk: for CRLF input the last field has no `\r`, a line holding only `\r` has `NF == 0` (`awk NF` drops it) and `$1 = $1` drops the trailing `\r`. See "Differences from gawk"; the compatibility test `01-crlf-default-fs` records the difference
 
 # Version 0.7.2 (2026-11-14)

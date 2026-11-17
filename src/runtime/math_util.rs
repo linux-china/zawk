@@ -168,12 +168,14 @@ pub(crate) fn map_int_int_join(obj: &IntMap<Int>, sep: &str) -> String {
     items.join(sep)
 }
 
+/// The values are converted as in string concatenation (CONVFMT), so `join` of a float array
+/// gives the same text as `a[1] "," a[2]`: `0.3`, not `0.30000000000000004`.
 pub(crate) fn map_int_float_join(obj: &IntMap<Float>, sep: &str) -> String {
     let mut items: Vec<String> = vec![];
     let mut keys = obj.to_vec().clone();
     keys.sort();
     for index in keys {
-        items.push(obj.get(&index).to_string());
+        items.push(crate::runtime::numfmt::number_to_string(obj.get(&index)));
     }
     items.join(sep)
 }
@@ -1317,6 +1319,14 @@ mod tests {
         let u = uniq(&floats, "");
         let fvals: Vec<Float> = (1..=u.len() as Int).map(|i| u.get(&i)).collect();
         assert_eq!(fvals, [-1.0, -0.0, 2.5]);
+    }
+    #[test]
+    fn test_map_int_float_join_uses_convfmt() {
+        let floats: IntMap<Float> = IntMap::default();
+        for (i, v) in [0.1 + 0.2, 1.0 / 3.0, 3.0, 1234567.5, -0.0].iter().enumerate() {
+            floats.insert(i as Int + 1, *v);
+        }
+        assert_eq!(map_int_float_join(&floats, ","), "0.3,0.333333,3,1.23457e+06,0");
     }
     #[test]
     fn test_rgb2hex() {

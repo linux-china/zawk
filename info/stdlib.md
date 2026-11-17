@@ -1208,6 +1208,8 @@ Empty `json_text` starts a new object; text that is not a JSON object is returne
 
 For an array indexed from 1, missing indexes are kept as empty cells: `c[1]="a"; c[3]="c"; to_csv(c)` gives `a,,c`.
 
+Numbers are written as in string concatenation (`CONVFMT`), whatever the type of the array: `a[1]=0.1+0.2; to_csv(a)` gives `0.3`, as `print a[1]` does. The same holds for `_join`.
+
 # XML
 
 ### xml_value

@@ -54,12 +54,19 @@ pub(crate) fn map_int_int_to_csv(csv: &IntMap<Int>) -> String {
     items.join(",")
 }
 
+/// The values are converted as in string concatenation (CONVFMT), as `to_csv` of the same
+/// numbers held as strings would give: `0.3`, not `0.30000000000000004`.
 pub(crate) fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
     let items: Vec<String> = csv_positions(csv.to_vec())
         .into_iter()
-        .map(|key| key.map(|k| csv.get(&k).to_string()).unwrap_or_default())
+        .map(|key| {
+            key.map(|k| crate::runtime::numfmt::number_to_string(csv.get(&k)))
+                .unwrap_or_default()
+        })
         .collect();
-    items.join(",")
+    // A custom CONVFMT may put a comma or a quote in the text, so quote as for strings.
+    let items: Vec<&str> = items.iter().map(|item| item.as_str()).collect();
+    vec_to_csv(&items)
 }
 
 pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
@@ -167,6 +174,15 @@ fn labels_to_string(labels: &Labels) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_map_int_float_to_csv_uses_convfmt() {
+        let map: IntMap<Float> = IntMap::default();
+        map.insert(1, 0.1 + 0.2);
+        map.insert(2, 1.0 / 3.0);
+        map.insert(4, 2.0);
+        assert_eq!(map_int_float_to_csv(&map), "0.3,0.333333,,2");
+    }
 
     #[test]
     fn test_from_csv() {

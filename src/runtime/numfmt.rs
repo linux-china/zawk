@@ -383,7 +383,6 @@ pub(crate) fn f32_to_text(f: f32) -> String {
 }
 
 /// Convert a number to a string (e.g. for concatenation or array subscripts), using CONVFMT.
-#[cfg(test)]
 pub(crate) fn number_to_string(f: Float) -> String {
     with_number_bytes(f, false, |bs| String::from_utf8_lossy(bs).into_owned())
 }
