@@ -1,11 +1,12 @@
 # Unreleased
 
+# 0.7.3 (2026-11-17)
+
 * **Behavior change**: `read_all` and `s3_get` decode text the same way for every source: invalid UTF-8 sequences become U+FFFD instead of failing. `read_all` of a local file with invalid UTF-8 returned an empty string with a warning before, and `s3_get` failed on an object that `read_all("s3://...")` could read. The documentation of `read_all` now says what the code does for HTTP: an error status (404, ...) is a warning and an empty string, not the body of the error page
 * **Behavior change**: `read_config("*.ini")` keeps the case of section and key names, like the `.properties` and `.json` readers: `[Database]` with `Host=x` is `cfg["Database.Host"]`, it was lowercased to `database.host` before. The default section is still `default.key` and plain `key`, however `[DEFAULT]` is written
 * **Behavior change**: `_join` and `to_csv` of an array of floats convert the values as string concatenation does (`CONVFMT`), like the same values in an array of strings: `a[1]=0.1+0.2; _join(a, ",")` is `0.3`, not `0.30000000000000004`, and infinities and NaNs are `+inf`/`+nan` as in `print`. `to_json` keeps the shortest round-trip form
-* Document that the default `FS` treats `\r` as a blank that separates fields, unlike gawk: for CRLF input the last field has no `\r`, a line holding only `\r` has `NF == 0` (`awk NF` drops it) and `$1 = $1` drops the trailing `\r`. See "Differences from gawk"; the compatibility test `01-crlf-default-fs` records the difference
 
-# Version 0.7.2 (2026-11-14)
+# 0.7.2 (2026-11-14)
 
 * The time zone argument of `strftime` and `strptime` takes a fixed UTC offset too: `strftime("%H:%M %z", 0, "+08:00")` is `08:00 +0800` and `"-0500"`, `"+08"`, `"+05:30"` work as well. Such an offset was silently taken as UTC before; text with no letters that is neither an offset nor a number (`"08:00"`) is now an unknown time zone, UTC with a warning and `ERRNO` set
 * Add `--grok PATTERN` (and `--grok-defs FILE`): split each input line with a grok expression, e.g. `zawk --grok '%{IP:client} %{WORD:method} %{NUMBER:bytes}' '{ s[$FI["client"]] += $FI["bytes"] }' access.log`. It implies -H: the named captures are the columns, in the order of the pattern (following the patterns it refers to, so `--grok '%{COMBINEDAPACHELOG}'` works), `FI` maps their names to columns and `$0` is the whole line. A capture that did not take part in the match is empty, a repeated name gets an index (`a[1]`) as with `grok()`, and lines that do not match are skipped (counted as `rejected_records` by `--stats`). `--grok-defs` reads custom patterns in the Logstash patterns file format; a definition replaces a default pattern of the same name. Parallel runs (`-p`) are supported
@@ -14,7 +15,7 @@
 * **Behavior change**: with `-o jsonl`, an empty `:auto` value (every column without a type suffix with `--infer-types`) is now `null`, as `-o parquet` and `-o avro` write it, so the same data and `--infer-types` give the same nulls in the three formats; an empty `:string` value is still `""`
 * `-o jsonl`, `-o parquet` and `-o avro` warn when only the header was printed and no data rows (the first record printed is the header), e.g. `printf '1\n' | zawk -o jsonl '{ print $1, "a" }'`, which wrote nothing without a word
 
-# Version 0.7.1 (2026-11-12)
+# 0.7.1 (2026-11-12)
 
 * Add `strptime(s, format[, tz])`: date text parsed with a chrono strftime format, so nothing is guessed as in `mktime`: `strptime("01/02/2024", "%d/%m/%Y")` is February 1. Text with `%z` or `%s` is an instant, other text is local time or in `tz` (an IANA time zone, or UTC for another true value); `-1` if the text does not match the format
 * Add `uuid_extract_timestamp(id[, epoch_ms])`: the Unix time at which a UUID v1/v6/v7, ULID, TSID or Snowflake ID was made, e.g. `strftime("%F %T", uuid_extract_timestamp(uuid("v7")))`; Snowflake IDs count from `epoch_ms` (0 by default as `snowflake()`, `1288834974657` for X/Twitter)
@@ -26,7 +27,7 @@
 * Add `_argmax(arr)` / `_argmin(arr)`: the key of the largest / smallest value of an array, the first by string order on a tie, `""` for an empty array
 * `strftime(format, timestamp, tz)` formats in an IANA time zone when its third argument names one, e.g. `strftime("%H:%M %Z", 0, "Asia/Shanghai")` is `08:00 CST`, with daylight saving time. Other true values still mean UTC, as in gawk
 
-# Version 0.7.0 (2026-11-10)
+# 0.7.0 (2026-11-10)
 
 * Add exact decimal arithmetic on text, for money and other amounts where binary floating point rounding is wrong: `dec_add(a, b)`, `dec_sub(a, b)`, `dec_mul(a, b)`, `dec_div(a, b[, scale[, mode]])`, `dec_round(a[, scale[, mode]])`, `dec_format(a[, scale[, mode]])` and `dec_cmp(a, b)`, e.g. `dec_add("0.1", "0.2")` is `0.3`, `dec_round("2.675", 2)` is `2.68` and `dec_format("1234567.5", 2)` is `1,234,567.50`. Results are text with up to 28 significant digits; `dec_mul` keeps the sum of the scales (`dec_mul("1.10", "1.10")` is `1.2100`), and `dec_div` without a scale gives 28 significant digits with trailing zeros removed. Rounding modes: `half_up` (default), `half_even`, `half_down`, `up`, `down`, `ceil`, `floor`. Inputs may have blanks, a sign, an exponent and thousands separators (`1,234.50`, `1_234.50`); an empty string is `0`, so `t = dec_add(t, $3)` needs no initialization. Invalid text, a division by zero and an overflow give `""` (`0` for `dec_cmp`) with a warning and set `ERRNO`; use `try dec_cmp(a, b) else ...` for dirty data. Pass fields or strings, not float expressions: `zawk lint` warns about `dec_add(t, $3 * 1.06)` (W123)
 * Add `color(spec, s)`: color and style text for the terminal, e.g. `color("red", "this is red")` or `color("red+bold", "error")`. `spec` joins one color (`red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`) and styles (`bold`, `underline`, `italic`, `dimmed`, `reversed`, `blink`, `hidden`, `strikethrough`) with `+` or spaces, in any order and case-insensitive; unknown names are ignored, so `color("pink", s)` is `s`. Escape codes are written only when stdout is a terminal; `NO_COLOR` turns them off and `CLICOLOR_FORCE=1` forces them
@@ -40,14 +41,14 @@
   * Less memory: `s = s x` in a loop appends in place to a growing buffer instead of copying `s` or keeping a piece per append; fields stored in arrays or concatenations are copied out of the input chunk, so keeping a few fields no longer keeps the whole input in memory; writing to many files (`print > ($1 ".txt")`) shares a 2MB buffer budget among them, and beyond 16 open files writes them from the printing thread instead of a thread per file
   * Compiled code (Cranelift): comparisons are fused with the branches that test them, `abs`, `ceil` and `floor` are native instructions, and a runtime function is imported once per function instead of once per call
 
-# Version 0.6.9 (2026-11-07)
+# 0.6.9 (2026-11-07)
 
 * Fix booleans differing between the JSON functions: `from_json(j)["t"]` and `json_flatten` gave `1`/`0`, while `json_get(j, "t")`, `json_value(j, "$.t")` and `json_query` gave `true`/`false`. **Behavior change**: all of them now give the text `true`/`false`; use `v == "true"` or `mkbool(v)` to test it (a non-empty string such as `false` is true in a condition)
 * `zawk inspect` and `zawk llm` show the last 10 rows of an input with more than 50 rows, after the first rows, so the end of the data (totals, footers, truncated records) is seen too: `Sample (last 10 rows)` for `inspect`, and `Last 10 lines` (the raw text) or `Last 10 rows` (Parquet, Excel and database tables) for `llm`. This works for local files, URLs, S3 objects and database tables; with `--max-rows` stopping before the end, the last rows are not shown
 * Read `.parquet`, `.jsonl` and `.ndjson` input files without `-i`, as `.json` and `.xlsx` files are: `-i parquet` is the default when every input file ends with `.parquet` (a local file must start with the `PAR1` magic, so a text file named `.parquet` is still read as text), and `-i jsonl` when every input file ends with `.jsonl` or `.ndjson` (also compressed, e.g. `.jsonl.gz`) and no field separator is given. `zawk '{ print $FI["name"] }' out.parquet` reads back the output of `-o parquet`; before, the binary file was printed as text lines
 * Fix `date_diff`, `date_trunc` and `to_iso8601` reading date text as a number: `date_diff("day", "2024-01-01", "2024-03-01")` gave `0` and `to_iso8601("2024-01-01")` a time in 1970 (`2024` seconds). As for `date_add`, a time given as text is parsed as `mktime` does in local time, and a numeric string (e.g. a field `"1706713200"`) is still a Unix timestamp. Text that cannot be parsed gives a warning and `0` for `date_diff`, `-1` for `date_trunc` and an empty string for `to_iso8601`
 
-# Version 0.6.8 (2026-11-05)
+# 0.6.8 (2026-11-05)
 
 * Add the column type `:auto` and `--infer-types` for `-o jsonl` and `-o parquet`, so typed data no longer becomes strings: `zawk -i csv -H -o jsonl --infer-types 'NR==1{print "id","name","age"}{print $1,$2,$3}' tests/demo.csv` writes `{"id":1,"name":"Jackie","age":48}`. With `--infer-types`, columns without a type suffix are `:auto`. In JSON Lines each `:auto` value is a number when it is written as JSON writes numbers (`48`, `-1.5`, `2e3`; not `007`, `+1` or `0x10`), a boolean for `true`/`false`, and a string otherwise. In Parquet an `AUTO` column is `INT64`, `DOUBLE`, `BOOLEAN` or `DATE` when every non-empty value of the first 65536 rows is one, and `STRING` otherwise
 * Add `-o xlsx`: write stdout as an Excel workbook with one sheet, e.g. `zawk -i csv -o xlsx --out-file users.xlsx '{ print }' users.csv`. The first record is the header row (bold and frozen); a column name may end with `:string`, `:number`, `:boolean` or `:auto` (the default: numbers as JSON writes them and `true`/`false` keep their type, `007` and integers of more than 15 digits stay text). Empty values and the `--null` text are blank cells; rows beyond 1,048,576 are dropped and text longer than 32,767 characters is cut, with a warning. As for `-o parquet`, the output is not written to a terminal
@@ -55,7 +56,7 @@
 * Fix `parse_array()`, `tuple()` and `func()` dropping the sign of numbers (`parse_array("[-1]")` gave `1`) and splitting quoted strings at `\"`. Numbers keep sign and exponent, quoted strings decode escapes, a nested `[...]`/`(...)`/`{...}` is one item with its text instead of being flattened, and malformed input (unterminated string or bracket) gives a warning and sets `ERRNO` instead of being skipped silently
 * Fix `-o parquet --infer-types` (and `:auto` columns) writing empty values of a column inferred as `STRING` as `""` instead of null; empty values of every inferred column are now null, as documented. A blank (whitespace-only) value in such a column is kept, and an explicit `:string` column still writes empty values as `""`
 
-# Version 0.6.7 (2026-11-02)
+# 0.6.7 (2026-11-02)
 
 * Fix `try E else F` losing the value of `F` when `E` has no value: `x = try publish(url, body) else "failed"` gave an empty `x`, also with a user function without `return` as `E`
 * `round(x, n)`: round to `n` decimal places, e.g. `round(3.14159, 2)` is `3.14`. `n` is `0` by default and may be negative, `round(1234.5, -2)` is `1200`. A string `x` is converted to a number as usual, `round("3.14159", 2)` is `3.14`
@@ -71,7 +72,7 @@
 * Add `date_trunc(unit, time)`: the Unix timestamp truncated to the start of its unit in local time, for grouping by hour/day/week/month, e.g. `strftime("%F", date_trunc("month", mktime("2024-02-15 10:30:00")))` is `2024-02-01`. Weeks start on Monday (ISO 8601); units as `date_add`
 * Add `date_add(time, n, unit)` and `date_diff(unit, start, end)`: date arithmetic on Unix timestamps in local time, e.g. `date_add(mktime("2024-01-31"), 1, "month")` is 2024-02-29 (month ends are clamped) and `date_diff("day", mktime("2024-01-01"), mktime("2024-03-01"))` is `60`. `date_diff` counts complete units from `start` to `end`, as MySQL's `TIMESTAMPDIFF`. `date_add` also takes date text, parsed as `mktime` does: `date_add("2024-01-31", 1, "month")`. Units: `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter`, `year` (and short forms `s`, `m`, `h`, `d`, `w`, `mo`, `q`, `y`)
 
-# Version 0.6.6 (2026-10-28)
+# 0.6.6 (2026-10-28)
 
 * Add `try E else F`: evaluate `E` without printing stdlib warnings, and give `F` (which can read `ERRNO`) if a stdlib function, `getline` or `close` failed in `E`, e.g. `body = try read_all(url) else ""` (`read_all` fails on an HTTP status >= 400; `http_get`/`http_post` only fail on a network error, so check `r["status"]` for HTTP errors). A failure an inner `try` handled (also in a called function) does not count for an outer one; fatal errors are not caught. **Behavior change**: `try` is a keyword and can no longer be used as a variable or function name (`try = 1`, `try++`, `try[1]`, `print try`, `function f(try)`, `function try()`, `-v try=1` are now errors, reported as "`try` is a keyword"); rename such variables, parameters or functions
 * Add Excel input `-i xlsx` (with the `calamine` crate), the default when every input file ends with `.xlsx` (or `.xls`, `.xlsm`, `.xlsb`, `.ods`): a sheet is read as CSV from column A, `book.xlsx#Sheet2` selects the sheet (the first one by default; the name is matched ignoring case), and with `-H` the first row is the header, e.g. `zawk -H '{ print $FI["name"] }' tests/demo.xlsx`. Dates are `2024-01-05` or `2024-01-05 13:45:10`, times `08:30:00`, booleans `1`/`0`. Works with `--summary`, `zawk inspect` (the first row is the header), `zawk lint` and `zawk llm`; `-o xlsx` is not supported
@@ -80,20 +81,20 @@
 
 * **Behavior change**: `publish(url, body)` accepts only `nats://`, `nats+tls://`, `mqtt://`, `mqtts://` and `desktop://title` (the scheme is matched ignoring case, e.g. `NATS://`); any other URL (`redis://`, `nats//typo`, a plain name) is reported with a warning and sets `ERRNO` instead of silently showing a desktop notification. Use `desktop://Job finished` for a notification; passwords in the title are masked
 
-# Version 0.6.5 (2026-10-26)
+# 0.6.5 (2026-10-26)
 
 * Add `zawk llm [FILE...] QUESTION`: print a prompt asking an LLM to write a zawk program that answers the question (the last argument, easy to edit from the shell history) about the input files, e.g. `zawk llm -i csv -H family.csv 'how many adults?' | llm -x`. The prompt has the command line of the run with the meaning of `-i`, `-F`, `-H` and `-o`, the first 10 lines of every file (`-n`; the first rows for Parquet), the schema and summary of `zawk inspect` for CSV, TSV, JSON, JSON Lines and Parquet input, the zawk language notes and the builtin function reference, and the `zawk lint` command to check the program; a short program is answered with its complete command line too
 * Add NATS subjects as input: `zawk 'MSG_SUBJECT ~ /demo/ { print }' 'nats://localhost:4222/logs.>'` reads the messages of the subject (wildcards `*` and `>` allowed) until Ctrl+C, then runs `END` and exits. Each message is read as an input file of its own in the input format (`-i json`, `-i jsonl`, `-i csv -H`, ...; text split by `FS` by default), with `MSG_SUBJECT`, `MSG_HEADERS` (e.g. `MSG_HEADERS["content-type"]`) and `MSG_BODY`; its output is written at once. A payload that cannot be parsed sets `ERRNO`
 * Add the `match` expression: `match subject { pat => value, ... }` returns the value of the first arm whose pattern matches, e.g. `level = match $2 { "info" => 1, "error" | "fatal" => 3, /^W/ => 2, _ => 0 }`. A pattern is a string, a number or a regex literal, or several joined with `|`; numbers compare as numbers with a strnum subject, as in gawk's `switch` (so `3 => ...` matches `3.0`). `/re/ as m => value` binds the groups of the match to the array `m`, visible only in `value` (`/(\d+)ms/ as m => m[1] > 1000 ? "slow" : "ok"`). `_` matches anything and must be the last arm; without it, the value is `""` when nothing matches. The subject is evaluated once; arms are separated by commas or newlines. `match(s, re)` is still the builtin; `match (x) {` starts a match expression
 
-# Version 0.6.4 (2026-10-25)
+# 0.6.4 (2026-10-25)
 
 * Add `@include` support
 * **Behavior change**: remove libSQL support: `libsql_query` and `libsql_execute` and the `libsql` crate are removed; use `sqlite_query`/`sqlite_execute` for local databases
 * Reduce final binary size
 * Fix some bugs
 
-# Version 0.6.3 (2026-10-21)
+# 0.6.3 (2026-10-21)
 
 * Add raw string literals, like Rust's: `r"C:\Program Files\Rust"` is taken verbatim, backslashes are not escapes (no more `"\\d+"` in dynamic regexes: `$0 ~ r"\d+"`). To include `"`, put the same number of `#`s around the quotes: `r#"say "hi""#`, `r##"a"#b"##`. A raw string can span lines. **Behavior change**: `r"..."` (no space) is now a raw string, not the variable `r` concatenated with a string; write `r "..."` for the latter
 * Add the `??=` operator: `l ??= r` is `l ?? (l = r)`, so `r` is evaluated and assigned only when `l` is uninitialized, empty or zero (as for `??`); the subscript of an array element is evaluated once. E.g. `{ OFS ??= ","; total[$1] ??= 0 }`
@@ -107,7 +108,7 @@
 * `-i jsonl`/`-i json`: a key missing from the first record is no longer dropped. It gets the next column when a later record has it (NF grows from that record on) and is added to `FI`, so `$FI[k]` with a key only known at run time finds it; a scalar first record no longer leaves the later objects with `NF=0`
 * **Behavior change**: `s3_get`/`s3_put` failures are a warning and an empty result, like other stdlib functions, instead of a fatal panic
 
-# Version 0.6.2 (2026-10-18)
+# 0.6.2 (2026-10-18)
 
 * Add thousands separators: f-string format specs take Python's `,` and `_` groupings (`f"{n:,}"` is `1,234,567`, `{p:,.2f}`, `{n:_d}`, `{n:012,}` is `0,001,234,567`), and `printf`/`sprintf` take the `'` flag (`,`, as gawk in an English locale, independently of the locale) and the `_` flag (`_`): `printf "%'d", 1234567`. Grouping applies to `d i u e E f F g G` and to `%s` values that look like numbers; with `0` the padding zeros are grouped too, as in Python
 * Add the `??` operator: `name ?? "Guest"` is `"Guest"` when `name` is uninitialized, empty, zero or a string that looks like zero (`"0"`, `"0.0"`, `"+0"`, as with strnums), and `name` otherwise; the left side is evaluated once. It binds tighter than any other operator, so `"Hello " name ?? "Guest"` is `"Hello " (name ?? "Guest")`
@@ -118,7 +119,7 @@
 * f-string placeholders now take any expression and an optional Python-style format spec: `f"{NR+1}: {price:.2f} {name:>10}"`. A spec is `[[fill]align][sign][#][0][width][.precision][type]` with `align` one of `<`, `>`, `^` and `type` a printf conversion (`d i o x X e E f F g G s c`) or `%`. **Behavior change**: `{x+1}` used to stay as literal text and is now evaluated; an invalid placeholder expression is a syntax error
 * Add gawk's `ERRNO`: the system error message of the last failed `getline < file` (e.g. `No such file or directory`) or `close()` of a redirection that was never opened, so `if ((getline line < f) < 0) print "cannot read " f ": " ERRNO` works as in gawk
 
-# Version 0.6.1 (2026-10-12)
+# 0.6.1 (2026-10-12)
 
 * Add [Jev support](https://github.com/linux-china/zawk/blob/master/info/stdlib.md#decisionjev) 
 * **Behavior change**: CSV now follows RFC 4180. `-i csv` no longer interprets `\n`, `\t` and `\\` inside quoted fields (`"C:\new"` stays `C:\new`), and keeps a lone `\r` inside a field (only the `\r` of a CRLF line ending is dropped). `-o csv` and `escape_csv()`/`escape("csv", s)` keep line breaks inside quotes instead of writing `\n`/`\t`, also quote fields with `\r` or leading/trailing spaces, and `-o csv` ends records with `\n` instead of `\r\n` (use `-v 'ORS=\r\n'` for CRLF)
@@ -129,34 +130,34 @@
 * Add JSON Lines input format `-i jsonl` (alias `ndjson`): keys of the first record populate `FI`, e.g. `zawk -i jsonl '{ print $FI["name"] }' demo.jsonl`
 * Add parquet input format `-i parquet`: keys of the first record populate `FI`, e.g. `zawk -i parquet '{ print $FI["name"] }' demo.parquet`
 
-# Version 0.6.0 (2026-10-10)
+# 0.6.0 (2026-10-10)
 
 * Fix lots of bugs reported by LLM
 * Remove LLVM backend and keep Cranelift only
 * Update to Rust edition 2024
 
-# Version 0.5.25 (2024-12-29)
+# 0.5.25 (2024-12-29)
 
 * Add `getenv("NAME", "default value")` function to get environment variable
 * Add `strlen(text)` function to get text bytes length:  `strlen("你好")` to `6`
 * Fix `substr(s,index,len)`: 0 and negative index support now and same with gawk.
 
-# Version 0.5.24 (2024-12-22)
+# 0.5.24 (2024-12-22)
 
 * Fix `_join` with wrong sequence
 
-# Version 0.5.23 (2024-12-10)
+# 0.5.23 (2024-12-10)
 
 * Add `chars($1)` function to return char array of text
 * Use fs if sep empty in `split(text,arr,sep)`
 
-# Version 0.5.22 (2024-10-18)
+# 0.5.22 (2024-10-18)
 
 * Add `eval(formula, context)` function for math calculation
 * Add [Resend](https://resend.com/emails) mail service support for `send_mail()`, and environment variable is `RESEND_API_KEY`.
 * Documentation to make associative array quickly: `array[$1] = $2`, `arr = record("{host:localhost,port:1234}")`, `arr = pairs("a=b,c=d")`.
 
-# Version 0.5.20 (2024-10-05)
+# 0.5.20 (2024-10-05)
 
 * Add `smtp_send(url, from, to, subject, body)` function to send email
 * Add MQTT support: `publish("mqtt://servername:1883/topic", body)`
