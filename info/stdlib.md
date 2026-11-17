@@ -1239,7 +1239,7 @@ For an array indexed from 1, missing indexes are kept as empty cells: `c[1]="a";
 Formats:
 
 - `hex`,
-- `base32`(RFC4648 without padding),
+- `base32`, `base32hex`(RFC4648, encoded without padding; decoding accepts optional `=` padding and lowercase),
 - `base58`
 - `base62`
 - `base64`,

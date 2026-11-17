@@ -83,12 +83,8 @@ pub fn decode(format: &str, text: &str) -> Vec<u8> {
 
 fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
     let bytes = match format {
-        "base32" => data_encoding::BASE32_NOPAD
-            .decode(text.as_bytes())
-            .map_err(|e| e.to_string()),
-        "base32hex" => data_encoding::BASE32HEX_NOPAD
-            .decode(text.as_bytes())
-            .map_err(|e| e.to_string()),
+        "base32" => base32_decode_lenient(&data_encoding::BASE32_NOPAD, text),
+        "base32hex" => base32_decode_lenient(&data_encoding::BASE32HEX_NOPAD, text),
         "base58" => text.from_base58().map_err(|e| format!("{:?}", e)),
         "base62" => base62_decode(text).ok_or_else(|| "invalid base62 text".to_string()),
         "base64" => STANDARD_LENIENT.decode(text).map_err(|e| e.to_string()),
@@ -109,6 +105,19 @@ fn try_decode(format: &str, text: &str) -> Result<Vec<u8>, String> {
         _ => return Err(format!("unsupported format {:?}", format)),
     };
     bytes.map_err(|e| format!("{}: {}", format, e))
+}
+
+/// Lenient base32 decoding: trailing `=` padding is optional (RFC 4648 output of `base32`, TOTP
+/// secrets and most libraries carry it, while `encode` omits it) and lowercase letters are
+/// accepted, mirroring the padding-indifferent base64 decoders above.
+fn base32_decode_lenient(encoding: &data_encoding::Encoding, text: &str) -> Result<Vec<u8>, String> {
+    let unpadded = text.trim_end_matches('=');
+    let decoded = if unpadded.bytes().any(|b| b.is_ascii_lowercase()) {
+        encoding.decode(unpadded.to_ascii_uppercase().as_bytes())
+    } else {
+        encoding.decode(unpadded.as_bytes())
+    };
+    decoded.map_err(|e| e.to_string())
 }
 
 pub(crate) fn data_url<'b>(text: &str) -> runtime::StrMap<'b, Str<'b>> {
@@ -428,6 +437,24 @@ Bob -> Alice : hello
         let encoded_text = encode("base32hex", text.as_bytes());
         let plain_text = decode("base32hex", &encoded_text);
         assert_eq!(plain_text, text.as_bytes());
+    }
+
+    #[test]
+    fn test_base32_decode_lenient() {
+        // encode stays unpadded
+        assert_eq!(encode("base32", b"foo"), "MZXW6");
+        // unpadded, RFC 4648 padded, and lowercase input all decode
+        assert_eq!(decode("base32", "MZXW6"), b"foo");
+        assert_eq!(decode("base32", "MZXW6==="), b"foo");
+        assert_eq!(decode("base32", "MY======"), b"f");
+        assert_eq!(decode("base32", "mzxw6==="), b"foo");
+        assert_eq!(decode("base32", "NBSWY3DP"), b"hello");
+        assert_eq!(decode("base32hex", "CPNMU==="), b"foo");
+        assert_eq!(decode("base32hex", "cpnmu"), b"foo");
+        assert_eq!(decode("base32", ""), b"");
+        // still rejected: characters outside the alphabet, padding in the middle
+        assert_eq!(decode("base32", "MZXW6!"), b"");
+        assert_eq!(decode("base32", "MZ==XW6"), b"");
     }
 
     #[test]
