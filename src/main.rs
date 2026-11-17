@@ -966,7 +966,7 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
         if check {
             if out != *text {
                 unformatted = true;
-                println!("{}", label);
+                println_ignore!("{}", label);
             }
         } else if let (true, Some(file)) = (write, name) {
             if out != *text
@@ -979,7 +979,7 @@ fn run_fmt(matches: &clap::ArgMatches) -> ! {
                     failed = true;
                 }
         } else {
-            print!("{}", out);
+            print_ignore!("{}", out);
         }
     }
     std::process::exit(if failed {
@@ -1032,7 +1032,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
                     kind,
                 )),
                 Err(e) => {
-                    println!("{}", lint::file_error(file, &e));
+                    println_ignore!("{}", lint::file_error(file, &e));
                     std::process::exit(1)
                 }
             }
@@ -1117,7 +1117,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
                 SourceKind::File,
             )),
             Err(e) => {
-                println!("{}", lint::file_error(file, &e));
+                println_ignore!("{}", lint::file_error(file, &e));
                 std::process::exit(1)
             }
         }
@@ -1157,7 +1157,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
             SourceKind::Inline => includer.add_source(src.name, &src.text, None),
         };
         if let Err(e) = res {
-            println!("{}", lint::include_error(&e));
+            println_ignore!("{}", lint::include_error(&e));
             std::process::exit(1)
         }
     }
@@ -1187,7 +1187,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
                 })
             }
             Err(e) => {
-                println!(
+                println_ignore!(
                     "{}",
                     lint::input_error(
                         &runtime::network::redact_url(file),
@@ -1199,7 +1199,7 @@ fn run_lint(matches: &clap::ArgMatches) -> ! {
         }
     }
     let (errors, warnings, report) = lint::lint(&sources, &opts);
-    println!("{}", report);
+    println_ignore!("{}", report);
     let failed = errors > 0 || (warnings > 0 && matches.get_flag("deny-warnings"));
     std::process::exit(if failed { 1 } else { 0 })
 }
@@ -1861,7 +1861,7 @@ fn real_main() {
         let input_file = matches.get_one::<String>("input-file").unwrap();
         if matches.get_flag("prometheus") {
             let text = runtime::csv::parse_prometheus(input_file);
-            println!("{}", text);
+            println_ignore!("{}", text);
             return;
         }
         fail!("dump: no format given; only --prometheus is supported");
@@ -1870,9 +1870,9 @@ fn real_main() {
     if let Some(matches) = matches.subcommand_matches("functions") {
         let docs = function_docs::find(matches.get_one::<String>("filter").map(|s| s.as_str()));
         if matches.get_flag("json") {
-            print!("{}", function_docs::render_ndjson(&docs));
+            print_ignore!("{}", function_docs::render_ndjson(&docs));
         } else {
-            print!("{}", function_docs::render_text(&docs));
+            print_ignore!("{}", function_docs::render_text(&docs));
         }
         return;
     }
@@ -1917,9 +1917,9 @@ fn real_main() {
             match inspect::inspect(file, &opts) {
                 Ok(report) => {
                     if i > 0 {
-                        println!();
+                        println_ignore!();
                     }
-                    print!("{}", report);
+                    print_ignore!("{}", report);
                 }
                 Err(e) => {
                     eprintln!("zawk: {}", e);
@@ -1945,7 +1945,7 @@ fn real_main() {
         let mut tasksh_file = File::create(&awk_file).unwrap();
         tasksh_file.write_all(template.as_bytes()).unwrap();
         set_executable(&awk_file);
-        println!("{} created", awk_file);
+        println_ignore!("{} created", awk_file);
         return;
     }
     let ifmt = match matches

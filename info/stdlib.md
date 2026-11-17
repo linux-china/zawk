@@ -1417,7 +1417,7 @@ SMTP URL format:
 
 ### S3
 
-- `s3_get(bucket, object_name)`: get object, and return value is text.
+- `s3_get(bucket, object_name)`: get object, and return value is text. Invalid UTF-8 sequences are replaced by U+FFFD, same as `read_all("s3://bucket/object_name")`.
 - `s3_put(bucket, object_name, body)`: put object, and body is text
 
 Environment variables for S3 access:
@@ -1650,15 +1650,23 @@ With new `system2` function, you can get the output directly:
 - write text into file: `write_all(file_path, text)`  Replace if file exists.
 
 **Tips**: `read_all` reads a local file, an `http://`/`https://` URL or an `s3://bucket/key` object as text. Compressed
-content is not decompressed, and other schemes (`ftp://`, ...) are not supported. If the file can't be read
-(missing file, invalid UTF-8, network failure), a warning is printed and an empty string is returned.
-The HTTP status is not checked: the body of an error response (404, ...) is returned as is.
+content is not decompressed, and other schemes (`ftp://`, ...) are not supported. If the content can't be read
+(missing file, network failure, HTTP error status such as 404 or 500), a warning is printed, `ERRNO` is set and an
+empty string is returned: the body of an error response is never returned as content.
+
+Invalid UTF-8 is not an error: for all three sources each invalid sequence is replaced by U+FFFD (`�`), so the result
+is not byte-exact for binary or non-UTF-8 files. An HTTP body is first decoded with the `charset` of its
+`Content-Type` (UTF-8 if absent). `s3_get` decodes the same way as `read_all("s3://...")`.
 
 ### read_config
 
 Read config file to StrStrMap: `read_config("tests/demo.ini")`.
 Supported formats: `*.ini`, `*.properties` and `*.json`; any other extension gives a warning, sets `ERRNO`
 and returns an empty array.
+
+An INI config gives `section.key` entries, and section and key names keep their case: `[Database]` with
+`Host=localhost` is `cfg["Database.Host"]`, not `cfg["database.host"]`. Keys of the default section (keys before
+any section header, or a `[DEFAULT]` header in any case) are available as `default.key` and as plain `key`.
 
 A JSON config must be an object at the top level (an array, string, number, boolean or `null` gives a warning,
 sets `ERRNO` and returns an empty array). It is flattened like `json_flatten()`: nested object keys are joined

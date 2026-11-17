@@ -77,16 +77,22 @@ fn read_json<'b>(json_file: &str) -> Result<StrMap<'b, Str<'b>>> {
     }
 }
 
+/// Read an INI file as `section.key` entries. Section and key names keep their case, like the
+/// `.properties` and `.json` readers. The default section (keys before any header, or a
+/// `[DEFAULT]` header in any case) is always named `default` and its keys are also available
+/// without a prefix.
 fn read_ini(ini_file: &str) -> Result<HashMap<String, String>> {
     let mut map: HashMap<String, String> = HashMap::new();
-    let mut config = Ini::new();
-    // You can easily load a file to get a clone of the map:
+    // `Ini::new()` lowercases every section and key name
+    let mut config = Ini::new_cs();
     let root_map = config.load(ini_file).map_err(anyhow::Error::msg)?;
     root_map.iter().for_each(|(root_key, child_map)| {
+        let is_default = root_key.eq_ignore_ascii_case("default");
+        let section = if is_default { "default" } else { root_key.as_str() };
         child_map.iter().for_each(|(key, v)| {
             if let Some(value) = v {
-                map.insert(format!("{}.{}", root_key, key), value.clone());
-                if root_key == "default" {
+                map.insert(format!("{}.{}", section, key), value.clone());
+                if is_default {
                     map.insert(key.clone(), value.clone());
                 }
             }
@@ -107,7 +113,32 @@ mod tests {
     #[test]
     fn test_read_ini() {
         let map = read_ini("tests/demo.ini").unwrap();
-        println!("{:?}", map);
+        // `[DEFAULT]` is the default section: `default.` prefix and bare keys
+        assert_eq!(map.get("default.key1").map(String::as_str), Some("value1"));
+        assert_eq!(map.get("key1").map(String::as_str), Some("value1"));
+        assert_eq!(map.get("topsecrets.nuclear_launch_codes").map(String::as_str), Some("topsecret"));
+        // key case is kept
+        assert_eq!(map.get("github.com.User").map(String::as_str), Some("QEDK"));
+        assert!(!map.contains_key("github.com.user"));
+    }
+
+    #[test]
+    fn test_read_ini_keeps_case() {
+        let dir = std::env::temp_dir().join(format!("zawk_read_ini_case_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("case.ini");
+        std::fs::write(&file, "Top=1\n[Database]\nHost=localhost\nhost=other\n[default]\nLow=2\n").unwrap();
+        let map = read_ini(file.to_str().unwrap()).unwrap();
+        let get = |k: &str| map.get(k).map(String::as_str);
+        assert_eq!(get("Database.Host"), Some("localhost"));
+        assert_eq!(get("Database.host"), Some("other"));
+        assert_eq!(get("database.host"), None);
+        // keys before any header and `[default]` share the default section
+        assert_eq!(get("Top"), Some("1"));
+        assert_eq!(get("default.Top"), Some("1"));
+        assert_eq!(get("Low"), Some("2"));
+        assert_eq!(get("default.Low"), Some("2"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

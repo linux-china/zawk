@@ -1,5 +1,7 @@
 # Unreleased
 
+* **Behavior change**: `read_all` and `s3_get` decode text the same way for every source: invalid UTF-8 sequences become U+FFFD instead of failing. `read_all` of a local file with invalid UTF-8 returned an empty string with a warning before, and `s3_get` failed on an object that `read_all("s3://...")` could read. The documentation of `read_all` now says what the code does for HTTP: an error status (404, ...) is a warning and an empty string, not the body of the error page
+* **Behavior change**: `read_config("*.ini")` keeps the case of section and key names, like the `.properties` and `.json` readers: `[Database]` with `Host=x` is `cfg["Database.Host"]`, it was lowercased to `database.host` before. The default section is still `default.key` and plain `key`, however `[DEFAULT]` is written
 * **Behavior change**: `_join` and `to_csv` of an array of floats convert the values as string concatenation does (`CONVFMT`), like the same values in an array of strings: `a[1]=0.1+0.2; _join(a, ",")` is `0.3`, not `0.30000000000000004`, and infinities and NaNs are `+inf`/`+nan` as in `print`. `to_json` keeps the shortest round-trip form
 * Document that the default `FS` treats `\r` as a blank that separates fields, unlike gawk: for CRLF input the last field has no `\r`, a line holding only `\r` has `NF == 0` (`awk NF` drops it) and `$1 = $1` drops the trailing `\r`. See "Differences from gawk"; the compatibility test `01-crlf-default-fs` records the difference
 

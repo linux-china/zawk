@@ -342,6 +342,25 @@ macro_rules! eprintln_ignore {
     }};
 }
 
+// Like `println!`/`print!`, but for output of sub commands (`functions`, `lint`, `fmt` ...): a
+// closed pipe downstream (`zawk functions | head -3`) must not panic with "failed printing to
+// stdout", so write errors (EPIPE included) are ignored.
+macro_rules! println_ignore {
+    ($($t:tt)*) => {{
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = writeln!(&mut out, $($t)*);
+    }};
+}
+
+macro_rules! print_ignore {
+    ($($t:tt)*) => {{
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = write!(&mut out, $($t)*);
+    }};
+}
+
 macro_rules! static_map {
     ($name:ident<$kty:ty, $vty:ty>, $([$k:expr, $v:expr]),*) => {
         pub(crate) static $name: std::sync::LazyLock<hashbrown::HashMap<$kty,$vty>> = std::sync::LazyLock::new(|| {

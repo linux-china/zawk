@@ -1703,7 +1703,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "read_all",
         IO,
         "read_all(path: str) -> str",
-        "Read a local file, http(s) URL or s3:// object as text.",
+        "Read a local file, http(s) URL or s3:// object as text; invalid UTF-8 becomes U+FFFD. Returns an empty string with a warning (ERRNO set) if it cannot be read, including an HTTP error status.",
         r#"read_all("demo.txt")"#,
     ),
     d(
