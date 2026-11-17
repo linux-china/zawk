@@ -3098,6 +3098,24 @@ fn jsonl_keys_first_seen_later() {
 }
 
 #[test]
+fn jsonl_invalid_line_adds_no_columns() {
+    // A new key in a line that then fails to parse must not reach the schema: later records keep
+    // their NF, and the key gets its column only when it shows up in a valid record.
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-ijsonl")
+            .arg(r#"{ print NR, NF, $1, "[" $2 "]" } END { print FI["a"], FI["zz"] }"#)
+            .write_stdin("{\"a\":1}\n{\"zz\":1,bad\n{\"a\":2}\n{\"a\":3,\"zz\":5}\n")
+            .assert()
+            .success()
+            .stdout("1 1 1 []\n2 1 2 []\n3 2 3 [5]\n1 2\n")
+            .stderr("zawk: warning: -:2: invalid JSON\n");
+    }
+}
+
+#[test]
 fn markdown_output() {
     // -o markdown renders print records as a Markdown table: the first record is the header,
     // followed by the delimiter row; `|` in fields is escaped and tabs/newlines are kept on one line
