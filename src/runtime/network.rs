@@ -5,7 +5,7 @@ use confluent_kafka::common::serialization::StringSerializer;
 use confluent_kafka::producer::{KafkaProducer, Producer, ProducerConfig, ProducerRecord};
 use lettre::Transport;
 use reqwest::blocking::Response;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName};
+use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE, HeaderMap, HeaderName};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
@@ -190,7 +190,20 @@ fn body_too_large(limit: u64) -> std::io::Error {
 
 /// The body of `resp` as text, decoded as reqwest's `text()` does: with the `charset` of
 /// `Content-Type`, UTF-8 when absent or unknown, invalid sequences as U+FFFD.
+///
+/// reqwest decompresses gzip/deflate/br/zstd bodies and then drops `Content-Encoding`; one still
+/// present names a coding it cannot undo (`compress`, `gzip, br`, ...), and such a body is an
+/// error rather than compressed bytes read as text.
 pub(crate) fn read_text(resp: Response) -> std::io::Result<String> {
+    if let Some(coding) = resp.headers().get(CONTENT_ENCODING) {
+        let coding = String::from_utf8_lossy(coding.as_bytes());
+        if !coding.trim().eq_ignore_ascii_case("identity") {
+            return Err(std::io::Error::other(format!(
+                "unsupported Content-Encoding {:?}: the body cannot be decoded as text",
+                coding
+            )));
+        }
+    }
     let encoding = resp
         .headers()
         .get(CONTENT_TYPE)
@@ -1253,6 +1266,73 @@ mod tests {
             let err = read_body_limited(resp, 100).unwrap_err();
             assert!(body_error(&err).contains("exceeds 100 bytes"), "{}", body_error(&err));
         }
+    }
+
+    /// Serves one response with `body` sent as is under `Content-Encoding: coding`; the request
+    /// head is sent back on the channel.
+    fn encoded_server(
+        coding: &'static str,
+        body: Vec<u8>,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (head_tx, head_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let _ = head_tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Encoding: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                coding,
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&body);
+        });
+        (format!("http://127.0.0.1:{}/", port), head_rx)
+    }
+
+    fn gzip(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn test_http_gzip_body_is_decompressed() {
+        let client = http_client(Duration::from_secs(5));
+        let text = "hello, 世界\n".repeat(50);
+        // the client asks for compressed bodies by itself
+        let (url, head) = encoded_server("gzip", gzip(text.as_bytes()));
+        let resp = client.get(&url).send().unwrap();
+        assert!(resp.headers().get(CONTENT_ENCODING).is_none());
+        assert_eq!(read_text(resp).unwrap(), text);
+        let head = head.recv().unwrap().to_ascii_lowercase();
+        assert!(head.contains("accept-encoding:") && head.contains("gzip"), "{head}");
+        // and decompresses them when the script sets Accept-Encoding itself
+        let (url, _) = encoded_server("gzip", gzip(text.as_bytes()));
+        let resp = client
+            .get(&url)
+            .header("Accept-Encoding", "gzip")
+            .send()
+            .unwrap();
+        assert_eq!(read_text(resp).unwrap(), text);
+    }
+
+    #[test]
+    fn test_http_unsupported_encoding_is_error() {
+        let client = http_client(Duration::from_secs(5));
+        let (url, _) = encoded_server("compress", vec![0x1f, 0x9d, 0x90, 0x00]);
+        let resp = client.get(&url).send().unwrap();
+        let err = read_text(resp).unwrap_err();
+        assert!(
+            body_error(&err).contains("unsupported Content-Encoding"),
+            "{}",
+            body_error(&err)
+        );
     }
 
     #[test]

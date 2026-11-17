@@ -31,6 +31,14 @@ use crate::runtime::{decompress, http, s3};
 pub const TAIL_ROWS: usize = 10;
 /// The last rows are shown only when the input has more rows than this.
 pub const TAIL_MIN_ROWS: u64 = 50;
+
+/// The last rows (or lines) are shown only when there are more than this many: more than
+/// `min`, and more than the `shown` first ones plus `TAIL_ROWS`, so that they are not shown twice
+/// (e.g. 55 rows with `-n 100` are all shown already).
+fn tail_threshold(min: u64, shown: usize) -> u64 {
+    min.max(shown as u64 + TAIL_ROWS as u64)
+}
+
 /// The most bytes of a line kept by `LineTap`: the rest of a longer line is dropped, so that a
 /// text without newlines (e.g. a 2GB one-line JSON) is not held in memory.
 const MAX_TAP_LINE: usize = 64 * 1024;
@@ -156,11 +164,12 @@ pub fn sections(path: &str, opts: &Options, raw_lines: usize) -> io::Result<Sect
     let (ins, format, limited) = read(path, opts, Some(&tap))?;
     let [schema, sample, summary] = ins.tables().map(|t| t.markdown());
     let tail = ins.tail_table(limited).map(|t| t.markdown());
-    // As for the rows: only when there are more than `TAIL_MIN_ROWS` rows, all read.
+    // As for the rows: only when there are more than `TAIL_MIN_ROWS` rows, all read, and more
+    // lines than the first lines shown plus `TAIL_ROWS`.
     let tail_lines = if limited || ins.rows <= TAIL_MIN_ROWS {
         Vec::new()
     } else {
-        tap.tail(0)
+        tap.tail(tail_threshold(0, raw_lines))
     };
     Ok(Sections {
         rows: ins.rows,
@@ -176,7 +185,8 @@ pub fn sections(path: &str, opts: &Options, raw_lines: usize) -> io::Result<Sect
 }
 
 /// The first `head` lines of the text of `path` and its last `TAIL_ROWS` lines (empty unless it
-/// has more than `TAIL_MIN_ROWS` lines after the header line, with `header`), read in one pass.
+/// has more than `TAIL_MIN_ROWS` lines after the header line, with `header`, and more than `head`
+/// plus `TAIL_ROWS` lines), read in one pass.
 /// With `max_lines`, reading stops after that many lines, and the last lines are not known.
 pub fn text_lines(
     path: &str,
@@ -201,7 +211,10 @@ pub fn text_lines(
             return Ok((tap.lines(), Vec::new()));
         }
     }
-    Ok((tap.lines(), tap.tail(TAIL_MIN_ROWS + u64::from(header))))
+    Ok((
+        tap.lines(),
+        tap.tail(tail_threshold(TAIL_MIN_ROWS + u64::from(header), head)),
+    ))
 }
 
 /// Keeps a copy of the first lines and of the last lines read through the readers it wraps.
@@ -1164,9 +1177,10 @@ impl Inspector {
         }
     }
 
-    /// The last rows, when there are more than `TAIL_MIN_ROWS` rows and all of them were read.
+    /// The last rows, when there are more than `TAIL_MIN_ROWS` rows (and more than the sample
+    /// rows plus `TAIL_ROWS`) and all of them were read.
     fn tail_table(&self, limited: bool) -> Option<Table> {
-        if limited || self.rows <= TAIL_MIN_ROWS {
+        if limited || self.rows <= tail_threshold(TAIL_MIN_ROWS, self.samples.len()) {
             return None;
         }
         let types: Vec<String> = self.columns.iter().map(|c| c.data_type()).collect();
@@ -1727,6 +1741,27 @@ mod tests {
         assert_eq!(tail.rows.len(), TAIL_ROWS);
         assert_eq!(tail.rows[0], vec!["90", "NULL", "NULL"]);
         assert_eq!(tail.rows[9], vec!["99", "NULL", "z"]);
+    }
+
+    #[test]
+    fn no_tail_rows_when_all_are_shown() {
+        // 55 rows with 100 sample rows: all of them are in the sample already
+        let mut ins = Inspector::new(100);
+        for i in 0..55 {
+            ins.add_row(vec![Cell::Num(i.to_string())]);
+        }
+        assert!(ins.tail_table(false).is_none());
+        // the last rows are shown only with more than the sample rows plus TAIL_ROWS
+        let mut ins = Inspector::new(55);
+        for i in 0..65 {
+            ins.add_row(vec![Cell::Num(i.to_string())]);
+        }
+        assert!(ins.tail_table(false).is_none());
+        let mut ins = Inspector::new(55);
+        for i in 0..66 {
+            ins.add_row(vec![Cell::Num(i.to_string())]);
+        }
+        assert_eq!(ins.tail_table(false).unwrap().rows.len(), TAIL_ROWS);
     }
 
     #[test]
