@@ -545,7 +545,32 @@ pub(crate) fn url_topic(url: &Url) -> std::result::Result<String, String> {
         .map_err(|e| format!("invalid topic in {:?}: {}", redact_url(url.as_str()), e))
 }
 
-static MQTT_CONNECTIONS: LazyLock<ConnPool<MqttClient>> = LazyLock::new(ConnPool::new);
+/// Idle MQTT connections, with the time of their last publish.
+static MQTT_CONNECTIONS: LazyLock<ConnPool<(MqttClient, std::time::Instant)>> =
+    LazyLock::new(ConnPool::new);
+
+/// Key of a URL in `MQTT_CONNECTIONS`: one connection per broker (scheme://userinfo@host:port) and
+/// protocol options (query), shared by all topics.
+fn mqtt_pool_key(url: &Url) -> String {
+    match url.query() {
+        Some(query) => format!("{}?{}", &url[..url::Position::BeforePath], query),
+        None => url[..url::Position::BeforePath].to_string(),
+    }
+}
+
+/// An idle connection to publish on, unless it has been idle for too long. Nothing drives the event
+/// loop between two calls of `publish`, so no PINGREQ is sent and the broker closes the connection
+/// after 1.5 times the keep-alive. Writing to such a connection usually still succeeds (the error only
+/// shows up later), and QoS 0 has no acknowledgement: the message would be lost without any error.
+/// Such a connection is dropped here, and the caller connects again.
+fn mqtt_take_fresh(key: &str) -> Option<MqttClient> {
+    while let Some((cli, last_used)) = MQTT_CONNECTIONS.take(key) {
+        if last_used.elapsed() < MQTT_MAX_IDLE {
+            return Some(cli);
+        }
+    }
+    None
+}
 
 /// Publish `body` to a NATS, Kafka or MQTT topic, or show it as a desktop notification. Failures are
 /// reported as warnings.
@@ -594,18 +619,14 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
         if topic.is_empty() {
             return Err(format!("missing topic in {:?}", redact_url(namespace)));
         }
-        // one connection per broker (scheme://userinfo@host:port) and protocol options (query), shared by all topics
-        let key = match url.query() {
-            Some(query) => format!("{}?{}", &url[..url::Position::BeforePath], query),
-            None => url[..url::Position::BeforePath].to_string(),
-        };
-        let (mut cli, reused) = match MQTT_CONNECTIONS.take(&key) {
+        let key = mqtt_pool_key(&url);
+        let (mut cli, reused) = match mqtt_take_fresh(&key) {
             Some(cli) => (cli, true),
             None => (mqtt_connect(&url)?, false),
         };
         let mut result = cli.publish(&topic, body);
         if result.is_err() && reused {
-            // the pooled connection may have been dropped by the broker while idle: reconnect once.
+            // the pooled connection may have been dropped by the broker meanwhile: reconnect once.
             // No duplicate: `publish` succeeds as soon as rumqttc reports `Outgoing::Publish`, which
             // it does only once the packet is written and flushed; an error before that (read, write
             // or flush failure, timeout) means the packet did not fully reach the socket.
@@ -613,7 +634,7 @@ fn try_publish(namespace: &str, body: &str) -> std::result::Result<(), String> {
             result = cli.publish(&topic, body);
         }
         if result.is_ok() {
-            MQTT_CONNECTIONS.put(&key, cli);
+            MQTT_CONNECTIONS.put(&key, (cli, std::time::Instant::now()));
         }
         result
     } else if scheme == "kafka" {
@@ -688,6 +709,13 @@ fn show_desktop_notification(title: &str, body: &str) -> std::result::Result<(),
 
 /// Timeout to connect to the broker and flush a published message.
 const MQTT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Keep-alive sent to the broker, which closes a connection silent for 1.5 times as long.
+const MQTT_KEEP_ALIVE: Duration = Duration::from_secs(60);
+
+/// A pooled connection idle for longer is not used again, see `mqtt_take_fresh`. Half of the keep-alive:
+/// far below the time the broker waits, even if it shortens the keep-alive (MQTT 5 server keep-alive).
+const MQTT_MAX_IDLE: Duration = Duration::from_secs(30);
 
 /// MQTT client with its (synchronously driven) event loop. MQTT 3.1/3.1.1 use the v4 protocol, otherwise v5.
 enum MqttClient {
@@ -775,7 +803,7 @@ fn mqtt_connect(url: &Url) -> std::result::Result<MqttClient, String> {
     } else {
         rumqttc::Transport::tcp()
     };
-    let keep_alive = Duration::from_secs(60);
+    let keep_alive = MQTT_KEEP_ALIVE;
     if is_v5 {
         let mut options = rumqttc::v5::MqttOptions::new(client_id, host, port);
         options
@@ -1383,11 +1411,20 @@ mod tests {
 
     /// An MQTT 3.1.1 broker that accepts connections and takes any message.
     fn mqtt_broker() -> u16 {
+        mqtt_broker_counting().0
+    }
+
+    /// Same as `mqtt_broker`, with the number of connections accepted so far.
+    fn mqtt_broker_counting() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
         use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        let connections = std::sync::Arc::new(AtomicUsize::new(0));
+        let accepted = connections.clone();
         std::thread::spawn(move || {
             while let Ok((mut stream, _)) = listener.accept() {
+                accepted.fetch_add(1, Ordering::SeqCst);
                 std::thread::spawn(move || {
                     let mut buf = [0u8; 4096];
                     let mut connected = false;
@@ -1401,7 +1438,31 @@ mod tests {
                 });
             }
         });
-        port
+        (port, connections)
+    }
+
+    #[test]
+    fn test_mqtt_publish_reconnects_after_idle() {
+        use std::sync::atomic::Ordering;
+        let (port, connections) = mqtt_broker_counting();
+        let url = format!("mqtt://127.0.0.1:{}/t?version=3.1.1", port);
+        let key = mqtt_pool_key(&Url::parse(&url).unwrap());
+        try_publish(&url, "first").unwrap();
+        // used again right away: same connection
+        try_publish(&url, "second").unwrap();
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        // make the pooled connection look idle for longer than the limit
+        let (cli, last_used) = MQTT_CONNECTIONS.take(&key).unwrap();
+        let Some(long_ago) = last_used.checked_sub(MQTT_MAX_IDLE + Duration::from_secs(1)) else {
+            return; // the clock started less than MQTT_MAX_IDLE ago
+        };
+        MQTT_CONNECTIONS.put(&key, (cli, long_ago));
+        // the broker may have closed it: not used again, a new connection is made
+        try_publish(&url, "third").unwrap();
+        assert_eq!(connections.load(Ordering::SeqCst), 2);
+        // and the stale one is gone, only the new one is pooled
+        assert!(MQTT_CONNECTIONS.take(&key).is_some());
+        assert!(MQTT_CONNECTIONS.take(&key).is_none());
     }
 
     #[test]
