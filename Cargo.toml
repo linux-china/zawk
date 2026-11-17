@@ -102,7 +102,9 @@ local-ip-address = "0.6"
 # decodes HTTP bodies read with `std::io::Read` as reqwest's `text()` does
 encoding_rs = "0.8"
 mime = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "charset", "rustls-no-provider"] }
+# gzip/deflate/brotli/zstd: responses are decompressed transparently (also when a script sets
+# Accept-Encoding itself), so compressed bytes are never read as text
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "charset", "rustls-no-provider", "gzip", "deflate", "brotli", "zstd"] }
 async-nats = { version = "0.52", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
 confluent-kafka = { version = "1.0",default-features = false, features = ["lz4", "gzip", "snappy", "zstd"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
