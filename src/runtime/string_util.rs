@@ -87,15 +87,26 @@ pub fn strcmp(text1: &[u8], text2: &[u8]) -> i64 {
     }
 }
 
+/// `bytes` as text: valid UTF-8 is taken as is (no copy), invalid sequences become U+FFFD.
+pub(crate) fn lossy_text(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// awk's `read_all`: the content as text, or empty with a warning (and `ERRNO` set) on failure.
+/// Every source is decoded the same way: invalid UTF-8 sequences become U+FFFD, they are not an
+/// error (an HTTP body is first decoded with the `charset` of its `Content-Type`, if any).
 pub fn read_all(path: &str) -> String {
     let result = if path.starts_with("http://") || path.starts_with("https://") {
         crate::runtime::network::fetch_text(path)
     } else if crate::runtime::s3::is_s3_url(path) {
         crate::runtime::s3::read_object_bytes(path)
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .map(|bytes| lossy_text(bytes.into()))
             .map_err(|e| e.to_string())
     } else {
-        std::fs::read_to_string(path).map_err(|e| e.to_string())
+        std::fs::read(path)
+            .map(lossy_text)
+            .map_err(|e| e.to_string())
     };
     result.unwrap_or_else(|e| {
         stdlib_warning("read_all", format!("{}: {}", path, e));
@@ -1334,6 +1345,27 @@ mod tests {
         let text = "12";
         let result = text.repeat(3);
         println!("{}", result);
+    }
+
+    #[test]
+    fn test_lossy_text() {
+        assert_eq!(lossy_text(b"caf\xc3\xa9".to_vec()), "café");
+        assert_eq!(lossy_text(b"a\xffb".to_vec()), "a\u{fffd}b");
+        assert_eq!(lossy_text(Vec::new()), "");
+    }
+
+    #[test]
+    fn test_read_all_invalid_utf8() {
+        let path = std::env::temp_dir().join(format!("zawk_read_all_{}.bin", std::process::id()));
+        std::fs::write(&path, b"a\xffb\n").unwrap();
+        let content = read_all(path.to_str().unwrap());
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(content, "a\u{fffd}b\n");
+    }
+
+    #[test]
+    fn test_read_all_missing_file() {
+        assert_eq!(read_all("no/such/zawk_read_all_file.txt"), "");
     }
 
     #[test]

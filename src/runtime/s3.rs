@@ -317,7 +317,8 @@ pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, BoxErr
     let op = s3_operator(bucket_name)?;
     S3_RUNTIME.block_on(async {
         let content = op.read(object_name).await?.to_vec();
-        Ok(String::from_utf8(content)?)
+        // lossy as `read_all("s3://...")`: invalid UTF-8 becomes U+FFFD instead of failing
+        Ok(crate::runtime::string_util::lossy_text(content))
     })
 }
 
