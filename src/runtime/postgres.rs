@@ -622,6 +622,28 @@ fn decode_numeric(raw: &[u8]) -> Option<String> {
     Some(text)
 }
 
+/// Warn (once per column and type) that a column of a type zawk can't decode is read as an
+/// empty string, so the developer casts it to text in the SQL instead of getting empty data.
+fn warn_unsupported_type(column: &postgres::Column) {
+    fn type_name(ty: &Type) -> String {
+        match ty.kind() {
+            // arrays are named `_int4` in pg_type, show them as `int4[]`
+            Kind::Array(inner) => format!("{}[]", type_name(inner)),
+            _ if ty.schema() == "pg_catalog" || ty.schema() == "public" => ty.name().to_string(),
+            _ => format!("{}.{}", ty.schema(), ty.name()),
+        }
+    }
+    stdlib_warning(
+        "postgres",
+        format!(
+            "column \"{}\" has unsupported type {}, read as empty string; \
+             cast it to text in the SQL, e.g. `col::text`",
+            column.name(),
+            type_name(column.type_())
+        ),
+    );
+}
+
 pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
     let column_type = row.columns().get(index).map(|c| c.type_().name()).unwrap();
     // see https://docs.rs/sqlx/0.8.2/sqlx/postgres/types/index.html
@@ -701,15 +723,20 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             let v: Option<Uuid> = row.get(index);
             v.map(|v| v.to_string())
         }
-        // enums and text-compatible types (citext etc.), otherwise empty
-        &_ => match row.columns()[index].type_().kind() {
-            Kind::Enum(_) => row
-                .try_get::<_, Option<PgEnum>>(index)
-                .ok()
-                .flatten()
-                .map(|v| v.0),
-            _ => row.try_get::<_, Option<String>>(index).ok().flatten(),
-        },
+        // enums and text-compatible types (citext etc.), otherwise empty with a warning
+        &_ => {
+            let value = match row.columns()[index].type_().kind() {
+                Kind::Enum(_) => row.try_get::<_, Option<PgEnum>>(index).map(|v| v.map(|v| v.0)),
+                _ => row.try_get::<_, Option<String>>(index),
+            };
+            match value {
+                Ok(v) => v,
+                Err(_) => {
+                    warn_unsupported_type(&row.columns()[index]);
+                    None
+                }
+            }
+        }
     };
     value.unwrap_or("".to_string())
 }

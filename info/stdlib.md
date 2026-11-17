@@ -1526,6 +1526,9 @@ Parameters are passed as text: SQLite/MySQL convert them by column type, Postgre
 to the inferred parameter type (bool, integers, floats, numeric, json, uuid, inet, bytea, date/time types;
 empty value is NULL for non-text types; with `--null text`, a parameter that is `text` is NULL for every database
 and type, see `isnull`). For other PostgreSQL types, cast in SQL, such as `$1::text::interval`.
+Result columns of a PostgreSQL type zawk can't read (arrays, `interval`, `timetz`, `money`, `macaddr`, `xml`,
+ranges, ...) are empty strings with a warning (once per column and type) and `ERRNO` set: cast them in SQL, such as
+`select tags::text, duration::text from t`.
 
 Connections are cached per URL for the whole run. A PostgreSQL or Redis (`kv_*`) connection that was closed
 (server restart, idle timeout, network failure) is reconnected once on the next call, so long-running input
