@@ -908,7 +908,7 @@ fn run_eval(
 /// Context variables are floats, and evalexpr's `==`/`!=` never treat `Int(1)` and `Float(1.0)`
 /// as equal, so `x == 1` would always be false. For each `==`/`!=` whose one side is a float
 /// expression (a float variable or literal, or arithmetic over one), integer literals on the
-/// other side are turned into floats. Integer-only expressions (`str::len(s) == 3`) are kept.
+/// other side are turned into floats. Integer-only expressions (`len(s) == 3`) are kept.
 fn float_int_literals_in_equality(
     node: &mut evalexpr::Node<DefaultNumericTypes>,
     context: &evalexpr::HashMapContext<DefaultNumericTypes>,
@@ -1470,8 +1470,8 @@ mod tests {
         assert_eq!(eval_context("age == 24", &strings), 1.0);
         assert_eq!(eval_context("hex == 16", &strings), 1.0);
         // integer-only sides keep evalexpr's int semantics
-        assert_eq!(eval_context("str::len(name) == 3", &strings), 1.0);
-        assert_eq!(eval_context(r#"str::len(name) == 3 && name == "Leo""#, &strings), 1.0);
+        assert_eq!(eval_context("len(name) == 3", &strings), 1.0);
+        assert_eq!(eval_context(r#"len(name) == 3 && name == "Leo""#, &strings), 1.0);
         // a non-numeric string in arithmetic is an error (warning, result 0), not a silent 0
         assert_eq!(eval_context("name + 1", &strings), 0.0);
         assert_eq!(eval_context("age + 1", &strings), 25.0);
