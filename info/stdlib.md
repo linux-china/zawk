@@ -1660,6 +1660,10 @@ Read config file to StrStrMap: `read_config("tests/demo.ini")`.
 Supported formats: `*.ini`, `*.properties` and `*.json`; any other extension gives a warning, sets `ERRNO`
 and returns an empty array.
 
+An INI config gives `section.key` entries, and section and key names keep their case: `[Database]` with
+`Host=localhost` is `cfg["Database.Host"]`, not `cfg["database.host"]`. Keys of the default section (keys before
+any section header, or a `[DEFAULT]` header in any case) are available as `default.key` and as plain `key`.
+
 A JSON config must be an object at the top level (an array, string, number, boolean or `null` gives a warning,
 sets `ERRNO` and returns an empty array). It is flattened like `json_flatten()`: nested object keys are joined
 with `.` and array items use 1-based `[n]`, e.g. `{"db":{"host":"localhost","ports":[80,443]}}` gives
