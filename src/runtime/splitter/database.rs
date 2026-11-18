@@ -557,6 +557,7 @@ mod postgres {
         let mut rows = client
             .query_raw(&stmt, std::iter::empty::<&str>())
             .map_err(crate::runtime::postgres::error_text)?;
+        let mut unsupported = crate::runtime::postgres::UnsupportedColumns::default();
         while let Some(row) = rows.next().map_err(crate::runtime::postgres::error_text)? {
             let values = (0..row.len())
                 .map(|i| {
@@ -566,9 +567,17 @@ mod postgres {
                     } else if *ty == Type::BYTEA {
                         DbValue::Text(String::new())
                     } else if is_number(ty) {
-                        DbValue::Num(crate::runtime::postgres::reflective_get(&row, i))
+                        DbValue::Num(crate::runtime::postgres::reflective_get(
+                            &row,
+                            i,
+                            &mut unsupported,
+                        ))
                     } else {
-                        DbValue::Text(crate::runtime::postgres::reflective_get(&row, i))
+                        DbValue::Text(crate::runtime::postgres::reflective_get(
+                            &row,
+                            i,
+                            &mut unsupported,
+                        ))
                     }
                 })
                 .collect();

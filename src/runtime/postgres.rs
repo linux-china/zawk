@@ -257,13 +257,14 @@ pub(crate) fn pg_query<'a>(db_url: &str, sql: &str, params: &IntMap<Str>) -> Int
             return map;
         }
     };
+    let mut unsupported = UnsupportedColumns::default();
     for (index, row) in (1..).zip(rows) {
         let mut items: Vec<String> = vec![];
         for i in 0..row.len() {
             let text_value = if is_null_column(&row, i) {
                 null_input().to_string()
             } else {
-                reflective_get(&row, i)
+                reflective_get(&row, i, &mut unsupported)
             };
             items.push(text_value);
         }
@@ -622,8 +623,25 @@ fn decode_numeric(raw: &[u8]) -> Option<String> {
     Some(text)
 }
 
-/// Warn (once per column and type) that a column of a type zawk can't decode is read as an
-/// empty string, so the developer casts it to text in the SQL instead of getting empty data.
+/// Columns of one query whose unsupported type was already reported by
+/// [`warn_unsupported_type`]: the warning (and `ERRNO`) is given on the first row only, not on
+/// every row of a large result.
+#[derive(Default)]
+pub(crate) struct UnsupportedColumns(Vec<bool>);
+
+impl UnsupportedColumns {
+    /// Whether column `index` is reported for the first time in this query.
+    fn first(&mut self, index: usize) -> bool {
+        if self.0.len() <= index {
+            self.0.resize(index + 1, false);
+        }
+        !std::mem::replace(&mut self.0[index], true)
+    }
+}
+
+/// Warn that a column of a type zawk can't decode is read as an empty string, so the developer
+/// casts it to text in the SQL instead of getting empty data. Called once per column and query
+/// (see [`UnsupportedColumns`]).
 fn warn_unsupported_type(column: &postgres::Column) {
     fn type_name(ty: &Type) -> String {
         match ty.kind() {
@@ -644,7 +662,13 @@ fn warn_unsupported_type(column: &postgres::Column) {
     );
 }
 
-pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
+/// The value of column `index` of `row` as text; `unsupported` remembers, across the rows of one
+/// query, the columns already reported as of an unsupported type.
+pub(crate) fn reflective_get(
+    row: &postgres::Row,
+    index: usize,
+    unsupported: &mut UnsupportedColumns,
+) -> String {
     let column_type = row.columns().get(index).map(|c| c.type_().name()).unwrap();
     // see https://docs.rs/sqlx/0.8.2/sqlx/postgres/types/index.html
     let value = match column_type {
@@ -732,7 +756,9 @@ pub(crate) fn reflective_get(row: &postgres::Row, index: usize) -> String {
             match value {
                 Ok(v) => v,
                 Err(_) => {
-                    warn_unsupported_type(&row.columns()[index]);
+                    if unsupported.first(index) {
+                        warn_unsupported_type(&row.columns()[index]);
+                    }
                     None
                 }
             }
@@ -747,6 +773,16 @@ mod tests {
 
     #[test]
     fn test_spike() {}
+
+    #[test]
+    fn unsupported_column_reported_once() {
+        let mut unsupported = UnsupportedColumns::default();
+        assert!(unsupported.first(3));
+        assert!(!unsupported.first(3));
+        assert!(unsupported.first(0));
+        assert!(!unsupported.first(0));
+        assert!(!unsupported.first(3));
+    }
 
     #[test]
     fn inet_wire_format() {
