@@ -1,0 +1,10 @@
+b+ 1 aXc
+x* 4 XaXbXcX
+b* 3 XaXcX
+c 1 abX
+c+ 1 abX
+x*$ 1 abcX
+b|$ 2 aXcX
+^x* 1 Xabc
+6 -h-e-l-l-o-
+1 [-]

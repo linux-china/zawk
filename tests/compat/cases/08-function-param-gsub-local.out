@@ -1,0 +1,7 @@
+Buffer = []
+2
+Buffer = [line_1\n]
+3
+Buffer = [line_1\nline_2\n]
+4
+21

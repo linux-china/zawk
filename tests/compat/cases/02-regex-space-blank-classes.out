@@ -1,0 +1,8 @@
+SP  space=1 blank=1 cntrl=0 \s=1
+BEL space=0 blank=0 cntrl=1 \s=0
+BS  space=0 blank=0 cntrl=1 \s=0
+FF  space=1 blank=0 cntrl=1 \s=1
+NL  space=1 blank=0 cntrl=1 \s=1
+CR  space=1 blank=0 cntrl=1 \s=1
+TAB space=1 blank=1 cntrl=1 \s=1
+VT  space=1 blank=0 cntrl=1 \s=1

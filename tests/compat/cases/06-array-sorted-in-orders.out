@@ -1,0 +1,10 @@
+@ind_str_asc: 10=x 9=2 a=10 b=3 c=y
+@ind_str_desc: c=y b=3 a=10 9=2 10=x
+@ind_num_asc: a=10 b=3 c=y 9=2 10=x
+@ind_num_desc: 10=x 9=2 c=y b=3 a=10
+@val_num_asc: 10=x c=y 9=2 b=3 a=10
+@val_num_desc: a=10 b=3 9=2 c=y 10=x
+@val_str_asc: a=10 9=2 b=3 10=x c=y
+@val_str_desc: c=y 10=x b=3 9=2 a=10
+@val_type_asc: 9=2 b=3 a=10 10=x c=y
+@val_type_desc: c=y 10=x a=10 b=3 9=2

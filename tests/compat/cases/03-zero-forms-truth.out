@@ -1,0 +1,12 @@
+345 true 345
+0 false 0
+00 false 0
+0e0 false 0
+0E1 false 0
+00E0 false 0
+000e-5 false 0
+.0e+0 false 0
+-0 false 0
++0.0 false 0
+0. false 0
+x0 true 0

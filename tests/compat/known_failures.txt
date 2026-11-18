@@ -5,6 +5,7 @@
 01-crlf-default-fs                    # with the default FS, `\r` is a blank that separates fields (CRLF input splits cleanly)
 
 # grammar and expressions
+07-for-simple-statement-init          # a `for` header only accepts expressions, not simple statements such as print (POSIX allows print)
 03-string-to-number                   # hexadecimal input such as "0x1A" converts to 26 instead of 0
 03-strnum-comparison                  # a hexadecimal field ("0x1A") is a strnum and compares as 26
 03-strnum-fields                      # a hexadecimal field ("0x0A") is a strnum and compares as 10
