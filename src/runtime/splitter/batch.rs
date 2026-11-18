@@ -870,6 +870,16 @@ impl<'a> Stepper<'a> {
                             self.st = State::Init;
                             continue;
                         }
+                        b'\r'
+                            if self.prev_ix + 1 < bs.len()
+                                && *bs.get_unchecked(self.prev_ix + 1) == b'\n' =>
+                        {
+                            // A backslash before a `\r\n` line end: keep the backslash, and leave
+                            // the `\r` to the `\n` arm of `Init`, which drops it.
+                            self.append("\\".into());
+                            self.st = State::Init;
+                            continue;
+                        }
                         x => {
                             // Unknown escape: keep the backslash and the raw byte. Build from
                             // bytes, since `x` may not be valid UTF-8 on its own.
@@ -3646,6 +3656,10 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
     }
 
     fn csv_read_all(corpus: &str, chunk_size: usize) -> Vec<Vec<String>> {
+        read_all_fmt(corpus, chunk_size, InputFormat::CSV)
+    }
+
+    fn read_all_fmt(corpus: &str, chunk_size: usize, ifmt: InputFormat) -> Vec<Vec<String>> {
         let mut _cache = RegexCache::default();
         let _pat = Str::default();
         let mut reader = CSVReader::new(
@@ -3653,7 +3667,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
                 std::io::Cursor::new(corpus.to_string()),
                 String::from("fake-stdin"),
             )),
-            InputFormat::CSV,
+            ifmt,
             chunk_size,
             /*check_utf8=*/ true,
             ExecutionStrategy::Serial,
@@ -3804,6 +3818,29 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             }
             panic!("test failed. See debug output");
         }
+    }
+
+    #[test]
+    fn tsv_backslash_before_crlf() {
+        // A trailing backslash is kept, and the `\r` of the `\r\n` is dropped as on other lines.
+        let corpus = "a\tfoo\\\r\nb\\\r\nc\\\rd\r\n";
+        let want: Vec<Vec<String>> = [&["a", "foo\\"][..], &["b\\"], &["c\\\rd"]]
+            .iter()
+            .map(|r| r.iter().map(|s| s.to_string()).collect())
+            .collect();
+        for chunk_size in [512, 4, 3] {
+            assert_eq!(
+                read_all_fmt(corpus, chunk_size, InputFormat::TSV),
+                want,
+                "chunk_size={chunk_size}"
+            );
+        }
+        // `$0` reassignment splits the same way.
+        let got: Vec<String> = split_record(b"a\tfoo\\\r\n", InputFormat::TSV)
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(got, ["a", "foo\\"]);
     }
 
     #[test]
