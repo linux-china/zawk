@@ -2023,6 +2023,18 @@ where
             }
             Call(fname, args) => return self.call(current_open, fname, args),
             Assign(Index(arr, ix), to) => {
+                if self.may_assign(ix) || self.may_assign(to) {
+                    // As in gawk, the value is evaluated before the subscript when either has
+                    // side effects: `d[++j] = j` assigns the value of `j` before the increment.
+                    let (next, to_v) = self.convert_val(to, current_open)?;
+                    let to_v = self.snapshot_before(to_v, &[ix], next)?;
+                    return self.do_assign_index(
+                        arr,
+                        ix,
+                        |_, _, _, open| Ok((open, PrimExpr::Val(to_v.clone()))),
+                        next,
+                    );
+                }
                 return self.do_assign_index(
                     arr,
                     ix,
@@ -2032,7 +2044,17 @@ where
             }
 
             AssignOp(Index(arr, ix), op, to) => {
-                if let ast::Binop::Plus = op {
+                // As in gawk, the value is evaluated before the subscript when either has side
+                // effects: `a[i++] += i` adds the value of `i` before the increment.
+                let mut pre_to = None;
+                let mut current_open = current_open;
+                let literal = matches!(to, ILit(_) | FLit(_) | StrLit(_));
+                if !literal && (self.may_assign(ix) || self.may_assign(to)) {
+                    let (next, to_v) = self.convert_val(to, current_open)?;
+                    pre_to = Some(self.snapshot_before(to_v, &[ix], next)?);
+                    current_open = next;
+                }
+                if let (ast::Binop::Plus, None) = (op, &pre_to) {
                     // We don't need in_cond here, it would seem, because there aren't
                     // subexpressions which should be considered patterns.
                     // Adding a non-constant amount is done in floating point, as in
@@ -2052,7 +2074,10 @@ where
                     arr,
                     ix,
                     |slf, arr_v, ix_v, open| {
-                        let (next, to_v) = slf.convert_val(to, open)?;
+                        let (next, to_v) = match &pre_to {
+                            Some(to_v) => (open, to_v.clone()),
+                            None => slf.convert_val(to, open)?,
+                        };
                         let arr_cell_v =
                             slf.lower_to_val(PrimExpr::Index(arr_v, ix_v.clone()), next)?;
                         let arr_cell_v = slf.widen_sum_operand(*op, arr_cell_v, &to_v, next)?;
@@ -2329,6 +2354,19 @@ where
         let line_var = Var(I::from_static("%getline_line"));
         let status_var = Var(I::from_static("%getline_status"));
         let mut next = current_open;
+        // A subscript of the target with side effects (`getline a[++n] < file`) is evaluated
+        // once per call, before the read, also by the call that reaches the end of the input (as
+        // in gawk).
+        let ix_var = Var(I::from_static("%getline_index"));
+        let indexed;
+        let into = match into {
+            Some(ast::Expr::Index(arr, ix)) if self.may_assign(ix) => {
+                next = self.convert_expr(&Assign(&ix_var, *ix), next)?.0;
+                indexed = ast::Expr::Index(*arr, &ix_var);
+                Some(&indexed)
+            }
+            into => into,
+        };
         if let Some(read) = read {
             next = self.convert_expr(&Assign(&line_var, read), next)?.0;
         }
@@ -4168,8 +4206,11 @@ where
                         }
                         n => return Err(builtins::arity_error(&call_name(fname), n, 3)),
                     };
-                    // Easy case! How delighful
-                    if let Expr::Var(_) = assignee {
+                    // Easy case! How delighful. (Not for a special variable such as OFS, which
+                    // is assigned with SetBuiltin below.)
+                    if let Expr::Var(id) = assignee
+                        && builtins::Variable::try_from(id.clone()).is_err()
+                    {
                         self.mark_assigned(assignee, None, open)?;
                         return Ok((open, PrimExpr::CallBuiltin(bi, prim_args)));
                     }
@@ -4198,7 +4239,9 @@ where
                         .add_edge(open, set, Transition::new(PrimVal::Var(res)));
                     self.f.cfg.add_edge(open, next, Transition::null());
                     let (set_end, _) = match assignee {
-                        Expr::Unop(_, _) => self.do_assign(assignee, |_| to_set_var, set),
+                        Expr::Unop(_, _) | Expr::Var(_) => {
+                            self.do_assign(assignee, |_| to_set_var, set)
+                        }
                         Expr::Index(arr, ix) => self.do_assign_index(
                             arr,
                             ix,

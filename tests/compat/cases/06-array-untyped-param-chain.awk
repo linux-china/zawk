@@ -2,7 +2,7 @@
 # the inner function only creates an element or calls split() (gawk arrayref, arryref2, arrayprm2,
 # arrayprm3, delarpm2, arrymem1).
 function test(arr) { test2(arr) }
-function test2(bar) { bar[1] = 1 }
+function test2(arr2) { arr2[1] = 1 }
 function viasplit(baz) { split("x y", baz) }
 function hasempty(a) { mkempty(a); return ("" in a) }
 function mkempty(a) { a[""] }

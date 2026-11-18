@@ -117,7 +117,6 @@ count characters); `file` is null for program text, and all location fields are 
 | W119 | `FS` assigned in a main rule: applies from the next record only; set it in BEGIN or with `-F` |
 | W120 | string constant as a condition (`if ("0")`): false in zawk if it looks like 0, true in gawk |
 | W121 | string constant after `$` (`$"age"`): converted to a number, so it is `$0`, not a column; use `$FI["age"]` with `-H` |
-| W122 | subscript and right-hand side of an assignment affect each other (`a[i++] = i`, `a[p(1)] = p(2)`): zawk evaluates the subscript first, gawk the right-hand side |
 | W123 | arithmetic in a `dec_*` argument (`dec_add(t, $3 * 1.06)`): computed in floating point first; use `dec_mul($3, "1.06")` |
 | W126 | (input file given; severity `error` despite the W) unknown column in `$FI["col"]`: always `""`; with a "did you mean" hint |
 | W127 | (input file given) `$N` beyond the number of fields of the sampled records: always empty |

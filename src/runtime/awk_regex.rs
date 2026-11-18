@@ -8,8 +8,9 @@
 //! * gawk's operators: `\y` (word boundary), `\<` and `\>` (start/end of a word), `` \` `` and
 //!   `\'` (start/end of the string), and `\B`.
 //! * Escapes: `\b` is a backspace (gawk uses `\y` for word boundaries), `\a`, `\v`, `\f`; octal
-//!   (`\351`) and hex (`\xE9`) escapes are bytes, not code points (see `push_byte`); other
-//!   letters that are not operators are literal characters.
+//!   (`\351`) and hex (`\xE9`) escapes are bytes, not code points (see `push_byte`), and outside
+//!   a bracket expression an escape of an operator is that operator (`\52` is `*`, as in gawk);
+//!   other letters that are not operators are literal characters.
 //! * POSIX character classes (`[:alpha:]` etc.) match non-ASCII characters too, as in gawk under a
 //!   UTF-8 locale (the `regex` crate's own versions are ASCII-only); see `posix_class`.
 //! * In bracket expressions, `[`, `&`, `~` and `-` sequences that the `regex` crate treats as
@@ -1864,7 +1865,7 @@ fn high_byte_item(bytes: &mut String, chars: &[char], j: usize) -> Option<usize>
 /// Translate an awk regular expression into the syntax of the `regex` crate. Errors that `regex`
 /// would not report, like an unknown character class name, are returned as a message.
 pub(crate) fn translate(pat: &str) -> Result<String, String> {
-    let chars: Vec<char> = pat.chars().collect();
+    let mut chars: Vec<char> = pat.chars().collect();
     let mut out = String::with_capacity(pat.len() + 8);
     // Whether we are at the start of an expression (where a repetition operator is a literal).
     let mut at_start = true;
@@ -1873,6 +1874,21 @@ pub(crate) fn translate(pat: &str) -> Result<String, String> {
         let c = chars[i];
         match c {
             '\\' => {
+                // As in gawk, an octal or hex escape of an operator (`\52` or `\x2a` for `*`)
+                // outside a bracket expression is that operator, not a literal character: replace
+                // the escape with the character and translate it again.
+                let mut k = i;
+                if let Some(b) = byte_escape(&chars, &mut k)
+                    && matches!(
+                        b,
+                        b'.' | b'[' | b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'|' | b'^'
+                            | b'$'
+                    )
+                {
+                    chars.drain(i + 1..k);
+                    chars[i] = b as char;
+                    continue;
+                }
                 i += 1;
                 translate_escape(&mut out, &chars, &mut i, /*in_bracket=*/ false);
                 at_start = false;
@@ -1945,6 +1961,10 @@ mod tests {
         assert_eq!(translate("a{,}").unwrap(), r"a\{,\}");
         assert_eq!(translate("a{2}b{1,}c{1,3}").unwrap(), "a{2}b{1,}c{1,3}");
         assert_eq!(translate(r"\101").unwrap(), r"\x{41}");
+        // Escapes of operators are operators, as in gawk.
+        assert_eq!(translate(r"a\52b").unwrap(), "a*b");
+        assert_eq!(translate(r"a\x2bb").unwrap(), "a+b");
+        assert_eq!(translate(r"\50x\51\174").unwrap(), "(x)|");
         assert_eq!(translate("[[]").unwrap(), r"[\[]");
         assert_eq!(translate("[]a]").unwrap(), r"[\]a]");
         assert_eq!(translate("[^]a]").unwrap(), r"[^\]a]");

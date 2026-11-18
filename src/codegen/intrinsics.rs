@@ -3946,6 +3946,17 @@ pub(crate) unsafe extern "C" fn store_var_str(rt: *mut c_void, var: usize, s: *m
                         .split_now(&runtime.core.vars.split_fs, &mut runtime.core.regexes))
                 );
             }
+            // A record whose fields were assigned is rebuilt with the old OFS.
+            if let Variable::OFS = var {
+                try_abort!(
+                    runtime,
+                    with_input!(&mut runtime.input_data, |(line, _)| line.rebuild_now(
+                        &runtime.core.vars.split_fs,
+                        &runtime.core.vars.ofs,
+                        &mut runtime.core.regexes
+                    ))
+                );
+            }
             try_abort!(runtime, runtime.core.vars.store_str(var, s))
         } else {
             fail!(runtime, "invalid variable code={}", var)

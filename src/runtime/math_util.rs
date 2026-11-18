@@ -395,8 +395,9 @@ fn extract_timestamp_ms(id: &str, epoch_ms: Int) -> Option<i64> {
 /// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
 /// octal one (`strtonum("017")` is 15), unless the digits continue with `8`, `9`, `.` or an
 /// exponent, which make it decimal (`"018"` is 18, `"017.5"` is 17.5). Leading blanks or a sign
-/// also make it decimal, except before `0x`: `strtonum(" -0x10")` is -16, the same as for a field,
-/// since zawk reads hexadecimal input as a number everywhere.
+/// also make it decimal, as in gawk, so `strtonum("-0x10")` is 0; for a strnum they keep a `0x`
+/// hexadecimal (`strtonum($1)` is -16 for the field " -0x10"), since zawk reads hexadecimal input
+/// as a number everywhere.
 ///
 /// A decimal number may group its integer digits by thousands with `,` or `_` (one kind per
 /// number): `strtonum("1,234.5")` and `strtonum("1_234.5")` are 1234.5. The first group has one
@@ -426,6 +427,10 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         _ => (false, trimmed),
     };
     if let [b'0', b'x' | b'X', rest @ ..] = unsigned {
+        if !strnum && unsigned.len() != bs.len() {
+            // `-0x10` or ` 0x10` in a string: the decimal number `-0` or `0`, as in gawk.
+            return 0.0;
+        }
         let n = crate::runtime::float_parse::hex_digits(rest).0;
         return if negative && n != 0.0 { -n } else { n };
     }
@@ -1165,12 +1170,14 @@ mod tests {
         assert_eq!(n("12abc"), 12.0);
         assert_eq!(n("abc"), 0.0);
         assert_eq!(n(""), 0.0);
-        // A sign or leading blanks before `0x` keep it hexadecimal, as for a strnum.
-        assert_eq!(n("-0x10"), -16.0);
-        assert_eq!(n("+0x10"), 16.0);
-        assert_eq!(n(" 0x10"), 16.0);
-        assert_eq!(n(" -0x10 "), -16.0);
+        // A sign or leading blanks before `0x` make it decimal (0), as in gawk; not for a strnum.
+        assert_eq!(n("-0x10"), 0.0);
+        assert_eq!(n("+0x10"), 0.0);
+        assert_eq!(n(" 0x10"), 0.0);
+        assert_eq!(n(" -0x10 "), 0.0);
         assert_eq!(n("-0x"), 0.0);
+        assert_eq!(n("0x10 "), 16.0);
+        assert_eq!(awk_strtonum(b" -0x10 ", true), -16.0);
         assert_eq!(awk_strtonum(b"-0x10", true), -16.0);
         assert_eq!(awk_strtonum(b"-0x1g", true), -1.0);
         // A strnum that looks like a number is that number; other strnums follow the rules above.

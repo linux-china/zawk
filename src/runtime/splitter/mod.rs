@@ -93,6 +93,15 @@ pub trait Line<'a>: Default + Clone {
         self.nf(pat, rc).map(drop)
     }
     fn get_col(&mut self, col: Int, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<Str<'a>>;
+    /// Rebuild `$0` now with `ofs` (the current OFS) if a field or NF was assigned, as `$0` is
+    /// rebuilt lazily. Called before OFS changes: as in gawk, `$0` is rebuilt with the OFS in
+    /// effect when the field was assigned.
+    fn rebuild_now(&mut self, pat: &Str, ofs: &Str, rc: &mut RegexCache) -> Result<()> {
+        if self.fields_assigned() {
+            self.get_col(0, pat, ofs, rc)?;
+        }
+        Ok(())
+    }
     fn set_col(&mut self, col: Int, s: &Str<'a>, pat: &Str, rc: &mut RegexCache) -> Result<()>;
     /// Assign to NF: truncate the fields or extend them with empty fields, and rebuild $0 (with
     /// OFS) the next time it is read, even if the number of fields does not change.

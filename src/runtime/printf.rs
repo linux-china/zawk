@@ -382,16 +382,24 @@ fn take_chars(bs: &[u8], n: usize) -> &[u8] {
     }
 }
 
-/// Infinities and NaNs are written as in gawk (and padded like strings).
-fn special_float(f: f64) -> Option<&'static [u8]> {
+/// Infinities and NaNs are written as in gawk (and padded like strings): in upper case for the
+/// upper case conversions `%E`, `%F`, `%G`, `%A` and `%X` (`+INF`, `-NAN`).
+fn special_float(f: f64, conv: u8) -> Option<&'static [u8]> {
+    let upper = matches!(conv, b'E' | b'F' | b'G' | b'A' | b'X');
     if f.is_nan() {
-        Some(if f.is_sign_negative() {
-            b"-nan"
-        } else {
-            b"+nan"
+        Some(match (f.is_sign_negative(), upper) {
+            (true, false) => b"-nan",
+            (false, false) => b"+nan",
+            (true, true) => b"-NAN",
+            (false, true) => b"+NAN",
         })
     } else if f.is_infinite() {
-        Some(if f < 0.0 { b"-inf" } else { b"+inf" })
+        Some(match (f < 0.0, upper) {
+            (true, false) => b"-inf",
+            (false, false) => b"+inf",
+            (true, true) => b"-INF",
+            (false, true) => b"+INF",
+        })
     } else {
         None
     }
@@ -478,7 +486,7 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
     match spec.conv {
         b'd' | b'i' => match arg.to_integer() {
             Ok(i) => spec.for_truncated_zero(i, arg).write_int(w, i),
-            Err(f) => match special_float(f) {
+            Err(f) => match special_float(f, spec.conv) {
                 Some(s) => spec.pad(w, s, <[u8]>::len),
                 // Integral values beyond the range of an i64, written with `%.0f`. As in gawk,
                 // `#` does not add a trailing `.`, and a precision disables the `0` flag.
@@ -499,7 +507,7 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
                 Ok(i) => i as u64,
                 Err(f) if f > 0.0 && f <= u64::MAX as f64 => f as u64,
                 Err(f) => {
-                    return match special_float(f) {
+                    return match special_float(f, spec.conv) {
                         Some(s) => spec.pad(w, s, <[u8]>::len),
                         // Values beyond the range of a u64 (or negative ones beyond an i64) are
                         // written with `%g`, as in gawk: without the precision, which also
@@ -520,7 +528,7 @@ fn process_spec(mut w: impl Write, spec: &Spec, arg: &FormatArg) -> Result<()> {
         }
         b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'a' | b'A' => {
             let f = arg.to_float();
-            match special_float(f) {
+            match special_float(f, spec.conv) {
                 Some(s) => spec.pad(w, s, <[u8]>::len),
                 None if matches!(spec.conv, b'f' | b'F') && !spec.alt => spec.write_fixed(w, f),
                 None => snprintf_with(w, &spec.c_format(b"", spec.conv), CArg::Double(f)),
@@ -1194,6 +1202,10 @@ mod tests {
         assert_eq!(
             sprintf!(b"[%f][%5.1f]", f64::INFINITY, f64::NAN),
             "[+inf][ +nan]"
+        );
+        assert_eq!(
+            sprintf!(b"%G|%E|%F|%X|%g|%6G", f64::INFINITY, -f64::INFINITY, f64::NAN, 1e400, 1e400, -1e400),
+            "+INF|-INF|+NAN|+INF|+inf|  -INF"
         );
     }
 

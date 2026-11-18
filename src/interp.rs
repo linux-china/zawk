@@ -3613,6 +3613,16 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                                 .split_now(&self.core.vars.split_fs, &mut self.core.regexes)
                                 .map_err(at!())?;
                         }
+                        // A record whose fields were assigned is rebuilt with the old OFS.
+                        if let OFS = *var {
+                            self.line
+                                .rebuild_now(
+                                    &self.core.vars.split_fs,
+                                    &self.core.vars.ofs,
+                                    &mut self.core.regexes,
+                                )
+                                .map_err(at!())?;
+                        }
                         self.core.vars.store_str(*var, s).map_err(at!())?;
                     }
                     LoadVarInt(dst, var) => {

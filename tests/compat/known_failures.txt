@@ -13,6 +13,7 @@
 03-strnum-truth                       # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
 03-ternary-and-logic                  # a string that looks like zero ("0", "0.0") is false, strnum or not (same as `??`)
 03-uninit-udf-arg                     # an uninitialized number passed to a user-defined function reads as "0" (parameters are not tracked)
+03-forin-key-is-string                # in `for (k in a)` over keys that are only numbers (`x[65]`), k is a number: %c prints "A" (see info/faq.md)
 
 # number output
 
@@ -22,5 +23,7 @@
 05-printf-c-strnum                    # %c of a hexadecimal strnum ("0x41") is the character with that code ("A")
 
 # input and output
+09-argv-delete-skip                   # ARGV/ARGC are read-only: changing them in BEGIN does not change the input files
+09-getline-concat-precedence          # `getline < "a" "b"` reads the file "ab" (gawk: `(getline < "a") "b"`), and `cmd | getline x y` is a syntax error
 
 # gawk extensions

@@ -131,10 +131,12 @@ fn awk_compatibility() {
 /// `zawk lint` agrees with the compiler on the compat cases: a case that is a syntax error in gawk
 /// (`# exit: 1`) is not valid, and the other cases have no errors except E305, the policy error
 /// for assigning a field (`$0`, `NF`), which runs (see AGENTS.md: "just lint not syntax error").
-/// Runtime errors (`# exit: 2`, such as a division by zero) are not lint errors.
+/// Runtime errors (`# exit: 2`, such as a division by zero) are not lint errors. Known failures
+/// are skipped: some of them are valid in gawk but syntax errors in zawk (and lint).
 #[test]
 fn lint_agrees_with_compiler() {
     let dir = compat_dir();
+    let known = known_failures(&dir);
     let mut cases: Vec<PathBuf> = fs::read_dir(dir.join("cases"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -164,6 +166,9 @@ fn lint_agrees_with_compiler() {
             .map(|d| d["code"].as_str().unwrap())
             .collect();
         let name = awk_file.file_stem().unwrap().to_string_lossy();
+        if known.contains_key(name.as_ref()) {
+            continue;
+        }
         if code == 1 {
             syntax_errors += 1;
             if valid {
