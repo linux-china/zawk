@@ -916,7 +916,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "strtonum",
         MATH,
         "strtonum(s: str) -> float",
-        "gawk strtonum: 0x is hexadecimal and a leading 0 octal. zawk extension: decimal digits may be grouped by thousands with `,` or `_` (strtonum(\"1_000\") is 1000, while \"1_000\"+0 and float(\"1_000\") are 1).",
+        "gawk strtonum: 0x is hexadecimal and a leading 0 octal. As in gawk, a string with a sign or blanks before `0x` is decimal, so strtonum(\"-0x10\") and strtonum(\" 0x10\") are 0 (while \"-0x10\"+0 is -16); a field or other input that looks numeric (strnum) keeps its value, so strtonum($1) is -16 for a field `-0x10` but strtonum(substr($1, 1)) is 0. zawk extension: decimal digits may be grouped by thousands with `,` or `_` (strtonum(\"1_000\") is 1000, while \"1_000\"+0 and float(\"1_000\") are 1).",
         r#"strtonum("0x11")"#,
     ),
     d(

@@ -96,6 +96,11 @@ Hexadecimal literals are recognized in source and in input data wherever a strin
 `0x10` is 16, and `$1 == 16` is true for a field `0x10`. A leading zero is decimal (`010` is 10); use
 `strtonum("017")` for octal.
 
+`strtonum` follows gawk here and is stricter than `+ 0`: in a string (not a field), `0x` after a sign or
+blanks is not hexadecimal, so `strtonum("-0x10")` and `strtonum(" 0x10")` are `0` while `"-0x10" + 0` is
+`-16`. A field `-0x10` keeps its value (`strtonum($1)` is `-16`), but a string made from it does not
+(`strtonum(substr($1, 1))` is `0`).
+
 ## Bitwise functions
 
 Following gawk, bitwise operations are functions: `and`, `or`, `xor`, `compl`, `lshift`, `rshift`, plus

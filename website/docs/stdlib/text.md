@@ -136,6 +136,7 @@ format_bytes(1024)           # 1 KB
 to_bytes("1.5GB")            # bytes as a number
 hex("ff")                    # 255
 strtonum("0x11")             # 17 (gawk compatible: "017" is octal 15)
+strtonum("-0x10")            # 0, as in gawk (a sign or blank before 0x); "-0x10"+0 is -16
 mkpass(12)                   # random 12-char password
 ```
 
