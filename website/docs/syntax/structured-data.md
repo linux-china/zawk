@@ -77,7 +77,7 @@ and [cloud data](../tutorials/cloud-data.md) tutorials for details.
 
 | Option | Format |
 |--------|--------|
-| `-o csv` | CSV, correctly quoted; records end with `\n` (use `-v 'ORS=\r\n'` for CRLF) |
+| `-o csv` | CSV, correctly quoted; records end with `\n` (use `-v 'ORS=\r\n'` for CRLF). `print` of an unchanged `-i csv` record writes `$0` as read (see below) |
 | `-o tsv` | TSV with escapes, so any field survives a round trip; TSV has no quoting, so a row with a single empty field is an empty line and reads back as no fields (printing such a `$0` warns once) |
 | `-o markdown` (`md`) | Markdown table: the first printed record is the header row |
 | `-o table` | aligned table with box-drawing borders, for terminals |
@@ -168,6 +168,13 @@ $ zawk -i csv -H -o jsonl 'NR==1 { print "name", "age:number" } { print $FI["nam
 :::tip
 With `-o csv`/`-o tsv`, `print a, b` quotes and escapes fields correctly. Never build CSV lines by concatenating
 `","`. To escape a single value, use `escape_csv(s)`, `join_csv(i, j)` or `to_csv(arr)`.
+
+`print` and `print $0` of a record read in the same format (`-i csv -o csv`, `-i tsv -o tsv`) write `$0` as
+read while no field or `NF` has been assigned: this is fast and exact for well-formed input, but a malformed CSV
+line such as `12" pizza,x` or `"a"b,c` (read with the lenient gawk rules) is copied as is. zawk reads it back
+the same way, other readers (Python `csv`, DuckDB, Excel) may not: Python reads `"a"b,c` as `ab` and `c`. To
+normalize every record, assign a field first, e.g. `zawk -i csv -o csv '{ $1 = $1; print }'`, or print the
+fields with `print $1, $2, ...`.
 
 `printf` output is written as is under `-o csv`. Under the TSV-based formats (`-o tsv`, `jsonl`, `markdown`,
 `table`, `parquet`, `avro`, `xlsx`), tabs and newlines in `printf` output separate fields and rows, and every

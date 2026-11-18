@@ -54,6 +54,10 @@ zawk -i csv -H '{ print $FI["name"] }' data.csv
 `-i csv` follows RFC 4180: commas, quotes and line breaks inside quoted fields are handled. Use `-o csv` to
 write correctly quoted output.
 
+`print` (or `print $0`) of a record that was read with `-i csv` and not changed writes `$0` as read, so a
+malformed input line such as `12" pizza,x` or `"a"b,c` is copied as is, not normalized. To write every record
+in strict RFC 4180, assign a field first (`{ $1 = $1; print }`) or print the fields (`print $1, $2`).
+
 ## How do I query Apache Parquet?
 
 ```shell

@@ -259,7 +259,9 @@ surprised to discover there were bugs in zawk's parser.
   `-v 'ORS=\r\n'` for CRLF). TSV uses `\t`, `\n`, `\r` and `\\` escapes, on output (`-o tsv`) as on
   input, so any field survives a round trip. Under `-o csv/tsv`, `print` and
   `print $0` write the record as one row: `$0` as read, or, once a field or `NF`
-  was assigned, each field escaped (`{ $1 = "X,Y"; print }` keeps two columns). A quoted
+  was assigned, each field escaped (`{ $1 = "X,Y"; print }` keeps two columns).
+  So `-i csv -o csv` copies an unchanged malformed line (`12" pizza,x`, `"a"b,c`)
+  as is; use `{ $1 = $1; print }` to write every record in strict RFC 4180. A quoted
   field that is never closed runs to the end of the file; zawk reads it as one
   field and warns on stderr (`zawk: warning: <file>: record <n>: unterminated
   quoted field runs to the end of the file`).
