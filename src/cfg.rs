@@ -3586,11 +3586,11 @@ where
         Ok(PrimVal::Var(f))
     }
 
-    /// Whether evaluating `e` may assign a variable: an assignment, an increment, getline, sub or
-    /// gsub, or a call of a user-defined function (which may assign globals).
+    /// Whether evaluating `e` may assign a variable: an assignment, an increment, getline, a
+    /// builtin with side effects (see `builtin_assigns`), or a call of a user-defined function
+    /// (which may assign globals).
     fn may_assign<'c>(&self, e: &'c Expr<'c, 'b, I>) -> bool {
         use Expr::*;
-        use builtins::Function::{GSub, Sub};
         match e {
             ILit(_) | FLit(_) | StrLit(_) | PatLit(_) | Var(_) | Cond(_) => false,
             Unop(_, e) => self.may_assign(e),
@@ -3609,14 +3609,34 @@ where
                             .contains_key(&FunctionName::Named(name.clone()))
                             || !matches!(
                                 builtins::Function::try_from(name.clone()),
-                                Ok(bi) if !matches!(bi, Sub | GSub)
+                                Ok(bi) if !Self::builtin_assigns(&bi)
                             )
                     }
-                    Either::Right(bi) => matches!(bi, Sub | GSub),
+                    Either::Right(bi) => Self::builtin_assigns(bi),
                 };
                 assigns || args.iter().any(|a| self.may_assign(a))
             }
         }
+    }
+
+    /// Builtins whose call changes state that a sibling operand may read: sub/gsub assign their
+    /// target, match assigns RSTART/RLENGTH (and the array with three arguments), split/patsplit
+    /// fill an array, and rand/srand advance or reseed the random number generator. With these,
+    /// `a[RSTART] = match(s, /ab/)` evaluates the value before the subscript, as in gawk.
+    fn builtin_assigns(bi: &builtins::Function) -> bool {
+        use builtins::Function::*;
+        matches!(
+            bi,
+            Sub | GSub
+                | Match
+                | MatchArr
+                | Split
+                | SplitSeps
+                | PatSplit
+                | Rand
+                | Srand
+                | ReseedRng
+        )
     }
 
     fn lower_to_val(&mut self, exp: PrimExpr<'b>, current_open: NodeIx) -> Result<PrimVal<'b>> {

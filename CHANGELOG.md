@@ -1,5 +1,6 @@
 # Unreleased
 
+* **Behavior change**: in an assignment to an array element, the value is evaluated before the subscript also when it calls `match`, `split`/`patsplit` or `rand`/`srand`, as in gawk: `a[RSTART] = match("xxab", /ab/)` is `a[3]`, it was `a[0]` (the `RSTART` from before the call). Likewise `a[RLENGTH] = match(...)`, `a[length(p)] = split(s, p)` and `a[srand(2)] = srand(3)`
 
 # Version 0.7.4 (2026-11-18)
 

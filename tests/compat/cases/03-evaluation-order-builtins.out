@@ -1,0 +1,6 @@
+match RSTART: 3 3
+match RLENGTH: 4 1
+match arr: 4 4 bc
+split: 3 3
+srand: 3 1
+assign op: 2 2
