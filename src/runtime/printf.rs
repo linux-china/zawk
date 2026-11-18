@@ -1204,7 +1204,7 @@ mod tests {
             "[+inf][ +nan]"
         );
         assert_eq!(
-            sprintf!(b"%G|%E|%F|%X|%g|%6G", f64::INFINITY, -f64::INFINITY, f64::NAN, 1e400, 1e400, -1e400),
+            sprintf!(b"%G|%E|%F|%X|%g|%6G", f64::INFINITY, -f64::INFINITY, f64::NAN, f64::INFINITY, f64::INFINITY, -f64::INFINITY),
             "+INF|-INF|+NAN|+INF|+inf|  -INF"
         );
     }
