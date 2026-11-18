@@ -1,6 +1,6 @@
 # Unreleased
 
-# Version 0.7.2 (2026-11-16)
+# Version 0.7.3 (2026-11-16)
 
 * **Behavior change**: `read_all` and `s3_get` decode text the same way for every source: invalid UTF-8 sequences become U+FFFD instead of failing. `read_all` of a local file with invalid UTF-8 returned an empty string with a warning before, and `s3_get` failed on an object that `read_all("s3://...")` could read. The documentation of `read_all` now says what the code does for HTTP: an error status (404, ...) is a warning and an empty string, not the body of the error page
 * **Behavior change**: `read_config("*.ini")` keeps the case of section and key names, like the `.properties` and `.json` readers: `[Database]` with `Host=x` is `cfg["Database.Host"]`, it was lowercased to `database.host` before. The default section is still `default.key` and plain `key`, however `[DEFAULT]` is written
