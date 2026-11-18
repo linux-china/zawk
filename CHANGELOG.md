@@ -1,5 +1,7 @@
 # Unreleased
 
+* **Behavior change**: in `eval(formula, ctx)`, a context value that is empty or blank (or the `--null` text) is the number `0`, as an unset awk variable, so an empty CSV cell no longer makes `a + b` a type error (a warning and a result of `0` for the whole formula) and `b == 0` is true for it. Other numeric text (awk rules) is a float and any other text is a string, as before
+
 # Version 0.7.2 (2026-11-16)
 
 * **Behavior change**: `read_all` and `s3_get` decode text the same way for every source: invalid UTF-8 sequences become U+FFFD instead of failing. `read_all` of a local file with invalid UTF-8 returned an empty string with a warning before, and `s3_get` failed on an object that `read_all("s3://...")` could read. The documentation of `read_all` now says what the code does for HTTP: an error status (404, ...) is a warning and an empty string, not the body of the error page

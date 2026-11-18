@@ -873,16 +873,29 @@ pub(crate) fn eval_context<'a>(formula: &str, context: &StrMap<'a, Str<'a>>) -> 
     let mut eval_context = HashMapContext::<DefaultNumericTypes>::new();
     context.iter(|map| {
         for (key, value) in map {
-            // Numeric text (awk rules) is a number; anything else stays a string, so
-            // `name == "Leo"` works and `name + 1` is an error instead of a silent 0.
-            let value = match value.with_bytes(looks_numeric) {
-                Some(n) => Value::Float(n),
-                None => Value::String(value.as_str().into_owned()),
-            };
+            // Numeric text (awk rules) is a number, and a missing value (empty or blank text, or
+            // the `--null` text) is 0 as an unset awk variable, so an empty CSV cell does not
+            // turn `a + b` into a type error; anything else stays a string, so `name == "Leo"`
+            // works and `name + 1` is an error instead of a silent 0.
+            let value = value.with_bytes(|bs| {
+                if let Some(n) = looks_numeric(bs) {
+                    Value::Float(n)
+                } else if is_missing_eval_value(bs) {
+                    Value::Float(0.0)
+                } else {
+                    Value::String(String::from_utf8_lossy(bs).into_owned())
+                }
+            });
             eval_context.set_value(key.to_string(), value).unwrap();
         }
     });
     run_eval(formula, &mut eval_context).map_or(0.0, |result| value_to_float(&result))
+}
+
+/// A context value of `eval` that is missing: empty or blank text, or the `--null` text.
+fn is_missing_eval_value(bs: &[u8]) -> bool {
+    bs.iter().all(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c'))
+        || crate::runtime::str_escape::is_null(bs)
 }
 
 pub fn eval(formula: &str) -> Float {
@@ -1482,5 +1495,17 @@ mod tests {
         // a non-numeric string in arithmetic is an error (warning, result 0), not a silent 0
         assert_eq!(eval_context("name + 1", &strings), 0.0);
         assert_eq!(eval_context("age + 1", &strings), 25.0);
+    }
+
+    #[test]
+    fn test_eval_context_missing_values_are_zero() {
+        let strings: StrMap<Str> = StrMap::default();
+        strings.insert(Str::from("a"), Str::from("5"));
+        strings.insert(Str::from("b"), Str::from(""));
+        strings.insert(Str::from("c"), Str::from("  "));
+        assert_eq!(eval_context("a + b", &strings), 5.0);
+        assert_eq!(eval_context("a + c", &strings), 5.0);
+        assert_eq!(eval_context("b == 0", &strings), 1.0);
+        assert_eq!(eval_context("a * b", &strings), 0.0);
     }
 }
