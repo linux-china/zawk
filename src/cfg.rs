@@ -20,6 +20,10 @@ use std::mem;
 
 pub(crate) type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
+/// The first key of the compiler temporaries (`fresh_temp`) among the `Expr::Cond` keys: the
+/// keys below it are the comma patterns of the program, numbered from 0.
+const TEMP_KEY_BASE: usize = 1 << (usize::BITS - 1);
+
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub(crate) enum FunctionName<I> {
     Begin,
@@ -539,6 +543,7 @@ where
             may_rename: Default::default(),
             max: 1, // 0 reserved for assigning to "unused" var for side-effecting operations
             conds: Default::default(),
+            temps: 0,
             esc,
             exit_to_end: matches!(p.stage, Stage::Main(_)) && !p.end.is_empty(),
             par_exit: matches!(p.stage, Stage::Par { .. }),
@@ -790,7 +795,11 @@ struct GlobalContext<I> {
     // TODO: make may_rename per-function for local variables.
     may_rename: Vec<Ident>,
     max: NumTy,
+    // The locals behind `Expr::Cond`: the state of comma patterns, and the compiler temporaries
+    // of `fresh_temp` (keys from `TEMP_KEY_BASE`).
     conds: HashMap<usize, Ident>,
+    // The number of temporaries handed out by `fresh_temp`.
+    temps: usize,
     esc: Escaper,
     // Whether `exit` outside of the END block has to run the END block first (POSIX): true for
     // serial programs with an END block.
@@ -2298,6 +2307,7 @@ where
                         return self.getline_result(
                             current_open,
                             None,
+                            None,
                             &ast::Expr::ReadStdin,
                             None,
                             /*main_input=*/ true,
@@ -2316,8 +2326,23 @@ where
                     (Some(from), Some(into)) => {
                         // Reading from a file or command does not update NR or FNR (as in gawk
                         // and onetrue awk).
+                        // A file or command with side effects (`getline x < (dir "/" f[i++])`)
+                        // is evaluated once, for both the read and the status. Others are kept
+                        // as they are (a constant file name stays a constant).
+                        let from: &Expr<'_, 'b, I> = from;
+                        let (hoisted, from_temp);
+                        let from = if self.may_assign(from) {
+                            let key = self.fresh_temp();
+                            from_temp = ast::Expr::Cond(key);
+                            hoisted = Some((key, from));
+                            &from_temp
+                        } else {
+                            hoisted = None;
+                            from
+                        };
                         return self.getline_result(
                             current_open,
+                            hoisted,
                             Some(&ast::Expr::Call(Either::Right(next_line), &[from])),
                             &ast::Expr::Call(Either::Right(read_err), &[from]),
                             Some(into),
@@ -2327,6 +2352,7 @@ where
                     (None /*stdin*/, Some(into)) => {
                         return self.getline_result(
                             current_open,
+                            None,
                             Some(&ast::Expr::Call(Either::Right(NextlineStdin), &[])),
                             &ast::Expr::Call(Either::Right(ReadErrStdin), &[]),
                             Some(into),
@@ -2342,43 +2368,49 @@ where
     /// Lower the end of a getline: `read` (if any) reads the line, `status` is the result of
     /// the getline (1, 0 at end of input, -1 on error). Only if the read succeeded is the line
     /// assigned to `into` and, for the main input, NR and FNR incremented.
+    ///
+    /// `from` is the file or command of `read` and `status`: it is evaluated once, before the
+    /// read, and both refer to it as `Expr::Cond(from_key)`.
+    ///
+    /// The intermediate values (the file, the subscript of the target, the line and the status)
+    /// live in fresh locals of the function being lowered (`fresh_temp`), not in named
+    /// variables: a getline in the redirection (`getline a[++i] < (getline b[++j] < f ? x : y)`)
+    /// or a recursive call of the enclosing function from it has its own copies.
     fn getline_result<'c>(
         &mut self,
         current_open: NodeIx,
+        from: Option<(usize, &'c Expr<'c, 'b, I>)>,
         read: Option<&'c Expr<'c, 'b, I>>,
         status: &'c Expr<'c, 'b, I>,
         into: Option<&'c Expr<'c, 'b, I>>,
         main_input: bool,
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
-        use ast::Expr::{Assign, Var};
-        let line_var = Var(I::from_static("%getline_line"));
-        let status_var = Var(I::from_static("%getline_status"));
+        use ast::Expr::{Assign, Cond, Var};
         let mut next = current_open;
         // A subscript of the target with side effects (`getline a[++n] < file`) is evaluated
-        // once per call, before the read, also by the call that reaches the end of the input (as
-        // in gawk).
-        let ix_var = Var(I::from_static("%getline_index"));
+        // once per call, before the redirection and the read, also by the call that reaches the
+        // end of the input (as in gawk).
+        let ix_var = Cond(self.fresh_temp());
         let indexed;
         let into = match into {
             Some(ast::Expr::Index(arr, ix)) if self.may_assign(ix) => {
-                next = self.convert_expr(&Assign(&ix_var, *ix), next)?.0;
+                next = self.assign_temp(&ix_var, ix, next)?;
                 indexed = ast::Expr::Index(*arr, &ix_var);
                 Some(&indexed)
             }
             into => into,
         };
-        if let Some(read) = read {
-            next = self.convert_expr(&Assign(&line_var, read), next)?.0;
+        if let Some((from_key, from)) = from {
+            next = self.assign_temp(&Cond(from_key), from, next)?;
         }
-        next = self.convert_expr(&Assign(&status_var, status), next)?.0;
-        // Copy the status into a fresh local: another getline in the same expression reuses
-        // %getline_status.
-        let (next, status_val) = self.convert_expr(&status_var, next)?;
-        let res = self.fresh_local();
-        self.add_stmt(next, PrimStmt::AsgnVar(res, status_val))?;
-        let mut next = next;
+        let line_var = Cond(self.fresh_temp());
+        if let Some(read) = read {
+            next = self.assign_temp(&line_var, read, next)?;
+        }
+        let status_var = Cond(self.fresh_temp());
+        next = self.assign_temp(&status_var, status, next)?;
         if let Some(into) = into {
-            next = self.if_read(next, &Stmt::Expr(&Assign(into, &line_var)))?;
+            next = self.if_read(&status_var, next, &Stmt::Expr(&Assign(into, &line_var)))?;
         }
         if main_input {
             for counter in ["NR", "FNR"] {
@@ -2387,17 +2419,47 @@ where
                     is_post: false,
                     x: &Var(I::from_static(counter)),
                 };
-                next = self.if_read(next, &Stmt::Expr(&inc))?;
+                next = self.if_read(&status_var, next, &Stmt::Expr(&inc))?;
             }
         }
-        Ok((next, PrimExpr::Val(PrimVal::Var(res))))
+        self.convert_expr(&status_var, next)
     }
 
-    /// Run `stmt` if the last getline succeeded (its status is positive).
-    fn if_read<'c>(&mut self, current_open: NodeIx, stmt: &'c Stmt<'c, 'b, I>) -> Result<NodeIx> {
-        let status_var = ast::Expr::Var(I::from_static("%getline_status"));
-        let ok = ast::Expr::Binop(ast::Binop::GT, &status_var, &ast::Expr::ILit(0));
+    /// Run `stmt` if the getline whose status is in `status_var` succeeded (the status is
+    /// positive).
+    fn if_read<'c>(
+        &mut self,
+        status_var: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+        stmt: &'c Stmt<'c, 'b, I>,
+    ) -> Result<NodeIx> {
+        let ok = ast::Expr::Binop(ast::Binop::GT, status_var, &ast::Expr::ILit(0));
         self.convert_stmt(&Stmt::If(&ok, stmt, None), current_open)
+    }
+
+    /// A fresh compiler temporary, referred to as `Expr::Cond(key)` in the AST that the lowering
+    /// builds: a local of the function being lowered, so each call (of a recursive function, say)
+    /// has its own.
+    fn fresh_temp(&mut self) -> usize {
+        let key = TEMP_KEY_BASE + self.ctx.temps;
+        self.ctx.temps += 1;
+        key
+    }
+
+    /// Evaluate `e` and store its value in the temporary `temp` (an `Expr::Cond`).
+    fn assign_temp<'c>(
+        &mut self,
+        temp: &'c Expr<'c, 'b, I>,
+        e: &'c Expr<'c, 'b, I>,
+        current_open: NodeIx,
+    ) -> Result<NodeIx> {
+        let ast::Expr::Cond(key) = temp else {
+            return err!("internal error: assign_temp to a non-temporary");
+        };
+        let (next, v) = self.convert_expr(e, current_open)?;
+        let id = self.get_cond(*key);
+        self.add_stmt(next, PrimStmt::AsgnVar(id, v))?;
+        Ok(next)
     }
 
     fn guarded_else(&mut self, from: NodeIx, to: NodeIx) {

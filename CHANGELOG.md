@@ -1,6 +1,7 @@
 # Unreleased
 
 * **Behavior change**: in an assignment to an array element, the value is evaluated before the subscript also when it calls `match`, `split`/`patsplit` or `rand`/`srand`, as in gawk: `a[RSTART] = match("xxab", /ab/)` is `a[3]`, it was `a[0]` (the `RSTART` from before the call). Likewise `a[RLENGTH] = match(...)`, `a[length(p)] = split(s, p)` and `a[srand(2)] = srand(3)`
+* Fix `getline` with side effects in its redirection: the file or command of `getline var < (dir "/" names[++i])` (or `cmd | getline var`) was evaluated twice, for the read and again for its status, so `i` went up by 2 and the status was that of another file. The subscript of a target such as `getline a[++n] < file` is kept per call, so another indexed `getline` in the redirection (or in a function called from it, also recursively) no longer overwrites it
 
 # Version 0.7.4 (2026-11-18)
 
