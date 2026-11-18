@@ -7,6 +7,7 @@
 
 * Fix some compatibility issues with gawk
 * **Behavior change**: `strtonum` of a string (not a strnum field) with a sign or blanks before `0x` is decimal, as in gawk: `strtonum("-0x10")` and `strtonum(" 0x10")` are `0`, they were `-16` and `16`. `"-0x10" + 0` is still `-16` (zawk reads hexadecimal wherever a string becomes a number), and a field or other input that looks numeric keeps its value: `strtonum($1)` is `-16` for a field `-0x10`, but `strtonum(substr($1, 1))` is `0`. `strtonum("0x10")` is `16` as before
+* **Behavior change**: in a regex, an octal or hex escape of an operator outside a bracket expression is that operator, as in gawk: `/a\52b/` (`\52` is `*`) is `/a*b/` and matches `aab`, it matched only the text `a*b` before. Escapes of other characters (`/\101/` is `A`) are unchanged. A script that used such an escape for a literal operator may now fail to compile or match something else: `/a\133b/` (`\133` is `[`) is an unclosed bracket expression, an `invalid regex ...: unbalanced [` error, and `/\50/` (`(`) an unclosed group. Write `\[`, `\*` (or `[[]`, `[*]`) for the literal character
 * **Behavior change**: in `eval(formula, ctx)`, a context value that is empty or blank (or the `--null` text) is the number `0`, as an unset awk variable, so an empty CSV cell no longer makes `a + b` a type error (a warning and a result of `0` for the whole formula) and `b == 0` is true for it. Other numeric text (awk rules) is a float and any other text is a string, as before
 
 # Version 0.7.3 (2026-11-16)

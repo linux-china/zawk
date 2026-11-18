@@ -1965,6 +1965,12 @@ mod tests {
         assert_eq!(translate(r"a\52b").unwrap(), "a*b");
         assert_eq!(translate(r"a\x2bb").unwrap(), "a+b");
         assert_eq!(translate(r"\50x\51\174").unwrap(), "(x)|");
+        // `\133` is `[`, which opens a bracket expression: unclosed, it is an error (as in gawk).
+        assert!(translate(r"a\133b").is_err());
+        assert_eq!(translate(r"a\133b]").unwrap(), translate("a[b]").unwrap());
+        // `\173` is `{`: an interval only where `{` would be one, a literal brace otherwise.
+        assert_eq!(translate(r"a\173").unwrap(), r"a\{");
+        assert_eq!(translate(r"a\1732}").unwrap(), "a{2}");
         assert_eq!(translate("[[]").unwrap(), r"[\[]");
         assert_eq!(translate("[]a]").unwrap(), r"[\]a]");
         assert_eq!(translate("[^]a]").unwrap(), r"[^\]a]");
