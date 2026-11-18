@@ -247,9 +247,10 @@ fn field_names(names: &[String]) -> Vec<String> {
         .zip(&valid)
         .map(|(name, valid)| {
             if let Some(v) = valid
-                && seen.insert(v.clone()) {
-                    return v.clone();
-                }
+                && seen.insert(v.clone())
+            {
+                return v.clone();
+            }
             let base = avro_name(name);
             let mut candidate = base.clone();
             let mut n = 2;
@@ -306,7 +307,8 @@ impl Column {
             Kind::Time => parse_time(&text).map(Value::TimeMicros),
             Kind::Uuid => uuid::Uuid::parse_str(text.trim()).ok().map(Value::Uuid),
             Kind::Decimal(precision, scale) => decimal_bytes(&text, precision, scale)
-                .map(|b| Value::Decimal(apache_avro::Decimal::from(b))),
+                .and_then(|b| apache_avro::Decimal::new(b).ok())
+                .map(Value::Decimal),
             Kind::Bytes => parse_hex(&text).map(Value::Bytes),
         };
         match value {
@@ -777,7 +779,7 @@ mod tests {
         // 12.345 rounded half away from zero to 12.35
         assert_eq!(
             r0[8],
-            Value::Decimal(apache_avro::Decimal::from(vec![0x04, 0xd3]))
+            Value::Decimal(apache_avro::Decimal::new(vec![0x04, 0xd3]).unwrap())
         );
         assert_eq!(r0[9], Value::Bytes(vec![0xde, 0xad]));
         assert_eq!(r0[10], Value::Float(1.5));

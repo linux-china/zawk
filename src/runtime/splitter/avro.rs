@@ -700,7 +700,9 @@ mod tests {
             "price",
             Value::Union(
                 1,
-                Box::new(Value::Decimal(apache_avro::Decimal::from(vec![0x30, 0x39]))),
+                Box::new(Value::Decimal(
+                    apache_avro::Decimal::new(vec![0x30, 0x39]).unwrap(),
+                )),
             ),
         );
         r.put(
@@ -719,7 +721,7 @@ mod tests {
                 ("x".into(), Value::Int(3)),
                 (
                     "amount".into(),
-                    Value::Decimal(apache_avro::Decimal::from(vec![0xff, 0xfb])),
+                    Value::Decimal(apache_avro::Decimal::new(vec![0xff, 0xfb]).unwrap()),
                 ),
             ]),
         );
@@ -748,7 +750,7 @@ mod tests {
                 ("x".into(), Value::Int(0)),
                 (
                     "amount".into(),
-                    Value::Decimal(apache_avro::Decimal::from(vec![0x00])),
+                    Value::Decimal(apache_avro::Decimal::new(vec![0x00]).unwrap()),
                 ),
             ]),
         );
@@ -779,7 +781,8 @@ mod tests {
             ]}"#,
         )
         .unwrap();
-        let money = || Value::Decimal(apache_avro::Decimal::from(vec![0x00, 0x00, 0x30, 0x39]));
+        let money =
+            || Value::Decimal(apache_avro::Decimal::new(vec![0x00, 0x00, 0x30, 0x39]).unwrap());
         let item = || Value::Record(vec![("price".into(), money())]);
         let mut writer = Writer::new(&schema, Vec::new()).unwrap();
         let mut r = Record::new(&schema).unwrap();

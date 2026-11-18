@@ -104,7 +104,7 @@ mime = "0.3"
 # gzip/deflate/brotli/zstd: responses are decompressed transparently (also when a script sets
 # Accept-Encoding itself), so compressed bytes are never read as text
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "charset", "rustls-no-provider", "gzip", "deflate", "brotli", "zstd"] }
-async-nats = { version = "0.52", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
+async-nats = { version = "0.53", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
 confluent-kafka = { version = "1.0",default-features = false, features = ["lz4", "gzip", "snappy", "zstd"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
 opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry", "layers-timeout"] }
@@ -119,7 +119,7 @@ whoami = "2.1"
 shlex = "2.0"
 shell-escape = "0.1.5"
 pad = "0.1.6"
-rusqlite = { version = "0.42", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.43", features = ["bundled", "column_decltype"] }
 mysql = { version = "28.0", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 postgres = { version = "0.19", features = [
     "with-chrono-0_4",
@@ -131,7 +131,7 @@ csv = "1.4"
 # LZ4 codecs, to keep the binary small.
 parquet = { version = "60.1", default-features = false, features = ["snap", "zstd", "lz4"] }
 # Avro Object Container Files (`-i avro`, `-o avro`): Value API only, without Arrow.
-apache-avro = { version = "0.22", default-features = false, features = ["snappy", "zstandard", "bzip", "xz"] }
+apache-avro = { version = "0.23", default-features = false, features = ["snappy", "zstandard", "bzip", "xz"] }
 bytes = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 semver = "1"
