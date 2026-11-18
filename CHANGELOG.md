@@ -4,6 +4,7 @@
 # Version 0.7.4 (2026-11-18)
 
 * Fix some compatibility issues with gawk
+* **Behavior change**: in `eval(formula, ctx)`, a context value that is empty or blank (or the `--null` text) is the number `0`, as an unset awk variable, so an empty CSV cell no longer makes `a + b` a type error (a warning and a result of `0` for the whole formula) and `b == 0` is true for it. Other numeric text (awk rules) is a float and any other text is a string, as before
 
 # Version 0.7.3 (2026-11-16)
 
