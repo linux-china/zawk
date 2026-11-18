@@ -65,4 +65,6 @@ print join_csv(1, 3)                    # fields 1..3, escaped
 print escape_csv($2)
 ```
 
+`to_csv`, `join_csv` and `escape_csv` quote a value as `-o csv` does: when it has a comma, a quote or a line break, or a leading or trailing space or tab (`" x"`).
+
 For whole files, prefer `-i csv` and `-o csv` (see [Structured I/O](../syntax/structured-data.md)).

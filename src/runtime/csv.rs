@@ -65,8 +65,7 @@ pub(crate) fn map_int_float_to_csv(csv: &IntMap<Float>) -> String {
         })
         .collect();
     // A custom CONVFMT may put a comma or a quote in the text, so quote as for strings.
-    let items: Vec<&str> = items.iter().map(|item| item.as_str()).collect();
-    vec_to_csv(&items)
+    join_csv_fields(items.iter().map(|item| item.as_str()))
 }
 
 pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
@@ -75,8 +74,33 @@ pub(crate) fn map_int_str_to_csv(csv: &IntMap<Str>) -> String {
         .map(|key| key.map(|k| csv.get(&k)).unwrap_or_default())
         .collect();
     let items: Vec<_> = values.iter().map(|value| value.as_str()).collect();
-    let items: Vec<&str> = items.iter().map(|item| item.as_ref()).collect();
-    vec_to_csv(&items)
+    join_csv_fields(items.iter().map(|item| item.as_ref()))
+}
+
+/// Join the fields of a `to_csv` record with the quoting rules of `escape_csv` and `-o csv`
+/// (a field with leading or trailing blanks is quoted too), so `to_csv(a)` and `print a[1], ...`
+/// give the same text. A record with a single empty field is `""`, as in `Line::record`, so it
+/// reads back as one field and not as an empty line; zero fields are an empty string.
+fn join_csv_fields<'b>(fields: impl Iterator<Item = &'b str>) -> String {
+    let mut out = String::new();
+    let mut count = 0;
+    for field in fields {
+        if count > 0 {
+            out.push(',');
+        }
+        count += 1;
+        if crate::runtime::splitter::batch::csv_needs_quotes(field.as_bytes()) {
+            out.push('"');
+            out.push_str(&field.replace('"', "\"\""));
+            out.push('"');
+        } else {
+            out.push_str(field);
+        }
+    }
+    if count == 1 && out.is_empty() {
+        out.push_str("\"\"");
+    }
+    out
 }
 
 pub fn vec_to_csv(csv: &[&str]) -> String {
@@ -217,6 +241,31 @@ mod tests {
         assert_eq!(vec_to_csv(&[]), "");
         let map: IntMap<Str> = IntMap::default();
         assert_eq!(map_int_str_to_csv(&map), "");
+    }
+
+    #[test]
+    fn test_to_csv_quotes_like_escape_csv() {
+        let values = [" x", "y\t", "a,b", "say \"hi\"", "line\nbreak", "cr\r", "plain", ""];
+        let map: IntMap<Str> = IntMap::default();
+        for (i, value) in values.iter().enumerate() {
+            map.insert((i + 1) as Int, Str::from(*value));
+        }
+        let expected: Vec<String> = values.iter().map(|value| escape_csv(value)).collect();
+        assert_eq!(map_int_str_to_csv(&map), expected.join(","));
+        assert_eq!(
+            map_int_str_to_csv(&map),
+            "\" x\",\"y\t\",\"a,b\",\"say \"\"hi\"\"\",\"line\nbreak\",\"cr\r\",plain,"
+        );
+        // a single empty field reads back as one field, not as an empty line
+        let map: IntMap<Str> = IntMap::default();
+        map.insert(1, Str::from(""));
+        assert_eq!(map_int_str_to_csv(&map), "\"\"");
+        let map: IntMap<Str> = IntMap::default();
+        map.insert(1, Str::from(""));
+        map.insert(2, Str::from(""));
+        assert_eq!(map_int_str_to_csv(&map), ",");
+        // the DB / xlsx conversion keeps the csv crate rules
+        assert_eq!(vec_to_csv(&[" x"]), " x");
     }
 
     #[test]
