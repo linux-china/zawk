@@ -2326,12 +2326,17 @@ where
                     (Some(from), Some(into)) => {
                         // Reading from a file or command does not update NR or FNR (as in gawk
                         // and onetrue awk).
-                        // A file or command with side effects (`getline x < (dir "/" f[i++])`)
-                        // is evaluated once, for both the read and the status. Others are kept
-                        // as they are (a constant file name stays a constant).
+                        // As in gawk, the file or command is evaluated first, before the
+                        // subscript of the target (`getline a[++k] < ("f" k)` reads the file
+                        // named with the old `k`). It is evaluated once, for both the read and
+                        // the status, if it has side effects (`getline x < (dir "/" f[i++])`)
+                        // or the subscript has. Others are kept as they are (a constant file name
+                        // stays a constant).
                         let from: &Expr<'_, 'b, I> = from;
+                        let ix_assigns =
+                            matches!(into, ast::Expr::Index(_, ix) if self.may_assign(ix));
                         let (hoisted, from_temp);
-                        let from = if self.may_assign(from) {
+                        let from = if ix_assigns || self.may_assign(from) {
                             let key = self.fresh_temp();
                             from_temp = ast::Expr::Cond(key);
                             hoisted = Some((key, from));
@@ -2369,8 +2374,8 @@ where
     /// the getline (1, 0 at end of input, -1 on error). Only if the read succeeded is the line
     /// assigned to `into` and, for the main input, NR and FNR incremented.
     ///
-    /// `from` is the file or command of `read` and `status`: it is evaluated once, before the
-    /// read, and both refer to it as `Expr::Cond(from_key)`.
+    /// `from` is the file or command of `read` and `status`: it is evaluated once, first (before
+    /// the subscript of `into`), and both refer to it as `Expr::Cond(from_key)`.
     ///
     /// The intermediate values (the file, the subscript of the target, the line and the status)
     /// live in fresh locals of the function being lowered (`fresh_temp`), not in named
@@ -2387,9 +2392,12 @@ where
     ) -> Result<(NodeIx, PrimExpr<'b>)> {
         use ast::Expr::{Assign, Cond, Var};
         let mut next = current_open;
+        if let Some((from_key, from)) = from {
+            next = self.assign_temp(&Cond(from_key), from, next)?;
+        }
         // A subscript of the target with side effects (`getline a[++n] < file`) is evaluated
-        // once per call, before the redirection and the read, also by the call that reaches the
-        // end of the input (as in gawk).
+        // once per call, after the redirection and before the read, also by the call that
+        // reaches the end of the input (as in gawk).
         let ix_var = Cond(self.fresh_temp());
         let indexed;
         let into = match into {
@@ -2400,9 +2408,6 @@ where
             }
             into => into,
         };
-        if let Some((from_key, from)) = from {
-            next = self.assign_temp(&Cond(from_key), from, next)?;
-        }
         let line_var = Cond(self.fresh_temp());
         if let Some(read) = read {
             next = self.assign_temp(&line_var, read, next)?;

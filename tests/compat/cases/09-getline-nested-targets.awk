@@ -1,6 +1,6 @@
 # The temporaries of a getline are per call: a getline with an indexed target in the redirection
 # of another one, or in a recursive call made from it, keeps its own subscript, and a redirection
-# with side effects is evaluated once.
+# with side effects is evaluated once. The redirection is evaluated before the subscript.
 function src(depth) {
     if (depth > 0)
         getline b[++k] < src(depth - 1)
@@ -17,6 +17,12 @@ BEGIN {
     getline c[++m] < src(2)
     print k, m, "[" b[1] "]", "[" b[2] "]", "[" c[1] "]", length(b), length(c)
     close("data/a.txt")
+
+    # The redirection is evaluated before the subscript: it sees the old k.
+    k = 0; delete d
+    getline d[++k] < ("data/" (k ? "b" : "a") ".txt")
+    print k, d[1]
+    close("data/a.txt"); close("data/b.txt")
 
     # The redirection runs once per call.
     split("data/a.txt data/b.txt", files, " ")
