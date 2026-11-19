@@ -3814,9 +3814,57 @@ fn infer_types_output() {
 #[test]
 fn parquet_duplicate_columns() {
     // Repeated column names are renamed as DuckDB does (`a`, `a_1`, ...) by -i parquet, so each
-    // column keeps its own values, and by -o jsonl, so no JSON key is repeated.
+    // column keeps its own values, and by -o jsonl, so no JSON key is repeated. `-o parquet`
+    // renames them itself (`a_2`), so the file with duplicates is written with the parquet crate.
+    use parquet::data_type::{ByteArray, ByteArrayType, Int64Type};
+    use parquet::file::properties::WriterProperties;
+    use parquet::file::writer::SerializedFileWriter;
+    use parquet::schema::parser::parse_message_type;
+    use std::sync::Arc;
+
     let tmpdir = tempdir().unwrap();
-    let out = tmpdir.path().join("dup.parquet");
+    let dup = tmpdir.path().join("dup.parquet");
+    let schema = parse_message_type(
+        "message m { required int64 a; required binary b (UTF8); \
+         required binary a (UTF8); required binary a_1 (UTF8); }",
+    )
+    .unwrap();
+    let mut writer = SerializedFileWriter::new(
+        File::create(&dup).unwrap(),
+        Arc::new(schema),
+        Arc::new(WriterProperties::builder().build()),
+    )
+    .unwrap();
+    let mut group = writer.next_row_group().unwrap();
+    let mut col = group.next_column().unwrap().unwrap();
+    col.typed::<Int64Type>().write_batch(&[1], None, None).unwrap();
+    col.close().unwrap();
+    for value in ["x", "10", "y"] {
+        let mut col = group.next_column().unwrap().unwrap();
+        col.typed::<ByteArrayType>()
+            .write_batch(&[ByteArray::from(value)], None, None)
+            .unwrap();
+        col.close().unwrap();
+    }
+    group.close().unwrap();
+    writer.close().unwrap();
+    Command::cargo_bin("zawk")
+        .unwrap()
+        .args([
+            "-iparquet",
+            r#"{ print; print $1, $3, $4, NF, FI["a_1_1"] }"#,
+            dup.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(concat!(
+            r#"{"a":1,"b":"x","a_1":"10","a_1_1":"y"}"#,
+            "\n",
+            "1 10 y 4 4\n"
+        ));
+
+    // -o parquet keeps the first name and renames the others `a_2`, ..., skipping `a_1`.
+    let out = tmpdir.path().join("renamed.parquet");
     let out = out.to_str().unwrap();
     Command::cargo_bin("zawk")
         .unwrap()
@@ -3826,18 +3874,15 @@ fn parquet_duplicate_columns() {
         .success();
     Command::cargo_bin("zawk")
         .unwrap()
-        .args([
-            "-iparquet",
-            r#"{ print; print $1, $3, $4, NF, FI["a_1_1"] }"#,
-            out,
-        ])
+        .args(["-iparquet", r#"{ print; print $1, $3, $4, NF }"#, out])
         .assert()
         .success()
         .stdout(concat!(
-            r#"{"a":1,"b":"x","a_1":"10","a_1_1":"y"}"#,
+            r#"{"a":1,"b":"x","a_2":"10","a_1":"y"}"#,
             "\n",
-            "1 10 y 4 4\n"
+            "1 10 y 4\n"
         ));
+
     Command::cargo_bin("zawk")
         .unwrap()
         .args(["-ojsonl", r#"BEGIN { print "a", "a"; print 1, 2 }"#])
