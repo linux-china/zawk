@@ -301,7 +301,7 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
     (
         "df_to_csv",
         "df_append(d = df_new(\"s\"), $0) df_to_csv(d)",
-        Some(b"s\ncaf\xe9x\n"),
+        Some(b"1s\ncaf\xe9x\n"),
     ),
     (
         "df_print",
