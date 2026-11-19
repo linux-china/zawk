@@ -10,7 +10,7 @@ A zawk program works with three kinds of values:
 
 | Type          | What it is                                                                         | `typeof(x)`                                        |
 |---------------|------------------------------------------------------------------------------------|----------------------------------------------------|
-| **scalar**    | a number or a string, converted into each other by AWK's rules                     | `"number"`, `"string"`, `"strnum"`, `"unassigned"` |
+| **scalar**    | a number or a string, converted into each other by AWK's rules                     | `"number"`, `"string"` |
 | **array**     | an associative array from scalar keys to scalar values                             | `"array"`                                          |
 | **dataframe** | an in-memory table with named, typed columns, built and queried with `df_*`        | `"dataframe"`                                      |
 
@@ -20,7 +20,7 @@ BEGIN {
     a["x"] = 1; a["y"] = 2              # array
     d = df_new("name,age:int")          # dataframe
     print typeof(n), typeof(s), typeof(a), typeof(d), typeof(u)
-    # number string array dataframe unassigned
+    # number string array dataframe untyped
 }
 ```
 
