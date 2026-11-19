@@ -3688,8 +3688,13 @@ where
 
     /// Builtins whose call changes state that a sibling operand may read: sub/gsub assign their
     /// target, match assigns RSTART/RLENGTH (and the array with three arguments), split/patsplit
-    /// fill an array, and rand/srand advance or reseed the random number generator. With these,
+    /// fill an array, asort/asorti fill the destination array (or rewrite the source with one
+    /// argument), and rand/srand advance or reseed the random number generator. With these,
     /// `a[RSTART] = match(s, /ab/)` evaluates the value before the subscript, as in gawk.
+    ///
+    /// Not listed: stdlib functions that only set ERRNO on failure (`a[ERRNO] = read_all(..)` is
+    /// rare enough to ignore), and functions taking an array argument they only read, such as
+    /// http_get/http_post, jwt and the SQL functions.
     fn builtin_assigns(bi: &builtins::Function) -> bool {
         use builtins::Function::*;
         matches!(
@@ -3700,6 +3705,8 @@ where
                 | Split
                 | SplitSeps
                 | PatSplit
+                | Asort
+                | Asorti
                 | Rand
                 | Srand
                 | ReseedRng

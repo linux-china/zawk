@@ -4,3 +4,8 @@ match arr: 4 4 bc
 split: 3 3
 srand: 3 1
 assign op: 2 2
+asort: 3 3
+asort elem: a 3
+asort one arg: y 2
+asorti: 2 2
+asorti elem: x 2
