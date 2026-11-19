@@ -1540,8 +1540,11 @@ and the third"#;
         // Not a radix literal without digits: `0` followed by the name `b` / `o`.
         assert_eq!(toks("0b")[0], Tok::ILit("0"));
         assert_eq!(toks("0o")[0], Tok::ILit("0"));
-        // A range bound.
-        assert_eq!(toks("0b1..0b11")[0], Tok::HexLit("0b1"));
+        // Range bounds (`..` is a range operator only in a `for (i in ...)` header).
+        assert_eq!(
+            toks("for (i in 0b1..0o11)")[4..7],
+            [Tok::HexLit("0b1"), Tok::DotDot, Tok::HexLit("0o11")]
+        );
         for (text, desc) in [
             ("x = 0b102", "invalid digit '2' in binary literal `0b102`"),
             ("x = 0o78", "invalid digit '8' in octal literal `0o78`"),
