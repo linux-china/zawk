@@ -3476,12 +3476,12 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                             return Ok(0);
                         }
                         let cmd = index(&self.strs, cmd);
-                        let res = runtime::run_command(&cmd.as_str());
+                        let res = cmd.with_bytes(runtime::run_command);
                         *index_mut(&mut self.ints, dst) = res;
                     }
                     RunCmd2(dst, cmd) => {
                         let cmd = index(&self.strs, cmd);
-                        let res = runtime::run_command2(&cmd.as_str());
+                        let res = cmd.with_bytes(runtime::run_command2);
                         let dst = *dst;
                         *self.get_mut(dst) = res;
                     }

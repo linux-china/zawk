@@ -60,14 +60,29 @@ fn env_os_string(s: &Str) -> OsString {
         .into()
 }
 
-fn prepare_command(prog: &str, env: Option<&CommandEnv>) -> io::Result<Command> {
+/// The shell command line `prog` as an argument of the shell. On Unix the bytes are passed as
+/// they are, as gawk does, so a command naming a Latin-1 or GBK file works; elsewhere invalid
+/// UTF-8 becomes U+FFFD.
+#[cfg(unix)]
+fn command_line(prog: &[u8]) -> std::borrow::Cow<'_, std::ffi::OsStr> {
+    use std::os::unix::ffi::OsStrExt;
+    std::borrow::Cow::Borrowed(std::ffi::OsStr::from_bytes(prog))
+}
+
+#[cfg(not(unix))]
+fn command_line(prog: &[u8]) -> std::borrow::Cow<'_, std::ffi::OsStr> {
+    std::borrow::Cow::Owned(String::from_utf8_lossy(prog).into_owned().into())
+}
+
+fn prepare_command(prog: &[u8], env: Option<&CommandEnv>) -> io::Result<Command> {
+    let prog = command_line(prog);
     let mut cmd = if cfg!(target_os = "windows") {
         let mut cmd = Command::new("cmd");
-        cmd.args(["/C", prog]);
+        cmd.arg("/C").arg(prog.as_ref());
         cmd
     } else {
         let mut cmd = Command::new("sh");
-        cmd.args(["-c", prog]);
+        cmd.arg("-c").arg(prog.as_ref());
         cmd
     };
     if let Some(env) = env {
@@ -76,8 +91,9 @@ fn prepare_command(prog: &str, env: Option<&CommandEnv>) -> io::Result<Command> 
     Ok(cmd)
 }
 
-pub fn run_command(cmd: &str) -> Int {
-    fn run_command_inner(cmd: &str) -> io::Result<Int> {
+/// Run the shell command `cmd` (the bytes of an awk string), as awk's `system` does.
+pub fn run_command(cmd: &[u8]) -> Int {
+    fn run_command_inner(cmd: &[u8]) -> io::Result<Int> {
         let status = prepare_command(cmd, command_env().as_ref())?.status()?;
         Ok(exit_status_code(status))
     }
@@ -97,7 +113,7 @@ fn trim_newline<'b>(bytes: &[u8]) -> Str<'b> {
 /// it cannot run.
 const SYSTEM2_START_FAILURE: Int = 127;
 
-pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
+pub(crate) fn run_command2<'b>(cmd: &[u8]) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
     let output = prepare_command(cmd, command_env().as_ref()).and_then(|mut command| {
         command
@@ -135,7 +151,7 @@ pub(crate) fn run_command2<'b>(cmd: &str) -> StrMap<'b, Str<'b>> {
 /// for waiting on it (see `writers::CmdWriter`). `env` is the command's environment (see
 /// `command_env`), as it is spawned on a writer thread.
 pub fn command_for_write(bs: &[u8], env: Option<&CommandEnv>) -> io::Result<Child> {
-    let mut cmd = prepare_command(String::from_utf8_lossy(bs).as_ref(), env)?;
+    let mut cmd = prepare_command(bs, env)?;
     cmd.stdin(Stdio::piped()).stdout(Stdio::inherit()).spawn()
 }
 
@@ -194,7 +210,7 @@ impl Drop for CommandReader {
 }
 
 pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
-    let mut cmd = prepare_command(String::from_utf8_lossy(bs).as_ref(), command_env().as_ref())?;
+    let mut cmd = prepare_command(bs, command_env().as_ref())?;
     let mut child = cmd.stdout(Stdio::piped()).spawn()?;
     let stdout = child.stdout.take();
     Ok(CommandReader { child, stdout })
@@ -202,7 +218,7 @@ pub(crate) fn command_for_read(bs: &[u8]) -> io::Result<CommandReader> {
 
 #[cfg(test)]
 mod tests {
-    use super::{run_command2, trim_newline};
+    use super::{command_for_read, run_command, run_command2, trim_newline};
     use crate::runtime::{Str, errno, set_errno};
 
     fn trimmed(bs: &[u8]) -> Vec<u8> {
@@ -228,17 +244,32 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn system2_keeps_raw_bytes() {
-        let r = run_command2(r"printf '\377a\n'; printf '\376\n' >&2; exit 3");
+        let r = run_command2(br"printf '\377a\n'; printf '\376\n' >&2; exit 3");
         assert_eq!(get(&r, "code"), b"3");
         assert_eq!(get(&r, "stdout"), b"\xffa");
         assert_eq!(get(&r, "stderr"), b"\xfe");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_line_keeps_raw_bytes() {
+        // the Latin-1 `\xe9` reaches the shell as it is, not as U+FFFD (`\xef\xbf\xbd`)
+        let r = run_command2(b"printf '%s' 'caf\xe9.txt'");
+        assert_eq!(get(&r, "stdout"), b"caf\xe9.txt");
+        // `system` too: the test fails unless the shell sees the byte 0xe9
+        assert_eq!(run_command(b"test \"$(printf 'caf\\351')\" = 'caf\xe9'"), 0);
+        let mut reader = command_for_read(b"printf '%s' '\xe9\xff'").unwrap();
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut out).unwrap();
+        assert_eq!(reader.close(), 0);
+        assert_eq!(out, b"\xe9\xff");
     }
 
     #[test]
     fn system2_start_failure_sets_code_and_errno() {
         set_errno(String::new());
         // a NUL byte in the command line makes the spawn fail before any shell runs
-        let r = run_command2("echo a\0b");
+        let r = run_command2(b"echo a\0b");
         assert_eq!(get(&r, "code"), b"127");
         assert!(get(&r, "stderr").starts_with(b"Failed to execute command"));
         assert_ne!(errno(), "");

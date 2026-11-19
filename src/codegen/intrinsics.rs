@@ -1037,14 +1037,14 @@ pub(crate) unsafe extern "C" fn run_cmd(rt: *mut c_void, cmd: *mut U128) -> Int 
         // As in gawk, flush all output first so that it appears before the command's output.
         try_silent_abort!(rt, (*rt).core.write_files.flush_all());
         let cmd: &Str = &*(cmd as *mut Str);
-        runtime::run_command(&cmd.as_str())
+        cmd.with_bytes(runtime::run_command)
     })
 }
 
 pub(crate) unsafe extern "C" fn run_cmd2(cmd: *mut U128) -> *mut c_void {
     guard_panic(stringify!(run_cmd2), || {
         let s: &Str = &*(cmd as *mut Str);
-        let res = runtime::run_command2(&s.as_str());
+        let res = s.with_bytes(runtime::run_command2);
         mem::transmute::<StrMap<Str>, *mut c_void>(res)
     })
 }
