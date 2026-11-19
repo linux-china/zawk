@@ -284,18 +284,13 @@ pub(crate) fn http_post<'a>(
     if !request_headers.is_empty() {
         builder = builder.headers(request_headers);
     }
-    let body_text = body.to_string();
-    if !body_text.is_empty() {
+    // the body is sent as raw bytes: non-UTF-8 text (GBK...) or binary data is not rewritten
+    let body_bytes = body.with_bytes(|bs| bs.to_vec());
+    if !body_bytes.is_empty() {
         if !has_content_type {
-            if (body_text.starts_with('{') && body_text.ends_with('}'))
-                || (body_text.starts_with('[') && body_text.ends_with(']'))
-            {
-                builder = builder.header(CONTENT_TYPE, "application/json");
-            } else {
-                builder = builder.header(CONTENT_TYPE, "text/plain");
-            }
+            builder = builder.header(CONTENT_TYPE, guess_body_content_type(&body_bytes));
         }
-        builder = builder.body(body_text);
+        builder = builder.body(body_bytes);
     }
     match builder.send() {
         Ok(resp) => fill_response("http_post", url, resp, &resp_obj),
@@ -310,6 +305,16 @@ pub(crate) fn http_post<'a>(
         }
     }
     resp_obj
+}
+
+/// Content type of a POST body without a `Content-Type` header: `application/json` when it looks
+/// like a JSON object or array (surrounding whitespace, such as a leading newline, is ignored),
+/// `text/plain` otherwise.
+fn guess_body_content_type(body: &[u8]) -> &'static str {
+    match body.trim_ascii() {
+        [b'{', .., b'}'] | [b'[', .., b']'] => "application/json",
+        _ => "text/plain",
+    }
 }
 
 /// Request headers from an awk array; invalid header names or values are skipped with a warning.
@@ -983,6 +988,16 @@ fn try_smtp_send(
 mod tests {
     use super::*;
     use local_ip_address::local_ip;
+
+    #[test]
+    fn test_guess_body_content_type() {
+        assert_eq!(guess_body_content_type(b"{\"a\":1}"), "application/json");
+        assert_eq!(guess_body_content_type(b"\n  [1, 2]\r\n"), "application/json");
+        assert_eq!(guess_body_content_type(b"{"), "text/plain");
+        assert_eq!(guess_body_content_type(b"name=zawk"), "text/plain");
+        // GBK bytes for "中文" stay as they are and are not taken as JSON
+        assert_eq!(guess_body_content_type(&[0xd6, 0xd0, 0xce, 0xc4]), "text/plain");
+    }
 
     #[test]
     fn test_merge_headers() {
