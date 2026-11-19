@@ -630,7 +630,15 @@ impl<'a> Str<'a> {
     }
 
     /// `trim` (both sides), `ltrim` (`left` only) or `rtrim` (`right` only).
+    /// With `-b`, each byte is a char: `pat` is a set of bytes, and `" "` trims ASCII whitespace.
     pub fn trim_sides<'b>(&self, pat: &Str<'b>, left: bool, right: bool) -> Str<'b> {
+        if characters_as_bytes() {
+            let pat = pat.with_bytes(<[u8]>::to_vec);
+            return self.with_bytes(|bs| {
+                let (start, end) = trim_bytes(bs, &pat, left, right);
+                Buf::read_from_bytes(&bs[start..end]).into_str()
+            });
+        }
         let pat = pat.as_str();
         let chars: Vec<char> = pat.chars().collect();
         let matches = |c: char| {
@@ -2730,6 +2738,20 @@ mod tests {
     use regex::bytes::Regex;
 
     #[test]
+    fn trim_bytes_works_on_bytes() {
+        let e = "é".as_bytes(); // c3 a9
+        assert_eq!(trim_bytes(e, b"\xa9", true, true), (0, 1));
+        assert_eq!(trim_bytes(e, b"\xc3", true, true), (1, 2));
+        assert_eq!(trim_bytes(e, b"\xc3\xa9", true, true), (2, 2));
+        assert_eq!(trim_bytes(b" \x0ba\t ", b" ", true, true), (2, 3));
+        assert_eq!(trim_bytes(b" a ", b" ", true, false), (1, 3));
+        assert_eq!(trim_bytes(b" a ", b" ", false, true), (0, 2));
+        assert_eq!(trim_bytes(b"   ", b" ", false, true), (0, 0));
+        // U+00A0 (c2 a0) is not ASCII whitespace.
+        assert_eq!(trim_bytes(b"\xc2\xa0a", b" ", true, true), (0, 3));
+    }
+
+    #[test]
     fn test_url_decodes_userinfo() {
         let map = Str::from("mqtt://us%20er:p%40ss@localhost:1883/topic").url();
         assert_eq!(map.get(&Str::from("user")), Str::from("us er"));
@@ -3485,7 +3507,8 @@ static CHARACTERS_AS_BYTES: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// `-b`/`--characters-as-bytes`, as in gawk: `length()`, `substr()`, `index()`, `match()` and
-/// printf widths/precisions count bytes instead of chars.
+/// printf widths/precisions count bytes instead of chars, and so do `left`, `right`,
+/// `translate`, `reverse` and `trim`/`ltrim`/`rtrim`.
 pub fn set_characters_as_bytes(on: bool) {
     CHARACTERS_AS_BYTES.store(on, std::sync::atomic::Ordering::Relaxed);
 }
@@ -3535,7 +3558,7 @@ thread_local! {
 /// Byte range of chars `[l, l + r)` of `bs`, clamped to its end; `None` if `l` is past the end.
 /// The scan starts at char `ci`, which begins at byte `bo` (`ci <= l`). Each invalid UTF-8
 /// sequence counts as one char, consistent with [`char_count`].
-fn char_byte_range(bs: &[u8], ci: usize, bo: usize, l: usize, r: usize) -> Option<(usize, usize)> {
+pub(crate) fn char_byte_range(bs: &[u8], ci: usize, bo: usize, l: usize, r: usize) -> Option<(usize, usize)> {
     let end = l.saturating_add(r);
     let mut idx = ci;
     let mut pos = bo;
@@ -3569,6 +3592,28 @@ fn char_back(bs: &[u8], ci: usize, bo: usize, l: usize) -> Option<usize> {
         pos = start;
     }
     Some(pos)
+}
+
+/// The byte range of `bs` left by `trim`/`ltrim`/`rtrim` under `-b`: bytes in `pat` (ASCII
+/// whitespace when `pat` is `" "`) removed from the `left` and/or `right` end.
+fn trim_bytes(bs: &[u8], pat: &[u8], left: bool, right: bool) -> (usize, usize) {
+    let matches = |b: u8| {
+        if pat == b" " {
+            // As `char::is_whitespace` for ASCII: also `\v`, unlike `u8::is_ascii_whitespace`.
+            b.is_ascii() && (b as char).is_whitespace()
+        } else {
+            pat.contains(&b)
+        }
+    };
+    let mut start = 0;
+    if left {
+        start = bs.iter().position(|&b| !matches(b)).unwrap_or(bs.len());
+    }
+    let mut end = bs.len();
+    if right {
+        end = bs[start..].iter().rposition(|&b| !matches(b)).map_or(start, |i| start + i + 1);
+    }
+    (start, end)
 }
 
 /// Byte width of the char (or invalid UTF-8 sequence, grouped as `String::from_utf8_lossy` does)

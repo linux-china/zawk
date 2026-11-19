@@ -10,6 +10,8 @@
 * Fix the parameters of `sqlite_query`/`sqlite_execute`, `mysql_*` and `pg_*` shifting when the array has holes: with `p[1] = "a"; p[3] = "c"`, `p[3]` was bound to the second placeholder. As in `to_csv`, keys from 1 keep their position and a missing one (`p[2]`) is bound as NULL
 * Fix `-o parquet` writing duplicate column names into the schema, which Spark rejects ("Found duplicate column(s)") and pandas/pyarrow read inconsistently: as with `-o avro`, the first column keeps its name and the others are renamed `a_2`, `a_3`, ..., skipping names used by other columns of the header
 * Fix `system(cmd)` returning the errno value (e.g. `2`) when the command cannot be started, which a script took for the exit status of the command: as with `system2`, it now returns `127` and sets `ERRNO`
+* **Behavior change**: with `-b` (`--characters-as-bytes`), `left`, `right`, `translate`, `reverse` and `trim`/`ltrim`/`rtrim` count bytes, as `length`, `substr`, `index` and `printf` do: `left(s, 1)` is `substr(s, 1, 1)`, the first byte of `"é"`, it was the whole `é`. A `trim` pattern is a set of bytes, and `" "` trims ASCII whitespace
+* Fix `printf`/`sprintf` widths and precisions of `%s` and `%c` on strings that are not valid UTF-8: they counted every byte of such a string, so `printf "%5s", "é\377"` added 2 spaces where `length()` (2) asks for 3. Like `length()` and `substr()`, each invalid UTF-8 sequence is now one char. Likewise `left`, `right`, `translate` and `reverse` keep an invalid sequence (such as a truncated `\344\275`) as one char instead of one per byte
 
 # Version 0.7.4 (2026-11-18)
 

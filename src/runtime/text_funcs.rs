@@ -8,6 +8,7 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::runtime::float_parse::str_to_num;
+use crate::runtime::str_impl::characters_as_bytes;
 use crate::runtime::{Float, Int, Str};
 
 /// The string functions that take up to three strings and return a string. Arguments a function
@@ -109,8 +110,16 @@ fn to_int(bs: &[u8]) -> Int {
     if n.is_nan() { 0 } else { n as Int }
 }
 
-/// The characters of `bs`: a valid UTF-8 character, or a single byte that is not.
+/// The characters of `bs`, as `length()` counts them: a valid UTF-8 character, or an invalid
+/// sequence (grouped as `String::from_utf8_lossy` replaces it), or every byte with `-b`.
 fn units(bs: &[u8]) -> Vec<&[u8]> {
+    units_with(bs, characters_as_bytes())
+}
+
+fn units_with(bs: &[u8], as_bytes: bool) -> Vec<&[u8]> {
+    if as_bytes || bs.is_ascii() {
+        return bs.chunks(1).collect();
+    }
     let mut res = Vec::with_capacity(bs.len());
     for chunk in bs.utf8_chunks() {
         let valid = chunk.valid();
@@ -119,18 +128,33 @@ fn units(bs: &[u8]) -> Vec<&[u8]> {
                 .char_indices()
                 .map(|(i, c)| &valid.as_bytes()[i..i + c.len_utf8()]),
         );
-        res.extend(chunk.invalid().chunks(1));
+        // `utf8_chunks` ends each chunk with at most one invalid sequence.
+        if !chunk.invalid().is_empty() {
+            res.push(chunk.invalid());
+        }
     }
     res
 }
 
 /// `reverse(s)`: the characters of `s` in reverse order. A character with combining marks or an
-/// emoji sequence (a grapheme cluster) is kept as one, so `reverse("e\u{301}a")` is `"ae\u{301}"`.
+/// emoji sequence (a grapheme cluster) is kept as one, so `reverse("e\u{301}a")` is `"ae\u{301}"`;
+/// an invalid UTF-8 sequence is kept as one char, as `length()` counts it. With `-b` the bytes
+/// are reversed.
 pub fn reverse(bs: &[u8]) -> Vec<u8> {
+    reverse_with(bs, characters_as_bytes())
+}
+
+fn reverse_with(bs: &[u8], as_bytes: bool) -> Vec<u8> {
+    // Not an ASCII shortcut: `"\r\n"` is one grapheme cluster.
+    if as_bytes {
+        return bs.iter().rev().copied().collect();
+    }
     let mut parts: Vec<&[u8]> = Vec::new();
     for chunk in bs.utf8_chunks() {
         parts.extend(chunk.valid().graphemes(true).map(str::as_bytes));
-        parts.extend(chunk.invalid().chunks(1));
+        if !chunk.invalid().is_empty() {
+            parts.push(chunk.invalid());
+        }
     }
     parts.into_iter().rev().flatten().copied().collect()
 }
@@ -172,10 +196,14 @@ pub fn replace(s: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
 /// at the same position in `to`, or removed when `to` is shorter. When a character is repeated
 /// in `from`, its first position counts.
 pub fn translate(s: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
-    let from = units(from);
-    let to = units(to);
+    translate_with(s, from, to, characters_as_bytes())
+}
+
+fn translate_with(s: &[u8], from: &[u8], to: &[u8], as_bytes: bool) -> Vec<u8> {
+    let from = units_with(from, as_bytes);
+    let to = units_with(to, as_bytes);
     let mut res = Vec::with_capacity(s.len());
-    for u in units(s) {
+    for u in units_with(s, as_bytes) {
         match from.iter().position(|f| *f == u) {
             Some(i) => {
                 if let Some(t) = to.get(i) {
@@ -195,7 +223,11 @@ fn char_offset(us: &[&[u8]], n: usize) -> usize {
 
 /// `left(s, n)`: the first `n` characters of `s`; all but the last `-n` when `n` is negative.
 pub fn left(s: &[u8], n: Int) -> Vec<u8> {
-    let us = units(s);
+    left_with(s, n, characters_as_bytes())
+}
+
+fn left_with(s: &[u8], n: Int, as_bytes: bool) -> Vec<u8> {
+    let us = units_with(s, as_bytes);
     let len = us.len() as Int;
     let n = if n < 0 { (len + n).max(0) } else { n.min(len) };
     s[..char_offset(&us, n as usize)].to_vec()
@@ -203,7 +235,11 @@ pub fn left(s: &[u8], n: Int) -> Vec<u8> {
 
 /// `right(s, n)`: the last `n` characters of `s`; all but the first `-n` when `n` is negative.
 pub fn right(s: &[u8], n: Int) -> Vec<u8> {
-    let us = units(s);
+    right_with(s, n, characters_as_bytes())
+}
+
+fn right_with(s: &[u8], n: Int, as_bytes: bool) -> Vec<u8> {
+    let us = units_with(s, as_bytes);
     let len = us.len() as Int;
     let skip = if n < 0 {
         // `n` may be `Int::MIN` (`to_int` saturates huge negatives), so `-n` would overflow.
@@ -327,6 +363,28 @@ mod tests {
         assert_eq!(text(TextOp::Reverse, "你好世界", "", ""), "界世好你");
         assert_eq!(text(TextOp::Reverse, "e\u{301}a", "", ""), "ae\u{301}");
         assert_eq!(reverse(b"ab\xe9c"), b"c\xe9ba");
+        // An invalid sequence is one char, as for `length()`.
+        assert_eq!(reverse_with(b"a\xe4\xbdb", false), b"b\xe4\xbda");
+        // With `-b`, the bytes are reversed.
+        assert_eq!(reverse_with("é".as_bytes(), true), b"\xa9\xc3");
+        assert_eq!(reverse_with("e\u{301}a".as_bytes(), true), b"a\x81\xcce");
+    }
+
+    #[test]
+    fn units_follow_length() {
+        assert_eq!(units_with(b"a\xe4\xbdb\xff", false), [&b"a"[..], &b"\xe4\xbd"[..], &b"b"[..], &b"\xff"[..]]);
+        assert_eq!(units_with("é".as_bytes(), true), [&b"\xc3"[..], &b"\xa9"[..]]);
+    }
+
+    #[test]
+    fn characters_as_bytes_count_bytes() {
+        // `left(s, 1)` agrees with `substr(s, 1, 1)` under `-b`.
+        assert_eq!(left_with("éa".as_bytes(), 1, true), b"\xc3");
+        assert_eq!(left_with("éa".as_bytes(), -1, true), "é".as_bytes());
+        assert_eq!(right_with("aé".as_bytes(), 1, true), b"\xa9");
+        assert_eq!(right_with("aé".as_bytes(), -1, true), "é".as_bytes());
+        assert_eq!(translate_with("é".as_bytes(), b"\xa9", b"x", true), b"\xc3x");
+        assert_eq!(translate_with("é".as_bytes(), b"\xa9", b"x", false), "é".as_bytes());
     }
 
     #[test]

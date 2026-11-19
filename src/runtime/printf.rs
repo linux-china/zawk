@@ -357,28 +357,20 @@ enum CArg {
     ULongLong(libc::c_ulonglong),
 }
 
-/// Number of characters in `bs` (bytes, if it is not valid UTF-8).
+/// Number of characters in `bs`, as `length()` counts them: each invalid UTF-8 sequence is one
+/// char, and with `-b` each byte is.
 fn char_count(bs: &[u8]) -> usize {
-    if super::str_impl::characters_as_bytes() {
-        return bs.len();
-    }
-    match simdutf8::basic::from_utf8(bs) {
-        Ok(s) => s.chars().count(),
-        Err(_) => bs.len(),
-    }
+    super::str_impl::char_count(bs)
 }
 
-/// The first `n` characters of `bs` (bytes, if it is not valid UTF-8).
+/// The first `n` characters of `bs`, as `substr(bs, 1, n)` takes them.
 fn take_chars(bs: &[u8], n: usize) -> &[u8] {
-    if super::str_impl::characters_as_bytes() {
+    if bs.is_ascii() || super::str_impl::characters_as_bytes() {
         return &bs[..n.min(bs.len())];
     }
-    match str::from_utf8(bs) {
-        Ok(s) => match s.char_indices().nth(n) {
-            Some((ix, _)) => &bs[..ix],
-            None => bs,
-        },
-        Err(_) => &bs[..n.min(bs.len())],
+    match super::str_impl::char_byte_range(bs, 0, 0, 0, n) {
+        Some((_, end)) => &bs[..end],
+        None => &bs[..0],
     }
 }
 
@@ -1027,6 +1019,20 @@ mod tests {
 
         let s2 = sprintf!(b"%e %d ~~ %s", 12535, 3, "hi");
         assert_eq!(s2.as_str(), "1.253500e+04 3 ~~ hi");
+    }
+
+    #[test]
+    fn widths_count_chars_as_length_does() {
+        // An invalid UTF-8 sequence is one char, as for `length()` and `substr()`.
+        assert_eq!(char_count(b"\xc3\xa9\xff"), 2);
+        assert_eq!(char_count(b"a\xe4\xbdb"), 3);
+        assert_eq!(char_count("é".as_bytes()), 1);
+        assert_eq!(take_chars(b"\xc3\xa9\xffa", 2), b"\xc3\xa9\xff");
+        assert_eq!(take_chars(b"a\xe4\xbdb", 2), b"a\xe4\xbd");
+        assert_eq!(take_chars(b"\xff\xc3\xa9", 1), b"\xff");
+        assert_eq!(take_chars(b"\xc3\xa9", 5), "é".as_bytes());
+        assert_eq!(take_chars(b"\xc3\xa9", 0), b"");
+        assert_eq!(take_chars(b"", 3), b"");
     }
 
     #[test]

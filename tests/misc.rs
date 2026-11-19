@@ -618,6 +618,28 @@ fn characters_as_bytes() {
 }
 
 #[test]
+fn text_functions_follow_char_units() {
+    // `left`/`right`/`reverse`/`translate`/`trim` and printf widths count chars as `length()`
+    // and `substr()` do: an invalid UTF-8 sequence is one char, and under -b every byte is.
+    let prog = r#"BEGIN { s = "éa"; print length(left(s, 1)), (left(s, 1) == substr(s, 1, 1)), length(right(s, 2)), length(reverse(s)), (reverse(reverse(s)) == s), length(translate(s, "\251", "")), (trim("é", "\251") == "\303"), length(trim(" é ")), index(sprintf("%5s", "é\377"), "é"), length(left("é\377a", 2)) }"#;
+    for backend_arg in BACKEND_ARGS {
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg(prog)
+            .assert()
+            .stdout("1 1 2 2 1 2 0 1 4 2\n");
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(backend_arg)
+            .arg("-b")
+            .arg(prog)
+            .assert()
+            .stdout("1 1 2 3 1 2 1 2 3 2\n");
+    }
+}
+
+#[test]
 fn split_empty_separator_follows_char_units() {
     // `split(s, a, "")` uses the units of `length()`: an invalid byte is one char and valid
     // chars around it stay whole; under -b every byte is a char.
