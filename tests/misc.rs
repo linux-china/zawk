@@ -7027,7 +7027,7 @@ fn http_response_values_are_strnums() {
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
             let _ = stream.read(&mut [0u8; 65536]);
-            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n100");
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\n100");
         }
     });
     let prog = format!(
