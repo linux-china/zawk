@@ -1,6 +1,6 @@
 # Unreleased
 
-# Version 0.7.4 (2026-11-18)
+# Version 0.7.4 (2026-11-19)
 
 * Fix some compatibility issues with gawk
 * **Behavior change**: `strtonum` of a string (not a strnum field) with a sign or blanks before `0x` is decimal, as in gawk: `strtonum("-0x10")` and `strtonum(" 0x10")` are `0`, they were `-16` and `16`. `"-0x10" + 0` is still `-16` (zawk reads hexadecimal wherever a string becomes a number), and a field or other input that looks numeric keeps its value: `strtonum($1)` is `-16` for a field `-0x10`, but `strtonum(substr($1, 1))` is `0`. `strtonum("0x10")` is `16` as before
