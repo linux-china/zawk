@@ -112,6 +112,7 @@ fn to_int(bs: &[u8]) -> Int {
 
 /// The characters of `bs`, as `length()` counts them: a valid UTF-8 character, or an invalid
 /// sequence (grouped as `String::from_utf8_lossy` replaces it), or every byte with `-b`.
+#[allow(dead_code)]
 fn units(bs: &[u8]) -> Vec<&[u8]> {
     units_with(bs, characters_as_bytes())
 }
