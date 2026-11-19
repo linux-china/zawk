@@ -91,13 +91,18 @@ fn prepare_command(prog: &[u8], env: Option<&CommandEnv>) -> io::Result<Command>
     Ok(cmd)
 }
 
-/// Run the shell command `cmd` (the bytes of an awk string), as awk's `system` does.
+/// Run the shell command `cmd` (the bytes of an awk string), as awk's `system` does. When the
+/// command cannot be started, the result is `START_FAILURE` (as with `system2`) and `ERRNO` is
+/// set; it used to be the errno value (e.g. 2), which a script took for the command's status.
 pub fn run_command(cmd: &[u8]) -> Int {
-    fn run_command_inner(cmd: &[u8]) -> io::Result<Int> {
-        let status = prepare_command(cmd, command_env().as_ref())?.status()?;
-        Ok(exit_status_code(status))
+    let status = prepare_command(cmd, command_env().as_ref()).and_then(|mut c| c.status());
+    match status {
+        Ok(status) => exit_status_code(status),
+        Err(e) => {
+            crate::runtime::set_errno_io(&e);
+            START_FAILURE
+        }
     }
-    run_command_inner(cmd).unwrap_or_else(|e| e.raw_os_error().map(Int::from).unwrap_or(1))
 }
 
 /// Command output with one trailing newline (`\n` or `\r\n`) dropped, as `cmd | getline` does.
@@ -109,9 +114,9 @@ fn trim_newline<'b>(bytes: &[u8]) -> Str<'b> {
     Str::from_bytes(bytes)
 }
 
-/// The `code` of `system2` when the command could not be started, as a shell reports a command
-/// it cannot run.
-const SYSTEM2_START_FAILURE: Int = 127;
+/// The result of `system` (and the `code` of `system2`) when the command could not be started,
+/// as a shell reports a command it cannot run.
+const START_FAILURE: Int = 127;
 
 pub(crate) fn run_command2<'b>(cmd: &[u8]) -> StrMap<'b, Str<'b>> {
     let mut map = crate::runtime::HashMap::default();
@@ -136,7 +141,7 @@ pub(crate) fn run_command2<'b>(cmd: &[u8]) -> StrMap<'b, Str<'b>> {
         }
         Err(e) => {
             // A failed start must not look like success: `r["code"]` would otherwise be "" (0).
-            map.insert(Str::from("code"), Str::from(SYSTEM2_START_FAILURE));
+            map.insert(Str::from("code"), Str::from(START_FAILURE));
             map.insert(
                 Str::from("stderr"),
                 Str::from(format!("Failed to execute command: {}", e)),
@@ -272,6 +277,16 @@ mod tests {
         let r = run_command2(b"echo a\0b");
         assert_eq!(get(&r, "code"), b"127");
         assert!(get(&r, "stderr").starts_with(b"Failed to execute command"));
+        assert_ne!(errno(), "");
+        set_errno(String::new());
+    }
+
+    #[test]
+    fn system_start_failure_returns_127_and_sets_errno() {
+        set_errno(String::new());
+        // a NUL byte in the command line makes the spawn fail before any shell runs; the result
+        // was the errno value (e.g. 22), which read as the command's exit status
+        assert_eq!(run_command(b"echo a\0b"), 127);
         assert_ne!(errno(), "");
         set_errno(String::new());
     }

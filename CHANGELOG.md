@@ -9,6 +9,7 @@
 * Fix `http_post` rewriting a body that is not valid UTF-8: the body is sent byte for byte, so GBK text or binary data is no longer replaced by U+FFFD. A body that is a JSON object or array with surrounding whitespace (`"\n{...}\n"`) is now sent as `application/json` without an explicit `Content-Type`, it was `text/plain`
 * Fix the parameters of `sqlite_query`/`sqlite_execute`, `mysql_*` and `pg_*` shifting when the array has holes: with `p[1] = "a"; p[3] = "c"`, `p[3]` was bound to the second placeholder. As in `to_csv`, keys from 1 keep their position and a missing one (`p[2]`) is bound as NULL
 * Fix `-o parquet` writing duplicate column names into the schema, which Spark rejects ("Found duplicate column(s)") and pandas/pyarrow read inconsistently: as with `-o avro`, the first column keeps its name and the others are renamed `a_2`, `a_3`, ..., skipping names used by other columns of the header
+* Fix `system(cmd)` returning the errno value (e.g. `2`) when the command cannot be started, which a script took for the exit status of the command: as with `system2`, it now returns `127` and sets `ERRNO`
 
 # Version 0.7.4 (2026-11-18)
 
