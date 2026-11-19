@@ -27,6 +27,7 @@
 //! of an inferred column are null, also when it is `STRING`; later values that do not fit the type
 //! are null and reported.
 
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::sync::Arc;
 
@@ -321,10 +322,39 @@ fn parse_column(index: usize, raw: &[u8], infer: bool) -> io::Result<ColumnSpec>
 }
 
 fn parse_header(header: &[u8], infer: bool) -> io::Result<Vec<ColumnSpec>> {
-    header
+    let mut specs: Vec<ColumnSpec> = header
         .split(|b| *b == b'\t')
         .enumerate()
         .map(|(i, f)| parse_column(i, f, infer))
+        .collect::<io::Result<_>>()?;
+    let names: Vec<String> = specs.iter().map(|(name, _)| name.clone()).collect();
+    for ((name, _), unique) in specs.iter_mut().zip(unique_names(&names)) {
+        *name = unique;
+    }
+    Ok(specs)
+}
+
+/// The column names made unique, as for `-o avro`: of duplicates, the first is kept and the
+/// others are renamed `a_2`, `a_3`, ..., skipping names taken by other columns, so that a column
+/// named `a_2` in the header keeps its name. Readers such as Spark reject duplicate columns.
+fn unique_names(names: &[String]) -> Vec<String> {
+    let mut used: HashSet<String> = names.iter().cloned().collect();
+    let mut seen = HashSet::new();
+    names
+        .iter()
+        .map(|name| {
+            if seen.insert(name.clone()) {
+                return name.clone();
+            }
+            let mut n = 2;
+            let mut candidate = format!("{}_{}", name, n);
+            while used.contains(&candidate) {
+                n += 1;
+                candidate = format!("{}_{}", name, n);
+            }
+            used.insert(candidate.clone());
+            candidate
+        })
         .collect()
 }
 
@@ -714,6 +744,19 @@ mod tests {
         );
         let mut w = ParquetWriter::new(Vec::new(), false);
         assert!(w.write_all(b"a:nope\n").is_ok());
+    }
+
+    #[test]
+    fn duplicate_names_are_renamed() {
+        let specs = parse_header(b"a\ta:int64\ta_2\t\tc2\ta", false).unwrap();
+        let names: Vec<&str> = specs.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["a", "a_3", "a_2", "c4", "c2", "a_4"]);
+        assert_eq!(specs[1].1, Some(Kind::Int64));
+        let specs = parse_header(b"\tc1", false).unwrap();
+        let names: Vec<&str> = specs.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["c1", "c1_2"]);
+        let got = rows(b"id\tid:int32\n1\t2\n");
+        assert_eq!(got, ["{id: \"1\", id_2: 2}"]);
     }
 
     #[test]
