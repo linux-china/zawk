@@ -162,6 +162,8 @@ pub enum Tok<'a> {
     FunDec(&'a str),
 
     ILit(&'a str),
+    /// An integer literal with a radix prefix: hexadecimal `0x2A`, octal `0o52` or binary
+    /// `0b101010` (prefixes in either case, digits may be grouped with `_`).
     HexLit(&'a str),
     FLit(&'a str),
 }
@@ -685,6 +687,21 @@ fn is_raw_string_start(rest: &[u8]) -> bool {
     rest.get(hashes) == Some(&b'"')
 }
 
+/// The error for an octal or binary literal directly followed by more digits or name
+/// characters, such as `0b102` or `0o78`: without it they would silently lex as the literal
+/// concatenated with a number or a variable (`0b10` `2`).
+fn bad_radix_literal(tok: &Tok, rest: &str) -> Option<String> {
+    let Tok::HexLit(lit) = tok else { return None };
+    let body = lit.trim_start_matches(['+', '-']);
+    let kind = match body.as_bytes().get(1) {
+        Some(b'o' | b'O') => "octal",
+        Some(b'b' | b'B') => "binary",
+        _ => return None,
+    };
+    let next = rest.chars().next().filter(|c| c.is_ascii_alphanumeric() || *c == '_')?;
+    Some(format!("invalid digit {next:?} in {kind} literal `{lit}{next}`"))
+}
+
 /// The digits of a numeric literal, without the `_` separators of `1_000` and `0xFF_FF`.
 pub(crate) fn strip_digit_separators(lit: &str) -> Cow<'_, str> {
     if lit.contains('_') {
@@ -941,8 +958,15 @@ impl<'a> Tokenizer<'a> {
             ))
             .unwrap()
         });
+        static OCT_PATTERN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[+-]?0[oO][0-7]+(_[0-7]+)*").unwrap());
+        static BIN_PATTERN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[+-]?0[bB][01]+(_[01]+)*").unwrap());
         let text = &self.text[self.cur..];
-        if let Some(i) = HEX_PATTERN.captures(text).and_then(|c| c.get(0)) {
+        if let Some(i) = [&*HEX_PATTERN, &*OCT_PATTERN, &*BIN_PATTERN]
+            .iter()
+            .find_map(|re| re.find(text))
+        {
             let is = i.as_str();
             Some((Tok::HexLit(is), is.len()))
         } else if let Some(f) = FLOAT_PATTERN
@@ -1308,6 +1332,12 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if let Some((tok, len)) = self.num() {
+                        if let Some(desc) = bad_radix_literal(&tok, &self.text[self.cur + len..]) {
+                            return Some(Err(Error {
+                                location: self.index_to_loc(ix),
+                                desc: desc.into(),
+                            }));
+                        }
                         self.cur += len;
                         self.spanned(ix, self.cur, tok)
                     } else if is_id_start(c) {
@@ -1499,6 +1529,30 @@ and the third"#;
         assert_eq!(toks("1e٣")[0], Tok::ILit("1"));
         assert_eq!(toks("12_3")[0], Tok::ILit("12_3"));
         assert_eq!(toks("1.5e3")[0], Tok::FLit("1.5e3"));
+    }
+
+    #[test]
+    fn radix_literals() {
+        let toks = |s| lex_str(s).into_iter().map(|x| x.1).collect::<Vec<_>>();
+        for lit in ["0x2A", "0X2a", "0o52", "0O52", "0b101010", "0B101010", "0b1010_1010", "0o7_7"] {
+            assert_eq!(toks(lit)[0], Tok::HexLit(lit), "{lit:?}");
+        }
+        // Not a radix literal without digits: `0` followed by the name `b` / `o`.
+        assert_eq!(toks("0b")[0], Tok::ILit("0"));
+        assert_eq!(toks("0o")[0], Tok::ILit("0"));
+        // A range bound.
+        assert_eq!(toks("0b1..0b11")[0], Tok::HexLit("0b1"));
+        for (text, desc) in [
+            ("x = 0b102", "invalid digit '2' in binary literal `0b102`"),
+            ("x = 0o78", "invalid digit '8' in octal literal `0o78`"),
+            ("x = 0b1z", "invalid digit 'z' in binary literal `0b1z`"),
+            ("x = 0o7_", "invalid digit '_' in octal literal `0o7_`"),
+        ] {
+            let err = Tokenizer::new(text)
+                .find_map(Result::err)
+                .unwrap_or_else(|| panic!("no error for {:?}", text));
+            assert_eq!(err.desc, desc, "{:?}", text);
+        }
     }
 
     #[test]
@@ -1731,6 +1785,8 @@ and the third"#;
         for (text, lit) in [
             ("1 / 2 / 1", ILit("1")),
             ("0x10 / 2 / 1", HexLit("0x10")),
+            ("0o20 / 2 / 1", HexLit("0o20")),
+            ("0b10 / 2 / 1", HexLit("0b10")),
             ("1.5 / 2 / 1", FLit("1.5")),
         ] {
             let toks: Vec<_> = lex_str(text).into_iter().map(|x| x.1).collect();
