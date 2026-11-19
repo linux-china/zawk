@@ -2231,7 +2231,12 @@ pub(crate) trait CodeGenerator: Backend {
                 let resv = self.call_intrinsic(intrinsic!(run_cmd), &mut [rt, cmdv])?;
                 self.bind_val(dst.reflect(), resv)
             }
-            RunCmd2(dst, cmd) => self.unop(intrinsic!(run_cmd2), dst, cmd),
+            RunCmd2(dst, cmd) => {
+                let rt = self.runtime_val();
+                let cmdv = self.get_val(cmd.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(run_cmd2), &mut [rt, cmdv])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Exit(code) => {
                 let rt = self.runtime_val();
                 let codev = self.get_val(code.reflect())?;

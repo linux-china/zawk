@@ -179,7 +179,7 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         trace_enter(rt_ty, int_ty);
         trace_leave(rt_ty);
         run_cmd(rt_ty, str_ref_ty) -> int_ty;
-        run_cmd2(str_ref_ty) -> map_ty;
+        run_cmd2(rt_ty, str_ref_ty) -> map_ty;
         print_all_stdout(rt_ty, pa_args_ty, int_ty);
         print_all_file(rt_ty, pa_args_ty, int_ty, str_ref_ty, int_ty);
         sprintf_impl(rt_ty, str_ref_ty, fmt_args_ty, fmt_tys_ty, int_ty) -> str_ty;
@@ -1041,8 +1041,11 @@ pub(crate) unsafe extern "C" fn run_cmd(rt: *mut c_void, cmd: *mut U128) -> Int 
     })
 }
 
-pub(crate) unsafe extern "C" fn run_cmd2(cmd: *mut U128) -> *mut c_void {
+pub(crate) unsafe extern "C" fn run_cmd2(rt: *mut c_void, cmd: *mut U128) -> *mut c_void {
     guard_panic(stringify!(run_cmd2), || {
+        let rt = rt as *mut Runtime;
+        // Flush like `system()` so the command sees what the script has written so far.
+        try_silent_abort!(rt, (*rt).core.write_files.flush_all());
         let s: &Str = &*(cmd as *mut Str);
         let res = s.with_bytes(runtime::run_command2);
         mem::transmute::<StrMap<Str>, *mut c_void>(res)

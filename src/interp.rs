@@ -3480,6 +3480,11 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.ints, dst) = res;
                     }
                     RunCmd2(dst, cmd) => {
+                        // Flush like `system()` so the command sees what the script has written
+                        // so far. Write errors exit silently, as with print.
+                        if self.core.write_files.flush_all().is_err() {
+                            return Ok(0);
+                        }
                         let cmd = index(&self.strs, cmd);
                         let res = cmd.with_bytes(runtime::run_command2);
                         let dst = *dst;

@@ -2075,6 +2075,26 @@ fn system_flushes_output() {
 }
 
 #[test]
+fn system2_flushes_output() {
+    for backend_arg in BACKEND_ARGS {
+        // As with `system()`, output files are flushed, so the command sees their contents.
+        let tmp = tempdir().unwrap();
+        let out = tmp.path().join("out.txt");
+        let prog = format!(
+            r#"BEGIN {{ print "x" > "{0}"; printf "y" > "{0}"; m = system2("cat {0}"); print m["stdout"] }}"#,
+            out.to_str().unwrap()
+        );
+        Command::cargo_bin("zawk")
+            .unwrap()
+            .arg(String::from(*backend_arg))
+            .arg(prog)
+            .assert()
+            .success()
+            .stdout(String::from("x\ny\n"));
+    }
+}
+
+#[test]
 fn environ_passed_to_commands() {
     // As in gawk, changes to ENVIRON are passed to system, getline and print pipes.
     let prog = r#"BEGIN {

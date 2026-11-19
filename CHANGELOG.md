@@ -5,6 +5,7 @@
 * **Behavior change**: `to_csv(arr)` quotes a value as `escape_csv` and `-o csv` do, also when it has a leading or trailing space or tab: `a[1] = " x"; print to_csv(a)` is `" x"`, it was ` x`, so `to_csv(a)` and `print a[1], a[2]` with `-o csv` give the same text. An array with a single empty value is `""` (one empty field), not an empty line
 * Fix `-i csv` splitting a reassigned `$0` (`$0 = $0`, `sub`/`gsub` on `$0`, `$0 = tolower($0)`, ...) differently from the input: a `"` inside an unquoted field opened a quoted portion and a literal `"` inside a quoted field closed it, so `id,size 5" screen,price` had 3 fields when read but 2 after `sub(/id/, "ID")` (`size 5 screen,price`, the quote lost). The new `$0` is now split with the rules of the input reader, as in gawk: only a `"` at the start of a field opens a quoted field, and inside one a `"` not followed by `"`, `,` or the line end is a literal quote
 * Fix the command line of `system`, `system2`, `cmd | getline` and `print | cmd` on Unix: it is passed to `sh -c` byte for byte, as in gawk, so a command naming a Latin-1 or GBK file works. Bytes that are not valid UTF-8 were replaced by U+FFFD, so `system("ls -l " $0)` with a line `caf\xe9.txt` listed `caf�.txt` and did not find the file
+* Fix `system2` not flushing output before running the command: like `system`, it now flushes stdout and all output files and pipes first, so `print "x" > "out.txt"; system2("wc -l < out.txt")` sees the line. A write error exits silently, as with `system` and `print`
 
 # Version 0.7.4 (2026-11-18)
 
