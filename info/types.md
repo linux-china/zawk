@@ -7,7 +7,7 @@ which I am aware.
 
 ## Types in Awk
 
-There are two types of values in Awk: scalars and associative arrays (the zawk
+There are two types of values in Awk: scalars(number, string) and associative arrays (the zawk
 implementation calls these "maps").  These two kinds of variable cannot overlap,
 so the command:
 
