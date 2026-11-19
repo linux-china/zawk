@@ -78,11 +78,11 @@ fn prepare_command(prog: &[u8], env: Option<&CommandEnv>) -> io::Result<Command>
     let prog = command_line(prog);
     let mut cmd = if cfg!(target_os = "windows") {
         let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(prog.as_ref());
+        cmd.arg("/C").arg(&*prog);
         cmd
     } else {
         let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(prog.as_ref());
+        cmd.arg("-c").arg(&*prog);
         cmd
     };
     if let Some(env) = env {
