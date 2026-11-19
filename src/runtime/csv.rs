@@ -26,7 +26,7 @@ const MAX_CSV_GAP: i64 = 1 << 20;
 
 /// Column positions for `to_csv`: `Some(key)` for an existing index, `None` for a hole.
 /// Arrays indexed from 1 are emitted as `1..=max` so holes keep their position (`a,,c`).
-fn csv_positions(mut keys: Vec<Int>) -> Vec<Option<Int>> {
+pub(crate) fn csv_positions(mut keys: Vec<Int>) -> Vec<Option<Int>> {
     keys.sort_unstable();
     match (keys.first(), keys.last()) {
         (Some(&min), Some(&max)) if min >= 1 && max - (keys.len() as Int) <= MAX_CSV_GAP => {

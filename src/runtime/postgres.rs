@@ -101,11 +101,12 @@ fn with_client<T>(
 }
 
 /// A positional parameter given as text, converted to the type the server inferred for it.
-/// `position` is its 1-based `$n` placeholder number.
+/// `position` is its 1-based `$n` placeholder number; `text` is `None` for a hole in the array,
+/// bound as NULL.
 #[derive(Debug)]
 struct PgParam {
     position: usize,
-    text: String,
+    text: Option<String>,
 }
 
 impl ToSql for PgParam {
@@ -118,7 +119,10 @@ impl ToSql for PgParam {
         self.encode(ty, out).map_err(|e| {
             format!(
                 "${}: {:?} is not a valid {}: {}",
-                self.position, self.text, ty, e
+                self.position,
+                self.text.as_deref().unwrap_or(""),
+                ty,
+                e
             )
             .into()
         })
@@ -137,7 +141,9 @@ impl PgParam {
         ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        let text = self.text.as_str();
+        let Some(text) = self.text.as_deref() else {
+            return Ok(IsNull::Yes);
+        };
         if is_null(text.as_bytes()) {
             return Ok(IsNull::Yes);
         }

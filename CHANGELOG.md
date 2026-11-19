@@ -7,6 +7,7 @@
 * Fix the command line of `system`, `system2`, `cmd | getline` and `print | cmd` on Unix: it is passed to `sh -c` byte for byte, as in gawk, so a command naming a Latin-1 or GBK file works. Bytes that are not valid UTF-8 were replaced by U+FFFD, so `system("ls -l " $0)` with a line `caf\xe9.txt` listed `caf�.txt` and did not find the file
 * Fix `system2` not flushing output before running the command: like `system`, it now flushes stdout and all output files and pipes first, so `print "x" > "out.txt"; system2("wc -l < out.txt")` sees the line. A write error exits silently, as with `system` and `print`
 * Fix `http_post` rewriting a body that is not valid UTF-8: the body is sent byte for byte, so GBK text or binary data is no longer replaced by U+FFFD. A body that is a JSON object or array with surrounding whitespace (`"\n{...}\n"`) is now sent as `application/json` without an explicit `Content-Type`, it was `text/plain`
+* Fix the parameters of `sqlite_query`/`sqlite_execute`, `mysql_*` and `pg_*` shifting when the array has holes: with `p[1] = "a"; p[3] = "c"`, `p[3]` was bound to the second placeholder. As in `to_csv`, keys from 1 keep their position and a missing one (`p[2]`) is bound as NULL
 
 # Version 0.7.4 (2026-11-18)
 

@@ -70,10 +70,13 @@ pub(crate) fn open_connection<P: AsRef<std::path::Path>>(
 
 /// Values of `params` ordered by key: the positional parameters (`?`, `?1`, `$1`...) bound to a
 /// prepared statement by the `*_query`/`*_execute` database functions.
-pub(crate) fn positional_params(params: &IntMap<Str>) -> Vec<String> {
-    let mut keys = params.to_vec();
-    keys.sort_unstable();
-    keys.iter().map(|k| params.get(k).to_string()).collect()
+/// Keys from 1 keep their position, as in `to_csv`: a hole (`p[1]`, `p[3]` without `p[2]`) is
+/// `None`, bound as NULL, so `p[3]` still goes to the third placeholder.
+pub(crate) fn positional_params(params: &IntMap<Str>) -> Vec<Option<String>> {
+    crate::runtime::csv::csv_positions(params.to_vec())
+        .into_iter()
+        .map(|k| k.map(|k| params.get(&k).to_string()))
+        .collect()
 }
 
 /// Binds `text` as an INTEGER/REAL when it is exactly the canonical text of that number, so `? > 10`
@@ -96,7 +99,7 @@ fn sqlite_param(text: &str) -> Value {
 fn sqlite_params(params: &IntMap<Str>) -> Vec<Value> {
     positional_params(params)
         .iter()
-        .map(|s| sqlite_param(s))
+        .map(|s| s.as_deref().map_or(Value::Null, sqlite_param))
         .collect()
 }
 
@@ -432,6 +435,20 @@ mod tests {
         assert_eq!(rows.get(&1).to_string(), "0,integer,real,1");
         let rows = sqlite_query(":memory:", "SELECT typeof(?)", &params(&["007"]));
         assert_eq!(rows.get(&1).to_string(), "text");
+    }
+
+    #[test]
+    fn test_params_with_holes_keep_positions() {
+        // p[1] and p[3] without p[2]: p[3] must stay on the third placeholder, p[2] is NULL
+        let map: IntMap<Str> = IntMap::default();
+        map.insert(1, Str::from("a"));
+        map.insert(3, Str::from("c"));
+        assert_eq!(
+            positional_params(&map),
+            vec![Some("a".to_string()), None, Some("c".to_string())]
+        );
+        let rows = sqlite_query(":memory:", "SELECT ?1, typeof(?2), ?3", &map);
+        assert_eq!(rows.get(&1).to_string(), "a,null,c");
     }
 
     #[test]

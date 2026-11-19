@@ -22,19 +22,16 @@ pub(crate) fn warn_open_transactions() {
 }
 
 /// Positional parameters bound as strings (MySQL converts them to the column types), the `--null`
-/// text as NULL, or `None` when there are none: then the text protocol is used, since not every
+/// text and holes in the array as NULL, or `None` when there are none: then the text protocol is used, since not every
 /// statement can be prepared.
 fn positional_params(params: &IntMap<Str>) -> Option<Params> {
     let values = crate::runtime::sqlite::positional_params(params);
     if values.is_empty() {
         None
     } else {
-        let value = |s: String| {
-            if is_null(s.as_bytes()) {
-                Value::NULL
-            } else {
-                Value::from(s)
-            }
+        let value = |s: Option<String>| match s {
+            Some(s) if !is_null(s.as_bytes()) => Value::from(s),
+            _ => Value::NULL,
         };
         Some(Params::Positional(values.into_iter().map(value).collect()))
     }
