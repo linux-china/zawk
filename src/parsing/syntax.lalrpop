@@ -6,7 +6,7 @@ use crate::{
   ast::{expr_key, Pattern, Expr, Stmt, Binop, Unop, Prog, FunDec},
   builtins::Function,
   common::{FileSpec, Either},
-  runtime::{strtod,exact_int_literal,parse_int_literal,parse_hex_literal},
+  runtime::{strtod,exact_int_literal,parse_int_literal,parse_radix_literal},
   lexer::{self, Tok},
 };
 
@@ -242,7 +242,7 @@ MatchBind: crate::parsing::MatchBind<'a> = {
 
 CaseNum: &'a Expr<'a,'a,&'a str> = {
   "INT" => arena.alloc(exact_int_literal(parse_int_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_radix_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
   "FLOAT" => arena.alloc(Expr::FLit(strtod(lexer::strip_digit_separators(<>).as_bytes()))),
 }
 
@@ -696,7 +696,7 @@ LeafTerm: &'a Expr<'a,'a, &'a str> = {
   StrLit,
   // Integer literals that are not exact as doubles (beyond 2^53) become floating-point literals.
   "INT" => arena.alloc(exact_int_literal(parse_int_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
-  "HEX" => arena.alloc(exact_int_literal(parse_hex_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
+  "HEX" => arena.alloc(exact_int_literal(parse_radix_literal(lexer::strip_digit_separators(<>).as_bytes())).map_or_else(Expr::FLit, Expr::ILit)),
   "FLOAT" => arena.alloc(Expr::FLit(strtod(lexer::strip_digit_separators(<>).as_bytes()))),
   "PATLIT" => arena.alloc(Expr::PatLit(lexer::parse_regex_literal(<>, &arena, buf))),
   MatchExpr,

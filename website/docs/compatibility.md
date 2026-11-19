@@ -49,6 +49,8 @@ behavior in a few places:
 - **Hexadecimal numbers** are recognized in source and in input data: `0x10` is 16, `"0x10" + 0` is 16 (gawk: 0),
   and for an input line `0x10 16`, `$1 == $2` is true (gawk compares them as strings). A leading zero is
   decimal: `010` in source is 10 (gawk: 8).
+- **Binary and octal literals** `0b101010` and `0o52` (both 42) are zawk extensions, and `strtonum` reads the
+  same prefixes (`strtonum("0b101")` is 5). In gawk, `0b101` is `0` concatenated with the variable `b101`.
 - **`printf` with too few arguments** is not fatal: zawk prints a warning and the missing arguments print as
   empty (or `0` for numeric conversions). `printf "%s|%s\n", "a"` prints `a|`. `zawk lint` reports it (W202).
 - **A variable never assigned can become an array later**: `print length(x); x[1] = 1` works in zawk, while gawk

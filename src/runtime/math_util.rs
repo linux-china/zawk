@@ -392,12 +392,14 @@ fn extract_timestamp_ms(id: &str, epoch_ms: Int) -> Option<i64> {
 
 /// gawk's `strtonum`. `strnum` is whether the argument may be a strnum (input such as a field):
 /// one that looks like a decimal number is that number (`strtonum($1)` is 17 for the field
-/// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number and a leading `0` an
-/// octal one (`strtonum("017")` is 15), unless the digits continue with `8`, `9`, `.` or an
-/// exponent, which make it decimal (`"018"` is 18, `"017.5"` is 17.5). Leading blanks or a sign
-/// also make it decimal, as in gawk, so `strtonum("-0x10")` is 0; for a strnum they keep a `0x`
-/// hexadecimal (`strtonum($1)` is -16 for the field " -0x10"), since zawk reads hexadecimal input
-/// as a number everywhere.
+/// "017"). Otherwise a leading `0x` or `0X` starts a hexadecimal number, and (a zawk extension)
+/// `0o`/`0O` an octal one and `0b`/`0B` a binary one, read up to the first digit that does not
+/// belong (`strtonum("0b101")` is 5, `strtonum("0o17")` is 15, `strtonum("0b12")` is 1). A
+/// leading `0` alone also starts an octal number (`strtonum("017")` is 15), unless the digits
+/// continue with `8`, `9`, `.` or an exponent, which make it decimal (`"018"` is 18, `"017.5"` is
+/// 17.5). Leading blanks or a sign make it decimal, as in gawk, so `strtonum("-0x10")` and
+/// `strtonum("-0b1")` are 0; for a strnum they keep a prefixed number (`strtonum($1)` is -16 for
+/// the field " -0x10" and -5 for the field "-0b101").
 ///
 /// A decimal number may group its integer digits by thousands with `,` or `_` (one kind per
 /// number): `strtonum("1,234.5")` and `strtonum("1_234.5")` are 1234.5. The first group has one
@@ -426,12 +428,18 @@ pub(crate) fn awk_strtonum(bs: &[u8], strnum: bool) -> Float {
         [b'+', rest @ ..] => (false, rest),
         _ => (false, trimmed),
     };
-    if let [b'0', b'x' | b'X', rest @ ..] = unsigned {
+    let radix = match unsigned {
+        [b'0', b'x' | b'X', ..] => Some(16),
+        [b'0', b'o' | b'O', ..] => Some(8),
+        [b'0', b'b' | b'B', ..] => Some(2),
+        _ => None,
+    };
+    if let Some(radix) = radix {
         if !strnum && unsigned.len() != bs.len() {
             // `-0x10` or ` 0x10` in a string: the decimal number `-0` or `0`, as in gawk.
             return 0.0;
         }
-        let n = crate::runtime::float_parse::hex_digits(rest).0;
+        let n = crate::runtime::float_parse::radix_digits(&unsigned[2..], radix).0;
         return if negative && n != 0.0 { -n } else { n };
     }
     match bs {
@@ -1199,6 +1207,20 @@ mod tests {
         assert_eq!(awk_strtonum(b" 0x11 ", true), 17.0);
         assert_eq!(awk_strtonum(b"0x11", true), 17.0);
         assert_eq!(awk_strtonum(b"017abc", true), 15.0);
+        // Binary and octal prefixes (zawk extension).
+        assert_eq!(n("0b101010"), 42.0);
+        assert_eq!(n("0B11"), 3.0);
+        assert_eq!(n("0b12"), 1.0);
+        assert_eq!(n("0b"), 0.0);
+        assert_eq!(n("0o52"), 42.0);
+        assert_eq!(n("0O17"), 15.0);
+        assert_eq!(n("0o78"), 7.0);
+        assert_eq!(n("0o"), 0.0);
+        assert_eq!(n("-0b1"), 0.0);
+        assert_eq!(n(" 0o17"), 0.0);
+        assert_eq!(awk_strtonum(b"-0b101", true), -5.0);
+        assert_eq!(awk_strtonum(b" 0o17 ", true), 15.0);
+        assert_eq!(n(&format!("0b1{}", "0".repeat(70))), 2f64.powi(70));
         // Thousands separators in decimal numbers.
         assert_eq!(n("1,234.5"), 1234.5);
         assert_eq!(n("1_234.5"), 1234.5);

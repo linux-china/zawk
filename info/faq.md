@@ -56,7 +56,8 @@ zawk is a new AWK implementation and doesn't follow every gawk extension. These 
   ever numbers (`a[NR]`, `a[10]`) `k > 9` compares numbers, while with string keys (`a[$1]`, or any
   `a["x"]` elsewhere in the program) it compares strings, as gawk always does. Write `k+0 > 9` for a
   numeric comparison and `k "" > "9"` for a string comparison
-- Hexadecimal numbers are recognized, in source and input data, wherever a string becomes a number (arithmetic, comparisons such as `$1 == 16`, printf, sorting): `0x10` is 16 and `-0x10` is -16; a leading zero is decimal: `010` is 10; there are no `0o`/`0b` prefixes
+- Hexadecimal numbers are recognized, in source and input data, wherever a string becomes a number (arithmetic, comparisons such as `$1 == 16`, printf, sorting): `0x10` is 16 and `-0x10` is -16; a leading zero is decimal: `010` is 10
+- Octal and binary numbers are supported as program literals and by `strtonum()`: `0o52`, `0b101010`, `strtonum("0o52")` and `strtonum("0b101010")` are all 42 (prefixes in either case, `_` may group digits in literals: `0b1111_0000`). A digit that does not belong to the literal is a syntax error (`0b102`, `0o78`). Input data and other string-to-number conversions do not read these prefixes: `"0b101"+0` and `float("0b101")` are 0, and a field `0b101` compares as a string
 - `f"..."` is an f-string and `r"..."` / `r#"..."#` a raw string, never a variable `f` or `r` concatenated
   with a string: with `r = 5`, gawk prints `5x` for `print r"x"` while zawk prints `x`. Write `r "x"` (with a
   space) or `(r) "x"`, or better rename the variable; `zawk lint` reports `f` and `r` used as names (W103)

@@ -87,7 +87,8 @@ Multi-dimensional keys work with both forms: `(i, j) in arr`, `(i, j) !in arr`.
 
 ## Digit separators
 
-A `_` between two digits of a numeric literal is ignored: `1_000_000`, `1_000.5`, `1e1_0`, `0xFF_FF`. This is for
+A `_` between two digits of a numeric literal is ignored: `1_000_000`, `1_000.5`, `1e1_0`, `0xFF_FF`,
+`0b1111_0000`, `0o7_777`. This is for
 source only: `"1_000" + 0` and a field `1_000` are `1`.
 
 ## Hexadecimal numbers
@@ -100,6 +101,25 @@ Hexadecimal literals are recognized in source and in input data wherever a strin
 blanks is not hexadecimal, so `strtonum("-0x10")` and `strtonum(" 0x10")` are `0` while `"-0x10" + 0` is
 `-16`. A field `-0x10` keeps its value (`strtonum($1)` is `-16`), but a string made from it does not
 (`strtonum(substr($1, 1))` is `0`).
+
+## Binary and octal numbers
+
+Binary literals start with `0b` (or `0B`) and octal literals with `0o` (or `0O`):
+
+```awk
+local n = 0b101010
+print(n)                  # 42
+print 0o52, 0o755         # 42 493
+print and(0b1100, 0b1010) # 8
+```
+
+A digit that does not belong to the base is a syntax error: `0b102` and `0o78` are rejected rather than read as
+`0b10` followed by `2`. Large literals behave as hexadecimal ones: beyond 2^53 they become floating-point numbers.
+
+Unlike hexadecimal, these prefixes are for source only: input data and plain conversions do not read them
+(`"0b101" + 0` and `float("0b101")` are `0`, and a field `0b101` compares as a string, not as `5`).
+Use `strtonum` to parse such strings: `strtonum("0b101010")` and `strtonum("0o52")` are `42`, following the same
+sign rules as `0x` above (`strtonum("-0b1")` is `0`, while a field `-0b1` gives `-1`).
 
 ## Bitwise functions
 

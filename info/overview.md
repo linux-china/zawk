@@ -282,7 +282,8 @@ surprised to discover there were bugs in zawk's parser.
   particular range of input columns.
 * zawk provides an `int` function for converting a scalar value to an integer,
   and a `hex` function for converting a hexadecimal string to an integer. It
-  also supports hexadecimal numeric literals.
+  also supports hexadecimal (`0x2A`), octal (`0o52`) and binary (`0b101010`)
+  numeric literals, and `strtonum` reads all three prefixes.
 * zawk supports executing a script [in
   parallel](https://github.com/linux-china/zawk/blob/master/info/parallelism.md)
   with `-p r` (records of one input) or `-p f` (input files), for every input
@@ -310,7 +311,7 @@ surprised to discover there were bugs in zawk's parser.
   ```
 
   The value is evaluated once and compared with each `case` label in order;
-  a label is a numeric constant (`1`, `-2.5`, `0x10`), a string constant or a
+  a label is a numeric constant (`1`, `-2.5`, `0x10`, `0b11`), a string constant or a
   regex constant. Numeric and string labels are compared with `==` (so input
   that looks numeric matches a numeric label, and a string label is compared as
   a string), and regex labels with `~`. Control jumps to the first matching

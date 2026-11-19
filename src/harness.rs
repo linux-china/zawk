@@ -1422,6 +1422,20 @@ this as well"#
     );
 
     test_program!(
+        binary_octal_literals,
+        r#"BEGIN {
+        local n = 0b101010
+        print(n)
+        local m = 0o52
+        print m, 0B1111_0000, 0O777, -0b11, 0b1 + 0o7, 0b11 * 2
+        print strtonum("0b101010"), strtonum("0o52"), strtonum("0B11"), strtonum("0O17"), strtonum("017"), strtonum("-0b1")
+        for (i in 0b1..0b11) printf "%d ", i
+        print ""
+    }"#,
+        "42\n42 240 511 -3 8 6\n42 42 3 15 15 0\n1 2 \n"
+    );
+
+    test_program!(
         basic_subsep,
         "BEGIN { m[1,2] = 3; for (k in m) { split(k, arr, SUBSEP); print arr[1], arr[2], m[k]; } }",
         "1 2 3\n"

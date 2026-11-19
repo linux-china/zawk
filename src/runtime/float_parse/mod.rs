@@ -42,30 +42,38 @@ pub fn parse_int_literal(bs: &[u8]) -> Result<i64, f64> {
         .ok_or_else(|| strtod(bs))
 }
 
-/// Parse a hexadecimal integer literal (`0x...`, with an optional sign). Values outside the range
-/// of i64 are returned as the nearest float (`Err`).
-pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
+/// The radix of an integer literal prefix: `0x`/`0X` is 16, `0o`/`0O` is 8 and `0b`/`0B` is 2.
+fn radix_prefix(bs: &[u8]) -> Option<u32> {
+    match bs {
+        [b'0', b'x' | b'X', ..] => Some(16),
+        [b'0', b'o' | b'O', ..] => Some(8),
+        [b'0', b'b' | b'B', ..] => Some(2),
+        _ => None,
+    }
+}
+
+/// Parse a hexadecimal (`0x...`), octal (`0o...`) or binary (`0b...`) integer literal, with an
+/// optional sign. Values outside the range of i64 are returned as the nearest float (`Err`).
+pub fn parse_radix_literal(mut bs: &[u8]) -> Result<i64, f64> {
     let neg = bs.first() == Some(&b'-');
     if neg || bs.first() == Some(&b'+') {
         bs = &bs[1..];
     }
-    if bs.len() >= 2 && bs[0] == b'0' && (bs[1] == b'x' || bs[1] == b'X') {
-        bs = &bs[2..];
-    }
+    let radix = match radix_prefix(bs) {
+        Some(radix) => {
+            bs = &bs[2..];
+            radix
+        }
+        None => 16,
+    };
     // Accumulate exactly in a u128 while possible, then (for absurdly long literals) in a float.
     let mut exact: Option<u128> = Some(0);
     let mut approx = 0f64;
-    for b in bs.iter().cloned() {
-        let digit = match b {
-            b'A'..=b'F' => b - b'A' + 10,
-            b'a'..=b'f' => b - b'a' + 10,
-            b'0'..=b'9' => b - b'0',
-            _ => break,
-        };
+    for digit in bs.iter().map_while(|b| (*b as char).to_digit(radix)) {
         exact = exact
-            .and_then(|i| i.checked_mul(16))
+            .and_then(|i| i.checked_mul(radix as u128))
             .and_then(|i| i.checked_add(digit as u128));
-        approx = approx * 16.0 + digit as f64;
+        approx = approx * radix as f64 + digit as f64;
     }
     // Work with the magnitude in u128 and apply the sign last: casting a u128 in [2^127, 2^128)
     // to i128 would wrap around and yield a wrong sign and value.
@@ -84,19 +92,28 @@ pub fn parse_hex_literal(mut bs: &[u8]) -> Result<i64, f64> {
 /// The value of the hexadecimal digits at the start of `bs` (the longest run of them), and how
 /// many there are. Values beyond the range of a u64 are the nearest float.
 pub fn hex_digits(bs: &[u8]) -> (f64, usize) {
+    radix_digits(bs, 16)
+}
+
+/// The value of the digits in base `radix` (2 to 36) at the start of `bs` (the longest run of
+/// them), and how many there are. Values beyond the range of a u64 are the nearest float.
+pub fn radix_digits(bs: &[u8], radix: u32) -> (f64, usize) {
     let mut exact = 0u64;
     let mut approx: Option<f64> = None;
     let mut n = 0;
-    for d in bs.iter().map_while(|b| (*b as char).to_digit(16)) {
+    for d in bs.iter().map_while(|b| (*b as char).to_digit(radix)) {
         n += 1;
         approx = match approx {
-            Some(f) => Some(f * 16.0 + d as f64),
-            None => match exact.checked_mul(16).and_then(|i| i.checked_add(d as u64)) {
+            Some(f) => Some(f * radix as f64 + d as f64),
+            None => match exact
+                .checked_mul(radix as u64)
+                .and_then(|i| i.checked_add(d as u64))
+            {
                 Some(i) => {
                     exact = i;
                     None
                 }
-                None => Some(exact as f64 * 16.0 + d as f64),
+                None => Some(exact as f64 * radix as f64 + d as f64),
             },
         };
     }
@@ -472,39 +489,68 @@ mod tests {
         assert_eq!(parse_int_literal(b"100000000000000000000"), Err(1e20));
         assert_eq!(parse_int_literal(b"-100000000000000000000"), Err(-1e20));
 
-        assert_eq!(parse_hex_literal(b"0x1F"), Ok(31));
-        assert_eq!(parse_hex_literal(b"-0X10"), Ok(-16));
-        assert_eq!(parse_hex_literal(b"0x7fffffffffffffff"), Ok(i64::MAX));
-        assert_eq!(parse_hex_literal(b"-0x8000000000000000"), Ok(i64::MIN));
+        assert_eq!(parse_radix_literal(b"0x1F"), Ok(31));
+        assert_eq!(parse_radix_literal(b"-0X10"), Ok(-16));
+        assert_eq!(parse_radix_literal(b"0x7fffffffffffffff"), Ok(i64::MAX));
+        assert_eq!(parse_radix_literal(b"-0x8000000000000000"), Ok(i64::MIN));
         // Magnitudes in [2^127, 2^128) must not wrap through i128.
         assert_eq!(
-            parse_hex_literal(b"0xffffffffffffffffffffffffffffffff"),
+            parse_radix_literal(b"0xffffffffffffffffffffffffffffffff"),
             Err(u128::MAX as f64)
         );
         assert_eq!(
-            parse_hex_literal(b"0x80000000000000000000000000000000"),
+            parse_radix_literal(b"0x80000000000000000000000000000000"),
             Err((1u128 << 127) as f64)
         );
         assert_eq!(
-            parse_hex_literal(b"-0xffffffffffffffffffffffffffffffff"),
+            parse_radix_literal(b"-0xffffffffffffffffffffffffffffffff"),
             Err(-(u128::MAX as f64))
         );
         assert_eq!(
-            parse_hex_literal(b"0x7fffffffffffffffffffffffffffffff"),
+            parse_radix_literal(b"0x7fffffffffffffffffffffffffffffff"),
             Err(i128::MAX as f64)
         );
-        assert_eq!(parse_hex_literal(b"-0x8000000000000001"), Err(-9223372036854775808f64));
+        assert_eq!(parse_radix_literal(b"-0x8000000000000001"), Err(-9223372036854775808f64));
         assert_eq!(
-            parse_hex_literal(b"0xffffffffffffffff"),
+            parse_radix_literal(b"0xffffffffffffffff"),
             Err(18446744073709551615.0)
         );
         assert_eq!(
-            parse_hex_literal(b"0x10000000000000000"),
+            parse_radix_literal(b"0x10000000000000000"),
             Err(18446744073709551616.0)
         );
         assert_eq!(
-            parse_hex_literal(b"0x1000000000000000000000000000000000"),
+            parse_radix_literal(b"0x1000000000000000000000000000000000"),
             Err(2f64.powi(132))
         );
+
+        assert_eq!(parse_radix_literal(b"0b101010"), Ok(42));
+        assert_eq!(parse_radix_literal(b"0B11"), Ok(3));
+        assert_eq!(parse_radix_literal(b"-0b1"), Ok(-1));
+        assert_eq!(parse_radix_literal(b"0o52"), Ok(42));
+        assert_eq!(parse_radix_literal(b"0O777"), Ok(511));
+        assert_eq!(parse_radix_literal(b"-0o10"), Ok(-8));
+        assert_eq!(parse_radix_literal(b"0o777777777777777777777"), Ok(i64::MAX));
+        assert_eq!(
+            parse_radix_literal(b"-0o1000000000000000000000"),
+            Ok(i64::MIN)
+        );
+        let ones = format!("0b{}", "1".repeat(63));
+        assert_eq!(parse_radix_literal(ones.as_bytes()), Ok(i64::MAX));
+        let big = format!("0b1{}", "0".repeat(64));
+        assert_eq!(parse_radix_literal(big.as_bytes()), Err(2f64.powi(64)));
+        let huge = format!("0b1{}", "0".repeat(200));
+        assert_eq!(parse_radix_literal(huge.as_bytes()), Err(2f64.powi(200)));
+    }
+
+    #[test]
+    fn radix_digits_values() {
+        assert_eq!(radix_digits(b"101x", 2), (5.0, 3));
+        assert_eq!(radix_digits(b"1012", 2), (5.0, 3));
+        assert_eq!(radix_digits(b"178", 8), (15.0, 2));
+        assert_eq!(radix_digits(b"", 8), (0.0, 0));
+        assert_eq!(radix_digits(b"ff", 16), hex_digits(b"ff"));
+        let big = format!("1{}", "0".repeat(70));
+        assert_eq!(radix_digits(big.as_bytes(), 2), (2f64.powi(70), 71));
     }
 }

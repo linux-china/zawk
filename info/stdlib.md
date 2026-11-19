@@ -174,7 +174,13 @@ Returns a copy of s where all lowercase characters are replaced with their upper
 The numeric value of a string, as in gawk: `strtonum("0x11")` is `17` (hexadecimal) and `strtonum("017")` is `15`
 (octal, a leading `0`). Digits `8` or `9`, a `.` or an exponent make the number decimal: `strtonum("018")` is `18`.
 Input that looks like a decimal number, such as the field `017`, is decimal: `strtonum($1)` is `17`, while
-`strtonum($1 "")` is `15`. Neither `strtonum()` nor `float()` accepts `0o` or `0b` prefixes.
+`strtonum($1 "")` is `15`.
+
+As a zawk extension, `strtonum()` also reads octal numbers with a `0o`/`0O` prefix and binary numbers with a
+`0b`/`0B` prefix, up to the first digit that does not belong: `strtonum("0o52")` and `strtonum("0b101010")` are
+`42`, `strtonum("0b12")` is `1`. As for `0x`, a sign or leading blanks before the prefix make a string decimal
+(`strtonum("-0b1")` is `0`), while input such as the field `-0b101` keeps its sign (`strtonum($1)` is `-5`).
+Only `strtonum()` reads these prefixes: `float("0b101")` and `"0b101"+0` are `0`.
 
 As a zawk extension, a decimal number may group its integer digits by thousands with `,` or `_` (one kind per
 number): `strtonum("1_000")` and `strtonum("1,234.5")` are `1000` and `1234.5`. The first group has one to three
@@ -1025,7 +1031,8 @@ examples: `mkbool("true")`, `mkbool("false")`, `mkbool("1")`, `mkbool("0")`, `mk
 
 `float()` reads decimal numbers and hexadecimal numbers with a `0x` prefix (and an optional sign), the same way
 as every other string-to-number conversion: `float("0x11")` and `"0x11" + 0` are both `17`, `float("-0x11")` is `-17`.
-A leading `0` alone is decimal: `float("017")` is `17`. There are no octal or binary prefixes: `float("0b101")` is `0`.
+A leading `0` alone is decimal: `float("017")` is `17`. Octal (`0o`) and binary (`0b`) prefixes are not read:
+`float("0b101")` is `0`; use `strtonum("0b101")` (`5`) for strings, or a `0b101` literal in the program.
 
 # Date/Time
 

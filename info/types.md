@@ -36,6 +36,14 @@ between the two worlds with `df_get`, `df_row`, `df_col` (into arrays) and `df_a
 `df_from_array` (from scalars and arrays), following the scalar rules (strnum comparisons,
 `CONVFMT`/`OFMT` for numbers). See [DataFrames](../website/docs/stdlib/dataframe.md).
 
+### Numeric literals
+
+Numbers in a program can be written in decimal (`42`, `4.2e1`), hexadecimal (`0x2A`), octal (`0o52`) or
+binary (`0b101010`); prefixes may be upper case and `_` may group digits (`0b1010_1010`, `1_000_000`).
+A literal is an integer when it is exact as a double (up to 2^53), a float otherwise. `strtonum` parses
+the same prefixes from strings (`strtonum("0b101010")` is 42); other string-to-number conversions only
+read decimal and `0x` hexadecimal.
+
 ## Types in Awk
 
 There are two types of values in Awk: scalars(number, string) and associative arrays (the zawk
