@@ -25,7 +25,7 @@ mod pivot;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use column::{Column, Value, awk_cmp};
+use column::{Column, Value};
 use expr::{Res, resolve_name};
 
 use crate::common::{CompileError, Result};
@@ -220,6 +220,18 @@ impl DataFrame {
         resolve_name(&self.names(), name)
     }
 
+    /// `name`, or `name_1`, `name_2`, ... when the table already has a column `name` (as for a
+    /// name repeated in a `-H` header, see `splitter::push_unique_name`).
+    pub(crate) fn unique_name(&self, name: &str) -> String {
+        let mut unique = name.to_string();
+        let mut n = 0;
+        while self.columns.iter().any(|c| c.name == unique) {
+            n += 1;
+            unique = format!("{}_{}", name, n);
+        }
+        unique
+    }
+
     /// Adds a column, or replaces the column of the same name.
     pub(crate) fn add_column(&mut self, col: Column) {
         if self.columns.is_empty() {
@@ -242,7 +254,9 @@ impl DataFrame {
     /// Appends a row: missing values are null, and extra values add columns `cN`.
     pub(crate) fn push_row(&mut self, mut values: Vec<Value>) {
         while self.columns.len() < values.len() {
-            let mut col = Column::new(format!("c{}", self.columns.len() + 1), None);
+            // (`cN` may be taken: `df_new("c2")`)
+            let name = self.unique_name(&format!("c{}", self.columns.len() + 1));
+            let mut col = Column::new(name, None);
             for _ in 0..self.nrows {
                 col.push(Value::Null);
             }
@@ -433,12 +447,17 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                             } else {
                                 name
                             };
+                            // a repeated name must add a column, not replace one: the
+                            // values of the next records would go to the wrong columns
+                            let name = df.unique_name(&name);
                             df.add_column(Column::new(name, None));
                         }
                         return 0;
                     }
                     for name in &header {
+                        // (`FI` names are unique, but not once their `:TYPE` is cut: `a:int,a`)
                         let (name, decl) = crate::inspect::split_type(name);
+                        let name = df.unique_name(&name);
                         df.add_column(Column::new(name, decl.map(|d| d.to_ascii_lowercase())));
                     }
                 }
@@ -521,7 +540,7 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                 )));
             }
             Ok(Out::Str(
-                df.columns[col].get(row as usize - 1).text(false).into_owned(),
+                df.columns[col].get(row as usize - 1).exact_text().into_owned(),
             ))
         }
         DfOp::Schema => {
@@ -639,7 +658,7 @@ pub(crate) fn col<'a>(d: &Str<'a>, col: &Str<'a>, arr: &IntMap<Str<'a>>) -> Int 
         get(&bytes_of(d)).and_then(|df| {
             let c = &df.columns[df.col(&col.as_str())?];
             for i in 0..df.nrows {
-                arr.insert(i as Int + 1, Str::from_bytes(&c.get(i).text(false)));
+                arr.insert(i as Int + 1, Str::from_bytes(&c.get(i).exact_text()));
             }
             Ok(df.nrows as Int)
         }),
@@ -663,7 +682,7 @@ pub(crate) fn row<'a>(d: &Str<'a>, i: &Str<'a>, arr: &StrMap<'a, Str<'a>>) -> In
             for c in &df.columns {
                 arr.insert(
                     Str::from(c.name.clone()),
-                    Str::from_bytes(&c.get(i as usize - 1).text(false)),
+                    Str::from_bytes(&c.get(i as usize - 1).exact_text()),
                 );
             }
             Ok(df.columns.len() as Int)
@@ -688,8 +707,8 @@ pub(crate) fn to_map<'a>(
             let v = &df.columns[df.col(&val.as_str())?];
             for i in 0..df.nrows {
                 arr.insert(
-                    Str::from_bytes(&k.get(i).text(false)),
-                    Str::from_bytes(&v.get(i).text(false)),
+                    Str::from_bytes(&k.get(i).exact_text()),
+                    Str::from_bytes(&v.get(i).exact_text()),
                 );
             }
             Ok(df.nrows as Int)
@@ -709,11 +728,13 @@ pub(crate) fn from_array<'a>(arr: &StrMap<'a, Str<'a>>, names: &Str<'a>) -> Str<
         .collect();
     let key_name = names.first().cloned().unwrap_or_else(|| "key".to_string());
     let val_name = names.get(1).cloned().unwrap_or_else(|| "value".to_string());
-    let mut pairs: Vec<(Value, Value)> = arr.iter(|it| {
+    let pairs: Vec<(Value, Value)> = arr.iter(|it| {
         it.map(|(k, v)| (Value::input(bytes_of(k)), Value::input(bytes_of(v))))
             .collect()
     });
-    pairs.sort_by(|a, b| awk_cmp(&a.0, &b.0));
+    // (not `sort_by(awk_cmp)`: it is no total order over numeric and other keys, and `sort_by`
+    // may panic on one that is not)
+    let pairs = ops::sort_by_value(pairs, |p| &p.0);
     let (keys, vals): (Vec<Value>, Vec<Value>) = pairs.into_iter().unzip();
     let df = DataFrame::from_columns(vec![
         Column::from_values(key_name, None, keys),
@@ -764,5 +785,10 @@ mod tests {
         assert!(df.columns[1].get(1).is_null());
         assert!(df.columns[2].get(0).is_null());
         free(&h);
+        // an extra column never takes the name of another one
+        let mut df = ops::new("c2").unwrap();
+        df.push_row(vec![Value::input("a"), Value::input("b")]);
+        assert_eq!(df.names(), ["c2", "c2_1"]);
+        assert_eq!(df.unique_name("x"), "x");
     }
 }

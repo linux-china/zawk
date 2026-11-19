@@ -85,7 +85,9 @@ impl Sink {
     fn column(&mut self, name: String, decl: Option<String>) -> usize {
         let i = self.names.len();
         self.index.entry(name.clone()).or_insert(i);
-        self.names.push(name);
+        // A repeated name (`a,a,b`, or `cN` for an extra field when the header has `c3`) gets a
+        // suffix, as `-H` names it (`a_1`): the table looks its columns up by name.
+        crate::runtime::splitter::push_unique_name(&mut self.names, &name);
         self.decls.push(decl);
         self.cols.push(vec![Value::Null; self.rows as usize]);
         i
@@ -239,7 +241,12 @@ fn read_delimited(
             if reader.read_until(b'\n', &mut line).map_err(|e| e.to_string())? == 0 {
                 break;
             }
-            let fields = trim_eol(&line)
+            let line = trim_eol(&line);
+            if line.is_empty() {
+                // a blank line is no record, as for CSV (a trailing empty line)
+                continue;
+            }
+            let fields = line
                 .split(|b| *b == b'\t')
                 .map(unescape_tsv_bytes)
                 .collect();
@@ -597,7 +604,7 @@ pub(crate) fn describe(df: &DataFrame) -> String {
         let values: Vec<Value> = (0..df.nrows).map(|i| c.get(i)).collect();
         let present: Vec<&Value> = values.iter().filter(|v| !v.is_missing()).collect();
         let distinct: std::collections::HashSet<Vec<u8>> =
-            present.iter().map(|v| v.text(false).into_owned()).collect();
+            present.iter().map(|v| v.exact_text().into_owned()).collect();
         let nums: Vec<f64> = present.iter().filter_map(|v| v.cmp_num()).collect();
         let numeric = !present.is_empty() && nums.len() == present.len();
         let (min, max) = if numeric {
@@ -681,6 +688,15 @@ mod tests {
         let df = read(&path, "tsv", "header=0;limit=1").unwrap();
         assert_eq!(df.names(), ["c1", "c2"]);
         assert_eq!(df.nrows, 1);
+        // repeated names, blank lines
+        let path = tmp("dup.tsv", b"a\ta\tc3\nx\ty\tz\tw\n\n");
+        let df = read(&path, "", "").unwrap();
+        assert_eq!(df.names(), ["a", "a_1", "c3", "c4"]);
+        assert_eq!(df.nrows, 1);
+        assert_eq!(&*df.columns[1].get(0).text(false), b"y");
+        let path = tmp("dup.csv", b"a,a\n1,2\n");
+        let df = read(&path, "", "").unwrap();
+        assert_eq!(df.names(), ["a", "a_1"]);
     }
 
     #[test]

@@ -225,7 +225,8 @@ pub(super) fn apply(agg: &Agg, df: &DataFrame, rows: &[usize], ctx: &mut EvalCtx
         }
         AggKind::Count => Value::Int(present().count() as i64),
         AggKind::CountDistinct => {
-            let distinct: HashSet<Vec<u8>> = present().map(|v| v.text(false).into_owned()).collect();
+            let distinct: HashSet<Vec<u8>> =
+                present().map(|v| v.exact_text().into_owned()).collect();
             Value::Int(distinct.len() as i64)
         }
         AggKind::First => values.first().cloned().unwrap_or(Value::Null),
@@ -267,10 +268,18 @@ pub(super) fn group(df: &DataFrame, keys: &str, aggs: &str) -> Res<DataFrame> {
     let mut out = DataFrame::default();
     for ((_, alias), &c) in keys.iter().zip(&key_cols) {
         let col = df.columns[c].take(&firsts);
-        out.add_column(match alias {
+        let col = match alias {
             Some(a) => col.renamed(a),
             None => col,
-        });
+        };
+        // `add_column` would replace the key column of the same name (`"a as x, b as x"`)
+        if out.columns.iter().any(|k| k.name == col.name) {
+            return Err(format!(
+                "duplicate key column \"{}\" (rename it with `as`)",
+                col.name
+            ));
+        }
+        out.add_column(col);
     }
     let mut ctx = EvalCtx::default();
     for agg in &aggs {
@@ -278,7 +287,13 @@ pub(super) fn group(df: &DataFrame, keys: &str, aggs: &str) -> Res<DataFrame> {
         for rows in &groups {
             values.push(apply(agg, df, rows, &mut ctx)?);
         }
-        out.add_column(Column::from_values(agg.name.clone(), None, values));
+        // `add_column` replaces a column of the same name: an aggregate named like a key
+        // (`df_group(d, "n", "count() as n")`) or another aggregate must not.
+        let mut name = agg.name.clone();
+        while out.columns.iter().any(|c| c.name == name) {
+            name.push('_');
+        }
+        out.add_column(Column::from_values(name, None, values));
     }
     Ok(out)
 }
@@ -332,5 +347,10 @@ mod tests {
         assert_eq!(texts(&g, "quantile_amount"), ["10"]);
         assert_eq!(texts(&g, "min_city"), ["Oslo"]);
         assert!(group(&orders(), "city", "nope(amount)").is_err());
+        assert!(group(&orders(), "city, amount as city", "count()").is_err());
+        // an aggregate named like a key gets a suffix instead of replacing it
+        let g = group(&orders(), "city", "count() as city").unwrap();
+        assert_eq!(g.names(), ["city", "city_"]);
+        assert_eq!(texts(&g, "city"), ["Paris", "Rome", "Oslo"]);
     }
 }

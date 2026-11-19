@@ -92,6 +92,17 @@ impl Value {
         }
     }
 
+    /// The text of the value without loss: a float in its shortest round-trip form
+    /// (`0.30000000000000004`, `1234567.89`) rather than with `CONVFMT` (`1.23457e+06`), as the
+    /// values of databases and Parquet files are read (`numfmt::float_to_text`). Used where a
+    /// value is stored or passed on as data: keys, awk arrays, files, string columns.
+    pub(crate) fn exact_text(&self) -> Cow<'_, [u8]> {
+        match self {
+            Value::Float(f) => Cow::Owned(numfmt::float_to_text(*f).into_bytes()),
+            v => v.text(false),
+        }
+    }
+
     /// [`Value::text`] as UTF-8 (invalid sequences replaced), for the text formats.
     pub(crate) fn text_lossy(&self, output: bool) -> String {
         String::from_utf8_lossy(&self.text(output)).into_owned()
@@ -208,6 +219,10 @@ pub(crate) struct Column {
     pub(crate) data: ColData,
     /// `nulls[i]` is set for a null cell; `None` when no cell is null.
     pub(crate) nulls: Option<Vec<bool>>,
+    /// For a string column: whether its values are strnums (from the input), which compare
+    /// numerically when they look like numbers. A column of string constants or results of
+    /// string functions (`df_mutate(d, "code = '007'")`) is not.
+    pub(crate) strnum: bool,
 }
 
 impl Column {
@@ -219,6 +234,7 @@ impl Column {
             decl,
             data: ColData::empty(kind),
             nulls: None,
+            strnum: true,
         }
     }
 
@@ -233,11 +249,15 @@ impl Column {
             Some(d) => decl_kind(d),
             None => infer_kind(&values),
         };
+        // strnums unless every value is a plain string (numbers become strnums as text)
+        let strnum = !values.iter().any(|v| matches!(v, Value::Str(_, false)))
+            || values.iter().any(|v| !matches!(v, Value::Str(_, false) | Value::Null));
         let mut col = Column {
             name: name.into(),
             decl,
             data: ColData::empty(kind),
             nulls: None,
+            strnum,
         };
         for v in values {
             col.push(v);
@@ -283,7 +303,7 @@ impl Column {
             ColData::Int(v) => Value::Int(v[i]),
             ColData::Float(v) => Value::Float(v[i]),
             ColData::Bool(v) => Value::Bool(v[i]),
-            ColData::Str(v) => Value::Str(v[i].to_vec(), true),
+            ColData::Str(v) => Value::Str(v[i].to_vec(), self.strnum),
         }
     }
 
@@ -384,7 +404,10 @@ impl Column {
                 }
             },
             ColData::Str(d) => {
-                d.push(v.text(false).into_owned().into_boxed_slice());
+                d.push(v.exact_text().into_owned().into_boxed_slice());
+                if !matches!(v, Value::Str(_, false)) {
+                    self.strnum = true;
+                }
                 true
             }
         };
@@ -408,6 +431,7 @@ impl Column {
             decl: self.decl.clone(),
             data,
             nulls,
+            strnum: self.strnum,
         }
     }
 
@@ -418,6 +442,7 @@ impl Column {
             decl: self.decl.clone(),
             data: ColData::empty(self.kind()),
             nulls: None,
+            strnum: self.strnum,
         };
         for i in idx {
             col.push_converted(match i {
@@ -506,6 +531,7 @@ pub(crate) fn typed_text_column(name: String, kind: Kind, values: Vec<Value>) ->
         decl: None,
         data: ColData::empty(kind),
         nulls: None,
+        strnum: true,
     };
     for v in values {
         let v = if v.is_missing() { Value::Null } else { v };
@@ -586,6 +612,19 @@ mod tests {
         assert!(c.get(1).is_null());
         assert!(c.get(2).is_null());
         assert_eq!(c.typed_header(), "age:int");
+    }
+
+    #[test]
+    fn string_columns() {
+        // constants stay strings, input text is strnum
+        let c = Column::from_values("code", None, vec![Value::str("007"), Value::Null]);
+        assert!(matches!(c.get(0), Value::Str(_, false)));
+        let c = Column::from_values("code", None, vec![Value::input("007")]);
+        assert!(matches!(c.get(0), Value::Str(_, true)));
+        // a float stored as text keeps its digits
+        let mut c = Column::from_values("x", None, vec![Value::str("a")]);
+        c.push(Value::Float(1234567.89));
+        assert_eq!(&*c.get(1).text(false), b"1234567.89");
     }
 
     #[test]

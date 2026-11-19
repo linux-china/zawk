@@ -2,13 +2,14 @@
 use std::collections::HashMap;
 
 use super::DataFrame;
-use super::column::{Column, Value, awk_cmp};
+use super::column::{Column, Value};
 use super::expr::{EvalCtx, Res};
 use super::group::{apply, group_rows, parse_aggs};
-use super::ops::{column_indexes, key_of, parse_names};
+use super::ops::{column_indexes, key_of, parse_names, sort_by_value};
 
 /// A wide table: one row per distinct value of the `rows` columns (in the order of their first
-/// rows), one column per distinct value of the `col` column (sorted as awk compares them), and
+/// rows), one column per distinct value of the `col` column (in the order of `df_sort`: numbers
+/// numerically, then the other strings), and
 /// the aggregate `agg` of each combination (null when a combination has no rows).
 pub(super) fn pivot(df: &DataFrame, rows: &str, col: &str, agg: &str) -> Res<DataFrame> {
     let row_cols = column_indexes(df, rows)?;
@@ -34,7 +35,7 @@ pub(super) fn pivot(df: &DataFrame, rows: &str, col: &str, agg: &str) -> Res<Dat
             values.push(v);
         }
     }
-    values.sort_by(awk_cmp);
+    let values = sort_by_value(values, |v| v);
     let value_index: HashMap<(bool, Vec<u8>), usize> = values
         .iter()
         .enumerate()
@@ -62,7 +63,8 @@ pub(super) fn pivot(df: &DataFrame, rows: &str, col: &str, agg: &str) -> Res<Dat
         }
     }
     for (v, cells) in values.iter().zip(cells) {
-        let mut name = v.text_lossy(false);
+        // exact: two floats that CONVFMT prints alike are two columns
+        let mut name = String::from_utf8_lossy(&v.exact_text()).into_owned();
         if name.is_empty() {
             name = "(empty)".to_string();
         }
@@ -103,15 +105,26 @@ pub(super) fn melt(df: &DataFrame, ids: &str, var_name: &str, value_name: &str) 
         }
     }
     let mut out = DataFrame::default();
+    let add = |out: &mut DataFrame, col: Column| -> Res<()> {
+        // `add_column` would replace a column of the same name
+        if out.columns.iter().any(|c| c.name == col.name) {
+            return Err(format!(
+                "duplicate column \"{}\" (choose other names for the variable and value columns)",
+                col.name
+            ));
+        }
+        out.add_column(col);
+        Ok(())
+    };
     for ((_, alias), &c) in ids.iter().zip(&id_cols) {
         let col = df.columns[c].take(&idx);
-        out.add_column(match alias {
+        add(&mut out, match alias {
             Some(a) => col.renamed(a),
             None => col,
-        });
+        })?;
     }
-    out.add_column(Column::from_values(var_name, None, vars));
-    out.add_column(Column::from_values(value_name, None, vals));
+    add(&mut out, Column::from_values(var_name, None, vars))?;
+    add(&mut out, Column::from_values(value_name, None, vals))?;
     Ok(out)
 }
 
@@ -139,5 +152,20 @@ mod tests {
         assert_eq!(m.names(), ["day", "variable", "count"]);
         assert_eq!(texts(&m, "variable"), ["INFO", "WARN", "INFO", "WARN"]);
         assert_eq!(texts(&m, "count"), ["2", "1", "1", ""]);
+        // the names of the new columns must not take those of the id columns
+        assert!(melt(&p, "day", "day", "").is_err());
+        assert!(melt(&p, "day", "x", "x").is_err());
+    }
+
+    #[test]
+    fn pivot_of_mixed_values() {
+        // numbers and strings that awk_cmp does not order transitively ("10" < "2a" < "9" < "10")
+        let mut df = new("k,v").unwrap();
+        for v in ["9", "2a", "10", "b", "9"] {
+            df.push_row(vec![Value::input("x"), Value::input(v)]);
+        }
+        let p = pivot(&df, "k", "v", "count()").unwrap();
+        assert_eq!(p.names(), ["k", "9", "10", "2a", "b"]);
+        assert_eq!(texts(&p, "9"), ["2"]);
     }
 }

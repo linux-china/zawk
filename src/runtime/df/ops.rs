@@ -207,15 +207,17 @@ enum SortMode {
     Str,
 }
 
-/// The value of a sort key: nulls first, then numbers, then strings.
+/// The value of a sort key: nulls first, then numbers, then strings. Unlike `awk_cmp`, which is
+/// not transitive over a mix of numbers and strings (`"10" < "2a" < "9" < "10"`), this is a total
+/// order, as `sort_by` requires (it may panic otherwise).
 #[derive(PartialEq)]
-enum SortVal {
+pub(super) enum SortVal {
     Null,
     Num(f64),
     Str(Vec<u8>),
 }
 
-fn cmp_sort(a: &SortVal, b: &SortVal) -> Ordering {
+pub(super) fn cmp_sort(a: &SortVal, b: &SortVal) -> Ordering {
     match (a, b) {
         (SortVal::Null, SortVal::Null) => Ordering::Equal,
         (SortVal::Null, _) => Ordering::Less,
@@ -227,19 +229,33 @@ fn cmp_sort(a: &SortVal, b: &SortVal) -> Ordering {
     }
 }
 
-fn sort_val(v: Value, mode: SortMode) -> SortVal {
+fn sort_val(v: &Value, mode: SortMode) -> SortVal {
     if v.is_null() {
         return SortVal::Null;
     }
     match mode {
         SortMode::Num if v.is_missing() => SortVal::Null,
         SortMode::Num => SortVal::Num(v.to_num()),
-        SortMode::Str => SortVal::Str(v.text(false).into_owned()),
+        // exact: `1.0000001` and `1.0000002` differ, although CONVFMT prints both as `1`
+        SortMode::Str => SortVal::Str(v.exact_text().into_owned()),
         SortMode::Auto => match v.cmp_num() {
             Some(n) => SortVal::Num(n),
             None => SortVal::Str(v.text(false).into_owned()),
         },
     }
+}
+
+/// The sort key of `v` in the default order of `df_sort`: nulls, then numbers (and strnums that
+/// look like numbers) numerically, then the other strings by their bytes.
+pub(super) fn sort_key(v: &Value) -> SortVal {
+    sort_val(v, SortMode::Auto)
+}
+
+/// Sorts `items` by the default order of `df_sort` of the value `key` gives (a stable sort).
+pub(super) fn sort_by_value<T>(items: Vec<T>, key: impl Fn(&T) -> &Value) -> Vec<T> {
+    let mut keyed: Vec<(SortVal, T)> = items.into_iter().map(|t| (sort_key(key(&t)), t)).collect();
+    keyed.sort_by(|a, b| cmp_sort(&a.0, &b.0));
+    keyed.into_iter().map(|(_, t)| t).collect()
 }
 
 /// `df_sort(d, "age desc, name")`: a stable sort on the keys, each `asc` (the default) or
@@ -290,7 +306,7 @@ pub(super) fn sort(df: &DataFrame, spec: &str) -> Res<DataFrame> {
         .iter()
         .map(|&(c, _, mode)| {
             let col = &df.columns[c];
-            (0..df.nrows).map(|i| sort_val(col.get(i), mode)).collect()
+            (0..df.nrows).map(|i| sort_val(&col.get(i), mode)).collect()
         })
         .collect();
     let mut idx: Vec<usize> = (0..df.nrows).collect();
@@ -315,9 +331,10 @@ pub(super) fn slice(df: &DataFrame, from: usize, n: usize) -> DataFrame {
 }
 
 /// The key of a cell for grouping, joining and removing duplicates: values are equal when their
-/// strings are (`1` and `1.0` are), and a null differs from the empty string.
+/// exact strings are (`1` and `1.0` are, `1.0000001` and `1.0000002` are not, although CONVFMT
+/// prints both as `1`), and a null differs from the empty string.
 pub(super) fn key_of(v: &Value) -> (bool, Vec<u8>) {
-    (v.is_null(), v.text(false).into_owned())
+    (v.is_null(), v.exact_text().into_owned())
 }
 
 pub(super) type RowKey = Vec<(bool, Vec<u8>)>;
@@ -436,5 +453,20 @@ mod tests {
         assert_eq!(both.nrows, 8);
         assert!(both.columns[1].get(7).is_null());
         assert_eq!(slice(&df, 3, 10).nrows, 1);
+    }
+
+    #[test]
+    fn total_sort_order() {
+        // awk_cmp is not transitive here ("10" < "2a" < "9" < "10"): nulls, numbers, strings
+        let values: Vec<Value> = ["9", "2a", "", "10", "b", "-1", "2a"]
+            .iter()
+            .map(|v| Value::input(*v))
+            .chain([Value::Null, Value::Float(1.5)])
+            .collect();
+        let sorted: Vec<String> = sort_by_value(values, |v| v)
+            .iter()
+            .map(|v| if v.is_null() { "null".into() } else { v.text_lossy(false) })
+            .collect();
+        assert_eq!(sorted, ["null", "-1", "1.5", "9", "10", "", "2a", "2a", "b"]);
     }
 }
