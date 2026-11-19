@@ -448,17 +448,17 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                 df.nrows as Int
             })?))
         }
-        DfOp::Select => handle(ops::select(&table(0)?, &arg_text(args, 1), false)?),
-        DfOp::Drop => handle(ops::select(&table(0)?, &arg_text(args, 1), true)?),
+        DfOp::Select => handle(ops::select(&*table(0)?, &arg_text(args, 1), false)?),
+        DfOp::Drop => handle(ops::select(&*table(0)?, &arg_text(args, 1), true)?),
         DfOp::Filter => {
             let params = params(op.func_name(), args.get(2..).unwrap_or(&[]))?;
-            handle(ops::filter(&table(0)?, &arg_text(args, 1), &params)?)
+            handle(ops::filter(&*table(0)?, &arg_text(args, 1), &params)?)
         }
         DfOp::Mutate => {
             let params = params(op.func_name(), args.get(2..).unwrap_or(&[]))?;
-            handle(ops::mutate(&table(0)?, &arg_text(args, 1), &params)?)
+            handle(ops::mutate(&*table(0)?, &arg_text(args, 1), &params)?)
         }
-        DfOp::Sort => handle(ops::sort(&table(0)?, &arg_text(args, 1))?),
+        DfOp::Sort => handle(ops::sort(&*table(0)?, &arg_text(args, 1))?),
         DfOp::Head => {
             let df = table(0)?;
             let n = arg_int(args, 1, 10).max(0) as usize;
@@ -476,18 +476,18 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             let n = arg_int(args, 2, Int::MAX).max(0) as usize;
             handle(ops::slice(&df, from, n))
         }
-        DfOp::Distinct => handle(ops::distinct(&table(0)?, &arg_text(args, 1))?),
+        DfOp::Distinct => handle(ops::distinct(&*table(0)?, &arg_text(args, 1))?),
         DfOp::Group => {
             let aggs = if args.len() > 2 {
                 arg_text(args, 2)
             } else {
                 "count()".to_string()
             };
-            handle(group::group(&table(0)?, &arg_text(args, 1), &aggs)?)
+            handle(group::group(&*table(0)?, &arg_text(args, 1), &aggs)?)
         }
         DfOp::Join => handle(join::join(
-            &table(0)?,
-            &table(1)?,
+            &*table(0)?,
+            &*table(1)?,
             &arg_text(args, 2),
             &arg_text(args, 3),
         )?),
@@ -499,13 +499,13 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             handle(ops::concat(&frames))
         }
         DfOp::Pivot => handle(pivot::pivot(
-            &table(0)?,
+            &*table(0)?,
             &arg_text(args, 1),
             &arg_text(args, 2),
             &arg_text(args, 3),
         )?),
         DfOp::Melt => handle(pivot::melt(
-            &table(0)?,
+            &*table(0)?,
             &arg_text(args, 1),
             &arg_text(args, 2),
             &arg_text(args, 3),
@@ -535,9 +535,9 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                 .collect();
             Ok(Out::Str(schema.join(",").into_bytes()))
         }
-        DfOp::Describe => Ok(Out::Str(io::describe(&table(0)?).into_bytes())),
-        DfOp::ToCsv => Ok(Out::Str(io::render(&table(0)?, "csv")?)),
-        DfOp::ToJson => Ok(Out::Str(io::to_json(&table(0)?).into_bytes())),
+        DfOp::Describe => Ok(Out::Str(io::describe(&*table(0)?).into_bytes())),
+        DfOp::ToCsv => Ok(Out::Str(io::render(&*table(0)?, "csv")?)),
+        DfOp::ToJson => Ok(Out::Str(io::to_json(&*table(0)?).into_bytes())),
         DfOp::Print => {
             let df = table(0)?;
             let ofs = core.vars.ofs.with_bytes(|b| b.to_vec());
