@@ -5,6 +5,37 @@ the input program and generates static and simple types for all its variables.
 In doing so, it makes different trade-offs than the implementations of Awk of
 which I am aware.
 
+## Core data types
+
+A zawk program works with three kinds of values:
+
+| Type | What it is | `typeof(x)` |
+|------|------------|-------------|
+| **scalar** | a number or a string, converted into each other by Awk's rules; a string from the input (a field, `getline`, `split`) is a *strnum*, which compares numerically when it looks like a number | `"number"`, `"string"`, `"strnum"`, `"unassigned"` |
+| **array** | an associative array from scalar keys to scalar values (`a[k] = v`, `for (k in a)`) | `"array"` |
+| **dataframe** | an in-memory table with named, typed columns (`int64`, `double`, `bool`, `string`), built and queried with the `df_*` functions | `"dataframe"` |
+
+```awk
+BEGIN {
+    n = 42; s = "hello"                    # scalars: number, string
+    a["x"] = 1; a["y"] = 2                 # array
+    d = df_read("orders.csv")              # dataframe
+    print typeof(n), typeof(s), typeof(a), typeof(d)   # number string array dataframe
+}
+```
+
+Scalars and arrays are Awk's own types, and the rest of this document is about how zawk
+represents them. A dataframe is a zawk extension that adds **no new type to the language**:
+the value of `d` above is a string handle such as `"df#1"` that names a table kept by the
+runtime. For the compiler and the type inference below, a dataframe is therefore just a
+string: it can be stored in variables and array elements, passed to and returned from
+functions (which an array cannot be), and printed. Only `typeof` tells it apart, returning
+`"dataframe"` while the table exists (and `"string"` after `df_free(d)`). The columns of a
+dataframe have their own types, which do not affect the types of the program; values move
+between the two worlds with `df_get`, `df_row`, `df_col` (into arrays) and `df_append`,
+`df_from_array` (from scalars and arrays), following the scalar rules (strnum comparisons,
+`CONVFMT`/`OFMT` for numbers). See [DataFrames](../website/docs/stdlib/dataframe.md).
+
 ## Types in Awk
 
 There are two types of values in Awk: scalars(number, string) and associative arrays (the zawk
