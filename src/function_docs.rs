@@ -1846,7 +1846,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         DATAFRAME,
         "df_append_record(d: str) -> int",
         "Append the fields $1..$NF of the current record; an empty table first gets the columns of the header (FI), or takes the record as its header without -H. Returns the number of rows.",
-        "BEGIN { d = df_new() } { df_append_record(d) }",
+        "d = df_new(); df_append_record(d)",
     ),
     d(
         "df_select",
