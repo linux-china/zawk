@@ -181,7 +181,7 @@ fn trim_eol(line: &[u8]) -> &[u8] {
 }
 
 /// `\t`, `\n`, `\r` and `\\` escapes of a TSV field, on bytes.
-fn unescape_tsv_bytes(f: &[u8]) -> Vec<u8> {
+pub(super) fn unescape_tsv_bytes(f: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(f.len());
     let mut i = 0;
     while i < f.len() {

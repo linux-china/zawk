@@ -202,6 +202,132 @@ const CASES: &[(&str, &str, Option<&[u8]>)] = &[
         "decrypt(\"aes-256-cbc\", encrypt(\"aes-256-cbc\", $0, \"k\"), \"k\")",
         Some(b"caf\xe9x"),
     ),
+    // DataFrame cells keep their bytes (column names and JSON are text: see EXEMPT)
+    (
+        "df_new",
+        "df_append(d = df_new(\"s\"), $0) df_get(d, 1, \"s\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_append",
+        "df_append(d = df_new(\"s\"), $0) df_get(d, 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_append_record",
+        "df_append_record(d = df_new(\"s\")) df_get(d, 1, \"s\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_get",
+        "df_append(d = df_new(\"s,t\"), \"a\", $0) df_get(d, 1, \"t\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_select",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_select(d, \"s as u\"), 1, \"u\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_drop",
+        "df_append(d = df_new(\"s,t\"), $0) df_get(df_drop(d, \"t\"), 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_filter",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_filter(d, \"s ~ /x$/\"), 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_mutate",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_mutate(d, \"u = upper(s) substr(s, 4)\"), 1, \"u\")",
+        Some(b"1CAF\xe9X\xe9x"),
+    ),
+    (
+        "df_sort",
+        "df_append(d = df_new(\"s\"), $0) df_append(d, \"a\") df_get(df_sort(d, \"s desc\"), 1, 1)",
+        Some(b"12caf\xe9x"),
+    ),
+    (
+        "df_head",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_head(d, 1), 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_tail",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_tail(d, 1), 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_slice",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_slice(d, 1, 1), 1, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_distinct",
+        "df_append(d = df_new(\"s\"), $0) df_append(d, $0) df_get(df_distinct(d), 1, 1)",
+        Some(b"12caf\xe9x"),
+    ),
+    (
+        "df_group",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_group(d, \"s\", \"concat(s) as c\"), 1, \"c\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_join",
+        "df_append(d = df_new(\"s\"), $0) df_nrow(df_join(d, d, \"s\")) df_get(df_join(d, d, \"s\"), 1, 1)",
+        Some(b"11caf\xe9x"),
+    ),
+    (
+        "df_concat",
+        "df_append(d = df_new(\"s\"), $0) df_get(df_concat(d, d), 2, 1)",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_melt",
+        "df_append(d = df_new(\"s,t\"), $0) df_get(df_melt(d, \"t\"), 1, \"value\")",
+        Some(b"1caf\xe9x"),
+    ),
+    (
+        "df_nrow",
+        "df_append(d = df_new(\"s\"), $0) df_nrow(d) df_ncol(d)",
+        Some(b"111"),
+    ),
+    (
+        "df_ncol",
+        "df_ncol(df_new(\"s,t\"))",
+        Some(b"2"),
+    ),
+    (
+        "df_to_csv",
+        "df_append(d = df_new(\"s\"), $0) df_to_csv(d)",
+        Some(b"s\ncaf\xe9x\n"),
+    ),
+    (
+        "df_print",
+        "df_append(d = df_new(\"s\"), $0) df_print(d)",
+        Some(b"s\ncaf\xe9x\n11"),
+    ),
+    (
+        "df_col",
+        "df_append(d = df_new(\"s\"), $0) df_col(d, \"s\", a) a[1]",
+        Some(b"11caf\xe9x"),
+    ),
+    (
+        "df_row",
+        "df_append(d = df_new(\"s\"), $0) df_row(d, 1, row) row[\"s\"]",
+        Some(b"11caf\xe9x"),
+    ),
+    (
+        "df_to_map",
+        "df_append(d = df_new(\"s,t\"), $0, $0) df_to_map(d, \"s\", \"t\", m) m[$0]",
+        Some(b"11caf\xe9x"),
+    ),
+    (
+        "df_from_array",
+        "(m[$0] = $0) df_get(df_from_array(m), 1, \"key\")",
+        Some(b"caf\xe9xcaf\xe9x"),
+    ),
 ];
 
 /// Functions taking strings that are not covered by `CASES`: the text goes to (or comes from) an
@@ -284,6 +410,16 @@ const EXEMPT: &[&str] = &[
     "log_error",
     "assert",
     "assert_eq",
+    // DataFrames: files and URLs (df_read/df_write, read byte for byte for CSV/TSV, see
+    // `runtime::df::io`), column names and JSON (text), or a handle only
+    "df_read",
+    "df_write",
+    "df_schema",
+    "df_describe",
+    "df_to_json",
+    "df_columns",
+    "df_pivot",
+    "df_free",
 ];
 
 fn run(backend: &str, expr: &str) -> Vec<u8> {

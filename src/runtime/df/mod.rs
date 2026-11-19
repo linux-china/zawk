@@ -418,10 +418,8 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             } else {
                 arg(args, 1)
                     .split(|b| *b == b'\t')
-                    .map(|f| {
-                        let text = String::from_utf8_lossy(f);
-                        Value::input(crate::runtime::str_escape::unescape_tsv(&text).into_owned())
-                    })
+                    // byte for byte: text that is not UTF-8 is kept as is
+                    .map(|f| Value::input(io::unescape_tsv_bytes(f)))
                     .collect()
             };
             Ok(Out::Int(with_mut(arg(args, 0), |df| {
