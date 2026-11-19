@@ -3697,9 +3697,13 @@ where
     /// http_get/http_post, jwt and the SQL functions.
     fn builtin_assigns(bi: &builtins::Function) -> bool {
         use builtins::Function::*;
+        // The DataFrame functions that fill an array or change a table.
+        if let Df(op) = bi {
+            return op.has_effects();
+        }
         matches!(
             bi,
-            Sub | GSub
+            DfColumns | DfCol | DfRow | DfToMap | Sub | GSub
                 | Match
                 | MatchArr
                 | Split
@@ -3926,6 +3930,48 @@ where
                         for _ in args_len..4 {
                             prim_args.push(PrimVal::StrLit(b""));
                         }
+                    }
+                    // The DataFrame functions take any number of arguments within their range.
+                    builtins::Function::Df(op) => {
+                        let (min, max) = op.arg_range();
+                        if args_len < min {
+                            return Err(if max == usize::MAX {
+                                builtins::min_arity_error(&call_name(fname), args_len, min)
+                            } else {
+                                builtins::arity_error(&call_name(fname), args_len, max)
+                            });
+                        }
+                        if args_len > max {
+                            return Err(builtins::arity_error(&call_name(fname), args_len, max));
+                        }
+                        // df_append_record(d) => df_append_record(d, join_tsv(1, NF)): the fields
+                        // of the record, so that the field analysis sees them all used.
+                        if op == builtins::DfOp::AppendRecord {
+                            let nf = self.fresh_local();
+                            self.add_stmt(
+                                open,
+                                PrimStmt::AsgnVar(
+                                    nf,
+                                    PrimExpr::LoadBuiltin(builtins::Variable::NF),
+                                ),
+                            )?;
+                            let fields = self.fresh_local();
+                            self.add_stmt(
+                                open,
+                                PrimStmt::AsgnVar(
+                                    fields,
+                                    PrimExpr::CallBuiltin(
+                                        builtins::Function::JoinTSV,
+                                        smallvec![PrimVal::ILit(1), PrimVal::Var(nf)],
+                                    ),
+                                ),
+                            )?;
+                            prim_args.push(PrimVal::Var(fields));
+                        }
+                    }
+                    // df_from_array(arr) => df_from_array(arr, "key,value")
+                    builtins::Function::DfFromArray if args_len == 1 => {
+                        prim_args.push(PrimVal::StrLit(b""));
                     }
                     // eval() => eval(formula, context)
                     builtins::Function::Eval if args_len == 1 => {

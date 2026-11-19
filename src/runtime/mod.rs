@@ -23,6 +23,7 @@ pub(crate) mod compare;
 pub mod crypto;
 pub mod date_time;
 pub mod decimal;
+pub mod df;
 pub mod encoding;
 pub mod float_parse;
 pub mod math_util;

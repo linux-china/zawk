@@ -2402,6 +2402,66 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         let res = self.pick_str(args, runtime::math_util::max);
                         *index_mut(&mut self.strs, dst) = Str::from(res);
                     }
+                    DfStr(op, dst, args) => {
+                        let vals: smallvec::SmallVec<[Str<'a>; 4]> =
+                            args.iter().map(|a| index(&self.strs, a).clone()).collect();
+                        let refs: smallvec::SmallVec<[&Str<'a>; 4]> = vals.iter().collect();
+                        // An error writing the output ends the program silently, as for print.
+                        let res = match runtime::df::call_str(&mut self.core, *op, &refs) {
+                            Ok(res) => res,
+                            Err(_) => return Ok(0),
+                        };
+                        *index_mut(&mut self.strs, dst) = res;
+                    }
+                    DfInt(op, dst, args) => {
+                        let vals: smallvec::SmallVec<[Str<'a>; 4]> =
+                            args.iter().map(|a| index(&self.strs, a).clone()).collect();
+                        let refs: smallvec::SmallVec<[&Str<'a>; 4]> = vals.iter().collect();
+                        let res = match runtime::df::call_int(&mut self.core, *op, &refs) {
+                            Ok(res) => res,
+                            Err(_) => return Ok(0),
+                        };
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    DfColumns(dst, d, arr) => {
+                        let d = index(&self.strs, d);
+                        let arr = index(&self.maps_int_str, arr);
+                        let res = runtime::df::columns(d, arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    DfCol(dst, d, col, arr) => {
+                        let d = index(&self.strs, d);
+                        let col = index(&self.strs, col);
+                        let arr = index(&self.maps_int_str, arr);
+                        let res = runtime::df::col(d, col, arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    DfRow(dst, d, row, arr) => {
+                        let d = index(&self.strs, d);
+                        let row = index(&self.strs, row);
+                        let arr = index(&self.maps_str_str, arr);
+                        let res = runtime::df::row(d, row, arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    DfToMap(dst, d, key, val, arr) => {
+                        let d = index(&self.strs, d);
+                        let key = index(&self.strs, key);
+                        let val = index(&self.strs, val);
+                        let arr = index(&self.maps_str_str, arr);
+                        let res = runtime::df::to_map(d, key, val, arr);
+                        let dst = *dst;
+                        *self.get_mut(dst) = res;
+                    }
+                    DfFromArray(dst, arr, names) => {
+                        let arr = index(&self.maps_str_str, arr);
+                        let names = index(&self.strs, names);
+                        let res = runtime::df::from_array(arr, names);
+                        *index_mut(&mut self.strs, dst) = res;
+                    }
                     Seq(dst, start, step, end) => {
                         let start: Float = *self.get(*start);
                         let step: Float = *self.get(*step);
@@ -2637,12 +2697,17 @@ impl<'a, LR: LineReader> Interp<'a, LR> {
                         *index_mut(&mut self.strs, dst) = Str::from("number");
                     }
                     TypeOfString(dst, src, strnum) => {
+                        let src = index(&self.strs, src);
                         let is_strnum = *strnum
-                            && index(&self.strs, src)
-                                .with_bytes(runtime::compare::looks_numeric)
-                                .is_some();
-                        *index_mut(&mut self.strs, dst) =
-                            Str::from(if is_strnum { "strnum" } else { "string" });
+                            && src.with_bytes(runtime::compare::looks_numeric).is_some();
+                        let ty = if is_strnum {
+                            "strnum"
+                        } else if src.with_bytes(runtime::df::is_handle) {
+                            "dataframe"
+                        } else {
+                            "string"
+                        };
+                        *index_mut(&mut self.strs, dst) = Str::from(ty);
                     }
                     TypeOfUnassigned(dst) => {
                         *index_mut(&mut self.strs, dst) = Str::from("unassigned");

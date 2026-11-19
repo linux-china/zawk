@@ -151,7 +151,13 @@ where
     K: Hash + Eq,
     V: SortItem,
 {
-    let xs = numbers(map);
+    stat_of(numbers(map), kind, q)
+}
+
+/// The statistic `kind` (one of the `STAT_*` constants) of the numbers `xs`, as `array_stat`
+/// computes it for the values of an array: the aggregates of `df_group` use it, so that
+/// `median(x)` of a DataFrame and `_median(a)` of an array give the same result.
+pub(crate) fn stat_of(xs: Vec<Float>, kind: Int, q: Float) -> Float {
     match kind {
         STAT_QUANTILE => quantile(xs, q),
         STAT_VAR => variance(&xs),

@@ -5,6 +5,7 @@ use crate::common::Either;
 use crate::common::{CompileError, NodeIx, Result};
 use crate::compile;
 pub use crate::runtime::decimal::DecOp;
+pub use crate::runtime::df::DfOp;
 pub use crate::runtime::text_funcs::TextOp;
 use crate::runtime::{Int, IntMap, Str, StrMap};
 use crate::types::{self, SmallVec};
@@ -92,6 +93,17 @@ pub enum Function {
     // Exact decimal arithmetic on decimal text (`dec_add`, ... see runtime::decimal).
     Decimal(DecOp),
     DecCmp,
+    // DataFrame functions on string handles (`df_read`, `df_filter`, ... see runtime::df):
+    // any number of string arguments, a string or an integer result.
+    Df(DfOp),
+    // df_columns(d, arr), df_col(d, col, arr), df_row(d, i, arr), df_to_map(d, key, val, arr):
+    // fill an array, return its number of elements.
+    DfColumns,
+    DfCol,
+    DfRow,
+    DfToMap,
+    // df_from_array(arr, names): a table of the keys and values of an array.
+    DfFromArray,
     Eval,
     Trim,
     Truncate,
@@ -584,6 +596,39 @@ static_map!(
     ["dec_round", Function::Decimal(DecOp::Round)],
     ["dec_format", Function::Decimal(DecOp::Format)],
     ["dec_cmp", Function::DecCmp],
+    ["df_read", Function::Df(DfOp::Read)],
+    ["df_new", Function::Df(DfOp::New)],
+    ["df_append", Function::Df(DfOp::Append)],
+    ["df_append_record", Function::Df(DfOp::AppendRecord)],
+    ["df_select", Function::Df(DfOp::Select)],
+    ["df_drop", Function::Df(DfOp::Drop)],
+    ["df_filter", Function::Df(DfOp::Filter)],
+    ["df_mutate", Function::Df(DfOp::Mutate)],
+    ["df_sort", Function::Df(DfOp::Sort)],
+    ["df_head", Function::Df(DfOp::Head)],
+    ["df_tail", Function::Df(DfOp::Tail)],
+    ["df_slice", Function::Df(DfOp::Slice)],
+    ["df_distinct", Function::Df(DfOp::Distinct)],
+    ["df_group", Function::Df(DfOp::Group)],
+    ["df_join", Function::Df(DfOp::Join)],
+    ["df_concat", Function::Df(DfOp::Concat)],
+    ["df_pivot", Function::Df(DfOp::Pivot)],
+    ["df_melt", Function::Df(DfOp::Melt)],
+    ["df_nrow", Function::Df(DfOp::Nrow)],
+    ["df_ncol", Function::Df(DfOp::Ncol)],
+    ["df_get", Function::Df(DfOp::Get)],
+    ["df_schema", Function::Df(DfOp::Schema)],
+    ["df_describe", Function::Df(DfOp::Describe)],
+    ["df_to_csv", Function::Df(DfOp::ToCsv)],
+    ["df_to_json", Function::Df(DfOp::ToJson)],
+    ["df_print", Function::Df(DfOp::Print)],
+    ["df_write", Function::Df(DfOp::Write)],
+    ["df_free", Function::Df(DfOp::Free)],
+    ["df_columns", Function::DfColumns],
+    ["df_col", Function::DfCol],
+    ["df_row", Function::DfRow],
+    ["df_to_map", Function::DfToMap],
+    ["df_from_array", Function::DfFromArray],
     ["eval", Function::Eval],
     ["trim", Function::Trim],
     ["ltrim", Function::Text(TextOp::LTrim)],
@@ -944,6 +989,40 @@ impl Function {
                 );
                 ctx.nw.add_dep(map, args[2], Constraint::Flows(()));
             }
+            // The arrays the DataFrame functions fill: `arr[1..n]` or `arr[column name]`.
+            Function::DfColumns | Function::DfCol => {
+                let map = ctx.constant(
+                    Map {
+                        key: BaseTy::Int,
+                        val: BaseTy::Str,
+                    }
+                    .abs(),
+                );
+                ctx.nw
+                    .add_dep(map, args[args.len() - 1], Constraint::Flows(()));
+            }
+            Function::DfRow | Function::DfToMap => {
+                let map = ctx.constant(
+                    Map {
+                        key: BaseTy::Str,
+                        val: BaseTy::Str,
+                    }
+                    .abs(),
+                );
+                ctx.nw
+                    .add_dep(map, args[args.len() - 1], Constraint::Flows(()));
+            }
+            // The array read by df_from_array.
+            Function::DfFromArray => {
+                let map = ctx.constant(
+                    Map {
+                        key: BaseTy::Str,
+                        val: BaseTy::Str,
+                    }
+                    .abs(),
+                );
+                ctx.nw.add_dep(map, args[0], Constraint::Flows(()));
+            }
             // `arr[n, "start"]` and `arr[n, "length"]` are string keys.
             Function::MatchArr => {
                 let arg2 = ctx.constant(
@@ -1245,6 +1324,16 @@ impl Function {
             // Optional arguments are filled with "" (see cfg.rs).
             Decimal(_) => (smallvec![Str; 4], Str),
             DecCmp => (smallvec![Str, Str], Int),
+            // Any number of strings (checked in `cfg`).
+            Df(op) => (
+                smallvec![Str; incoming.len()],
+                if op.returns_int() { Int } else { Str },
+            ),
+            DfColumns => (smallvec![Str, MapIntStr], Int),
+            DfCol => (smallvec![Str, Str, MapIntStr], Int),
+            DfRow => (smallvec![Str, Str, MapStrStr], Int),
+            DfToMap => (smallvec![Str, Str, Str, MapStrStr], Int),
+            DfFromArray => (smallvec![MapStrStr, Str], Str),
             Eval => (smallvec![Str, incoming[1]], Float),
             Url | Path | SemVer => (smallvec![Str], MapStrStr),
             Pairs => (smallvec![Str, Str, Str], MapStrStr),
@@ -1460,6 +1549,10 @@ impl Function {
             Split | HttpGet => &[1],
             SplitSeps | PatSplit => &[1, 3],
             MatchArr | HttpPost | Jwt => &[2],
+            DfColumns => &[1],
+            DfFromArray => &[0],
+            DfCol | DfRow => &[2],
+            DfToMap => &[3],
             SqliteQuery | SqliteExecute | MysqlQuery | MysqlExecute | PgQuery | PgExecute => &[2],
             ArrayStat | ArrayCountDistinct | ArrayTop | ArrayMax | ArrayMin | ArraySum
             | ArrayMean | IntMapJoin | ToCsv | Uniq | ArrayArgMax | ArrayArgMin => &[0],
@@ -1530,6 +1623,11 @@ impl Function {
             StrCmp => 2,
             Decimal(_) => 4,
             DecCmp => 2,
+            // Any number of arguments, checked against `DfOp::arg_range` in `cfg`.
+            Df(_) => return None,
+            DfColumns | DfFromArray => 2,
+            DfCol | DfRow => 3,
+            DfToMap => 4,
             Similar => 2,
             CharAt => 2,
             Chars => 1,
@@ -1791,6 +1889,9 @@ impl Function {
             StrCmp => Ok(Scalar(BaseTy::Int).abs()),
             Decimal(_) => Ok(Scalar(BaseTy::Str).abs()),
             DecCmp => Ok(Scalar(BaseTy::Int).abs()),
+            Df(op) if op.returns_int() => Ok(Scalar(BaseTy::Int).abs()),
+            Df(_) | DfFromArray => Ok(Scalar(BaseTy::Str).abs()),
+            DfColumns | DfCol | DfRow | DfToMap => Ok(Scalar(BaseTy::Int).abs()),
             Similar => Ok(Scalar(BaseTy::Float).abs()),
             IncMap => Ok(step_arith(&types::val_of(&args[0])?, &args[2])),
             Exit | SetExit | SetFI | UpdateUsedFields | NextFile | ReadLineStdinFused => Ok(None),

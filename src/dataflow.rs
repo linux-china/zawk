@@ -745,6 +745,52 @@ pub(crate) mod boilerplate {
                     f(dst.into(), Some(x.into()));
                 }
             }
+            DfStr(_, dst, args) => {
+                f(dst.into(), None);
+                for x in args {
+                    f(dst.into(), Some(x.into()));
+                }
+            }
+            DfInt(_, dst, args) => {
+                f(dst.into(), None);
+                for x in args {
+                    f(dst.into(), Some(x.into()));
+                }
+            }
+            DfColumns(dst, d, arr) => {
+                f(dst.into(), Some(d.into()));
+                let (arr_reg, arr_ty) = arr.reflect();
+                f(Key::MapKey(arr_reg, arr_ty), None);
+                f(Key::MapVal(arr_reg, arr_ty), Some(d.into()));
+            }
+            DfCol(dst, d, col, arr) => {
+                f(dst.into(), Some(d.into()));
+                f(dst.into(), Some(col.into()));
+                let (arr_reg, arr_ty) = arr.reflect();
+                f(Key::MapKey(arr_reg, arr_ty), None);
+                f(Key::MapVal(arr_reg, arr_ty), Some(d.into()));
+                f(Key::MapVal(arr_reg, arr_ty), Some(col.into()));
+            }
+            DfRow(dst, d, row, arr) => {
+                f(dst.into(), Some(d.into()));
+                f(dst.into(), Some(row.into()));
+                let (arr_reg, arr_ty) = arr.reflect();
+                f(Key::MapKey(arr_reg, arr_ty), None);
+                f(Key::MapVal(arr_reg, arr_ty), Some(d.into()));
+                f(Key::MapVal(arr_reg, arr_ty), Some(row.into()));
+            }
+            DfToMap(dst, d, key, val, arr) => {
+                f(dst.into(), Some(d.into()));
+                f(dst.into(), Some(key.into()));
+                f(dst.into(), Some(val.into()));
+                let (arr_reg, arr_ty) = arr.reflect();
+                f(Key::MapKey(arr_reg, arr_ty), None);
+                f(Key::MapVal(arr_reg, arr_ty), Some(d.into()));
+            }
+            DfFromArray(dst, arr, names) => {
+                f(dst.into(), Some(arr.into()));
+                f(dst.into(), Some(names.into()));
+            }
             Seq(dst, start, step, end) => {
                 f(dst.into(), Some(start.into()));
                 f(dst.into(), Some(step.into()));

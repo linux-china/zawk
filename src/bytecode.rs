@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::builtins::{Bitwise, DecOp, FloatFunc, TextOp, Variable};
+use crate::builtins::{Bitwise, DecOp, DfOp, FloatFunc, TextOp, Variable};
 use crate::common::{FileSpec, NumTy};
 use crate::compile::{self, Ty};
 use crate::interp::{Storage, index, index_mut};
@@ -330,6 +330,39 @@ pub(crate) enum Instr<'a> {
     // min(a, b, ...) and max(a, b, ...): the smallest/largest of 2 or more items.
     Min(Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
     Max(Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
+    // dst = op(args...), a DataFrame function (see runtime::df) with a string or integer result.
+    DfStr(DfOp, Reg<Str<'a>>, Vec<Reg<Str<'a>>>),
+    DfInt(DfOp, Reg<Int>, Vec<Reg<Str<'a>>>),
+    // n = df_columns(d, arr)
+    DfColumns(Reg<Int>, Reg<Str<'a>>, Reg<runtime::IntMap<Str<'a>>>),
+    // n = df_col(d, col, arr)
+    DfCol(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::IntMap<Str<'a>>>,
+    ),
+    // n = df_row(d, i, arr)
+    DfRow(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
+    // n = df_to_map(d, key, val, arr)
+    DfToMap(
+        Reg<Int>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+    ),
+    // d = df_from_array(arr, names)
+    DfFromArray(
+        Reg<Str<'a>>,
+        Reg<runtime::StrMap<'a, Str<'a>>>,
+        Reg<Str<'a>>,
+    ),
     Seq(
         Reg<runtime::IntMap<Float>>,
         Reg<Float>,
@@ -1505,11 +1538,46 @@ impl<'a> Instr<'a> {
                 dst.accum(&mut f);
                 arr.accum(&mut f);
             }
-            Max(dst, args) | Min(dst, args) => {
+            Max(dst, args) | Min(dst, args) | DfStr(_, dst, args) => {
                 dst.accum(&mut f);
                 for a in args {
                     a.accum(&mut f);
                 }
+            }
+            DfInt(_, dst, args) => {
+                dst.accum(&mut f);
+                for a in args {
+                    a.accum(&mut f);
+                }
+            }
+            DfColumns(dst, d, arr) => {
+                dst.accum(&mut f);
+                d.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            DfCol(dst, d, col, arr) => {
+                dst.accum(&mut f);
+                d.accum(&mut f);
+                col.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            DfRow(dst, d, i, arr) => {
+                dst.accum(&mut f);
+                d.accum(&mut f);
+                i.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            DfToMap(dst, d, key, val, arr) => {
+                dst.accum(&mut f);
+                d.accum(&mut f);
+                key.accum(&mut f);
+                val.accum(&mut f);
+                arr.accum(&mut f);
+            }
+            DfFromArray(dst, arr, names) => {
+                dst.accum(&mut f);
+                arr.accum(&mut f);
+                names.accum(&mut f);
             }
             Seq(dst, start, step, end) => {
                 dst.accum(&mut f);

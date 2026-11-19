@@ -204,7 +204,14 @@ something else in parallel mode, ordered or not:
   run serially. See "Parallel runs and transactions" in
   `website/docs/stdlib/database-kv.md`.
 
-A run with `-p` (or `--keep-order`) prints `W304` to `W306` as warnings;
+* DataFrames: the tables of the `df_*` functions are shared by the threads of
+  a run, so the rows that `df_append`/`df_append_record` add in the main
+  rules come from all the workers, interleaved in an unspecified order
+  (`W307`). Sort the table in END (`df_sort`), or run serially. A program
+  calling `df_*` functions in its main rules is never parallelized
+  automatically.
+
+A run with `-p` (or `--keep-order`) prints `W304` to `W307` as warnings;
 `zawk lint -p r` lists all of them. Run such programs serially (`-p0`).
 
 ### Aggregations

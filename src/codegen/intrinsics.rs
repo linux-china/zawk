@@ -431,6 +431,14 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] map_int_str_to_csv(map_ty) -> str_ty;
         [ReadOnly] min(pa_args_ty, int_ty) -> str_ty;
         [ReadOnly] max(pa_args_ty, int_ty) -> str_ty;
+        // DataFrames: the registry of tables changes, so none of these is ReadOnly.
+        df_call_str(rt_ty, int_ty, pa_args_ty, int_ty) -> str_ty;
+        df_call_int(rt_ty, int_ty, pa_args_ty, int_ty) -> int_ty;
+        df_columns(str_ref_ty, map_ty) -> int_ty;
+        df_col(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        df_row(str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        df_to_map(str_ref_ty, str_ref_ty, str_ref_ty, map_ty) -> int_ty;
+        df_from_array(map_ty, str_ref_ty) -> str_ty;
         [ReadOnly] seq(float_ty,float_ty,float_ty) -> map_ty;
         [ReadOnly] uniq(map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] uniq_int(map_ty, str_ref_ty) -> map_ty;
@@ -438,7 +446,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] type_of_array() -> str_ty;
         [ReadOnly] type_of_number() -> str_ty;
         [ReadOnly] type_of_string() -> str_ty;
-        [ReadOnly] type_of_strnum(str_ref_ty) -> str_ty;
+        // Not ReadOnly: a DataFrame handle is "dataframe" until the table is freed.
+        type_of_strnum(str_ref_ty) -> str_ty;
         [ReadOnly] type_of_unassigned() -> str_ty;
         [ReadOnly] is_array_true() -> int_ty;
         [ReadOnly] is_array_false() -> int_ty;
@@ -2298,6 +2307,100 @@ pub(crate) unsafe extern "C" fn max(args: *mut usize, num_args: Int) -> U128 {
     })
 }
 
+/// The arguments of a DataFrame function, as passed by `CodeGenerator::df_n`.
+unsafe fn df_args<'b, 'a>(args: *mut usize, num_args: Int) -> &'b [&'b Str<'a>] {
+    slice::from_raw_parts(args as *const usize as *const &Str, num_args as usize)
+}
+
+pub(crate) unsafe extern "C" fn df_call_str(
+    runtime: *mut c_void,
+    op: Int,
+    args: *mut usize,
+    num_args: Int,
+) -> U128 {
+    guard_panic(stringify!(df_call_str), || {
+        let rt = &mut *(runtime as *mut Runtime);
+        let op = crate::runtime::df::DfOp::from_code(op).expect("invalid dataframe op");
+        let items = df_args(args, num_args);
+        // An error writing the output ends the program silently, as for print.
+        let res = try_silent_abort!(rt, crate::runtime::df::call_str(&mut rt.core, op, items));
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_call_int(
+    runtime: *mut c_void,
+    op: Int,
+    args: *mut usize,
+    num_args: Int,
+) -> Int {
+    guard_panic(stringify!(df_call_int), || {
+        let rt = &mut *(runtime as *mut Runtime);
+        let op = crate::runtime::df::DfOp::from_code(op).expect("invalid dataframe op");
+        let items = df_args(args, num_args);
+        try_silent_abort!(rt, crate::runtime::df::call_int(&mut rt.core, op, items))
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_columns(d: *mut U128, arr: *mut c_void) -> Int {
+    guard_panic(stringify!(df_columns), || {
+        let d = &*(d as *mut Str);
+        let arr = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+        let res = crate::runtime::df::columns(d, &arr);
+        mem::forget(arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_col(d: *mut U128, col: *mut U128, arr: *mut c_void) -> Int {
+    guard_panic(stringify!(df_col), || {
+        let d = &*(d as *mut Str);
+        let col = &*(col as *mut Str);
+        let arr = mem::transmute::<*mut c_void, IntMap<Str>>(arr);
+        let res = crate::runtime::df::col(d, col, &arr);
+        mem::forget(arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_row(d: *mut U128, row: *mut U128, arr: *mut c_void) -> Int {
+    guard_panic(stringify!(df_row), || {
+        let d = &*(d as *mut Str);
+        let row = &*(row as *mut Str);
+        let arr = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+        let res = crate::runtime::df::row(d, row, &arr);
+        mem::forget(arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_to_map(
+    d: *mut U128,
+    key: *mut U128,
+    val: *mut U128,
+    arr: *mut c_void,
+) -> Int {
+    guard_panic(stringify!(df_to_map), || {
+        let d = &*(d as *mut Str);
+        let key = &*(key as *mut Str);
+        let val = &*(val as *mut Str);
+        let arr = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+        let res = crate::runtime::df::to_map(d, key, val, &arr);
+        mem::forget(arr);
+        res
+    })
+}
+
+pub(crate) unsafe extern "C" fn df_from_array(arr: *mut c_void, names: *mut U128) -> U128 {
+    guard_panic(stringify!(df_from_array), || {
+        let arr = mem::transmute::<*mut c_void, StrMap<Str>>(arr);
+        let names = &*(names as *mut Str);
+        let res = crate::runtime::df::from_array(&arr, names);
+        mem::forget(arr);
+        mem::transmute::<Str, U128>(res)
+    })
+}
+
 pub(crate) unsafe extern "C" fn seq(start: Float, step: Float, end: Float) -> *mut c_void {
     guard_panic(stringify!(seq), || {
         let arr = or_fail(math_util::seq(start, step, end));
@@ -2600,6 +2703,8 @@ pub(crate) unsafe extern "C" fn type_of_strnum(text: *mut U128) -> U128 {
             .is_some()
         {
             "strnum"
+        } else if text.with_bytes(crate::runtime::df::is_handle) {
+            "dataframe"
         } else {
             "string"
         };

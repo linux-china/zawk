@@ -841,6 +841,57 @@ END { print _argmax(latency), _argmax(hits), _argmin(latency) }
 
 Find unique phone numbers: `!bf_icontains(phone) { }`
 
+# DataFrame
+
+In-memory tables behind string handles (`d = df_read("orders.csv")` is `"df#1"`, `typeof(d)` is
+`"dataframe"`): grouping, joins, multi-key sorts and pivots in END, without new syntax. Every
+transform returns a new handle; rows and columns are 1-based; errors are warnings (`try ... else`
+catches them). See [website/docs/stdlib/dataframe.md](../website/docs/stdlib/dataframe.md).
+
+### Build: df_read/df_new/df_append/df_append_record/df_from_array
+
+* `df_read(path[, format[, options]])`: csv, tsv, json, jsonl, parquet, avro, xlsx (`book.xlsx#Sheet2`), markdown, `sqlite://db#table`, `mysql://`, `postgres://`, http(s), s3, compressed files; options `infer_types=1;header=0;limit=N;columns=a,b`. CSV/TSV values stay strnum text unless `infer_types=1`.
+* `df_new("name,age:int,city")`: an empty table (`:TYPE` as for `-o parquet`)
+* `df_append(d, v1, v2, ...)`: append a row, returns the row count
+* `df_append_record(d)`: append `$1..$NF` (columns from the `-H` header)
+* `df_from_array(arr[, "key,value"])`: the keys and values of an array, sorted by key
+
+```awk
+BEGIN { d = df_new("city,amount:float") }
+$FI["status"] == "paid" { df_append(d, $FI["city"], $FI["amount"]) }
+END { df_print(df_sort(df_group(d, "city", "sum(amount) as total, count() as n"), "total desc")) }
+```
+
+### Transform: df_select/df_drop/df_filter/df_mutate/df_sort/df_head/df_tail/df_slice/df_distinct/df_concat
+
+* `df_select(d, "a, b as x")`, `df_drop(d, "a, b")`
+* `df_filter(d, "age > @min && city ~ /^B/", "min", 30)`: an awk expression over the columns (strnum comparisons, `~`, `in (...)`, `@name` parameters as name/value pairs)
+* `df_mutate(d, "total = price * qty, name = upper(name)")`
+* `df_sort(d, "total desc, name")`: stable; `num`/`str` or `@val_num_desc` force the comparison; nulls first
+* `df_head(d[, n])`, `df_tail(d[, n])`, `df_slice(d, from[, n])`, `df_distinct(d[, cols])`, `df_concat(a, b, ...)`
+
+### Aggregate and reshape: df_group/df_join/df_pivot/df_melt
+
+* `df_group(d, "keys", "sum(amount) as total, median(latency), count() as n")`: sum mean min max median quantile(x, q) var stddev mode count count_distinct first last concat(x, sep); missing values skipped, statistics identical to `_median` & co.
+* `df_join(a, b, "user_id=id"[, "inner|left|right|full|semi|anti"])`
+* `df_pivot(d, "day", "level", "sum(n)")`, `df_melt(d, "id"[, var[, value]])`
+
+### Access: df_nrow/df_ncol/df_get/df_schema/df_columns/df_col/df_row/df_to_map
+
+```awk
+for (i = 1; i <= df_nrow(d); i++) { df_row(d, i, row); print row["name"], df_get(d, i, "age") }
+df_col(d, "latency", lat); print _median(lat)
+n = df_columns(d, names); print df_ncol(d), df_schema(d)
+df_to_map(users, "id", "name", user_name)
+```
+
+### Output: df_print/df_write/df_describe/df_to_csv/df_to_json/df_free
+
+* `df_print(d[, format])`: to stdout through the same output as `print`: as the `-o` format, else OFS-separated text with a header; `format` is csv, tsv, json, jsonl, markdown or table
+* `df_write(d, path[, format])`: csv, tsv, json, jsonl, markdown, table, parquet, avro, xlsx (by extension; `.gz` compresses; `s3://` works), written as `-o` writes them
+* `df_describe(d)`: per-column summary table; `df_to_csv(d)`, `df_to_json(d)`: the table as text
+* `df_free(d)`: release a table (tables are released at exit)
+
 # Math
 
 Floating-point operations: `sin(x)`, `cos(x)`, `tan(x)`, `asin(x)`, `acos(x)`, `atan(x)`, `atan2(y, x)`, `log(x)`,

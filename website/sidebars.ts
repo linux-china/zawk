@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'stdlib/parsers',
         'stdlib/json-xml-html',
         'stdlib/array-math',
+        'stdlib/dataframe',
         'stdlib/datetime',
         'stdlib/crypto-encoding',
         'stdlib/network',

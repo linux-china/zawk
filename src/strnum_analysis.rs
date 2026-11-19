@@ -166,6 +166,11 @@ impl StrnumAnalysis {
             | JsonValue(dst, _, _)
             | HtmlValue(dst, _, _)
             | XmlValue(dst, _, _) => self.dfa.add_src(dst, Strnum::MAYBE),
+            // DataFrame cells come from the input (or from a table built from it): a handle or a
+            // cell compares numerically when it looks like a number, as a field does.
+            DfStr(_, dst, _) | DfFromArray(dst, _, _) => self.dfa.add_src(dst, Strnum::MAYBE),
+            DfColumns(_, _, map) | DfCol(_, _, _, map) => self.add_map_vals(map),
+            DfRow(_, _, _, map) | DfToMap(_, _, _, _, map) => self.add_map_vals(map),
             FromJson(map, _)
             | JsonFlatten(map, _)
             | Url(map, _)

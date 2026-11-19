@@ -516,6 +516,10 @@ pub(crate) trait CodeGenerator: Backend {
     /// `math_util::min`).
     fn min_max_n(&mut self, dst: &StrReg, args: &[StrReg], is_max: bool) -> Result<()>;
 
+    /// Stores in `dst` (a string or an integer register) the result of the DataFrame function
+    /// `op` (see `runtime::df::DfOp::code`) called with `args`.
+    fn df_n(&mut self, op: i64, dst: Ref, args: &[StrReg]) -> Result<()>;
+
     /// Moves the contents of `src` into `dst`, taking refcounts into consideration if necessary.
     fn mov(&mut self, ty: compile::Ty, dst: NumTy, src: NumTy) -> Result<()>;
 
@@ -2058,6 +2062,42 @@ pub(crate) trait CodeGenerator: Backend {
             }
             Min(dst, args) => self.min_max_n(dst, &args[..], /*is_max=*/ false),
             Max(dst, args) => self.min_max_n(dst, &args[..], /*is_max=*/ true),
+            DfStr(op, dst, args) => self.df_n(op.code(), dst.reflect(), &args[..]),
+            DfInt(op, dst, args) => self.df_n(op.code(), dst.reflect(), &args[..]),
+            DfColumns(dst, d, arr) => {
+                let d = self.get_val(d.reflect())?;
+                let arr = self.get_val(arr.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(df_columns), &mut [d, arr])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            DfCol(dst, d, col, arr) => {
+                let d = self.get_val(d.reflect())?;
+                let col = self.get_val(col.reflect())?;
+                let arr = self.get_val(arr.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(df_col), &mut [d, col, arr])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            DfRow(dst, d, row, arr) => {
+                let d = self.get_val(d.reflect())?;
+                let row = self.get_val(row.reflect())?;
+                let arr = self.get_val(arr.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(df_row), &mut [d, row, arr])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            DfToMap(dst, d, key, val, arr) => {
+                let d = self.get_val(d.reflect())?;
+                let key = self.get_val(key.reflect())?;
+                let val = self.get_val(val.reflect())?;
+                let arr = self.get_val(arr.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(df_to_map), &mut [d, key, val, arr])?;
+                self.bind_val(dst.reflect(), resv)
+            }
+            DfFromArray(dst, arr, names) => {
+                let arr = self.get_val(arr.reflect())?;
+                let names = self.get_val(names.reflect())?;
+                let resv = self.call_intrinsic(intrinsic!(df_from_array), &mut [arr, names])?;
+                self.bind_val(dst.reflect(), resv)
+            }
             Seq(dst, start, step, end) => {
                 let start = self.get_val(start.reflect())?;
                 let step = self.get_val(step.reflect())?;

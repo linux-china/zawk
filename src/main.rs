@@ -2145,6 +2145,10 @@ fn real_main() {
         ),
         None => (Escaper::Identity, None, None),
     };
+    // `df_print` writes as the output of the run.
+    if let Some(format) = matches.get_one::<String>("output-format") {
+        runtime::df::set_output_format(format);
+    }
     runtime::str_impl::set_characters_as_bytes(matches.get_flag("characters-as-bytes"));
     if let Some(text) = matches.get_one::<String>("null") {
         runtime::str_escape::set_null_text(text.clone());

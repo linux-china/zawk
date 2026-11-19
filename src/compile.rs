@@ -2826,6 +2826,71 @@ impl<'a, 'b> View<'a, 'b> {
                     ))
                 }
             }
+            // DataFrame functions read and change the tables of the registry: they are always
+            // called, even when the result is unused (`df_append(d, $1)`).
+            Df(op) => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                let args = conv_regs.iter().map(|r| (*r).into()).collect();
+                if op.returns_int() {
+                    self.pushl(LL::DfInt(*op, res_reg.into(), args))
+                } else {
+                    self.pushl(LL::DfStr(*op, res_reg.into(), args))
+                }
+            }
+            DfColumns => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::DfColumns(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                ))
+            }
+            DfCol | DfRow => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(if *bf == DfCol {
+                    LL::DfCol(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    )
+                } else {
+                    LL::DfRow(
+                        res_reg.into(),
+                        conv_regs[0].into(),
+                        conv_regs[1].into(),
+                        conv_regs[2].into(),
+                    )
+                })
+            }
+            DfToMap => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::DfToMap(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                    conv_regs[2].into(),
+                    conv_regs[3].into(),
+                ))
+            }
+            DfFromArray => {
+                if res_reg == UNUSED {
+                    res_reg = self.regs.stats.reg_of_ty(res_ty);
+                }
+                self.pushl(LL::DfFromArray(
+                    res_reg.into(),
+                    conv_regs[0].into(),
+                    conv_regs[1].into(),
+                ))
+            }
             Eval => {
                 if res_reg != UNUSED {
                     match conv_tys[1] {

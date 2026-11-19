@@ -137,6 +137,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W304 | with `-pr`: range pattern `start, end` keeps its state per worker, so ranges starting in another worker's chunk are missed; run with `-p0` (`--keep-order` falls back to serial) |
 | W305 | with `-p`: a global carried from earlier records decides or makes output (`!seen[$1]++`, `$1 != prev`, `{ n++; print n }`): each worker has its own copy; run with `-p0` |
 | W306 | with `-p`: BEGIN/END opens or ends a transaction (`pg_execute(url, "BEGIN")`) while the main rules write with `*_execute`: workers use their own connections, so their writes autocommit outside it (SQLite: `database is locked`); BEGIN per worker in the main rules and COMMIT in `PREPARE`, or `-p0` |
+| W307 | with `-p`: `df_append`/`df_append_record` in the main rules: the rows of all workers go to the same DataFrame in an unspecified order; `df_sort` it in END, or `-p0` |
 
 Only the first error is reported: fix it and lint again.
 
@@ -254,6 +255,33 @@ fields as columns. In `-o md` and `-o table`, a newline inside a value is shown 
 `-o md` also escapes `|` as `\|` (`-o table` leaves it as is). `-o table` and `-o xlsx` write nothing until the
 program ends. Excel limits a sheet to 1,048,576 rows and a cell to 32,767 characters (extra rows are dropped and long
 text is cut, with a warning).
+
+## DataFrames: `df_*`
+
+For grouping on several keys, joins, multi-key sorts and pivots, use DataFrames instead of nested arrays. A DataFrame
+is a string handle (`df#1`); every transform returns a new handle; rows and columns are 1-based; errors are warnings
+(`try df_nrow(d) else -1`). Expressions of `df_filter`/`df_mutate`/`df_group` are strings in awk syntax over column
+names (strnum comparisons, `~ /re/`, `in ("a", "b")`, `'single quotes'` for strings); pass awk values as `@name`
+parameters (name/value pairs after the expression), never by concatenating them into the expression.
+
+```shell
+# Group, sort and print a table
+zawk 'BEGIN { d = df_read("orders.csv"); g = df_group(df_filter(d, "status == \"paid\""), "city", "sum(amount) as total, count() as n"); df_print(df_sort(g, "total desc"), "table") }'
+# Collect in the main loop (columns typed with :TYPE), aggregate in END; df_print follows -o
+zawk -i csv -H -o csv 'BEGIN { d = df_new("city,amount:float") } { df_append(d, $FI["city"], $FI["amount"]) } END { df_print(df_group(d, "city", "median(amount) as p50, quantile(amount, 0.99) as p99")) }' orders.csv
+# Join two files, filter with a parameter, write Parquet
+zawk -v min=10 'BEGIN { j = df_join(df_read("orders.csv"), df_read("users.csv"), "user_id=id", "left"); df_write(df_filter(j, "amount >= @min", "min", min), "big.parquet") }'
+# Back to awk arrays
+zawk 'BEGIN { d = df_read("lat.csv"); df_col(d, "latency", lat); print _median(lat); for (i = 1; i <= df_nrow(d); i++) { df_row(d, i, row); print row["host"] } }'
+```
+
+Functions: `df_read(path[, fmt[, "infer_types=1;header=0;limit=N;columns=a,b"]])`, `df_new`, `df_append`,
+`df_append_record`, `df_from_array`, `df_select`, `df_drop`, `df_filter`, `df_mutate`, `df_sort` (`desc`, `num`, `str`,
+`@val_num_desc`; nulls first), `df_head`, `df_tail`, `df_slice`, `df_distinct`, `df_group` (sum mean min max median
+quantile var stddev mode count count_distinct first last concat), `df_join` (inner left right full semi anti),
+`df_concat`, `df_pivot`, `df_melt`, `df_nrow`, `df_ncol`, `df_get`, `df_row`, `df_col`, `df_columns`, `df_to_map`,
+`df_schema`, `df_describe`, `df_print`, `df_write` (csv tsv json jsonl markdown table parquet avro xlsx, `.gz`, `s3://`),
+`df_to_csv`, `df_to_json`, `df_free`.
 
 ## String interpolation: f-strings
 

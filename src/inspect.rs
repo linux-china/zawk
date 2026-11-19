@@ -351,6 +351,111 @@ fn read(
     tap: Option<&LineTap>,
 ) -> io::Result<(Inspector, Format, bool)> {
     let mut ins = Inspector::new(opts.sample_rows);
+    let (format, limited) = read_into(path, opts, tap, &mut ins)?;
+    Ok((ins, format, limited))
+}
+
+/// What the readers of this module feed the rows of an input to: the `Inspector` of
+/// `zawk inspect`, or the table that `df_read` builds (see `runtime::df::io`).
+pub(crate) trait RowSink {
+    /// Whether `max_rows` rows were read already.
+    fn full(&self, max_rows: Option<u64>) -> bool;
+    /// A column of a typed source (Parquet, Avro, database): its name, its `FI` key, its declared
+    /// type and its field number. Returns its index.
+    fn add_column(
+        &mut self,
+        name: String,
+        key: String,
+        declared: Option<String>,
+        field: Option<usize>,
+    ) -> usize;
+    /// The header line of a CSV/TSV/Excel input (`name:TYPE` declares a type).
+    fn add_header(&mut self, fields: Vec<String>);
+    /// A JSON object: its keys are the columns.
+    fn add_object(&mut self, pairs: Vec<(String, Cell)>);
+    fn add_row(&mut self, cells: Vec<Cell>);
+    /// A JSON Lines line that is not an object.
+    fn non_object(&mut self) {}
+    /// For a workbook: the sheet read, and the names of all its sheets.
+    fn set_sheet(&mut self, _name: String, _sheets: Vec<String>) {}
+}
+
+impl RowSink for Inspector {
+    fn full(&self, max_rows: Option<u64>) -> bool {
+        Inspector::full(self, max_rows)
+    }
+    fn add_column(
+        &mut self,
+        name: String,
+        key: String,
+        declared: Option<String>,
+        field: Option<usize>,
+    ) -> usize {
+        Inspector::add_column(self, name, key, declared, field)
+    }
+    fn add_header(&mut self, fields: Vec<String>) {
+        Inspector::add_header(self, fields)
+    }
+    fn add_object(&mut self, pairs: Vec<(String, Cell)>) {
+        Inspector::add_object(self, pairs)
+    }
+    fn add_row(&mut self, cells: Vec<Cell>) {
+        Inspector::add_row(self, cells)
+    }
+    fn non_object(&mut self) {
+        self.non_objects += 1;
+    }
+    fn set_sheet(&mut self, name: String, sheets: Vec<String>) {
+        self.sheet = Some((name, sheets));
+    }
+}
+
+/// Reads the rows of `path` (a file, URL, S3 object, database URL or `-`) into `sink`, as
+/// `zawk inspect` reads them; returns the format and whether reading stopped at `max_rows`.
+pub(crate) fn read_rows<S: RowSink>(
+    path: &str,
+    format: Option<Format>,
+    header: bool,
+    max_rows: Option<u64>,
+    sink: &mut S,
+) -> io::Result<(Format, bool)> {
+    let opts = Options {
+        format,
+        style: Style::Table,
+        sample_rows: 0,
+        max_rows,
+        header,
+    };
+    read_into(path, &opts, None, sink)
+}
+
+/// Reads the CSV, TSV, JSON or JSON Lines text `input` into `sink`; returns whether reading
+/// stopped at `max_rows`.
+pub(crate) fn read_text_rows<S: RowSink>(
+    input: Box<dyn Read + Send>,
+    format: Format,
+    header: bool,
+    max_rows: Option<u64>,
+    sink: &mut S,
+) -> io::Result<bool> {
+    let opts = Options {
+        format: Some(format),
+        style: Style::Table,
+        sample_rows: 0,
+        max_rows,
+        header,
+    };
+    read_text(input, format, &opts, sink)
+}
+
+/// Reads `path` into `ins`; returns the format and whether reading stopped at `max_rows`. A text
+/// input is read through `tap`, when given.
+fn read_into<S: RowSink>(
+    path: &str,
+    opts: &Options,
+    tap: Option<&LineTap>,
+    ins: &mut S,
+) -> io::Result<(Format, bool)> {
     let open = |path: &str| -> io::Result<Box<dyn Read + Send>> {
         let input = open_input(path)?;
         Ok(match tap {
@@ -360,7 +465,7 @@ fn read(
     };
     let (format, limited) = match opts.format {
         None | Some(Format::Database) if database::is_db_url(path) => {
-            (Format::Database, read_database(path, opts, &mut ins)?)
+            (Format::Database, read_database(path, opts, ins)?)
         }
         Some(Format::Database) => {
             return Err(io::Error::other(format!(
@@ -368,9 +473,9 @@ fn read(
                 path
             )));
         }
-        Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, &mut ins)?),
-        Some(Format::Avro) => (Format::Avro, read_avro(path, opts, &mut ins)?),
-        Some(Format::Xlsx) => (Format::Xlsx, read_xlsx(path, opts, &mut ins)?),
+        Some(Format::Parquet) => (Format::Parquet, read_parquet(path, opts, ins)?),
+        Some(Format::Avro) => (Format::Avro, read_avro(path, opts, ins)?),
+        Some(Format::Xlsx) => (Format::Xlsx, read_xlsx(path, opts, ins)?),
         Some(format) => {
             let input = open(path)?;
             let input = if format == Format::Json {
@@ -378,15 +483,15 @@ fn read(
             } else {
                 input
             };
-            (format, read_text(input, format, opts, &mut ins)?)
+            (format, read_text(input, format, opts, ins)?)
         }
         None => {
             if path != "-" && extension_format(path) == Some(Format::Parquet) {
-                (Format::Parquet, read_parquet(path, opts, &mut ins)?)
+                (Format::Parquet, read_parquet(path, opts, ins)?)
             } else if path != "-" && extension_format(path) == Some(Format::Avro) {
-                (Format::Avro, read_avro(path, opts, &mut ins)?)
+                (Format::Avro, read_avro(path, opts, ins)?)
             } else if path != "-" && extension_format(path) == Some(Format::Xlsx) {
-                (Format::Xlsx, read_xlsx(path, opts, &mut ins)?)
+                (Format::Xlsx, read_xlsx(path, opts, ins)?)
             } else {
                 // Sniff the content, then read it (the peeked bytes are put back in front).
                 let mut input = open(path)?;
@@ -408,7 +513,7 @@ fn read(
                         // The sniffed bytes are binary, not lines.
                         tap.clear();
                     }
-                    (format, read_parquet(path, opts, &mut ins)?)
+                    (format, read_parquet(path, opts, ins)?)
                 } else if format == Format::Avro {
                     if let Some(tap) = tap {
                         tap.clear();
@@ -416,7 +521,7 @@ fn read(
                     let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
                     (
                         format,
-                        read_avro_from(AvroJson::reader(input, path), opts, &mut ins)?,
+                        read_avro_from(AvroJson::reader(input, path), opts, ins)?,
                     )
                 } else {
                     let input: Box<dyn Read + Send> = Box::new(Cursor::new(prefix).chain(input));
@@ -425,12 +530,12 @@ fn read(
                     } else {
                         input
                     };
-                    (format, read_text(input, format, opts, &mut ins)?)
+                    (format, read_text(input, format, opts, ins)?)
                 }
             }
         }
     };
-    Ok((ins, format, limited))
+    Ok((format, limited))
 }
 
 /// The format named by the extension of `path` (after a compression extension).
@@ -489,7 +594,7 @@ fn open_format(path: &str, format: Format) -> io::Result<Box<dyn Read + Send>> {
 
 /// Opens a file, URL, S3 object or standard input (`-`), decompressing it if needed. A JSONPath
 /// after the file (`file.json#$.data`) is ignored.
-fn open_input(path: &str) -> io::Result<Box<dyn Read + Send>> {
+pub(crate) fn open_input(path: &str) -> io::Result<Box<dyn Read + Send>> {
     if database::is_db_url(path) {
         return Ok(Box::new(database::DbCsv::new(path.to_string())));
     }
@@ -508,7 +613,7 @@ fn open_input(path: &str) -> io::Result<Box<dyn Read + Send>> {
 }
 
 /// Reads the rows of a Parquet file; returns whether reading stopped at `--max-rows`.
-fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_parquet<S: RowSink>(path: &str, opts: &Options, ins: &mut S) -> io::Result<bool> {
     if path != "-" {
         ParquetJson::check(path).map_err(io::Error::other)?;
     }
@@ -531,7 +636,7 @@ fn read_parquet(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<b
 }
 
 /// Reads the records of an Avro file; returns whether reading stopped at `--max-rows`.
-fn read_avro(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_avro<S: RowSink>(path: &str, opts: &Options, ins: &mut S) -> io::Result<bool> {
     if path != "-" {
         AvroJson::check(path).map_err(io::Error::other)?;
     }
@@ -543,7 +648,7 @@ fn read_avro(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool
     read_avro_from(source, opts, ins)
 }
 
-fn read_avro_from(source: AvroJson, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_avro_from<S: RowSink>(source: AvroJson, opts: &Options, ins: &mut S) -> io::Result<bool> {
     let mut table = source.table()?;
     for (i, (name, ty)) in table.columns().into_iter().enumerate() {
         ins.add_column(name.clone(), name, Some(ty), Some(i + 1));
@@ -558,9 +663,9 @@ fn read_avro_from(source: AvroJson, opts: &Options, ins: &mut Inspector) -> io::
 }
 
 /// Reads the rows of a sheet of an Excel workbook; returns whether reading stopped at `--max-rows`.
-fn read_xlsx(path: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_xlsx<S: RowSink>(path: &str, opts: &Options, ins: &mut S) -> io::Result<bool> {
     let sheet = xlsx::Sheet::open(path)?;
-    ins.sheet = Some((sheet.name, sheet.sheets));
+    ins.set_sheet(sheet.name, sheet.sheets);
     let mut rows = sheet.rows.into_iter();
     if opts.header
         && let Some(header) = rows.next() {
@@ -588,7 +693,7 @@ fn xlsx_cell(cell: calamine::Data) -> Cell {
 }
 
 /// Reads the rows of a database table or query; returns whether reading stopped at `--max-rows`.
-fn read_database(url: &str, opts: &Options, ins: &mut Inspector) -> io::Result<bool> {
+fn read_database<S: RowSink>(url: &str, opts: &Options, ins: &mut S) -> io::Result<bool> {
     let mut table = database::DbTable::open(url)?;
     for (i, c) in table.columns().iter().enumerate() {
         ins.add_column(
@@ -617,11 +722,11 @@ fn db_cell(value: database::DbValue) -> Cell {
 
 /// Reads the rows of a CSV, TSV, JSON or JSON Lines input; returns whether reading stopped at
 /// `--max-rows`.
-fn read_text(
+fn read_text<S: RowSink>(
     input: Box<dyn Read + Send>,
     format: Format,
     opts: &Options,
-    ins: &mut Inspector,
+    ins: &mut S,
 ) -> io::Result<bool> {
     let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
     match format {
@@ -688,7 +793,7 @@ fn read_text(
                 }
                 match jsonl::object_cells(line) {
                     Some(pairs) => ins.add_object(pairs),
-                    None => ins.non_objects += 1,
+                    None => ins.non_object(),
                 }
             }
         }
@@ -876,7 +981,7 @@ fn unescape_tsv(s: &str) -> String {
 }
 
 /// `name:TYPE` → (`name`, `TYPE`).
-fn split_type(header: &str) -> (String, Option<String>) {
+pub(crate) fn split_type(header: &str) -> (String, Option<String>) {
     if let Some((name, ty)) = header.rsplit_once(':') {
         let ty = ty.trim();
         let valid = ty.starts_with(|c: char| c.is_ascii_alphabetic())
@@ -1261,7 +1366,7 @@ fn sample_row(cells: &[Cell]) -> Vec<String> {
 }
 
 /// The text of a value as awk sees it.
-fn awk_text(cell: &Cell) -> &str {
+pub(crate) fn awk_text(cell: &Cell) -> &str {
     match cell {
         Cell::Null => "",
         Cell::Bool(true) => "1",

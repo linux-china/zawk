@@ -324,8 +324,16 @@ pub fn get_object(bucket_name: &str, object_name: &str) -> Result<String, BoxErr
 
 /// Puts `body` as the object, and returns its ETag (empty if the server returned none).
 pub fn put_object(bucket_name: &str, object_name: &str, body: &str) -> Result<String, BoxError> {
+    put_object_bytes(bucket_name, object_name, body.as_bytes().to_vec())
+}
+
+/// [`put_object`] of binary content (`df_write` of a Parquet, Avro or Excel file).
+pub fn put_object_bytes(
+    bucket_name: &str,
+    object_name: &str,
+    body: Vec<u8>,
+) -> Result<String, BoxError> {
     let op = s3_operator(bucket_name)?;
-    let body = body.to_string();
     S3_RUNTIME.block_on(async {
         let metadata = op.write(object_name, body).await?;
         Ok(metadata

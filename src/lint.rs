@@ -172,7 +172,7 @@ pub fn parallel_warnings(
     let mut diags: Vec<Diagnostic> = check_ast(text, &program, &opts)
         .into_iter()
         .filter(|d| {
-            matches!(d.code, "W302" | "W303" | "W304" | "W305" | "W306")
+            matches!(d.code, "W302" | "W303" | "W304" | "W305" | "W306" | "W307")
                 || (keep_order && d.code == "W301")
         })
         .collect();
@@ -639,6 +639,8 @@ struct Facts<'a, 'p> {
     element_reads: Vec<(&'a str, Region)>,
     /// Calls of the SQL functions (`sqlite_execute`, `pg_query`, ...).
     db_calls: Vec<DbCall<'a>>,
+    /// Calls of `df_append`/`df_append_record` in the main rules: where.
+    df_appends: Vec<Option<Loc>>,
 }
 
 /// A call of a SQL function: `sqlite_execute(db, "BEGIN")`.
@@ -1166,6 +1168,11 @@ impl<'a, 'p> Facts<'a, 'p> {
                                 loc: self.loc(e),
                             });
                         }
+                        if matches!(*name, "df_append" | "df_append_record")
+                            && self.region == Region::Main
+                        {
+                            self.df_appends.push(self.loc(e));
+                        }
                         if *name == "sprintf"
                             && let Some(fmt) = args.first().and_then(|f| literal(f)) {
                                 self.formats.push((fmt, args.len() - 1, self.loc(e)));
@@ -1407,6 +1414,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         element_sets: Vec::new(),
         element_reads: Vec::new(),
         db_calls: Vec::new(),
+        df_appends: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -2215,6 +2223,14 @@ fn check_parallel<'a>(
         .filter_map(|d| d.message.split('`').nth(1).map(String::from))
         .collect();
     diags.extend(check_parallel_transactions(&facts.db_calls));
+    // Rows appended to a DataFrame in the main rules come from all the workers, interleaved.
+    if let Some(loc) = facts.df_appends.first() {
+        diags.push(warning(
+            "W307",
+            "in parallel mode the main rules run in worker threads: the rows that `df_append` adds to a DataFrame come from all the workers, in an unspecified order (not the order of the input); sort the table in END (`df_sort`), or run serially (`-p0`)".to_string(),
+            *loc,
+        ));
+    }
     for (name, loc) in CrossRecord::find(prog) {
         if reported_end.iter().any(|n| n == name) {
             continue;

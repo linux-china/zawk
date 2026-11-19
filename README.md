@@ -20,6 +20,11 @@ Features:
 * High performance
 * gawk mostly compatible
 * A standard library: text, math, datetime, crypto, parser, encode/decode, ID, KV, SQLite/MySQL, Redis/NATS/Kafka etc.
+* DataFrames without new syntax: `df_*` functions on string handles for grouping, joins, multi-key sorts and pivots,
+  e.g. `END { d = df_read("orders.csv"); df_print(df_sort(df_group(d, "city", "sum(amount) as total"), "total desc"), "table") }`.
+  Tables are loaded from any input format (CSV, JSON, Parquet, Excel, databases, S3, ...), collected in the main loop with
+  `df_append(d, $1, $2)`, written with `df_write(d, "out.parquet")`, and turned back into awk arrays with `df_col`/`df_row`
+  (see [DataFrames](https://github.com/linux-china/zawk/blob/master/website/docs/stdlib/dataframe.md))
 * i18n support: `length("你好Hello") # 7`, `substr("你好Hello", 1, 2) # 你好`
 * Load awk script from URL
 * Run the first ` ```awk ` (or `zawk`/`gawk`) code block of Markdown: `zawk -f notes.md`, or a Markdown program text

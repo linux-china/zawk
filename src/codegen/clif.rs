@@ -2394,6 +2394,19 @@ impl<'a> CodeGenerator for View<'a> {
         self.bind_val(dst.reflect(), res)
     }
 
+    fn df_n(&mut self, op: i64, dst: Ref, args: &[StrReg]) -> Result<()> {
+        let (addr, num_args) = self.str_ptr_array(args)?;
+        let rt = self.runtime_val();
+        let op = self.const_int(op);
+        let func = if dst.1 == compile::Ty::Int {
+            external!(df_call_int)
+        } else {
+            external!(df_call_str)
+        };
+        let res = self.call_intrinsic(Op::Intrinsic(func), &mut [rt, op, addr, num_args])?;
+        self.bind_val(dst, res)
+    }
+
     fn mov(&mut self, ty: compile::Ty, dst: NumTy, src: NumTy) -> Result<()> {
         self.mov_inner(ty, dst, src, /*skip_drop=*/ false)
     }
