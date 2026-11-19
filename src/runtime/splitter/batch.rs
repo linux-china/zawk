@@ -548,7 +548,15 @@ impl<'a> super::Line<'a> for Line {
     }
 }
 
-/// Split a single CSV or TSV record, with the same rules as [Stepper::step].
+/// Split a single CSV or TSV record (the new value of `$0`), with the same rules as reading it:
+/// [csv_lenient_scan] (which the SIMD scan matches) followed by [Stepper::step].
+///
+/// For CSV that means, as in gawk: only a `"` at the start of a field opens a quoted field
+/// (elsewhere it is a literal quote); inside a quoted field `""` is an escaped quote, a `"`
+/// followed by `,`, `\n`, `\r\n` or the end closes the field, and any other `"` is a literal
+/// quote. One difference: when reading, a newline after a literal quote (outside quotes by
+/// parity) ends the record; a record that holds such a newline can only come from an assignment
+/// to `$0`, and here the newline stays in the field.
 fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
     let bs = match bs {
         [rest @ .., b'\r', b'\n'] | [rest @ .., b'\n'] => rest,
@@ -560,28 +568,52 @@ fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
     }
     let sep = ifmt.sep();
     let mut cur = Vec::new();
+    // Whether `i` is at the start of a field: only there does a `"` open a quoted field.
+    let mut field_start = true;
     let mut i = 0;
     while i < bs.len() {
         let b = bs[i];
         i += 1;
         match (ifmt, b) {
-            _ if b == sep => fields.push(Buf::read_from_bytes(&mem::take(&mut cur)).into_str()),
-            (InputFormat::CSV, b'"') => {
-                // A quoted portion runs to the next lone quote; `""` is an escaped quote.
-                while i < bs.len() {
-                    if bs[i] == b'"' {
-                        if bs.get(i + 1) == Some(&b'"') {
-                            cur.push(b'"');
-                            i += 2;
-                            continue;
-                        }
-                        i += 1;
+            _ if b == sep => {
+                fields.push(Buf::read_from_bytes(&mem::take(&mut cur)).into_str());
+                field_start = true;
+                continue;
+            }
+            (InputFormat::CSV, b'"') if field_start => loop {
+                let Some(j) = memchr::memchr(b'"', &bs[i..]) else {
+                    // Unterminated: the rest of the record is inside the quotes.
+                    cur.extend_from_slice(&bs[i..]);
+                    i = bs.len();
+                    break;
+                };
+                let q = i + j;
+                cur.extend_from_slice(&bs[i..q]);
+                match bs.get(q + 1) {
+                    Some(b'"') => {
+                        // `""`: an escaped quote.
+                        cur.push(b'"');
+                        i = q + 2;
+                    }
+                    None | Some(b'\n') => {
+                        i = q + 1;
                         break;
                     }
-                    cur.push(bs[i]);
-                    i += 1;
+                    Some(&x) if x == sep => {
+                        i = q + 1;
+                        break;
+                    }
+                    Some(b'\r') if matches!(bs.get(q + 2), None | Some(b'\n')) => {
+                        i = q + 1;
+                        break;
+                    }
+                    // A literal quote inside the quoted field.
+                    Some(_) => {
+                        cur.push(b'"');
+                        i = q + 1;
+                    }
                 }
-            }
+            },
             (InputFormat::TSV, b'\\') => {
                 match bs.get(i) {
                     Some(b'n') => cur.push(b'\n'),
@@ -591,14 +623,17 @@ fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
                     // A backslash before a separator or at the end is kept as is.
                     Some(b'\t') | None => {
                         cur.push(b'\\');
+                        field_start = false;
                         continue;
                     }
                     Some(&x) => cur.extend_from_slice(&[b'\\', x]),
                 }
                 i += 1;
             }
+            // Includes a `"` that is not at the start of a field: a literal quote.
             _ => cur.push(b),
         }
+        field_start = false;
     }
     fields.push(Buf::read_from_bytes(&cur).into_str());
     fields
@@ -3684,6 +3719,48 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
             got.push(line.fields.iter().map(|s| s.to_string()).collect());
         }
         got
+    }
+
+    /// Assigning `$0` splits a CSV record the same way as reading it, also with quotes that do
+    /// not follow the RFC (a quote inside an unquoted field, a literal quote inside a quoted one).
+    #[test]
+    fn csv_reassigned_record_splits_like_input() {
+        let records: &[&str] = &[
+            "id,size 5\" screen,price",
+            "\"say \"hi\" now\",x",
+            "a\"b,\"x\" y,c",
+            "\"x\"y,z",
+            "\"a\"b\"c\",d",
+            "\"a\"\"b\"c\",d",
+            "x\"\"y,\"z\"",
+            "\"esc\"\"aped\",\"\"",
+            "\"\",\"\"\"\"",
+            ",\"a\",",
+            "\"q,u\noted\",z",
+            "\"cr\r\nin\",\"\"\"a\"",
+            "plain,fields",
+        ];
+        let split = |rec: &str| -> Vec<String> {
+            split_record(rec.as_bytes(), InputFormat::CSV)
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        };
+        assert_eq!(split(records[0]), ["id", "size 5\" screen", "price"]);
+        assert_eq!(split(records[1]), ["say \"hi\" now", "x"]);
+        for rec in records {
+            for end in ["\n", "\r\n"] {
+                let got = csv_read_all(&format!("{rec}{end}"), 512);
+                assert_eq!(got, [split(rec)], "rec={rec:?} end={end:?}");
+                assert_eq!(split(&format!("{rec}{end}")), split(rec), "rec={rec:?}");
+            }
+        }
+        // All at once, so that the SIMD scan hands the irregular records to the lenient one.
+        let corpus: String = records.iter().map(|r| format!("{r}\n")).collect();
+        let want: Vec<Vec<String>> = records.iter().map(|r| split(r)).collect();
+        for chunk_size in [512, 7, 3] {
+            assert_eq!(csv_read_all(&corpus, chunk_size), want, "chunk_size={chunk_size}");
+        }
     }
 
     #[test]
