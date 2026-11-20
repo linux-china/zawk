@@ -432,3 +432,63 @@ fn parallel_append_lint() {
         + &String::from_utf8_lossy(&out.stderr);
     assert!(text.contains("W307"), "{}", text);
 }
+
+#[test]
+fn parallel_append_record_needs_header() {
+    let dir = data_dir();
+    // Without `-H`, the header cannot come from the first record in the workers.
+    for backend in BACKENDS {
+        let out = Command::new(env!("CARGO_BIN_EXE_zawk"))
+            .current_dir(dir.path())
+            .args(*backend)
+            .args([
+                "-pr",
+                "-F,",
+                r#"BEGIN { d = df_new() } { df_append_record(d) } END { print df_nrow(d), df_ncol(d) }"#,
+                "orders.csv",
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(stdout, "0 0\n", "{:?}: {}", backend, stderr);
+        assert!(stderr.contains("df_append_record") && stderr.contains("-H"), "{:?}: {}", backend, stderr);
+    }
+    // With `-H`, or columns declared, the rows are appended.
+    for args in [
+        vec!["-pr", "-F,", "-H", r#"BEGIN { d = df_new() } { df_append_record(d) } END { print df_nrow(d), df_ncol(d) }"#],
+        vec!["-pr", "-F,", r#"BEGIN { d = df_new("id,user_id,city,status,amount") } $1 != "id" { df_append_record(d) } END { print df_nrow(d), df_ncol(d) }"#],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_zawk"))
+            .current_dir(dir.path())
+            .args(&args)
+            .arg("orders.csv")
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "6 5\n", "{:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+    }
+    // Serially, the first record is still the header.
+    let out = run(
+        dir.path(),
+        &["-F,", r#"BEGIN { d = df_new() } { df_append_record(d) } END { print df_nrow(d), df_ncol(d) }"#, "orders.csv"],
+    );
+    assert_eq!(out, "6 5\n");
+}
+
+#[test]
+fn parallel_append_record_lint() {
+    let lint = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_zawk"))
+            .arg("lint")
+            .arg("-pr")
+            .args(extra)
+            .args(["-e", r#"BEGIN { d = df_new() } { df_append_record(d) } END { df_print(d) }"#])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
+    };
+    let text = lint(&[]);
+    assert!(text.contains("W307") && text.contains("cannot take the header"), "{}", text);
+    let text = lint(&["-H"]);
+    assert!(text.contains("W307") && !text.contains("cannot take the header"), "{}", text);
+}

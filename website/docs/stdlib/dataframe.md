@@ -51,7 +51,7 @@ df_free(d)                     # optional: tables are released at exit
 | `df_read(path[, format[, options]])` | Load a file or URL: csv, tsv, json, jsonl, parquet, avro, xlsx (`book.xlsx#Sheet2`), markdown, `sqlite://app.db#table`, `mysql://`, `postgres://`, `http(s)://`, `s3://`, compressed files. The format comes from the extension (or the content) unless given. |
 | `df_new("name,age:int,city")` | An empty table with these columns; `:TYPE` declares a type, as the header suffixes of `-o parquet` do. |
 | `df_append(d, v1, v2, ...)` | Append a row; returns the row count. |
-| `df_append_record(d)` | Append the fields `$1..$NF` of the current record. An empty table first takes the column names of the header (`FI`, with `-H`), or uses the record as its header without `-H`. |
+| `df_append_record(d)` | Append the fields `$1..$NF` of the current record. An empty table first takes the column names of the header (`FI`, with `-H`), or uses the record as its header without `-H` (so with several input files, the header line of the second file is appended as a row, as in plain awk). |
 | `df_from_array(arr[, "key,value"])` | A two-column table of the keys and values of an array, sorted by key. |
 
 `df_read` options are `;`-separated: `infer_types=1` (CSV/TSV text becomes int, double or bool
@@ -243,7 +243,11 @@ BEGIN { df_write(df_read("events.jsonl"), "events.parquet") }
   less, and `df_free` tables built in a loop.
 * The tables are shared by the threads of a parallel run (`-p`). Rows that `df_append` adds in the
   main rules come from all the workers, in an unspecified order: `zawk lint -pr` and a `-p` run
-  report it as **W307**. Sort the table in `END`, or run serially (`-p0`). A program that calls
+  report it as **W307**. Sort the table in `END`, or run serially (`-p0`).
+* Without `-H`, `df_append_record` in the main rules of a parallel run cannot take the first record
+  as the header of a table with no columns: the record that comes first is that of the worker first
+  to append, not the first line of the input. The call is then an error (a warning, the record is
+  not added); use `-H`, or declare the columns with `df_new("a,b,...")`. A program that calls
   `df_*` functions in its main rules is never parallelized automatically.
 * A program that does not call a `df_*` function pays nothing: the registry of tables is created on
   first use.

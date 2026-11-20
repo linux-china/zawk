@@ -10,7 +10,9 @@
 //!
 //! The registry is shared by the threads of a parallel run, so rows appended by the workers of
 //! `-p` all go to the table created in BEGIN (in an unspecified order; `zawk --lint -p` reports
-//! it as W307).
+//! it as W307). Without `-H`, `df_append_record` there cannot take the first record as the
+//! header of a table with no columns (it is that of the worker first to append, not the first
+//! line): the call is then an error.
 //!
 //! Errors are those of the other stdlib functions: a warning on stderr (`ERRNO` is set, and
 //! `try ... else` catches it) and an empty result (`""`, `0`).
@@ -437,9 +439,21 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                     .map(io::tsv_field)
                     .collect()
             };
-            Ok(Out::Int(with_mut(arg(args, 0), |df| {
+            // The main rules of a parallel run (`-p`): the workers (this thread included) then
+            // share their compiled regexes, in both backends; BEGIN and END are run outside.
+            let parallel = core.regexes.shared().is_some();
+            Ok(Out::Int(with_mut(arg(args, 0), |df| -> std::result::Result<Int, String> {
                 if df.columns.is_empty() {
                     if header.is_empty() {
+                        // In a parallel run, the first record to come is that of the worker
+                        // first to take the lock, not the first line of the input: a data row
+                        // would become the header, and the header a row.
+                        if parallel {
+                            return Err(
+                                "in parallel mode the table has no columns to take the record: the header cannot be taken from the first record, as the workers append in an unspecified order; use `-H` (the columns are then the names of `FI`), declare the columns with `df_new(\"a,b,...\")`, or run serially (`-p0`)"
+                                    .to_string(),
+                            );
+                        }
                         // Without `-H`, the first record is the header.
                         for (i, f) in fields.iter().enumerate() {
                             let name = f.text_lossy(false);
@@ -453,7 +467,7 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                             let name = df.unique_name(&name);
                             df.add_column(Column::new(name, None));
                         }
-                        return 0;
+                        return Ok(0);
                     }
                     for name in &header {
                         // (`FI` names are unique, but not once their `:TYPE` is cut: `a:int,a`)
@@ -463,8 +477,8 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                     }
                 }
                 df.push_row(fields);
-                df.nrows as Int
-            })?))
+                Ok(df.nrows as Int)
+            })??))
         }
         DfOp::Select => handle(ops::select(&*table(0)?, &arg_text(args, 1), false)?),
         DfOp::Drop => handle(ops::select(&*table(0)?, &arg_text(args, 1), true)?),

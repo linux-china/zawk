@@ -78,7 +78,7 @@ df_free(d)                         # 显式释放（可选，程序结束自动�
 | `df_read(path[, format[, opts]])` | 读文件/URL：csv、tsv、json、jsonl、parquet、avro、xlsx(`book.xlsx#Sheet2`)、markdown、`sqlite://...#table`、`mysql://`、`postgres://`、`http(s)://`、`s3://`、压缩文件；格式默认按扩展名/魔数推断（复用 `main.rs` 的推断逻辑与 `inspect.rs::extension_format`） |
 | `df_new("name,age:int,city")` | 空表 + schema（`:TYPE` 后缀与 `-o parquet/avro` 一致） |
 | `df_append(d, v1, v2, ...)` | 追加一行（主循环里收集：`{ df_append(d, $FI["name"], $FI["age"]) }`） |
-| `df_append_record(d)` | 追加当前记录 `$1..$NF`（列名取自 `FI`/首行） |
+| `df_append_record(d)` | 追加当前记录 `$1..$NF`（列名取自 `FI`/首行；`-p` 主循环中没有 `-H` 且表无列时报错，因为首条到达的记录不一定是首行；多个输入文件时第二个文件的表头作为数据行，与普通 awk 一致） |
 | `df_from_array(arr[, "key,value"])` | AWK 数组 → 两列表（`for (k in arr)` 的典型场景） |
 
 **主循环收集是关键的 AWK 风格用法**：

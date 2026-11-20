@@ -1845,7 +1845,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "df_append_record",
         DATAFRAME,
         "df_append_record(d: str) -> int",
-        "Append the fields $1..$NF of the current record; an empty table first gets the columns of the header (FI), or takes the record as its header without -H. Returns the number of rows.",
+        "Append the fields $1..$NF of the current record; an empty table first gets the columns of the header (FI), or takes the record as its header without -H (an error in the main rules of -p, where the first record to come is not the first line: use -H or df_new("a,b,...")). Returns the number of rows.",
         "d = df_new(); df_append_record(d)",
     ),
     d(

@@ -98,7 +98,7 @@ zawk --lint -f report.awk data.csv     # lint, then run if there is no error
 | W304 | range pattern (`/BEGIN/, /END/`) with `-pr`: each worker keeps its own range state (`--keep-order` runs it serially) |
 | W305 | state carried between records that decides or makes output (`!seen[$1]++`, `$1 != prev`, `{ n++; print n }`): one copy per worker in parallel mode |
 | W306 | a transaction opened or ended in BEGIN/END (`sqlite_execute(db, "BEGIN")`) while the main rules write to the same kind of database: in parallel mode the workers' writes are not part of it |
-| W307 | `df_append`/`df_append_record` in a main rule: in parallel mode the rows of all the workers go to the same DataFrame in an unspecified order (sort it in END, or run with `-p0`) |
+| W307 | `df_append`/`df_append_record` in a main rule: in parallel mode the rows of all the workers go to the same DataFrame in an unspecified order (sort it in END, or run with `-p0`); without `-H`, `df_append_record` cannot take the header from the first record there (use `-H` or `df_new("a,b,...")`) |
 
 ## `zawk fmt`
 

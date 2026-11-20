@@ -639,8 +639,9 @@ struct Facts<'a, 'p> {
     element_reads: Vec<(&'a str, Region)>,
     /// Calls of the SQL functions (`sqlite_execute`, `pg_query`, ...).
     db_calls: Vec<DbCall<'a>>,
-    /// Calls of `df_append`/`df_append_record` in the main rules: where.
-    df_appends: Vec<Option<Loc>>,
+    /// Calls of `df_append`/`df_append_record` in the main rules: whether it is
+    /// `df_append_record`, and where.
+    df_appends: Vec<(bool, Option<Loc>)>,
 }
 
 /// A call of a SQL function: `sqlite_execute(db, "BEGIN")`.
@@ -1171,7 +1172,7 @@ impl<'a, 'p> Facts<'a, 'p> {
                         if matches!(*name, "df_append" | "df_append_record")
                             && self.region == Region::Main
                         {
-                            self.df_appends.push(self.loc(e));
+                            self.df_appends.push((*name == "df_append_record", self.loc(e)));
                         }
                         if *name == "sprintf"
                             && let Some(fmt) = args.first().and_then(|f| literal(f)) {
@@ -1807,7 +1808,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
     }
 
     if let Some(mode) = opts.parallel {
-        diags.extend(check_parallel(&facts, prog, mode, &opts.global_types));
+        diags.extend(check_parallel(&facts, prog, mode, &opts.global_types, opts.header));
     }
     if let Some(data) = &opts.data {
         diags.extend(check_data(&facts, opts, data));
@@ -2110,6 +2111,7 @@ fn check_parallel<'a>(
     prog: &ast::Prog<'a, 'a, &'a str>,
     mode: Parallel,
     global_types: &HashMap<String, compile::Ty>,
+    header: bool,
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     // Record counters count the records of one worker.
@@ -2224,10 +2226,21 @@ fn check_parallel<'a>(
         .collect();
     diags.extend(check_parallel_transactions(&facts.db_calls));
     // Rows appended to a DataFrame in the main rules come from all the workers, interleaved.
-    if let Some(loc) = facts.df_appends.first() {
+    if let Some((_, loc)) = facts.df_appends.first() {
+        // Without `-H`, `df_append_record` takes the first record as the header of a table with
+        // no columns: in a worker, that is the record of the worker first to append, not the
+        // first line, so the call fails at run time unless the columns are declared.
+        let header_note = if !header && facts.df_appends.iter().any(|(record, _)| *record) {
+            "; without `-H`, `df_append_record` cannot take the header from the first record (that of the worker first to append, not the first line: it fails on a table with no columns), so use `-H` or declare the columns with `df_new(\"a,b,...\")`"
+        } else {
+            ""
+        };
         diags.push(warning(
             "W307",
-            "in parallel mode the main rules run in worker threads: the rows that `df_append` adds to a DataFrame come from all the workers, in an unspecified order (not the order of the input); sort the table in END (`df_sort`), or run serially (`-p0`)".to_string(),
+            format!(
+                "in parallel mode the main rules run in worker threads: the rows that `df_append` adds to a DataFrame come from all the workers, in an unspecified order (not the order of the input); sort the table in END (`df_sort`), or run serially (`-p0`){}",
+                header_note
+            ),
             *loc,
         ));
     }
