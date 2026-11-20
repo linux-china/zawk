@@ -787,6 +787,7 @@ pub(crate) fn to_map<'a>(
 
 /// `df_from_array(arr[, "key,value"])`: a table of two columns, the keys and the values of
 /// `arr`, sorted by key (numerically for numeric keys, as `@ind_num_asc`... then as strings).
+/// The two names must differ (`"k,k"` is an error, and the result is `""`).
 pub(crate) fn from_array<'a>(arr: &StrMap<'a, Str<'a>>, names: &Str<'a>) -> Str<'a> {
     let names = names.as_str();
     let names: Vec<String> = names
@@ -796,6 +797,18 @@ pub(crate) fn from_array<'a>(arr: &StrMap<'a, Str<'a>>, names: &Str<'a>) -> Str<
         .collect();
     let key_name = names.first().cloned().unwrap_or_else(|| "key".to_string());
     let val_name = names.get(1).cloned().unwrap_or_else(|| "value".to_string());
+    // (as `df_new("k,k")`: a repeated name would hide the second column from `df_get`,
+    // `df_select`, ...)
+    if key_name == val_name {
+        crate::runtime::stdlib_warning(
+            "df_from_array",
+            format!(
+                "duplicate column \"{}\" (give the key and the value columns different names)",
+                key_name
+            ),
+        );
+        return Str::default();
+    }
     let pairs: Vec<(Value, Value)> = arr.iter(|it| {
         it.map(|(k, v)| (Value::input(bytes_of(k)), Value::input(bytes_of(v))))
             .collect()
@@ -858,5 +871,26 @@ mod tests {
         df.push_row(vec![Value::input("a"), Value::input("b")]);
         assert_eq!(df.names(), ["c2", "c2_1"]);
         assert_eq!(df.unique_name("x"), "x");
+    }
+
+    #[test]
+    fn from_array_names() {
+        let arr: StrMap<Str> = StrMap::default();
+        arr.insert(Str::from("a"), Str::from("1"));
+        let h = from_array(&arr, &Str::from("k,v"));
+        assert_eq!(get(&bytes_of(&h)).unwrap().names(), ["k", "v"]);
+        free(&bytes_of(&h));
+        // the default names; one name: the value column is `value`
+        let h = from_array(&arr, &Str::from(""));
+        assert_eq!(get(&bytes_of(&h)).unwrap().names(), ["key", "value"]);
+        free(&bytes_of(&h));
+        let h = from_array(&arr, &Str::from("k"));
+        assert_eq!(get(&bytes_of(&h)).unwrap().names(), ["k", "value"]);
+        free(&bytes_of(&h));
+        // a repeated name is refused, as `df_new("k,k")` is
+        for names in ["k,k", " k , k ", "value", "key,key"] {
+            let h = from_array(&arr, &Str::from(names));
+            assert!(bytes_of(&h).is_empty(), "{:?}", names);
+        }
     }
 }

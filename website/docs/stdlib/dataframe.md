@@ -52,7 +52,7 @@ df_free(d)                     # optional: tables are released at exit
 | `df_new("name,age:int,city")` | An empty table with these columns; `:TYPE` declares a type, as the header suffixes of `-o parquet` do. |
 | `df_append(d, v1, v2, ...)` | Append a row; returns the row count. |
 | `df_append_record(d)` | Append the fields `$1..$NF` of the current record. An empty table first takes the column names of the header (`FI`, with `-H`), or uses the record as its header without `-H` (so with several input files, the header line of the second file is appended as a row, as in plain awk). |
-| `df_from_array(arr[, "key,value"])` | A two-column table of the keys and values of an array, sorted by key. |
+| `df_from_array(arr[, "key,value"])` | A two-column table of the keys and values of an array, sorted by key (the two names must differ). |
 
 `df_read` options are `;`-separated: `infer_types=1` (CSV/TSV text becomes int, double or bool
 columns where every value fits), `header=0` (no header line: columns `c1`, `c2`, ...), `limit=N`

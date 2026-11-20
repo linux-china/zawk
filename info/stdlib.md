@@ -860,7 +860,7 @@ catches them). See [website/docs/stdlib/dataframe.md](../website/docs/stdlib/dat
 * `df_new("name,age:int,city")`: an empty table (`:TYPE` as for `-o parquet`)
 * `df_append(d, v1, v2, ...)`: append a row, returns the row count
 * `df_append_record(d)`: append `$1..$NF` (columns from the `-H` header)
-* `df_from_array(arr[, "key,value"])`: the keys and values of an array, sorted by key
+* `df_from_array(arr[, "key,value"])`: the keys and values of an array, sorted by key (the two names must differ: `"k,k"` is an error)
 
 ```awk
 BEGIN { d = df_new("city,amount:float") }
