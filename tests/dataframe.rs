@@ -425,13 +425,13 @@ fn write_goes_through_print_output() {
                print "x" > "log.txt"
                df_write(d, "other.csv")
                print "y" > "open.csv"
-               print (df_write(d, "open.csv") == "")
+               print df_write(d, "open.csv") + 0
                print "z" > "open.csv"
                close("open.csv")
                while ((getline line < "open.csv") > 0) print "open:", line
              }"#],
     );
-    assert_eq!(out, "before\nname\nAnn\nname\nAnn\n1\nopen: y\nopen: z\n", "{}", err);
+    assert_eq!(out, "before\nname\nAnn\nname\nAnn\n0\nopen: y\nopen: z\n", "{}", err);
     assert!(err.contains("is open for output"), "{}", err);
     assert!(!path(dir.path(), "-").exists());
     assert_eq!(fs::read_to_string(path(dir.path(), "log.txt")).unwrap(), "x\n");
