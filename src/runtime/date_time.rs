@@ -1059,7 +1059,7 @@ fn try_strptime(text: &str, format: &str, timezone: &str) -> Option<Int> {
                     0,
                 )
                 .ok()?;
-                Some(civil.to_zoned_datetime(tz).ok()?.timestamp().as_second())
+                Some(civil.to_zoned(tz).ok()?.timestamp().as_second())
             }
             None => Some(naive.and_utc().timestamp()),
         },

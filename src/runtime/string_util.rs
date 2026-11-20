@@ -875,7 +875,7 @@ fn grok_regex_error(msg: &str) -> String {
     };
     let reason = match fancy_regex::Regex::new(regex) {
         Err(fancy_regex::Error::ParseError(_, e)) => e.to_string(),
-        Err(fancy_regex::Error::CompileError(e)) => match &*e {
+        Err(fancy_regex::Error::CompileError(e)) => match e {
             fancy_regex::CompileError::InnerError(e) => {
                 // a syntax error of the regex crate is a multi-line diagram ending with `error: <reason>`
                 match e.syntax_error() {
