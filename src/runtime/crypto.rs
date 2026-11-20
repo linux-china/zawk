@@ -122,7 +122,7 @@ fn try_jwt<'a>(
     let bad_key = |e: jsonwebtoken::errors::Error| format!("invalid {} key: {}", algorithm, e);
     let encoding_key = match jwt_algorithm {
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-            EncodingKey::from_secret(key.as_ref())
+            EncodingKey::from_secret(key.as_ref()).map_err(bad_key)?
         }
         Algorithm::ES256 | Algorithm::ES384 => {
             EncodingKey::from_ec_pem(key.as_ref()).map_err(bad_key)?
@@ -303,7 +303,7 @@ fn verify_jwt(key: &str, token: &str) -> Result<BTreeMap<String, Value>, String>
             )
         })?
     } else if HMAC_ALGORITHMS.contains(&header.alg) {
-        DecodingKey::from_secret(key.as_ref())
+        DecodingKey::from_secret(key.as_ref()).map_err(|e| format!("invalid secret: {}", e))?
     } else {
         return Err(format!(
             "algorithm {:?} needs a PEM public key or JWKS URL, not a secret",
