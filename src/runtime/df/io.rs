@@ -3,8 +3,9 @@
 //!
 //! Tables are read with the readers of `zawk inspect` (`inspect::read_rows`: JSON, JSON Lines,
 //! Parquet, Avro, Excel, databases, from files, `http(s)://` and `s3://` URLs, compressed or
-//! not); CSV and TSV are read here, byte for byte, so that text that is not UTF-8 is kept as is
-//! (as `-i csv` keeps it). Tables are written as the TSV stream that the `-o` writers read
+//! not); CSV and TSV (by extension, format or content) are read here, byte for byte and with the
+//! quote rules of `-i csv`, so that text that is not UTF-8 is kept as is and a field reads as
+//! `-i csv -H` splits it. Tables are written as the TSV stream that the `-o` writers read
 //! (`name:TYPE` header, `\N` for a null with `--null`), through those writers: `df_write(d,
 //! "out.parquet")` writes the file `-o parquet` writes for the same rows.
 use std::collections::HashMap;
@@ -175,6 +176,18 @@ impl RowSink for Sink {
     fn add_row(&mut self, cells: Vec<Cell>) {
         self.values(cells.into_iter().map(cell_value).collect())
     }
+    fn read_delimited(
+        &mut self,
+        input: Box<dyn Read + Send>,
+        format: Format,
+        header: bool,
+        max_rows: Option<u64>,
+    ) -> Result<io::Result<bool>, Box<dyn Read + Send>> {
+        // CSV/TSV found by sniffing the content (`df_read("-")`, `df_read("data.txt")`) is read
+        // as a `.csv`/`.tsv` file is.
+        Ok(read_delimited(input, format == Format::Tsv, header, max_rows, self)
+            .map_err(io::Error::other))
+    }
 }
 
 fn trim_eol(line: &[u8]) -> &[u8] {
@@ -217,15 +230,18 @@ pub(super) fn unescape_tsv_bytes(f: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Reads CSV or TSV text byte for byte (as `-i csv -H` / `-i tsv -H` split it).
+/// Reads CSV or TSV text byte for byte, as `-i csv -H` / `-i tsv -H` split it (for CSV, the
+/// lenient quote rules of the splitter: a `"` in a quoted field that is not followed by `,`, a
+/// line end or another `"` is a literal quote). Returns whether reading stopped at `limit`.
 fn read_delimited(
     input: Box<dyn Read + Send>,
     tsv: bool,
     header: bool,
     limit: Option<u64>,
     sink: &mut Sink,
-) -> Res<()> {
+) -> Res<bool> {
     let mut header = header;
+    let mut limited = false;
     let mut row = |fields: Vec<Value>, sink: &mut Sink| -> bool {
         if header {
             header = false;
@@ -233,6 +249,7 @@ fn read_delimited(
             return true;
         }
         if sink.full(limit) {
+            limited = true;
             return false;
         }
         sink.values(fields);
@@ -248,7 +265,7 @@ fn read_delimited(
             }
             let line = trim_eol(&line);
             if line.is_empty() {
-                // a blank line is no record, as for CSV (a trailing empty line)
+                // a blank line is no record, as for CSV
                 continue;
             }
             let fields = line
@@ -260,21 +277,13 @@ fn read_delimited(
             }
         }
     } else {
-        let mut reader = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .flexible(true)
-            .from_reader(input);
-        let mut record = csv::ByteRecord::new();
-        while reader
-            .read_byte_record(&mut record)
-            .map_err(|e| e.to_string())?
-        {
-            if !row(record.iter().map(Value::input).collect(), sink) {
-                break;
-            }
-        }
+        crate::runtime::splitter::batch::read_csv_records(input, |fields| {
+            // a blank line is no record
+            fields.is_empty() || row(fields.into_iter().map(Value::input).collect(), sink)
+        })
+        .map_err(|e| e.to_string())?;
     }
-    Ok(())
+    Ok(limited)
 }
 
 /// `df_read(path[, format[, options]])`.
@@ -775,6 +784,32 @@ mod tests {
         let path = tmp("dup.csv", b"a,a\n1,2\n");
         let df = read(&path, "", "").unwrap();
         assert_eq!(df.names(), ["a", "a_1"]);
+    }
+
+    #[test]
+    fn read_csv_lenient_quotes() {
+        // A `"` inside a quoted field that is not followed by `,`, a line end or `"` is a
+        // literal quote, as `-i csv` reads it.
+        let csv = b"a,b\n\"a\"b,c\n\"say \"hi\" now\",x\n\"multi\nline\",\"q\"\"q\"\r\n\n\"\xff\",z";
+        let check = |df: &DataFrame| {
+            assert_eq!(df.names(), ["a", "b"]);
+            assert_eq!(df.nrows, 4);
+            let a: Vec<Vec<u8>> = (0..4).map(|r| df.columns[0].get(r).text(false).into_owned()).collect();
+            let b: Vec<Vec<u8>> = (0..4).map(|r| df.columns[1].get(r).text(false).into_owned()).collect();
+            assert_eq!(a, [&b"a\"b"[..], b"say \"hi\" now", b"multi\nline", b"\xff"]);
+            assert_eq!(b, [&b"c"[..], b"x", b"q\"q", b"z"]);
+        };
+        check(&read(&tmp("lenient.csv", csv), "", "").unwrap());
+        check(&read(&tmp("lenient.csv", csv), "csv", "").unwrap());
+        // No known extension: the content is sniffed as CSV and read the same way.
+        check(&read(&tmp("lenient.txt", csv), "", "").unwrap());
+        let df = read(&tmp("lenient.txt", csv), "", "limit=1").unwrap();
+        assert_eq!(df.nrows, 1);
+        // Sniffed TSV: escapes unescaped, bytes kept.
+        let df = read(&tmp("sniff.txt", b"a\tb\nx\\ty\t\xff\n"), "", "").unwrap();
+        assert_eq!(df.names(), ["a", "b"]);
+        assert_eq!(&*df.columns[0].get(0).text(false), b"x\ty");
+        assert_eq!(&*df.columns[1].get(0).text(false), b"\xff");
     }
 
     #[test]

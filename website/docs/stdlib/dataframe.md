@@ -58,6 +58,11 @@ df_free(d)                     # optional: tables are released at exit
 columns where every value fits), `header=0` (no header line: columns `c1`, `c2`, ...), `limit=N`
 (read N rows), `columns=a,b` (keep these columns).
 
+CSV and TSV (by extension, by the format argument, or sniffed from the content of `-` or a file
+without a known extension) are split as `-i csv -H` / `-i tsv -H` split them: bytes that are not
+UTF-8 are kept, and in a quoted CSV field a `"` that is not followed by `,`, a line end or another
+`"` is a literal quote (`"a"b,c` reads `a"b`).
+
 ```awk
 d = df_read("logs.parquet")
 d = df_read("book.xlsx#Sheet2")

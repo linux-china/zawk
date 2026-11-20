@@ -558,6 +558,14 @@ impl<'a> super::Line<'a> for Line {
 /// parity) ends the record; a record that holds such a newline can only come from an assignment
 /// to `$0`, and here the newline stays in the field.
 fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
+    split_record_bytes(bs, ifmt)
+        .iter()
+        .map(|f| Buf::read_from_bytes(f).into_str())
+        .collect()
+}
+
+/// [split_record], with the fields as bytes.
+pub(crate) fn split_record_bytes(bs: &[u8], ifmt: InputFormat) -> Vec<Vec<u8>> {
     let bs = match bs {
         [rest @ .., b'\r', b'\n'] | [rest @ .., b'\n'] => rest,
         _ => bs,
@@ -576,7 +584,7 @@ fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
         i += 1;
         match (ifmt, b) {
             _ if b == sep => {
-                fields.push(Buf::read_from_bytes(&mem::take(&mut cur)).into_str());
+                fields.push(mem::take(&mut cur));
                 field_start = true;
                 continue;
             }
@@ -635,8 +643,54 @@ fn split_record(bs: &[u8], ifmt: InputFormat) -> Vec<Str<'static>> {
         }
         field_start = false;
     }
-    fields.push(Buf::read_from_bytes(&cur).into_str());
+    fields.push(cur);
     fields
+}
+
+/// Reads the CSV records of `input` as `-i csv` reads them: the record boundaries of
+/// [csv_lenient_scan], the fields of [split_record]. Calls `each` with the fields of each
+/// record (none for a blank line); stops when it returns `false`.
+pub(crate) fn read_csv_records(
+    mut input: impl Read,
+    mut each: impl FnMut(Vec<Vec<u8>>) -> bool,
+) -> std::io::Result<()> {
+    const CHUNK: usize = 64 << 10;
+    let mut buf = Vec::new();
+    let mut start = 0;
+    let mut eof = false;
+    let mut offsets = Vec::new();
+    loop {
+        if start < buf.len() {
+            offsets.clear();
+            // Stops after the first record end at or after `start + 1`.
+            let end = csv_lenient_scan(&buf, &mut offsets, start, start + 1);
+            // A record ends at a newline the scan reports as a separator; a newline inside
+            // quotes is not reported, so the scan may also stop at the end of the buffer
+            // inside a record that the next bytes complete.
+            let complete =
+                end > start && buf[end - 1] == b'\n' && offsets.last() == Some(&((end - 1) as u32));
+            if complete || eof {
+                let end = if complete { end } else { buf.len() };
+                let fields = split_record_bytes(&buf[start..end], InputFormat::CSV);
+                start = end;
+                if !each(fields) {
+                    return Ok(());
+                }
+                continue;
+            }
+        } else if eof {
+            return Ok(());
+        }
+        buf.drain(..start);
+        start = 0;
+        // Read at least as much as is buffered, so that a long record is rescanned only
+        // a logarithmic number of times.
+        let want = CHUNK.max(buf.len());
+        let n = (&mut input).take(want as u64).read_to_end(&mut buf)?;
+        if n == 0 {
+            eof = true;
+        }
+    }
 }
 
 impl Line {
@@ -4351,6 +4405,48 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         if is_x86_feature_detected!("ssse3") && is_x86_feature_detected!("pclmulqdq") {
             resumed_scan_matches_full_scan::<sse2::Impl<true>>();
         }
+    }
+
+    #[test]
+    fn read_csv_records_lenient() {
+        let read = |input: &[u8]| {
+            let mut out = Vec::new();
+            read_csv_records(input, |fields| {
+                out.push(fields);
+                true
+            })
+            .unwrap();
+            out
+        };
+        let v = |fs: &[&[u8]]| fs.iter().map(|f| f.to_vec()).collect::<Vec<_>>();
+        assert_eq!(
+            read(b"\"a\"b,c\n\"say \"hi\" now\",x\r\n\n\"m\nl\",\"\"\"\"\n\"open"),
+            [
+                v(&[b"a\"b", b"c"]),
+                v(&[b"say \"hi\" now", b"x"]),
+                v(&[]),
+                v(&[b"m\nl", b"\""]),
+                v(&[b"open"]),
+            ]
+        );
+        // After a literal quote, a newline outside quotes by parity ends the record.
+        assert_eq!(read(b"\"a\"b\nc,d\n"), [v(&[b"a\"b"]), v(&[b"c", b"d"])]);
+        // A quoted field longer than a read chunk.
+        let long = vec![b'x'; 200 << 10];
+        let mut input = b"\"".to_vec();
+        input.extend_from_slice(&long);
+        input.extend_from_slice(b"\n\",y\nz\n");
+        let mut want = long.clone();
+        want.push(b'\n');
+        assert_eq!(read(&input), [vec![want, b"y".to_vec()], v(&[b"z"])]);
+        // Stops when asked to.
+        let mut n = 0;
+        read_csv_records(&b"a\nb\nc\n"[..], |_| {
+            n += 1;
+            n < 2
+        })
+        .unwrap();
+        assert_eq!(n, 2);
     }
 
     /// The SIMD CSV scan, which only redoes the records around irregular quotes byte by byte,

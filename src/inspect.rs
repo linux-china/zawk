@@ -378,6 +378,17 @@ pub(crate) trait RowSink {
     fn non_object(&mut self) {}
     /// For a workbook: the sheet read, and the names of all its sheets.
     fn set_sheet(&mut self, _name: String, _sheets: Vec<String>) {}
+    /// Reads CSV or TSV text with the sink's own reader; returns whether reading stopped at
+    /// `max_rows`. The default hands `input` back, to be read by the reader here.
+    fn read_delimited(
+        &mut self,
+        input: Box<dyn Read + Send>,
+        _format: Format,
+        _header: bool,
+        _max_rows: Option<u64>,
+    ) -> Result<io::Result<bool>, Box<dyn Read + Send>> {
+        Err(input)
+    }
 }
 
 impl RowSink for Inspector {
@@ -728,6 +739,15 @@ fn read_text<S: RowSink>(
     opts: &Options,
     ins: &mut S,
 ) -> io::Result<bool> {
+    let input = match format {
+        Format::Csv | Format::Tsv => {
+            match ins.read_delimited(input, format, opts.header, opts.max_rows) {
+                Ok(limited) => return limited,
+                Err(input) => input,
+            }
+        }
+        _ => input,
+    };
     let lossy = |bs: &[u8]| String::from_utf8_lossy(bs).into_owned();
     match format {
         Format::Csv => {
