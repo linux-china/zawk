@@ -4221,12 +4221,10 @@ dependencies = [
  "arcstr",
  "combine",
  "itoa",
- "num-bigint 0.5.1",
  "percent-encoding",
  "rustls",
  "rustls-native-certs",
  "ryu",
- "sha1_smol",
  "socket2",
  "url",
  "xxhash-rust",
@@ -4979,12 +4977,6 @@ dependencies = [
  "cpufeatures 0.3.1",
  "digest 0.11.3",
 ]
-
-[[package]]
-name = "sha1_smol"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -6480,7 +6472,7 @@ dependencies = [
  "assert_cmd",
  "async-nats",
  "base58",
- "base64 0.22.1",
+ "base64 0.23.1",
  "base85",
  "bcrypt",
  "blake3",
