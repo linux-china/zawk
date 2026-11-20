@@ -17,7 +17,7 @@ build = "build.rs"
 
 [dependencies]
 log = "0.4"
-env_logger = "0.11"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 anyhow = "1.0"
 petgraph = "0.8"
 smallvec = "1.16"
@@ -61,16 +61,16 @@ fend-core = "1.5"
 rust_decimal = { version = "1.43", default-features = false, features = ["std"] }
 evalexpr = "13.1"
 chrono = "0.4"
-jiff = "1.0.1"
+jiff = "=0.2"
 chrono-systemd-time = "0.4.0"
 dateparser = "0.3"
 base58 = "0.2"
-base64 = "0.23"
+base64 = "=0.22"
 base85 = "2"
 data-encoding = "2.11"
 urlencoding = "2.1"
 flate2 = "1.1"
-zstd = "0.14"
+zstd = { version = "0.14", default-features = false }
 lz4_flex = "0.14"
 bzip2 = "0.6"
 liblzma = { version = "0.4", default-features = false, features = ["static"] }
@@ -81,7 +81,7 @@ md5 = "0.8"
 crc = "3.4"
 adler = "1"
 hmac = "0.13.0"
-lru = "0.19"
+lru = "=0.18"
 jsonwebtoken = { version = "12.0.0", features = ["use_pem", "rust_crypto"] }
 bcrypt = "0.19"
 cbc = "0.2"
@@ -103,9 +103,9 @@ encoding_rs = "0.8"
 mime = "0.3"
 # gzip/deflate/brotli/zstd: responses are decompressed transparently (also when a script sets
 # Accept-Encoding itself), so compressed bytes are never read as text
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "charset", "rustls-no-provider", "gzip", "deflate", "brotli", "zstd"] }
-async-nats = { version = "0.53", default-features = false, features = ["ring", "kv", "nkeys", "nuid"] }
-confluent-kafka = { version = "1.0",default-features = false, features = ["lz4", "gzip", "snappy", "zstd"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "charset", "rustls-no-provider", "gzip", "deflate", "zstd"] }
+async-nats = { version = "0.53", default-features = false, features = ["ring", "kv", "nuid"] }
+confluent-kafka = { version = "1.0", default-features = false, features = ["lz4", "gzip", "snappy", "zstd"] }
 redis = { version = "1.8", features = ["tls-rustls"] }
 opendal = { version = "0.59", default-features = false, features = ["services-s3", "executors-tokio", "layers-retry", "layers-timeout"] }
 # the reqwest transport of opendal without its aws-lc-rs provider: rustls uses ring, as the other dependencies do
@@ -156,9 +156,10 @@ tokio-postgres-rustls = "0.14.0"
 strsim = "0.11"
 calamine = "0.38.0"
 rust_xlsxwriter = "0.103"
-textwrap= { version = "0.16.4"}
+textwrap = { version = "0.16.4" }
 grok = { version = "2.4.1", default-features = false, features = ["fancy-regex"] }
-fancy-regex = "0.20"
+# explicit version of fancy-regex used by grok
+fancy-regex = "=0.14"
 
 [target.'cfg(target_family = "unix")'.dependencies]
 tikv-jemallocator = { version = "0.7" }
@@ -204,39 +205,64 @@ strip = true
 lto = true
 opt-level = 3
 codegen-units = 1
+debug = false
+incremental = false
 
-[profile.release.package]
-parquet = { opt-level = "s" }
-apache-avro = { opt-level = "s" }
-calamine = { opt-level = "s" }
-async-nats = { opt-level = "s" }
-rumqttc = { opt-level = "s" }
-redis = { opt-level = "s" }
-mysql = { opt-level = "s" }
-mysql_common = { opt-level = "s" }
-tokio-postgres = { opt-level = "s" }
-postgres-protocol = { opt-level = "s" }
-opendal-core = { opt-level = "s" }
-opendal-service-s3 = { opt-level = "s" }
-reqsign-core = { opt-level = "s" }
-reqsign-aws-core = { opt-level = "s" }
-reqsign-aws-v4 = { opt-level = "s" }
-quick-xml = { opt-level = "s" }
-lettre = { opt-level = "s" }
-jsonwebtoken = { opt-level = "s" }
-rsa = { opt-level = "s" }
-fend-core = { opt-level = "s" }
-evalexpr = { opt-level = "s" }
-fake = { opt-level = "s" }
-sxd-document = { opt-level = "s" }
-sxd-xpath = { opt-level = "s" }
-tl = { opt-level = "s" }
-pulldown-cmark = { opt-level = "s" }
-notify-rust = { opt-level = "s" }
-figlet-rs = { opt-level = "s" }
-clap_builder = { opt-level = "s" }
-# cc 会读取 cargo 的 OPT_LEVEL，所以 bundled SQLite 的 C 代码也会用 -Os 编译
-libsqlite3-sys = { opt-level = "s" }
+[profile.release.package."*"]
+opt-level = "s"
+
+[profile.release.package.regex]
+opt-level = 3
+[profile.release.package.regex-automata]
+opt-level = 3
+[profile.release.package.regex-syntax]
+opt-level = 3
+[profile.release.package.aho-corasick]
+opt-level = 3
+[profile.release.package.memchr]
+opt-level = 3
+[profile.release.package.simdutf8]
+opt-level = 3
+[profile.release.package.bstr]
+opt-level = 3
+[profile.release.package.hashbrown]
+opt-level = 3
+[profile.release.package.foldhash]
+opt-level = 3
+[profile.release.package.xxhash-rust]
+opt-level = 3
+[profile.release.package.ryu]
+opt-level = 3
+[profile.release.package.itoa]
+opt-level = 3
+[profile.release.package.fast-float2]
+opt-level = 3
+[profile.release.package.crossbeam-channel]
+opt-level = 3
+[profile.release.package.crossbeam-utils]
+opt-level = 3
+[profile.release.package.smallvec]
+opt-level = 3
+[profile.release.package.bumpalo]
+opt-level = 3
+[profile.release.package.tikv-jemalloc-sys]
+opt-level = 3
+[profile.release.package.cranelift-codegen]
+opt-level = 3
+[profile.release.package.cranelift-frontend]
+opt-level = 3
+[profile.release.package.regalloc2]
+opt-level = 3
+[profile.release.package.csv]
+opt-level = 3
+[profile.release.package.csv-core]
+opt-level = 3
+[profile.release.package.zlib-rs]
+opt-level = 3
+[profile.release.package.miniz_oxide]
+opt-level = 3
+[profile.release.package.lz4_flex]
+opt-level = 3
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
