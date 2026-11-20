@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use super::DataFrame;
 use super::column::{Column, Value, awk_cmp};
 use super::expr::{EvalCtx, Expr, Parser, Res, Tok};
-use super::ops::{RowKey, parse_names, row_key};
+use super::ops::{RowKey, cmp_sort, parse_names, row_key, sort_key};
 use crate::runtime::Float;
 use crate::runtime::array_stats::{
     STAT_MAX, STAT_MEAN, STAT_MIN, STAT_MODE, STAT_QUANTILE, STAT_STDDEV, STAT_SUM, STAT_VAR,
@@ -264,8 +264,11 @@ pub(super) fn apply(agg: &Agg, df: &DataFrame, rows: &[usize], ctx: &mut EvalCtx
 }
 
 /// The most frequent of `values` (not all numbers, such as a city column): values are the same
-/// when they are the same number or, for text, the same bytes; on a tie, the smallest as awk
-/// compares (as `_mode` takes the smallest number). The value returned is the first occurrence.
+/// when they are the same number or, for text, the same bytes; on a tie, the smallest in the
+/// default order of `df_sort` (numbers, and strnums that look like numbers, before the other text;
+/// as `_mode` takes the smallest number). That is a total order, unlike `awk_cmp`
+/// (`"10" < "2a" < "9" < "10"`), so a tie does not depend on the order of the `HashMap`. The
+/// value returned is the first occurrence.
 fn text_mode<'a>(values: impl Iterator<Item = &'a Value>) -> Value {
     let mut counts: HashMap<Vec<u8>, (usize, &'a Value)> = HashMap::new();
     for v in values {
@@ -280,7 +283,8 @@ fn text_mode<'a>(values: impl Iterator<Item = &'a Value>) -> Value {
         .into_values()
         .reduce(|a, b| {
             let better = b.0 > a.0
-                || (b.0 == a.0 && awk_cmp(b.1, a.1) == std::cmp::Ordering::Less);
+                || (b.0 == a.0
+                    && cmp_sort(&sort_key(b.1), &sort_key(a.1)) == std::cmp::Ordering::Less);
             if better { b } else { a }
         })
         .map(|(_, v)| v.clone())
@@ -455,5 +459,19 @@ mod tests {
         // numbers as `_mode`: 1 and 1.0 are one value, the smallest on a tie (1 < 3);
         // mixed with text, `1` and `x` tie and 1 sorts first
         assert_eq!(texts(&g, "mode_n"), ["1", "1"]);
+
+        // a tie over values `awk_cmp` does not order (`"10" < "2a" < "9" < "10"`): numbers sort
+        // before text, so 9 whatever the order of the rows (and of the `HashMap`)
+        let vals = ["10", "9", "2a"];
+        for perm in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            for _ in 0..8 {
+                let mut df = new("k,v").unwrap();
+                for &i in &perm {
+                    df.push_row(vec![Value::input("a"), Value::input(vals[i])]);
+                }
+                let g = group(&df, "k", "mode(v)").unwrap();
+                assert_eq!(texts(&g, "mode_v"), ["9"], "rows in the order {perm:?}");
+            }
+        }
     }
 }
