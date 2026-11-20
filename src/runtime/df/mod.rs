@@ -608,7 +608,33 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
         }
         DfOp::Write => {
             let df = table(0)?;
-            io::write(&df, &arg_text(args, 1), &arg_text(args, 2))?;
+            let path = arg_text(args, 1);
+            let bytes = io::write_bytes(&df, &path, &arg_text(args, 2))?;
+            let name = Str::from(path.clone());
+            let out = &mut core.write_files;
+            if path == "/dev/stderr" || crate::runtime::writers::is_stdout(&name) {
+                // `-`, `/dev/stdout` and `/dev/stderr` are the ones of `print`: the table comes
+                // after the output printed before it.
+                let stdout_format = output_format();
+                if path != "/dev/stderr" && !matches!(stdout_format, "" | "csv" | "tsv") {
+                    return Err(Fail::Warn(format!(
+                        "cannot write to stdout with -o {} (its writer reads stdout as TSV): use df_print",
+                        stdout_format
+                    )));
+                }
+                out.write_printf(Some((&name, crate::common::FileSpec::Append)), &bytes)
+                    .map_err(Fail::Output)?;
+                return Ok(Out::Int(df.nrows as Int));
+            }
+            if out.is_file_open(&name) {
+                return Err(Fail::Warn(format!(
+                    "cannot write `{}': it is open for output (print > \"{}\"): close() it first",
+                    path, path
+                )));
+            }
+            // As before `system`: output printed earlier reaches its files and pipes first.
+            out.flush_all().map_err(Fail::Output)?;
+            io::write_path(&path, bytes)?;
             Ok(Out::Int(df.nrows as Int))
         }
         DfOp::Free => Ok(Out::Int(free(arg(args, 0)) as Int)),

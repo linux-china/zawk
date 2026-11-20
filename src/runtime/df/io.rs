@@ -578,9 +578,9 @@ fn format_of_path(path: &str) -> &'static str {
     }
 }
 
-/// `df_write(d, path[, format])`: writes the table to a file (gzip-compressed for a `.gz` path)
-/// or an `s3://` object.
-pub(crate) fn write(df: &DataFrame, path: &str, format: &str) -> Res<()> {
+/// What `df_write(d, path[, format])` writes to `path`: the table in `format` (by default the
+/// one of the extension of `path`), gzip-compressed for a `.gz` path.
+pub(crate) fn write_bytes(df: &DataFrame, path: &str, format: &str) -> Res<Vec<u8>> {
     if path.is_empty() {
         return Err("no output path given".to_string());
     }
@@ -604,6 +604,12 @@ pub(crate) fn write(df: &DataFrame, path: &str, format: &str) -> Res<()> {
             path
         ));
     }
+    Ok(bytes)
+}
+
+/// Writes the output of `df_write` to a file or an `s3://` object (not to `-`, `/dev/stdout` or
+/// `/dev/stderr`, which the caller writes through the output of `print`), replacing it.
+pub(crate) fn write_path(path: &str, bytes: Vec<u8>) -> Res<()> {
     if crate::runtime::s3::is_s3_url(path) {
         let (bucket, key) = crate::runtime::s3::parse_s3_url(path)?;
         crate::runtime::s3::put_object_bytes(bucket, key, bytes)
@@ -806,7 +812,7 @@ mod tests {
         assert!(render(&df, "nope").is_err());
         // write and read back
         let out = tmp("back.parquet", b"");
-        write(&df, &out, "").unwrap();
+        write_path(&out, write_bytes(&df, &out, "").unwrap()).unwrap();
         let back = read(&out, "", "").unwrap();
         assert_eq!(back.names(), ["name", "n"]);
         assert_eq!(back.nrows, 2);

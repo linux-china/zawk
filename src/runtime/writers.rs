@@ -2229,6 +2229,13 @@ impl Registry {
         name.with_bytes(|bs| self.global.flush(bs))
     }
 
+    /// Whether this thread has the file `name` open for output (`print > name` not yet closed).
+    pub fn is_file_open(&self, name: &Str) -> bool {
+        self.files
+            .get(&name.clone().unmoor())
+            .is_some_and(|fh| fh.raw.is_open())
+    }
+
     /// Flush all output files, commands and stdout (e.g. before `system`).
     pub fn flush_all(&mut self) -> Result<()> {
         for fh in self.files.values_mut().chain(self.cmds.values_mut()) {

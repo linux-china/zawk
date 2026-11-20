@@ -1099,6 +1099,10 @@ impl FileWrite {
     pub(crate) fn flush_all(&mut self) -> Result<()> {
         self.0.flush_all()
     }
+    /// Whether the file `name` is open for output (`print > name` not yet closed).
+    pub(crate) fn is_file_open(&self, name: &Str) -> bool {
+        self.0.is_file_open(name)
+    }
     /// awk's `fflush(name)`: 0 on success, -1 (with a warning, as in gawk, and `ERRNO` set like
     /// `close`) if `name` is not open for output.
     pub(crate) fn fflush(&mut self, name: &Str) -> Result<Int> {
