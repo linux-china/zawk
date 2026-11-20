@@ -51,7 +51,8 @@ BEGIN {
 
 Numbers in a program can be written in decimal (`42`, `4.2e1`), hexadecimal (`0x2A`), octal (`0o52`) or binary
 (`0b101010`). Prefixes may be upper case and `_` may group digits: `0b1010_1010`, `1_000_000`. A literal is an
-integer when it is exact as a double (up to 2^53), a float otherwise.
+integer when it is exact as a double (up to 2^53), a float otherwise. Hexadecimal, octal and binary literals have
+no fraction: `0o7.5` and `0x1.8` are syntax errors, not `0o7` concatenated with `.5`.
 
 ```awk
 BEGIN { print 0x2A, 0o52, 0b101010, 1_000_000 }   # 42 42 42 1000000

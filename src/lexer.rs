@@ -688,16 +688,30 @@ fn is_raw_string_start(rest: &[u8]) -> bool {
 }
 
 /// The error for an octal or binary literal directly followed by more digits or name
-/// characters, such as `0b102` or `0o78`: without it they would silently lex as the literal
-/// concatenated with a number or a variable (`0b10` `2`).
+/// characters, such as `0b102` or `0o78`, and for a hex, octal or binary literal directly
+/// followed by a fraction, such as `0o7.5` or `0x1.8`: without it they would silently lex as
+/// the literal concatenated with a number or a variable (`0b10` `2`, `0o7` `.5` is `"70.5"`).
 fn bad_radix_literal(tok: &Tok, rest: &str) -> Option<String> {
     let Tok::HexLit(lit) = tok else { return None };
     let body = lit.trim_start_matches(['+', '-']);
     let kind = match body.as_bytes().get(1) {
         Some(b'o' | b'O') => "octal",
         Some(b'b' | b'B') => "binary",
-        _ => return None,
+        _ => "hexadecimal",
     };
+    if let Some(frac) = rest.strip_prefix('.') {
+        let digits = frac.bytes().take_while(u8::is_ascii_digit).count();
+        // `0b1..5` in a range header is `..`, not a fraction.
+        if digits > 0 {
+            return Some(format!(
+                "{kind} literals have no fraction: `{lit}.{}`",
+                &frac[..digits]
+            ));
+        }
+    }
+    if kind == "hexadecimal" {
+        return None;
+    }
     let next = rest.chars().next().filter(|c| c.is_ascii_alphanumeric() || *c == '_')?;
     Some(format!("invalid digit {next:?} in {kind} literal `{lit}{next}`"))
 }
@@ -1545,11 +1559,18 @@ and the third"#;
             toks("for (i in 0b1..0o11)")[4..7],
             [Tok::HexLit("0b1"), Tok::DotDot, Tok::HexLit("0o11")]
         );
+        assert_eq!(
+            toks("for (i in 0x1..9)")[4..7],
+            [Tok::HexLit("0x1"), Tok::DotDot, Tok::ILit("9")]
+        );
         for (text, desc) in [
             ("x = 0b102", "invalid digit '2' in binary literal `0b102`"),
             ("x = 0o78", "invalid digit '8' in octal literal `0o78`"),
             ("x = 0b1z", "invalid digit 'z' in binary literal `0b1z`"),
             ("x = 0o7_", "invalid digit '_' in octal literal `0o7_`"),
+            ("x = 0o7.5", "octal literals have no fraction: `0o7.5`"),
+            ("x = 0b1.1", "binary literals have no fraction: `0b1.1`"),
+            ("x = 0x1.8", "hexadecimal literals have no fraction: `0x1.8`"),
         ] {
             let err = Tokenizer::new(text)
                 .find_map(Result::err)
