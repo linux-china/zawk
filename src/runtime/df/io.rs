@@ -230,6 +230,23 @@ pub(super) fn unescape_tsv_bytes(f: &[u8]) -> Vec<u8> {
     out
 }
 
+/// `input` without a leading UTF-8 BOM. Reads up to the first 3 bytes, however short the reads.
+fn strip_utf8_bom(mut input: Box<dyn Read + Send>) -> io::Result<impl Read + Send> {
+    use crate::runtime::splitter::UTF8_BOM;
+    let mut head = [0u8; 3];
+    let mut n = 0;
+    while n < head.len() {
+        match input.read(&mut head[n..]) {
+            Ok(0) => break,
+            Ok(k) => n += k,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let head = if head[..n] == *UTF8_BOM { &head[..0] } else { &head[..n] };
+    Ok(io::Cursor::new(head.to_vec()).chain(input))
+}
+
 /// Reads CSV or TSV text byte for byte, as `-i csv -H` / `-i tsv -H` split it (for CSV, the
 /// lenient quote rules of the splitter: a `"` in a quoted field that is not followed by `,`, a
 /// line end or another `"` is a literal quote). Returns whether reading stopped at `limit`.
@@ -240,6 +257,9 @@ fn read_delimited(
     limit: Option<u64>,
     sink: &mut Sink,
 ) -> Res<bool> {
+    // A UTF-8 BOM at the start is no part of the first field, as `-i csv`/`-i tsv` drop it:
+    // left in, it keeps a `"` after it from opening quotes.
+    let input = strip_utf8_bom(input).map_err(|e| e.to_string())?;
     let mut header = header;
     let mut limited = false;
     let mut row = |fields: Vec<Value>, sink: &mut Sink| -> bool {
@@ -813,6 +833,31 @@ mod tests {
         assert_eq!(df.names(), ["a", "b"]);
         assert_eq!(&*df.columns[0].get(0).text(false), b"x\ty");
         assert_eq!(&*df.columns[1].get(0).text(false), b"\xff");
+    }
+
+    #[test]
+    fn read_csv_utf8_bom() {
+        // A BOM before a quoted first field (Excel "CSV UTF-8"): the quotes still open, so the
+        // `,` inside them splits nothing, as `-i csv -H` reads it.
+        let csv = b"\xef\xbb\xbf\"id,x\",\"name\"\n1,Ann\n";
+        for (file, format) in [("bom.csv", ""), ("bom.csv", "csv"), ("bom.txt", "")] {
+            let df = read(&tmp(file, csv), format, "").unwrap();
+            assert_eq!(df.names(), ["id,x", "name"], "{} {:?}", file, format);
+            assert_eq!(df.nrows, 1);
+        }
+        let df = read(&tmp("bom1.csv", b"\xef\xbb\xbf\"name\",age\nAnn,3\n"), "", "").unwrap();
+        assert_eq!(df.names(), ["name", "age"]);
+        // `header=0`: the first cell has no BOM.
+        let df = read(&tmp("bom2.csv", b"\xef\xbb\xbf\"a,b\",c\n"), "", "header=0").unwrap();
+        assert_eq!(df.names(), ["c1", "c2"]);
+        assert_eq!(&*df.columns[0].get(0).text(false), b"a,b");
+        // TSV, and inputs no longer than a BOM.
+        let df = read(&tmp("bom.tsv", b"\xef\xbb\xbfa\tb\n1\t2\n"), "", "").unwrap();
+        assert_eq!(df.names(), ["a", "b"]);
+        let df = read(&tmp("bom3.csv", b"\xef\xbb\xbf"), "", "").unwrap();
+        assert_eq!(df.nrows, 0);
+        let df = read(&tmp("bom4.csv", b"a"), "", "").unwrap();
+        assert_eq!(df.names(), ["a"]);
     }
 
     #[test]
