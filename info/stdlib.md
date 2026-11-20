@@ -856,7 +856,7 @@ catches them). See [website/docs/stdlib/dataframe.md](../website/docs/stdlib/dat
 
 ### Build: df_read/df_new/df_append/df_append_record/df_from_array
 
-* `df_read(path[, format[, options]])`: csv, tsv, json, jsonl, parquet, avro, xlsx (`book.xlsx#Sheet2`), markdown, `sqlite://db#table`, `mysql://`, `postgres://`, http(s), s3, compressed files; options `infer_types=1;header=0;limit=N;columns=a,b`. CSV/TSV values stay strnum text unless `infer_types=1`. CSV/TSV (also when sniffed from the content) are split as `-i csv -H` / `-i tsv -H` split them (lenient quotes: `"a"b,c` reads `a"b`; non-UTF-8 bytes kept).
+* `df_read(path[, format[, options]])`: csv, tsv, json, jsonl, parquet, avro, xlsx (`book.xlsx#Sheet2`), markdown, `sqlite://db#table`, `mysql://`, `postgres://`, http(s), s3, compressed files; options `infer_types=1;header=0;limit=N;columns=a,b`. CSV/TSV values stay strnum text unless `infer_types=1`. CSV/TSV (also when sniffed from the content) are split as `-i csv -H` / `-i tsv -H` split them (lenient quotes: `"say "hi" now",x` reads `say "hi" now` and `x`; non-UTF-8 bytes kept).
 * `df_new("name,age:int,city")`: an empty table (`:TYPE` as for `-o parquet`)
 * `df_append(d, v1, v2, ...)`: append a row, returns the row count
 * `df_append_record(d)`: append `$1..$NF` (columns from the `-H` header)

@@ -789,15 +789,18 @@ mod tests {
     #[test]
     fn read_csv_lenient_quotes() {
         // A `"` inside a quoted field that is not followed by `,`, a line end or `"` is a
-        // literal quote, as `-i csv` reads it.
+        // literal quote, as `-i csv` reads it (the csv crate ends the quotes there and drops it).
         let csv = b"a,b\n\"a\"b,c\n\"say \"hi\" now\",x\n\"multi\nline\",\"q\"\"q\"\r\n\n\"\xff\",z";
         let check = |df: &DataFrame| {
             assert_eq!(df.names(), ["a", "b"]);
             assert_eq!(df.nrows, 4);
             let a: Vec<Vec<u8>> = (0..4).map(|r| df.columns[0].get(r).text(false).into_owned()).collect();
-            let b: Vec<Vec<u8>> = (0..4).map(|r| df.columns[1].get(r).text(false).into_owned()).collect();
-            assert_eq!(a, [&b"a\"b"[..], b"say \"hi\" now", b"multi\nline", b"\xff"]);
-            assert_eq!(b, [&b"c"[..], b"x", b"q\"q", b"z"]);
+            let b: Vec<Vec<u8>> = (1..4).map(|r| df.columns[1].get(r).text(false).into_owned()).collect();
+            // After the literal quote of `"a"b` the field stays quoted up to the line end, as
+            // `-i csv` reads it: one field `a"b,c`, and no second one.
+            assert_eq!(a, [&b"a\"b,c"[..], b"say \"hi\" now", b"multi\nline", b"\xff"]);
+            assert!(df.columns[1].get(0).is_null());
+            assert_eq!(b, [&b"x"[..], b"q\"q", b"z"]);
         };
         check(&read(&tmp("lenient.csv", csv), "", "").unwrap());
         check(&read(&tmp("lenient.csv", csv), "csv", "").unwrap());

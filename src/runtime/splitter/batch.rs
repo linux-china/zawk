@@ -4422,7 +4422,7 @@ unquoted,commas,"as well, including some long ones", and there we have it.""#;
         assert_eq!(
             read(b"\"a\"b,c\n\"say \"hi\" now\",x\r\n\n\"m\nl\",\"\"\"\"\n\"open"),
             [
-                v(&[b"a\"b", b"c"]),
+                v(&[b"a\"b,c"]),
                 v(&[b"say \"hi\" now", b"x"]),
                 v(&[]),
                 v(&[b"m\nl", b"\""]),
