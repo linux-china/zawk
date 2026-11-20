@@ -494,6 +494,15 @@ pub(crate) fn render(df: &DataFrame, format: &str) -> Res<Vec<u8>> {
     Ok(out)
 }
 
+/// A format name, trimmed and lowercased, with its aliases (`ndjson`, `md`) resolved.
+fn normalize_format(format: &str) -> String {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "ndjson" => "jsonl".to_string(),
+        "md" => "markdown".to_string(),
+        f => f.to_string(),
+    }
+}
+
 /// What `df_print(d[, format])` writes.
 pub(crate) enum Printed {
     /// Text written as it is: the table in an explicit format, or without `-o` the fields
