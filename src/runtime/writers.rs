@@ -2230,6 +2230,7 @@ impl Registry {
     }
 
     /// Whether this thread has the file `name` open for output (`print > name` not yet closed).
+    /// Up to date after a flush (the writer thread opens the file), see `RawHandle::open`.
     pub fn is_file_open(&self, name: &Str) -> bool {
         self.files
             .get(&name.clone().unmoor())

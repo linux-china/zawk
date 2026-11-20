@@ -626,14 +626,15 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                     .map_err(Fail::Output)?;
                 return Ok(Out::Int(df.nrows as Int));
             }
+            // As before `system`: output printed earlier reaches its files and pipes first. The
+            // flush also brings `is_file_open` up to date: a file is opened by its writer thread.
+            out.flush_all().map_err(Fail::Output)?;
             if out.is_file_open(&name) {
                 return Err(Fail::Warn(format!(
                     "cannot write `{}': it is open for output (print > \"{}\"): close() it first",
                     path, path
                 )));
             }
-            // As before `system`: output printed earlier reaches its files and pipes first.
-            out.flush_all().map_err(Fail::Output)?;
             io::write_path(&path, bytes)?;
             Ok(Out::Int(df.nrows as Int))
         }
