@@ -432,8 +432,9 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             } else {
                 arg(args, 1)
                     .split(|b| *b == b'\t')
-                    // byte for byte: text that is not UTF-8 is kept as is
-                    .map(|f| Value::input(io::unescape_tsv_bytes(f)))
+                    // byte for byte: text that is not UTF-8 is kept as is; `\N` (the `--null`
+                    // text, as `join_tsv` escapes it) is a null
+                    .map(io::tsv_field)
                     .collect()
             };
             Ok(Out::Int(with_mut(arg(args, 0), |df| {

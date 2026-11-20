@@ -182,6 +182,16 @@ fn trim_eol(line: &[u8]) -> &[u8] {
     line.strip_suffix(b"\r").unwrap_or(line)
 }
 
+/// The value of a TSV field (of `join_tsv` or a `.tsv` file): null for `\N` when `--null` is set
+/// (as `-o tsv` writes a null), else the unescaped bytes as a strnum.
+pub(super) fn tsv_field(f: &[u8]) -> Value {
+    if str_escape::is_tsv_null(f) {
+        Value::Null
+    } else {
+        Value::input(unescape_tsv_bytes(f))
+    }
+}
+
 /// `\t`, `\n`, `\r` and `\\` escapes of a TSV field, on bytes.
 pub(super) fn unescape_tsv_bytes(f: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(f.len());
@@ -216,21 +226,16 @@ fn read_delimited(
     sink: &mut Sink,
 ) -> Res<()> {
     let mut header = header;
-    let mut row = |fields: Vec<Vec<u8>>, sink: &mut Sink| -> bool {
+    let mut row = |fields: Vec<Value>, sink: &mut Sink| -> bool {
         if header {
             header = false;
-            sink.header(
-                fields
-                    .iter()
-                    .map(|f| String::from_utf8_lossy(f).into_owned())
-                    .collect(),
-            );
+            sink.header(fields.iter().map(|f| f.text_lossy(false)).collect());
             return true;
         }
         if sink.full(limit) {
             return false;
         }
-        sink.values(fields.into_iter().map(Value::input).collect());
+        sink.values(fields);
         true
     };
     if tsv {
@@ -248,7 +253,7 @@ fn read_delimited(
             }
             let fields = line
                 .split(|b| *b == b'\t')
-                .map(unescape_tsv_bytes)
+                .map(tsv_field)
                 .collect();
             if !row(fields, sink) {
                 break;
@@ -264,7 +269,7 @@ fn read_delimited(
             .read_byte_record(&mut record)
             .map_err(|e| e.to_string())?
         {
-            if !row(record.iter().map(|f| f.to_vec()).collect(), sink) {
+            if !row(record.iter().map(Value::input).collect(), sink) {
                 break;
             }
         }
@@ -359,7 +364,8 @@ fn tsv_rows(df: &DataFrame, exact: bool) -> Vec<u8> {
                 out.push(b'\t');
             }
             let v = c.get(r);
-            if v.is_null() && null {
+            // a null, or a string that is the `--null` text (as `-o tsv` writes a `print`ed field)
+            if null && (v.is_null() || matches!(&v, Value::Str(bs, _) if str_escape::is_null(bs))) {
                 out.extend_from_slice(str_escape::TSV_NULL.as_bytes());
                 continue;
             }

@@ -142,6 +142,39 @@ fn append_record_uses_header() {
 }
 
 #[test]
+fn null_text_round_trips() {
+    // `--null`: `join_tsv` writes the null text as `\N`; `df_append_record` and `df_read` of a
+    // `.tsv` read `\N` back as a null, and `df_write` writes a null or the null text as `\N`.
+    let dir = data_dir();
+    fs::write(path(dir.path(), "nulls.csv"), "a,b\n1,NULL\n").unwrap();
+    let out = run(
+        dir.path(),
+        &[
+            "--null",
+            "NULL",
+            "-i",
+            "csv",
+            "-H",
+            r#"BEGIN { d = df_new() }
+               { df_append_record(d) }
+               END {
+                 print df_get(d, 1, "b"); print df_nrow(df_filter(d, "is_null(b)"))
+                 df_append(d, 2, "NULL")
+                 df_write(d, "nulls.tsv")
+                 back = df_read("nulls.tsv")
+                 print df_nrow(df_filter(back, "is_null(b)")), df_get(back, 2, "b")
+               }"#,
+            "nulls.csv",
+        ],
+    );
+    assert_eq!(out, "NULL\n1\n2 NULL\n");
+    assert_eq!(
+        fs::read_to_string(path(dir.path(), "nulls.tsv")).unwrap(),
+        "a\tb\n1\t\\N\n2\t\\N\n"
+    );
+}
+
+#[test]
 fn strnum_comparisons_and_params() {
     let dir = data_dir();
     // "10" > 9 numerically, as `$5 > 9` compares a field
