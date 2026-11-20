@@ -330,6 +330,13 @@ fn cell_text(v: &Value, exact: bool) -> Vec<u8> {
 /// The TSV stream the `-o` writers read: a header (`name:TYPE` when `typed`) and the rows, with
 /// `\N` for a null when `--null` is set.
 pub(crate) fn tsv_stream(df: &DataFrame, typed: bool, exact: bool) -> Vec<u8> {
+    let mut out = tsv_header(df, typed);
+    out.extend_from_slice(&tsv_rows(df, exact));
+    out
+}
+
+/// The header line of [`tsv_stream`].
+fn tsv_header(df: &DataFrame, typed: bool) -> Vec<u8> {
     let mut out = Vec::new();
     for (i, c) in df.columns.iter().enumerate() {
         if i > 0 {
@@ -339,6 +346,12 @@ pub(crate) fn tsv_stream(df: &DataFrame, typed: bool, exact: bool) -> Vec<u8> {
         out.extend_from_slice(str_escape::escape_tsv(&name).as_bytes());
     }
     out.push(b'\n');
+    out
+}
+
+/// The rows of [`tsv_stream`], after its header.
+fn tsv_rows(df: &DataFrame, exact: bool) -> Vec<u8> {
+    let mut out = Vec::new();
     let null = str_escape::null_text().is_some();
     for r in 0..df.nrows {
         for (i, c) in df.columns.iter().enumerate() {
@@ -385,6 +398,13 @@ fn csv_field(bs: &[u8], out: &mut Vec<u8>) {
 }
 
 fn csv_text(df: &DataFrame) -> Vec<u8> {
+    let mut out = csv_header(df);
+    out.extend_from_slice(&csv_rows(df));
+    out
+}
+
+/// The header line of [`csv_text`].
+fn csv_header(df: &DataFrame) -> Vec<u8> {
     let mut out = Vec::new();
     for (i, c) in df.columns.iter().enumerate() {
         if i > 0 {
@@ -393,6 +413,12 @@ fn csv_text(df: &DataFrame) -> Vec<u8> {
         csv_field(c.name.as_bytes(), &mut out);
     }
     out.push(b'\n');
+    out
+}
+
+/// The rows of [`csv_text`], after its header.
+fn csv_rows(df: &DataFrame) -> Vec<u8> {
+    let mut out = Vec::new();
     for r in 0..df.nrows {
         for (i, c) in df.columns.iter().enumerate() {
             if i > 0 {
@@ -431,12 +457,8 @@ fn ofs_text(df: &DataFrame, ofs: &[u8], ors: &[u8]) -> Vec<u8> {
 /// The table in `format`: csv, tsv, json (an array of objects), jsonl, markdown, table, parquet,
 /// avro or xlsx.
 pub(crate) fn render(df: &DataFrame, format: &str) -> Res<Vec<u8>> {
-    let format = format.trim().to_ascii_lowercase();
-    let format = match format.as_str() {
-        "ndjson" => "jsonl",
-        "md" => "markdown",
-        f => f,
-    };
+    let format = normalize_format(format);
+    let format = format.as_str();
     match format {
         "csv" => return Ok(csv_text(df)),
         "tsv" => return Ok(tsv_stream(df, false, false)),
@@ -472,19 +494,54 @@ pub(crate) fn render(df: &DataFrame, format: &str) -> Res<Vec<u8>> {
     Ok(out)
 }
 
-/// What `df_print(d[, format])` writes: the table in `format`; without one, as the output of the
-/// run (`-o`): CSV with `-o csv`, the TSV stream the writer of `-o tsv/jsonl/markdown/table/...`
-/// reads, and without `-o` the fields separated by `OFS` and the rows terminated by `ORS`.
-pub(crate) fn print_bytes(df: &DataFrame, format: &str, ofs: &[u8], ors: &[u8]) -> Res<Vec<u8>> {
-    if !format.trim().is_empty() {
-        return render(df, format);
+/// What `df_print(d[, format])` writes.
+pub(crate) enum Printed {
+    /// Text written as it is: the table in an explicit format, or without `-o` the fields
+    /// separated by `OFS` and the rows terminated by `ORS`, after a header line.
+    Text(Vec<u8>),
+    /// The table as part of the output of the run (`-o`): stdout is then a single table (CSV with
+    /// `-o csv`, else the TSV stream the writer of `-o tsv/jsonl/markdown/table/...` reads) whose
+    /// first line is the header, so `header` is written only when it starts stdout.
+    Stream { header: Vec<u8>, rows: Vec<u8> },
+}
+
+/// What `df_print(d[, format])` writes: see [`Printed`]. With `-o`, a format that is the one of
+/// `-o` is the output of the run; another one is written as text with `-o csv` or `-o tsv`, and
+/// ignored (with a warning) by the other `-o` formats, whose writer reads stdout as TSV.
+pub(crate) fn print_bytes(df: &DataFrame, format: &str, ofs: &[u8], ors: &[u8]) -> Res<Printed> {
+    let run_format = super::output_format();
+    let format = normalize_format(format);
+    if !format.is_empty() && format != run_format {
+        if matches!(run_format, "" | "csv" | "tsv") {
+            return Ok(Printed::Text(render(df, &format)?));
+        }
+        // Check the format, then follow `-o`.
+        if !matches!(
+            format.as_str(),
+            "csv" | "tsv" | "json" | "jsonl" | "markdown" | "table" | "parquet" | "avro" | "xlsx"
+        ) {
+            return render(df, &format).map(Printed::Text);
+        }
+        crate::runtime::stdlib_warning(
+            "df_print",
+            format_args!(
+                "format \"{}\" ignored: with -o {} stdout is written as {}",
+                format, run_format, run_format
+            ),
+        );
     }
-    Ok(match super::output_format() {
-        "" => ofs_text(df, ofs, ors),
-        "csv" => csv_text(df),
-        "tsv" | "markdown" | "table" => tsv_stream(df, false, false),
+    let typed = matches!(run_format, "jsonl" | "parquet" | "avro" | "xlsx");
+    Ok(match run_format {
+        "" => Printed::Text(ofs_text(df, ofs, ors)),
+        "csv" => Printed::Stream {
+            header: csv_header(df),
+            rows: csv_rows(df),
+        },
         // jsonl, parquet, avro, xlsx: typed columns
-        _ => tsv_stream(df, true, true),
+        _ => Printed::Stream {
+            header: tsv_header(df, typed),
+            rows: tsv_rows(df, typed),
+        },
     })
 }
 

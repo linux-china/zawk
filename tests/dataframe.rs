@@ -207,6 +207,46 @@ fn print_formats_follow_output() {
     assert!(md.contains("| id | name |") || md.contains("| id"), "{}", md);
 }
 
+/// With `-o`, stdout is one table: `df_print` writes its header only when it starts stdout, and
+/// a format other than the one of `-o` does not go through the `-o` writer.
+#[test]
+fn print_header_once_with_output_format() {
+    let dir = data_dir();
+    let twice = r#"BEGIN { d = df_new("a"); df_append(d, 1); df_print(d); df_print(d) }"#;
+    assert_eq!(
+        run(dir.path(), &["-o", "jsonl", twice]),
+        "{\"a\":\"1\"}\n{\"a\":\"1\"}\n"
+    );
+    assert_eq!(run(dir.path(), &["-o", "csv", twice]), "a\n1\n1\n");
+    assert_eq!(run(dir.path(), &["-o", "tsv", twice]), "a\n1\n1\n");
+    // without -o, each call writes its header line
+    assert_eq!(run(dir.path(), &[twice]), "a\n1\na\n1\n");
+    // a header written by print starts the table
+    let after_print = r#"BEGIN { print "a"; d = df_new("a"); df_append(d, 1); df_print(d) }"#;
+    assert_eq!(run(dir.path(), &["-o", "jsonl", after_print]), "{\"a\":\"1\"}\n");
+    assert_eq!(run(dir.path(), &["-o", "csv", after_print]), "a\n1\n");
+    // the format of -o given explicitly
+    let same = r#"BEGIN { d = df_new("a"); df_append(d, 1); df_print(d, "jsonl"); df_print(d, "ndjson") }"#;
+    assert_eq!(
+        run(dir.path(), &["-o", "jsonl", same]),
+        "{\"a\":\"1\"}\n{\"a\":\"1\"}\n"
+    );
+    // another format: ignored by the jsonl writer, written as text with -o csv
+    let table = r#"BEGIN { d = df_new("a"); df_append(d, 1); df_print(d, "table") }"#;
+    let (out, err) = run_in(dir.path(), &["-o", "jsonl", table]);
+    assert_eq!(out, "{\"a\":\"1\"}\n");
+    assert!(err.contains("df_print") && err.contains("ignored"), "{}", err);
+    let json = r#"BEGIN { d = df_new("a"); df_append(d, 1); df_print(d, "json") }"#;
+    let out = run(dir.path(), &["-o", "csv", json]);
+    assert!(out.starts_with("[{\"a\":") && out.ends_with("}]\n"), "{}", out);
+    // a table with other columns: a warning, its rows under the first header
+    let other = r#"BEGIN { d = df_new("a"); df_append(d, 1); e = df_new("b"); df_append(e, 2)
+                           df_print(d); df_print(e) }"#;
+    let (out, err) = run_in(dir.path(), &["-o", "csv", other]);
+    assert_eq!(out, "a\n1\n2\n");
+    assert!(err.contains("differ from the header"), "{}", err);
+}
+
 #[test]
 fn arrays_bridge() {
     let dir = data_dir();

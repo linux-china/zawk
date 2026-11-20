@@ -187,9 +187,16 @@ and `close` behave as for `print`. Without a format it follows the output of the
 * without `-o`: a header line, then one line per row, fields separated by `OFS` and rows ended by
   `ORS`, as `print` writes them, so the output can feed another awk;
 * with `-o csv`, `-o tsv`, `-o jsonl`, `-o markdown`, `-o table`, `-o parquet`, ...: the table
-  in that format;
+  in that format. stdout is then a single table whose first line is its header, so `df_print`
+  writes the header only when nothing was written to stdout before; after a `print` or another
+  `df_print`, it writes its rows under the header already there (with a warning when its columns
+  differ from those of an earlier `df_print`). Several `df_print` calls with the same columns
+  therefore make one table;
 * with a format argument (`csv`, `tsv`, `json`, `jsonl`, `markdown`, `table`): that format, for a
-  run without `-o`.
+  run without `-o` or with `-o csv` / `-o tsv` (written as text). The format of `-o` itself is the
+  output of the run, as without an argument; another format is ignored, with a warning, by
+  `-o jsonl/markdown/table/parquet/avro/xlsx`, whose writer reads stdout as TSV: use `df_write`
+  for a second format.
 
 `df_write` writes csv, tsv, json, jsonl, markdown, table, parquet, avro or xlsx (from the
 extension by default) with the same writers as `-o`: typed columns get the `name:TYPE` header

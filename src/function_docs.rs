@@ -1999,7 +1999,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "df_print",
         DATAFRAME,
         "df_print(d: str[, format: str]) -> int",
-        "Print the table to stdout, through the same output as print: in format (csv, tsv, json, jsonl, markdown, table), else as the `-o` output, else as text separated by OFS with a header line. Returns the number of rows.",
+        "Print the table to stdout, through the same output as print: in format (csv, tsv, json, jsonl, markdown, table), else as the `-o` output (one table: the header is written only when it starts stdout), else as text separated by OFS with a header line. Returns the number of rows.",
         "df_print(df_head(d, 10), \"table\")",
     ),
     d(

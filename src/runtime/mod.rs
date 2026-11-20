@@ -1077,7 +1077,17 @@ impl RegexCache {
 }
 
 #[derive(Clone)]
-pub(crate) struct FileWrite(writers::Registry);
+pub(crate) struct FileWrite(writers::Registry, StdoutState);
+
+/// What was written to stdout, for `df_print`: with `-o`, stdout is a single table whose header is
+/// its first line, so a table printed after other output must not write its header again.
+#[derive(Clone, Default)]
+struct StdoutState {
+    /// Something (`print`, `printf`, `df_print`) was written to stdout.
+    written: bool,
+    /// The header line of the table `df_print` started stdout with, if it did.
+    table_header: Option<Vec<u8>>,
+}
 
 impl Default for FileWrite {
     fn default() -> FileWrite {
@@ -1122,7 +1132,20 @@ impl FileWrite {
         self.0.close(path)
     }
     pub(crate) fn new(ff: impl writers::FileFactory) -> FileWrite {
-        FileWrite(writers::Registry::from_factory(ff))
+        FileWrite(writers::Registry::from_factory(ff), StdoutState::default())
+    }
+
+    /// Whether anything was written to stdout (`close` only flushes stdout, its writer stays).
+    pub(crate) fn stdout_written(&self) -> bool {
+        self.1.written
+    }
+    /// The header line of the table `df_print` started stdout with, if it did.
+    pub(crate) fn stdout_table_header(&self) -> Option<&[u8]> {
+        self.1.table_header.as_deref()
+    }
+    /// Records the header line of the table `df_print` starts stdout with.
+    pub(crate) fn set_stdout_table_header(&mut self, header: Vec<u8>) {
+        self.1.table_header = Some(header);
     }
 
     pub(crate) fn shutdown(&mut self) -> Result<()> {
@@ -1137,10 +1160,12 @@ impl FileWrite {
         let (handle, fspec) = if let Some((out_file, fspec)) = path {
             if !matches!(fspec, FileSpec::Cmd) && writers::is_stdout(out_file) {
                 stats::output_text(s);
+                self.1.written = true;
             }
             (self.0.get_handle(Some(out_file), fspec)?, fspec)
         } else {
             stats::output_text(s);
+            self.1.written = true;
             (
                 self.0.get_handle(None, FileSpec::default())?,
                 FileSpec::default(),
@@ -1156,10 +1181,12 @@ impl FileWrite {
         if let Some((path, spec)) = out_spec {
             if !matches!(spec, FileSpec::Cmd) && writers::is_stdout(path) {
                 stats::output_records(1);
+                self.1.written = true;
             }
             self.0.get_handle(Some(path), spec)?.write_all(ss, spec)
         } else {
             stats::output_records(1);
+            self.1.written = true;
             self.0
                 .get_handle(None, FileSpec::default())?
                 .write_all(ss, FileSpec::Append)

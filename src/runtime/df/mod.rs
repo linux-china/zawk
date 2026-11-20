@@ -559,7 +559,33 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             let df = table(0)?;
             let ofs = core.vars.ofs.with_bytes(|b| b.to_vec());
             let ors = core.vars.ors.with_bytes(|b| b.to_vec());
-            let bytes = io::print_bytes(&df, &arg_text(args, 1), &ofs, &ors)?;
+            let bytes = match io::print_bytes(&df, &arg_text(args, 1), &ofs, &ors)? {
+                io::Printed::Text(text) => text,
+                // With `-o`, stdout is one table: its header is its first line.
+                io::Printed::Stream { header, rows } => {
+                    let out = &mut core.write_files;
+                    if !out.stdout_written() {
+                        out.set_stdout_table_header(header.clone());
+                        let mut bytes = header;
+                        bytes.extend_from_slice(&rows);
+                        bytes
+                    } else {
+                        if out.stdout_table_header().is_some_and(|h| h != header.as_slice()) {
+                            crate::runtime::stdlib_warning(
+                                "df_print",
+                                format_args!(
+                                    "the columns ({}) differ from the header of the table already on stdout ({}): rows written under that header",
+                                    String::from_utf8_lossy(header.trim_ascii_end()),
+                                    String::from_utf8_lossy(
+                                        out.stdout_table_header().unwrap_or_default().trim_ascii_end()
+                                    ),
+                                ),
+                            );
+                        }
+                        rows
+                    }
+                }
+            };
             core.write_files
                 .write_printf(None, &bytes)
                 .map_err(Fail::Output)?;
