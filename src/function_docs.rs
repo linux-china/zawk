@@ -1873,7 +1873,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "df_mutate",
         DATAFRAME,
         "df_mutate(d: str, assignments: str, params: any...) -> str",
-        "Add or replace columns: `x = a * 2, y = upper(name)`; an assignment may use the columns assigned before it.",
+        "Add or replace columns: `x = a * 2, y = upper(name)`; an assignment may use the columns assigned before it; `$2 = ...` replaces the 2nd column.",
         "df_mutate(d, \"total = price * qty\")",
     ),
     d(

@@ -176,17 +176,40 @@ pub(super) fn mutate(
     let mut p = Parser::new(spec)?;
     let mut assignments = Vec::new();
     while !p.at_end() {
-        let name = name_token(p.next()).ok_or_else(|| p.error("expected a column name"))?;
+        let tok = p.next();
+        // `$2 = ...` and `2 = ...` name the 2nd column (as `$2` does on the right side), not a
+        // new column called "2"
+        let pos = match tok {
+            Some(Tok::ColNum(n)) => Some(n as i64),
+            Some(Tok::Num(n, true)) => Some(n as i64),
+            _ => None,
+        };
+        let name = name_token(tok).ok_or_else(|| p.error("expected a column name"))?;
         p.expect(Tok::Assign, "`=`")?;
         let e = p.parse_expr(0)?;
-        assignments.push((name, e));
+        assignments.push((name, pos, e));
         if !p.eat(&Tok::Comma) && !p.at_end() {
             return Err(p.error("expected `,`"));
         }
     }
     let mut out = df.clone();
     let mut ctx = EvalCtx::default();
-    for (name, mut e) in assignments {
+    for (name, pos, mut e) in assignments {
+        // a column number is resolved against the table as it is now (so it may name a column
+        // added by an earlier assignment), and the replacement keeps that column's name
+        let name = match pos {
+            Some(n) if n >= 1 && n as usize <= out.columns.len() => {
+                out.columns[n as usize - 1].name.clone()
+            }
+            Some(n) => {
+                return Err(format!(
+                    "column ${} out of range (the table has {} columns)",
+                    n,
+                    out.columns.len()
+                ));
+            }
+            None => name,
+        };
         e.bind(&out, params)?;
         let mut values = Vec::with_capacity(out.nrows);
         for i in 0..out.nrows {
@@ -447,6 +470,22 @@ mod tests {
             .unwrap();
         assert_eq!(col_text(&m, "z"), ["85", "19", "21", "1"]);
         assert_eq!(col_text(&m, "name"), ["ANN", "BOB", "CY", "DEE"]);
+        // `$N = ...` / `N = ...` replace the Nth column, keeping its name
+        let ncols = df.columns.len();
+        let names: Vec<String> = df.columns.iter().map(|c| c.name.clone()).collect();
+        let by_pos = mutate(&df, "$1 = upper($1)", &HashMap::new()).unwrap();
+        assert_eq!(by_pos.columns.len(), ncols);
+        assert_eq!(by_pos.columns[0].name, names[0]);
+        assert_eq!(col_text(&by_pos, &names[0]), ["ANN", "BOB", "CY", "DEE"]);
+        let by_num = mutate(&df, "1 = lower($1)", &HashMap::new()).unwrap();
+        assert_eq!(by_num.columns.len(), ncols);
+        assert_eq!(col_text(&by_num, &names[0]), ["ann", "bob", "cy", "dee"]);
+        // a column added by an earlier assignment can be named by its number
+        let added = mutate(&df, &format!("w = 1, ${} = w + 1", ncols + 1), &HashMap::new())
+            .unwrap();
+        assert_eq!(added.columns.len(), ncols + 1);
+        assert_eq!(col_text(&added, "w"), ["2", "2", "2", "2"]);
+        assert!(mutate(&df, &format!("${} = 1", ncols + 1), &HashMap::new()).is_err());
         let d = distinct(&df, "city").unwrap();
         assert_eq!(col_text(&d, "name"), ["Ann", "Bob"]);
         let both = concat(&[Arc::new(df.clone()), Arc::new(select(&df, "name", false).unwrap())]);

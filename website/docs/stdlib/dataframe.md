@@ -88,7 +88,7 @@ END {
 | `df_select(d, "a, b as x")` | Columns in that order (`as` renames). |
 | `df_drop(d, "a, b")` | Without these columns. |
 | `df_filter(d, expr[, name, value, ...])` | The rows for which the expression is true. |
-| `df_mutate(d, "x = a * 2, y = upper(name)")` | Add or replace columns; an assignment may use the columns assigned before it. |
+| `df_mutate(d, "x = a * 2, y = upper(name)")` | Add or replace columns; an assignment may use the columns assigned before it. `$2 = ...` (or `2 = ...`) replaces the 2nd column, keeping its name. |
 | `df_sort(d, "age desc, name")` | Stable sort; see below. |
 | `df_head(d[, n])`, `df_tail(d[, n])` | The first / last n rows (10 by default). |
 | `df_slice(d, from[, n])` | n rows from row `from`. |

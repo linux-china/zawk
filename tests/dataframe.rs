@@ -213,6 +213,22 @@ fn join_select_mutate() {
 }
 
 #[test]
+fn mutate_column_number_replaces() {
+    let dir = data_dir();
+    let out = run(
+        dir.path(),
+        &[r#"BEGIN {
+               d = df_new("a,b"); df_append(d, 1, 2)
+               m = df_mutate(d, "$2 = $2 * 10")
+               print df_ncol(m), df_get(m, 1, "b")
+               m = df_mutate(m, "1 = $1 + 5")
+               print df_ncol(m), df_get(m, 1, "a")
+             }"#],
+    );
+    assert_eq!(out, "2 20\n2 6\n");
+}
+
+#[test]
 fn print_formats_follow_output() {
     let dir = data_dir();
     let prog = r#"BEGIN { df_print(df_head(df_select(df_read("users.csv"), "id, name"), 2)) }"#;
