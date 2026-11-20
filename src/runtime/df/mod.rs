@@ -464,6 +464,8 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             };
             // The main rules of a parallel run (`-p`): the workers (this thread included) then
             // share their compiled regexes, in both backends; BEGIN and END are run outside.
+            // `-p 1` (one worker) counts as parallel too: the run is the same as with more
+            // workers, only the order happens to be that of the input.
             let parallel = core.regexes.shared().is_some();
             Ok(Out::Int(with_mut(arg(args, 0), |df| -> std::result::Result<Int, String> {
                 if df.columns.is_empty() {
@@ -475,7 +477,7 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
                         // would become the header, and the header a row.
                         if parallel {
                             return Err(
-                                "in parallel mode the table has no columns to take the record: the header cannot be taken from the first record, as the workers append in an unspecified order; use `-H` (the columns are then the names of `FI`), declare the columns with `df_new(\"a,b,...\")`, or run serially (`-p0`)"
+                                "in parallel mode the table has no columns to take the record: the header cannot be taken from the first record, as the workers append in an unspecified order; use `-H` (the columns are then the names of `FI`), declare the columns with `df_new(\"a,b,...\")`, or run serially (`-p0`; `-p 1` is parallel too)"
                                     .to_string(),
                             );
                         }

@@ -2231,10 +2231,27 @@ impl Registry {
 
     /// Whether this thread has the file `name` open for output (`print > name` not yet closed).
     /// Up to date after a flush (the writer thread opens the file), see `RawHandle::open`.
+    ///
+    /// The same file named by another path (`print > "out.csv"`, then `"./out.csv"`) is found by
+    /// comparing the canonical paths; a name that does not exist (or cannot be resolved) is only
+    /// compared as it is.
     pub fn is_file_open(&self, name: &Str) -> bool {
-        self.files
+        if self
+            .files
             .get(&name.clone().unmoor())
             .is_some_and(|fh| fh.raw.is_open())
+        {
+            return true;
+        }
+        fn canonical(name: &Str) -> Option<std::path::PathBuf> {
+            name.with_bytes(|bs| std::fs::canonicalize(bytes_path(bs)).ok())
+        }
+        let Some(target) = canonical(name) else {
+            return false;
+        };
+        self.files
+            .iter()
+            .any(|(open, fh)| fh.raw.is_open() && canonical(open).as_ref() == Some(&target))
     }
 
     /// Flush all output files, commands and stdout (e.g. before `system`).

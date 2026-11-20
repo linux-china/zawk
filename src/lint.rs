@@ -647,6 +647,13 @@ struct Facts<'a, 'p> {
     /// so it is never freed, and one table is left per record. The inner function, the outer
     /// one and the location of the inner call.
     df_nested: Vec<(&'a str, &'a str, Option<Loc>)>,
+    /// The index of the main rule being walked.
+    rule: usize,
+    /// `t = df_filter(d, ...)` in a main rule: the rule, the variable, the function and the
+    /// location of the call.
+    df_kept: Vec<(usize, &'a str, &'a str, Option<Loc>)>,
+    /// `df_free(t)` in a main rule: the rule and the variable.
+    df_freed: Vec<(usize, &'a str)>,
 }
 
 /// A call of a SQL function: `sqlite_execute(db, "BEGIN")`.
@@ -1105,6 +1112,13 @@ impl<'a, 'p> Facts<'a, 'p> {
                 self.expr(ix);
             }
             Assign(lhs, rhs) => {
+                if self.region == Region::Main
+                    && let (Var(name), Call(g, _)) = (lhs, rhs)
+                    && let Some(inner) = self.df_function(g)
+                    && df_returns_table(inner)
+                {
+                    self.df_kept.push((self.rule, name, inner, self.loc(rhs)));
+                }
                 if let (Var("FS"), StrLit(fs), Region::Begin) = (lhs, rhs, self.region) {
                     self.fs_literals.push(fs);
                 }
@@ -1160,12 +1174,18 @@ impl<'a, 'p> Facts<'a, 'p> {
             Call(f, args) => {
                 self.check_decimal_args(f, args, self.loc(e));
                 if self.region == Region::Main
-                    && let Some(outer) = df_function(f)
+                    && self.df_function(f) == Some("df_free")
+                    && let Some(Var(name)) = args.first()
+                {
+                    self.df_freed.push((self.rule, name));
+                }
+                if self.region == Region::Main
+                    && let Some(outer) = self.df_function(f)
                     && outer != "df_free"
                 {
                     for arg in args.iter() {
                         if let Call(g, _) = arg
-                            && let Some(inner) = df_function(g)
+                            && let Some(inner) = self.df_function(g)
                             && df_returns_table(inner)
                         {
                             self.df_nested.push((inner, outer, self.loc(arg)));
@@ -1272,13 +1292,19 @@ impl<'a, 'p> Facts<'a, 'p> {
 }
 
 /// The text of a number literal (with its sign).
-/// The name of a `df_*` builtin called by `f`.
-fn df_function<'a>(f: &Either<&'a str, Function>) -> Option<&'a str> {
-    match f {
-        Either::Left(name) => name.starts_with("df_").then_some(*name),
-        Either::Right(Function::Df(op)) => Some(op.func_name()),
-        Either::Right(Function::DfFromArray) => Some("df_from_array"),
-        Either::Right(_) => None,
+impl<'a, 'p> Facts<'a, 'p> {
+    /// The name of a `df_*` builtin called by `f`; a user-defined `df_xxx` function is not one.
+    fn df_function(&self, f: &Either<&'a str, Function>) -> Option<&'a str> {
+        match f {
+            Either::Left(name) if self.user_funcs.contains(name) => None,
+            Either::Left(name) => match crate::builtins::FUNCTIONS.get(name) {
+                Some(Function::Df(_) | Function::DfFromArray) => Some(*name),
+                _ => None,
+            },
+            Either::Right(Function::Df(op)) => Some(op.func_name()),
+            Either::Right(Function::DfFromArray) => Some("df_from_array"),
+            Either::Right(_) => None,
+        }
     }
 }
 
@@ -1454,10 +1480,14 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         db_calls: Vec::new(),
         df_appends: Vec::new(),
         df_nested: Vec::new(),
+        rule: 0,
+        df_kept: Vec::new(),
+        df_freed: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
-    for (pat, body) in prog.pats.iter() {
+    for (rule, (pat, body)) in prog.pats.iter().enumerate() {
+        facts.rule = rule;
         match pat {
             ast::Pattern::Null => {}
             ast::Pattern::Bool(e) => facts.condition(e),
@@ -1656,6 +1686,31 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             ),
             *loc,
         ));
+    }
+
+    // `{ t = df_filter(d, ...); n += df_nrow(t) }`: a table per record, never freed. A table
+    // freed in the same rule, or read in END (`NR == 1 { d = df_new(..) } END { df_print(d) }`,
+    // a table built once and kept), is not reported.
+    for (rule, var, inner, loc) in &facts.df_kept {
+        let freed = facts.df_freed.iter().any(|(r, v)| r == rule && v == var);
+        // `df_print(d)` records `d` as a set (it may be filled), not as a use.
+        let in_end = facts
+            .uses
+            .iter()
+            .any(|u| u.name == *var && u.region == Region::End)
+            || facts
+                .sets
+                .iter()
+                .any(|u| u.name == *var && u.region == Region::End);
+        if !freed && !in_end {
+            diags.push(warning(
+                "W130",
+                format!(
+                    "`{var} = {inner}(...)` in a main rule makes a new table for each record, and `{var}` is not passed to `df_free` in the same rule: the old tables stay in memory until the end; free it after use (`{var} = {inner}(...); ...; df_free({var})`), or do the work once in END"
+                ),
+                *loc,
+            ));
+        }
     }
 
     // `printf $0`: a `%` in the data is read as a conversion.
@@ -3323,6 +3378,29 @@ mod tests {
         // kept and freed, freed at once, or nested in BEGIN/END: no table left per record
         assert!(codes(&run(
             "BEGIN { d = df_new(\"a\") } { t = df_filter(d, \"a > 1\"); n += df_nrow(t); df_free(t); df_free(df_head(d)) } END { print n, df_nrow(df_filter(d, \"a > 1\")) }"
+        ))
+        .is_empty());
+        // a new table kept in a variable but not freed in the same rule
+        let v = run("BEGIN { d = df_new(\"a\") } { t = df_filter(d, \"a > 1\"); n += df_nrow(t) } END { print n }");
+        assert_eq!(codes(&v), ["W130"]);
+        assert!(message(&v, 0).contains("`t = df_filter(...)`"));
+        // freed in another rule only: still a table per record of the first rule
+        assert_eq!(
+            codes(&run("BEGIN { d = df_new(\"a\") } { t = df_head(d, 1) } $1 { df_free(t) }")),
+            ["W130"]
+        );
+        // a table built in a main rule and kept for END
+        assert!(codes(&run(
+            "NR == 1 { d = df_new(\"a\") } { df_append(d, $1) } END { df_print(d) }"
+        ))
+        .is_empty());
+        // a user-defined `df_xxx` function is not a df builtin
+        assert!(codes(&run(
+            "function df_count(t) { return df_nrow(t) } BEGIN { d = df_new(\"a\") } { t = df_filter(d, \"a > 1\"); n += df_count(t); df_free(t) } END { print n }"
+        ))
+        .is_empty());
+        assert!(codes(&run(
+            "function df_wrap(t) { return t } BEGIN { d = df_new(\"a\") } { t = df_wrap(d); n += df_nrow(t) + df_nrow(df_wrap(d)) } END { print n }"
         ))
         .is_empty());
         let v = run("{ t = dec_add(t, $3 * 1.06) } END { print t, dec_cmp(t - 1, 0) }");

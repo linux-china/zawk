@@ -263,15 +263,23 @@ BEGIN { df_write(df_read("events.jsonl"), "events.parquet") }
 * A table lives in memory: `df_read` loads the whole input. Use `limit=` and `columns=` to load
   less, and `df_free` tables built in a loop.
 * Every intermediate table stays in the registry until `df_free`: `df_nrow(df_filter(d, ...))` in a
-  main rule leaves one table per record. `zawk lint` reports such a nested call as **W130**; keep the
-  handle and free it (`t = df_filter(d, ...); n = df_nrow(t); df_free(t)`), or do the work in `END`.
+  main rule leaves one table per record. `zawk lint` reports as **W130** such a nested call, and a
+  new table kept in a variable in a main rule (`t = df_filter(d, ...)`) that is not passed to
+  `df_free` in the same rule (a variable read in `END`, a table built once and kept, is not
+  reported); keep the handle and free it (`t = df_filter(d, ...); n = df_nrow(t); df_free(t)`), or
+  do the work in `END`.
+* `df_write` does not write a file that is open for output with `print >` (it warns and returns 0;
+  `close()` it first). The file is found by its canonical path too (`"out.csv"` and
+  `"./out.csv"` are the same file), but only among the files of the thread that calls `df_write`:
+  under `-p`, a file another worker has open is not found.
 * The tables are shared by the threads of a parallel run (`-p`). Rows that `df_append` adds in the
   main rules come from all the workers, in an unspecified order: `zawk lint -pr` and a `-p` run
   report it as **W307**. Sort the table in `END`, or run serially (`-p0`).
 * Without `-H`, `df_append_record` in the main rules of a parallel run cannot take the first record
   as the header of a table with no columns: the record that comes first is that of the worker first
   to append, not the first line of the input. The call is then an error (a warning, the record is
-  not added); use `-H`, or declare the columns with `df_new("a,b,...")`. A program that calls
+  not added, and `-p 1` with a single worker counts as parallel too); use `-H`, or declare the
+  columns with `df_new("a,b,...")`. A program that calls
   `df_*` functions in its main rules is never parallelized automatically.
 * A program that does not call a `df_*` function pays nothing: the registry of tables is created on
   first use.

@@ -89,7 +89,7 @@ zawk --lint -f report.awk data.csv     # lint, then run if there is no error
 | W118 | `printf $0`: a `%` in the data breaks it |
 | W119 | `FS` assigned in a main rule: applies from the next record only |
 | W123 | arithmetic in a `dec_*` argument (`dec_add(t, $3 * 1.06)`): computed in floating point first |
-| W130 | `df_nrow(df_filter(d, ...))` in a main rule: the inner table is never freed, one is left per record |
+| W130 | `df_nrow(df_filter(d, ...))`, or `t = df_filter(d, ...)` without `df_free(t)` in the same rule, in a main rule: the table is never freed, one is left per record |
 | W201 | variable read but never set |
 | W202 / W203 | `printf` format with more / fewer arguments than given |
 | W206 | variable set but never read (typo: `totl += $1` ... `print total`) |
