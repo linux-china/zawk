@@ -445,8 +445,8 @@ pub(crate) fn register_all(cg: &mut impl Backend) -> Result<()> {
         [ReadOnly] uniq_float(map_ty, str_ref_ty) -> map_ty;
         [ReadOnly] type_of_array() -> str_ty;
         [ReadOnly] type_of_number() -> str_ty;
-        [ReadOnly] type_of_string() -> str_ty;
         // Not ReadOnly: a DataFrame handle is "dataframe" until the table is freed.
+        type_of_string(str_ref_ty) -> str_ty;
         type_of_strnum(str_ref_ty) -> str_ty;
         [ReadOnly] type_of_unassigned() -> str_ty;
         [ReadOnly] is_array_true() -> int_ty;
@@ -2689,9 +2689,17 @@ pub(crate) unsafe extern "C" fn type_of_number() -> U128 {
     })
 }
 
-pub(crate) unsafe extern "C" fn type_of_string() -> U128 {
+/// `typeof` of a string that cannot be a strnum: still "dataframe" for a table handle, which
+/// may have gone through a concatenation, `sprintf` or `substr`, as in the interpreter.
+pub(crate) unsafe extern "C" fn type_of_string(text: *mut U128) -> U128 {
     guard_panic(stringify!(type_of_string), || {
-        mem::transmute::<Str, U128>(Str::from("string"))
+        let text = &*(text as *mut Str);
+        let res = if text.with_bytes(crate::runtime::df::is_handle) {
+            "dataframe"
+        } else {
+            "string"
+        };
+        mem::transmute::<Str, U128>(Str::from(res))
     })
 }
 

@@ -540,11 +540,18 @@ pub(crate) fn typed_text_column(name: String, kind: Kind, values: Vec<Value>) ->
     col
 }
 
+/// The integer a value stands for, or `None` (a null cell) when it is not a whole number in
+/// range: `2.5` and `"2.5"` are null rather than truncated, as `-o parquet` writes them for an
+/// `int64` column, while `2.0`, `"1.0"` and `"1e3"` are whole numbers.
 fn to_int(v: &Value) -> Option<Int> {
     match v {
         Value::Null => None,
         Value::Int(i) => Some(*i),
-        Value::Float(f) => f.is_finite().then_some(*f as Int),
+        // -2^63 is exact as an f64 and 2^63 is the first value out of range; NaN fails both.
+        Value::Float(f) => {
+            let min = Int::MIN as Float;
+            (f.fract() == 0.0 && *f >= min && *f < -min).then_some(*f as Int)
+        }
         Value::Bool(b) => Some(*b as Int),
         Value::Str(bs, _) => {
             let text = String::from_utf8_lossy(bs);
@@ -553,7 +560,6 @@ fn to_int(v: &Value) -> Option<Int> {
                 return None;
             }
             crate::runtime::typed_value::parse_int(text)
-                .or_else(|| looks_numeric(text.as_bytes()).filter(|f| f.is_finite()).map(|f| f as Int))
         }
     }
 }
@@ -612,6 +618,26 @@ mod tests {
         assert!(c.get(1).is_null());
         assert!(c.get(2).is_null());
         assert_eq!(c.typed_header(), "age:int");
+    }
+
+    #[test]
+    fn declared_int_rejects_fractions() {
+        let mut c = Column::new("n", Some("int".into()));
+        c.push(Value::Float(2.7));
+        c.push(Value::input("2.5"));
+        c.push(Value::Float(3.0));
+        c.push(Value::input("1.0"));
+        c.push(Value::input("1e3"));
+        c.push(Value::Float(1e300));
+        c.push(Value::Float(f64::NAN));
+        assert_eq!(c.kind(), Kind::Int);
+        assert!(c.get(0).is_null());
+        assert!(c.get(1).is_null());
+        assert!(matches!(c.get(2), Value::Int(3)));
+        assert!(matches!(c.get(3), Value::Int(1)));
+        assert!(matches!(c.get(4), Value::Int(1000)));
+        assert!(c.get(5).is_null());
+        assert!(c.get(6).is_null());
     }
 
     #[test]

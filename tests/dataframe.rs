@@ -194,6 +194,38 @@ fn strnum_comparisons_and_params() {
 }
 
 #[test]
+fn typeof_handle_after_string_ops() {
+    // A handle that went through a concatenation or `substr` is still a handle, in every backend.
+    let dir = data_dir();
+    let out = run(
+        dir.path(),
+        &[r#"BEGIN {
+               d = df_new("a")
+               t = d ""; print typeof(t)
+               u = substr(d, 1); print typeof(u)
+               print typeof("x" d)
+               df_free(d); print typeof(t)
+             }"#],
+    );
+    assert_eq!(out, "dataframe\ndataframe\nstring\nstring\n");
+}
+
+#[test]
+fn declared_int_column_does_not_truncate() {
+    // 2.7 and "2.5" are not integers: null, as `-o parquet` writes them for an int64 column.
+    let dir = data_dir();
+    let out = run(
+        dir.path(),
+        &[r#"BEGIN {
+               d = df_new("n:int")
+               df_append(d, 2.7); df_append(d, "2.5"); df_append(d, 3.0); df_append(d, "1e3")
+               for (i = 1; i <= df_nrow(d); i++) print i, df_get(d, i, "n") "", df_nrow(df_filter(d, "is_null(n)"))
+             }"#],
+    );
+    assert_eq!(out, "1  2\n2  2\n3 3 2\n4 1000 2\n");
+}
+
+#[test]
 fn join_select_mutate() {
     let dir = data_dir();
     let out = run(

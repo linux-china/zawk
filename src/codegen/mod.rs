@@ -1467,10 +1467,7 @@ pub(crate) trait CodeGenerator: Backend {
                 self.bind_val(dst.reflect(), resv)
             }
             TypeOfString(dst, src, true) => self.unop(intrinsic!(type_of_strnum), dst, src),
-            TypeOfString(dst, _, false) => {
-                let resv = self.call_intrinsic(intrinsic!(type_of_string), &mut [])?;
-                self.bind_val(dst.reflect(), resv)
-            }
+            TypeOfString(dst, src, false) => self.unop(intrinsic!(type_of_string), dst, src),
             TypeOfUnassigned(dst) => {
                 let resv = self.call_intrinsic(intrinsic!(type_of_unassigned), &mut [])?;
                 self.bind_val(dst.reflect(), resv)
