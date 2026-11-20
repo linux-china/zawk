@@ -828,21 +828,12 @@ fn call(name: &str, args: &[Value]) -> Value {
     let num = |i: usize| args[i].to_num();
     match name {
         "length" => Value::Int(str_of(&args[0]).len() as Int),
+        // The awk builtin: arguments converted to `Int` as awk converts them (truncated, like
+        // gawk's `double_to_int`), a missing length is `Int::MAX`.
         "substr" => {
-            let s = str_of(&args[0]);
-            let len = s.len() as Float;
-            let start = num(1).round();
-            let end = if args.len() > 2 {
-                start + num(2).round()
-            } else {
-                Float::INFINITY
-            };
-            let from = start.max(1.0);
-            let to = end.min(len + 1.0);
-            if !(to > from) {
-                return Value::str("");
-            }
-            str_val(s.sub_str(from as usize - 1, (to - from) as usize))
+            let int = |i: usize| crate::runtime::convert::<Float, Int>(num(i));
+            let len = if args.len() > 2 { int(2) } else { Int::MAX };
+            str_val(crate::runtime::string_util::substr(&str_of(&args[0]), int(1), len))
         }
         "index" => Value::Int(crate::runtime::string_search::index_substr(
             &str_of(&args[1]),
@@ -985,6 +976,19 @@ mod tests {
         assert_eq!(eval_all("!is_null(name) && length(name) == 3"), ["1", "1", "0"]);
         assert_eq!(eval_all("upper(substr(name, 2))"), ["NN", "OB", ""]);
         assert_eq!(eval_all("$2 + 0"), ["10", "9", "0"]);
+    }
+
+    #[test]
+    fn substr_like_awk() {
+        // Non-integer arguments are truncated, as by awk `substr` and gawk.
+        assert_eq!(eval_all("substr('abcdef', 2.5)"), ["bcdef"; 3]);
+        assert_eq!(eval_all("substr('abcdef', 1, 2.5)"), ["ab"; 3]);
+        assert_eq!(eval_all("substr('abcdef', 3.5)"), ["cdef"; 3]);
+        assert_eq!(eval_all("substr('abcdef', 2.7, 1.9)"), ["b"; 3]);
+        assert_eq!(eval_all("substr('abcdef', 0, 2)"), ["ab"; 3]);
+        assert_eq!(eval_all("substr('abcdef', 3, 0)"), [""; 3]);
+        assert_eq!(eval_all("substr('abcdef', 7)"), [""; 3]);
+        assert_eq!(eval_all("substr(name, 2, 1)"), ["n", "o", ""]);
     }
 
     #[test]
