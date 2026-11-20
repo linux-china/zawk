@@ -20,9 +20,7 @@ pub fn fake(name: &str, locale: &str) -> String {
             }
         }
         // Only Chinese resident identity card numbers are generated, whatever the locale.
-        "id" => {
-            identitycard::random::generate_identitycard("".to_owned(), "".to_owned()).to_string()
-        }
+        "id" => generate_chinese_id_number(),
         "phonenumber" | "phone" => {
             if is_chinese(locale) {
                 PhoneNumber(ZH_CN).fake()
@@ -104,6 +102,40 @@ fn generate_chinese_plate_number() -> String {
     )
 }
 
+// A sample of real county-level administrative division codes (GB/T 2260).
+const ID_REGION_CODES: [u32; 32] = [
+    110101, 110105, 110108, 120101, 130102, 140105, 150102, 210102, 220102, 230102, 310101,
+    310115, 320102, 330106, 340102, 350102, 360102, 370102, 410105, 420106, 430104, 440106,
+    440305, 450103, 460106, 500103, 510104, 520102, 530102, 610113, 620102, 650102,
+];
+// ISO 7064 MOD 11-2 weights for the first 17 digits.
+const ID_WEIGHTS: [u32; 17] = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+const ID_CHECK_CHARS: [char; 11] = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+/// Chinese resident identity card number (GB 11643-1999):
+/// 6-digit region code + 8-digit birth date + 3-digit sequence + check digit.
+fn generate_chinese_id_number() -> String {
+    use chrono::{Datelike, NaiveDate};
+    use rand::RngExt;
+    let rng = &mut rand::rng();
+    let region = ID_REGION_CODES.choose(rng).unwrap();
+    let start = NaiveDate::from_ymd_opt(1950, 1, 1).unwrap().num_days_from_ce();
+    let end = NaiveDate::from_ymd_opt(2010, 12, 31).unwrap().num_days_from_ce();
+    let birth = NaiveDate::from_num_days_from_ce_opt(rng.random_range(start..=end)).unwrap();
+    let sequence: u32 = rng.random_range(1..=999);
+    let body = format!("{region}{}{sequence:03}", birth.format("%Y%m%d"));
+    format!("{body}{}", id_check_char(&body))
+}
+
+fn id_check_char(body: &str) -> char {
+    let sum: u32 = body
+        .bytes()
+        .zip(ID_WEIGHTS)
+        .map(|(b, w)| (b - b'0') as u32 * w)
+        .sum();
+    ID_CHECK_CHARS[(sum % 11) as usize]
+}
+
 const WECHAT_MIN_LEN: usize = 6;
 const WECHAT_MAX_LEN: usize = 20;
 
@@ -161,6 +193,15 @@ mod tests {
     #[test]
     fn test_id() {
         println!("{}", fake("id", "ZH_CN"));
+        // Known valid number from GB 11643-1999.
+        assert_eq!(id_check_char("11010519491231002"), 'X');
+        for _ in 0..1000 {
+            let id = fake("id", "EN");
+            assert_eq!(id.len(), 18, "bad length: {id:?}");
+            assert!(id[..17].bytes().all(|b| b.is_ascii_digit()), "bad digits: {id:?}");
+            assert!(chrono::NaiveDate::parse_from_str(&id[6..14], "%Y%m%d").is_ok(), "bad date: {id:?}");
+            assert_eq!(id.chars().last().unwrap(), id_check_char(&id[..17]), "bad check: {id:?}");
+        }
     }
 
     #[test]
