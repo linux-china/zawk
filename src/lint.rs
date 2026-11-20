@@ -642,6 +642,11 @@ struct Facts<'a, 'p> {
     /// Calls of `df_append`/`df_append_record` in the main rules: whether it is
     /// `df_append_record`, and where.
     df_appends: Vec<(bool, Option<Loc>)>,
+    /// A `df_*` function returning a new table called as an argument of another `df_*` function
+    /// in the main rules (`df_nrow(df_filter(d, ...))`): the handle of the table is not kept,
+    /// so it is never freed, and one table is left per record. The inner function, the outer
+    /// one and the location of the inner call.
+    df_nested: Vec<(&'a str, &'a str, Option<Loc>)>,
 }
 
 /// A call of a SQL function: `sqlite_execute(db, "BEGIN")`.
@@ -1154,6 +1159,19 @@ impl<'a, 'p> Facts<'a, 'p> {
             }
             Call(f, args) => {
                 self.check_decimal_args(f, args, self.loc(e));
+                if self.region == Region::Main
+                    && let Some(outer) = df_function(f)
+                    && outer != "df_free"
+                {
+                    for arg in args.iter() {
+                        if let Call(g, _) = arg
+                            && let Some(inner) = df_function(g)
+                            && df_returns_table(inner)
+                        {
+                            self.df_nested.push((inner, outer, self.loc(arg)));
+                        }
+                    }
+                }
                 let read_only = match f {
                     Either::Left(name) => {
                         self.calls.push((name, args.len(), self.loc(e)));
@@ -1254,6 +1272,25 @@ impl<'a, 'p> Facts<'a, 'p> {
 }
 
 /// The text of a number literal (with its sign).
+/// The name of a `df_*` builtin called by `f`.
+fn df_function<'a>(f: &Either<&'a str, Function>) -> Option<&'a str> {
+    match f {
+        Either::Left(name) => name.starts_with("df_").then_some(*name),
+        Either::Right(Function::Df(op)) => Some(op.func_name()),
+        Either::Right(Function::DfFromArray) => Some("df_from_array"),
+        Either::Right(_) => None,
+    }
+}
+
+/// Whether the `df_*` builtin `name` returns the handle of a new table.
+fn df_returns_table(name: &str) -> bool {
+    match crate::builtins::FUNCTIONS.get(name) {
+        Some(Function::Df(op)) => op.returns_table(),
+        Some(Function::DfFromArray) => true,
+        _ => false,
+    }
+}
+
 fn number(e: &AstExpr) -> Option<String> {
     match e {
         ast::Expr::ILit(n) => Some(n.to_string()),
@@ -1416,6 +1453,7 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
         element_reads: Vec::new(),
         db_calls: Vec::new(),
         df_appends: Vec::new(),
+        df_nested: Vec::new(),
     };
     prog.begin.iter().for_each(|s| facts.stmt(s));
     facts.region = Region::Main;
@@ -1604,6 +1642,17 @@ fn check_ast<'a>(text: &str, prog: &ast::Prog<'a, 'a, &'a str>, opts: &Options) 
             "W123",
             format!(
                 "argument of `{name}` is computed with floating-point arithmetic before `{name}` sees it (`0.1 + 0.2` is 0.30000000000000004), so the result is not exact decimal; compute it with the dec_* functions instead, e.g. `dec_add(t, dec_mul($3, \"1.06\"))`"
+            ),
+            *loc,
+        ));
+    }
+
+    // `df_nrow(df_filter(d, ...))` in a main rule: a table per record, never freed.
+    for (inner, outer, loc) in &facts.df_nested {
+        diags.push(warning(
+            "W130",
+            format!(
+                "`{inner}` in a main rule makes a new table for each record, and as its handle is passed straight to `{outer}` it is never freed: the tables stay in memory until the end; keep the handle and `df_free` it after use (`t = {inner}(...); n = {outer}(t); df_free(t)`), or do the work once in END"
             ),
             *loc,
         ));
@@ -3263,6 +3312,19 @@ mod tests {
         assert_eq!(codes(&run("{ printf $0 }")), ["W118"]);
         assert_eq!(codes(&run("{ printf($1 \"\\n\") }")), ["W118"]);
         assert!(codes(&run("{ printf \"%s\\n\", $0 }")).is_empty());
+        let v = run("BEGIN { d = df_new(\"a\") } { print df_nrow(df_filter(d, \"a > 1\")) }");
+        assert_eq!(codes(&v), ["W130"]);
+        assert!(message(&v, 0).contains("`df_filter`"));
+        assert!(message(&v, 0).contains("`df_nrow`"));
+        assert_eq!(
+            codes(&run("BEGIN { d = df_new(\"a\") } { print df_to_csv(df_head(df_sort(d, \"a\"), 1)) }")),
+            ["W130", "W130"]
+        );
+        // kept and freed, freed at once, or nested in BEGIN/END: no table left per record
+        assert!(codes(&run(
+            "BEGIN { d = df_new(\"a\") } { t = df_filter(d, \"a > 1\"); n += df_nrow(t); df_free(t); df_free(df_head(d)) } END { print n, df_nrow(df_filter(d, \"a > 1\")) }"
+        ))
+        .is_empty());
         let v = run("{ t = dec_add(t, $3 * 1.06) } END { print t, dec_cmp(t - 1, 0) }");
         assert_eq!(codes(&v), ["W123", "W123"]);
         assert!(message(&v, 0).contains("dec_add"));

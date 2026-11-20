@@ -1971,7 +1971,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "df_schema",
         DATAFRAME,
         "df_schema(d: str) -> str",
-        "The columns and their types: `name:string,age:int64`.",
+        "The columns and their types: `name:string,age:int64` (a name with `,`, `:` or `\"` is quoted as a CSV field).",
         "print df_schema(d)",
     ),
     d(

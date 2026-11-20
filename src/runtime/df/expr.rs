@@ -82,8 +82,13 @@ pub(crate) fn lex(src: &str) -> Res<Vec<(Tok, usize)>> {
                 let mut j = i + 1;
                 let mut re = Vec::new();
                 while j < bs.len() && bs[j] != b'/' {
-                    if bs[j] == b'\\' && j + 1 < bs.len() && bs[j + 1] == b'/' {
-                        re.push(b'/');
+                    // a backslash escapes the next character: `\/` is a `/` of the regex, and
+                    // `\\` a backslash (so the `/` of `/a\\/` ends the regex)
+                    if bs[j] == b'\\' && j + 1 < bs.len() {
+                        if bs[j + 1] != b'/' {
+                            re.push(b'\\');
+                        }
+                        re.push(bs[j + 1]);
                         j += 2;
                         continue;
                     }
@@ -976,6 +981,21 @@ mod tests {
         assert_eq!(eval_all("!is_null(name) && length(name) == 3"), ["1", "1", "0"]);
         assert_eq!(eval_all("upper(substr(name, 2))"), ["NN", "OB", ""]);
         assert_eq!(eval_all("$2 + 0"), ["10", "9", "0"]);
+    }
+
+    #[test]
+    fn regex_escapes() {
+        let regex = |src: &str| match lex(src).unwrap().into_iter().nth(2) {
+            Some((Tok::Regex(re), _)) => re,
+            other => panic!("{:?}: no regex: {:?}", src, other.map(|(_, p)| p)),
+        };
+        // `\/` is an escaped `/`, `\\` an escaped backslash: the `/` after it ends the regex
+        assert_eq!(regex(r"name ~ /a\/b/"), b"a/b");
+        assert_eq!(regex(r"name ~ /a\\/"), br"a\\");
+        assert_eq!(regex(r"name ~ /a\\\//"), br"a\\/");
+        assert_eq!(regex(r"name ~ /a\.b/"), br"a\.b");
+        assert_eq!(eval_all(r"name ~ /\\/ ? 1 : 0"), ["0", "0", "0"]);
+        assert!(lex(r"name ~ /a\/").is_err());
     }
 
     #[test]

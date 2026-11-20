@@ -122,6 +122,7 @@ count characters); `file` is null for program text, and all location fields are 
 | W127 | (input file given) `$N` beyond the number of fields of the sampled records: always empty |
 | W128 | (input file given) the program reads `$2`... but with this `FS` every sampled record has one field: did you mean `-F,` or `-i csv`? |
 | W129 | (input file given) field compared with a number, but some sampled values are not numbers: those records compare as strings |
+| W130 | a `df_*` call returning a table nested in another in a main rule (`df_nrow(df_filter(d, ...))`): never freed, one table per record; keep the handle and `df_free` it |
 | W201 | variable read but never set (pass `-v name=...` or declare it with `# @var name`) |
 | W202 | `printf`/`sprintf` format uses more arguments than given (missing ones are empty)|
 | W203 | `printf`/`sprintf` format uses fewer arguments than given (extra ones ignored)   |

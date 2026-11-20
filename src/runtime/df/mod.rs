@@ -175,6 +175,30 @@ impl DfOp {
         )
     }
 
+    /// Whether the function returns the handle of a new table (which stays in the registry until
+    /// `df_free`).
+    pub fn returns_table(self) -> bool {
+        matches!(
+            self,
+            DfOp::Read
+                | DfOp::New
+                | DfOp::Select
+                | DfOp::Drop
+                | DfOp::Filter
+                | DfOp::Mutate
+                | DfOp::Sort
+                | DfOp::Head
+                | DfOp::Tail
+                | DfOp::Slice
+                | DfOp::Distinct
+                | DfOp::Group
+                | DfOp::Join
+                | DfOp::Concat
+                | DfOp::Pivot
+                | DfOp::Melt
+        )
+    }
+
     /// Whether the function changes state (a table, the output): such calls are kept even when
     /// their result is unused, and are not reordered with their sibling operands.
     pub fn has_effects(self) -> bool {
@@ -428,7 +452,6 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             })?))
         }
         DfOp::AppendRecord => {
-            let header = fi_names(core);
             let fields: Vec<Value> = if arg(args, 1).is_empty() && args.len() > 1 {
                 Vec::new()
             } else {
@@ -444,6 +467,8 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             let parallel = core.regexes.shared().is_some();
             Ok(Out::Int(with_mut(arg(args, 0), |df| -> std::result::Result<Int, String> {
                 if df.columns.is_empty() {
+                    // the names of `FI` are needed only to make the header, once per table
+                    let header = fi_names(core);
                     if header.is_empty() {
                         // In a parallel run, the first record to come is that of the worker
                         // first to take the lock, not the first line of the input: a data row
@@ -563,7 +588,7 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             let schema: Vec<String> = df
                 .columns
                 .iter()
-                .map(|c| format!("{}:{}", c.name, c.type_name()))
+                .map(|c| format!("{}:{}", schema_name(&c.name), c.type_name()))
                 .collect();
             Ok(Out::Str(schema.join(",").into_bytes()))
         }
@@ -639,6 +664,16 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             Ok(Out::Int(df.nrows as Int))
         }
         DfOp::Free => Ok(Out::Int(free(arg(args, 0)) as Int)),
+    }
+}
+
+/// A column name in the text of `df_schema`: quoted as a CSV field (`"a,b"`, `"x""y"`) when it
+/// holds a `,`, a `:` or a `"`, which would make `name:type,name:type` ambiguous.
+fn schema_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.contains([',', ':', '"']) {
+        format!("\"{}\"", name.replace('"', "\"\"")).into()
+    } else {
+        name.into()
     }
 }
 
@@ -836,6 +871,14 @@ mod tests {
         }
         assert_eq!(DfOp::from_code(-1), None);
         assert_eq!(DfOp::from_code(DfOp::ALL.len() as Int), None);
+    }
+
+    #[test]
+    fn schema_names_quoted() {
+        assert_eq!(schema_name("age"), "age");
+        assert_eq!(schema_name("a,b"), "\"a,b\"");
+        assert_eq!(schema_name("t:x"), "\"t:x\"");
+        assert_eq!(schema_name("say \"hi\""), "\"say \"\"hi\"\"\"");
     }
 
     #[test]

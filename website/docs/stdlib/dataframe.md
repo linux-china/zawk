@@ -55,7 +55,7 @@ df_free(d)                     # optional: tables are released at exit
 | `df_from_array(arr[, "key,value"])` | A two-column table of the keys and values of an array, sorted by key (the two names must differ). |
 
 `df_read` options are `;`-separated: `infer_types=1` (CSV/TSV text becomes int, double or bool
-columns where every value fits), `header=0` (no header line: columns `c1`, `c2`, ...), `limit=N`
+columns where every value fits), `header=0` (no header line, also for a markdown table: columns `c1`, `c2`, ...), `limit=N`
 (read N rows), `columns=a,b` (keep these columns).
 
 CSV and TSV (by extension, by the format argument, or sniffed from the content of `-` or a file
@@ -176,7 +176,7 @@ the name is `function_column` (`mean_amount`), or `count`.
 | `df_row(d, i, arr)` | Row `i` in `arr[column name]`. |
 | `df_col(d, "age", arr)` | A column in `arr[1..n]`, ready for `_median(arr)` and the other array functions. |
 | `df_to_map(d, "key", "val", arr)` | `arr[key] = val` for each row. |
-| `df_schema(d)` | `"name:string,age:int64"`. |
+| `df_schema(d)` | `"name:string,age:int64"`. A name with a `,`, `:` or `"` is quoted as a CSV field: `"a,b":string`. |
 
 Walking the rows is a plain awk loop:
 
@@ -259,6 +259,9 @@ BEGIN { df_write(df_read("events.jsonl"), "events.parquet") }
 
 * A table lives in memory: `df_read` loads the whole input. Use `limit=` and `columns=` to load
   less, and `df_free` tables built in a loop.
+* Every intermediate table stays in the registry until `df_free`: `df_nrow(df_filter(d, ...))` in a
+  main rule leaves one table per record. `zawk lint` reports such a nested call as **W130**; keep the
+  handle and free it (`t = df_filter(d, ...); n = df_nrow(t); df_free(t)`), or do the work in `END`.
 * The tables are shared by the threads of a parallel run (`-p`). Rows that `df_append` adds in the
   main rules come from all the workers, in an unspecified order: `zawk lint -pr` and a `-p` run
   report it as **W307**. Sort the table in `END`, or run serially (`-p0`).

@@ -318,7 +318,7 @@ pub(crate) fn read(path: &str, format: &str, opts: &str) -> Res<DataFrame> {
         } else {
             Box::new(crate::runtime::splitter::markdown::MarkdownCsv::file(path.to_string()))
         };
-        inspect::read_text_rows(input, Format::Csv, true, opts.limit, &mut sink).map_err(io_err)?;
+        inspect::read_text_rows(input, Format::Csv, header, opts.limit, &mut sink).map_err(io_err)?;
     } else if matches!(format, Some(Format::Csv) | Some(Format::Tsv)) {
         let input = inspect::open_input(path).map_err(io_err)?;
         read_delimited(input, format == Some(Format::Tsv), header, opts.limit, &mut sink)?;
@@ -813,6 +813,19 @@ mod tests {
         assert_eq!(df.names(), ["a", "b"]);
         assert_eq!(&*df.columns[0].get(0).text(false), b"x\ty");
         assert_eq!(&*df.columns[1].get(0).text(false), b"\xff");
+    }
+
+    #[test]
+    fn read_markdown_header_option() {
+        let path = tmp("t.md", b"| name | age |\n|---|---|\n| Ann | 42 |\n");
+        let df = read(&path, "", "").unwrap();
+        assert_eq!(df.names(), ["name", "age"]);
+        assert_eq!(df.nrows, 1);
+        // `header=0`: the first row of the table is data, as for CSV
+        let df = read(&path, "markdown", "header=0").unwrap();
+        assert_eq!(df.names(), ["c1", "c2"]);
+        assert_eq!(df.nrows, 2);
+        assert_eq!(&*df.columns[0].get(0).text(false), b"name");
     }
 
     #[test]
