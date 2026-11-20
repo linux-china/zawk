@@ -1880,7 +1880,7 @@ pub(crate) static FUNCTION_DOCS: &[FunctionDoc] = &[
         "df_sort",
         DATAFRAME,
         "df_sort(d: str, keys: str) -> str",
-        "A stable sort on the keys, each `asc` (default) or `desc`, compared as awk compares; `num`/`str` or `@val_num_desc` force the comparison. Nulls come first.",
+        "A stable sort on the keys, each `asc` (default) or `desc`, compared as awk compares; `num`/`str` or `@val_num_desc` force the comparison. Nulls and missing values (`\"\"`) come first ascending, last with `desc`.",
         "df_sort(d, \"total desc, name\")",
     ),
     d(

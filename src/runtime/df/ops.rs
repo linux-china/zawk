@@ -259,8 +259,11 @@ fn sort_val(v: &Value, mode: SortMode) -> SortVal {
     match mode {
         SortMode::Num if v.is_missing() => SortVal::Null,
         SortMode::Num => SortVal::Num(v.to_num()),
+        SortMode::Str if v.is_missing() => SortVal::Null,
         // exact: `1.0000001` and `1.0000002` differ, although CONVFMT prints both as `1`
         SortMode::Str => SortVal::Str(v.exact_text().into_owned()),
+        // as in `num`: `""` (an empty cell read as text) and the `--null` text sort with the nulls
+        SortMode::Auto if v.is_missing() => SortVal::Null,
         SortMode::Auto => match v.cmp_num() {
             Some(n) => SortVal::Num(n),
             None => SortVal::Str(v.text(false).into_owned()),
@@ -268,8 +271,9 @@ fn sort_val(v: &Value, mode: SortMode) -> SortVal {
     }
 }
 
-/// The sort key of `v` in the default order of `df_sort`: nulls, then numbers (and strnums that
-/// look like numbers) numerically, then the other strings by their bytes.
+/// The sort key of `v` in the default order of `df_sort`: nulls and missing values (`""`, the
+/// `--null` text), then numbers (and strnums that look like numbers) numerically, then the other
+/// strings by their bytes.
 pub(super) fn sort_key(v: &Value) -> SortVal {
     sort_val(v, SortMode::Auto)
 }
@@ -283,8 +287,9 @@ pub(super) fn sort_by_value<T>(items: Vec<T>, key: impl Fn(&T) -> &Value) -> Vec
 
 /// `df_sort(d, "age desc, name")`: a stable sort on the keys, each `asc` (the default) or
 /// `desc`, compared as awk compares (`num` or `str` force a numeric or a string comparison, as
-/// do the `PROCINFO["sorted_in"]` names: `age @val_num_desc`). Nulls sort first, as the empty
-/// string does.
+/// do the `PROCINFO["sorted_in"]` names: `age @val_num_desc`). In every mode nulls and missing
+/// values (`""`, the `--null` text) sort first ascending; `desc` reverses the whole order, so they
+/// sort last descending (the top rows of `df_head(df_sort(d, "x desc"))` are the largest values).
 pub(super) fn sort(df: &DataFrame, spec: &str) -> Res<DataFrame> {
     let mut p = Parser::new(spec)?;
     let mut keys: Vec<(usize, bool, SortMode)> = Vec::new();
@@ -496,7 +501,8 @@ mod tests {
 
     #[test]
     fn total_sort_order() {
-        // awk_cmp is not transitive here ("10" < "2a" < "9" < "10"): nulls, numbers, strings
+        // awk_cmp is not transitive here ("10" < "2a" < "9" < "10"): nulls and missing values
+        // (`""`, in input order: the sort is stable), numbers, strings
         let values: Vec<Value> = ["9", "2a", "", "10", "b", "-1", "2a"]
             .iter()
             .map(|v| Value::input(*v))
@@ -506,6 +512,6 @@ mod tests {
             .iter()
             .map(|v| if v.is_null() { "null".into() } else { v.text_lossy(false) })
             .collect();
-        assert_eq!(sorted, ["null", "-1", "1.5", "9", "10", "", "2a", "2a", "b"]);
+        assert_eq!(sorted, ["", "null", "-1", "1.5", "9", "10", "2a", "2a", "b"]);
     }
 }

@@ -130,8 +130,10 @@ df_filter(d, "age > @min && city == @city", "min", min_age, "city", $2)
 
 Each key is `asc` (the default) or `desc`. Values compare as awk compares them (numbers
 numerically, other text byte by byte); `num`/`str`, or a `PROCINFO["sorted_in"]` order name,
-force a comparison: `df_sort(d, "id @val_num_asc, name desc")`. Nulls (and missing values) sort
-first, as the empty string does. The sort is stable.
+force a comparison: `df_sort(d, "id @val_num_asc, name desc")`. In every mode, nulls and missing
+values (`""`, the `--null` text) sort first in ascending order; `desc` reverses the whole order, so
+they sort last in descending order (`df_head(df_sort(d, "amount desc"), 3)` gives the three
+largest amounts). The sort is stable.
 
 ### Grouping
 

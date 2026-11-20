@@ -229,6 +229,29 @@ fn mutate_column_number_replaces() {
 }
 
 #[test]
+fn sort_missing_values_first() {
+    // an empty cell read as text sorts with the nulls in every mode: first ascending, last
+    // descending
+    let dir = data_dir();
+    fs::write(dir.path().join("amounts.csv"), "id,amount\n1,10\n2,\n3,2\n4,abc\n").unwrap();
+    let out = run(
+        dir.path(),
+        &[r#"function ids(d,    i, s) {
+               for (i = 1; i <= df_nrow(d); i++) s = s df_get(d, i, "id") " "
+               return s
+             }
+             BEGIN {
+               d = df_read("amounts.csv")
+               print ids(df_sort(d, "amount"))
+               print ids(df_sort(d, "amount desc"))
+               print ids(df_sort(d, "amount num"))
+               print ids(df_sort(d, "amount str"))
+             }"#],
+    );
+    assert_eq!(out, "2 3 1 4 \n4 1 3 2 \n2 4 3 1 \n2 1 3 4 \n");
+}
+
+#[test]
 fn print_formats_follow_output() {
     let dir = data_dir();
     let prog = r#"BEGIN { df_print(df_head(df_select(df_read("users.csv"), "id, name"), 2)) }"#;
