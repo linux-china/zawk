@@ -5,7 +5,9 @@
 //! (`sum(price * qty)`). Missing values (null, `""`, the `--null` text) are skipped, as the
 //! `_sum`/`_mean`/... array functions skip them, and the statistics are those of
 //! `runtime::array_stats`: `median(x)` of a group is `_median(a)` of an array holding the same
-//! values. `count()` counts the rows, `count(x)` the values that are not missing.
+//! values. `count()` counts the rows, `count(x)` the values that are not missing. A group whose
+//! values are all missing aggregates to null (`count`/`count_distinct` to 0, `first`/`last` to
+//! its first/last value). `mode(x)` of values that are not all numbers counts them by text.
 use std::collections::{HashMap, HashSet};
 
 use super::DataFrame;
@@ -194,6 +196,16 @@ pub(super) fn apply(agg: &Agg, df: &DataFrame, rows: &[usize], ctx: &mut EvalCtx
         values.push(arg.eval(df, i, ctx)?);
     }
     let present = || values.iter().filter(|v| !v.is_missing());
+    // A group whose values are all missing has no sum, mean, minimum, ... : null, as in SQL,
+    // not 0, which could not be told from a real 0. The counts are 0.
+    if present().next().is_none() {
+        return Ok(match agg.kind {
+            AggKind::Count | AggKind::CountDistinct => Value::Int(0),
+            AggKind::First => values.first().cloned().unwrap_or(Value::Null),
+            AggKind::Last => values.last().cloned().unwrap_or(Value::Null),
+            _ => Value::Null,
+        });
+    }
     let stat = |kind| Value::num(stat_of(present().map(Value::to_num).collect(), kind, agg.q));
     Ok(match agg.kind {
         AggKind::Sum => stat(STAT_SUM),
@@ -201,7 +213,14 @@ pub(super) fn apply(agg: &Agg, df: &DataFrame, rows: &[usize], ctx: &mut EvalCtx
         AggKind::Median | AggKind::Quantile => stat(STAT_QUANTILE),
         AggKind::Var => stat(STAT_VAR),
         AggKind::Stddev => stat(STAT_STDDEV),
-        AggKind::Mode => stat(STAT_MODE),
+        AggKind::Mode => {
+            if present().all(|v| v.cmp_num().is_some()) {
+                // numbers as `_mode` (the smallest on a tie)
+                stat(STAT_MODE)
+            } else {
+                text_mode(present())
+            }
+        }
         AggKind::Min | AggKind::Max => {
             // Numbers numerically (as `_min`/`_max`); otherwise as awk compares (dates, names).
             if present().all(|v| v.cmp_num().is_some()) {
@@ -242,6 +261,30 @@ pub(super) fn apply(agg: &Agg, df: &DataFrame, rows: &[usize], ctx: &mut EvalCtx
             Value::str(out)
         }
     })
+}
+
+/// The most frequent of `values` (not all numbers, such as a city column): values are the same
+/// when they are the same number or, for text, the same bytes; on a tie, the smallest as awk
+/// compares (as `_mode` takes the smallest number). The value returned is the first occurrence.
+fn text_mode<'a>(values: impl Iterator<Item = &'a Value>) -> Value {
+    let mut counts: HashMap<Vec<u8>, (usize, &'a Value)> = HashMap::new();
+    for v in values {
+        // `1`, `1.0` and `"1"` are one value
+        let key = match v.cmp_num() {
+            Some(n) => Value::num(n).exact_text().into_owned(),
+            None => v.exact_text().into_owned(),
+        };
+        counts.entry(key).or_insert((0, v)).0 += 1;
+    }
+    counts
+        .into_values()
+        .reduce(|a, b| {
+            let better = b.0 > a.0
+                || (b.0 == a.0 && awk_cmp(b.1, a.1) == std::cmp::Ordering::Less);
+            if better { b } else { a }
+        })
+        .map(|(_, v)| v.clone())
+        .unwrap_or(Value::Null)
 }
 
 /// `df_group(d, "keys", "aggs")`: one row per distinct value of the key columns (in the order of
@@ -352,5 +395,65 @@ mod tests {
         let g = group(&orders(), "city", "count() as city").unwrap();
         assert_eq!(g.names(), ["city", "city_"]);
         assert_eq!(texts(&g, "city"), ["Paris", "Rome", "Oslo"]);
+    }
+
+    #[test]
+    fn all_missing_is_null() {
+        let mut df = new("k,x").unwrap();
+        for (k, x) in [("a", ""), ("a", ""), ("b", "0")] {
+            df.push_row(vec![Value::input(k), Value::input(x)]);
+        }
+        let g = group(
+            &df,
+            "k",
+            "sum(x), mean(x), min(x), max(x), median(x), stddev(x), mode(x), concat(x), \
+             count(x), count_distinct(x), count() as n, first(x)",
+        )
+        .unwrap();
+        let col = |name: &str| df_col(&g, name);
+        for name in [
+            "sum_x", "mean_x", "min_x", "max_x", "median_x", "stddev_x", "mode_x", "concat_x",
+        ] {
+            assert!(col(name)[0].is_null(), "{} of an all-missing group", name);
+            assert!(!col(name)[1].is_null(), "{} of a group with a 0", name);
+        }
+        assert_eq!(texts(&g, "sum_x"), ["", "0"]);
+        assert_eq!(texts(&g, "count_x"), ["0", "1"]);
+        assert_eq!(texts(&g, "count_distinct_x"), ["0", "1"]);
+        assert_eq!(texts(&g, "n"), ["2", "1"]);
+        assert_eq!(texts(&g, "first_x"), ["", "0"]);
+        // the whole table of a table without rows
+        let g = group(&new("x").unwrap(), "", "sum(x), count(x), count()").unwrap();
+        assert!(df_col(&g, "sum_x")[0].is_null());
+        assert_eq!(texts(&g, "count_x"), ["0"]);
+        assert_eq!(texts(&g, "count"), ["0"]);
+    }
+
+    fn df_col(df: &DataFrame, name: &str) -> Vec<Value> {
+        let c = &df.columns[df.col(name).unwrap()];
+        (0..df.nrows).map(|i| c.get(i)).collect()
+    }
+
+    #[test]
+    fn mode_of_text() {
+        let mut df = new("k,city,n").unwrap();
+        for (k, c, n) in [
+            ("a", "Rome", "3"),
+            ("a", "Paris", "1"),
+            ("a", "Rome", "1.0"),
+            ("a", "", "3"),
+            ("b", "Oslo", "x"),
+            ("b", "Bern", "1"),
+            ("b", "Bern", "x"),
+            ("b", "Oslo", "1"),
+        ] {
+            df.push_row(vec![Value::input(k), Value::input(c), Value::input(n)]);
+        }
+        let g = group(&df, "k", "mode(city), mode(n)").unwrap();
+        // the most frequent text; on a tie the smallest (Bern < Oslo); "" is skipped
+        assert_eq!(texts(&g, "mode_city"), ["Rome", "Bern"]);
+        // numbers as `_mode`: 1 and 1.0 are one value, the smallest on a tie (1 < 3);
+        // mixed with text, `1` and `x` tie and 1 sorts first
+        assert_eq!(texts(&g, "mode_n"), ["1", "1"]);
     }
 }

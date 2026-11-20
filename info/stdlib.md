@@ -878,7 +878,7 @@ END { df_print(df_sort(df_group(d, "city", "sum(amount) as total, count() as n")
 
 ### Aggregate and reshape: df_group/df_join/df_pivot/df_melt
 
-* `df_group(d, "keys", "sum(amount) as total, median(latency), count() as n")`: sum mean min max median quantile(x, q) var stddev mode count count_distinct first last concat(x, sep); missing values skipped, statistics identical to `_median` & co.
+* `df_group(d, "keys", "sum(amount) as total, median(latency), count() as n")`: sum mean min max median quantile(x, q) var stddev mode count count_distinct first last concat(x, sep); missing values skipped, statistics identical to `_median` & co.; a group whose values are all missing gets null (count/count_distinct: 0); `mode` of text is the most frequent text.
 * `df_join(a, b, "user_id=id"[, "inner|left|right|full|semi|anti"])`
 * `df_pivot(d, "day", "level", "sum(n)")`, `df_melt(d, "id"[, var[, value]])`
 

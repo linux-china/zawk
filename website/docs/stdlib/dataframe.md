@@ -154,6 +154,14 @@ the name is `function_column` (`mean_amount`), or `count`.
   statistics are computed by the same code as the array functions: `median(x)` of a group equals
   `_median(a)` of an array holding the same values.
 * `count()` counts rows, `count(x)` the values of `x` that are not missing.
+* A group in which every value of `x` is missing gets **null** (printed as the `--null` text, empty
+  by default), not 0, for `sum mean min max median quantile var stddev mode concat`, as SQL aggregates
+  do: a null total is "no data", a 0 total is a real 0. `count(x)` and
+  `count_distinct(x)` are 0. (The array functions `_sum`/`_max`/... still return 0 for an array
+  without values, since awk has no null.)
+* `mode(x)` of numbers is the number `_mode` gives (the smallest on a tie); of text, such as a
+  category column, the most frequent text (the smallest as awk compares on a tie), so
+  `mode(city)` is a city, not 0.
 * `min`/`max` compare numbers numerically, and text (dates, names) as awk compares strings.
 * Groups come in the order of their first row; sort them with `df_sort`. Keys `""` aggregate the
   whole table into one row.
