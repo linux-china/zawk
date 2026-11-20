@@ -894,7 +894,7 @@ df_to_map(users, "id", "name", user_name)
 ### Output: df_print/df_write/df_describe/df_to_csv/df_to_json/df_free
 
 * `df_print(d[, format])`: to stdout through the same output as `print`: as the `-o` format, else OFS-separated text with a header; `format` is csv, tsv, json, jsonl, markdown or table
-* `df_write(d, path[, format])`: csv, tsv, json, jsonl, markdown, table, parquet, avro, xlsx (by extension; `.gz` compresses; `s3://` works), written as `-o` writes them; `"-"`/`"/dev/stdout"`/`"/dev/stderr"` go through the output of `print` (in program order); pending `print` output is flushed first, and a file still open with `print >` is refused (`close` it first)
+* `df_write(d, path[, format])`: csv, tsv, json, jsonl, markdown, table, parquet, avro, xlsx (by extension; `.gz` compresses; `s3://` works), written as `-o` writes them; `"-"`/`"/dev/stdout"`/`"/dev/stderr"` go through the output of `print` (in program order; to stdout without a format, `-o csv/tsv` writes that format with one header line, as `df_print` does, and no `-o` writes CSV); pending `print` output is flushed first, and a file still open with `print >` is refused (`close` it first)
 * `df_describe(d)`: per-column summary table; `df_to_csv(d)`, `df_to_json(d)`: the table as text
 * `df_free(d)`: release a table (tables are released at exit)
 

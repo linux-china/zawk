@@ -216,9 +216,12 @@ and `close` behave as for `print`. Without a format it follows the output of the
 `df_write` writes csv, tsv, json, jsonl, markdown, table, parquet, avro or xlsx (from the
 extension by default) with the same writers as `-o`: typed columns get the `name:TYPE` header
 suffixes, so `df_write(d, "out.parquet")` writes the file `-o parquet` writes for the same rows.
-`df_write(d, "-")` and `df_write(d, "/dev/stdout")` (CSV by default) write to stdout after the
-output `print` wrote before (not with `-o jsonl/markdown/table/parquet/avro/xlsx`: use `df_print`),
-and `"/dev/stderr"` writes to stderr. Before writing a file, `df_write` flushes the output of
+`df_write(d, "-")` and `df_write(d, "/dev/stdout")` write to stdout after the output `print` wrote
+before (not with `-o jsonl/markdown/table/parquet/avro/xlsx`: use `df_print`), and `"/dev/stderr"`
+writes to stderr. Without a format, they write as `df_print` does: with `-o csv` / `-o tsv` in
+that format, as part of the one table on stdout (its header only when the table starts stdout),
+and without `-o` as CSV with a header line. With an explicit format the table is written as it is,
+header included, and does not take part in the single header of `-o csv` / `-o tsv`. Before writing a file, `df_write` flushes the output of
 `print` to files and pipes (as `system` does); a file still open with `print > "out.csv"` is not
 overwritten: `close("out.csv")` it first.
 Numbers are printed with `OFMT` by `df_print` (as `print` does), and in full precision in typed

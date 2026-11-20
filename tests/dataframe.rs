@@ -437,6 +437,30 @@ fn write_goes_through_print_output() {
     assert_eq!(fs::read_to_string(path(dir.path(), "log.txt")).unwrap(), "x\n");
 }
 
+/// With `-o csv/tsv`, `df_write(d, "-")` without a format is part of the one table on stdout, as
+/// `df_print` is: in the format of `-o`, with a single header line.
+#[test]
+fn write_stdout_follows_output_format() {
+    let dir = data_dir();
+    let prog = r#"BEGIN { d = df_new("a,b"); df_append(d, 1, 2); df_print(d); df_write(d, "-") }"#;
+    assert_eq!(run(dir.path(), &["-o", "tsv", prog]), "a\tb\n1\t2\n1\t2\n");
+    assert_eq!(run(dir.path(), &["-o", "csv", prog]), "a,b\n1,2\n1,2\n");
+    // df_write first: it records the header, so a df_print with other columns warns
+    let first = r#"BEGIN { d = df_new("a,b"); df_append(d, 1, 2); df_write(d, "/dev/stdout")
+                           e = df_new("c"); df_append(e, 3); df_print(e) }"#;
+    let (out, err) = run_in(dir.path(), &["-o", "tsv", first]);
+    assert_eq!(out, "a\tb\n1\t2\n3\n");
+    assert!(err.contains("differ from the header"), "{}", err);
+    // after a print, only the rows
+    let after_print = r#"BEGIN { print "a"; d = df_new("a"); df_append(d, 1); df_write(d, "-") }"#;
+    assert_eq!(run(dir.path(), &["-o", "csv", after_print]), "a\n1\n");
+    // without -o: CSV with its header, every time
+    assert_eq!(run(dir.path(), &[prog]), "a b\n1 2\na,b\n1,2\n");
+    // an explicit format is written as it is, header included
+    let explicit = r#"BEGIN { d = df_new("a,b"); df_append(d, 1, 2); df_print(d); df_write(d, "-", "csv") }"#;
+    assert_eq!(run(dir.path(), &["-o", "tsv", explicit]), "a\tb\n1\t2\na,b\n1,2\n");
+}
+
 #[test]
 fn errors_are_warnings() {
     let dir = data_dir();

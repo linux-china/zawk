@@ -601,29 +601,8 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
             let ors = core.vars.ors.with_bytes(|b| b.to_vec());
             let bytes = match io::print_bytes(&df, &arg_text(args, 1), &ofs, &ors)? {
                 io::Printed::Text(text) => text,
-                // With `-o`, stdout is one table: its header is its first line.
                 io::Printed::Stream { header, rows } => {
-                    let out = &mut core.write_files;
-                    if !out.stdout_written() {
-                        out.set_stdout_table_header(header.clone());
-                        let mut bytes = header;
-                        bytes.extend_from_slice(&rows);
-                        bytes
-                    } else {
-                        if out.stdout_table_header().is_some_and(|h| h != header.as_slice()) {
-                            crate::runtime::stdlib_warning(
-                                "df_print",
-                                format_args!(
-                                    "the columns ({}) differ from the header of the table already on stdout ({}): rows written under that header",
-                                    String::from_utf8_lossy(header.trim_ascii_end()),
-                                    String::from_utf8_lossy(
-                                        out.stdout_table_header().unwrap_or_default().trim_ascii_end()
-                                    ),
-                                ),
-                            );
-                        }
-                        rows
-                    }
+                    stdout_table(&mut core.write_files, "df_print", header, rows)
                 }
             };
             core.write_files
@@ -634,14 +613,30 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
         DfOp::Write => {
             let df = table(0)?;
             let path = arg_text(args, 1);
-            let bytes = io::write_bytes(&df, &path, &arg_text(args, 2))?;
+            let format = arg_text(args, 2);
             let name = Str::from(path.clone());
+            let to_stdout = path != "/dev/stderr" && crate::runtime::writers::is_stdout(&name);
+            let stdout_format = output_format();
+            let bytes = if to_stdout && format.trim().is_empty() && matches!(stdout_format, "csv" | "tsv")
+            {
+                // With `-o csv/tsv` and no format, stdout is one table, as for `df_print`: in the
+                // format of `-o`, with its header only when the table starts stdout.
+                let ofs = core.vars.ofs.with_bytes(|b| b.to_vec());
+                let ors = core.vars.ors.with_bytes(|b| b.to_vec());
+                match io::print_bytes(&df, "", &ofs, &ors)? {
+                    io::Printed::Stream { header, rows } => {
+                        stdout_table(&mut core.write_files, "df_write", header, rows)
+                    }
+                    io::Printed::Text(text) => text,
+                }
+            } else {
+                io::write_bytes(&df, &path, &format)?
+            };
             let out = &mut core.write_files;
-            if path == "/dev/stderr" || crate::runtime::writers::is_stdout(&name) {
+            if path == "/dev/stderr" || to_stdout {
                 // `-`, `/dev/stdout` and `/dev/stderr` are the ones of `print`: the table comes
                 // after the output printed before it.
-                let stdout_format = output_format();
-                if path != "/dev/stderr" && !matches!(stdout_format, "" | "csv" | "tsv") {
+                if to_stdout && !matches!(stdout_format, "" | "csv" | "tsv") {
                     return Err(Fail::Warn(format!(
                         "cannot write to stdout with -o {} (its writer reads stdout as TSV): use df_print",
                         stdout_format
@@ -665,6 +660,35 @@ fn dispatch(core: &mut crate::interp::Core, op: DfOp, args: &[Vec<u8>]) -> std::
         }
         DfOp::Free => Ok(Out::Int(free(arg(args, 0)) as Int)),
     }
+}
+
+/// The bytes of a table written to stdout as part of the output of the run (`-o csv/tsv/...`, by
+/// `df_print` and `df_write(d, "-")`): stdout is then one table whose first line is its header, so
+/// `header` is written (and recorded) only when the table starts stdout; after other output, only
+/// `rows`, with a warning when the columns differ from those of the table already there.
+fn stdout_table(
+    out: &mut crate::runtime::FileWrite,
+    func: &str,
+    header: Vec<u8>,
+    rows: Vec<u8>,
+) -> Vec<u8> {
+    if !out.stdout_written() {
+        out.set_stdout_table_header(header.clone());
+        let mut bytes = header;
+        bytes.extend_from_slice(&rows);
+        return bytes;
+    }
+    if let Some(first) = out.stdout_table_header().filter(|h| *h != header.as_slice()) {
+        crate::runtime::stdlib_warning(
+            func,
+            format_args!(
+                "the columns ({}) differ from the header of the table already on stdout ({}): rows written under that header",
+                String::from_utf8_lossy(header.trim_ascii_end()),
+                String::from_utf8_lossy(first.trim_ascii_end()),
+            ),
+        );
+    }
+    rows
 }
 
 /// A column name in the text of `df_schema`: quoted as a CSV field (`"a,b"`, `"x""y"`) when it
